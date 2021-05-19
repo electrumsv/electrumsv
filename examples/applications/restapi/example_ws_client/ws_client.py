@@ -12,11 +12,14 @@ logging.basicConfig(level=logging.DEBUG)
 
 class TxStateWSClient:
 
-    def __init__(self, host="127.0.0.1", port=9999, wallet_name="worker1.sqlite", account=1):
+    def __init__(self, host="127.0.0.1", port=9999, wallet_name="worker1.sqlite",
+            wallet_password="test", account=1):
         self.host = host
         self.port = port
-        self.url = f'http://{self.host}:{self.port}/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/websocket/text-events'
+        self.url = f'http://{self.host}:{self.port}/v1/regtest/dapp/' \
+            f'wallets/{wallet_name}/{account}/txs/websocket/text-events'
         self.wallet_name = wallet_name
+        self.wallet_password = wallet_password
         self.account = account
         self.session = aiohttp.ClientSession()
         self._ws = None
@@ -24,7 +27,10 @@ class TxStateWSClient:
         self.logger = logging.getLogger("tx-state-ws-client")
 
     async def __aenter__(self):
-        self._ws = await self.session.ws_connect(self.url)
+        # Normally the RESTAPI pulls the password out of the body, but `ws_connect` cannot be
+        # passed a data/json parameter even if it's method is changed to POST.
+        self._ws = await self.session.ws_connect(self.url,
+            headers={ "X-Wallet-Password": self.wallet_password })
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):

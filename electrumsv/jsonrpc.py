@@ -86,8 +86,7 @@ class VerifyingJSONRPCServer(SimpleJSONRPCServer):
         if basic != 'Basic':
             raise RPCAuthUnsupportedType()
 
-        encoded = util.to_bytes(encoded, 'utf8')
-        credentials = util.to_string(b64decode(encoded), 'utf8')
+        credentials = b64decode(encoded).decode("utf-8")
         (username, _, password) = credentials.partition(':')
         if not (util.constant_time_compare(username, self.rpc_user)
                 and util.constant_time_compare(password, self.rpc_password)):

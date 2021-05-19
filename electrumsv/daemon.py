@@ -35,6 +35,7 @@ from bitcoinx import be_bytes_to_int
 from .restapi import AiohttpServer
 from .app_state import app_state
 from .commands import known_commands, Commands
+from .constants import CredentialPolicyFlag
 from .exchange_rate import FxTask
 from .jsonrpc import VerifyingJSONRPCServer
 from .logs import logs
@@ -251,10 +252,18 @@ class Daemon(DaemonThread):
         if sub in [None, 'start']:
             response = "Daemon already running"
         elif sub == 'load_wallet':
-            path = config.get_cmdline_wallet_filepath()
-            wallet = self.load_wallet(path) if path is not None else None
-            self.cmd_runner._wallet = wallet
-            response = True
+            cmdline_wallet_filepath = config.get_cmdline_wallet_filepath()
+            assert cmdline_wallet_filepath is not None
+            wallet_path = WalletStorage.canonical_path(cmdline_wallet_filepath)
+            wallet_password = config_options.get('password')
+            assert wallet_password is not None
+            app_state.credentials.set_wallet_password(wallet_path, wallet_password,
+                CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
+            wallet = self.load_wallet(wallet_path)
+            if wallet is None:
+                response = "Unable to load wallet"
+            else:
+                response = True
         elif sub == 'close_wallet':
             cmdline_wallet_filepath = config.get_cmdline_wallet_filepath()
             assert cmdline_wallet_filepath is not None
@@ -292,7 +301,6 @@ class Daemon(DaemonThread):
         return "error: ElectrumSV is running in daemon mode; stop the daemon first."
 
     def load_wallet(self, wallet_filepath: str) -> Optional[Wallet]:
-        # wizard will be launched if we return
         if wallet_filepath in self.wallets:
             wallet = self.wallets[wallet_filepath]
             return wallet
@@ -306,6 +314,16 @@ class Daemon(DaemonThread):
         if storage.requires_upgrade():
             storage.close()
             logger.debug("Wallet '%s' requires an upgrade", wallet_filepath)
+            return None
+
+        wallet_password = cast(str, app_state.credentials.get_wallet_password(wallet_filepath))
+        if wallet_password is None:
+            logger.debug("Wallet '%s' password is not cached", wallet_filepath)
+            import traceback
+            traceback.print_stack()
+            return None
+        if not storage.is_password_valid(wallet_password):
+            logger.debug("Wallet '%s' password does not match", wallet_filepath)
             return None
 
         wallet = Wallet(storage)
@@ -334,8 +352,6 @@ class Daemon(DaemonThread):
             self.stop_wallet_at_path(path)
 
     def run_cmdline(self, config_options: dict) -> Any:
-        password = config_options.get('password')
-        new_password = config_options.get('new_password')
         config = SimpleConfig(config_options)
         cmdname = cast(str, config.get('cmd'))
         cmd = known_commands[cmdname]
@@ -379,6 +395,7 @@ class Daemon(DaemonThread):
         while self.is_running():
             self.server.handle_request() if self.server else time.sleep(0.1)
         logger.warning("no longer running")
+        app_state.shutdown()
         if self.network:
             logger.warning("wait for network shutdown")
             assert self.fx_task is not None, "fx task should be valid if network is"

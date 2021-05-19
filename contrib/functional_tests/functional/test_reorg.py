@@ -40,6 +40,7 @@ class TestReorg:
     def setup_class(cls):
         pass
 
+    @classmethod
     def teardown_class(cls):
         pass
 
@@ -47,11 +48,14 @@ class TestReorg:
     def test_reorg(self, event_loop):
 
         async def test_reorg():
+            payload = {
+                "password": "test"
+            }
             REORGED_TXIDS = "a1fa9460ca105c1396cd338f7fa202bf79a9d244d730e91e19f6302a05b2f07a"
 
             # Load the default wallet on ElectrumSV daemon
             url = f"http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/load_wallet"
-            result = requests.post(url)
+            result = requests.post(url, json=payload)
             result.raise_for_status()
 
             # Submit node1 blocks to node

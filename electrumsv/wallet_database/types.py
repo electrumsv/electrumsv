@@ -1,7 +1,8 @@
 from typing import Any, NamedTuple, Optional, Sequence, Set, Tuple, Union
 
-from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag, PaymentFlag, ScriptType,
-    TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
+from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag, NetworkServerFlag,
+    NetworkServerType, PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
+    WalletEventType)
 
 
 class AccountRow(NamedTuple):
@@ -107,6 +108,24 @@ class MasterKeyRow(NamedTuple):
     parent_masterkey_id: Optional[int]
     derivation_type: DerivationType
     derivation_data: bytes
+
+
+class NetworkServerRow(NamedTuple):
+    server_id: int
+    server_type: NetworkServerType
+    uri: str
+    encrypted_api_key: Optional[str]
+    flags: NetworkServerFlag
+    date_created: int = -1
+    date_updated: int = -1
+
+
+class NetworkServerAccountRow(NamedTuple):
+    server_id: int
+    account_id: int
+    encrypted_api_key: Optional[str]
+    date_created: int = -1
+    date_updated: int = -1
 
 
 class PaymentRequestRow(NamedTuple):

@@ -44,7 +44,7 @@ class StorageKind(IntEnum):
 
 DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
-MIGRATION_CURRENT = 27
+MIGRATION_CURRENT = 28
 
 
 # The hash of the mnemonic seed must begin with this
@@ -313,18 +313,9 @@ class NetworkEventNames:
     EXCHANGE_RATE_QUOTES = "on_quotes"
 
 
-class BroadcastServicesUI:
-    MERCHANT_API = "Merchant API"
-    ELECTRUMX = "ElectrumX"
-
-
-class BroadcastServices:
-    """
-    These are strings since they are persisted in configuration files.
-    """
-    MERCHANT_API = "merchant_api"
-    ELECTRUMX = "electrumx"
-    # HOSTING_SERVICE = "hosting_service"  # Not implemented
+class NetworkServerType(IntEnum):
+    ELECTRUMX = 1
+    MERCHANT_API = 2
 
 
 PREFIX_ASM_SCRIPT = "asm:"
@@ -358,3 +349,29 @@ ACCOUNT_SCRIPT_TYPES = {
 
 class DatabaseWriteErrorCodes(IntEnum):
     TX_ADD_MISSING_KEYS = 1
+
+
+class NetworkServerFlag(IntFlag):
+    NONE = 0
+    ANY_ACCOUNT = 1 << 0
+    API_KEY_REQUIRED = 1 << 12
+
+
+class CredentialPolicyFlag(IntFlag):
+    NONE = 0
+    # Flushing is a backup mechanism and it is expected that the pending use happened and
+    # discarded the credential.
+    ERROR_IF_FLUSHED = 1 << 1
+
+    # Some standard periods that expire in the short term.
+    FLUSH_ALMOST_IMMEDIATELY1 = 1 << 10
+    FLUSH_ALMOST_IMMEDIATELY2 = 1 << 11
+    FLUSH_ALMOST_IMMEDIATELY3 = 1 << 12
+    FLUSH_AFTER_WALLET_LOAD = FLUSH_ALMOST_IMMEDIATELY1
+
+    # Do not cache.
+    DISCARD_IMMEDIATELY = 1 << 20
+    DISCARD_ON_USE = (1 << 21) | FLUSH_ALMOST_IMMEDIATELY1 | ERROR_IF_FLUSHED
+
+    # Cache flags.
+    IS_BEING_ADDED = 1 << 30

@@ -88,3 +88,4 @@ async def decode_response_body(response) -> Dict[Any, Any]:
     if body == b"" or body == b"{}":
         return {}
     return json.loads(body.decode())
+

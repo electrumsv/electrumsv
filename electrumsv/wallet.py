@@ -27,7 +27,6 @@
 #   - StandardAccount: one keystore, P2PKH
 #   - MultisigAccount: several keystores, P2SH
 
-import asyncio
 from collections import defaultdict
 import concurrent.futures
 from dataclasses import dataclass
@@ -57,7 +56,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag, WalletEventType,
     WalletSettings)
 from .contacts import Contacts
-from .crypto import pw_encode, sha256
+from .crypto import pw_decode, pw_encode, sha256
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
     SubscriptionStale, UnsupportedAccountTypeError, UnsupportedScriptTypeError, UserCancelled,
     WalletLoadError)
@@ -83,6 +82,7 @@ from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataType, KeyDataTypes,
     KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
+    NetworkServerRow, NetworkServerAccountRow,
     PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
     TransactionDeltaSumRow, TransactionExistsRow, TransactionLinkState, TransactionMetadata,
     TransactionSubscriptionRow,
@@ -1701,7 +1701,7 @@ class Wallet(TriggeredCallbacks):
     _network: Optional['Network'] = None
     _stopped: bool = False
 
-    def __init__(self, storage: WalletStorage) -> None:
+    def __init__(self, storage: WalletStorage, password: Optional[str]=None) -> None:
         TriggeredCallbacks.__init__(self)
 
         self._id = random.randint(0, (1<<32)-1)
@@ -1732,8 +1732,8 @@ class Wallet(TriggeredCallbacks):
         self._transaction_locks: Dict[bytes, Tuple[threading.RLock, int]] = {}
 
         # Guards the obtaining and processing of missing transactions from race conditions.
-        self._obtain_transactions_async_lock = asyncio.Lock()
-        self._obtain_proofs_async_lock = asyncio.Lock()
+        self._obtain_transactions_async_lock = app_state.async_.lock()
+        self._obtain_proofs_async_lock = app_state.async_.lock()
 
         self.load_state()
 
@@ -1743,6 +1743,28 @@ class Wallet(TriggeredCallbacks):
         self.progress_event = app_state.async_.event()
         self.request_count = 0
         self.response_count = 0
+
+        # When ElectrumSV is asked to open a wallet it first requests the password and verifies
+        # it is correct for the wallet. Then it does the separate open operation and did not
+        # require the password. However, we have since added encrypted wallet data that needs
+        # to be read and cached. We expect the password to still be in the credential cache
+        # given we just did that verification.
+        if password is None:
+            password = app_state.credentials.get_wallet_password(self._storage.get_path())
+            assert password is not None, "Expected cached wallet password"
+
+        # Cache the stuff that is needed unencrypted but is encrypted.
+        self._server_rows, self._server_account_rows = self.read_network_servers()
+        # TODO Consider storing these api keys could be stored in the credentials object.
+        self.server_api_keys: Dict[Tuple[int, Optional[int]], str] = {}
+        for server_row in self._server_rows:
+            if server_row.encrypted_api_key is not None:
+                self.server_api_keys[(server_row.server_id, None)] = \
+                    pw_decode(server_row.encrypted_api_key, password)
+        for account_row in self._server_account_rows:
+            if account_row.encrypted_api_key is not None:
+                self.server_api_keys[(account_row.server_id, account_row.account_id)] = \
+                    pw_decode(account_row.encrypted_api_key, password)
 
     def __str__(self) -> str:
         return f"wallet(path='{self._storage.get_path()}')"
@@ -2435,6 +2457,16 @@ class Wallet(TriggeredCallbacks):
             self._logger.debug("unverified_transactions: %s",
                 [ hash_to_hex_str(r[0])[:8] for r in results ])
             return dict(results)
+
+    def read_network_servers(self, server_id: Optional[int]=None) \
+            -> Tuple[List[NetworkServerRow], List[NetworkServerAccountRow]]:
+        return db_functions.read_network_servers(self.get_db_context(), server_id)
+
+    def replace_network_server_entries(self, server_id: int,
+            server_entries: List[NetworkServerRow],
+            account_entries: List[NetworkServerAccountRow]) -> concurrent.futures.Future:
+        return db_functions.update_network_server(self.get_db_context(), server_id,
+            server_entries, account_entries)
 
     def _get_header_hash_for_height(self, height: int) -> Optional[bytes]:
         chain = app_state.headers.longest_chain()

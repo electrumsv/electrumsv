@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import DATABASE_EXT
+from electrumsv.constants import CredentialPolicyFlag, DATABASE_EXT
 from electrumsv.exceptions import WaitingTaskCancelled
 from electrumsv.i18n import _, languages
 from electrumsv.logs import logs
@@ -1102,9 +1102,16 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
     if not success or not new_password.strip():
         return None
 
+    assert new_password is not None
     from electrumsv.storage import WalletStorage
     storage = WalletStorage.create(create_filepath, new_password)
+    # This path is guaranteed to be the full file path with file extension.
+    wallet_path = storage.get_path()
     storage.close()
+    # Store the credential in case we most likely are going to open it immediately and do not
+    # want to prompt for the password immediately after the user just specififed it.
+    app_state.credentials.set_wallet_password(wallet_path, new_password,
+        CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD | CredentialPolicyFlag.IS_BEING_ADDED)
     return create_filepath
 
 
@@ -1133,14 +1140,13 @@ class FormSectionWidget(QWidget):
             minimum_label_width: Optional[int]=None) -> None:
         super().__init__(parent)
 
-        if minimum_label_width is not None:
-            self.minimum_label_width = minimum_label_width
-
-        self._frame_layout = QVBoxLayout()
-        self._row_layouts: List[QGridLayout] = []
-
-        frame = QFrame()
+        frame = self._frame = QFrame()
         frame.setObjectName("FormFrame")
+        self._frame_layout: Optional[QVBoxLayout] = None
+
+        self._initial_minimum_label_width = minimum_label_width
+        self.clear()
+
         frame.setLayout(self._frame_layout)
 
         self.setStyleSheet("""
@@ -1240,6 +1246,22 @@ class FormSectionWidget(QWidget):
         self._row_layouts.append(grid_layout)
         return grid_widget
 
+    def clear(self) -> None:
+        self.minimum_label_width = FormSectionWidget.minimum_label_width
+        if self._initial_minimum_label_width is not None:
+            self.minimum_label_width = self._initial_minimum_label_width
+
+        if self._frame_layout is not None:
+            # NOTE This is a Qt thing. You have to transplant the layout from an object before you
+            #   can set a new one. So that is what we are doing here, transplanting to nowhere.
+            discardable_widget = QWidget()
+            discardable_widget.setLayout(self._frame_layout)
+
+        self._frame_layout = QVBoxLayout()
+        self._row_layouts: List[QGridLayout] = []
+
+        self._frame.setLayout(self._frame_layout)
+
 
 class FramedTextWidget(QLabel):
     def __init__(self, parent: Optional[QWidget]=None) -> None:
@@ -1290,3 +1312,50 @@ class AspectRatioPixmapLabel(QLabel):
         if self._pixmap is not None:
             super().setPixmap(self._scaled_pixmap())
         super().resizeEvent(event)
+
+
+class ExpandableSection(QWidget):
+    def __init__(self, title: str, child: QWidget) -> None:
+        super().__init__()
+
+        self._child = child
+
+        def on_clicked_button_expand_details() -> None:
+            nonlocal expand_details_button, self
+            is_expanded = expand_details_button.text() == "-"
+            if is_expanded:
+                expand_details_button.setText("+")
+                self._child.setVisible(False)
+            else:
+                expand_details_button.setText("-")
+                self._child.setVisible(True)
+
+        expand_details_button = QPushButton("+")
+        expand_details_button.setStyleSheet("padding: 2px;")
+        expand_details_button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+        expand_details_button.clicked.connect(on_clicked_button_expand_details)
+        expand_details_button.setMinimumWidth(15)
+
+        # NOTE(copy-paste) Generic separation line code used elsewhere as well.
+        details_header_line = QFrame()
+        details_header_line.setStyleSheet("QFrame { border: 1px solid #C3C2C2; }")
+        details_header_line.setFrameShape(QFrame.HLine)
+        details_header_line.setFixedHeight(1)
+
+        details_header = QHBoxLayout()
+        details_header.addWidget(expand_details_button)
+        details_header.addWidget(QLabel(title))
+        details_header.addWidget(details_header_line, 1)
+
+        expandable_section_layout = self._details_layout = QVBoxLayout()
+        expandable_section_layout.addLayout(details_header)
+        expandable_section_layout.addWidget(child)
+        expandable_section_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.setLayout(expandable_section_layout)
+
+    def expand(self) -> None:
+        self._child.setVisible(True)
+
+    def contract(self) -> None:
+        self._child.setVisible(False)

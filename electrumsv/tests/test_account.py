@@ -1,4 +1,5 @@
 import pytest
+import unittest
 
 from electrumsv.constants import (CHANGE_SUBPATH, DerivationType, KeyInstanceFlag,
     RECEIVING_SUBPATH, ScriptType)
@@ -24,11 +25,15 @@ def tmp_storage(tmpdir):
 
 
 @pytest.mark.asyncio
-async def test_key_creation(tmp_storage) -> None:
+@unittest.mock.patch('electrumsv.wallet.app_state')
+async def test_key_creation(mock_app_state, tmp_storage) -> None:
     # Boilerplate setting up of a deterministic account. This is copied from above.
     password = 'password'
     seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
     child_keystore = from_seed(seed_words, '')
+
+    mock_app_state.credentials = unittest.mock.Mock()
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
     wallet = Wallet(tmp_storage)
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
@@ -75,7 +80,8 @@ async def test_key_creation(tmp_storage) -> None:
 
 
 @pytest.mark.asyncio
-async def test_key_reservation(tmp_storage) -> None:
+@unittest.mock.patch('electrumsv.wallet.app_state')
+async def test_key_reservation(mock_app_state, tmp_storage) -> None:
     """
     Verify that the allocate a key on demand database function works as expected for an account.
     """
@@ -83,6 +89,8 @@ async def test_key_reservation(tmp_storage) -> None:
     password = 'password'
     seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
     child_keystore = from_seed(seed_words, '')
+
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
     wallet = Wallet(tmp_storage)
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)

@@ -27,18 +27,17 @@ from collections import defaultdict
 from contextlib import suppress
 from enum import IntEnum
 from functools import partial
-import json
-import os
+# import json
+# import os
 import random
 import re
 import ssl
-import stat
 import time
 from typing import Any, cast, Dict, Iterable, List, NamedTuple, Optional, TYPE_CHECKING, Tuple, \
     Union
 
 import aiohttp
-from aiohttp import ClientConnectorError
+# from aiohttp import ClientConnectorError
 from aiorpcx import (
     connect_rs, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
     TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
@@ -57,8 +56,8 @@ from .logs import logs
 from .transaction import Transaction
 from .types import ElectrumXHistoryList, ScriptHashSubscriptionEntry
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
-from .networks import Net, SVRegTestnet
-from .util.misc import decode_response_body
+from .networks import Net #, SVRegTestnet
+# from .util.misc import decode_response_body
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
 
 if TYPE_CHECKING:
@@ -120,21 +119,9 @@ def _require_list(obj):
     return obj
 
 
-def _require_number(obj):
-    assert isinstance(obj, (int, float))
-    return obj
-
-
 def _require_string(obj):
     assert isinstance(obj, str)
     return obj
-
-
-def _history_status(history) -> Optional[str]:
-    if not history:
-        return None
-    status = ''.join(f'{tx_id}:{tx_height}:' for tx_id, tx_height in history)
-    return sha256(status.encode()).hex()
 
 
 def _root_from_proof(hash, branch, index):
@@ -201,7 +188,12 @@ class SVServerKey(NamedTuple):
 
 
 class SVServer:
-    '''A smart wrapper around a (host, port, protocol) tuple.'''
+    '''
+    A smart wrapper around a (host, port, protocol) tuple.
+    '''
+    # The way SVServers are populated from config file is confusing. `JSON.register()` is called
+    # for `SVServer` and when the config is deserialized, the specially serialised `SVServer`
+    # entries are instantiated and in doing so they add themselves to the `all_servers` list.
 
     all_servers: Dict[SVServerKey, 'SVServer'] = {}
 
@@ -892,7 +884,8 @@ class Network(TriggeredCallbacks):
         self._electrumx_disconnection_events: dict[SVServerKey, asyncio.Event] = {}
         self._chosen_servers: set[SVServer] = set()
         self.main_server = None
-        self.mapi_servers = self._read_config_mapi()
+        self._mapi_servers = self._read_config_mapi()
+        self._mapi_state = {}
         self.proxy = None
 
         # Events
@@ -907,24 +900,36 @@ class Network(TriggeredCallbacks):
         # Feed pub-sub notifications to currently active SVSession for processing
         self._on_status_queue = app_state.async_.queue()
 
-        dir_path = app_state.config.file_path('certs')
-        if not os.path.exists(dir_path):
-            os.mkdir(dir_path)
-            os.chmod(dir_path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-
         self.future = app_state.async_.spawn(self._main_task)
 
         app_state.subscriptions.set_script_hash_callbacks(
             self._on_subscribe_script_hashes, self._on_unsubscribe_script_hashes)
+
         self.mapi_client: Optional[aiohttp.ClientSession] = None
 
-    def _read_config_mapi(self):
+    def _read_config_mapi(self) -> List[Dict]:
         mapi_servers = app_state.config.get("mapi_servers", [])
         if mapi_servers:
             logger.info("read %d merchant api servers from config file", len(mapi_servers))
+        servers_by_uri = { mapi_server['uri']: mapi_server for mapi_server in mapi_servers }
         for mapi_server in Net.DEFAULT_MAPI_SERVERS:
-            if mapi_server['uri'] not in [mapi_server['uri'] for mapi_server in mapi_servers]:
-                mapi_servers.append(mapi_server)
+            server = servers_by_uri.get(mapi_server['uri'], None)
+            if server is None:
+                server = mapi_server.copy()
+                server["modified_date"] = server["static_data_date"]
+                mapi_servers.append(server)
+
+            ## Ensure all the default field values are present if they are not already.
+            server.setdefault("api_key", None)
+            # Whether the API key is supported for the given server from entry presence.
+            server.setdefault("api_key_supported", "api_key_required" in server)
+            # All the default MAPI servers are enabled for all wallets out of the box.
+            server.setdefault("enabled_for_all_wallets", True)
+            # When we were last able to connect, and when we last tried to connect.
+            server.setdefault("last_good", 0.0)
+            server.setdefault("last_try", 0.0)
+            # If we request an anonymous fee quote for this server, keep the last one.
+            server.setdefault("anonymous_fee_quote", {})
         return mapi_servers
 
     async def _get_mapi_client(self):
@@ -963,43 +968,43 @@ class Network(TriggeredCallbacks):
         """The last_good and last_try timestamps will be used to include/exclude the mAPI for
         selection"""
         return
-        now = time.time()
-        for i, mapi_server in enumerate(self.mapi_servers):
-            mapi_server['last_try'] = now
-            uri = mapi_server['uri'] + "/feeQuote"
-            headers = {'Content-Type': 'application/json'}
-            if Net._net is SVRegTestnet:
-                ssl = False
-            else:
-                ssl = True
+        # now = time.time()
+        # for i, mapi_server in enumerate(self._mapi_servers):
+        #     mapi_server['last_try'] = now
+        #     uri = mapi_server['uri'] + "/feeQuote"
+        #     headers = {'Content-Type': 'application/json'}
+        #     if Net._net is SVRegTestnet:
+        #         ssl = False
+        #     else:
+        #         ssl = True
 
-            assert self.mapi_client is not None
-            async with self.mapi_client.get(uri, headers=headers, ssl=ssl) as resp:
-                try:
-                    json_response = await decode_response_body(resp)
-                except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
-                    logger.error("failed connecting to %s", mapi_server['uri'])
-                else:
-                    if resp.status != 200:
-                        logger.error("feeQuote request to %s failed with: status: %s, reason: %s",
-                            mapi_server['uri'], resp.status, resp.reason)
-                    else:
-                        assert json_response['encoding'].lower() == 'utf-8'
-                        json_payload = json.loads(json_response['payload'])
-                        logger.debug("valid feeQuote received from %s", mapi_server['uri'])
-                        mapi_server['last_good'] = now
-                        mapi_server['fee'] = json_payload
-                finally:
-                    self.mapi_servers[i] = mapi_server
+        #     assert self.mapi_client is not None
+        #     async with self.mapi_client.get(uri, headers=headers, ssl=ssl) as resp:
+        #         try:
+        #             json_response = await decode_response_body(resp)
+        #         except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
+        #             logger.error("failed connecting to %s", mapi_server['uri'])
+        #         else:
+        #             if resp.status != 200:
+        #                 logger.error("feeQuote request to %s failed with: status: %s, reason: %s",
+        #                     mapi_server['uri'], resp.status, resp.reason)
+        #             else:
+        #                 assert json_response['encoding'].lower() == 'utf-8'
+        #                 json_payload = json.loads(json_response['payload'])
+        #                 logger.debug("valid feeQuote received from %s", mapi_server['uri'])
+        #                 mapi_server['last_good'] = now
+        #                 mapi_server['fee'] = json_payload
+        #         finally:
+        #             self._mapi_servers[i] = mapi_server
 
-        # update mapi servers in json config
-        app_state.config.set_key('mapi_servers', self.mapi_servers, True)
+        # # update mapi servers in json config
+        # app_state.config.set_key('mapi_servers', self._mapi_servers, True)
 
     async def _monitor_mapi_servers(self) -> None:
         if not self.mapi_client:
             self.mapi_client = await self._get_mapi_client()
 
-        if self.mapi_servers is None:
+        if self._mapi_servers is None:
             self._read_config_mapi()
 
         while True:
@@ -1227,10 +1232,9 @@ class Network(TriggeredCallbacks):
     def _read_config_electrumx(self):
         # Remove obsolete key
         app_state.config.set_key('server_blacklist', None)
-        # The way SVServers are read from config.json is confusing. JSON.register() is called for
-        # SVServer and when the config is deserialized, the SVServer adds itself to the
-        # class level list of "all_servers"
-        # TODO
+        # The way SVServers are populated from config file is confusing. JSON.register() is called
+        # for SVServer and when the config is deserialized, the specially serialised SVServer
+        # entries are instantiated and in doing so they add themselves to the `all_servers` list.
         logger.info('Read %d electrumx servers from config file', len(SVServer.all_servers))
         # Add default servers if not present. If we add the ability for users to delete servers
         # and they want to delete default serves, then this will override that.
@@ -1483,7 +1487,7 @@ class Network(TriggeredCallbacks):
         return SVServer.all_servers[key]
 
     def get_mapi_servers(self):
-        return self.mapi_servers
+        return self._mapi_servers
 
     def add_wallet(self, wallet: 'Wallet') -> None:
         app_state.async_.spawn(self._wallet_jobs.put, ('add', wallet))

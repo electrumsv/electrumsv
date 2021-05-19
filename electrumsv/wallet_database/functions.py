@@ -21,7 +21,9 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
 from .sqlite_support import DatabaseContext, replace_db_context_with_connection
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceRow,
-    KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, PaymentRequestRow,
+    KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow,
+    NetworkServerRow, NetworkServerAccountRow,
+    PaymentRequestRow,
     PaymentRequestUpdateRow, SpendConflictType, TransactionBlockRow,
     TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
     # TransactionDescriptionResult,
@@ -32,7 +34,7 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     TransactionSubscriptionRow, TxProof, TxProofResult,
     WalletBalance, WalletDataRow, WalletEventRow)
 from .util import (flag_clause, get_timestamp, pack_proof, read_rows_by_id,
-    read_rows_by_ids, update_rows_by_id, update_rows_by_ids)
+    read_rows_by_ids, execute_sql_for_ids, update_rows_by_ids)
 
 
 logger = logs.get_logger("db-functions")
@@ -1120,6 +1122,25 @@ def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id
 
 
 @replace_db_context_with_connection
+def read_network_servers(db: sqlite3.Connection, server_id: int) \
+        -> Tuple[List[NetworkServerRow], List[NetworkServerAccountRow]]:
+    read_server_row_sql = "SELECT server_id, server_type, uri, encrypted_api_key, flags " \
+        "FROM Servers"
+    read_account_rows_sql = "SELECT server_id, account_id, encrypted_api_key " \
+        "FROM ServerAccounts"
+    params: Sequence[int] = ()
+    if server_id is not None:
+        read_server_row_sql += f" WHERE server_id=?"
+        read_account_rows_sql += f" WHERE server_id=?"
+        params = (server_id,)
+    cursor = db.execute(read_server_row_sql, params)
+    server_rows = [ NetworkServerRow(*r) for r in cursor.fetchall() ]
+    cursor = db.execute(read_account_rows_sql, params)
+    account_rows = [ NetworkServerAccountRow(*r) for r in cursor.fetchall() ]
+    return server_rows, account_rows
+
+
+@replace_db_context_with_connection
 def read_unverified_transactions(db: sqlite3.Connection, local_height: int) \
         -> List[Tuple[bytes, int]]:
     """
@@ -1312,7 +1333,7 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
 
     def _write(db: sqlite3.Connection) -> bool:
         nonlocal sql, sql_values, key_ids
-        rows_updated = update_rows_by_id(db, sql, sql_values, key_ids)
+        rows_updated = execute_sql_for_ids(db, sql, sql_values, key_ids)
         if rows_updated != len(key_ids):
             raise DatabaseUpdateError(f"Rollback as only {rows_updated} of {len(key_ids)} "
                 "rows were updated")
@@ -1364,7 +1385,7 @@ def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]
 
     def _write(db: sqlite3.Connection) -> bool:
         nonlocal sql, sql_values, tx_hashes
-        rows_updated = update_rows_by_id(db, sql, sql_values, tx_hashes)
+        rows_updated = execute_sql_for_ids(db, sql, sql_values, tx_hashes)
         if rows_updated < len(tx_hashes):
             # Rollback the database transaction (nothing to rollback but upholding the convention).
             raise DatabaseUpdateError("Rollback as nothing updated")
@@ -1610,6 +1631,29 @@ def update_wallet_event_flags(db_context: DatabaseContext,
     def _write(db: sqlite3.Connection) -> None:
         nonlocal rows, sql
         db.executemany(sql, rows)
+    return db_context.post_to_thread(_write)
+
+
+def update_network_server(db_context: DatabaseContext,
+        server_id: int,
+        server_entries: List[NetworkServerRow],
+        account_entries: List[NetworkServerAccountRow]) -> concurrent.futures.Future:
+    # TODO This is just going to delete all the server rows for the given wallets, then
+    #   replace them with the new rows. We can make this more nuanced later if we really
+    #   care.
+    delete_server_accounts_sql = "DELETE FROM ServerAccounts WHERE server_id=?"
+    delete_server_sql = "DELETE FROM Servers WHERE server_id=?"
+    insert_server_sql = "INSERT INTO Servers (server_id, server_type, uri, api_key, " \
+        "api_key_required, flags, date_created, date_updated) VALUES (?,?,?,?,?,?,?,?)"
+    insert_server_accounts_sql = "INSERT INTO ServerAccounts (server_id, account_id, api_key," \
+        "date_created, date_updated) VALUES (?,?,?,?,?)"
+    def _write(db: sqlite3.Connection) -> None:
+        nonlocal account_entries, delete_server_sql, delete_server_accounts_sql, \
+            insert_server_sql, insert_server_accounts_sql, server_entries
+        db.execute(delete_server_accounts_sql, (server_id,))
+        db.execute(delete_server_sql, (server_id,))
+        db.executemany(insert_server_sql, server_entries)
+        db.executemany(insert_server_accounts_sql, account_entries)
     return db_context.post_to_thread(_write)
 
 

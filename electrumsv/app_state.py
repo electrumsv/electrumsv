@@ -32,6 +32,7 @@ app_state.func()
 
 etc.
 '''
+import concurrent.futures
 import os
 import time
 from typing import Optional, Tuple, Union
@@ -40,6 +41,7 @@ from bitcoinx import Headers
 
 from .async_ import ASync
 from .constants import MAX_INCOMING_ELECTRUMX_MESSAGE_MB
+from .credential_cache import CredentialCache
 from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
@@ -68,6 +70,11 @@ class DefaultApp(object):
         # hack - an expected api when resetting / creating a new wallet...
         pass
 
+    def run_coro(self, coro, *args, on_done=None) -> concurrent.futures.Future:
+        global app_state
+        future = app_state.async_.spawn(coro, *args, on_done=on_done)
+        return future
+
 
 class AppStateProxy(object):
     app = None
@@ -83,12 +90,16 @@ class AppStateProxy(object):
         AppState.set_proxy(self)
         self.device_manager = DeviceMgr()
         self.subscriptions = SubscriptionManager()
+        self.credentials = CredentialCache()
         self.fx = None
         self.headers: Optional[Union[Headers, HeadersRegTestMod]] = None
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get('decimal_point', 8)
         self.num_zeros = config.get('num_zeros', 0)
         self.async_ = ASync()
+
+    def shutdown(self) -> None:
+        self.credentials.close()
 
     def has_app(self):
         return self.app is not None

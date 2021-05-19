@@ -29,6 +29,7 @@ import json
 import hmac
 import os
 import stat
+import platform
 import sys
 import threading
 import time

@@ -1,0 +1,130 @@
+import threading
+import time
+from typing import cast, Dict, NamedTuple, Optional, Tuple
+
+from bitcoinx import PrivateKey
+
+from .constants import CredentialPolicyFlag
+from .logs import logs
+
+
+logger = logs.get_logger("credentials")
+
+
+class WalletCredential(NamedTuple):
+    encrypted_value: bytes
+    timestamp: float
+    policy: CredentialPolicyFlag = CredentialPolicyFlag.DISCARD_IMMEDIATELY
+
+
+MAXIMUM_EXPIRATION_SECONDS = 10.0
+MAXIMUM_SLEEP_SECONDS = 5.0
+
+
+class CredentialCache:
+    closed = False
+    fatal_error = False
+
+    def __init__(self) -> None:
+        self._wallet_credentials: Dict[str, WalletCredential] = {}
+
+        self._check_thread: Optional[threading.Thread] = None
+        self._credential_lock = threading.Lock()
+        self._close_event = threading.Event()
+
+        # This is used to encrypt credentials in-memory so we store no plaintext version. It costs
+        # us nothing to do this.
+        self._private_key = PrivateKey.from_random()
+        self._public_key = self._private_key.public_key
+
+    def close(self) -> None:
+        """
+        Ensure the credentials are cleared when we are done with this cache.
+        """
+        self.closed = True
+        with self._credential_lock:
+            self._close_event.set()
+            self._wallet_credentials = {}
+
+    def set_wallet_password(self, wallet_path: str, password: str,
+            policy: Optional[CredentialPolicyFlag]=None) -> None:
+        if self.fatal_error:
+            logger.error("Ignoring request to store credential due to fatal error")
+            return
+        with self._credential_lock:
+            assert wallet_path not in self._wallet_credentials
+        creation_time = time.time()
+        encrypted_value = cast(bytes, self._public_key.encrypt_message(password))
+        if policy is None:
+            credential = WalletCredential(encrypted_value, creation_time)
+        else:
+            credential = WalletCredential(encrypted_value, creation_time, policy)
+        if credential.policy & CredentialPolicyFlag.DISCARD_IMMEDIATELY:
+            return
+        with self._credential_lock:
+            assert not self.closed
+            self._wallet_credentials[wallet_path] = credential
+
+            if self._check_thread is None:
+                self._check_thread = threading.Thread(target=self._check_credentials_thread_main)
+                self._check_thread.start()
+
+    def get_wallet_password_and_policy(self, wallet_path: str) \
+            -> Tuple[Optional[str], CredentialPolicyFlag]:
+        with self._credential_lock:
+            credential = self._wallet_credentials.get(wallet_path)
+            if credential is not None:
+                if credential.policy & CredentialPolicyFlag.DISCARD_ON_USE \
+                        == CredentialPolicyFlag.DISCARD_ON_USE:
+                    del self._wallet_credentials[wallet_path]
+                password_bytes = self._private_key.decrypt_message(credential.encrypted_value)
+                return password_bytes.decode('utf-8'), credential.policy
+        return None, CredentialPolicyFlag.NONE
+
+    def get_wallet_password(self, wallet_path: str) -> Optional[str]:
+        password, _policy = self.get_wallet_password_and_policy(wallet_path)
+        return password
+
+    def _check_credentials_thread_main(self) -> None:
+        logger.debug("Entering thread to check credential expiry")
+        try:
+            self._check_credentials_thread_body()
+        finally:
+            logger.debug("Exiting thread to check credential expiry (closed: %s, count: %d)",
+                self.closed, len(self._wallet_credentials))
+
+    def _check_credentials_thread_body(self) -> None:
+        sleep_seconds = MAXIMUM_SLEEP_SECONDS
+        while True:
+            # We use an event to wait as we can awaken immediately where a sleep will not.
+            if self._close_event.wait(min(sleep_seconds, MAXIMUM_SLEEP_SECONDS)):
+                self._check_thread = None
+                return
+
+            with self._credential_lock:
+                if self.closed or not len(self._wallet_credentials):
+                    self._check_thread = None
+                    return
+
+                current_time = time.time()
+                closest_expiration_time = current_time + MAXIMUM_EXPIRATION_SECONDS
+                for wallet_path, credential in list(self._wallet_credentials.items()):
+                    expiration_time = credential.timestamp
+                    if credential.policy & CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1:
+                        expiration_time += 10.0
+                    elif credential.policy & CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY2:
+                        expiration_time += 20.0
+                    elif credential.policy & CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY3:
+                        expiration_time += 30.0
+                    else:
+                        self.fatal_error = True
+                        self._check_thread = None
+                        logger.error("Disabling credential cache due to fatal error in bad "
+                            "credential policy (flags: %x)", credential.policy)
+                        return
+
+                    if current_time >= expiration_time:
+                        del self._wallet_credentials[wallet_path]
+                    else:
+                        closest_expiration_time = min(closest_expiration_time, expiration_time)
+            sleep_seconds = closest_expiration_time - current_time

@@ -11,11 +11,14 @@ from ..i18n import _
 class UrlValidationError(Exception):
     NO_URL_SPECIFIED = 1
     URL_TOO_LONG = 2
-    ONLY_HOST_WANTED = 3
-    NO_SCHEME_SPECIFIED = 4
-    INVALID_SCHEME = 5
-    NO_DOMAIN_SPECIFIED = 6
-    INVALID_DOMAIN = 7
+    NO_SCHEME_SPECIFIED = 3
+    INVALID_SCHEME = 4
+    NO_DOMAIN_SPECIFIED = 5
+    INVALID_DOMAIN = 6
+    PATH_UNWANTED = 7
+    PARAMS_UNWANTED = 8
+    FRAGMENT_UNWANTED = 9
+    QUERY_UNWANTED = 10
 
     """
     In an ideal world we could pass in the localised error message as the exception reason and
@@ -32,11 +35,14 @@ class UrlValidationError(Exception):
 URL_VALIDATION_MESSAGES = {
     UrlValidationError.NO_URL_SPECIFIED: _("No URL specified"),
     UrlValidationError.URL_TOO_LONG: _("Too long"),
-    UrlValidationError.ONLY_HOST_WANTED: _("Excess information beyond host and scheme"),
     UrlValidationError.NO_SCHEME_SPECIFIED: _("Scheme not found"),
     UrlValidationError.INVALID_SCHEME: _("Invalid scheme"),
     UrlValidationError.NO_DOMAIN_SPECIFIED: _("Host not found"),
     UrlValidationError.INVALID_DOMAIN: _("Invalid host"),
+    UrlValidationError.PATH_UNWANTED: _("URL contains a path"),
+    UrlValidationError.PARAMS_UNWANTED: _("URL contains params"),
+    UrlValidationError.FRAGMENT_UNWANTED: _("URL contains fragment"),
+    UrlValidationError.QUERY_UNWANTED: _("URL contains query"),
 }
 
 
@@ -60,7 +66,8 @@ DOMAIN_FORMAT = re.compile(
 )
 DEFAULT_SCHEMES = { "http", "https" }
 
-def validate_url(url: str, schemes: Optional[Set[str]]=None, host_only: bool=False) -> str:
+def validate_url(url: str, schemes: Optional[Set[str]]=None, allow_path: bool=False,
+        allow_params: bool=False, allow_query: bool=False, allow_fragment: bool=False) -> str:
     if schemes is None:
         schemes = DEFAULT_SCHEMES
 
@@ -89,9 +96,16 @@ def validate_url(url: str, schemes: Optional[Set[str]]=None, host_only: bool=Fal
     if not re.fullmatch(DOMAIN_FORMAT, domain):
         raise UrlValidationError(UrlValidationError.INVALID_DOMAIN)
 
-    if host_only and result.path not in ("", "/") or result.params or result.query or \
-            result.fragment:
-        print("result", result)
-        raise UrlValidationError(UrlValidationError.ONLY_HOST_WANTED)
+    if not allow_path and result.path not in ("", "/"):
+        raise UrlValidationError(UrlValidationError.PATH_UNWANTED)
+
+    if not allow_params and result.params:
+        raise UrlValidationError(UrlValidationError.PARAMS_UNWANTED)
+
+    if not allow_query and result.query:
+        raise UrlValidationError(UrlValidationError.FRAGMENT_UNWANTED)
+
+    if not allow_fragment and result.fragment:
+        raise UrlValidationError(UrlValidationError.QUERY_UNWANTED)
 
     return url

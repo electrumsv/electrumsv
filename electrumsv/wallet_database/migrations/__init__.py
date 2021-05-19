@@ -4,3 +4,4 @@ from . import migration_0024_account_transactions
 from . import migration_0025_invoices
 from . import migration_0026_txo_coinbase_flag
 from . import migration_0027_tx_refactor2
+from . import migration_0028_mapi

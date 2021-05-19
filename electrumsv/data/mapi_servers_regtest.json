@@ -1,9 +1,7 @@
 [
     {
+        "id": 10001,
         "uri": "https://127.0.0.1:5051/mapi",
-        "fee": null,
-        "version": "1.2.0",
-        "last_good": 0.0,
-        "last_try": 0.0
+        "static_data_date": "2021-05-13T04:45:05+0000"
     }
 ]

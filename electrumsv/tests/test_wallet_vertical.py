@@ -55,7 +55,9 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         Net.set_to(SVMainnet)
 
         self.storage = MockStorage()
-        self.wallet = _Wallet(self.storage)
+        with unittest.mock.patch("electrumsv.wallet.app_state") as mock_app_state:
+            mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+            self.wallet = _Wallet(self.storage)
 
     def _check_seeded_keystore_sanity(self, ks):
         self.assertTrue (ks.is_deterministic())

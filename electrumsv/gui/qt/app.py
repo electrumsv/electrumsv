@@ -30,7 +30,7 @@ from functools import partial
 import signal
 import sys
 import threading
-from typing import Callable, Optional
+from typing import Callable, Iterable, Optional
 
 from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
@@ -225,7 +225,7 @@ class SVApplication(QApplication):
             return
         # from importlib import reload
         # reload(network_dialog)
-        self.net_dialog = network_dialog.NetworkDialog()
+        self.net_dialog = network_dialog.NetworkDialog(app_state.daemon.network)
         self.net_dialog.show()
 
     def show_log_viewer(self) -> None:
@@ -274,6 +274,9 @@ class SVApplication(QApplication):
     def on_new_wallet_event(self, wallet_path: str, row: WalletEventRow) -> None:
         self.new_notification.emit(wallet_path, row)
 
+    def get_wallets(self) -> Iterable[Wallet]:
+        return [ window._wallet for window in self.windows ]
+
     def get_wallet_window(self, path: str) -> Optional[ElectrumWindow]:
         for w in self.windows:
             if w._wallet.get_storage_path() == path:
@@ -296,14 +299,15 @@ class SVApplication(QApplication):
         else:
             wizard_window: Optional[WalletWizard] = None
             if wallet_path is not None:
-                is_valid, was_aborted, wizard_window = WalletWizard.attempt_open(wallet_path)
-                if was_aborted:
+                open_result  = WalletWizard.attempt_open(wallet_path)
+                if open_result.was_aborted:
                     return None
-                if not is_valid:
+                if not open_result.is_valid:
                     wallet_filename = os.path.basename(wallet_path)
                     MessageBox.show_error(
                         _("Unable to load file '{}'.").format(wallet_filename))
                     return None
+                wizard_window = open_result.wizard
             else:
                 wizard_window = WalletWizard(is_startup=is_startup)
             if wizard_window is not None:
@@ -314,16 +318,18 @@ class SVApplication(QApplication):
                 # We cannot rely on accept alone indicating success.
                 if wallet_path is None:
                     return None
+            # All paths leading to this obtain a password and put it in the credential cache.
             wallet = app_state.daemon.load_wallet(wallet_path)
             assert wallet is not None
             w = self._create_window_for_wallet(wallet)
         if uri:
             w.pay_to_URI(uri)
+
         w.bring_to_top()
         w.setWindowState(w.windowState() & ~QtCore.Qt.WindowMinimized | QtCore.Qt.WindowActive)
-
         # this will activate the window
         w.activateWindow()
+
         return w
 
     def update_check(self) -> None:

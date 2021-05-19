@@ -6,7 +6,7 @@ from typing import Union, Any
 import aiorpcx
 import bitcoinx
 from aiohttp import web
-from electrumsv.constants import RECEIVING_SUBPATH, KeystoreTextType
+from electrumsv.constants import CredentialPolicyFlag, RECEIVING_SUBPATH, KeystoreTextType
 from electrumsv.keystore import instantiate_keystore_from_text
 from electrumsv.storage import WalletStorage
 from electrumsv.networks import Net
@@ -94,9 +94,9 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
 
     async def load_wallet(self, request):
         try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME])
+            vars = await self.argparser(request, required_vars=[VNAME.PASSWORD, VNAME.WALLET_NAME])
             wallet_name = vars[VNAME.WALLET_NAME]
-            parent_wallet = await self._load_wallet(wallet_name)
+            parent_wallet = await self._load_wallet(wallet_name, vars[VNAME.PASSWORD])
             accounts = self._accounts_dto(parent_wallet)
             response = {"parent_wallet": wallet_name,
                         "accounts": accounts}
@@ -116,6 +116,9 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             storage = WalletStorage.create(create_filepath, vars[VNAME.PASSWORD])
             storage.close()
 
+            app_state.credentials.set_wallet_password(create_filepath, vars[VNAME.PASSWORD],
+                CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
+
             parent_wallet = self.app_state.daemon.load_wallet(create_filepath)
 
             # create an account for the Wallet with the same password via an imported seed
@@ -126,7 +129,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             keystore = instantiate_keystore_from_text(text_type, text_match, vars[VNAME.PASSWORD],
                 derivation_text=None, passphrase=None)
             parent_wallet.create_account_from_keystore(keystore)
-            await self._load_wallet(vars[VNAME.WALLET_NAME])
+            await self._load_wallet(vars[VNAME.WALLET_NAME], vars[VNAME.PASSWORD])
             response = {"new_wallet": create_filepath}
             return good_response(response)
         except Fault as e:

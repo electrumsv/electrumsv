@@ -21,7 +21,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from asyncio import Event, Queue, new_event_loop, run_coroutine_threadsafe, CancelledError
+from asyncio import CancelledError, Event, Lock, Queue, new_event_loop, run_coroutine_threadsafe
 import concurrent.futures
 from functools import partial
 import queue
@@ -51,6 +51,9 @@ class ASync(object):
     def event(self):
         '''Return an asyncio.Event for our event loop.'''
         return Event(loop=self.loop)
+
+    def lock(self):
+        return Lock(loop=self.loop)
 
     def queue(self, maxsize=0):
         '''Return an asyncio.Event for our event loop.'''

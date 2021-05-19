@@ -1,9 +1,9 @@
 [
     {
-        "uri": "https://austecondevserver.app/mapi",
-        "fee": null,
-        "version": "0.1.0",
-        "last_good": 0.0,
-        "last_try": 0.0
+        "id": 30001,
+        "uri": "https://mapi.taal.com/mapi",
+        "api_key_required": true,
+        "api_key_template": "Authorization: Bearer testnet_{API_KEY}",
+        "static_data_date": "2021-05-13T04:45:05+0000"
     }
 ]

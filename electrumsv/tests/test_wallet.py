@@ -277,7 +277,10 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
 # wallet, and account. And that the underlying data for keystore and wallet persistence
 # is also exported correctly.
 class TestLegacyWalletCreation:
-    def test_standard_electrum(self, tmp_storage) -> None:
+    @unittest.mock.patch('electrumsv.wallet.app_state')
+    def test_standard_electrum(self, mock_app_state, tmp_storage) -> None:
+        mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+
         password = 'password'
         seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
         child_keystore = from_seed(seed_words, '')
@@ -294,7 +297,10 @@ class TestLegacyWalletCreation:
         check_legacy_parent_of_standard_wallet(wallet, password=password)
         check_create_keys(wallet, account_row.default_script_type)
 
-    def test_old(self, tmp_storage) -> None:
+    @unittest.mock.patch('electrumsv.wallet.app_state')
+    def test_old(self, mock_app_state, tmp_storage) -> None:
+        mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+
         seed_words = ('powerful random nobody notice nothing important '+
             'anyway look away hidden message over')
         child_keystore = from_seed(seed_words, '')
@@ -325,6 +331,8 @@ class TestLegacyWalletCreation:
     @unittest.mock.patch('electrumsv.wallet.app_state')
     def test_imported_privkey(self, mock_app_state, tmp_storage) -> None:
         mock_app_state.app = unittest.mock.Mock()
+        mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+
         wallet = Wallet(tmp_storage)
         account = wallet.create_account_from_text_entries(KeystoreTextType.PRIVATE_KEYS,
             ScriptType.P2PKH,
@@ -339,6 +347,7 @@ class TestLegacyWalletCreation:
 
     @unittest.mock.patch('electrumsv.wallet.app_state')
     def test_imported_pubkey(self, mock_app_state, tmp_storage) -> None:
+        mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
         text = """
         15hETetDmcXm1mM4sEf7U2KXC9hDHFMSzz
         1GPHVTY8UD9my6jyP4tb2TYJwUbDetyNC6
@@ -351,7 +360,9 @@ class TestLegacyWalletCreation:
         mock_app_state.app.on_new_wallet_event.assert_called_once()
         check_legacy_parent_of_imported_address_wallet(wallet)
 
-    def test_multisig(self, tmp_storage) -> None:
+    @unittest.mock.patch('electrumsv.wallet.app_state')
+    def test_multisig(self, mock_app_state, tmp_storage) -> None:
+        mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
         wallet = Wallet(tmp_storage)
 
         seed_words = ('blast uniform dragon fiscal ensure vast young utility dinosaur abandon '+
@@ -379,7 +390,10 @@ class TestLegacyWalletCreation:
 
 
 @pytest.mark.parametrize("storage_info", get_categorised_files2(TEST_WALLET_PATH))
-def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
+@unittest.mock.patch('electrumsv.wallet.app_state')
+def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) -> None:
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: "123456"
+
     # When a wallet is composed of multiple files, we need to know which to load.
     wallet_filenames = []
     if storage_info.kind != StorageKind.DATABASE:
@@ -524,7 +538,10 @@ def test_legacy_wallet_loading(storage_info: WalletStorageInfo) -> None:
 
 
 @pytest.mark.asyncio
-async def test_transaction_import_removal(tmp_storage) -> None:
+@unittest.mock.patch('electrumsv.wallet.app_state')
+async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+
     # Boilerplate setting up of a deterministic account. This is copied from above.
     password = 'password'
     seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'

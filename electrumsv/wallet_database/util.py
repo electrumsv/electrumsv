@@ -136,10 +136,10 @@ def read_rows_by_ids(return_type: Type[T], db: sqlite3.Connection, sql: str, sql
     return results
 
 
-def update_rows_by_id(db: sqlite3.Connection, sql: str, sql_values: List[Any], \
+def execute_sql_for_ids(db: sqlite3.Connection, sql: str, sql_values: List[Any], \
         ids: Sequence[T]) -> int:
     """
-    Update rows in batches as constrained by database limitations.
+    Update, delete or whatever rows in batches as constrained by database limitations.
     """
     batch_size = SQLITE_MAX_VARS - len(sql_values)
     rows_updated = 0
