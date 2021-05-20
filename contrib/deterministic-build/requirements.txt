@@ -93,10 +93,6 @@ idna==2.10 \
     # via
     #   requests
     #   yarl
-jsonrpclib-pelix==0.4.2 \
-    --hash=sha256:1f81e19a53357f7f410696307f9e171a15b51ef574d7d8bc330623c0f3e62220 \
-    --hash=sha256:340915c17ebef7451948341542bf4789fc8d8c9fe604e86f00b722b6074a89f0
-    # via -r C:\Data\Git\electrumsv\contrib\requirements\requirements.txt
 multidict==5.1.0 \
     --hash=sha256:018132dbd8688c7a69ad89c4a3f39ea2f9f33302ebe567a879da8f4ca73f0d0a \
     --hash=sha256:051012ccee979b2b06be928a6150d237aec75dd6bf2d1eeeb190baf2b05abc93 \

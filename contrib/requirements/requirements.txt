@@ -4,7 +4,6 @@ aiorpcX>=0.18.0,<0.19
 certifi
 dnspython<2.0
 ecdsa>=0.13.3
-jsonrpclib-pelix
 mypy-extensions
 pyaes>=0.1a1
 requests>=2.25.1

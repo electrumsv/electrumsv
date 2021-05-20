@@ -125,7 +125,7 @@ def _fake_remove_transaction_raise_fault(tx_hash: bytes, wallet: AbstractAccount
     raise Fault(Errors.DISABLED_FEATURE_CODE, Errors.DISABLED_FEATURE_MESSAGE)
 
 
-async def _fake_load_wallet_succeeds(wallet_name) -> Wallet:
+async def _fake_load_wallet_succeeds(wallet_name: str, password: str) -> Wallet:
     return MockWallet()
 
 
@@ -385,7 +385,9 @@ class TestDefaultEndpoints:
         # mock request
         network = "test"
         wallet_name = "wallet_file1.sqlite"
-        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/load_wallet")
+        password = "mypass"
+        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/load_wallet",
+            json= { "password": password })
 
         # check
         expected_json = {"parent_wallet": wallet_name,

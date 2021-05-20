@@ -28,13 +28,12 @@
 # SOFTWARE.
 import asyncio
 import os
-import platform as stdlib_platform
+from os import urandom
 import sys
 import time
-from typing import Optional
+from typing import Dict, Optional, Union
 
 import bitcoinx
-from os import urandom
 
 from electrumsv import daemon, web
 from electrumsv.app_state import app_state, AppStateProxy, DefaultApp
@@ -52,7 +51,7 @@ from electrumsv.util import json_encode, json_decode, setup_thread_excepthook
 from electrumsv.wallet import Wallet
 
 
-if stdlib_platform.system() == "Windows":
+if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
@@ -151,7 +150,8 @@ def init_daemon(config_options):
     config_options['password'] = password
 
 
-def init_cmdline(config_options, server):
+def init_cmdline(config_options):
+    # The config object should be read-only. Do not change it.
     config = SimpleConfig(config_options)
     cmdname = config.get('cmd')
     assert isinstance(cmdname, str)
@@ -183,7 +183,7 @@ def init_cmdline(config_options, server):
               "proposed by third parties.", file=sys.stderr)
 
     # commands needing password
-    if cmd.requires_wallet and server is None or cmd.requires_password:
+    if cmd.requires_wallet or cmd.requires_password: # `cmd.requires_wallet or server is None`
         if config.get('password'):
             password = config.get('password')
         else:
@@ -342,7 +342,7 @@ def set_restapi_credentials(config, config_options):
 
 def main():
     enforce_requirements()
-    if stdlib_platform.system() == "Windows" and getattr(sys, "frozen", False):
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
         # NOTE(shoddy-windows-getpass-support) This replaces `sys.stdin` and a side effect is
         # that `getpass.getpass` bails out of the Windows support to the fallback support which
         # does not hide the input and shows a confusing warning. The Windows support does work
@@ -437,18 +437,19 @@ def main():
         run_non_RPC(config)
         sys.exit(0)
 
+    result: Union[str, Dict] = ""
     if cmdname == 'gui':
-        fd, server = daemon.get_fd_or_server(config)
-        if fd is not None:
-            run_app_with_daemon(fd, is_gui=True)
+        lockfile_fd = daemon.get_lockfile_fd(config)
+        if lockfile_fd:
+            run_app_with_daemon(lockfile_fd, is_gui=True)
         else:
-            result = server.gui(config_options)
+            result = daemon.remote_daemon_request(config, "/v1/rpc/gui", config_options)
 
     elif cmdname == 'daemon':
         subcommand = config.get('subcommand')
         if subcommand in [None, 'start']:
-            fd, server = daemon.get_fd_or_server(config)
-            if fd is not None:
+            lockfile_fd = daemon.get_lockfile_fd(config)
+            if lockfile_fd:
                 if not app_state.has_app():
                     print("No application present to run.")
                     sys.exit(0)
@@ -463,34 +464,27 @@ def main():
                         print("Starting daemon (PID %d)" % pid, file=sys.stderr)
                         sys.exit(0)
 
-                run_app_with_daemon(fd)
+                run_app_with_daemon(lockfile_fd)
                 return
-            result = server.daemon(config_options)
+
+            result = daemon.remote_daemon_request(config, "/v1/rpc/daemon", config_options)
         else:
             if subcommand == 'load_wallet':
                 init_daemon(config_options)
 
-            server = daemon.get_server(config)
-            if server is not None:
-                result = server.daemon(config_options)
-            else:
-                print("Daemon not running")
-                sys.exit(1)
+            result = daemon.remote_daemon_request(config, "/v1/rpc/daemon", config_options)
     else:
         # command line
-        server = daemon.get_server(config)
-        init_cmdline(config_options, server)
-        if server is not None:
-            result = server.run_cmdline(config_options)
+        init_cmdline(config_options)
+        assert isinstance(cmdname, str)
+        cmd = known_commands[cmdname]
+        if cmd.requires_network:
+            result = daemon.remote_daemon_request(config, "/v1/rpc/cmdline", config_options)
+            print("Daemon not running; try 'electrum-sv daemon start'")
+            sys.exit(1)
         else:
-            assert isinstance(cmdname, str)
-            cmd = known_commands[cmdname]
-            if cmd.requires_network:
-                print("Daemon not running; try 'electrum-sv daemon start'")
-                sys.exit(1)
-            else:
-                result = run_offline_command(config, config_options)
-                # print result
+            result = run_offline_command(config, config_options)
+
     if isinstance(result, str):
         print(result)
     elif type(result) is dict and result.get('error'):

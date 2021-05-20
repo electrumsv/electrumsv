@@ -325,6 +325,8 @@ def add_global_options(parser):
                        help="Redirect logging to log file")
 
     # REST API
+    # TODO(obsolete) This --restapi argument can be removed. It is needed by the electrumsv_sdk
+    #   for now, and if not present ESV will error on startup due to unrecogised arguments.
     group.add_argument("--restapi", action="store_true", dest="restapi",
                        help="Run the built-in restapi")
     group.add_argument("--restapi-port", dest="restapi_port",
