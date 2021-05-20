@@ -56,7 +56,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag, WalletEventType,
     WalletSettings)
 from .contacts import Contacts
-from .crypto import pw_decode, pw_encode, sha256
+from .crypto import pw_decode, pw_encode
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
     SubscriptionStale, UnsupportedAccountTypeError, UnsupportedScriptTypeError, UserCancelled,
     WalletLoadError)
@@ -159,9 +159,6 @@ class AbstractAccount:
         self.response_count = 0
         self.last_poll_time: Optional[float] = None
 
-        # TODO(no-merge) Does not appear to be used, either restore it and use it or remove it.
-        # self._masterkey_ids: Set[int] = set(row.masterkey_id for row in keyinstance_rows
-        #     if row.masterkey_id is not None)
         self._transaction_descriptions: Dict[bytes, str] = { r.tx_hash: cast(str, r.description)
             for r in transaction_descriptions }
 
@@ -169,10 +166,6 @@ class AbstractAccount:
 
         # locks: if you need to take several, acquire them in the order they are defined here!
         self.lock = threading.RLock()
-
-    def scriptpubkey_to_scripthash(self, script):
-        script_bytes = bytes(script)
-        return sha256(script_bytes)
 
     def get_id(self) -> int:
         return self._id
