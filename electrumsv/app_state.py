@@ -72,8 +72,7 @@ class DefaultApp(object):
 
     def run_coro(self, coro, *args, on_done=None) -> concurrent.futures.Future:
         global app_state
-        future = app_state.async_.spawn(coro, *args, on_done=on_done)
-        return future
+        return app_state.async_.spawn(coro, *args, on_done=on_done)
 
 
 class AppStateProxy(object):

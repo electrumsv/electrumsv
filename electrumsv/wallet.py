@@ -833,7 +833,9 @@ class AbstractAccount:
         self._logger.debug("stopping account %s", self)
         if self._network:
             # Unsubscribe from the account's existing subscriptions.
-            app_state.subscriptions.remove_owner(self._subscription_owner_for_keys)
+            future = app_state.subscriptions.remove_owner(self._subscription_owner_for_keys)
+            if future is not None:
+                future.result()
             self._network = None
 
     async def _on_network_key_script_hash_result(self, subscription_key: SubscriptionKey,
