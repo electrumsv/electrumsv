@@ -145,10 +145,12 @@ ELECTRUMX_CAPABILITIES = [
     CapabilitySupport("Transaction proofs"),
 ]
 
-API_KEY_SET_TEXT = "<"+ _("API key hidden.") +">"
+API_KEY_SET_TEXT = "<"+ _("API key hidden") +">"
 API_KEY_UNSUPPORTED_TEXT = "<"+ _("not used for this server type") +">"
 API_KEY_NOT_SET_TEXT = "<"+ _("doubleclick here to set") +">"
 
+PASSWORD_REQUEST_TEXT = _("You have associated a new API key with the wallet '{}'. In order to "
+    "encrypt the API key for storage in this wallet, you will need to provide it's password.")
 
 TOKEN_PASSWORD = "631a0b30bf8ee0f4e33e915954c8ee8ffac32d77af5e89302a4ee7dd3ecd99da"
 
@@ -446,15 +448,20 @@ class EditServerDialog(WindowModalDialog):
 
         self._vbox = QVBoxLayout(self)
 
+        # NOTE(server-edit-limitations) We do not allow changing either server type or url for
+        #   editing, because there is no support for updating these in the database.
+
         self._server_type_combobox = QComboBox()
         for server_type in SERVER_TYPE_ENTRIES:
             self._server_type_combobox.addItem(SERVER_TYPE_LABELS[server_type])
         self._server_type_combobox.setCurrentIndex(SERVER_TYPE_ENTRIES.index(entry.server_type))
         self._server_type_combobox.currentIndexChanged.connect(
             self._event_changed_combobox_server_type)
-        if self._is_edit_mode and entry.server_type == NetworkServerType.MERCHANT_API and \
-                entry.data_mapi is not None and entry.data_mapi.application_config is not None:
+        if self._is_edit_mode:
+            # NOTE(server-edit-limitations)
             self._server_type_combobox.setDisabled(True)
+            self._server_type_combobox.setToolTip(
+                _("Changing the server type is not currently supported."))
 
         def apply_line_edit_validation_style(edit: QLineEdit, default_brush: QBrush,
                 validation_callback: Callable[[bool], None], _new_text: str) -> None:
@@ -492,6 +499,11 @@ class EditServerDialog(WindowModalDialog):
         self._server_url_edit.textChanged.connect(
             partial(apply_line_edit_validation_style, self._server_url_edit, default_base_brush,
                 self.validation_change.emit))
+        if self._is_edit_mode:
+            # NOTE(server-edit-limitations)
+            self._server_url_edit.setDisabled(True)
+            self._server_url_edit.setToolTip(
+                _("Changing the server URL is not currently supported."))
 
         editable_form = FormSectionWidget()
         editable_form.add_row(_("Type"), self._server_type_combobox, True)
@@ -526,7 +538,6 @@ class EditServerDialog(WindowModalDialog):
                 placeholder we show for non-edit display.
                 """
                 edit_state = self._dialog._get_edit_state_for_index(index)[-1]
-                assert edit_state.enabled
                 text = edit_state.decrypted_api_key \
                     if edit_state.decrypted_api_key is not None else ""
                 line_edit = cast(QLineEdit, editor)
@@ -546,6 +557,12 @@ class EditServerDialog(WindowModalDialog):
 
                 text = cast(QLineEdit, editor.text()).strip()
                 if text:
+                    if not edit_state.enabled:
+                        edit_state.enabled = True
+
+                        item = self._dialog._get_item_for_index(index)
+                        item.setCheckState(0, Qt.CheckState.Checked)
+
                     edit_state.decrypted_api_key = text
                     model.setData(index, API_KEY_SET_TEXT, Qt.ItemDataRole.DisplayRole)
                 else:
@@ -645,13 +662,17 @@ class EditServerDialog(WindowModalDialog):
     def get_wallet_state(self, wallet_path: str) -> Dict[int, EditServerState]:
         return self._wallet_state[wallet_path]
 
-    def _get_edit_state_for_index(self, index: QModelIndex) -> Tuple[str, int, EditServerState]:
+    def _get_item_for_index(self, index: QModelIndex) -> QTreeWidgetItem:
         parent_row = index.parent().row()
         if parent_row == -1:
             item = self._access_tree.topLevelItem(index.row())
         else:
             parent_item = self._access_tree.topLevelItem(parent_row)
             item = parent_item.child(index.row())
+        return item
+
+    def _get_edit_state_for_index(self, index: QModelIndex) -> Tuple[str, int, EditServerState]:
+        item = self._get_item_for_index(index)
         return self._get_edit_state_for_item(item)
 
     def _get_edit_state_for_item(self, item: QTreeWidgetItem) -> Tuple[str, int, EditServerState]:
@@ -720,8 +741,8 @@ class EditServerDialog(WindowModalDialog):
                     if server_row.encrypted_api_key is not None:
                         all_account_state.encrypted_api_key = server_row.encrypted_api_key
                         all_account_state.decrypted_api_key = \
-                            app_state.credentials.get_user_lifetime_credential(
-                                (server_row.encrypted_api_key,))
+                            app_state.credentials.get_lifetime_credential(
+                                server_row.encrypted_api_key)
                 all_account_state.initial_state = InitialServerState.create_from(all_account_state)
 
                 for account_row in server_account_rows:
@@ -730,8 +751,8 @@ class EditServerDialog(WindowModalDialog):
                     if account_row.encrypted_api_key is not None:
                         account_state.encrypted_api_key = account_row.encrypted_api_key
                         account_state.decrypted_api_key = \
-                            app_state.credentials.get_user_lifetime_credential(
-                                (account_row.encrypted_api_key,))
+                            app_state.credentials.get_lifetime_credential(
+                                account_row.encrypted_api_key)
                     account_state.initial_state = InitialServerState.create_from(account_state)
 
         wallet_item = QTreeWidgetItem([ f"Wallet: {wallet.name()}" ])
@@ -762,6 +783,7 @@ class EditServerDialog(WindowModalDialog):
 
             check_state = Qt.CheckState.Unchecked
             if self._entry.api_key_supported:
+                api_key_placeholder_text = API_KEY_NOT_SET_TEXT
                 if account_state.enabled:
                     check_state = Qt.CheckState.Checked
                     api_key_placeholder_text = API_KEY_SET_TEXT \
@@ -773,7 +795,7 @@ class EditServerDialog(WindowModalDialog):
                 f"Account {account.get_id()}: {account.display_name()}",
                 api_key_placeholder_text ])
             account_item.setData(0, Qt.ItemDataRole.UserRole, account.get_id())
-            if not self._entry.api_key_supported:
+            if self._entry.api_key_supported:
                 account_item.setFlags(account_item.flags() | Qt.ItemFlag.ItemIsEditable)
             account_item.setCheckState(0, check_state)
             account_item.setDisabled(not self._entry.can_configure_wallet_access)
@@ -916,11 +938,11 @@ class EditServerDialog(WindowModalDialog):
         #   used not just for merchant API but also for hosted services.
 
         def encrypt_api_key(wallet_window: "ElectrumWindow", api_key_text: str) -> Optional[str]:
-            # TODO(MAPI) Make sure the popup is clear about why the password is being
-            #   asked for and for which wallet.
-            password = wallet_window.password_dialog(parent=self)
+            nonlocal wallet
+            msg = PASSWORD_REQUEST_TEXT.format(wallet.name())
+            password = wallet_window.password_dialog(parent=self, msg=msg)
             if password is None:
-                MessageBox.show_message(_("Without the wallet password it is not "
+                MessageBox.show_message(_("Update aborted. Without the wallet password it is not "
                     "possible to save the API key into that wallet."))
                 return None
             return pw_encode(api_key_text, password)
@@ -937,7 +959,7 @@ class EditServerDialog(WindowModalDialog):
                 assert item_index == 0
                 state = self._edit_state
                 if state.decrypted_api_key == state.initial_state.decrypted_api_key:
-                    if self._edit_state.enabled == state.initial_state.enabled:
+                    if state.enabled == state.initial_state.enabled:
                         continue
 
                 # We do not apply the updates here, we instead prepare them for application with
@@ -966,7 +988,6 @@ class EditServerDialog(WindowModalDialog):
 
             # The wallet-level "any account for this wallet" entry must be last as it needs
             # to take into account the state of the accounts in the wallet.
-            print(edit_state)
             for account_index, account_id in enumerate(sorted(edit_state, reverse=True)):
                 state = edit_state[account_id]
                 if account_id is None:
@@ -975,7 +996,8 @@ class EditServerDialog(WindowModalDialog):
                 if state.enabled:
                     if state.initial_state is not None:
                         keeping_account_rows = True
-                        if state.decrypted_api_key == state.initial_state.decrypted_api_key:
+                        if state.decrypted_api_key == state.initial_state.decrypted_api_key and \
+                                state.enabled == state.initial_state.enabled:
                             continue
 
                         # Update.
@@ -987,9 +1009,11 @@ class EditServerDialog(WindowModalDialog):
                                 return # Aborting the save operation completely.
                             update_api_key_pair = (state.decrypted_api_key, encrypted_api_key)
 
-                        outgoing_state.updated_api_keys[
-                            ServerAccountKey(server_url, NetworkServerType.MERCHANT_API, -1)] = \
-                                (state.initial_state.encrypted_api_key, update_api_key_pair)
+                        if state.initial_state.encrypted_api_key != encrypted_api_key:
+                            outgoing_state.updated_api_keys[
+                                ServerAccountKey(server_url, NetworkServerType.MERCHANT_API,
+                                        account_id)] \
+                                    = (state.initial_state.encrypted_api_key, update_api_key_pair)
 
                         # The `date_created` field is set in the wallet when it applies the update.
                         if account_id == -1:
@@ -1013,9 +1037,10 @@ class EditServerDialog(WindowModalDialog):
                                 return # Aborting the save operation completely.
                             update_api_key_pair = (state.decrypted_api_key, encrypted_api_key)
 
-                        outgoing_state.updated_api_keys[ServerAccountKey(server_url, \
-                            NetworkServerType.MERCHANT_API, -1)] = \
-                                (None, update_api_key_pair)
+                        if encrypted_api_key is not None:
+                            outgoing_state.updated_api_keys[ServerAccountKey(server_url, \
+                                NetworkServerType.MERCHANT_API, account_id)] = \
+                                    (None, update_api_key_pair)
 
                         if account_id == -1:
                             assert account_index == check_wallet_row_index
@@ -1024,6 +1049,7 @@ class EditServerDialog(WindowModalDialog):
                                 encrypted_api_key, NetworkServerFlag.ANY_ACCOUNT,
                                 date_now_utc, date_now_utc))
                         else:
+                            keeping_account_rows = True
                             outgoing_state.added_server_accounts.append(
                                 NetworkServerAccountRow(server_url, NetworkServerType.MERCHANT_API,
                                     account_id, encrypted_api_key, date_now_utc, date_now_utc))
@@ -1066,7 +1092,6 @@ class EditServerDialog(WindowModalDialog):
                 saveable_application_state["url"] = server_url
                 self._network.create_application_mapi_server(saveable_application_state)
 
-        print("SAVEABLE STATES", saveable_states)
         if saveable_states:
             futures: List[concurrent.futures.Future] = []
             for outgoing_state in saveable_states:
@@ -1129,13 +1154,6 @@ class EditServerDialog(WindowModalDialog):
         else:
             raise NotImplementedError(f"Unsupported server type {server_type}")
 
-        if self._is_edit_mode and self._entry.server_type == NetworkServerType.MERCHANT_API and \
-                self._entry.data_mapi is not None and \
-                self._entry.data_mapi.application_config is not None:
-            self._server_type_combobox.setDisabled(True)
-        else:
-            self._server_type_combobox.setDisabled(False)
-
         api_key_placeholder_text = ""
         if not self._entry.api_key_supported:
             api_key_placeholder_text = API_KEY_UNSUPPORTED_TEXT
@@ -1177,7 +1195,9 @@ class EditServerDialog(WindowModalDialog):
                 # TODO(MAPI) This should be populated with the user's current setting.
                 capability_checkbox.setChecked(True)
                 # TODO(MAPI) We do not currently implement the support for disabling this service
-                #   so prevent the user from changing it.
+                #   so prevent the user from changing it. They can disable the server anyway
+                #   by not enabling for any specific wallets and their accounts, and disabling
+                #   the all wallets and their accounts application config setting.
                 capability_checkbox.setDisabled(True)
             else:
                 capability_checkbox.setChecked(True)
@@ -1526,11 +1546,13 @@ class ServersTab(QWidget):
             if mapi_server.application_config is not None:
                 last_try = mapi_server.application_config['last_try']
                 last_good = mapi_server.application_config['last_good']
+                enabled_for_all_wallets = mapi_server.application_config['enabled_for_all_wallets']
                 api_key_supported = mapi_server.application_config['api_key_supported']
                 api_key_required = mapi_server.application_config['api_key_required']
             else:
                 last_try = 0
                 last_good = 0
+                enabled_for_all_wallets = False
                 api_key_supported = True
                 api_key_required = False
             assert mapi_server.application_config is not None
@@ -1539,6 +1561,7 @@ class ServersTab(QWidget):
                 server_key.url,
                 last_try=last_try,
                 last_good=last_good,
+                enabled_for_all_wallets=enabled_for_all_wallets,
                 can_configure_wallet_access=True,
                 api_key_supported=api_key_supported,
                 api_key_required=api_key_required,

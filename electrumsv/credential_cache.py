@@ -177,7 +177,7 @@ class CredentialCache:
             for credential_id in list(self._lifetime_credential_users[user_id]):
                 self.remove_user_lifetime_credential(credential_id, user_id)
 
-    def get_user_lifetime_credential(self, credential_id: LifetimeCredentialId) -> str:
+    def get_lifetime_credential(self, credential_id: LifetimeCredentialId) -> str:
         """
         This is a credential that is cached as long as it's use is desired.
 

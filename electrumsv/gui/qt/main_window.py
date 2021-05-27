@@ -1918,8 +1918,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         parent = parent or self
         d = PasswordDialog(parent, msg, password_check_fn=storage.is_password_valid, fields=fields)
         password = d.run()
-        app_state.credentials.set_wallet_password(storage.get_path(), password,
-            CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
+        if password is not None:
+            app_state.credentials.set_wallet_password(storage.get_path(), password,
+                CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
         return password
 
     def read_tx_from_qrcode(self) -> Optional[Transaction]:

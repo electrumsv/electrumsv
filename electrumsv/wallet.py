@@ -2503,11 +2503,11 @@ class Wallet(TriggeredCallbacks):
                         app_state.credentials.remove_user_lifetime_credential(encrypted_api_key,
                             credential_user_id)
                 if new_key_state is not None:
-                    encrypted_api_key, decrypted_api_key = new_key_state
-                    self._registered_api_keys[encrypted_api_key] -= 1
+                    decrypted_api_key, encrypted_api_key = new_key_state
                     if self._registered_api_keys[encrypted_api_key] == 0:
                         app_state.credentials.add_user_lifetime_credential(encrypted_api_key,
                             credential_user_id, decrypted_api_key)
+                    self._registered_api_keys[encrypted_api_key] += 1
 
             if self._network is not None:
                 self._network.update_servers_for_wallet(self, added_server_rows,
@@ -2520,17 +2520,6 @@ class Wallet(TriggeredCallbacks):
         # We do not update the data used by the wallet and network unless the database update
         # successfully applies. There is likely no reason it won't, outside of programmer error.
         future.add_done_callback(update_cached_values)
-        return future
-
-    def delete_network_servers(self,
-            deleted_server_keys: List[ServerAccountKey],
-            deleted_server_account_keys: List[ServerAccountKey]) -> concurrent.futures.Future:
-        # TODO(MAPI) Does this need to pass the updated api keys?
-        future = db_functions.update_network_servers(self.get_db_context(), [], [], [], [],
-            deleted_server_keys, deleted_server_account_keys)
-        # We do not update the data used by the wallet and network unless the database update
-        # successfully applies. There is likely no reason it won't, outside of programmer error.
-#        future.add_done_callback(update_cached_values)
         return future
 
     def _get_header_hash_for_height(self, height: int) -> Optional[bytes]:

@@ -208,7 +208,7 @@ class NewServer:
             usage_context = NewServerAPIContext(wallet_path, server_key.account_id)
             old_encrypted_api_key, new_pair = key_change
             if new_pair is None:
-                del self.client_api_keys[usage_context]
+                self.client_api_keys[usage_context] = None
             else:
                 _new_decrypted_api_key, new_encrypted_api_key = new_pair
                 self.client_api_keys[usage_context] = new_encrypted_api_key
@@ -253,15 +253,19 @@ class NewServer:
         Returns an API key to indicate the client is configured to use this server with that key.
         """
         # Look up the account.
-        credential_id = self.client_api_keys.get(client_key)
-        if credential_id is not None:
-            return app_state.credentials.get_lifetime_credential(credential_id)
+        if client_key in self.client_api_keys:
+            credential_id = self.client_api_keys[client_key]
+            if credential_id is not None:
+                return app_state.credentials.get_lifetime_credential(credential_id)
+            return ""
 
         # Look up the account's wallet as the first fallback.
         wallet_client_key = NewServerAPIContext(client_key.wallet_path, -1)
-        encrypted_api_key = self.client_api_keys.get(wallet_client_key)
-        if encrypted_api_key is not None:
-            return app_state.credentials.get_lifetime_credential(encrypted_api_key)
+        if wallet_client_key in self.client_api_keys:
+            encrypted_api_key = self.client_api_keys[wallet_client_key]
+            if encrypted_api_key is not None:
+                return app_state.credentials.get_lifetime_credential(encrypted_api_key)
+            return ""
 
         # Finally we look up the application server for this URL, if there is one, and if it
         # is enabled for global use, we use it's api key.
