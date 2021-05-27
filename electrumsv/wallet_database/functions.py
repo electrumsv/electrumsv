@@ -1128,7 +1128,7 @@ def read_network_servers(db: sqlite3.Connection,
         -> Tuple[List[NetworkServerRow], List[NetworkServerAccountRow]]:
     read_server_row_sql = "SELECT url, server_type, encrypted_api_key, flags " \
         "FROM Servers"
-    read_account_rows_sql = "SELECT url, account_id, encrypted_api_key " \
+    read_account_rows_sql = "SELECT url, server_type, account_id, encrypted_api_key " \
         "FROM ServerAccounts"
     params: Sequence[Any] = ()
     if server_key is not None:
@@ -1636,39 +1636,45 @@ def update_wallet_event_flags(db_context: DatabaseContext,
     return db_context.post_to_thread(_write)
 
 
-def update_network_server(db_context: DatabaseContext,
-        added_server_rows: List[NetworkServerRow],
-        added_server_account_rows: List[NetworkServerAccountRow],
-        updated_server_rows: List[NetworkServerRow],
-        updated_server_account_rows: List[NetworkServerAccountRow],
-        deleted_server_keys: List[ServerAccountKey],
-        deleted_server_account_keys: List[ServerAccountKey]) \
+def update_network_servers(db_context: DatabaseContext,
+        added_server_rows: Optional[List[NetworkServerRow]]=None,
+        added_server_account_rows: Optional[List[NetworkServerAccountRow]]=None,
+        updated_server_rows: Optional[List[NetworkServerRow]]=None,
+        updated_server_account_rows: Optional[List[NetworkServerAccountRow]]=None,
+        deleted_server_keys: Optional[List[ServerAccountKey]]=None,
+        deleted_server_account_keys: Optional[List[ServerAccountKey]]=None) \
             -> concurrent.futures.Future:
     timestamp_utc = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     delete_server_accounts_sql = "DELETE FROM ServerAccounts WHERE url=? AND server_type=?"
     delete_server_sql = "DELETE FROM Servers WHERE url=? AND server_type=?"
     delete_server_accounts_sql2 = "DELETE FROM ServerAccounts WHERE url=? AND server_type=? AND "\
         "account_id=?"
-    insert_server_sql = "INSERT INTO Servers (server_type, url, encrypted_api_key, " \
+    insert_server_sql = "INSERT INTO Servers (url, server_type, encrypted_api_key, " \
         "flags, date_created, date_updated) VALUES (?,?,?,?,?,?)"
-    insert_server_accounts_sql = "INSERT INTO ServerAccounts (server_type, url, account_id, " \
+    insert_server_accounts_sql = "INSERT INTO ServerAccounts (url, server_type, account_id, " \
         "encrypted_api_key, date_created, date_updated) VALUES (?,?,?,?,?,?)"
     update_server_sql = "UPDATE Servers SET date_updated=?, encrypted_api_key=?, " \
         "flags=? WHERE url=? AND server_type=?"
     update_server_account_sql = "UPDATE ServerAccounts SET date_updated=?, encrypted_api_key=? " \
         "WHERE url=? AND server_type=? AND account_id=?"
 
-    update_server_rows = [ (timestamp_utc, server_row.encrypted_api_key, server_row.flags,
-        server_row.url, server_row.server_type) for server_row in updated_server_rows ]
-    update_server_account_rows = [ (timestamp_utc, account_row.encrypted_api_key,
-        account_row.url, account_row.server_type, account_row.account_id)
-        for account_row in updated_server_account_rows ]
-    delete_server_keys2 = [ (v.url, v.server_type) for v in deleted_server_keys ]
+    update_server_rows = []
+    if updated_server_rows:
+        update_server_rows = [ (timestamp_utc, server_row.encrypted_api_key, server_row.flags,
+            server_row.url, server_row.server_type) for server_row in updated_server_rows ]
+    update_server_account_rows = []
+    if updated_server_account_rows:
+        update_server_account_rows = [ (timestamp_utc, account_row.encrypted_api_key,
+            account_row.url, account_row.server_type, account_row.account_id)
+            for account_row in updated_server_account_rows ]
+    delete_server_keys = []
+    if deleted_server_keys:
+        delete_server_keys = [ (v.url, v.server_type) for v in deleted_server_keys ]
 
     def _write(db: sqlite3.Connection) -> None:
-        if deleted_server_keys:
-            db.executemany(delete_server_accounts_sql, delete_server_keys2)
-            db.executemany(delete_server_sql, delete_server_keys2)
+        if delete_server_keys:
+            db.executemany(delete_server_accounts_sql, delete_server_keys)
+            db.executemany(delete_server_sql, delete_server_keys)
         if deleted_server_account_keys:
             db.executemany(delete_server_accounts_sql2, deleted_server_account_keys)
         if added_server_rows:

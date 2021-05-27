@@ -252,6 +252,8 @@ class PaymentFlag(IntFlag):
     MASK_STATE = (UNPAID | EXPIRED | PAID | ARCHIVED)
     CLEARED_MASK_STATE = ~MASK_STATE
 
+    NOT_ARCHIVED = ~ARCHIVED
+
 
 # Transaction limits
 MAX_MESSAGE_BYTES = 99000

@@ -3,7 +3,7 @@ import os
 import pytest
 try:
     # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
-    import pysqlite3 as sqlite3
+    import pysqlite3 as sqlite3 # type: ignore
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
     # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
@@ -12,15 +12,17 @@ import tempfile
 from typing import List
 
 from electrumsv.constants import (AccountTxFlags, DerivationType, KeyInstanceFlag,
+    NetworkServerFlag, NetworkServerType,
     PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
-from electrumsv.types import TxoKeyType
+from electrumsv.types import ServerAccountKey, TxoKeyType
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.sqlite_support import DatabaseContext, LeakedSQLiteConnectionError
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
-    InvoiceRow, KeyInstanceRow, MasterKeyRow, PaymentRequestRow, PaymentRequestUpdateRow,
-    TransactionRow, TransactionOutputShortRow, TxProof, WalletEventRow)
+    InvoiceRow, KeyInstanceRow, MasterKeyRow, NetworkServerRow, NetworkServerAccountRow,
+    PaymentRequestRow, PaymentRequestUpdateRow, TransactionRow, TransactionOutputShortRow,
+    TxProof, WalletEventRow)
 from electrumsv.wallet_database.util import pack_proof, unpack_proof
 
 logs.set_level("debug")
@@ -99,8 +101,8 @@ def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
     masterkey_rows = db_functions.read_masterkeys(db_context)
     assert len(masterkey_rows) == 0
 
-    line1 = MasterKeyRow(1, None, 2, b'111')
-    line2 = MasterKeyRow(2, None, 4, b'222')
+    line1 = MasterKeyRow(1, None, DerivationType.ELECTRUM_MULTISIG, b'111')
+    line2 = MasterKeyRow(2, None, DerivationType.BIP32_SUBPATH, b'222')
 
     future = db_functions.create_master_keys(db_context, [ line1 ])
     future.result(timeout=5)
@@ -144,7 +146,7 @@ def test_table_accounts_crud(db_context: DatabaseContext) -> None:
         future.result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    mk_row1 = MasterKeyRow(MASTERKEY_ID+1, None, 2, b'111')
+    mk_row1 = MasterKeyRow(MASTERKEY_ID+1, None, DerivationType.ELECTRUM_MULTISIG, b'111')
     future = db_functions.create_master_keys(db_context, [ mk_row1 ])
     future.result(timeout=5)
 
@@ -275,9 +277,9 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
     DERIVATION_DATA2 = b'222'
 
     line1 = KeyInstanceRow(KEYINSTANCE_ID+1, ACCOUNT_ID+1, MASTERKEY_ID+1, DerivationType.BIP32,
-        DERIVATION_DATA1, None, 0, None)
+        DERIVATION_DATA1, None, KeyInstanceFlag.NONE, None)
     line2 = KeyInstanceRow(KEYINSTANCE_ID+2, ACCOUNT_ID+1, MASTERKEY_ID+1, DerivationType.HARDWARE,
-        DERIVATION_DATA2, None, 0, None)
+        DERIVATION_DATA2, None, KeyInstanceFlag.NONE, None)
 
     # No effect: The masterkey foreign key constraint will fail as the masterkey does not exist.
     with pytest.raises(sqlite3.IntegrityError):
@@ -286,7 +288,7 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context,
-        [ MasterKeyRow(MASTERKEY_ID+1, None, 2, b'111') ])
+        [ MasterKeyRow(MASTERKEY_ID+1, None, DerivationType.ELECTRUM_MULTISIG, b'111') ])
     future.result(timeout=5)
 
     # No effect: The account foreign key constraint will fail as the account does not exist.
@@ -361,6 +363,7 @@ class TestTransactionTable:
         db.commit()
 
     def _get_store_hashes(self) -> List[bytes]:
+        assert self.db_context is not None
         return db_functions.read_transaction_hashes(self.db_context)
 
     def test_proof_serialization(self):
@@ -372,11 +375,13 @@ class TestTransactionTable:
 
 
     def test_create_read_various(self):
+        assert self.db_context is not None
+
         tx_bytes_1 = os.urandom(10)
         tx_hash = bitcoinx.double_sha256(tx_bytes_1)
         tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes_1,
             flags=TxFlags.STATE_DISPATCHED,
-            block_hash=b'11', block_height=None, block_position=None, fee_value=None,
+            block_hash=b'11', block_height=222, block_position=None, fee_value=None,
             description=None, version=None, locktime=None, date_created=1, date_updated=1)
         future = db_functions.create_transactions(self.db_context, [ tx_row ])
         future.result(timeout=5)
@@ -396,8 +401,9 @@ class TestTransactionTable:
         tx_bytes = db_functions.read_transaction_bytes(self.db_context, tx_hash)
         assert tx_bytes_1 == tx_bytes
 
-
     def test_create_multiple(self) -> None:
+        assert self.db_context is not None
+
         to_add = []
         for i in range(10):
             tx_bytes = os.urandom(10)
@@ -490,6 +496,8 @@ class TestTransactionTable:
 
 
     def test_get_all_pending(self):
+        assert self.db_context is not None
+
         get_tx_hashes = set()
         for tx_hex in (tx_hex_1, tx_hex_2):
             tx_bytes = bytes.fromhex(tx_hex)
@@ -618,6 +626,8 @@ class TestTransactionTable:
     #         assert metadata.position is None
 
     def test_proof(self):
+        assert self.db_context is not None
+
         tx_bytes = os.urandom(10)
         tx_hash = bitcoinx.double_sha256(tx_bytes)
         tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
@@ -712,7 +722,8 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    future = db_functions.create_master_keys(db_context, [ (MASTERKEY_ID, None, 2, b'111') ])
+    future = db_functions.create_master_keys(db_context, [
+        MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111') ])
     future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
@@ -791,7 +802,8 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
         future.result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    future = db_functions.create_master_keys(db_context, [ (MASTERKEY_ID, None, 2, b'111') ])
+    future = db_functions.create_master_keys(db_context, [
+        MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111') ])
     future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
@@ -800,8 +812,8 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     future.result()
 
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
-    entries = [ (KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-        DERIVATION_DATA, ScriptType.P2PKH, True, None) for i in range(LINE_COUNT) ]
+    entries = [ KeyInstanceRow(KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
+        DERIVATION_DATA, None, KeyInstanceFlag.NONE, None) for i in range(LINE_COUNT) ]
     future = db_functions.create_keyinstances(db_context, entries)
     future.result(timeout=5)
 
@@ -905,7 +917,8 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
         future.result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    future = db_functions.create_master_keys(db_context, [ (MASTERKEY_ID, None, 2, b'111') ])
+    future = db_functions.create_master_keys(db_context,
+        [ MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111') ])
     future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
@@ -1068,7 +1081,6 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
 #     tx_table.close()
 
 
-
 def test_table_invoice_crud(db_context: DatabaseContext) -> None:
     db_lines = db_functions.read_invoices_for_account(db_context, 1)
     assert len(db_lines) == 0
@@ -1104,7 +1116,8 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
         future.result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    future = db_functions.create_master_keys(db_context, [ (MASTERKEY_ID, None, 2, b'111') ])
+    future = db_functions.create_master_keys(db_context, [
+        MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111') ])
     future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
@@ -1213,7 +1226,7 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
     assert row.description == "newdesc3.2"
 
     future = db_functions.update_invoice_flags(db_context,
-        [ (~PaymentFlag.ARCHIVED, PaymentFlag.ARCHIVED, line3_2.invoice_id), ])
+        [ (PaymentFlag.NOT_ARCHIVED, PaymentFlag.ARCHIVED, line3_2.invoice_id), ])
     future.result()
 
     # Verify the invoice now has the new description.
@@ -1231,3 +1244,159 @@ def test_table_invoice_crud(db_context: DatabaseContext) -> None:
     db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1)
     assert 1 == len(db_lines)
     assert db_lines[0].invoice_id == line1_1.invoice_id
+
+
+def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
+    ACCOUNT_ID = 1
+    SERVER_TYPE = NetworkServerType.ELECTRUMX
+    UNUSED_SERVER_TYPE = NetworkServerType.MERCHANT_API
+    date_updated = 1
+    URL = "..."
+    server_rows = [
+        NetworkServerRow(URL, SERVER_TYPE, None, NetworkServerFlag.NONE,
+            date_updated, date_updated),
+    ]
+    server_account_rows = [
+        NetworkServerAccountRow(URL, SERVER_TYPE, ACCOUNT_ID, None, date_updated,
+            date_updated)
+    ]
+    server_account_rows_no_server = [
+        NetworkServerAccountRow(URL*2, SERVER_TYPE, ACCOUNT_ID, None, date_updated,
+            date_updated)
+    ]
+
+    ## Verify that the NetworkServerRow entry is added.
+    future = db_functions.update_network_servers(db_context, added_server_rows=server_rows)
+    future.result(timeout=5)
+
+    # Test the Accounts table foreign key.
+    future = db_functions.update_network_servers(db_context,
+        added_server_account_rows=server_account_rows)
+    with pytest.raises(sqlite3.IntegrityError):
+        future.result(timeout=5)
+
+    ## Make the account and the masterkey row it requires to exist.
+    if True:
+        MASTERKEY_ID = 20
+
+        # Satisfy the masterkey foreign key constraint by creating the masterkey.
+        mk_row1 = MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111')
+        future = db_functions.create_master_keys(db_context, [ mk_row1 ])
+        future.result(timeout=5)
+
+        line1 = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name1')
+        future = db_functions.create_accounts(db_context, [ line1 ])
+        future.result(timeout=5)
+
+    # Test the Servers table foreign key causes an integrity error.
+    future = db_functions.update_network_servers(db_context,
+        added_server_account_rows=server_account_rows_no_server)
+    with pytest.raises(sqlite3.IntegrityError):
+        future.result(timeout=5)
+
+    # Verify that the read picks up the added Servers row.
+    read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+    assert len(read_server_rows) == 1
+    assert len(read_server_account_rows) == 0
+    # These columns are not read by the query.
+    read_server_rows[0] = read_server_rows[0]._replace(date_created=date_updated,
+        date_updated=date_updated)
+    assert server_rows == read_server_rows
+
+    # Verify that the NetworkServerAccountRows are added.
+    if True:
+        future = db_functions.update_network_servers(db_context,
+            added_server_account_rows=server_account_rows)
+        future.result(timeout=5)
+
+        # Find the server row and account row.
+        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+        assert len(read_server_rows) == 1
+        assert len(read_server_account_rows) == 1
+        # These columns are not read by the query.
+        read_server_account_rows[0] = read_server_account_rows[0]._replace(date_created=date_updated,
+            date_updated=date_updated)
+        assert server_account_rows == read_server_account_rows
+
+    # Verify that the important NetworkServerRow columns are updated.
+    if True:
+        update_server_rows = [
+            server_rows[0]._replace(flags=NetworkServerFlag.ANY_ACCOUNT, encrypted_api_key="key"),
+        ]
+        future = db_functions.update_network_servers(db_context,
+            updated_server_rows=update_server_rows)
+        future.result(timeout=5)
+
+        # Find the server row and account row.
+        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+        assert len(read_server_rows) == 1
+        assert len(read_server_account_rows) == 1
+        # These columns are not read by the query.
+        read_server_rows[0] = read_server_rows[0]._replace(date_created=date_updated,
+            date_updated=date_updated)
+        assert update_server_rows == read_server_rows
+        # These columns are not read by the query.
+        read_server_account_rows[0] = read_server_account_rows[0]._replace(
+            date_created=date_updated, date_updated=date_updated)
+        assert server_account_rows == read_server_account_rows
+
+    # Verify that the important NetworkServerAccountRow columns are updated.
+    if True:
+        update_server_account_rows = [
+            server_account_rows[0]._replace(encrypted_api_key="key"),
+        ]
+        future = db_functions.update_network_servers(db_context,
+            updated_server_account_rows=update_server_account_rows)
+        future.result(timeout=5)
+
+        # Find the server row and account row.
+        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+        assert len(read_server_rows) == 1
+        assert len(read_server_account_rows) == 1
+        # These columns are not read by the query.
+        read_server_rows[0] = read_server_rows[0]._replace(date_created=date_updated,
+            date_updated=date_updated)
+        assert update_server_rows == read_server_rows
+        # These columns are not read by the query.
+        read_server_account_rows[0] = read_server_account_rows[0]._replace(date_created=date_updated,
+            date_updated=date_updated)
+        assert update_server_account_rows == read_server_account_rows
+
+    # Delete the Servers row and confirm the related ServerAccounts row is also deleted.
+    if True:
+        future = db_functions.update_network_servers(db_context,
+            deleted_server_keys=[ ServerAccountKey(URL, SERVER_TYPE) ])
+        future.result(timeout=5)
+
+        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+        assert len(read_server_rows) == 0
+        assert len(read_server_account_rows) == 0
+
+    # Restore the rows and verify that the deleting just the ServerAccounts row works too.
+    if True:
+        future = db_functions.update_network_servers(db_context, added_server_rows=server_rows,
+            added_server_account_rows=server_account_rows)
+        future.result(timeout=5)
+
+        # Verify that deleting an unmatched Servers row does not delete the existing row.
+        future = db_functions.update_network_servers(db_context,
+            deleted_server_keys=[ ServerAccountKey(URL, UNUSED_SERVER_TYPE) ])
+        future.result(timeout=5)
+
+        # Verify that deleting an unmatched ServerAccounts row does not delete the existing row.
+        future = db_functions.update_network_servers(db_context,
+            deleted_server_account_keys=[ ServerAccountKey(URL, UNUSED_SERVER_TYPE, 1) ])
+        future.result(timeout=5)
+
+        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+        assert len(read_server_rows) == 1
+        assert len(read_server_account_rows) == 1
+
+        # Verify that deleting an matched ServerAccounts row does delete the existing row.
+        future = db_functions.update_network_servers(db_context,
+            deleted_server_account_keys=[ ServerAccountKey(URL, SERVER_TYPE, 1) ])
+        future.result(timeout=5)
+
+        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+        assert len(read_server_rows) == 1
+        assert len(read_server_account_rows) == 0
