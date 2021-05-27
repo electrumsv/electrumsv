@@ -28,7 +28,6 @@ import dataclasses
 import datetime
 import enum
 from functools import partial
-import random
 import socket
 from typing import Callable, cast, Dict, List, NamedTuple, Optional, Sequence, TYPE_CHECKING, Tuple
 import urllib.parse
@@ -47,10 +46,12 @@ from PyQt5.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, \
 
 from ...app_state import app_state
 from ...constants import NetworkServerFlag, NetworkServerType
+from ...crypto import pw_decode, pw_encode
 from ...i18n import _
 from ...logs import logs
 from ...wallet import Wallet
-from ...network import Network, SVServerKey, SVUserAuth, SVProxy, SVSession, SVServer
+from ...network import NewServer, Network, SVServerKey, SVUserAuth, SVProxy, SVSession, SVServer
+from ...types import ServerAccountKey
 from ...util.network import DEFAULT_SCHEMES, UrlValidationError, validate_url
 from ...wallet_database.types import NetworkServerRow, NetworkServerAccountRow
 
@@ -102,25 +103,17 @@ class ServerCapabilities(enum.IntEnum):
     MERKLE_PROOF = 4
 
 
-class ServerItem(NamedTuple):
-    server_id: int
-    server_name: str
+class ServerListEntry(NamedTuple):
     server_type: NetworkServerType
-    api_key_text: Optional[str] = None
+    url: str
+    last_try: float = 0.0
+    last_good: float = 0.0
+    enabled_for_all_wallets: bool = True
+    can_configure_wallet_access: bool = False
     api_key_supported: bool = False
     api_key_required: bool = False
-    enabled_for_all_wallets: bool = True
-
-
-class ServerListEntry(NamedTuple):
-    item: ServerItem
-    server: Optional[SVServer]
-    url: str
-    last_try: float
-    last_good: float
-    is_connected: bool
-    # TODO This can be determined using the `network` reference.
-    is_main_server: bool
+    data_electrumx: Optional[SVServer] = None
+    data_mapi: Optional[NewServer] = None
 
 
 # The location of the help document.
@@ -152,10 +145,12 @@ ELECTRUMX_CAPABILITIES = [
     CapabilitySupport("Transaction proofs"),
 ]
 
-API_KEY_SET_TEXT = _("<API key hidden>")
-API_KEY_UNSUPPORTED_TEXT = _("<unsupported>")
-API_KEY_NOT_SET_TEXT = ""
+API_KEY_SET_TEXT = "<"+ _("API key hidden.") +">"
+API_KEY_UNSUPPORTED_TEXT = "<"+ _("not used for this server type") +">"
+API_KEY_NOT_SET_TEXT = "<"+ _("doubleclick here to set") +">"
 
+
+TOKEN_PASSWORD = "631a0b30bf8ee0f4e33e915954c8ee8ffac32d77af5e89302a4ee7dd3ecd99da"
 
 
 def url_to_server_key(url: str) -> SVServerKey:
@@ -166,9 +161,13 @@ def url_to_server_key(url: str) -> SVServerKey:
     point there was some kind of validation that passed.
     """
     result = urllib.parse.urlparse(url)
-    host, port_str = result.netloc.split(":")
-    port = int(port_str)
     protocol = "s" if result.scheme.startswith("ssl") else "t"
+    if ":" in result.netloc:
+        host, port_str = result.netloc.split(":")
+        port = int(port_str)
+    else:
+        host = result.netloc
+        port = 50002 if protocol == "s" else 50001
     return SVServerKey(host, port, protocol)
 
 
@@ -365,10 +364,37 @@ class BlockchainTab(QWidget):
 
 
 @dataclasses.dataclass
-class EditServerState:
+class InitialServerState:
     enabled: bool = False
-    # This is the decrypted API key.
-    api_key_text: Optional[str] = None
+    encrypted_api_key: Optional[str] = None
+    decrypted_api_key: Optional[str] = None
+
+    @classmethod
+    def create_from(cls, other: "InitialServerState") -> "InitialServerState":
+        return cls(other.enabled, other.encrypted_api_key, other.decrypted_api_key)
+
+
+@dataclasses.dataclass
+class EditServerState(InitialServerState):
+    initial_state: Optional["InitialServerState"] = None
+
+
+@dataclasses.dataclass
+class WalletSaveState:
+    wallet: Wallet
+    added_servers: List[NetworkServerRow] = dataclasses.field(default_factory=list)
+    added_server_accounts: List[NetworkServerAccountRow] = dataclasses.field(default_factory=list)
+    updated_servers: List[NetworkServerRow] = dataclasses.field(default_factory=list)
+    updated_server_accounts: List[NetworkServerAccountRow] = dataclasses.field(default_factory=list)
+    deleted_server_keys: List[ServerAccountKey] = dataclasses.field(default_factory=list)
+    deleted_server_account_keys: List[ServerAccountKey] = dataclasses.field(default_factory=list)
+    updated_api_keys: Dict[ServerAccountKey, Tuple[Optional[str], Optional[Tuple[str, str]]]] = \
+        dataclasses.field(default_factory=dict)
+
+    def is_saveable(self) -> bool:
+        return (len(self.added_servers) or len(self.added_server_accounts) or \
+            len(self.updated_servers) or len(self.updated_server_accounts) or \
+            len(self.deleted_server_keys) or len(self.deleted_server_account_keys)) > 0
 
 
 class EditServerDialog(WindowModalDialog):
@@ -384,41 +410,38 @@ class EditServerDialog(WindowModalDialog):
 
         self._network = network
         self._is_edit_mode = edit_mode
+
+        self._server_url: Optional[str] = None
+        if self._is_edit_mode:
+            assert entry is not None
+            self._server_url = entry.url
+        else:
+            entry = ServerListEntry(NetworkServerType.MERCHANT_API, "",
+                can_configure_wallet_access=True, api_key_supported=True)
+
         self._entry = entry
-
-        # TODO The server id is kind of wonky. There's the built-in one, but it is possible for
-        #   a user to edit a server and inherit it's static data server id, which makes it hard
-        #   to update the server.
-
-        # Generate an id for a new server. This will be overriden by any edited servers id.
-        self._server_id: int = random.randrange(500000, 4294967295)
-        if entry is not None:
-            self._server_id = entry.item.server_id
 
         # Covers the "any account in any loaded wallet" row.
         # We enable this by default for all new added servers. The edit will overwrite this.
-        self._application_state = EditServerState(True)
+        self._edit_state = EditServerState(True)
         if entry is not None:
-            self._application_state.enabled = entry.item.enabled_for_all_wallets
-            self._application_state.api_key_text = entry.item.api_key_text
+            self._edit_state.enabled = entry.enabled_for_all_wallets
+            if entry.data_mapi is not None and entry.data_mapi.application_config["api_key"]:
+                encrypted_api_key = entry.data_mapi.application_config["api_key"]
+                self._edit_state.encrypted_api_key = encrypted_api_key
+                self._edit_state.decrypted_api_key = pw_decode(TOKEN_PASSWORD, encrypted_api_key)
         # This is used to track the initial application state, which comes from the config.
-        self._initial_application_state = dataclasses.replace(self._application_state)
+        self._edit_state.initial_state = InitialServerState.create_from(self._edit_state)
 
-        # Covers the "any account" row with `account_id` of `None`.
+        # Covers the "any account" row with `account_id` of `-1`.
         # Covers all the accounts in the wallet under their `account_id`.
-        self._wallet_state: Dict[str, Dict[Optional[int], EditServerState]] = {}
+        self._wallet_state: Dict[str, Dict[int, EditServerState]] = {}
         # These are used to track initial wallet state, but it is unknown until a wallet is loaded.
         self._server_row_by_wallet_path: Dict[str, NetworkServerRow] = {}
         self._account_rows_by_wallet_path: Dict[str, List[NetworkServerAccountRow]] = {}
 
-        initial_server_url = ""
-        initial_server_type = NetworkServerType.ELECTRUMX
         server_type_schemes: Optional[set[str]] = None
-        if self._is_edit_mode:
-            assert entry is not None
-            initial_server_url = entry.url
-            initial_server_type = entry.item.server_type
-        if initial_server_type == NetworkServerType.ELECTRUMX:
+        if entry.server_type == NetworkServerType.ELECTRUMX:
             server_type_schemes = {"ssl", "tcp"}
 
         self._vbox = QVBoxLayout(self)
@@ -426,9 +449,12 @@ class EditServerDialog(WindowModalDialog):
         self._server_type_combobox = QComboBox()
         for server_type in SERVER_TYPE_ENTRIES:
             self._server_type_combobox.addItem(SERVER_TYPE_LABELS[server_type])
-        self._server_type_combobox.setCurrentIndex(SERVER_TYPE_ENTRIES.index(initial_server_type))
+        self._server_type_combobox.setCurrentIndex(SERVER_TYPE_ENTRIES.index(entry.server_type))
         self._server_type_combobox.currentIndexChanged.connect(
             self._event_changed_combobox_server_type)
+        if self._is_edit_mode and entry.server_type == NetworkServerType.MERCHANT_API and \
+                entry.data_mapi is not None and entry.data_mapi.application_config is not None:
+            self._server_type_combobox.setDisabled(True)
 
         def apply_line_edit_validation_style(edit: QLineEdit, default_brush: QBrush,
                 validation_callback: Callable[[bool], None], _new_text: str) -> None:
@@ -441,24 +467,24 @@ class EditServerDialog(WindowModalDialog):
 
         def _apply_line_edit_validation_style(edit: QLineEdit, default_brush: QBrush,
                 validation_callback: Callable[[bool], None], _new_text: str) -> None:
+            error_message = self._check_server_url_invalid()
+
             # Change the background to indicate whether the edit field contents are valid or not.
             palette = edit.palette()
-            if edit.hasAcceptableInput():
+            if error_message is None:
                 palette.setBrush(palette.Base, default_brush)
             else:
                 palette.setBrush(palette.Base, QColor(Qt.GlobalColor.yellow).lighter(167))
             edit.setPalette(palette)
 
-            # If the field contents are invalid, the tooltip will indicate why.
-            validator = cast(URLValidator, edit.validator())
-            last_message = validator.get_last_message()
-            edit.setToolTip(last_message)
+            if error_message is not None:
+                edit.setToolTip(error_message)
 
-            validation_callback(last_message == "")
+            validation_callback(error_message is None)
 
         self._server_url_edit = QLineEdit()
         self._server_url_edit.setMinimumWidth(300)
-        self._server_url_edit.setText(initial_server_url)
+        self._server_url_edit.setText(entry.url)
         default_edit_palette = self._server_url_edit.palette()
         default_base_brush = default_edit_palette.brush(default_edit_palette.Base)
         self._url_validator = URLValidator(schemes=server_type_schemes)
@@ -473,12 +499,11 @@ class EditServerDialog(WindowModalDialog):
 
         self._vbox.addWidget(editable_form)
 
-        server_dialog = self
-
         ## The wallet and account access expandable section.
         class AccessTreeItemDelegate(QItemDelegate):
-            def __init__(self, editable_columns: List[int]) -> None:
+            def __init__(self, dialog: "EditServerDialog", editable_columns: List[int]) -> None:
                 super().__init__(None)
+                self._dialog = dialog
                 self._editable_columns = editable_columns
 
             def createEditor(self, parent: QWidget, style_option: QStyleOptionViewItem,
@@ -500,9 +525,10 @@ class EditServerDialog(WindowModalDialog):
                 Overriden method that ensures our hidden actual editor widget text replaces the
                 placeholder we show for non-edit display.
                 """
-                edit_state = self._get_edit_state_for_index(index)
+                edit_state = self._dialog._get_edit_state_for_index(index)[-1]
                 assert edit_state.enabled
-                text = edit_state.api_key_text if edit_state.api_key_text is not None else ""
+                text = edit_state.decrypted_api_key \
+                    if edit_state.decrypted_api_key is not None else ""
                 line_edit = cast(QLineEdit, editor)
                 line_edit.setText(text)
 
@@ -513,68 +539,23 @@ class EditServerDialog(WindowModalDialog):
                 in the edit state, and replaced for non-edit display with the appropriate
                 placeholder.
                 """
-                edit_state = self._get_edit_state_for_index(index)
+                edit_state = self._dialog._get_edit_state_for_index(index)[-1]
+                # We clear this because acquiring it requires the user enter their password and
+                # we only do that at point of committing an update.
+                edit_state.encrypted_api_key = None
 
                 text = cast(QLineEdit, editor.text()).strip()
                 if text:
-                    edit_state.api_key_text = text
+                    edit_state.decrypted_api_key = text
                     model.setData(index, API_KEY_SET_TEXT, Qt.ItemDataRole.DisplayRole)
                 else:
-                    edit_state.api_key_text = None
+                    edit_state.decrypted_api_key = None
                     model.setData(index, API_KEY_NOT_SET_TEXT, Qt.ItemDataRole.DisplayRole)
 
-            def _get_edit_state_for_index(self, index: QModelIndex) -> EditServerState:
-                """
-                Helper method.
-                """
-                # TODO Using this reference from the outer scope is not ideal, there should be
-                #   some better way to do this. It might be that we have to set a reference
-                #   to the edit dialog on this delegate.
-                nonlocal server_dialog
-                parent_index = index.parent()
-                wallet_row = parent_index.row() if parent_index.row() > -1 else index.row()
-                wallet_item = server_dialog.get_access_tree().topLevelItem(wallet_row)
-                if parent_index.row() == -1:
-                    if index.row() == 0:
-                        # All wallets in this application.
-                        return server_dialog.get_application_state()
-                    wallet_path = cast(str, wallet_item.data(0, Qt.ItemDataRole.UserRole))
-                    wallet_state = server_dialog.get_wallet_state(wallet_path)
-                    return wallet_state[None]
-                else:
-                    wallet_path = cast(str, wallet_item.data(0, Qt.ItemDataRole.UserRole))
-                    wallet_state = server_dialog.get_wallet_state(wallet_path)
-                    if index.row() == 0:
-                        # Any account in this wallet.
-                        return wallet_state[None]
-                    account_item = wallet_item.child(index.row())
-                    account_id = cast(int, account_item.data(0, Qt.ItemDataRole.UserRole))
-                    return wallet_state[account_id]
-
-        api_key_placeholder_text = ""
-        if not self._entry.item.api_key_supported:
-            api_key_placeholder_text = API_KEY_UNSUPPORTED_TEXT
-        if self._application_state.enabled:
-            check_state = Qt.CheckState.Checked
-            if self._entry.item.api_key_supported:
-                api_key_placeholder_text =  API_KEY_SET_TEXT \
-                    if self._application_state.api_key_text is not None else API_KEY_NOT_SET_TEXT
-        else:
-            check_state = Qt.CheckState.Unchecked
-            if self._entry.item.api_key_supported:
-                api_key_placeholder_text = API_KEY_NOT_SET_TEXT
-
         self._access_tree = QTreeWidget()
-        self._access_tree.setItemDelegate(AccessTreeItemDelegate([ 1 ]))
+        self._access_tree.setItemDelegate(AccessTreeItemDelegate(self, [ 1 ]))
         self._access_tree.setHeaderLabels([ _('Scope'), _("API key") ])
-        all_wallets_item = QTreeWidgetItem([ _("Any loaded wallet or account"),
-            api_key_placeholder_text ])
-        if self._entry.item.api_key_supported:
-            all_wallets_item.setFlags(all_wallets_item.flags() | Qt.ItemFlag.ItemIsEditable)
-        all_wallets_item.setCheckState(0, check_state)
-        self._access_tree.addTopLevelItem(all_wallets_item)
-        for wallet in app_state.app.get_wallets():
-            self._add_wallet_to_access_tree(wallet)
+        self._access_tree.itemChanged.connect(self._event_item_changed_access_tree)
 
         access_section = ExpandableSection(_("Wallet and account access"), self._access_tree)
         access_section.contract()
@@ -659,10 +640,39 @@ class EditServerDialog(WindowModalDialog):
         return self._entry
 
     def get_application_state(self) -> EditServerState:
-        return self._application_state
+        return self._edit_state
 
-    def get_wallet_state(self, wallet_path: str) -> Dict[Optional[int], EditServerState]:
+    def get_wallet_state(self, wallet_path: str) -> Dict[int, EditServerState]:
         return self._wallet_state[wallet_path]
+
+    def _get_edit_state_for_index(self, index: QModelIndex) -> Tuple[str, int, EditServerState]:
+        parent_row = index.parent().row()
+        if parent_row == -1:
+            item = self._access_tree.topLevelItem(index.row())
+        else:
+            parent_item = self._access_tree.topLevelItem(parent_row)
+            item = parent_item.child(index.row())
+        return self._get_edit_state_for_item(item)
+
+    def _get_edit_state_for_item(self, item: QTreeWidgetItem) -> Tuple[str, int, EditServerState]:
+        item_index = self._access_tree.indexOfTopLevelItem(item)
+        if item_index == 0:
+            return ("", -1, self.get_application_state())
+
+        if item_index > -1:
+            wallet_path = cast(str, item.data(0, Qt.ItemDataRole.UserRole))
+            wallet_state = self.get_wallet_state(wallet_path)[-1]
+            return (wallet_path, -1, wallet_state)
+
+        wallet_item = item.parent()
+        wallet_path = cast(str, wallet_item.data(0, Qt.ItemDataRole.UserRole))
+        wallet_state = self.get_wallet_state(wallet_path)
+        if wallet_item.indexOfChild(item) == 0:
+            # Any account in this wallet.
+            return (wallet_path, -1, wallet_state[-1])
+
+        account_id = cast(int, item.data(0, Qt.ItemDataRole.UserRole))
+        return (wallet_path, account_id, wallet_state[account_id])
 
     def _on_wallet_opened(self, window: 'ElectrumWindow') -> None:
         """
@@ -691,69 +701,71 @@ class EditServerDialog(WindowModalDialog):
         wallet_path = wallet.get_storage_path()
         wallet_state = self._wallet_state[wallet_path] = {}
 
-        server_row: Optional[NetworkServerRow] = None
         if self._is_edit_mode:
             # Store the initial state used to populate the tree.
-            assert self._server_id is not None
-            server_rows, account_rows = wallet.read_network_servers(self._server_id)
+            assert self._server_url is not None
+            assert self._entry is not None
+            server_key = (self._entry.server_type, self._server_url)
+            server_rows, server_account_rows = wallet.read_network_servers(server_key)
+            # These are not related to the existence of the server, unless the server is not
+            # registered and tracked by the application config.
             if len(server_rows):
                 server_row = server_rows[0]
                 self._server_row_by_wallet_path[wallet_path] = server_row
-                self._account_rows_by_wallet_path[wallet_path] = account_rows
+                self._account_rows_by_wallet_path[wallet_path] = server_account_rows
 
-                all_account_state = wallet_state[None] = EditServerState()
+                all_account_state = wallet_state[-1] = EditServerState()
                 if server_row is not None and server_row.flags & NetworkServerFlag.ANY_ACCOUNT:
-                    server_key = (server_row.server_id, None)
                     all_account_state.enabled = True
-                    if server_key in wallet.server_api_keys:
-                        all_account_state.api_key_text = wallet.server_api_keys[server_key]
+                    if server_row.encrypted_api_key is not None:
+                        all_account_state.encrypted_api_key = server_row.encrypted_api_key
+                        all_account_state.decrypted_api_key = \
+                            app_state.credentials.get_user_lifetime_credential(
+                                (server_row.encrypted_api_key,))
+                all_account_state.initial_state = InitialServerState.create_from(all_account_state)
 
-                for account_row in account_rows:
-                    account_key = (account_row.server_id, account_row.account_id)
+                for account_row in server_account_rows:
                     account_state = wallet_state[account_row.account_id] = EditServerState()
                     account_state.enabled = True
-                    if account_key in wallet.server_api_keys:
-                        account_state.api_key_text = wallet.server_api_keys[account_key]
-            else:
-                assert wallet_path not in self._server_row_by_wallet_path
-                assert wallet_path not in self._account_rows_by_wallet_path
+                    if account_row.encrypted_api_key is not None:
+                        account_state.encrypted_api_key = account_row.encrypted_api_key
+                        account_state.decrypted_api_key = \
+                            app_state.credentials.get_user_lifetime_credential(
+                                (account_row.encrypted_api_key,))
+                    account_state.initial_state = InitialServerState.create_from(account_state)
 
         wallet_item = QTreeWidgetItem([ f"Wallet: {wallet.name()}" ])
         wallet_item.setData(0, Qt.ItemDataRole.UserRole, wallet_path)
 
-        if None in wallet_state:
-            account_state = wallet_state[None]
-        else:
-            account_state = wallet_state[None] = EditServerState()
+        account_state = wallet_state.setdefault(-1, EditServerState())
         check_state = Qt.CheckState.Unchecked
-        if self._entry.item.api_key_supported:
+        if self._entry.api_key_supported:
             api_key_placeholder_text = API_KEY_NOT_SET_TEXT
             if account_state.enabled:
                 check_state = Qt.CheckState.Checked
                 api_key_placeholder_text = API_KEY_SET_TEXT \
-                    if account_state.api_key_text is not None else API_KEY_NOT_SET_TEXT
+                    if account_state.decrypted_api_key is not None else API_KEY_NOT_SET_TEXT
         else:
             api_key_placeholder_text = API_KEY_UNSUPPORTED_TEXT
 
         all_accounts_item = QTreeWidgetItem([ _("All accounts in this wallet"),
             api_key_placeholder_text ])
-        if self._entry.item.api_key_supported:
+        if self._entry.api_key_supported:
             all_accounts_item.setFlags(all_accounts_item.flags() | Qt.ItemFlag.ItemIsEditable)
         all_accounts_item.setCheckState(0, check_state)
+        all_accounts_item.setDisabled(not self._entry.can_configure_wallet_access)
         wallet_item.addChild(all_accounts_item)
 
         for account in wallet.get_accounts():
             account_id = account.get_id()
-            if account_id in wallet_state:
-                account_state = wallet_state[account_id]
-            else:
-                account_state = wallet_state[account_id] = EditServerState()
+            account_state = wallet_state.setdefault(account_id, EditServerState())
+
             check_state = Qt.CheckState.Unchecked
-            if self._entry.item.api_key_supported:
+            if self._entry.api_key_supported:
                 if account_state.enabled:
                     check_state = Qt.CheckState.Checked
                     api_key_placeholder_text = API_KEY_SET_TEXT \
-                        if account_state.api_key_text is not None else API_KEY_NOT_SET_TEXT
+                        if account_state.decrypted_api_key is not None else API_KEY_NOT_SET_TEXT
             else:
                 api_key_placeholder_text = API_KEY_UNSUPPORTED_TEXT
 
@@ -761,9 +773,10 @@ class EditServerDialog(WindowModalDialog):
                 f"Account {account.get_id()}: {account.display_name()}",
                 api_key_placeholder_text ])
             account_item.setData(0, Qt.ItemDataRole.UserRole, account.get_id())
-            account_item.setCheckState(0, check_state)
-            if not self._entry.item.api_key_supported:
+            if not self._entry.api_key_supported:
                 account_item.setFlags(account_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            account_item.setCheckState(0, check_state)
+            account_item.setDisabled(not self._entry.can_configure_wallet_access)
             wallet_item.addChild(account_item)
 
         self._access_tree.addTopLevelItem(wallet_item)
@@ -795,10 +808,51 @@ class EditServerDialog(WindowModalDialog):
         to allow the user to create or update a given server.
         """
         # Check all "valid for add/update" conditions are met.
+        if self._check_server_url_invalid():
+            return False
+
+        return True
+
+    def _check_server_url_invalid(self) -> Optional[str]:
+        """
+        Determine if the current url is invalid.
+
+        Returns an error message to display if the server is invalid, or `None` if it is valid.
+        """
+        url = self._server_url_edit.text().strip()
+
+        # At this point the URL widget has been validated, and we can take any error message it has.
         server_edit_validator = cast(URLValidator, self._server_url_edit.validator())
         if server_edit_validator.get_last_message() != "":
-            return False
-        return True
+            return server_edit_validator.get_last_message()
+
+        # We do not allow servers to be saved if there is already a server present with the given
+        # URL. We do case-insensitive checks, so we do not allow more than one server with the
+        # given URL regardless of the case used. However, if we are editing the server that was
+        # already using the given URL we allow it to be saved and consider it valid.
+        server_type = self._get_server_type()
+        if server_type == NetworkServerType.ELECTRUMX:
+            electrumx_server_key = url_to_server_key(url)
+            if electrumx_server_key in SVServer.all_servers:
+                # If we are editing this server, allow it to save/update with the same URL.
+                if self._is_edit_mode and self._entry.data_electrumx.key() == electrumx_server_key:
+                    pass
+                else:
+                    return _("This URL is already in use.")
+        elif server_type == NetworkServerType.MERCHANT_API:
+            existing_urls = set(server_key.url.lower() \
+                for server_key in self._network.get_registered_mapi_servers())
+            if url.lower() in existing_urls:
+                # If we are editing this server, allow it to save/update with the same URL.
+                if self._is_edit_mode and self._entry.data_mapi.url.lower() == url.lower():
+                    pass
+                else:
+                    return _("This URL is already in use.")
+        else:
+            raise NotImplementedError(f"Unsupported server type {server_type}")
+
+        # No error message to return.
+        return None
 
     def _event_validation_change(self, is_valid: bool) -> None:
         """
@@ -821,6 +875,11 @@ class EditServerDialog(WindowModalDialog):
         h = HelpDialog(self, HELP_FOLDER_NAME, HELP_SERVER_EDIT_FILE_NAME)
         h.run()
 
+    def _event_item_changed_access_tree(self, item: QTreeWidgetItem, column: int) -> None:
+        if column == 0:
+            edit_state = self._get_edit_state_for_item(item)[-1]
+            edit_state.enabled = item.checkState(column) == Qt.CheckState.Checked
+
     def _event_clicked_button_save(self) -> None:
         """
         Process the user submitting the form.
@@ -831,79 +890,195 @@ class EditServerDialog(WindowModalDialog):
         """
         assert self._is_form_valid(), "should only get here if the form is valid and it is not"
 
-        server_uri = self._server_url_edit.text().strip()
         server_type = self._get_server_type()
+        server_url = self._server_url_edit.text().strip()
 
-        date_now_utc = int(datetime.datetime.utcnow().timestamp())
-        server_api_keys: Dict[Tuple[int, Optional[int]], str] = {}
+        if server_type == NetworkServerType.ELECTRUMX:
+            self._save_electrumx_server(server_url)
+        elif server_type == NetworkServerType.MERCHANT_API:
+            self._save_merchant_api_server(server_url)
+        else:
+            raise NotImplementedError(f"Unsupported server type {server_type}")
 
-        futures: List[concurrent.futures.Future] = []
+    def _save_electrumx_server(self, server_url: str) -> None:
+        if self._is_edit_mode:
+            updated_server_key = url_to_server_key(server_url)
+            assert self._entry is not None
+            existing_server_key = url_to_server_key(self._entry.url)
+            self._network.update_electrumx_server(existing_server_key, updated_server_key)
+        else:
+            server_key = url_to_server_key(server_url)
+            self._network.add_electrumx_server(server_key)
+        self.accept()
+
+    def _save_merchant_api_server(self, server_url: str) -> None:
+        # NOTE(rt12) This should stay as general as possible, and in the longer run should be
+        #   used not just for merchant API but also for hosted services.
+
+        def encrypt_api_key(wallet_window: "ElectrumWindow", api_key_text: str) -> Optional[str]:
+            # TODO(MAPI) Make sure the popup is clear about why the password is being
+            #   asked for and for which wallet.
+            password = wallet_window.password_dialog(parent=self)
+            if password is None:
+                MessageBox.show_message(_("Without the wallet password it is not "
+                    "possible to save the API key into that wallet."))
+                return None
+            return pw_encode(api_key_text, password)
+
+        date_now_utc = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
         wallets_by_path = { w.get_storage_path(): w for w in app_state.app.get_wallets() }
+        saveable_states: List[WalletSaveState] = []
+        saveable_application_state: Dict = {}
         for item_index in range(self._access_tree.topLevelItemCount()):
             wallet_item = self._access_tree.topLevelItem(item_index)
             wallet_item_path = wallet_item.data(0, Qt.ItemDataRole.UserRole)
-            if wallet_item_path:
-                wallet = wallets_by_path.get(wallet_item_path)
-                if wallet is None:
+            if wallet_item_path is None:
+                # Process the "All wallets" first top level item.
+                assert item_index == 0
+                state = self._edit_state
+                if state.decrypted_api_key == state.initial_state.decrypted_api_key:
+                    if self._edit_state.enabled == state.initial_state.enabled:
+                        continue
+
+                # We do not apply the updates here, we instead prepare them for application with
+                # the rest of the changes later.
+                saveable_application_state["enabled_for_all_wallets"] = state.enabled
+                saveable_application_state["api_key"] = ""
+                if state.enabled and state.decrypted_api_key:
+                    saveable_application_state["api_key"] = pw_encode(state.decrypted_api_key,
+                        TOKEN_PASSWORD)
+                continue
+
+            # Process the per-wallet top level items and their account children.
+            assert item_index > 0
+            wallet = wallets_by_path.get(wallet_item_path)
+            if wallet is None:
+                continue
+
+            # Remember that each wallet has a separate database.
+            window = cast("ElectrumWindow", app_state.app.get_wallet_window(wallet_item_path))
+            assert window is not None
+
+            outgoing_state = WalletSaveState(wallet)
+            edit_state = self._wallet_state.get(wallet_item_path, {})
+            keeping_account_rows = False
+            check_wallet_row_index = len(edit_state)-1
+
+            # The wallet-level "any account for this wallet" entry must be last as it needs
+            # to take into account the state of the accounts in the wallet.
+            print(edit_state)
+            for account_index, account_id in enumerate(sorted(edit_state, reverse=True)):
+                state = edit_state[account_id]
+                if account_id is None:
                     continue
 
-                wallet_api_key = None
-                all_accounts_item = wallet_item.child(0)
-                # TODO Need to move the row creation outside of this loop. Build the new api key
-                #   index. Build a checked index. Compare outside of this to the wallet.
+                if state.enabled:
+                    if state.initial_state is not None:
+                        keeping_account_rows = True
+                        if state.decrypted_api_key == state.initial_state.decrypted_api_key:
+                            continue
 
-                server_flags = NetworkServerFlag.NONE
-                account_rows: List[NetworkServerAccountRow] = []
-                for child_row in range(wallet_item.childCount()):
-                    account_item = wallet_item.child(child_row)
-                    if child_row == 0:
-                        if account_item.checkState(0) == Qt.CheckState.Checked:
-                            server_flags |= NetworkServerFlag.ANY_ACCOUNT
-                            # TODO If api key is set, do the thing.
+                        # Update.
+                        update_api_key_pair: Optional[Tuple[str, str]] = None
+                        encrypted_api_key: Optional[str] = None
+                        if state.decrypted_api_key is not None:
+                            encrypted_api_key = encrypt_api_key(window, state.decrypted_api_key)
+                            if encrypted_api_key is None:
+                                return # Aborting the save operation completely.
+                            update_api_key_pair = (state.decrypted_api_key, encrypted_api_key)
+
+                        outgoing_state.updated_api_keys[
+                            ServerAccountKey(server_url, NetworkServerType.MERCHANT_API, -1)] = \
+                                (state.initial_state.encrypted_api_key, update_api_key_pair)
+
+                        # The `date_created` field is set in the wallet when it applies the update.
+                        if account_id == -1:
+                            assert account_index == check_wallet_row_index
+                            outgoing_state.updated_servers.append(
+                                NetworkServerRow(server_url, NetworkServerType.MERCHANT_API,
+                                    encrypted_api_key, NetworkServerFlag.ANY_ACCOUNT,
+                                    -1, date_now_utc))
+                        else:
+                            outgoing_state.updated_server_accounts.append(
+                                NetworkServerAccountRow(server_url, NetworkServerType.MERCHANT_API,
+                                    account_id, encrypted_api_key,
+                                    -1, date_now_utc))
                     else:
-                        pass
+                        # Addition.
+                        update_api_key_pair: Optional[Tuple[str, str]] = None
+                        encrypted_api_key: Optional[str] = None
+                        if state.decrypted_api_key is not None:
+                            encrypted_api_key = encrypt_api_key(window, state.decrypted_api_key)
+                            if encrypted_api_key is None:
+                                return # Aborting the save operation completely.
+                            update_api_key_pair = (state.decrypted_api_key, encrypted_api_key)
 
-                server_rows = [ NetworkServerRow(self._server_id, server_type, server_uri,
-                    wallet_api_key, server_flags, date_now_utc, date_now_utc) ]
-                future = wallet.replace_network_server_entries(self._server_id, server_rows,
-                    account_rows)
-                futures.append(future)
-                # TODO: Work out if anything has changed and what to update.
-                #   TODO: Need to keep the loaded state for a wallet from the update.
-                pass
-            else:
-                # TODO This should be the "All wallets entry"
-                pass
+                        outgoing_state.updated_api_keys[ServerAccountKey(server_url, \
+                            NetworkServerType.MERCHANT_API, -1)] = \
+                                (None, update_api_key_pair)
 
-        # TODO We want to delete everything from all displayed wallets.
-        # TODO We want to create the per-wallet server where applicable.
-        # TODO We want to create the per-wallet server accounts where applicable.
-        server_id: int = -1
-        server_entries: Dict[str, NetworkServerRow] = {}
-        account_entries: Dict[str, List[NetworkServerAccountRow]] = {}
-        if server_type == NetworkServerType.ELECTRUMX:
+                        if account_id == -1:
+                            assert account_index == check_wallet_row_index
+                            outgoing_state.added_servers.append(
+                                NetworkServerRow(server_url, NetworkServerType.MERCHANT_API,
+                                encrypted_api_key, NetworkServerFlag.ANY_ACCOUNT,
+                                date_now_utc, date_now_utc))
+                        else:
+                            outgoing_state.added_server_accounts.append(
+                                NetworkServerAccountRow(server_url, NetworkServerType.MERCHANT_API,
+                                    account_id, encrypted_api_key, date_now_utc, date_now_utc))
+                elif account_id == -1:
+                    assert account_index == check_wallet_row_index
+                    if keeping_account_rows:
+                        assert state.initial_state is not None
+                        if state.initial_state.enabled or \
+                                state.initial_state.decrypted_api_key is not None:
+                            # Update if something changed.
+                            outgoing_state.updated_servers.append(NetworkServerRow(server_url,
+                                NetworkServerType.MERCHANT_API, None,
+                                NetworkServerFlag.NONE, date_now_utc, date_now_utc))
+                    elif state.initial_state is not None:
+                        # Deletion.
+                        if state.initial_state.encrypted_api_key is not None:
+                            outgoing_state.updated_api_keys[ServerAccountKey(server_url, \
+                                NetworkServerType.MERCHANT_API, -1)] = \
+                                    (state.initial_state.encrypted_api_key, None)
+                        outgoing_state.deleted_server_keys.append(
+                            ServerAccountKey(server_url, NetworkServerType.MERCHANT_API))
+                else:
+                    if state.initial_state is not None:
+                        # Deletion
+                        if state.initial_state.encrypted_api_key is not None:
+                            outgoing_state.updated_api_keys[ServerAccountKey(server_url, \
+                                NetworkServerType.MERCHANT_API, account_id)] = \
+                                    (state.initial_state.encrypted_api_key, None)
+                        outgoing_state.deleted_server_account_keys.append(
+                            ServerAccountKey(server_url, NetworkServerType.MERCHANT_API,
+                                account_id))
+
+            if outgoing_state.is_saveable():
+                saveable_states.append(outgoing_state)
+
+        if saveable_application_state:
             if self._is_edit_mode:
-                updated_server_key = url_to_server_key(server_uri)
-                assert self._entry is not None
-                # TODO(rt12) Need to change the update method on the network singleton to take
-                # the old server key in addition to the new server key. It'd also be good to
-                # make server keys named tuples.
-                existing_server_key = url_to_server_key(self._entry.url)
-                self._network.update_electrumx_server(existing_server_key, updated_server_key)
+                self._network.update_application_mapi_server(server_url, saveable_application_state)
             else:
-                raise Exception("...")
-        elif server_type == NetworkServerType.MERCHANT_API:
-            pass
-        else:
-            raise ValueError(f"unsupported server type '{server_type}'")
+                saveable_application_state["url"] = server_url
+                self._network.create_application_mapi_server(saveable_application_state)
 
-        # if self._is_edit_mode:
-        #     # Update the server in the network code. This will need to disable/disconnect the
-        #     # server (if it is connected), update it and then re-enable it.
-        #     pass
-        # else:
-        #     # Add the server in the network code.
-        #     pass
+        print("SAVEABLE STATES", saveable_states)
+        if saveable_states:
+            futures: List[concurrent.futures.Future] = []
+            for outgoing_state in saveable_states:
+                future = outgoing_state.wallet.update_network_server_entries(
+                    outgoing_state.added_servers, outgoing_state.added_server_accounts,
+                    outgoing_state.updated_servers, outgoing_state.updated_server_accounts,
+                    outgoing_state.deleted_server_keys, outgoing_state.deleted_server_account_keys,
+                    outgoing_state.updated_api_keys)
+                futures.append(future)
+            # We can just wait for the last future to complete and the rest should have completed
+            # first due to the SQLite queued writes.
+            futures[-1].result()
 
         self.accept()
 
@@ -920,8 +1095,18 @@ class EditServerDialog(WindowModalDialog):
         validator = cast(URLValidator, self._server_url_edit.validator())
         if server_type == NetworkServerType.ELECTRUMX:
             validator.set_schemes({"ssl", "tcp"})
-        else:
+            self._entry = self._entry._replace(
+                server_type=server_type,
+                can_configure_wallet_access=False,
+                api_key_supported=False)
+        elif server_type == NetworkServerType.MERCHANT_API:
             validator.set_schemes(DEFAULT_SCHEMES)
+            self._entry = self._entry._replace(
+                server_type=server_type,
+                can_configure_wallet_access=True,
+                api_key_supported=True)
+        else:
+            raise NotImplementedError(f"Unsupported server type {server_type}")
 
         self._update_state()
 
@@ -941,24 +1126,65 @@ class EditServerDialog(WindowModalDialog):
         elif server_type == NetworkServerType.ELECTRUMX:
             server_capabilities = ELECTRUMX_CAPABILITIES
             self._url_validator.set_criteria(allow_path=False)
+        else:
+            raise NotImplementedError(f"Unsupported server type {server_type}")
 
+        if self._is_edit_mode and self._entry.server_type == NetworkServerType.MERCHANT_API and \
+                self._entry.data_mapi is not None and \
+                self._entry.data_mapi.application_config is not None:
+            self._server_type_combobox.setDisabled(True)
+        else:
+            self._server_type_combobox.setDisabled(False)
+
+        api_key_placeholder_text = ""
+        if not self._entry.api_key_supported:
+            api_key_placeholder_text = API_KEY_UNSUPPORTED_TEXT
+        if self._edit_state.enabled:
+            check_state = Qt.CheckState.Checked
+            if self._entry.api_key_supported:
+                api_key_placeholder_text =  API_KEY_SET_TEXT \
+                    if self._edit_state.decrypted_api_key is not None else API_KEY_NOT_SET_TEXT
+        else:
+            check_state = Qt.CheckState.Unchecked
+            if self._entry.api_key_supported:
+                api_key_placeholder_text = API_KEY_NOT_SET_TEXT
+
+        # Rebuild the tree for wallet and account access.
+        self._access_tree.clear()
+        all_wallets_item = QTreeWidgetItem([ _("Any loaded wallet or account"),
+            api_key_placeholder_text ])
+        if self._entry.api_key_supported:
+            all_wallets_item.setFlags(all_wallets_item.flags() | Qt.ItemFlag.ItemIsEditable)
+        all_wallets_item.setCheckState(0, check_state)
+        all_wallets_item.setDisabled(not self._entry.can_configure_wallet_access)
+        self._access_tree.addTopLevelItem(all_wallets_item)
+        for wallet in app_state.app.get_wallets():
+            self._add_wallet_to_access_tree(wallet)
+
+        # Rebuild the services for this server/server type.
         self._services_form.clear()
         for capability in server_capabilities:
-            # TODO(rt12) At some point it should be possible to disable selected services for
-            #   a given server type.
-            # TODO I also feel like there's some complexity to this we are not handling. Should one
-            #   account be able to broadcast, but no others. This is currently a global setting
-            #   for the application. Let's forget it for now.
-            if capability.can_disable:
-                capability_checkbox = QCheckBox(_("Enabled"))
+            # TODO(rt12) I also feel like there's some complexity to this we are not handling.
+            #   Should one account be able to broadcast, but no others. This is currently a global
+            #   setting for the application. Let's forget it for now.
+            capability_checkbox = QCheckBox(_("Enabled."))
+            if capability.is_unsupported:
+                capability_checkbox.setChecked(False)
+                capability_checkbox.setDisabled(True)
+                capability_checkbox.setToolTip(
+                    _("Enabling this service is not yet supported."))
+            elif capability.can_disable:
+                # TODO(MAPI) This should be populated with the user's current setting.
                 capability_checkbox.setChecked(True)
-                self._services_form.add_row(capability.name, capability_checkbox, True)
-            elif capability.is_unsupported:
-                label = QLabel(_("This service is unsupported."))
-                self._services_form.add_row(capability.name, label, True)
+                # TODO(MAPI) We do not currently implement the support for disabling this service
+                #   so prevent the user from changing it.
+                capability_checkbox.setDisabled(True)
             else:
-                label = QLabel(_("This service cannot be disabled."))
-                self._services_form.add_row(capability.name, label, True)
+                capability_checkbox.setChecked(True)
+                capability_checkbox.setDisabled(True)
+                capability_checkbox.setToolTip(
+                    _("Disabling this service is not yet supported."))
+            self._services_form.add_row(capability.name, capability_checkbox, True)
 
         # Revalidate the server URL value and apply validation related UI changes.
         self._server_url_edit.textChanged.emit("")
@@ -997,6 +1223,7 @@ class SortableServerQTableWidgetItem(QTableWidgetItem):
 
 class ServersListWidget(QTableWidget):
     COLUMN_NAMES = ('', _('Service'), '', _('Type'))
+    server_disconnected_signal = pyqtSignal()
 
     def __init__(self, parent: 'ServersTab', network: Network) -> None:
         super().__init__()
@@ -1016,6 +1243,7 @@ class ServersListWidget(QTableWidget):
         self._lock_icon = read_QIcon("icons8-lock-windows.svg")
 
         self.doubleClicked.connect(self._event_double_clicked)
+        self.server_disconnected_signal.connect(self._event_server_deleted)
 
         self.setSelectionMode(QAbstractItemView.SingleSelection)
         self.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -1026,8 +1254,6 @@ class ServersListWidget(QTableWidget):
     def update_list(self, items: List[ServerListEntry]) -> None:
         # Clear the existing table contents.
         self.setRowCount(0)
-
-        network = cast(Network, app_state.daemon.network)
 
         self.setColumnCount(len(self.COLUMN_NAMES))
         self.setHorizontalHeaderLabels(self.COLUMN_NAMES)
@@ -1049,17 +1275,24 @@ class ServersListWidget(QTableWidget):
         self.setRowCount(len(items))
 
         for row_index, list_entry in enumerate(items):
-            considered_good = False
-            # TODO This still needs to identify if the server does not an API key and also to
+            # TODO This still needs to identify if the server does not have an API key and also to
             #   decide what that means. Does it mean for the application? For the wallet?
             #   For any account for any wallet?
             # if list_entry.item.api_key_supported and list_entry.item.api_key_required and \
             #         False:
             #     tooltip_text = _("This server requires an API key and does not have one.")
             #     considered_good = False
-            if list_entry.is_connected:
+
+            is_connected = False
+            considered_good = False
+            if list_entry.data_electrumx is not None:
+                is_connected = self._is_server_healthy(list_entry.data_electrumx,
+                    self._network.sessions)
+
+            if is_connected:
                 tooltip_text = _("There is an active connection to this server.")
                 considered_good = True
+                is_connected = True
             elif not list_entry.last_try:
                 tooltip_text = _("There has never been a connection to this server.")
                 considered_good = False
@@ -1073,12 +1306,12 @@ class ServersListWidget(QTableWidget):
 
             item_0 = SortableServerQTableWidgetItem()
             item_0.setToolTip(tooltip_text)
-            if list_entry.is_connected:
+            if is_connected:
                 item_0.setIcon(self._connected_icon)
             item_0.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             item_0.setData(Roles.ITEM_DATA, list_entry)
             item_0.setData(Roles.TIMESTAMP_SORTKEY, list_entry.last_good if not None else 0)
-            item_0.setData(Roles.CONNECTEDNESS_SORTKEY, list_entry.is_connected)
+            item_0.setData(Roles.CONNECTEDNESS_SORTKEY, is_connected)
             self.setItem(row_index, 0, item_0)
 
             item_1 = SortableServerQTableWidgetItem()
@@ -1095,14 +1328,16 @@ class ServersListWidget(QTableWidget):
             self.setItem(row_index, 1, item_1)
 
             item_2 = SortableServerQTableWidgetItem()
-            if list_entry.is_main_server and not network.auto_connect():
-                item_2.setIcon(self._lock_icon)
-                item_2.setToolTip(
-                    _("This server is locked into place as the permanent main server."))
+            if list_entry.server_type == NetworkServerType.ELECTRUMX:
+                if list_entry.data_electrumx == self._network.main_server and \
+                        not self._network.auto_connect():
+                    item_2.setIcon(self._lock_icon)
+                    item_2.setToolTip(
+                        _("This server is locked into place as the permanent main server."))
             self.setItem(row_index, 2, item_2)
 
             item_3 = SortableServerQTableWidgetItem()
-            item_3.setText(SERVER_TYPE_LABELS[list_entry.item.server_type])
+            item_3.setText(SERVER_TYPE_LABELS[list_entry.server_type])
             self.setItem(row_index, 3, item_3)
 
         self.sortItems(0, Qt.SortOrder.DescendingOrder)
@@ -1117,6 +1352,26 @@ class ServersListWidget(QTableWidget):
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
         hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+
+    @staticmethod
+    def _is_server_healthy(server: SVServer, sessions: Sequence[SVSession]) -> bool:
+        """Sessions only include currently active SVSessions, hence the for loop and
+        matching pattern - this only applies to ElectrumX type servers"""
+        if not sessions:
+            return False
+
+        max_tip_height = max([session.tip.height for session in sessions])
+        for session in sessions:
+            if session.server == server:
+                break
+        else:
+            return False  # The server is unable to connect - there is no SVSession for it
+
+        is_more_than_two_blocks_behind = max_tip_height > session.tip.height + 2
+        if server.state.last_good >= server.state.last_try and not is_more_than_two_blocks_behind:
+            return True
+
+        return False
 
     def _get_selected_entry(self) -> ServerListEntry:
         items = self.selectedItems()
@@ -1155,49 +1410,62 @@ class ServersListWidget(QTableWidget):
             return
         entry = cast(ServerListEntry, items[0].data(Roles.ITEM_DATA))
 
-        network = cast(Network, app_state.daemon.network)
-
         def use_as_server(auto_connect: bool) -> None:
             nonlocal entry
-            assert entry.server is not None
+            assert entry.data_electrumx is not None
             try:
-                self._parent_tab._parent.follow_server(entry.server, auto_connect)
+                self._parent_tab._parent.follow_server(entry.data_electrumx, auto_connect)
             except Exception as e:
                 MessageBox.show_error(str(e))
-
-        def delete_server() -> None:
-            if not MessageBox.question(_("Are you sure you want to delete this server "
-                    "from all loaded wallets and ElectrumSV's cached server list?\n\n"
-                    "If this server is present in the built-in initial server list, it will be "
-                    "recreated from the built-in record the next time ElectrumSV starts up."),
-                    self):
-                return
-
-            # TODO(rt12) delete this all wallet databases.
-            # entry.item.server_id
-            # TODO(rt12) delete it from the network store and remove active servers.
-            # TODO(rt12) refresh the list
-            pass
 
         menu = QMenu(self)
         details_action = menu.addAction("Details")
 
-        if entry.server is not None:
+        if entry.data_electrumx is not None:
+            is_main_server = entry.data_electrumx == self._network.main_server
             action = menu.addAction(_("Use as main server"), partial(use_as_server, True))
-            action.setEnabled(not entry.is_main_server)
-            if network.auto_connect() or not entry.is_main_server:
+            action.setEnabled(not is_main_server)
+            if self._network.auto_connect() or not is_main_server:
                 action = menu.addAction(_("Lock as main server"), partial(use_as_server, False))
                 action.setEnabled(app_state.config.is_modifiable('auto_connect'))
             else:
                 action = menu.addAction(_("Unlock as main server"), partial(use_as_server, True))
                 action.setEnabled(app_state.config.is_modifiable('auto_connect') and \
-                    entry.is_main_server)
-            menu.addAction(_("Delete server"), delete_server)
+                    is_main_server)
+
+        menu.addAction(_("Delete server"), partial(self._on_menu_delete_server, entry))
 
         action = menu.exec_(self.mapToGlobal(event.pos()))
         if action == details_action:
             self._view_entry(entry)
 
+    def _on_menu_delete_server(self, entry: ServerListEntry) -> None:
+        if not MessageBox.question(_("Are you sure you want to delete this server "
+                "from all loaded wallets and ElectrumSV's cached server list?\n\n"
+                "If this server is present in the built-in initial server list, it will be "
+                "recreated from the built-in record the next time ElectrumSV starts up."),
+                self):
+            return
+
+        if entry.data_electrumx is not None:
+            callback = self.server_disconnected_signal.emit
+            self._network.delete_electrumx_server(entry.data_electrumx.key(), callback)
+        elif entry.data_mapi is not None:
+            # Delete this server from any loaded wallets. We do not know if it is actually used
+            # by any of these servers but we can do the delete and it should flush out any
+            # actual uses.
+            deleted_server_keys = [ ServerAccountKey(entry.url, entry.server_type) ]
+            for wallet in cast(List[Wallet], app_state.app.get_wallets()):
+                future = wallet.update_network_server_entries([], [], [], [], deleted_server_keys,
+                    [], {})
+                future.result()
+            self._network.delete_application_mapi_server(entry.url)
+            self._parent_tab.update_servers()
+        else:
+            raise NotImplementedError(f"Unsupported server type {entry.server_type}")
+
+    def _event_server_deleted(self) -> None:
+        self._parent_tab.update_servers()
 
 
 class ServersTab(QWidget):
@@ -1234,56 +1502,47 @@ class ServersTab(QWidget):
         dialog = EditServerDialog(self, self._network, title="Add Server")
         dialog.exec()
 
-    @staticmethod
-    def _is_server_healthy(server: SVServer, sessions: Sequence[SVSession]) -> bool:
-        """Sessions only include currently active SVSessions, hence the for loop and
-        matching pattern - this only applies to ElectrumX type servers"""
-        if not sessions:
-            return False
-
-        max_tip_height = max([session.tip.height for session in sessions])
-        for session in sessions:
-            if session.server == server:
-                break
-        else:
-            return False  # The server is unable to connect - there is no SVSession for it
-
-        is_more_than_two_blocks_behind = max_tip_height > session.tip.height + 2
-        if server.state.last_good >= server.state.last_try and not is_more_than_two_blocks_behind:
-            return True
-
-        return False
-
     def update_servers(self) -> None:
-        network = cast(Network, app_state.daemon.network)
         items: List[ServerListEntry] = []
 
         # Add ElectrumX servers
-        sessions = network.sessions        # SVSession
-        for server in network.get_servers():
-            is_connected = self._is_server_healthy(server, sessions)
-            is_main_server = server == network.main_server
-            server_name = server.host
-            server_item = ServerItem(000, server_name, NetworkServerType.ELECTRUMX)
+        for server in self._network.get_servers():
             proto_prefix = f"tcp://" if server.protocol == "t" else "ssl://"
             url = proto_prefix + f"{server.host}:{server.port}"
-            items.append(ServerListEntry(server_item, server, url, server.state.last_try,
-                server.state.last_good, is_connected, is_main_server))
+            items.append(ServerListEntry(
+                NetworkServerType.ELECTRUMX,
+                url,
+                last_try=server.state.last_try,
+                last_good=server.state.last_good,
+                data_electrumx=server))
 
         # Add mAPI items
-        is_main_server = False
-        is_connected = False
-        for mapi_server in network.get_mapi_servers():
-            server_name = mapi_server['uri']
-            server_item = ServerItem(mapi_server["id"], server_name,
+        for server_key, mapi_server in self._network.get_registered_mapi_servers().items():
+            # TODO(mapi) If the server is not an application default and even if it is, there
+            # can be multiple last_good/last_try options for all the different api key usages.
+            # The application may allow usage without an api key usage for all wallets.
+            # An account may have an api key that it uses instead, and it may have it's own
+            # last good/last try record.
+            if mapi_server.application_config is not None:
+                last_try = mapi_server.application_config['last_try']
+                last_good = mapi_server.application_config['last_good']
+                api_key_supported = mapi_server.application_config['api_key_supported']
+                api_key_required = mapi_server.application_config['api_key_required']
+            else:
+                last_try = 0
+                last_good = 0
+                api_key_supported = True
+                api_key_required = False
+            assert mapi_server.application_config is not None
+            items.append(ServerListEntry(
                 NetworkServerType.MERCHANT_API,
-                mapi_server["api_key"],
-                mapi_server["api_key_supported"],
-                # This is not present if api keys are not supported.
-                mapi_server.get("api_key_required", False),
-                mapi_server["enabled_for_all_wallets"])
-            items.append(ServerListEntry(server_item, None, mapi_server['uri'],
-                mapi_server['last_try'], mapi_server['last_good'], False, is_main_server))
+                server_key.url,
+                last_try=last_try,
+                last_good=last_good,
+                can_configure_wallet_access=True,
+                api_key_supported=api_key_supported,
+                api_key_required=api_key_required,
+                data_mapi=mapi_server))
 
         self._server_list.update_list(items)
         self._parent._blockchain_tab.nodes_list_widget.update()
@@ -1298,8 +1557,10 @@ class ServersTab(QWidget):
 
 class ProxyTab(QWidget):
 
-    def __init__(self):
+    def __init__(self, network: Network) -> None:
         super().__init__()
+
+        self._network = network
 
         grid = QGridLayout(self)
         grid.setSpacing(8)
@@ -1359,11 +1620,10 @@ class ProxyTab(QWidget):
             w.setEnabled(b)
 
     def _fill_in_proxy_settings(self) -> None:
-        network = cast(Network, app_state.daemon.network)
         self._filling_in = True
-        self._check_disable_proxy(network.proxy is not None)
-        self._proxy_checkbox.setChecked(network.proxy is not None)
-        proxy = network.proxy or SVProxy('localhost:9050', 'SOCKS5', None)
+        self._check_disable_proxy(self._network.proxy is not None)
+        self._proxy_checkbox.setChecked(self._network.proxy is not None)
+        proxy = self._network.proxy or SVProxy('localhost:9050', 'SOCKS5', None)
         self._proxy_mode_combo.setCurrentText(proxy.kind())
         self._proxy_host_edit.setText(str(proxy.host()))
         self._proxy_port_edit.setText(str(proxy.port()))
@@ -1395,8 +1655,7 @@ class ProxyTab(QWidget):
             self._tor_checkbox.setChecked(False)
 
         # Apply the changes.
-        network = cast(Network, app_state.daemon.network)
-        network.set_proxy(proxy)
+        self._network.set_proxy(proxy)
 
     def _suggest_proxy(self, found_proxy: tuple[str, int]) -> None:
         self._tor_proxy = found_proxy
@@ -1464,7 +1723,7 @@ class NetworkTabsLayout(QVBoxLayout):
 
         self._blockchain_tab = BlockchainTab(self, network)
         self._servers_tab = ServersTab(self, network)
-        self._proxy_tab = ProxyTab()
+        self._proxy_tab = ProxyTab(network)
 
         self._tabs = QTabWidget()
         self._tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -1567,56 +1826,6 @@ class URLValidator(QValidator):
 
         self._last_message = ""
         return QValidator.State.Acceptable, text, position
-
-    def fixup(self, text: str) -> str:
-        """
-        Overridden method to fix the content.
-
-        It is unclear from the documentation when this gets called, whether it is just for
-        `Invalid` validation results, or any that are not `Acceptable`. We do not attempt to
-        fix anything.
-        """
-        return text
-
-
-class APIKeyValidator(QValidator):
-    """
-    This backs up the visual indication of whether the entered API key value is valid.
-    """
-
-    _last_message: str = ""
-
-    def __init__(self, parent: Optional[QObject]=None) -> None:
-        super().__init__(parent)
-
-        self._require_value = False
-
-    def set_criteria(self, require_value: bool=False) -> None:
-        """
-        Not all APIs require an API key.
-        """
-        self._require_value = require_value
-
-    def get_last_message(self) -> str:
-        return self._last_message
-
-    def validate(self, text: str, position: int) -> tuple[QValidator.State, str, int]:
-        """
-        Overridden method to differentiate betwen intermediate and acceptable values.
-
-        We intentionally do not return an `Invalid` result as that prevents the user from entering
-        what they have entered, and unless we are differentiating between numbers and text or some
-        equally distinct set of values this is not so easy.
-        """
-        # For now we just consider a valid value (if one is required) as anything other than
-        # no text at all. If we ever have..
-        if not self._require_value or len(text.strip()) > 5:
-            self._last_message = ""
-            return QValidator.State.Acceptable, text, position
-
-        self._last_message = _("Invalid API key")
-        return QValidator.State.Intermediate, text, position
-
 
     def fixup(self, text: str) -> str:
         """

@@ -1,4 +1,5 @@
 import concurrent.futures
+import datetime
 import json
 try:
     # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
@@ -10,11 +11,11 @@ except ModuleNotFoundError:
 from typing import Any, cast, Iterable, List, Optional, Sequence, Tuple
 
 from ..bitcoin import COINBASE_MATURITY
-from ..constants import (DerivationType, KeyInstanceFlag, pack_derivation_path,
-    PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, unpack_derivation_path,
-    WalletEventFlag)
+from ..constants import (DerivationType, KeyInstanceFlag, NetworkServerType,
+    pack_derivation_path, PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags,
+    unpack_derivation_path, WalletEventFlag)
 from ..logs import logs
-from ..types import TxoKeyType
+from ..types import ServerAccountKey, TxoKeyType
 
 from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     TransactionAlreadyExistsError, TransactionRemovalError)
@@ -1122,17 +1123,18 @@ def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id
 
 
 @replace_db_context_with_connection
-def read_network_servers(db: sqlite3.Connection, server_id: int) \
+def read_network_servers(db: sqlite3.Connection,
+        server_key: Optional[Tuple[NetworkServerType, str]]=None) \
         -> Tuple[List[NetworkServerRow], List[NetworkServerAccountRow]]:
-    read_server_row_sql = "SELECT server_id, server_type, uri, encrypted_api_key, flags " \
+    read_server_row_sql = "SELECT url, server_type, encrypted_api_key, flags " \
         "FROM Servers"
-    read_account_rows_sql = "SELECT server_id, account_id, encrypted_api_key " \
+    read_account_rows_sql = "SELECT url, account_id, encrypted_api_key " \
         "FROM ServerAccounts"
-    params: Sequence[int] = ()
-    if server_id is not None:
-        read_server_row_sql += f" WHERE server_id=?"
-        read_account_rows_sql += f" WHERE server_id=?"
-        params = (server_id,)
+    params: Sequence[Any] = ()
+    if server_key is not None:
+        read_server_row_sql += f" WHERE server_type=? AND url=?"
+        read_account_rows_sql += f" WHERE server_type=? AND url=?"
+        params = server_key
     cursor = db.execute(read_server_row_sql, params)
     server_rows = [ NetworkServerRow(*r) for r in cursor.fetchall() ]
     cursor = db.execute(read_account_rows_sql, params)
@@ -1635,25 +1637,48 @@ def update_wallet_event_flags(db_context: DatabaseContext,
 
 
 def update_network_server(db_context: DatabaseContext,
-        server_id: int,
-        server_entries: List[NetworkServerRow],
-        account_entries: List[NetworkServerAccountRow]) -> concurrent.futures.Future:
-    # TODO This is just going to delete all the server rows for the given wallets, then
-    #   replace them with the new rows. We can make this more nuanced later if we really
-    #   care.
-    delete_server_accounts_sql = "DELETE FROM ServerAccounts WHERE server_id=?"
-    delete_server_sql = "DELETE FROM Servers WHERE server_id=?"
-    insert_server_sql = "INSERT INTO Servers (server_id, server_type, uri, api_key, " \
-        "api_key_required, flags, date_created, date_updated) VALUES (?,?,?,?,?,?,?,?)"
-    insert_server_accounts_sql = "INSERT INTO ServerAccounts (server_id, account_id, api_key," \
-        "date_created, date_updated) VALUES (?,?,?,?,?)"
+        added_server_rows: List[NetworkServerRow],
+        added_server_account_rows: List[NetworkServerAccountRow],
+        updated_server_rows: List[NetworkServerRow],
+        updated_server_account_rows: List[NetworkServerAccountRow],
+        deleted_server_keys: List[ServerAccountKey],
+        deleted_server_account_keys: List[ServerAccountKey]) \
+            -> concurrent.futures.Future:
+    timestamp_utc = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    delete_server_accounts_sql = "DELETE FROM ServerAccounts WHERE url=? AND server_type=?"
+    delete_server_sql = "DELETE FROM Servers WHERE url=? AND server_type=?"
+    delete_server_accounts_sql2 = "DELETE FROM ServerAccounts WHERE url=? AND server_type=? AND "\
+        "account_id=?"
+    insert_server_sql = "INSERT INTO Servers (server_type, url, encrypted_api_key, " \
+        "flags, date_created, date_updated) VALUES (?,?,?,?,?,?)"
+    insert_server_accounts_sql = "INSERT INTO ServerAccounts (server_type, url, account_id, " \
+        "encrypted_api_key, date_created, date_updated) VALUES (?,?,?,?,?,?)"
+    update_server_sql = "UPDATE Servers SET date_updated=?, encrypted_api_key=?, " \
+        "flags=? WHERE url=? AND server_type=?"
+    update_server_account_sql = "UPDATE ServerAccounts SET date_updated=?, encrypted_api_key=? " \
+        "WHERE url=? AND server_type=? AND account_id=?"
+
+    update_server_rows = [ (timestamp_utc, server_row.encrypted_api_key, server_row.flags,
+        server_row.url, server_row.server_type) for server_row in updated_server_rows ]
+    update_server_account_rows = [ (timestamp_utc, account_row.encrypted_api_key,
+        account_row.url, account_row.server_type, account_row.account_id)
+        for account_row in updated_server_account_rows ]
+    delete_server_keys2 = [ (v.url, v.server_type) for v in deleted_server_keys ]
+
     def _write(db: sqlite3.Connection) -> None:
-        nonlocal account_entries, delete_server_sql, delete_server_accounts_sql, \
-            insert_server_sql, insert_server_accounts_sql, server_entries
-        db.execute(delete_server_accounts_sql, (server_id,))
-        db.execute(delete_server_sql, (server_id,))
-        db.executemany(insert_server_sql, server_entries)
-        db.executemany(insert_server_accounts_sql, account_entries)
+        if deleted_server_keys:
+            db.executemany(delete_server_accounts_sql, delete_server_keys2)
+            db.executemany(delete_server_sql, delete_server_keys2)
+        if deleted_server_account_keys:
+            db.executemany(delete_server_accounts_sql2, deleted_server_account_keys)
+        if added_server_rows:
+            db.executemany(insert_server_sql, added_server_rows)
+        if added_server_account_rows:
+            db.executemany(insert_server_accounts_sql, added_server_account_rows)
+        if update_server_rows:
+            db.executemany(update_server_sql, update_server_rows)
+        if update_server_account_rows:
+            db.executemany(update_server_account_sql, update_server_account_rows)
     return db_context.post_to_thread(_write)
 
 

@@ -111,9 +111,8 @@ class MasterKeyRow(NamedTuple):
 
 
 class NetworkServerRow(NamedTuple):
-    server_id: int
+    url: str
     server_type: NetworkServerType
-    uri: str
     encrypted_api_key: Optional[str]
     flags: NetworkServerFlag
     date_created: int = -1
@@ -121,7 +120,8 @@ class NetworkServerRow(NamedTuple):
 
 
 class NetworkServerAccountRow(NamedTuple):
-    server_id: int
+    url: str
+    server_type: NetworkServerType
     account_id: int
     encrypted_api_key: Optional[str]
     date_created: int = -1

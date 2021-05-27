@@ -58,7 +58,7 @@ from ... import bitcoin, commands, paymentrequest, qrscanner, util
 from ...app_state import app_state
 from ...bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
-from ...constants import (DATABASE_EXT, NetworkEventNames, ScriptType,
+from ...constants import (CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames, ScriptType,
     TransactionOutputFlag, TxFlags, WalletSettings)
 from ...exceptions import UserCancelled
 from ...i18n import _
@@ -1908,12 +1908,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         d.exec_()
 
     def password_dialog(self, msg: Optional[str]=None, parent: Optional[QWidget]=None,
-            fields: List[Tuple[Union[str, QLabel], QWidget]]=None) -> str:
+            fields: List[Tuple[Union[str, QLabel], QWidget]]=None) -> Optional[str]:
+        storage = self._wallet.get_storage()
+        password = app_state.credentials.get_wallet_password(storage.get_path())
+        if password is not None:
+            return password
+
         from .password_dialog import PasswordDialog
         parent = parent or self
-        storage = self._wallet.get_storage()
         d = PasswordDialog(parent, msg, password_check_fn=storage.is_password_valid, fields=fields)
-        return d.run()
+        password = d.run()
+        app_state.credentials.set_wallet_password(storage.get_path(), password,
+            CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
+        return password
 
     def read_tx_from_qrcode(self) -> Optional[Transaction]:
         data: Optional[str] = qrscanner.scan_barcode(self.config.get_video_device())

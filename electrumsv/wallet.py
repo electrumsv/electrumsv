@@ -51,11 +51,13 @@ from .app_state import app_state
 from .bitcoin import scripthash_bytes, ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH,
     DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, KeyInstanceFlag, KeystoreTextType,
-    MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, pack_derivation_path, PaymentFlag,
+    MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerType,
+    pack_derivation_path, PaymentFlag,
     SubscriptionOwnerPurpose, SubscriptionType, ScriptType, TransactionInputFlag,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag, WalletEventType,
     WalletSettings)
 from .contacts import Contacts
+from .credential_cache import LifetimeUserId
 from .crypto import pw_decode, pw_encode
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
     SubscriptionStale, UnsupportedAccountTypeError, UnsupportedScriptTypeError, UserCancelled,
@@ -70,9 +72,9 @@ from .networks import Net
 from .storage import WalletStorage
 from .transaction import (Transaction, TransactionContext, TxSerialisationFormat, NO_SIGNATURE,
     tx_dict_from_text, XPublicKey, XPublicKeyType, XTxInput, XTxOutput)
-from .types import (ElectrumXHistoryList, SubscriptionEntry, SubscriptionKey, SubscriptionOwner,
-    SubscriptionKeyScriptHashOwnerContext, SubscriptionTransactionScriptHashOwnerContext,
-    TxoKeyType, WaitingUpdateCallback)
+from .types import (ElectrumXHistoryList, ServerAccountKey, SubscriptionEntry, SubscriptionKey,
+    SubscriptionOwner, SubscriptionKeyScriptHashOwnerContext,
+    SubscriptionTransactionScriptHashOwnerContext, TxoKeyType, WaitingUpdateCallback)
 from .util import (format_satoshis, get_wallet_name_from_path, timestamp_to_datetime,
     TriggeredCallbacks)
 from .util.cache import LRUCache
@@ -783,7 +785,7 @@ class AbstractAccount:
 
     def start(self, network) -> None:
         self._network = network
-        if network:
+        if network is None:
             # Set up the key monitoring for the account.
             app_state.subscriptions.set_owner_callback(self._subscription_owner_for_keys,
                 self._on_network_key_script_hash_result)
@@ -1749,17 +1751,23 @@ class Wallet(TriggeredCallbacks):
             assert password is not None, "Expected cached wallet password"
 
         # Cache the stuff that is needed unencrypted but is encrypted.
-        self._server_rows, self._server_account_rows = self.read_network_servers()
-        # TODO Consider storing these api keys could be stored in the credentials object.
-        self.server_api_keys: Dict[Tuple[int, Optional[int]], str] = {}
-        for server_row in self._server_rows:
+        self._registered_api_keys: Dict[str, int] = defaultdict(int)
+        server_rows, server_account_rows = self.read_network_servers()
+        credential_user_id = self.get_credential_user_id()
+        for server_row in server_rows:
             if server_row.encrypted_api_key is not None:
-                self.server_api_keys[(server_row.server_id, None)] = \
-                    pw_decode(server_row.encrypted_api_key, password)
-        for account_row in self._server_account_rows:
+                self._registered_api_keys[server_row.encrypted_api_key] += 1
+                if self._registered_api_keys[server_row.encrypted_api_key] == 1:
+                    app_state.credentials.add_user_lifetime_credential(
+                        server_row.encrypted_api_key, credential_user_id,
+                        pw_decode(server_row.encrypted_api_key, password))
+        for account_row in server_account_rows:
             if account_row.encrypted_api_key is not None:
-                self.server_api_keys[(account_row.server_id, account_row.account_id)] = \
-                    pw_decode(account_row.encrypted_api_key, password)
+                self._registered_api_keys[account_row.encrypted_api_key] += 1
+                if self._registered_api_keys[account_row.encrypted_api_key] == 1:
+                    app_state.credentials.add_user_lifetime_credential(
+                        account_row.encrypted_api_key, credential_user_id,
+                        pw_decode(account_row.encrypted_api_key, password))
 
     def __str__(self) -> str:
         return f"wallet(path='{self._storage.get_path()}')"
@@ -1822,6 +1830,9 @@ class Wallet(TriggeredCallbacks):
 
     def name(self) -> str:
         return get_wallet_name_from_path(self.get_storage_path())
+
+    def get_credential_user_id(self) -> LifetimeUserId:
+        return ("wallet", self.get_storage_path())
 
     def get_storage_path(self) -> str:
         return self._storage.get_path()
@@ -2453,15 +2464,74 @@ class Wallet(TriggeredCallbacks):
                 [ hash_to_hex_str(r[0])[:8] for r in results ])
             return dict(results)
 
-    def read_network_servers(self, server_id: Optional[int]=None) \
+    def read_network_servers(self, server_key: Optional[Tuple[NetworkServerType, str]]=None) \
             -> Tuple[List[NetworkServerRow], List[NetworkServerAccountRow]]:
-        return db_functions.read_network_servers(self.get_db_context(), server_id)
+        return db_functions.read_network_servers(self.get_db_context(), server_key)
 
-    def replace_network_server_entries(self, server_id: int,
-            server_entries: List[NetworkServerRow],
-            account_entries: List[NetworkServerAccountRow]) -> concurrent.futures.Future:
-        return db_functions.update_network_server(self.get_db_context(), server_id,
-            server_entries, account_entries)
+    def update_network_server_entries(self,
+            added_server_rows: List[NetworkServerRow],
+            added_server_account_rows: List[NetworkServerAccountRow],
+            updated_server_rows: List[NetworkServerRow],
+            updated_server_account_rows: List[NetworkServerAccountRow],
+            deleted_server_keys: List[ServerAccountKey],
+            deleted_server_account_keys: List[ServerAccountKey],
+            updated_api_keys: Dict[ServerAccountKey,
+                Tuple[Optional[str], Optional[Tuple[str, str]]]]) -> concurrent.futures.Future:
+        """
+        Update the database, wallet and network for the given set of network server changes.
+
+        These benefit from being packaged together because they can be updated in a database
+        transaction, and then the network and wallet usage of this information can be updated
+        on a successful database update. If the database update fails, then no changes should
+        be applied.
+        """
+        def update_cached_values(future: concurrent.futures.Future) -> None:
+            # Skip if the operation was cancelled.
+            if future.cancelled():
+                return
+            # Raise any exception if it errored or get the result if completed successfully.
+            future.result()
+
+            # Need to add and update cached credentials. This should happen regardless of whether
+            # the network is activated, in case we later on support switching from offline to
+            # online mode and back again.
+            credential_user_id = self.get_credential_user_id()
+            for encrypted_api_key, new_key_state in updated_api_keys.values():
+                if encrypted_api_key is not None:
+                    self._registered_api_keys[encrypted_api_key] -= 1
+                    if self._registered_api_keys[encrypted_api_key] == 0:
+                        app_state.credentials.remove_user_lifetime_credential(encrypted_api_key,
+                            credential_user_id)
+                if new_key_state is not None:
+                    encrypted_api_key, decrypted_api_key = new_key_state
+                    self._registered_api_keys[encrypted_api_key] -= 1
+                    if self._registered_api_keys[encrypted_api_key] == 0:
+                        app_state.credentials.add_user_lifetime_credential(encrypted_api_key,
+                            credential_user_id, decrypted_api_key)
+
+            if self._network is not None:
+                self._network.update_servers_for_wallet(self, added_server_rows,
+                    added_server_account_rows, updated_server_rows, updated_server_account_rows,
+                    deleted_server_keys, deleted_server_account_keys, updated_api_keys)
+
+        future = db_functions.update_network_server(self.get_db_context(), added_server_rows,
+            added_server_account_rows, updated_server_rows, updated_server_account_rows,
+            deleted_server_keys, deleted_server_account_keys)
+        # We do not update the data used by the wallet and network unless the database update
+        # successfully applies. There is likely no reason it won't, outside of programmer error.
+        future.add_done_callback(update_cached_values)
+        return future
+
+    def delete_network_servers(self,
+            deleted_server_keys: List[ServerAccountKey],
+            deleted_server_account_keys: List[ServerAccountKey]) -> concurrent.futures.Future:
+        # TODO(MAPI) Does this need to pass the updated api keys?
+        future = db_functions.update_network_server(self.get_db_context(), [], [], [], [],
+            deleted_server_keys, deleted_server_account_keys)
+        # We do not update the data used by the wallet and network unless the database update
+        # successfully applies. There is likely no reason it won't, outside of programmer error.
+#        future.add_done_callback(update_cached_values)
+        return future
 
     def _get_header_hash_for_height(self, height: int) -> Optional[bytes]:
         chain = app_state.headers.longest_chain()
@@ -3070,6 +3140,9 @@ class Wallet(TriggeredCallbacks):
             chain_tip_hash = chain_tip.hash
         self._storage.put('stored_height', local_height)
         self._storage.put('last_tip_hash', chain_tip_hash.hex() if chain_tip_hash else None)
+
+        credential_user_id = self.get_credential_user_id()
+        app_state.credentials.remove_all_user_credentials(credential_user_id)
 
         for account in self.get_accounts():
             account.stop()

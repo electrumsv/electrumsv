@@ -52,6 +52,8 @@ from electrumsv.wallet import Wallet
 
 
 if sys.platform == "win32":
+    # aiodns forces us to do override the default proactor loop with the selector loop.
+    # https://github.com/saghul/aiodns/issues/78
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 

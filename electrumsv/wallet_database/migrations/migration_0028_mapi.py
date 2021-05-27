@@ -21,32 +21,32 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     callbacks.progress(0, _("Reading existing data"))
 
     conn.execute("CREATE TABLE IF NOT EXISTS Servers ("
-        "server_id INTEGER PRIMARY KEY,"
         "server_type INTEGER NOT NULL,"
-        "uri TEXT NOT NULL,"
+        "url TEXT NOT NULL,"
         "encrypted_api_key TEXT DEFAULT NULL,"
         "flags INTEGER NOT NULL DEFAULT 0,"
-        # TODO Not sure about these dates.
         "date_last_connected INTEGER DEFAULT NULL,"
         "date_last_tried INTEGER DEFAULT NULL,"
-        "date_application INTEGER DEFAULT NULL,"
-        "date_static_data INTEGER DEFAULT NULL,"
         "date_created INTEGER NOT NULL,"
         "date_updated INTEGER NOT NULL"
     ")")
 
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
+        "idx_Servers_unique ON Servers(server_type, url)")
+
     conn.execute("CREATE TABLE IF NOT EXISTS ServerAccounts ("
-        "server_id INTEGER NOT NULL,"
+        "server_type INTEGER NOT NULL,"
+        "url TEXT NOT NULL,"
         "account_id INTEGER NOT NULL,"
         "encrypted_api_key TEXT DEFAULT NULL,"
         "date_created INTEGER NOT NULL,"
         "date_updated INTEGER NOT NULL,"
-        "FOREIGN KEY (server_id) REFERENCES Accounts (server_id),"
+        "FOREIGN KEY (server_type, url) REFERENCES Servers (server_type, url),"
         "FOREIGN KEY (account_id) REFERENCES Accounts (account_id)"
     ")")
 
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
-        "idx_ServerAccounts_unique ON ServerAccounts(server_id, account_id)")
+        "idx_ServerAccounts_unique ON ServerAccounts(server_type, url, account_id)")
 
     callbacks.progress(100, _("Rechecking work done"))
 

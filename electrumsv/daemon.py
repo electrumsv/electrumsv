@@ -87,7 +87,6 @@ def remote_daemon_request(config: SimpleConfig, url: str, json_value: Any=None) 
     lockfile_path = get_lockfile(config)
     with open(lockfile_path) as f:
         text = f.read()
-        print(f"LOCKFILE {text}")
         (host, port), _create_time = json.loads(text)
     assert not url.startswith("http") and host not in url
     full_url = f"http://{host}:{port}{url}"
@@ -169,7 +168,6 @@ class Daemon(DaemonThread):
         # accepting it. We keep the timestamp for diagnostic purposes, if we have to get a user
         # to look at a lockfile.
         lockfile_text = json.dumps([ [host, port], time.time() ])
-        print(f"LOCKFILE_TEXT '{lockfile_text}'")
         os.write(fd, lockfile_text.encode())
         os.close(fd)
 
