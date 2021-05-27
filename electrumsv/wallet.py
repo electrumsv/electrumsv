@@ -2514,7 +2514,7 @@ class Wallet(TriggeredCallbacks):
                     added_server_account_rows, updated_server_rows, updated_server_account_rows,
                     deleted_server_keys, deleted_server_account_keys, updated_api_keys)
 
-        future = db_functions.update_network_server(self.get_db_context(), added_server_rows,
+        future = db_functions.update_network_servers(self.get_db_context(), added_server_rows,
             added_server_account_rows, updated_server_rows, updated_server_account_rows,
             deleted_server_keys, deleted_server_account_keys)
         # We do not update the data used by the wallet and network unless the database update
@@ -2526,7 +2526,7 @@ class Wallet(TriggeredCallbacks):
             deleted_server_keys: List[ServerAccountKey],
             deleted_server_account_keys: List[ServerAccountKey]) -> concurrent.futures.Future:
         # TODO(MAPI) Does this need to pass the updated api keys?
-        future = db_functions.update_network_server(self.get_db_context(), [], [], [], [],
+        future = db_functions.update_network_servers(self.get_db_context(), [], [], [], [],
             deleted_server_keys, deleted_server_account_keys)
         # We do not update the data used by the wallet and network unless the database update
         # successfully applies. There is likely no reason it won't, outside of programmer error.

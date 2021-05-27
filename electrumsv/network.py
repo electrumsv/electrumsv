@@ -1410,7 +1410,8 @@ class Network(TriggeredCallbacks):
         try:
             if not server.disconnected():
                 def disconnection_callback(_future: asyncio.Future) -> None:
-                    server.state.is_disabled = was_disabled
+                    # NOTE(typing) False positive of None | SVServer, where outer scope is SVServer.
+                    server.state.is_disabled = was_disabled # type: ignore
                 callback_pending = server.add_disconnection_callback(disconnection_callback)
                 server.disconnect()
 
@@ -1431,7 +1432,8 @@ class Network(TriggeredCallbacks):
             raise KeyError("server does not exist")
 
         def on_disconnection_completed(*_) -> None:
-            server.remove()
+            # NOTE(typing) False positive of None | SVServer, where outer scope is SVServer.
+            server.remove() # type: ignore
             if callback is not None:
                 callback()
 
