@@ -7,17 +7,24 @@ from enum import IntFlag as _IntFlag
 import json
 try:
     # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
-    import pysqlite3 as sqlite3
+    import pysqlite3 as sqlite3 # type: ignore
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
     # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
     import sqlite3 # type: ignore
 import time
-from typing import Any, Iterable, NamedTuple, Optional, Sequence
+from typing import Any, cast, Iterable, List, NamedTuple, Optional, Sequence, Tuple, TypedDict, \
+    Union
 
-from ..constants import DerivationType, KeyInstanceFlag, PaymentFlag, ScriptType
+from bitcoinx import bip32_build_chain_string
+
+from ..constants import DerivationPath, DerivationType, KeyInstanceFlag, PaymentFlag, ScriptType
+from ..types import MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
+    MasterKeyDataHardware, MasterKeyDataMultiSignature, MultiSignatureMasterKeyDataTypes, \
+    MasterKeyDataTypes
 
 from .sqlite_support import DatabaseContext, replace_db_context_with_connection
+from .types import MasterKeyRow
 from .util import get_timestamp
 
 
@@ -137,6 +144,78 @@ class TransactionRow1(NamedTuple):
 class WalletDataRow1(NamedTuple):
     key: str
     value: Any
+
+
+class MasterKeyDataBIP321(TypedDict):
+    xpub: str
+    seed: Optional[str]
+    passphrase: Optional[str]
+    label: Optional[str]
+    xprv: Optional[str]
+    subpaths: List[Tuple[DerivationPath, int]]
+
+
+class MasterKeyDataElectrumOld1(TypedDict):
+    seed: Optional[str]
+    mpk: str
+
+
+class MasterKeyDataHardwareCfg1(TypedDict):
+    mode: int
+
+
+class MasterKeyDataHardware1(TypedDict):
+    hw_type: str
+    xpub: str
+    # A regression in a previous version stored the sequence and not the str, we now replace
+    # the sequence on account load.
+    derivation: Union[str, DerivationPath]
+    label: Optional[str]
+    cfg: Optional[MasterKeyDataHardwareCfg1]
+    subpaths: List[Tuple[DerivationPath, int]]
+
+
+MultiSignatureMasterKeyDataTypes1 = Union[MasterKeyDataBIP321, MasterKeyDataElectrumOld1,
+    MasterKeyDataHardware1]
+CosignerListType1 = List[Tuple[DerivationType, MultiSignatureMasterKeyDataTypes1]]
+
+
+_MasterKeyDataMultiSignature1 = TypedDict(
+    '_MasterKeyDataMultiSignature1',
+    { 'cosigner-keys': CosignerListType1 },
+    total=True,
+)
+
+class MasterKeyDataMultiSignature1(_MasterKeyDataMultiSignature1):
+    m: int
+    n: int
+
+
+MasterKeyDataTypes1 = Union[MasterKeyDataBIP321, MasterKeyDataElectrumOld1,
+    MasterKeyDataHardware1, MasterKeyDataMultiSignature1]
+
+
+class KeyInstanceDataBIP32SubPath1(TypedDict):
+    subpath: DerivationPath
+
+
+class KeyInstanceDataHash1(TypedDict):
+    hash: str
+
+
+class KeyInstanceDataPrivateKey1(TypedDict):
+    pub: str
+    prv: str
+
+
+KeyInstanceDataTypes1 = Union[KeyInstanceDataBIP32SubPath1, KeyInstanceDataHash1,
+    KeyInstanceDataPrivateKey1]
+
+
+DerivationDataTypes1 = Union[KeyInstanceDataTypes1, MasterKeyDataTypes1]
+
+
+ADDRESS_TYPES1 = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
 
 
 def create_accounts1(db_context: DatabaseContext, entries: Iterable[AccountRow1]) \
@@ -267,3 +346,73 @@ def update_wallet_datas1(db_context: DatabaseContext, entries: Iterable[WalletDa
         nonlocal sql, rows
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
+
+
+# def convert_derivation_keyinstance_data1(derivation_type: DerivationType,
+#         old_derivation_data: KeyInstanceDataTypes1) -> KeyInstanceDataTypes:
+#     if derivation_type == DerivationType.BIP32_SUBPATH:
+#         data_in = cast(KeyInstanceDataBIP32SubPath1, old_derivation_data)
+#         pass
+#     elif derivation_type in ADDRESS_TYPES1:
+#         data_in = cast(KeyInstanceDataHash1, old_derivation_data)
+#         pass
+#     elif derivation_type == DerivationType.PRIVATE_KEY:
+#         data_in = cast(KeyInstanceDataPrivateKey1, old_derivation_data)
+#         pass
+#     raise NotImplementedError(f"Unhandled type {derivation_type}")
+
+
+def convert_masterkey_derivation_data1(derivation_type: DerivationType,
+        old_derivation_data: MasterKeyDataTypes1, is_multisig: bool=False) -> MasterKeyDataTypes:
+    data_dict = cast(dict, old_derivation_data)
+    if derivation_type == DerivationType.BIP32:
+        data_bip32_in = cast(MasterKeyDataBIP321, old_derivation_data)
+        data_bip32_in.setdefault("label", None)
+        data_bip32_in.setdefault("passphrase", None)
+        data_bip32_in.setdefault("seed", None)
+        data_bip32_in.setdefault("xprv", None)
+        if is_multisig:
+            assert "subpaths" not in data_dict
+        else:
+            del data_dict["subpaths"]
+        assert len(data_dict) == 5
+        return cast(MasterKeyDataBIP32, data_bip32_in)
+    elif derivation_type == DerivationType.ELECTRUM_OLD:
+        data_old_in = cast(MasterKeyDataElectrumOld1, old_derivation_data)
+        data_old_in.setdefault("seed", None)
+        del data_dict["subpaths"]
+        assert len(data_dict) == 2, data_dict
+        return cast(MasterKeyDataElectrumOld, data_old_in)
+    elif derivation_type == DerivationType.ELECTRUM_MULTISIG:
+        assert "m" in data_dict
+        assert "n" in data_dict
+        assert "subpaths" in data_dict
+        assert len(data_dict) == 4, data_dict
+        del data_dict["subpaths"]
+        data_multisig_in = cast(MasterKeyDataMultiSignature1, old_derivation_data)
+        assert len(data_multisig_in["cosigner-keys"]) == data_multisig_in["n"]
+        data_out = cast(MasterKeyDataMultiSignature, data_multisig_in)
+        for i, (cosigner_derivation_type, cosigner_data_in) in \
+                enumerate(data_multisig_in["cosigner-keys"]):
+            data_out["cosigner-keys"][i] = (cosigner_derivation_type,
+                cast(MultiSignatureMasterKeyDataTypes,
+                    convert_masterkey_derivation_data1(cosigner_derivation_type, cosigner_data_in,
+                        is_multisig=True)))
+        return data_out
+    elif derivation_type == DerivationType.HARDWARE:
+        data_hardware_in = cast(MasterKeyDataHardware1, old_derivation_data)
+        if isinstance(data_hardware_in["derivation"], list):
+            data_hardware_in["derivation"] = bip32_build_chain_string(
+                data_hardware_in["derivation"])
+        data_hardware_in.setdefault("label", None)
+        data_hardware_in.setdefault("cfg", None)
+        del data_dict["subpaths"]
+        assert len(data_dict) == 5
+        return cast(MasterKeyDataHardware, data_hardware_in)
+    raise NotImplementedError(f"Unhandled type {derivation_type}")
+
+
+def upgrade_masterkey1(row: MasterKeyRow1) -> MasterKeyRow:
+    return MasterKeyRow(masterkey_id=row.masterkey_id, parent_masterkey_id=row.parent_masterkey_id,
+        derivation_type=row.derivation_type, derivation_data=row.derivation_data)
+

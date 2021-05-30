@@ -28,7 +28,6 @@ from contextlib import suppress
 import datetime
 from enum import IntEnum
 from functools import partial
-import itertools
 import random
 import re
 import ssl
@@ -50,7 +49,9 @@ from bitcoinx import (
 import certifi
 
 from .app_state import app_state
-from .constants import NetworkServerFlag, NetworkServerType, TxFlags
+from .constants import NetworkServerType, TOKEN_PASSWORD, TxFlags
+from .credentials import IndefiniteCredentialId
+from .crypto import pw_decode
 from .i18n import _
 from .logs import logs
 from .transaction import Transaction
@@ -59,7 +60,6 @@ from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_stri
 from .networks import Net #, SVRegTestnet
 # from .util.misc import decode_response_body
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
-from .wallet_database.types import NetworkServerAccountRow, NetworkServerRow
 
 if TYPE_CHECKING:
     from .wallet import AbstractAccount, Wallet
@@ -168,69 +168,21 @@ class NewServer:
         self.application_config: Optional[Dict] = application_config
 
         # These are the enabled clients and which/whether they use an API key.
-        self.client_api_keys: Dict[NewServerAPIContext, Optional[str]] = {}
+        self.client_api_keys: Dict[NewServerAPIContext, Optional[IndefiniteCredentialId]] = {}
         # We keep per-API key state for a reason. An API key can be considered to be a distinct
         # account with the service, and it makes sense to keep the statistics/metadata for the
         # service separated by API key for this reason. We intentionally leave these in place
         # at least for now as they are kind of relative to the given key value.
-        self.api_key_state: Dict[Optional[str], NewServerAccessState] = {}
+        self.api_key_state: Dict[Optional[IndefiniteCredentialId], NewServerAccessState] = {}
 
-    def register_usage(self, wallet_path: str, server_row: Optional[NetworkServerRow],
-                server_account_rows: List[NetworkServerAccountRow]) -> None:
-        # This is the all accounts for this wallet entry that the user enabled for this server.
-        if server_row is not None and server_row.flags & NetworkServerFlag.ANY_ACCOUNT:
-            usage_context = NewServerAPIContext(wallet_path, -1)
-            self.client_api_keys[usage_context] = server_row.encrypted_api_key
+    def set_wallet_usage(self, wallet_path: str, specific_server_key: ServerAccountKey,
+            credential_id: Optional[IndefiniteCredentialId]) -> None:
+        usage_context = NewServerAPIContext(wallet_path, specific_server_key.account_id)
+        self.client_api_keys[usage_context] = credential_id
 
-        # These are all the specific accounts that the user enabled for this server.
-        for server_account_row in server_account_rows:
-            usage_context = NewServerAPIContext(wallet_path, server_account_row.account_id)
-            self.client_api_keys[usage_context] = server_account_row.encrypted_api_key
-
-    def update_server_usage(self, wallet_path: str, server_row: NetworkServerRow) -> None:
-        match_client_key = NewServerAPIContext(wallet_path, -1)
-        for client_key in list(self.client_api_keys):
-            if client_key != match_client_key:
-                continue
-            # Found the registration, if it should no longer be registered, remove it.
-            if server_row.flags & NetworkServerFlag.ANY_ACCOUNT == NetworkServerFlag.NONE:
-                del self.client_api_keys[client_key]
-            break
-        else:
-            # Was not found in the current registrations. Add it, if it should be added.
-            if server_row.flags & NetworkServerFlag.ANY_ACCOUNT == NetworkServerFlag.ANY_ACCOUNT:
-                self.register_usage(wallet_path, server_row, [])
-
-    def update_api_keys(self, wallet_path: str,
-            entries: List[Tuple[ServerAccountKey,
-                Tuple[Optional[str], Optional[Tuple[str, str]]]]]) -> None:
-        for server_key, key_change in entries:
-            usage_context = NewServerAPIContext(wallet_path, server_key.account_id)
-            old_encrypted_api_key, new_pair = key_change
-            if new_pair is None:
-                self.client_api_keys[usage_context] = None
-            else:
-                _new_decrypted_api_key, new_encrypted_api_key = new_pair
-                self.client_api_keys[usage_context] = new_encrypted_api_key
-                if old_encrypted_api_key is not None:
-                    pass
-
-    def _unregister_api_key_usage(self, usage_context: NewServerAPIContext) -> None:
-        if usage_context in self.client_api_keys:
-            deleted_api_key = self.client_api_keys[usage_context]
-            del self.client_api_keys[usage_context]
-
-            if deleted_api_key not in set(self.client_api_keys.values()):
-                if deleted_api_key in self.api_key_state:
-                    del self.api_key_state[deleted_api_key]
-
-    def unregister_server_usage(self, wallet_path: str) -> None:
-        self._unregister_api_key_usage(NewServerAPIContext(wallet_path, -1))
-
-    def unregister_server_account_usages(self, wallet_path: str,
-            account_keys: List[ServerAccountKey]) -> None:
-        for account_key in account_keys:
-            self._unregister_api_key_usage(NewServerAPIContext(wallet_path, account_key.account_id))
+    def remove_wallet_usage(self, wallet_path: str, specific_server_key: ServerAccountKey) -> None:
+        usage_context = NewServerAPIContext(wallet_path, specific_server_key.account_id)
+        del self.client_api_keys[usage_context]
 
     def unregister_wallet(self, wallet_path: str) -> None:
         """
@@ -256,22 +208,27 @@ class NewServer:
         if client_key in self.client_api_keys:
             credential_id = self.client_api_keys[client_key]
             if credential_id is not None:
-                return app_state.credentials.get_lifetime_credential(credential_id)
+                return app_state.credentials.get_indefinite_credential(credential_id)
             return ""
 
         # Look up the account's wallet as the first fallback.
         wallet_client_key = NewServerAPIContext(client_key.wallet_path, -1)
         if wallet_client_key in self.client_api_keys:
-            encrypted_api_key = self.client_api_keys[wallet_client_key]
-            if encrypted_api_key is not None:
-                return app_state.credentials.get_lifetime_credential(encrypted_api_key)
+            credential_id = self.client_api_keys[wallet_client_key]
+            if credential_id is not None:
+                return app_state.credentials.get_indefinite_credential(credential_id)
             return ""
 
         # Finally we look up the application server for this URL, if there is one, and if it
         # is enabled for global use, we use it's api key.
         if self.application_config is not None:
             if self.application_config["enabled_for_all_wallets"]:
-                return self.application_config["api_key"]
+                api_key = self.application_config["api_key"]
+                if api_key:
+                    api_key = pw_decode(self.application_config["api_key"], TOKEN_PASSWORD)
+                else:
+                    assert api_key == ""
+                return api_key
 
         # This client is not configured to use this server.
         return None
@@ -1765,49 +1722,18 @@ class Network(TriggeredCallbacks):
         return results
 
     def _register_api_servers_for_wallet(self, wallet: "Wallet") -> None:
-        server_rows, all_server_account_rows = wallet.read_network_servers()
-        self._register_api_servers_for_wallet2(wallet, server_rows, all_server_account_rows)
+        server_credential_rows = wallet.read_network_servers_with_credentials()
 
-    def _register_api_servers_for_wallet2(self, wallet: "Wallet",
-            server_rows: List[NetworkServerRow],
-            all_server_account_rows: List[NetworkServerAccountRow]) -> None:
         wallet_path = wallet.get_storage_path()
-
-        server_by_key: Dict[ServerAccountKey, Optional[NetworkServerRow]] = {}
-        for server_row1 in server_rows:
-            server_key = ServerAccountKey(server_row1.url, server_row1.server_type)
-            server_by_key[server_key] = server_row1
-
-        accounts_by_key: Dict[ServerAccountKey, List[NetworkServerAccountRow]] = defaultdict(list)
-        for account_row in all_server_account_rows:
-            server_key = ServerAccountKey(account_row.url, account_row.server_type)
-            accounts_by_key[server_key].append(account_row)
-
-        for server_key in set(server_by_key) | set(accounts_by_key):
-            server_row2 = server_by_key.get(server_key)
-            server_account_rows = accounts_by_key[server_key]
-            if server_key.server_type != NetworkServerType.MERCHANT_API:
+        for specific_server_key, credential_id in server_credential_rows:
+            if specific_server_key.server_type != NetworkServerType.MERCHANT_API:
                 continue
             # If the server does not exist already it is not one known globally to the application.
-            server_key = ServerAccountKey(server_key.url, server_key.server_type)
+            server_key = specific_server_key.to_server_key()
             if server_key not in self._api_servers:
                 self._api_servers[server_key] = NewServer(server_key.url, server_key.server_type)
             server = self._api_servers[server_key]
-            server.register_usage(wallet_path, server_row2, server_account_rows)
-
-    def _unregister_api_servers_for_wallet(self,
-            wallet: "Wallet", server_keys: List[ServerAccountKey],
-            server_account_keys: List[ServerAccountKey]) -> None:
-        wallet_path = wallet.get_storage_path()
-        accounts_by_server_key = itertools.groupby(server_account_keys,
-            key=ServerAccountKey.groupby)
-        for server_key in server_keys:
-            server = self._api_servers[server_key]
-            server.unregister_server_usage(wallet_path)
-        for server_key, server_account_keys in list(
-                (k, list(v)) for k, v in accounts_by_server_key):
-            server = self._api_servers[server_key]
-            server.unregister_server_account_usages(wallet_path, server_account_keys)
+            server.set_wallet_usage(wallet_path, specific_server_key, credential_id)
 
     def _unregister_all_api_servers_for_wallet(self, wallet: "Wallet") -> None:
         wallet_path = wallet.get_storage_path()
@@ -1818,32 +1744,20 @@ class Network(TriggeredCallbacks):
 
     def update_servers_for_wallet(self,
             wallet: "Wallet",
-            added_server_rows: List[NetworkServerRow],
-            added_server_account_rows: List[NetworkServerAccountRow],
-            updated_server_rows: List[NetworkServerRow],
-            _updated_server_account_rows: List[NetworkServerAccountRow],
-            deleted_server_keys: List[ServerAccountKey],
-            deleted_server_account_keys: List[ServerAccountKey],
-            updated_api_keys: Dict[ServerAccountKey,
-                Tuple[Optional[str], Optional[Tuple[str, str]]]]) -> None:
+            added_keys: List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]],
+            updated_keys: List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]],
+            deleted_keys: List[ServerAccountKey]) -> None:
         wallet_path = wallet.get_storage_path()
-        self._register_api_servers_for_wallet2(wallet, added_server_rows,
-            added_server_account_rows)
-        # Process the changes in API keys.
-        entries_by_key = itertools.groupby(updated_api_keys.keys(), key=ServerAccountKey.groupby)
-        for key, exact_keys in entries_by_key:
-            server = self._api_servers[key]
-            entries = [ (exact_key, updated_api_keys[exact_key]) for exact_key in exact_keys ]
-            server.update_api_keys(wallet_path, entries)
         # We know updated servers will not have changed their type or url, so we do not need
-        # to do anything with the accounts at this point. But we do need to observe the flags
+        # to do anything with the accounts at this point. But we do need to have observed the flags
         # of servers for enabling/disabling.
-        for server_row in updated_server_rows:
-            key = ServerAccountKey(server_row.url, server_row.server_type)
-            server = self._api_servers[key]
-            server.update_server_usage(wallet_path, server_row)
-        self._unregister_api_servers_for_wallet(wallet, deleted_server_keys,
-            deleted_server_account_keys)
+        for specific_server_key, credential_id in added_keys + updated_keys:
+            server = self._api_servers[specific_server_key.to_server_key()]
+            server.set_wallet_usage(wallet_path, specific_server_key, credential_id)
+
+        for specific_server_key in deleted_keys:
+            server = self._api_servers[specific_server_key.to_server_key()]
+            server.remove_wallet_usage(wallet_path, specific_server_key)
 
     def add_wallet(self, wallet: "Wallet") -> None:
         self._register_api_servers_for_wallet(wallet)

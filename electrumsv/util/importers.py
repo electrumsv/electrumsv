@@ -29,12 +29,12 @@
 
 from enum import IntEnum
 import json
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from bitcoinx import Address, Base58Error, bip32_decompose_chain_string, hex_str_to_hash
 
 from ..bitcoin import ScriptTemplate
-from ..constants import ScriptType, unpack_derivation_path
+from ..constants import ScriptType, DerivationPath, unpack_derivation_path
 from ..networks import Net
 from ..wallet import AbstractAccount, MultisigAccount
 from ..wallet_database.types import KeyInstanceRow
@@ -53,7 +53,7 @@ class LabelImportResult:
         # These are known to be transaction labels, even if the wallet does not know of them all.
         self.transaction_labels: Dict[bytes, str] = {}
         # These are known to be key instance labels, the wallet knows them all.
-        self.key_labels: Dict[Sequence[int], str] = {}
+        self.key_labels: Dict[DerivationPath, str] = {}
         # These are things that were not for any possible transactions or existing key instances.
         self.unknown_labels: Dict[str, str] = {}
 
@@ -80,7 +80,7 @@ def identify_label_import_format(text: str) -> LabelImportFormat:
 
 class LabelImport:
     @classmethod
-    def _get_addresses(klass, account: AbstractAccount) -> Dict[ScriptTemplate, KeyInstanceRow]:
+    def _get_addresses(cls, account: AbstractAccount) -> Dict[ScriptTemplate, KeyInstanceRow]:
         script_type = ScriptType.P2PKH
         if isinstance(account, MultisigAccount):
             script_type = ScriptType.MULTISIG_P2SH
@@ -91,8 +91,8 @@ class LabelImport:
         return result
 
     @classmethod
-    def parse_label_sync_json(klass, account: AbstractAccount, text: str) -> LabelImportResult:
-        addresses = klass._get_addresses(account)
+    def parse_label_sync_json(cls, account: AbstractAccount, text: str) -> LabelImportResult:
+        addresses = cls._get_addresses(account)
         updates: List[Tuple[str, str]] = json.loads(text).items()
         results = LabelImportResult(LabelImportFormat.LABELSYNC)
         for label_reference, label_text in updates:
@@ -121,7 +121,7 @@ class LabelImport:
         return results
 
     @classmethod
-    def parse_label_export_json(klass, account: AbstractAccount, text: str) -> LabelImportResult:
+    def parse_label_export_json(cls, account: AbstractAccount, text: str) -> LabelImportResult:
         updates: Dict[str, Any] = json.loads(text)
         results = LabelImportResult(LabelImportFormat.ACCOUNT)
         for tx_id, label_text in updates.get("transactions", []):

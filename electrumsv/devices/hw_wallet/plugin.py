@@ -25,20 +25,20 @@
 # SOFTWARE.
 
 import threading
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, Type, TYPE_CHECKING
 
 from electrumsv.i18n import _
+from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
+from electrumsv.types import MasterKeyDataHardware
 from electrumsv.util import versiontuple
-
-from .cmdline import CmdLineHandler
 
 if TYPE_CHECKING:
     from electrumsv.keystore import KeyStore
     from electrumsv.wallet_database.types import MasterKeyRow
 
 class HW_PluginBase(object):
-    keystore_class: Any
+    keystore_class: Type[Hardware_KeyStore]
     libraries_available_message: str
 
     hid_lock = threading.Lock()
@@ -48,11 +48,9 @@ class HW_PluginBase(object):
         self.name = device_kind
         self.logger = logs.get_logger(device_kind)
 
-    def create_keystore(self, data: Dict[str, Any], row: 'MasterKeyRow') -> 'KeyStore':
+    def create_keystore(self, data: MasterKeyDataHardware, row: 'MasterKeyRow') -> 'KeyStore':
         keystore = self.keystore_class(data, row)
         keystore.plugin = self
-        # This should be replaced when a window is opened in the gui
-        keystore.gui_handler = CmdLineHandler()
         return keystore
 
     def create_handler(self, window: Any) -> Any:

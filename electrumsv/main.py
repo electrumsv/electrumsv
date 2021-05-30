@@ -118,7 +118,7 @@ def run_non_RPC(config):
                 text_match = xprv.to_extended_key_string()
 
             keystore = instantiate_keystore_from_text(text_type, text_match, password,
-                derivation_text=None, passphrase=None, watch_only=False)
+                derivation_text=None, passphrase="", watch_only=False)
             parent_wallet.create_account_from_keystore(keystore)
             print(f"New standard (bip32) account created for: '{wallet_path}'")
             sys.exit(0)

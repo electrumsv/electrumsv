@@ -1,6 +1,6 @@
 import hashlib
 from struct import pack, unpack
-from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
+from typing import Any, cast, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
 
 from bitcoinx import (bip32_build_chain_string, BIP32Derivation, BIP32PublicKey, PublicKey,
     pack_be_uint32, pack_list, pack_le_int64, pack_le_int32)
@@ -13,6 +13,7 @@ from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
 from ...transaction import classify_tx_output, Transaction, TransactionContext, XTxOutput
+from ...types import MasterKeyDataHardware, MasterKeyDataHardwareCfg
 from ...util import versiontuple
 from ...wallet import AbstractAccount
 from ...wallet_database.types import KeyListRow
@@ -221,16 +222,16 @@ class Ledger_KeyStore(Hardware_KeyStore):
     device = 'Ledger'
     handler: Optional['Ledger_Handler']
 
-    def __init__(self, data: Dict[str, Any], row: 'MasterKeyRow') -> None:
+    def __init__(self, data: MasterKeyDataHardware, row: 'MasterKeyRow') -> None:
         Hardware_KeyStore.__init__(self, data, row)
         # Errors and other user interaction is done through the wallet's
         # handler.  The handler is per-window and preserved across
         # device reconnects
         self.force_watching_only = False
         self.signing = False
-        self.cfg = data.get('cfg', {'mode':0})
+        self.cfg = cast(MasterKeyDataHardwareCfg, data.get('cfg', {'mode':0}))
 
-    def to_derivation_data(self) -> Dict[str, Any]:
+    def to_derivation_data(self) -> MasterKeyDataHardware:
         obj = super().to_derivation_data()
         obj['cfg'] = self.cfg
         return obj

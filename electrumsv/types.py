@@ -1,13 +1,16 @@
-from typing import Any, Awaitable, Callable, Dict, List, NamedTuple, Optional, TYPE_CHECKING, Union
+from typing import Any, Awaitable, Callable, Dict, List, NamedTuple, Optional, Tuple, \
+    TYPE_CHECKING, TypedDict, Union
 
 from bitcoinx import hash_to_hex_str
 from mypy_extensions import Arg, DefaultArg
 
-from .constants import NetworkServerType, ScriptType, SubscriptionOwnerPurpose, SubscriptionType
+from .constants import DerivationType, DerivationPath, NetworkServerType, ScriptType, \
+    SubscriptionOwnerPurpose, SubscriptionType
 
 
 if TYPE_CHECKING:
-    from .wallet_database.types import TransactionSubscriptionRow
+    from .wallet_database.types import NetworkServerRow, NetworkServerAccountRow, \
+        TransactionSubscriptionRow
 
 
 ElectrumXHistoryEntry = Dict[str, Union[int, str]]
@@ -79,3 +82,80 @@ class ServerAccountKey(NamedTuple):
     @staticmethod
     def groupby(key: "ServerAccountKey") -> "ServerAccountKey":
         return ServerAccountKey(key.url, key.server_type)
+
+    @classmethod
+    def for_server_row(cls, row: "NetworkServerRow") -> "ServerAccountKey":
+        return cls(row.url, row.server_type)
+
+    @classmethod
+    def for_account_row(cls, row: "NetworkServerAccountRow") -> "ServerAccountKey":
+        return cls(row.url, row.server_type, row.account_id)
+
+    def to_server_key(self) -> "ServerAccountKey":
+        if self.account_id == -1:
+            return self
+        return ServerAccountKey(self.url, self.server_type)
+
+
+class MasterKeyDataBIP32(TypedDict):
+    xpub: str
+    seed: Optional[str]
+    passphrase: Optional[str]
+    label: Optional[str]
+    xprv: Optional[str]
+
+
+class MasterKeyDataElectrumOld(TypedDict):
+    seed: Optional[str]
+    mpk: str
+
+
+class MasterKeyDataHardwareCfg(TypedDict):
+    mode: int
+
+
+class MasterKeyDataHardware(TypedDict):
+    hw_type: str
+    xpub: str
+    derivation: str
+    label: Optional[str]
+    cfg: Optional[MasterKeyDataHardwareCfg]
+
+
+MultiSignatureMasterKeyDataTypes = Union[MasterKeyDataBIP32, MasterKeyDataElectrumOld,
+    MasterKeyDataHardware]
+CosignerListType = List[Tuple[DerivationType, MultiSignatureMasterKeyDataTypes]]
+
+
+_MasterKeyDataMultiSignature = TypedDict(
+    '_MasterKeyDataMultiSignature',
+    { 'cosigner-keys': CosignerListType },
+    total=True,
+)
+
+class MasterKeyDataMultiSignature(_MasterKeyDataMultiSignature):
+    m: int
+    n: int
+
+
+MasterKeyDataTypes = Union[MasterKeyDataBIP32, MasterKeyDataElectrumOld,
+    MasterKeyDataHardware, MasterKeyDataMultiSignature]
+
+
+class KeyInstanceDataBIP32SubPath(TypedDict):
+    subpath: DerivationPath
+
+
+class KeyInstanceDataHash(TypedDict):
+    hash: str
+
+
+class KeyInstanceDataPrivateKey(TypedDict):
+    pub: str
+    prv: str
+
+
+KeyInstanceDataTypes = Union[KeyInstanceDataBIP32SubPath, KeyInstanceDataHash,
+    KeyInstanceDataPrivateKey]
+
+DerivationDataTypes = Union[KeyInstanceDataTypes, MasterKeyDataTypes]

@@ -1,6 +1,6 @@
 from enum import Enum, IntEnum
 from enum import IntFlag as _IntFlag
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple
 
 from bitcoinx import pack_be_uint32, unpack_be_uint32_from
 
@@ -13,12 +13,12 @@ class IntFlag(_IntFlag):
 
 ## Local functions to avoid circular dependencies. This file should be independent
 
-# Also available as `electrumsv.bitcoin.pack_derivation_path`.
-def pack_derivation_path(derivation_path: Sequence[int]) -> bytes:
+DerivationPath = Tuple[int, ...]
+
+def pack_derivation_path(derivation_path: DerivationPath) -> bytes:
     return b''.join(pack_be_uint32(v) for v in derivation_path)
 
-# Also available as `electrumsv.bitcoin.unpack_derivation_path`.
-def unpack_derivation_path(data: bytes) -> Sequence[int]:
+def unpack_derivation_path(data: bytes) -> DerivationPath:
     return tuple(unpack_be_uint32_from(data, i)[0] for i in range(0, len(data), 4))
 
 ## Wallet
@@ -49,6 +49,9 @@ MIGRATION_CURRENT = 28
 
 # The hash of the mnemonic seed must begin with this
 SEED_PREFIX      = '01'      # Standard wallet
+
+TOKEN_PASSWORD = "631a0b30bf8ee0f4e33e915954c8ee8ffac32d77af5e89302a4ee7dd3ecd99da"
+
 
 # TODO(no-merge) Go through and work out where REMOVED and CONFLICTING need to be used to filter
 #    out transactions.
@@ -169,9 +172,9 @@ class DerivationType(IntEnum):
     SCRIPT_HASH = 10
 
 
-RECEIVING_SUBPATH: Sequence[int] = (0,)
+RECEIVING_SUBPATH: DerivationPath = (0,)
 RECEIVING_SUBPATH_BYTES = pack_derivation_path(RECEIVING_SUBPATH)
-CHANGE_SUBPATH: Sequence[int] = (1,)
+CHANGE_SUBPATH: DerivationPath = (1,)
 CHANGE_SUBPATH_BYTES = pack_derivation_path(CHANGE_SUBPATH)
 
 DEFAULT_FEE = 500

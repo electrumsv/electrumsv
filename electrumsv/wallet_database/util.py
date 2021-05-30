@@ -1,13 +1,13 @@
+import datetime
 from io import BytesIO
 try:
     # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
-    import pysqlite3 as sqlite3
+    import pysqlite3 as sqlite3 # type: ignore
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
     # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
     import sqlite3 # type: ignore
-import time
-from typing import Any, Collection, Dict, List, Optional, Sequence, Tuple, Type, TypeVar
+from typing import Any, cast, Collection, List, Optional, Sequence, Tuple, Type, TypeVar
 
 import bitcoinx
 from bitcoinx import base58_decode_check, PublicKey
@@ -17,18 +17,20 @@ from .sqlite_support import SQLITE_EXPR_TREE_DEPTH, SQLITE_MAX_VARS
 from .types import TxProof
 
 from ..constants import DerivationType, pack_derivation_path
+from ..types import KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataTypes, \
+    KeyInstanceDataPrivateKey
 
 T = TypeVar('T')
 T2 = TypeVar('T2')
 
 
-def create_derivation_data2(derivation_type: DerivationType, derivation_data: Dict[str, Any]) \
-            -> bytes:
+def create_derivation_data2(derivation_type: DerivationType,
+        derivation_data: KeyInstanceDataTypes) -> bytes:
     if derivation_type == DerivationType.BIP32_SUBPATH:
-        derivation_path = tuple(derivation_data["subpath"])
+        derivation_path = cast(KeyInstanceDataBIP32SubPath, derivation_data)["subpath"]
         return pack_derivation_path(derivation_path)
     elif derivation_type == DerivationType.PRIVATE_KEY:
-        public_key_bytes = bytes.fromhex(derivation_data['pub'])
+        public_key_bytes = bytes.fromhex(cast(KeyInstanceDataPrivateKey, derivation_data)['pub'])
         # Ensure all public keys are canonically encoded in the compressed form.
         if len(public_key_bytes) != 33:
             public_key_bytes = PublicKey.from_bytes(public_key_bytes).to_bytes(compressed=True)
@@ -36,9 +38,10 @@ def create_derivation_data2(derivation_type: DerivationType, derivation_data: Di
     elif derivation_type in (DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH):
         # We manually extract this rather than using the `bitcoinx.Address` class as we do
         # not care about the coin as that is implicit in the wallet.
-        raw = base58_decode_check(derivation_data['hash'])
+        derivation_data_hash = cast(KeyInstanceDataHash, derivation_data)
+        raw = base58_decode_check(derivation_data_hash['hash'])
         if len(raw) != 21:
-            raise ValueError(f'invalid address: {derivation_data["hash"]}')
+            raise ValueError(f'invalid address: {derivation_data_hash["hash"]}')
         return raw[1:]
     raise NotImplementedError()
 
@@ -65,7 +68,7 @@ def flag_clause(column: str, flags: Optional[T], mask: Optional[T]) -> Tuple[str
 
 
 def get_timestamp() -> int:
-    return int(time.time())
+    return int(datetime.datetime.now(datetime.timezone.utc).timestamp())
 
 
 def pack_proof(proof: TxProof) -> bytes:

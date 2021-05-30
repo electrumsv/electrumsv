@@ -13,7 +13,7 @@ import re
 import requests
 import struct
 import time
-from typing import Any, Dict, List, Optional, TYPE_CHECKING
+from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING
 
 from bitcoinx import (bip32_build_chain_string, bip32_key_from_string, compact_signature_to_der,
     pack_signed_message, PublicKey)
@@ -28,8 +28,9 @@ from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.logs import logs
 from electrumsv.platform import platform
 from electrumsv.transaction import Transaction, TransactionContext
+from electrumsv.types import MasterKeyDataHardware
 
-from ..hw_wallet import HW_PluginBase
+from ..hw_wallet import HW_PluginBase, QtHandlerBase
 
 try:
     import hid
@@ -56,6 +57,7 @@ def derive_keys(x):
 MIN_MAJOR_VERSION = 5
 
 class DigitalBitbox_Client():
+    handler: Optional[QtHandlerBase] = None
 
     def __init__(self, plugin, hidDevice):
         self.plugin = plugin
@@ -130,7 +132,7 @@ class DigitalBitbox_Client():
     def backup_password_dialog(self):
         msg = _("Enter the password used when the backup was created:")
         while True:
-            password = self.handler.get_passphrase(msg, False)
+            password = cast(QtHandlerBase, self.handler).get_passphrase(msg, False)
             if password is None:
                 return None
             if len(password) < 4:
@@ -145,7 +147,7 @@ class DigitalBitbox_Client():
 
     def password_dialog(self, msg):
         while True:
-            password = self.handler.get_passphrase(msg, False)
+            password = cast(QtHandlerBase, self.handler).get_passphrase(msg, False)
             if password is None:
                 return False
             if len(password) < 4:
@@ -429,30 +431,25 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
     hw_type = 'digitalbitbox'
     device = 'DigitalBitbox'
 
-    def __init__(self, data: Dict[str, Any], row: 'MasterKeyRow') -> None:
+    def __init__(self, data: MasterKeyDataHardware, row: 'MasterKeyRow') -> None:
         Hardware_KeyStore.__init__(self, data, row)
         self.force_watching_only = False
         self.maxInputs = 14 # maximum inputs per single sign command
 
-
     def get_derivation(self):
         return str(self.derivation)
 
-
     def is_p2pkh(self):
         return self.derivation.startswith("m/44'/")
-
 
     def give_error(self, message, clear_client = False):
         if clear_client:
             self.client = None
         raise Exception(message)
 
-
     def decrypt_message(self, pubkey, message, password):
         raise RuntimeError(_('Encryption and decryption are not supported for {}').format(
             self.device))
-
 
     def sign_message(self, sequence, message, password):
         sig = None
@@ -467,7 +464,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
 
             msg = b'{"sign":{"meta":"sign message", "data":%s}}' % hasharray.encode('utf8')
 
-            dbb_client = self.plugin.get_client(self)
+            dbb_client = cast(DigitalBitboxPlugin, self.plugin).get_client(self)
 
             if not dbb_client.is_paired():
                 raise Exception(_("Bitbox does not appear to be connected."))
@@ -577,7 +574,8 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     msg_data["sign"]["meta"] = sha256d(tx_dbb_serialized).hex()
                 msg = json.dumps(msg_data).encode('ascii')
                 assert self.plugin is not None
-                dbb_client: DigitalBitbox_Client = self.plugin.get_client(self)
+                plugin = cast(DigitalBitboxPlugin, self.plugin)
+                dbb_client: DigitalBitbox_Client = plugin.get_client(self)
 
                 if not dbb_client.is_paired():
                     raise Exception("Could not sign transaction.")
@@ -589,12 +587,13 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 if 'echo' not in reply:
                     raise Exception("Could not sign transaction.")
 
-                if self.plugin.is_mobile_paired() and tx_dbb_serialized is not None:
+                if plugin.is_mobile_paired() and tx_dbb_serialized is not None:
                     reply['tx'] = tx_dbb_serialized
-                    self.plugin.comserver_post_notification(reply)
+                    plugin.comserver_post_notification(reply)
 
+                handler = cast(QtHandlerBase, self.handler)
                 if steps > 1:
-                    self.handler.show_message(
+                    handler.show_message(
                         _("Signing large transaction. Please be patient ...") + "\n\n" +
                         _("To continue, touch the Digital Bitbox's blinking light for "
                           "3 seconds.") + " " +
@@ -602,7 +601,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                         _("To cancel, briefly touch the blinking light or wait for the timeout.")
                         + "\n\n")
                 else:
-                    self.handler.show_message(
+                    handler.show_message(
                         _("Signing transaction...") + "\n\n" +
                         _("To continue, touch the Digital Bitbox's blinking light for "
                           "3 seconds.") + "\n\n" +
@@ -610,7 +609,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
 
                 # Send twice, first returns an echo for smart verification
                 reply = dbb_client.hid_send_encrypt(msg)
-                self.handler.finished()
+                handler.finished()
 
                 if 'error' in reply:
                     if reply["error"].get('code') in (600, 601):

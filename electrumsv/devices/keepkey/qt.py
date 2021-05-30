@@ -24,6 +24,8 @@
 
 from functools import partial
 
+from bitcoinx import bip32_key_from_string, BIP32PrivateKey
+
 from PyQt5.QtCore import Qt, QEventLoop, pyqtSignal, QRegExp
 from PyQt5.QtGui import QRegExpValidator
 from PyQt5.QtWidgets import (
@@ -37,7 +39,7 @@ from .keepkey import KeepKeyPlugin, TIM_NEW, TIM_RECOVER, TIM_MNEMONIC
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase, HandlerWindow
 
 from electrumsv.app_state import app_state
-from electrumsv.keystore import is_xprv, Hardware_KeyStore
+from electrumsv.keystore import Hardware_KeyStore
 from electrumsv.i18n import _
 
 from electrumsv.gui.qt.main_window import ElectrumWindow
@@ -124,7 +126,8 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
                 msg = _("Enter your BIP39 mnemonic:")
             else:
                 def set_enabled():
-                    wizard.next_button.setEnabled(is_xprv(clean_text(text)))
+                    key = bip32_key_from_string(clean_text(text))
+                    wizard.next_button.setEnabled(isinstance(key, BIP32PrivateKey))
                 msg = _("Enter the master private key beginning with xprv:")
                 text.textChanged.connect(set_enabled)
                 next_enabled = False

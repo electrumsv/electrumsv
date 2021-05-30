@@ -26,7 +26,7 @@ import enum
 from io import BytesIO
 import struct
 from struct import error as struct_error
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
 import attr
 from bitcoinx import (
@@ -38,7 +38,7 @@ from bitcoinx import (
 )
 
 from .bitcoin import ScriptTemplate
-from .constants import ScriptType
+from .constants import DerivationPath, ScriptType
 from .logs import logs
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
@@ -133,7 +133,7 @@ class XPublicKey:
 
     _old_mpk: Optional[bytes] = None
     _bip32_xpub: Optional[str] = None
-    _derivation_path: Optional[Sequence[int]] = None
+    _derivation_path: Optional[DerivationPath] = None
     _pubkey_bytes: Optional[bytes] = None
 
     def __init__(self, **kwargs) -> None:
@@ -221,7 +221,7 @@ class XPublicKey:
             return XPublicKeyType.PRIVATE_KEY
         return XPublicKeyType.UNKNOWN
 
-    def derivation_path(self) -> Sequence[int]:
+    def derivation_path(self) -> DerivationPath:
         assert self._derivation_path is not None
         return self._derivation_path
 
@@ -232,15 +232,15 @@ class XPublicKey:
         assert self._bip32_xpub is not None
         return self._bip32_xpub
 
-    def bip32_path(self) -> Sequence[int]:
+    def bip32_path(self) -> DerivationPath:
         assert self._bip32_xpub is not None and self._derivation_path is not None
         return self._derivation_path
 
-    def bip32_extended_key_and_path(self) -> Tuple[str, Sequence[int]]:
+    def bip32_extended_key_and_path(self) -> Tuple[str, DerivationPath]:
         assert self._bip32_xpub is not None and self._derivation_path is not None
         return self._bip32_xpub, self._derivation_path
 
-    def old_keystore_mpk_and_path(self) -> Tuple[bytes, Sequence[int]]:
+    def old_keystore_mpk_and_path(self) -> Tuple[bytes, DerivationPath]:
         assert self._old_mpk is not None and self._derivation_path is not None
         return self._old_mpk, self._derivation_path
 

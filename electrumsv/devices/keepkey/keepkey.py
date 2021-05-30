@@ -75,7 +75,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         return False
 
     def get_client(self, force_pair=True):
-        return self.plugin.get_client(self, force_pair)
+        return cast(KeepKeyPlugin, self.plugin).get_client(self, force_pair)
 
     def decrypt_message(self, sequence, message, password):
         raise RuntimeError(_('Encryption and decryption are not implemented by {}').format(
@@ -85,7 +85,8 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         client = self.get_client()
         address_path = self.get_derivation() + "/%d/%d"%sequence
         address_n = bip32_decompose_chain_string(address_path)
-        msg_sig = client.sign_message(self.plugin.get_coin_name(client), address_n, message)
+        msg_sig = client.sign_message(cast(KeepKeyPlugin, self.plugin).get_coin_name(client),
+            address_n, message)
         return msg_sig.signature
 
     def sign_transaction(self, tx: Transaction, password: str,
@@ -105,7 +106,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
                     xpub_path[xpub] = self.get_derivation()
 
         assert self.plugin is not None
-        self.plugin.sign_transaction(self, tx, xpub_path)
+        cast(KeepKeyPlugin, self.plugin).sign_transaction(self, tx, xpub_path)
 
 
 class KeepKeyPlugin(HW_PluginBase):

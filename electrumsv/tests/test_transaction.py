@@ -1,12 +1,13 @@
 import json
+from typing import cast
+
+from bitcoinx import Address, PrivateKey, PublicKey, Tx, Script, TxOutput, bip32_key_from_string, \
+    hash160, Bitcoin
 import pytest
 
-from bitcoinx import (
-    Address, PrivateKey, PublicKey, Tx, Script, TxOutput, bip32_key_from_string, hash160, Bitcoin
-)
-
 from electrumsv.bitcoin import address_from_string
-from electrumsv.keystore import Old_KeyStore, BIP32_KeyStore
+from electrumsv.constants import KeystoreTextType
+from electrumsv.keystore import BIP32_KeyStore, Old_KeyStore, instantiate_keystore_from_text
 from electrumsv.transaction import XPublicKey, Transaction, TransactionContext, NO_SIGNATURE
 
 
@@ -170,15 +171,16 @@ class TestTransaction2:
 
     def multisig_keystores(self):
         seed = 'ee6ea9eceaf649640051a4c305ac5c59'
-        keystore1 = Old_KeyStore.from_seed(seed)
-        keystore1.update_password("OLD")
+        keystore1 = cast(Old_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, seed, password="OLD"))
 
         xprv = ('xprv9s21ZrQH143K4XLpSd2berkCzJTXDv68rusDQFiQGSqa1ZmVXnYzYpTQ9'
                 'qYiSB7mHvg6kEsrd2ZtnHRJ61sZhSN4jZ2T8wxA4T75BE4QQZ1')
         xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
                 'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
-        keystore2 = BIP32_KeyStore({'xprv': xprv, 'xpub': xpub})
-        keystore2.update_password("BIP32")
+        keystore2 = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.EXTENDED_PRIVATE_KEY, xprv, password="BIP32"))
+        assert keystore2.xpub == xpub
 
         return [keystore1, keystore2]
 

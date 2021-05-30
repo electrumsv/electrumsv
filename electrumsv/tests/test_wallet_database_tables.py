@@ -122,12 +122,12 @@ def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
     assert line1 == line1_db
     assert line2 == line2_db
 
-    future = db_functions.update_masterkey_derivation_datas(db_context, [ (b'234', 1) ])
-    future.result()
+    # future = db_functions.update_masterkey_derivation_datas(db_context, [ (b'234', 1) ])
+    # future.result()
 
-    masterkey_rows = db_functions.read_masterkeys(db_context)
-    masterkey_row1 = [ row for row in masterkey_rows if row.masterkey_id == 1 ][0]
-    assert masterkey_row1.derivation_data == b'234'
+    # masterkey_rows = db_functions.read_masterkeys(db_context)
+    # masterkey_row1 = [ row for row in masterkey_rows if row.masterkey_id == 1 ][0]
+    # assert masterkey_row1.derivation_data == b'234'
 
 
 def test_table_accounts_crud(db_context: DatabaseContext) -> None:

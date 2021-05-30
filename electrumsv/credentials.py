@@ -32,10 +32,11 @@
 #   it makes more sense if the credentials are cached for the funding account and they are not
 #   for the savings account.
 
-from collections import defaultdict
+import dataclasses
 import threading
 import time
-from typing import Any, cast, Dict, NamedTuple, Optional, Set, Tuple
+from typing import cast, Dict, NamedTuple, Optional, Tuple
+import uuid
 
 from bitcoinx import PrivateKey
 
@@ -46,16 +47,15 @@ from .logs import logs
 logger = logs.get_logger("credentials")
 
 
-LifetimeCredentialId = Any
-LifetimeUserId = tuple
+IndefiniteCredentialId = uuid.UUID
 
 
-class UserLifetimeCredential(NamedTuple):
+@dataclasses.dataclass
+class IndefiniteCredential:
     """
-    A credential that is cached as long as there is an active user for it.
+    A credential that is cached until it is explicitly removed.
     """
     encrypted_value: bytes
-    active_users: Set[LifetimeUserId]
 
 
 class WalletCredential(NamedTuple):
@@ -76,9 +76,7 @@ class CredentialCache:
     fatal_error = False
 
     def __init__(self) -> None:
-        self._lifetime_credential_users: Dict[LifetimeUserId, Set[LifetimeCredentialId]] = \
-            defaultdict(set)
-        self._user_lifetime_credentials: Dict[LifetimeCredentialId, UserLifetimeCredential] = {}
+        self._indefinite_credentials: Dict[IndefiniteCredentialId, IndefiniteCredential] = {}
         self._wallet_credentials: Dict[str, WalletCredential] = {}
 
         self._check_thread: Optional[threading.Thread] = None
@@ -146,38 +144,26 @@ class CredentialCache:
             logger.debug("Exiting thread to check credential expiry (closed: %s, count: %d)",
                 self.closed, len(self._wallet_credentials))
 
-    def add_user_lifetime_credential(self, credential_id: LifetimeCredentialId,
-            user_id: LifetimeUserId, credential_value: str) -> None:
+    def add_indefinite_credential(self, credential_value: str) \
+            -> IndefiniteCredentialId:
         with self._credential_lock:
-            credential = self._user_lifetime_credentials.get(credential_id)
+            credential_id = uuid.uuid4()
             encrypted_value = cast(bytes, self._public_key.encrypt_message(credential_value))
-            if credential is None:
-                credential = UserLifetimeCredential(encrypted_value, { user_id })
-                self._user_lifetime_credentials[credential_id] = credential
-            else:
-                assert user_id not in credential.active_users
-                assert encrypted_value == credential.encrypted_value
-                credential.active_users.add(user_id)
-            self._lifetime_credential_users[user_id].add(credential_id)
+            credential = IndefiniteCredential(encrypted_value)
+            self._indefinite_credentials[credential_id] = credential
+        return credential_id
 
-    def remove_user_lifetime_credential(self, credential_id: LifetimeCredentialId,
-            user_id: LifetimeUserId) -> None:
+    def update_indefinite_credential(self, credential_id: IndefiniteCredentialId,
+            credential_value: str) -> None:
         with self._credential_lock:
-            self._lifetime_credential_users[user_id].remove(credential_id)
-            if not self._lifetime_credential_users[user_id]:
-                del self._lifetime_credential_users[user_id]
+            encrypted_value = cast(bytes, self._public_key.encrypt_message(credential_value))
+            self._indefinite_credentials[credential_id].encrypted_value = encrypted_value
 
-            credential = self._user_lifetime_credentials[credential_id]
-            credential.active_users.remove(user_id)
-            if not credential.active_users:
-                del self._user_lifetime_credentials[credential_id]
-
-    def remove_all_user_credentials(self, user_id: LifetimeUserId) -> None:
+    def remove_indefinite_credential(self, credential_id: IndefiniteCredentialId) -> None:
         with self._credential_lock:
-            for credential_id in list(self._lifetime_credential_users[user_id]):
-                self.remove_user_lifetime_credential(credential_id, user_id)
+            self._indefinite_credentials.pop(credential_id)
 
-    def get_lifetime_credential(self, credential_id: LifetimeCredentialId) -> str:
+    def get_indefinite_credential(self, credential_id: IndefiniteCredentialId) -> str:
         """
         This is a credential that is cached as long as it's use is desired.
 
@@ -185,7 +171,7 @@ class CredentialCache:
         individual ids and their comings and goings.
         """
         with self._credential_lock:
-            credential = self._user_lifetime_credentials[credential_id]
+            credential = self._indefinite_credentials[credential_id]
             credential_bytes = self._private_key.decrypt_message(credential.encrypted_value)
             return credential_bytes.decode('utf-8')
 

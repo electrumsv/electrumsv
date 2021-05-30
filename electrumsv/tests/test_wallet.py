@@ -2,8 +2,9 @@ import os
 import shutil
 import sys
 import tempfile
-from typing import Dict, Optional, List, Set
+from typing import cast, Dict, Optional, List, Set
 import unittest
+import unittest.mock
 
 import pytest
 
@@ -11,11 +12,13 @@ from electrumsv.constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, 
     RECEIVING_SUBPATH, ScriptType, StorageKind, TxFlags, unpack_derivation_path)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
-from electrumsv.keystore import (from_seed, from_xpub, Old_KeyStore, Multisig_KeyStore)
+from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
+    Imported_KeyStore, instantiate_keystore_from_text, Old_KeyStore,
+    Multisig_KeyStore)
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.storage import get_categorised_files, WalletStorage, WalletStorageInfo
 from electrumsv.transaction import Transaction
-from electrumsv.types import TxoKeyType
+from electrumsv.types import MasterKeyDataBIP32, TxoKeyType
 from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount, MultisigAccount,
     Wallet, StandardAccount)
 from electrumsv.wallet_database import functions as db_functions
@@ -77,11 +80,11 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
         seed_words: Optional[str]=None, is_bip39: bool=False,
         password: Optional[str]=None) -> None:
     assert len(wallet.get_accounts()) == 1
-    account: StandardAccount = wallet.get_accounts()[0]
+    account = cast(StandardAccount, wallet.get_accounts()[0])
 
-    wallet_keystores = wallet.get_keystores()
+    wallet_keystores = cast(List[BIP32_KeyStore], wallet.get_keystores())
     assert len(wallet_keystores) == 1
-    account_keystores = account.get_keystores()
+    account_keystores = cast(List[BIP32_KeyStore], account.get_keystores())
     assert len(account_keystores) == 1
     assert wallet_keystores[0] is account_keystores[0]
 
@@ -91,34 +94,29 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
     assert account_keystores[0].get_master_private_key(password)
 
     keystore_data = wallet_keystores[0].to_derivation_data()
-    entry_count = 3
-    if is_bip39:
-        entry_count = 2
-    assert len(keystore_data) == entry_count
+    assert len(keystore_data) == 5
     assert 'xpub' in keystore_data
     assert 'xprv' in keystore_data
+    assert 'label' in keystore_data
+    assert 'seed' in keystore_data
+    assert 'passphrase' in keystore_data
     keystore_encrypted = False
     try:
         wallet_keystores[0].check_password(None)
     except InvalidPassword:
         keystore_encrypted = True
     assert "encrypted" not in wallet.name() or keystore_encrypted
-    if is_bip39:
-        assert "seed" not in keystore_data
-    else:
-        if seed_words is None:
-            assert "seed" in keystore_data
-        else:
-            assert keystore_data['seed'] == seed_words
+    if seed_words is not None:
+        assert keystore_data['seed'] == seed_words
 
-def check_legacy_parent_of_imported_privkey_wallet(wallet: Wallet,
-        keypairs: Optional[Dict[str, str]]=None, password: Optional[str]=None) -> None:
+def check_legacy_parent_of_imported_privkey_wallet(wallet: Wallet, password: str,
+        keypairs: Optional[Dict[str, str]]=None) -> None:
     assert len(wallet.get_accounts()) == 1
-    account: ImportedPrivkeyAccount = wallet.get_accounts()[0]
+    account = cast(ImportedPrivkeyAccount, wallet.get_accounts()[0])
 
     parent_keystores = wallet.get_keystores()
     assert len(parent_keystores) == 0
-    child_keystores = account.get_keystores()
+    child_keystores = cast(List[Imported_KeyStore], account.get_keystores())
     assert len(child_keystores) == 1
     assert child_keystores[0] is not None
 
@@ -127,31 +125,32 @@ def check_legacy_parent_of_imported_privkey_wallet(wallet: Wallet,
         child_keystores[0].to_masterkey_row()
     with pytest.raises(IncompatibleWalletError):
         child_keystores[0].to_derivation_data()
-    keyinstance_datas = child_keystores[0].get_keyinstance_derivation_data()
-    assert len(keyinstance_datas) == 1
-    if keypairs is not None:
-        for key_id, data in keyinstance_datas:
-            assert pw_decode(data['prv'], password) == keypairs[data['pub']]
+    child_keystore = child_keystores[0]
+    assert len(child_keystore._keypairs) == 1
+    if keypairs:
+        for public_key in child_keystore._public_keys.values():
+            encrypted_prv =  child_keystore._keypairs[public_key]
+            assert pw_decode(encrypted_prv, password) == keypairs[public_key.to_hex()]
 
 
 def check_legacy_parent_of_imported_address_wallet(wallet: Wallet) -> None:
     assert len(wallet.get_accounts()) == 1
-    account: ImportedAddressAccount = wallet.get_accounts()[0]
+    account = cast(ImportedAddressAccount, wallet.get_accounts()[0])
 
     assert len(wallet.get_keystores()) == 0
     assert len(account.get_keystores()) == 0
 
 
-def check_legacy_parent_of_multisig_wallet(wallet: Wallet) -> None:
+def check_legacy_parent_of_multisig_wallet(wallet: Wallet, password: str,
+        seed_phrase: Optional[str]=None) -> None:
     assert len(wallet.get_accounts()) == 1
-    account: MultisigAccount = wallet.get_accounts()[0]
+    account = cast(MultisigAccount, wallet.get_accounts()[0])
 
-    m = account.m
     n = account.n
 
     parent_keystores = wallet.get_keystores()
     assert len(parent_keystores) == 1
-    keystore = parent_keystores[0]
+    keystore = cast(Multisig_KeyStore, parent_keystores[0])
     child_keystores = keystore.get_cosigner_keystores()
     assert len(child_keystores) == n
     parent_data = keystore.to_derivation_data()
@@ -159,13 +158,14 @@ def check_legacy_parent_of_multisig_wallet(wallet: Wallet) -> None:
     for i in range(n):
         masterkey_row = child_keystores[i].to_masterkey_row()
         assert masterkey_row.derivation_type == DerivationType.BIP32
-        keystore_data = parent_data["cosigner-keys"][i][1]
-        if len(keystore_data) == 3:
-            assert keystore_data['seed'] is not None # == seed_words
+        keystore_data = cast(MasterKeyDataBIP32, parent_data["cosigner-keys"][i][1])
+        encrypted_seed = keystore_data['seed']
+        if encrypted_seed is not None:
+            if seed_phrase is not None:
+                assert pw_decode(encrypted_seed, password) == seed_phrase
             assert keystore_data['xpub'] is not None
             assert keystore_data['xprv'] is not None
         else:
-            assert len(keystore_data) == 2
             assert keystore_data['xpub'] is not None
             assert keystore_data['xprv'] is None
 
@@ -177,11 +177,11 @@ def check_parent_of_blank_wallet(wallet: Wallet) -> None:
 
 def check_legacy_parent_of_hardware_wallet(wallet: Wallet) -> None:
     assert len(wallet.get_accounts()) == 1
-    child_account = wallet.get_accounts()[0]
+    child_account = cast(StandardAccount, wallet.get_accounts()[0])
 
-    parent_keystores = wallet.get_keystores()
+    parent_keystores = cast(List[Hardware_KeyStore], wallet.get_keystores())
     assert len(parent_keystores) == 1
-    child_keystores = child_account.get_keystores()
+    child_keystores = cast(List[Hardware_KeyStore], child_account.get_keystores())
     assert len(child_keystores) == 1
     assert parent_keystores[0] is child_keystores[0]
 
@@ -189,12 +189,9 @@ def check_legacy_parent_of_hardware_wallet(wallet: Wallet) -> None:
     assert masterkey_row.derivation_type == DerivationType.HARDWARE
     keystore_data = parent_keystores[0].to_derivation_data()
     # General hardware wallet.
-    entry_count = 4
     if keystore_data['hw_type'] == "ledger":
         # Ledger wallets extend the keystore.
         assert "cfg" in keystore_data
-        entry_count = 5
-    assert len(keystore_data) == entry_count
     assert 'hw_type' in keystore_data
     assert 'label' in keystore_data
     assert "derivation" in keystore_data
@@ -209,7 +206,7 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
             assert DerivationType.BIP32_SUBPATH == row.derivation_type
             assert None is row.description
 
-    accounts = wallet.get_accounts()
+    accounts = cast(List[StandardAccount], wallet.get_accounts())
     assert len(accounts) == 1
     account = accounts[0]
     assert [] == account.get_existing_fresh_keys(RECEIVING_SUBPATH, 1000)
@@ -238,6 +235,7 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
 
     for count in (0, 1, 5):
         local_last_row = keyinstances[-1]
+        assert local_last_row.derivation_data2 is not None
         local_last_index = unpack_derivation_path(local_last_row.derivation_data2)[-1]
         next_index = account.get_next_derivation_index(RECEIVING_SUBPATH)
         assert next_index == local_last_index  + 1
@@ -283,15 +281,15 @@ class TestLegacyWalletCreation:
 
         password = 'password'
         seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
-        child_keystore = from_seed(seed_words, '')
+        child_keystore = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
 
         wallet = Wallet(tmp_storage)
         masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
-        wallet.update_password(password)
 
         raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
         account_row = wallet.add_accounts([ raw_account_row ])[0]
-        account = StandardAccount(wallet, account_row, [], [])
+        account = StandardAccount(wallet, account_row, [])
         wallet.register_account(account.get_id(), account)
 
         check_legacy_parent_of_standard_wallet(wallet, password=password)
@@ -299,18 +297,20 @@ class TestLegacyWalletCreation:
 
     @unittest.mock.patch('electrumsv.wallet.app_state')
     def test_old(self, mock_app_state, tmp_storage) -> None:
-        mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+        mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
+        password = "password"
         seed_words = ('powerful random nobody notice nothing important '+
             'anyway look away hidden message over')
-        child_keystore = from_seed(seed_words, '')
+        child_keystore = cast(Old_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, seed_words, password))
         assert isinstance(child_keystore, Old_KeyStore)
 
         wallet = Wallet(tmp_storage)
         masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
         account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
         account_row = wallet.add_accounts([ account_row ])[0]
-        account = StandardAccount(wallet, account_row, [], [])
+        account = StandardAccount(wallet, account_row, [])
         wallet.register_account(account.get_id(), account)
 
         parent_keystores = wallet.get_keystores()
@@ -336,7 +336,7 @@ class TestLegacyWalletCreation:
         wallet = Wallet(tmp_storage)
         account = wallet.create_account_from_text_entries(KeystoreTextType.PRIVATE_KEYS,
             ScriptType.P2PKH,
-            [ "KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6" ],
+            { "KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6" },
             "password")
 
         keypairs = {'02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997':
@@ -355,21 +355,27 @@ class TestLegacyWalletCreation:
         wallet = Wallet(tmp_storage)
         account = wallet.create_account_from_text_entries(KeystoreTextType.ADDRESSES,
             ScriptType.NONE,
-            [ "15hETetDmcXm1mM4sEf7U2KXC9hDHFMSzz", "1GPHVTY8UD9my6jyP4tb2TYJwUbDetyNC6" ],
+            { "15hETetDmcXm1mM4sEf7U2KXC9hDHFMSzz", "1GPHVTY8UD9my6jyP4tb2TYJwUbDetyNC6" },
             "password")
         mock_app_state.app.on_new_wallet_event.assert_called_once()
         check_legacy_parent_of_imported_address_wallet(wallet)
 
     @unittest.mock.patch('electrumsv.wallet.app_state')
     def test_multisig(self, mock_app_state, tmp_storage) -> None:
-        mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+        password = "my_pasword!"
+        mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
         wallet = Wallet(tmp_storage)
 
         seed_words = ('blast uniform dragon fiscal ensure vast young utility dinosaur abandon '+
             'rookie sure')
-        ks1 = from_seed(seed_words, '')
-        ks2 = from_xpub('xpub661MyMwAqRbcGfCPEkkyo5WmcrhTq8mi3xuBS7VEZ3LYvsgY1cCFDben'+
-            'T33bdD12axvrmXhuX3xkAbKci3yZY9ZEk8vhLic7KNhLjqdh5ec')
+        ks1 = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
+        assert not ks1.is_watching_only()
+        ks2 = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.EXTENDED_PUBLIC_KEY,
+            'xpub661MyMwAqRbcGfCPEkkyo5WmcrhTq8mi3xuBS7VEZ3LYvsgY1cCFDben'
+                'T33bdD12axvrmXhuX3xkAbKci3yZY9ZEk8vhLic7KNhLjqdh5ec',
+            watch_only=True))
 
         keystore = Multisig_KeyStore({ 'm': 2, 'n': 2, "cosigner-keys": [] })
         keystore.add_cosigner_keystore(ks1)
@@ -382,17 +388,18 @@ class TestLegacyWalletCreation:
 
         account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_BARE, 'text')
         account_row = wallet.add_accounts([ account_row ])[0]
-        account = MultisigAccount(wallet, account_row, [], [])
+        account = MultisigAccount(wallet, account_row, [])
         wallet.register_account(account.get_id(), account)
 
-        check_legacy_parent_of_multisig_wallet(wallet)
+        check_legacy_parent_of_multisig_wallet(wallet, password, seed_words)
         check_create_keys(wallet, account_row.default_script_type)
 
 
 @pytest.mark.parametrize("storage_info", get_categorised_files2(TEST_WALLET_PATH))
 @unittest.mock.patch('electrumsv.wallet.app_state')
 def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) -> None:
-    mock_app_state.credentials.get_wallet_password = lambda wallet_path: "123456"
+    password = initial_password = "123456"
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
     # When a wallet is composed of multiple files, we need to know which to load.
     wallet_filenames = []
@@ -420,19 +427,19 @@ def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) 
     if storage_info.kind == StorageKind.HYBRID:
         pytest.xfail("old development database wallets not supported yet")
 
-    password = None
+    has_password = True
     storage = WalletStorage(wallet_path)
     if "passworded" in expected_subtypes:
-        password = "123456"
         text_store = storage.get_text_store()
-        text_store.load_data(text_store.decrypt(password))
-    if "encrypted" in expected_subtypes:
-        password = "123456"
-    if expected_version >= 22:
-        password = "123456"
-        storage.check_password(password)
+        text_store.load_data(text_store.decrypt(initial_password))
+    elif "encrypted" in expected_subtypes:
+        pass
+    elif expected_version >= 22:
+        storage.check_password(initial_password)
+    else:
+        has_password = False
 
-    storage.upgrade(password is not None, password)
+    storage.upgrade(has_password, initial_password)
 
     try:
         wallet = Wallet(storage)
@@ -450,9 +457,19 @@ def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) 
                 return
         raise e
 
-    old_password = password
+    # Store any pre-password update related data to compare against post-password update data.
+    prv_keypairs: Dict[str, str] = {}
+    if "imported" == expected_type and "privkey" in wallet_filename:
+        assert len(wallet.get_accounts()) == 1
+        private_key_account = cast(ImportedPrivkeyAccount, wallet.get_account(1))
+        private_key_keystore = cast(Imported_KeyStore, private_key_account.get_keystore())
+        # Pre-decrypt the prv for later comparison so the initial password is not needed there.
+        for public_key, encrypted_prv in private_key_keystore._keypairs.items():
+            prv_keypairs[public_key.to_hex()] = pw_decode(encrypted_prv, initial_password)
+
     password = "654321"
-    wallet.update_password(password, old_password)
+    future = wallet.update_password(initial_password, password)
+    future.result(5)
 
     if "standard" == expected_type:
         is_bip39 = "bip39" in expected_subtypes
@@ -460,13 +477,13 @@ def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) 
             password=password)
     elif "imported" == expected_type:
         if "privkey" in wallet_filename:
-            check_legacy_parent_of_imported_privkey_wallet(wallet)
+            check_legacy_parent_of_imported_privkey_wallet(wallet, password, prv_keypairs)
         elif "address" in expected_subtypes:
             check_legacy_parent_of_imported_address_wallet(wallet)
         else:
             raise Exception(f"unrecognised wallet file {wallet_filename}")
     elif "multisig" == expected_type:
-        check_legacy_parent_of_multisig_wallet(wallet)
+        check_legacy_parent_of_multisig_wallet(wallet, password)
     elif "hardware" == expected_type:
         check_legacy_parent_of_hardware_wallet(wallet)
     elif "blank" == expected_type:
@@ -545,15 +562,15 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
     # Boilerplate setting up of a deterministic account. This is copied from above.
     password = 'password'
     seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
-    child_keystore = from_seed(seed_words, '')
+    child_keystore = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+        KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
 
     wallet = Wallet(tmp_storage)
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
-    wallet.update_password(password)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
     account_row = wallet.add_accounts([ raw_account_row ])[0]
-    account = StandardAccount(wallet, account_row, [], [])
+    account = StandardAccount(wallet, account_row, [])
     wallet.register_account(account.get_id(), account)
 
     # Ensure that the keys used by the transaction are present to be linked to.

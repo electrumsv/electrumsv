@@ -44,8 +44,8 @@ from bitcoinx import DecryptionError, hash_to_hex_str, hex_str_to_hash, PrivateK
 from bitcoinx.address import P2PKH_Address, P2SH_Address
 
 from .bitcoin import is_address_valid, address_from_string
-from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, MIGRATION_CURRENT,
-    MIGRATION_FIRST, RECEIVING_SUBPATH, ScriptType, StorageKind,
+from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, DerivationPath,
+    MIGRATION_CURRENT, MIGRATION_FIRST, RECEIVING_SUBPATH, ScriptType, StorageKind,
     KeyInstanceFlag)
 from .crypto import pw_encode, pw_decode
 from .exceptions import IncompatibleWalletError, InvalidPassword
@@ -216,7 +216,7 @@ class AbstractStore:
                 v = copy.deepcopy(v)
         return v
 
-    def put(self, key: str, value: Any) -> None:
+    def put(self, key: str, value: Any, already_persisted: bool=False) -> None:
         # Both key and value should be JSON serialisable.
         json.dumps([ key, value ])
 
@@ -224,15 +224,15 @@ class AbstractStore:
             if value is not None:
                 if self._data.get(key) != value:
                     self._data[key] = copy.deepcopy(value)
-                    self._on_value_modified(key, self._data[key])
+                    self._on_value_modified(key, self._data[key], already_persisted)
             elif key in self._data:
                 self._data.pop(key)
-                self._on_value_deleted(key)
+                self._on_value_deleted(key, already_persisted)
 
-    def _on_value_modified(self, key: str, value: Any) -> None:
+    def _on_value_modified(self, key: str, value: Any, already_persisted: bool=False) -> None:
         raise NotImplementedError
 
-    def _on_value_deleted(self, key: str) -> None:
+    def _on_value_deleted(self, key: str, already_persisted: bool=False) -> None:
         raise NotImplementedError
 
     def write(self) -> None:
@@ -320,13 +320,15 @@ class DatabaseStore(AbstractStore):
             self._data[row[0]] = row[1]
         return True
 
-    def _on_value_modified(self, key: str, value: Any) -> None:
+    def _on_value_modified(self, key: str, value: Any, already_persisted: bool=False) -> None:
         # Queued write, we do not wait for it to complete. Closing the DB context will wait.
-        db_functions.set_wallet_datas(self._db_context, [ WalletDataRow(key, value) ])
+        if not already_persisted:
+            db_functions.set_wallet_datas(self._db_context, [ WalletDataRow(key, value) ])
 
-    def _on_value_deleted(self, key: str) -> None:
+    def _on_value_deleted(self, key: str, already_persisted: bool=False) -> None:
         # Queued write, we do not wait for it to complete. Closing the DB context will wait.
-        db_functions.delete_wallet_data(self._db_context, key)
+        if not already_persisted:
+            db_functions.delete_wallet_data(self._db_context, key)
 
     def _write(self) -> None:
         pass
@@ -433,11 +435,13 @@ class TextStore(AbstractStore):
                     continue
                 self._data[key] = value
 
-    def _on_value_modified(self, key: str, value: Any) -> None:
-        self._modified = True
+    def _on_value_modified(self, key: str, value: Any, already_persisted: bool=False) -> None:
+        if not already_persisted:
+            self._modified = True
 
-    def _on_value_deleted(self, key: str) -> None:
-        self._modified = True
+    def _on_value_deleted(self, key: str, already_persisted: bool=False) -> None:
+        if not already_persisted:
+            self._modified = True
 
     def _write(self) -> None:
         if self._modified or not self.is_primed():
@@ -945,7 +949,7 @@ class TextStore(AbstractStore):
                 return derivation_type, data
 
             def convert_keystore(data: Dict[str, Any],
-                    subpaths: Optional[Sequence[Tuple[Sequence[int], int]]]=None) -> Tuple[
+                    subpaths: Optional[Sequence[Tuple[DerivationPath, int]]]=None) -> Tuple[
                         DerivationType, bytes]:
                 derivation_type, data = get_keystore_data(data)
                 if subpaths is not None:

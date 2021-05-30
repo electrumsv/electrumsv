@@ -1,8 +1,9 @@
-from typing import Any, NamedTuple, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple, Union
 
 from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag, NetworkServerFlag,
     NetworkServerType, PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
     WalletEventType)
+from ..types import MasterKeyDataTypes
 
 
 class AccountRow(NamedTuple):
@@ -126,6 +127,12 @@ class NetworkServerAccountRow(NamedTuple):
     encrypted_api_key: Optional[str]
     date_created: int = -1
     date_updated: int = -1
+
+
+class PasswordUpdateResult(NamedTuple):
+    password_token: str
+    account_private_key_updates: Dict[int, List[Tuple[int, str]]]
+    masterkey_updates: List[Tuple[int, DerivationType, MasterKeyDataTypes]]
 
 
 class PaymentRequestRow(NamedTuple):

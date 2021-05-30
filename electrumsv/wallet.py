@@ -31,6 +31,7 @@ from collections import defaultdict
 import concurrent.futures
 from dataclasses import dataclass
 from datetime import datetime
+from enum import IntFlag
 import itertools
 import json
 import os
@@ -50,21 +51,21 @@ from . import coinchooser
 from .app_state import app_state
 from .bitcoin import scripthash_bytes, ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH,
-    DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, KeyInstanceFlag, KeystoreTextType,
+    DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath, KeyInstanceFlag, KeystoreTextType,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerType,
     pack_derivation_path, PaymentFlag,
     SubscriptionOwnerPurpose, SubscriptionType, ScriptType, TransactionInputFlag,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag, WalletEventType,
     WalletSettings)
 from .contacts import Contacts
-from .credential_cache import LifetimeUserId
+from .credentials import CredentialCache, IndefiniteCredentialId
 from .crypto import pw_decode, pw_encode
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
     SubscriptionStale, UnsupportedAccountTypeError, UnsupportedScriptTypeError, UserCancelled,
     WalletLoadError)
 from .i18n import _
 from .keys import get_multi_signer_script_template, get_single_signer_script_template
-from .keystore import (Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
+from .keystore import (BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
     instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, SinglesigKeyStoreTypes,
     SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
@@ -72,7 +73,11 @@ from .networks import Net
 from .storage import WalletStorage
 from .transaction import (Transaction, TransactionContext, TxSerialisationFormat, NO_SIGNATURE,
     tx_dict_from_text, XPublicKey, XPublicKeyType, XTxInput, XTxOutput)
-from .types import (ElectrumXHistoryList, ServerAccountKey, SubscriptionEntry, SubscriptionKey,
+from .types import (ElectrumXHistoryList, KeyInstanceDataBIP32SubPath, KeyInstanceDataHash,
+    KeyInstanceDataPrivateKey, MasterKeyDataTypes,
+    MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
+    ServerAccountKey, SubscriptionEntry,
+    SubscriptionKey,
     SubscriptionOwner, SubscriptionKeyScriptHashOwnerContext,
     SubscriptionTransactionScriptHashOwnerContext, TxoKeyType, WaitingUpdateCallback)
 from .util import (format_satoshis, get_wallet_name_from_path, timestamp_to_datetime,
@@ -84,7 +89,7 @@ from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataType, KeyDataTypes,
     KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
-    NetworkServerRow, NetworkServerAccountRow,
+    NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult,
     PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
     TransactionDeltaSumRow, TransactionExistsRow, TransactionLinkState, TransactionMetadata,
     TransactionSubscriptionRow,
@@ -102,10 +107,16 @@ if TYPE_CHECKING:
 logger = logs.get_logger("wallet")
 
 
+class AccountInstantiationFlags(IntFlag):
+    NONE = 0
+    IMPORTED_PRIVATE_KEYS = 1 << 0
+    IMPORTED_ADDRESSES = 1 << 1
+
+
 class DeterministicKeyAllocation(NamedTuple):
     masterkey_id: int
     derivation_type: DerivationType
-    derivation_path: Sequence[int]
+    derivation_path: DerivationPath
 
 
 @dataclass
@@ -142,7 +153,7 @@ class AbstractAccount:
 
     max_change_outputs = 10
 
-    def __init__(self, wallet: 'Wallet', row: AccountRow, keyinstance_rows: List[KeyInstanceRow],
+    def __init__(self, wallet: 'Wallet', row: AccountRow,
             transaction_descriptions: List[AccountTransactionDescriptionRow]) -> None:
         # Prevent circular reference keeping parent and accounts alive.
         self._wallet: 'Wallet' = cast('Wallet', weakref.proxy(wallet))
@@ -164,8 +175,6 @@ class AbstractAccount:
         self._transaction_descriptions: Dict[bytes, str] = { r.tx_hash: cast(str, r.description)
             for r in transaction_descriptions }
 
-        self._load_keys(keyinstance_rows)
-
         # locks: if you need to take several, acquire them in the order they are defined here!
         self.lock = threading.RLock()
 
@@ -178,11 +187,11 @@ class AbstractAccount:
     def requires_input_transactions(self) -> bool:
         return any(k.requires_input_transactions() for k in self.get_keystores())
 
-    def get_next_derivation_index(self, derivation_path: Sequence[int]) -> int:
+    def get_next_derivation_index(self, derivation_path: DerivationPath) -> int:
         raise NotImplementedError
 
     def allocate_keys(self, count: int,
-            derivation_path: Sequence[int]) -> Sequence[DeterministicKeyAllocation]:
+            derivation_path: DerivationPath) -> Sequence[DeterministicKeyAllocation]:
         """
         Produce an annotated sequence of each key that should be created.
 
@@ -190,14 +199,14 @@ class AbstractAccount:
         """
         raise NotImplementedError
 
-    def get_fresh_keys(self, derivation_parent: Sequence[int], count: int) -> List[KeyInstanceRow]:
+    def get_fresh_keys(self, derivation_parent: DerivationPath, count: int) -> List[KeyInstanceRow]:
         raise NotImplementedError
 
-    def reserve_unassigned_key(self, derivation_parent: Sequence[int], flags: KeyInstanceFlag) \
+    def reserve_unassigned_key(self, derivation_parent: DerivationPath, flags: KeyInstanceFlag) \
             -> int:
         raise NotImplementedError
 
-    def derive_new_keys_until(self, derivation_path: Sequence[int]) -> Sequence[KeyInstanceRow]:
+    def derive_new_keys_until(self, derivation_path: DerivationPath) -> List[KeyInstanceRow]:
         """
         Ensure that keys are created up to and including the given derivation path.
 
@@ -221,7 +230,7 @@ class AbstractAccount:
                 future.result()
             return rows
 
-    def create_keys(self, derivation_subpath: Sequence[int], count: int) \
+    def create_keys(self, derivation_subpath: DerivationPath, count: int) \
             -> Tuple[Optional[concurrent.futures.Future], List[KeyInstanceRow]]:
         # Identify the metadata for each key that is to be created.
         key_allocations = self.allocate_keys(count, derivation_subpath)
@@ -248,7 +257,7 @@ class AbstractAccount:
         return keyinstance_future, rows
 
     def create_derivation_data_dict(self, key_allocation: DeterministicKeyAllocation) \
-            -> Dict[str, Any]:
+            -> KeyInstanceDataBIP32SubPath:
         assert key_allocation.derivation_type == DerivationType.BIP32_SUBPATH
         return { "subpath": key_allocation.derivation_path }
 
@@ -262,7 +271,7 @@ class AbstractAccount:
                     SubscriptionKeyScriptHashOwnerContext(row.keyinstance_id, row.script_type)))
         return entries
 
-    def set_keyinstance_flags(self, keyinstance_ids: List[int], flags: KeyInstanceFlag,
+    def set_keyinstance_flags(self, keyinstance_ids: Sequence[int], flags: KeyInstanceFlag,
             mask: Optional[KeyInstanceFlag]=None) -> concurrent.futures.Future:
         """
         Encapsulate updating the flags for keyinstances belonging to this account.
@@ -302,7 +311,6 @@ class AbstractAccount:
                     unsubscription_keyinstance_ids.append(keyinstance.keyinstance_id)
 
         def callback(future: concurrent.futures.Future) -> None:
-            nonlocal keyinstance_ids, subscription_keyinstance_ids, unsubscription_keyinstance_ids
             # Ensure we abort if it is cancelled.
             if future.cancelled():
                 return
@@ -433,9 +441,6 @@ class AbstractAccount:
         if k is None:
             return self.type().value
         return f"{self.type().value}/{k.debug_name()}"
-
-    def _load_keys(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
-        pass
 
     def is_deterministic(self) -> bool:
         # Not all wallets have a keystore, like imported address for instance.
@@ -600,7 +605,7 @@ class AbstractAccount:
                                     row.derivation_type, row.derivation_data2)
         )
 
-    def get_history(self, domain: Optional[List[int]]=None) -> List[HistoryListEntry]:
+    def get_history(self, domain: Optional[Tuple[int, ...]]=None) -> List[HistoryListEntry]:
         """
         Return the list of transactions in the account kind of sorted from newest to oldest.
 
@@ -1300,11 +1305,6 @@ class ImportedAccountBase(SimpleAccount):
 class ImportedAddressAccount(ImportedAccountBase):
     # Watch-only wallet of imported addresses
 
-    # def __init__(self, wallet: 'Wallet', row: AccountRow,
-    #         keyinstance_rows: List[KeyInstanceRow],
-    #         description_rows: List[AccountTransactionDescriptionRow]) -> None:
-    #     super().__init__(wallet, row, keyinstance_rows, description_rows)
-
     def type(self) -> AccountType:
         return AccountType.IMPORTED_ADDRESS
 
@@ -1338,7 +1338,7 @@ class ImportedAddressAccount(ImportedAccountBase):
         if existing_key is None:
             return False
 
-        derivation_data_dict = { "hash": address.to_string() }
+        derivation_data_dict: KeyInstanceDataHash = { "hash": address.to_string() }
         derivation_data = json.dumps(derivation_data_dict).encode()
         derivation_data2 = create_derivation_data2(derivation_type, derivation_data_dict)
         raw_keyinstance = KeyInstanceRow(-1, -1, None, derivation_type, derivation_data,
@@ -1364,11 +1364,9 @@ class ImportedAddressAccount(ImportedAccountBase):
 
 class ImportedPrivkeyAccount(ImportedAccountBase):
     def __init__(self, wallet: 'Wallet', row: AccountRow,
-            keyinstance_rows: List[KeyInstanceRow],
             description_rows: List[AccountTransactionDescriptionRow]) -> None:
-        assert all(row.derivation_type == DerivationType.PRIVATE_KEY for row in keyinstance_rows)
         self._default_keystore = Imported_KeyStore()
-        AbstractAccount.__init__(self, wallet, row, keyinstance_rows, description_rows)
+        AbstractAccount.__init__(self, wallet, row, description_rows)
 
     def type(self) -> AccountType:
         return AccountType.IMPORTED_PRIVATE_KEY
@@ -1379,21 +1377,15 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
     def can_import_privkey(self):
         return True
 
-    # TODO(obsolete?)
-    def _load_keys(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
-        cast(Imported_KeyStore, self._default_keystore).load_state(keyinstance_rows)
-
-    # TODO(no-merge) what should this account type do here?
-    # def _unload_keys(self, key_ids: Set[int]) -> None:
-    #     for key_id in key_ids:
-    #         cast(Imported_KeyStore, self._default_keystore).remove_key(key_id)
-    #     super()._unload_keys(key_ids)
-
     def can_change_password(self) -> bool:
         return True
 
     def can_import_address(self) -> bool:
         return False
+
+    def set_initial_state(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
+        keystore = cast(Imported_KeyStore, self.get_keystore())
+        keystore.set_state(keyinstance_rows)
 
     def import_private_key(self, private_key_text: str, password: str) -> str:
         public_key = PrivateKey.from_text(private_key_text).public_key
@@ -1406,7 +1398,7 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
             return private_key_text
 
         enc_private_key_text = pw_encode(private_key_text, password)
-        derivation_data_dict = {
+        derivation_data_dict: KeyInstanceDataPrivateKey = {
             "pub": public_key.to_hex(),
             "prv": enc_private_key_text,
         }
@@ -1442,20 +1434,19 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
 
 class DeterministicAccount(AbstractAccount):
     def __init__(self, wallet: 'Wallet', row: AccountRow,
-            keyinstance_rows: List[KeyInstanceRow],
             description_rows: List[AccountTransactionDescriptionRow]) -> None:
-        AbstractAccount.__init__(self, wallet, row, keyinstance_rows, description_rows)
+        AbstractAccount.__init__(self, wallet, row, description_rows)
 
     def has_seed(self) -> bool:
         return cast(Deterministic_KeyStore, self.get_keystore()).has_seed()
 
-    def get_next_derivation_index(self, derivation_parent: Sequence[int]) -> int:
+    def get_next_derivation_index(self, derivation_parent: DerivationPath) -> int:
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         return self._wallet.get_next_derivation_index(self._id, keystore.get_id(),
             derivation_parent)
 
     def allocate_keys(self, count: int,
-            parent_derivation_path: Sequence[int]) -> Sequence[DeterministicKeyAllocation]:
+            parent_derivation_path: DerivationPath) -> Sequence[DeterministicKeyAllocation]:
         """
         Produce an annotated sequence of each key that should be created.
 
@@ -1471,7 +1462,7 @@ class DeterministicAccount(AbstractAccount):
         return tuple(DeterministicKeyAllocation(masterkey_id, DerivationType.BIP32_SUBPATH,
             tuple(parent_derivation_path) + (i,)) for i in range(next_index, next_index + count))
 
-    def reserve_unassigned_key(self, derivation_parent: Sequence[int], flags: KeyInstanceFlag) \
+    def reserve_unassigned_key(self, derivation_parent: DerivationPath, flags: KeyInstanceFlag) \
             -> int:
         """
         Select the first available unassigned key from the given sequence and mark it active.
@@ -1509,7 +1500,7 @@ class DeterministicAccount(AbstractAccount):
         return keyinstance_id
 
     # Returns ordered from use first to use last.
-    def get_fresh_keys(self, derivation_parent: Sequence[int], count: int) -> List[KeyInstanceRow]:
+    def get_fresh_keys(self, derivation_parent: DerivationPath, count: int) -> List[KeyInstanceRow]:
         fresh_keys = self.get_existing_fresh_keys(derivation_parent, count)
         if len(fresh_keys) < count:
             required_count = count - len(fresh_keys)
@@ -1523,14 +1514,14 @@ class DeterministicAccount(AbstractAccount):
         return fresh_keys
 
     # Returns ordered from use first to use last.
-    def get_existing_fresh_keys(self, derivation_parent: Sequence[int], limit: int) \
+    def get_existing_fresh_keys(self, derivation_parent: DerivationPath, limit: int) \
             -> List[KeyInstanceRow]:
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         masterkey_id = keystore.get_id()
         return self._wallet.read_bip32_keys_unused(self._id, masterkey_id, derivation_parent,
             limit)
 
-    def _count_unused_keys(self, derivation_parent: Sequence[int]) -> int:
+    def _count_unused_keys(self, derivation_parent: DerivationPath) -> int:
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         masterkey_id = keystore.get_id()
         return self._wallet.count_unused_bip32_keys(self._id, masterkey_id, derivation_parent)
@@ -1549,9 +1540,8 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
     """ Deterministic Wallet with a single pubkey per address """
 
     def __init__(self, wallet: 'Wallet', row: AccountRow,
-            keyinstance_rows: List[KeyInstanceRow],
             description_rows: List[AccountTransactionDescriptionRow]) -> None:
-        DeterministicAccount.__init__(self, wallet, row, keyinstance_rows, description_rows)
+        DeterministicAccount.__init__(self, wallet, row, description_rows)
 
     def get_master_public_key(self) -> str:
         keystore = cast(StandardKeystoreTypes, self.get_keystore())
@@ -1581,11 +1571,11 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
         keystore = cast(Union[Xpub, Old_KeyStore], self._wallet.get_keystore(keydata.masterkey_id))
         return [ keystore.get_xpubkey(derivation_path) ]
 
-    def derive_pubkeys(self, derivation_path: Sequence[int]) -> PublicKey:
+    def derive_pubkeys(self, derivation_path: DerivationPath) -> PublicKey:
         keystore = cast(Xpub, self.get_keystore())
         return keystore.derive_pubkey(derivation_path)
 
-    def derive_script_template(self, derivation_path: Sequence[int]) -> ScriptTemplate:
+    def derive_script_template(self, derivation_path: DerivationPath) -> ScriptTemplate:
         return self.get_script_template(self.derive_pubkeys(derivation_path))
 
 
@@ -1597,14 +1587,13 @@ class StandardAccount(SimpleDeterministicAccount):
 
 class MultisigAccount(DeterministicAccount):
     def __init__(self, wallet: 'Wallet', row: AccountRow,
-            keyinstance_rows: List[KeyInstanceRow],
             description_rows: List[AccountTransactionDescriptionRow]) -> None:
         self._multisig_keystore = cast(Multisig_KeyStore,
             wallet.get_keystore(cast(int, row.default_masterkey_id)))
         self.m = self._multisig_keystore.m
         self.n = self._multisig_keystore.n
 
-        DeterministicAccount.__init__(self, wallet, row, keyinstance_rows, description_rows)
+        DeterministicAccount.__init__(self, wallet, row, description_rows)
 
     def type(self) -> AccountType:
         return AccountType.MULTISIG
@@ -1646,10 +1635,10 @@ class MultisigAccount(DeterministicAccount):
             script_type = self.get_default_script_type()
         return get_multi_signer_script_template(public_keys_hex, self.m, script_type)
 
-    def derive_pubkeys(self, derivation_path: Sequence[int]) -> List[PublicKey]:
+    def derive_pubkeys(self, derivation_path: DerivationPath) -> List[PublicKey]:
         return [ k.derive_pubkey(derivation_path) for k in self.get_keystores() ]
 
-    def derive_script_template(self, derivation_path: Sequence[int]) -> ScriptTemplate:
+    def derive_script_template(self, derivation_path: DerivationPath) -> ScriptTemplate:
         public_keys_hex = [pubkey.to_hex() for pubkey in self.derive_pubkeys(derivation_path)]
         return self.get_script_template(public_keys_hex)
 
@@ -1686,7 +1675,7 @@ class MultisigAccount(DeterministicAccount):
         derivation_path = unpack_derivation_path(row.derivation_data2)
         return self.get_xpubkeys_for_derivation_path(derivation_path)
 
-    def get_xpubkeys_for_derivation_path(self, derivation_path: Sequence[int]) -> List[XPublicKey]:
+    def get_xpubkeys_for_derivation_path(self, derivation_path: DerivationPath) -> List[XPublicKey]:
         x_pubkeys = [ k.get_xpubkey(derivation_path) for k in self.get_keystores() ]
         # Sort them using the order of the realized pubkeys
         sorted_pairs = sorted((x_pubkey.to_public_key().to_hex(), x_pubkey)
@@ -1751,23 +1740,21 @@ class Wallet(TriggeredCallbacks):
             assert password is not None, "Expected cached wallet password"
 
         # Cache the stuff that is needed unencrypted but is encrypted.
-        self._registered_api_keys: Dict[str, int] = defaultdict(int)
+        self._registered_api_keys: Dict[ServerAccountKey, IndefiniteCredentialId] = {}
+        credentials = cast(CredentialCache, app_state.credentials)
         server_rows, server_account_rows = self.read_network_servers()
-        credential_user_id = self.get_credential_user_id()
         for server_row in server_rows:
             if server_row.encrypted_api_key is not None:
-                self._registered_api_keys[server_row.encrypted_api_key] += 1
-                if self._registered_api_keys[server_row.encrypted_api_key] == 1:
-                    app_state.credentials.add_user_lifetime_credential(
-                        server_row.encrypted_api_key, credential_user_id,
-                        pw_decode(server_row.encrypted_api_key, password))
+                server_key = ServerAccountKey(server_row.url, server_row.server_type, -1)
+                self._registered_api_keys[server_key] = credentials.add_indefinite_credential(
+                    pw_decode(server_row.encrypted_api_key, password))
+
         for account_row in server_account_rows:
             if account_row.encrypted_api_key is not None:
-                self._registered_api_keys[account_row.encrypted_api_key] += 1
-                if self._registered_api_keys[account_row.encrypted_api_key] == 1:
-                    app_state.credentials.add_user_lifetime_credential(
-                        account_row.encrypted_api_key, credential_user_id,
-                        pw_decode(account_row.encrypted_api_key, password))
+                server_key = ServerAccountKey(account_row.url, account_row.server_type,
+                    account_row.account_id)
+                self._registered_api_keys[server_key] = credentials.add_indefinite_credential(
+                    pw_decode(account_row.encrypted_api_key, password))
 
     def __str__(self) -> str:
         return f"wallet(path='{self._storage.get_path()}')"
@@ -1810,29 +1797,35 @@ class Wallet(TriggeredCallbacks):
                 key=lambda t: 0 if t.parent_masterkey_id is None else t.parent_masterkey_id):
             self._realize_keystore(mk_row)
 
-        # TODO(no-merge) for deterministic accounts we need to load the unused keys
-        #     What on earth does this mean by load unused keys??
-        #     Do we even use the keys for these accounts? Can we just load the keyinstances for the
-        #         ...
-        # TODO(no-merge) for non-deterministic accounts we need to load all keys.
-        account_keyinstance_map: Dict[int, List[KeyInstanceRow]] = defaultdict(list)
+        account_flags: Dict[int, AccountInstantiationFlags] = \
+            defaultdict(lambda: AccountInstantiationFlags.NONE)
+        keyinstances_by_account_id: Dict[int, List[KeyInstanceRow]] = {}
+        # TODO(MAPI) Avoid reading in all the keyinstances we are not interested in.
         for keyinstance_row in self.read_keyinstances():
-            account_keyinstance_map[keyinstance_row.account_id].append(keyinstance_row)
+            if keyinstance_row.derivation_type == DerivationType.PRIVATE_KEY:
+                if keyinstance_row.account_id not in keyinstances_by_account_id:
+                    account_flags[keyinstance_row.account_id] |= \
+                        AccountInstantiationFlags.IMPORTED_PRIVATE_KEYS
+                    keyinstances_by_account_id[keyinstance_row.account_id] = []
+                keyinstances_by_account_id[keyinstance_row.account_id].append(keyinstance_row)
+            elif keyinstance_row.derivation_type in ADDRESS_TYPES:
+                account_flags[keyinstance_row.account_id] |= \
+                    AccountInstantiationFlags.IMPORTED_ADDRESSES
 
         for account_row in db_functions.read_accounts(self.get_db_context()):
-            account_keyinstances = account_keyinstance_map.get(account_row.account_id, [])
             account_descriptions = all_account_tx_descriptions.get(account_row.account_id, [])
-            self._instantiate_account(account_row, account_keyinstances,
-                account_descriptions)
+            account = self._instantiate_account(account_row, account_descriptions,
+                account_flags[account_row.account_id])
+            if account.type() == AccountType.IMPORTED_PRIVATE_KEY:
+                keyinstance_rows = keyinstances_by_account_id[account_row.account_id]
+                assert keyinstance_rows
+                cast(ImportedPrivkeyAccount, account).set_initial_state(keyinstance_rows)
 
     def register_account(self, account_id: int, account: AbstractAccount) -> None:
         self._accounts[account_id] = account
 
     def name(self) -> str:
         return get_wallet_name_from_path(self.get_storage_path())
-
-    def get_credential_user_id(self) -> LifetimeUserId:
-        return ("wallet", self.get_storage_path())
 
     def get_storage_path(self) -> str:
         return self._storage.get_path()
@@ -1849,24 +1842,77 @@ class Wallet(TriggeredCallbacks):
     def check_password(self, password: str) -> None:
         self._storage.check_password(password)
 
-    def update_password(self, new_password: str, old_password: Optional[str]=None) -> None:
-        assert new_password, "calling code must provide an new password"
-        self._storage.put("password-token", pw_encode(os.urandom(32).hex(), new_password))
+    def update_password(self, old_password: str, new_password: str) \
+            -> concurrent.futures.Future:
+        """
+        Update the wallet password and use it to re-encrypt all the values encrypted with the old.
 
-        for keystore in self._keystores.values():
-            if keystore.can_change_password():
-                keystore.update_password(new_password, old_password)
-                if keystore.has_masterkey():
-                    self.update_masterkey_derivation_data(keystore.get_id())
+        Before all the re-encryptions happened to unknown data in different places. Now they
+        almost all happpen here. The one exception is the tracked encrypted API keys in the
+        network.
+
+        NOTE The whole network API key thing is awkward and tied to the encrypted values, if we
+        decoupled it from that and instead used a deterministic key for each piece of data, we
+        would not need to ...
+        """
+        assert old_password, "wallet migration should have added a password"
+        assert new_password, "calling code must provide the new password"
+
+        def update_cached_values(callback_future: concurrent.futures.Future) -> None:
+            if callback_future.cancelled():
+                return
+            result = cast(PasswordUpdateResult, callback_future.result())
+            # Update the cached wallet setting without doing the usual db write.
+            self._storage.put("password-token", result.password_token, already_persisted=True)
+
+            # Update the encrypted private keys for the new password. Remember that the private
+            # key keystore is not known to the wallet, as it is not a masterkey in the database and
+            # is created by the account.
+            for account_id, new_encrypted_keys in result.account_private_key_updates.items():
+                account = cast(ImportedPrivkeyAccount, self._accounts[account_id])
+                imported_keystore = cast(Imported_KeyStore, account.get_keystore())
+                for keyinstance_id, encrypted_prv in new_encrypted_keys:
+                    imported_keystore.set_encrypted_prv(keyinstance_id, encrypted_prv)
+
+            # Update all the keystore encrypted derivation data fields.
+            keystore_by_masterkey_id = { keystore_id: keystore for keystore_id, keystore
+                in self._keystores.items() if keystore.can_change_password() }
+
+            def set_encrypted_values(derivation_type: DerivationType,
+                    derivation_data: MasterKeyDataTypes, keystore: KeyStore) -> None:
+                if derivation_type == DerivationType.BIP32:
+                    bip32_data = cast(MasterKeyDataBIP32, derivation_data)
+                    bip32_keystore = cast(BIP32_KeyStore, keystore)
+                    if bip32_data["seed"] is not None:
+                        bip32_keystore.set_encrypted_seed(cast(str, bip32_data["seed"]))
+                    if bip32_data["passphrase"] is not None:
+                        bip32_keystore.set_encrypted_passphrase(cast(str, bip32_data["passphrase"]))
+                    if bip32_data["xprv"] is not None:
+                        bip32_keystore.set_encrypted_xprv(cast(str, bip32_data["xprv"]))
+                elif derivation_type == DerivationType.ELECTRUM_OLD:
+                    old_data = cast(MasterKeyDataElectrumOld, derivation_data)
+                    old_keystore = cast(Old_KeyStore, keystore)
+                    if old_data["seed"] is not None:
+                        old_keystore.set_encrypted_seed(cast(str, old_data["seed"]))
+
+            for masterkey_id, derivation_type, derivation_data in result.masterkey_updates:
+                keystore = keystore_by_masterkey_id[masterkey_id]
+                if derivation_type == DerivationType.ELECTRUM_MULTISIG:
+                    multisig_data = cast(MasterKeyDataMultiSignature, derivation_data)
+                    multisig_keystore = cast(Multisig_KeyStore, keystore)
+                    cosigner_keystores = multisig_keystore.get_cosigner_keystores()
+                    assert len(cosigner_keystores) == len(multisig_data["cosigner-keys"])
+                    for i, (cosigner_derivation_type, cosigner_data) in \
+                            enumerate(multisig_data["cosigner-keys"]):
+                        cosigner_keystore = cosigner_keystores[i]
+                        set_encrypted_values(cosigner_derivation_type, cosigner_data,
+                            cosigner_keystore)
                 else:
-                    assert isinstance(keystore, Imported_KeyStore)
-                    # TODO(no-merge) read from the database
-                    updates = []
-                    for key_id, derivation_data in keystore.get_keyinstance_derivation_data():
-                        derivation_bytes = json.dumps(derivation_data).encode()
-                        updates.append((derivation_bytes, key_id))
-                    db_functions.update_keyinstance_derivation_datas(self.get_db_context(),
-                        updates)
+                    set_encrypted_values(derivation_type, derivation_data, keystore)
+
+        future = db_functions.update_password(self.get_db_context(), old_password, new_password)
+        future.add_done_callback(update_cached_values)
+        return future
 
     def get_account(self, account_id: int) -> Optional[AbstractAccount]:
         return self._accounts.get(account_id)
@@ -1891,7 +1937,7 @@ class Wallet(TriggeredCallbacks):
         return None
 
     def _realize_keystore(self, row: MasterKeyRow) -> None:
-        data: Dict[str, Any] = json.loads(row.derivation_data)
+        data = cast(MasterKeyDataTypes, json.loads(row.derivation_data))
         parent_keystore: Optional[KeyStore] = None
         if row.parent_masterkey_id is not None:
             parent_keystore = self._keystores[row.parent_masterkey_id]
@@ -1899,36 +1945,32 @@ class Wallet(TriggeredCallbacks):
         self._keystores[row.masterkey_id] = keystore
         self._masterkey_rows[row.masterkey_id] = row
 
-    def _instantiate_account(self, account_row: AccountRow, keyinstance_rows: List[KeyInstanceRow],
-            transaction_descriptions: List[AccountTransactionDescriptionRow]) -> AbstractAccount:
+    def _instantiate_account(self, account_row: AccountRow,
+            transaction_descriptions: List[AccountTransactionDescriptionRow],
+            flags: AccountInstantiationFlags) -> AbstractAccount:
         """
         Create the correct account type instance and register it for the given account id.
         """
         account: Optional[AbstractAccount] = None
         if account_row.default_masterkey_id is None:
-            # It is not possible to create an empty imported account, in order to create an account
-            # of this type the user needs to provide some initial content. However, it is possible
-            # to in theory delete all the entries in an account which then creates the obvious
-            # problem of loading the account erroring.
-            if keyinstance_rows[0].derivation_type in ADDRESS_TYPES:
-                account = ImportedAddressAccount(self, account_row, keyinstance_rows,
-                    transaction_descriptions)
-            elif keyinstance_rows[0].derivation_type == DerivationType.PRIVATE_KEY:
-                account = ImportedPrivkeyAccount(self, account_row, keyinstance_rows,
-                    transaction_descriptions)
+            if flags & AccountInstantiationFlags.IMPORTED_ADDRESSES:
+                account = ImportedAddressAccount(self, account_row, transaction_descriptions)
+            elif flags & AccountInstantiationFlags.IMPORTED_PRIVATE_KEYS:
+                account = ImportedPrivkeyAccount(self, account_row, transaction_descriptions)
             else:
                 raise WalletLoadError(_("unknown imported account type"))
         else:
             masterkey_row = self._masterkey_rows[account_row.default_masterkey_id]
-            klass = {
-                DerivationType.BIP32: StandardAccount,
-                DerivationType.BIP32_SUBPATH: StandardAccount,
-                DerivationType.ELECTRUM_OLD: StandardAccount,
-                DerivationType.ELECTRUM_MULTISIG: MultisigAccount,
-                DerivationType.HARDWARE: StandardAccount,
-            }.get(masterkey_row.derivation_type, None)
-            if klass is not None:
-                account = klass(self, account_row, keyinstance_rows, transaction_descriptions)
+            if masterkey_row.derivation_type == DerivationType.BIP32:
+                account = StandardAccount(self, account_row, transaction_descriptions)
+            elif masterkey_row.derivation_type == DerivationType.BIP32_SUBPATH:
+                account = StandardAccount(self, account_row, transaction_descriptions)
+            elif masterkey_row.derivation_type == DerivationType.ELECTRUM_OLD:
+                account = StandardAccount(self, account_row, transaction_descriptions)
+            elif masterkey_row.derivation_type == DerivationType.ELECTRUM_MULTISIG:
+                account = MultisigAccount(self, account_row, transaction_descriptions)
+            elif masterkey_row.derivation_type == DerivationType.HARDWARE:
+                account = StandardAccount(self, account_row, transaction_descriptions)
             else:
                 raise WalletLoadError(_("unknown account type %d"), masterkey_row.derivation_type)
         assert account is not None
@@ -1936,9 +1978,9 @@ class Wallet(TriggeredCallbacks):
         return account
 
     def _create_account_from_data(self, account_row: AccountRow,
-            keyinstance_rows: List[KeyInstanceRow],
-            transaction_descriptions: List[AccountTransactionDescriptionRow]) -> AbstractAccount:
-        account = self._instantiate_account(account_row, keyinstance_rows, transaction_descriptions)
+            transaction_descriptions: List[AccountTransactionDescriptionRow],
+            flags: AccountInstantiationFlags) -> AbstractAccount:
+        account = self._instantiate_account(account_row, transaction_descriptions, flags)
         self.trigger_callback("on_account_created", account_row.account_id)
 
         self.create_wallet_events([
@@ -1950,12 +1992,12 @@ class Wallet(TriggeredCallbacks):
             account.start(self._network)
         return account
 
-    def read_history_list(self, account_id: int, keyinstance_ids: Optional[Sequence[int]]=None) \
+    def read_history_list(self, account_id: int, keyinstance_ids: Optional[Tuple[int, ...]]=None) \
             -> List[HistoryListRow]:
         return db_functions.read_history_list(self.get_db_context(), account_id, keyinstance_ids)
 
     def read_bip32_keys_unused(self, account_id: int, masterkey_id: int,
-            derivation_path: Sequence[int], limit: int) -> List[KeyInstanceRow]:
+            derivation_path: DerivationPath, limit: int) -> List[KeyInstanceRow]:
         return db_functions.read_bip32_keys_unused(self.get_db_context(), account_id, masterkey_id,
             derivation_path, limit)
 
@@ -1992,33 +2034,31 @@ class Wallet(TriggeredCallbacks):
 
         basic_row = AccountRow(-1, masterkey_row.masterkey_id, script_type, account_name)
         rows = self.add_accounts([ basic_row ])
-        return self._create_account_from_data(rows[0], [], [])
+        return self._create_account_from_data(rows[0], [], AccountInstantiationFlags.NONE)
 
-    def create_account_from_text_entries(self, text_type: KeystoreTextType, script_type: ScriptType,
-            entries: Set[str], password: str) -> AbstractAccount:
+    def create_account_from_text_entries(self, text_type: KeystoreTextType,
+            script_type: ScriptType, entries: Set[str], password: str) -> AbstractAccount:
         account_name: Optional[str] = None
+        raw_keyinstance_rows: List[KeyInstanceRow] = []
+        account_flags: AccountInstantiationFlags
         if text_type == KeystoreTextType.ADDRESSES:
             account_name = "Imported addresses"
-        elif text_type == KeystoreTextType.PRIVATE_KEYS:
-            account_name = "Imported private keys"
-        else:
-            raise WalletLoadError(f"Unhandled text type {text_type}")
-
-        raw_keyinstance_rows = []
-        if text_type == KeystoreTextType.ADDRESSES:
+            account_flags = AccountInstantiationFlags.IMPORTED_ADDRESSES
             # NOTE(P2SHNotImportable) see the account wizard for why this does not get P2SH ones.
             for address_string in entries:
-                derivation_data_dict = { "hash": address_string }
-                derivation_data = json.dumps(derivation_data_dict).encode()
+                derivation_data_hash: KeyInstanceDataHash = { "hash": address_string }
+                derivation_data = json.dumps(derivation_data_hash).encode()
                 raw_keyinstance_rows.append(KeyInstanceRow(-1, -1,
                     None, DerivationType.PUBLIC_KEY_HASH, derivation_data,
-                    create_derivation_data2(DerivationType.PUBLIC_KEY_HASH, derivation_data_dict),
+                    create_derivation_data2(DerivationType.PUBLIC_KEY_HASH, derivation_data_hash),
                     KeyInstanceFlag.IS_ACTIVE, None))
         elif text_type == KeystoreTextType.PRIVATE_KEYS:
+            account_name = "Imported private keys"
+            account_flags = AccountInstantiationFlags.IMPORTED_PRIVATE_KEYS
             for private_key_text in entries:
                 private_key = PrivateKey.from_text(private_key_text)
                 pubkey_hex = private_key.public_key.to_hex()
-                derivation_data_dict = {
+                derivation_data_dict: KeyInstanceDataPrivateKey = {
                     "pub": pubkey_hex,
                     "prv": pw_encode(private_key_text, password),
                 }
@@ -2027,12 +2067,18 @@ class Wallet(TriggeredCallbacks):
                     None, DerivationType.PRIVATE_KEY, derivation_data,
                     create_derivation_data2(DerivationType.PRIVATE_KEY, derivation_data_dict),
                     KeyInstanceFlag.IS_ACTIVE, None))
+        else:
+            raise WalletLoadError(f"Unhandled text type {text_type}")
 
         basic_account_row = AccountRow(-1, None, script_type, account_name)
         account_row = self.add_accounts([ basic_account_row ])[0]
-        keyinstance_future, keyinstance_rows = self.create_keyinstances(account_row.account_id,
+        _keyinstance_future, keyinstance_rows = self.create_keyinstances(account_row.account_id,
             raw_keyinstance_rows)
-        return self._create_account_from_data(account_row, keyinstance_rows, [])
+
+        account = self._create_account_from_data(account_row, [], account_flags)
+        if account.type() == AccountType.IMPORTED_PRIVATE_KEY:
+            cast(ImportedPrivkeyAccount, account).set_initial_state(keyinstance_rows)
+        return account
 
     def read_account_balance(self, account_id: int, local_height: int,
             filter_bits: Optional[TransactionOutputFlag]=None,
@@ -2098,7 +2144,7 @@ class Wallet(TriggeredCallbacks):
     # Key instances.
 
     def count_unused_bip32_keys(self, account_id: int, masterkey_id: int,
-            derivation_path: Sequence[int]) -> int:
+            derivation_path: DerivationPath) -> int:
         return db_functions.count_unused_bip32_keys(self.get_db_context(), account_id,
             masterkey_id, derivation_path)
 
@@ -2148,7 +2194,7 @@ class Wallet(TriggeredCallbacks):
             keyinstance_ids=keyinstance_ids, flags=flags, mask=mask)
 
     def reserve_keyinstance(self, account_id: int, masterkey_id: int,
-            derivation_path: Sequence[int], allocation_flags: Optional[KeyInstanceFlag]=None) \
+            derivation_path: DerivationPath, allocation_flags: Optional[KeyInstanceFlag]=None) \
                 -> concurrent.futures.Future:
         """
         Allocate one keyinstance for the caller's usage.
@@ -2161,12 +2207,12 @@ class Wallet(TriggeredCallbacks):
         return db_functions.reserve_keyinstance(self.get_db_context(), account_id, masterkey_id,
             derivation_path, allocation_flags)
 
-    def set_keyinstance_flags(self, key_ids: List[int], flags: KeyInstanceFlag,
+    def set_keyinstance_flags(self, key_ids: Sequence[int], flags: KeyInstanceFlag,
             mask: Optional[KeyInstanceFlag]=None) -> concurrent.futures.Future:
         return db_functions.set_keyinstance_flags(self.get_db_context(), key_ids, flags, mask)
 
     def get_next_derivation_index(self, account_id, masterkey_id: int,
-            derivation_path: Sequence[int]) -> int:
+            derivation_path: DerivationPath) -> int:
         last_index = db_functions.read_keyinstance_derivation_index_last(
             self.get_db_context(), account_id, masterkey_id, derivation_path)
         if last_index is None:
@@ -2199,12 +2245,6 @@ class Wallet(TriggeredCallbacks):
         self._keystores[rows[0].masterkey_id] = keystore
         self._masterkey_rows[rows[0].masterkey_id] = rows[0]
         return rows[0]
-
-    def update_masterkey_derivation_data(self, masterkey_id: int) -> None:
-        keystore = self.get_keystore(masterkey_id)
-        derivation_data = json.dumps(keystore.to_derivation_data()).encode()
-        db_functions.update_masterkey_derivation_datas(self.get_db_context(),
-            [ (derivation_data, masterkey_id) ])
 
     # Payment requests.
 
@@ -2468,7 +2508,23 @@ class Wallet(TriggeredCallbacks):
             -> Tuple[List[NetworkServerRow], List[NetworkServerAccountRow]]:
         return db_functions.read_network_servers(self.get_db_context(), server_key)
 
-    def update_network_server_entries(self,
+    def read_network_servers_with_credentials(self) \
+            -> List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]]:
+        results: List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]] = []
+        server_rows, account_rows = self.read_network_servers()
+        for server_row in server_rows:
+            server_key = ServerAccountKey.for_server_row(server_row)
+            results.append((server_key, self._registered_api_keys.get(server_key)))
+        for account_row in account_rows:
+            server_key = ServerAccountKey.for_account_row(account_row)
+            results.append((server_key, self._registered_api_keys.get(server_key)))
+        return results
+
+    def get_credential_id_for_server_key(self, key: ServerAccountKey) \
+            -> Optional[IndefiniteCredentialId]:
+        return self._registered_api_keys.get(key)
+
+    def update_network_servers(self,
             added_server_rows: List[NetworkServerRow],
             added_server_account_rows: List[NetworkServerAccountRow],
             updated_server_rows: List[NetworkServerRow],
@@ -2492,27 +2548,52 @@ class Wallet(TriggeredCallbacks):
             # Raise any exception if it errored or get the result if completed successfully.
             future.result()
 
-            # Need to add and update cached credentials. This should happen regardless of whether
-            # the network is activated, in case we later on support switching from offline to
-            # online mode and back again.
-            credential_user_id = self.get_credential_user_id()
-            for encrypted_api_key, new_key_state in updated_api_keys.values():
+            # Need to delete, add and update cached credentials. This should happen regardless of
+            # whether the network is activated.
+            credentials = cast(CredentialCache, app_state.credentials)
+            for server_key, (encrypted_api_key, new_key_state) in updated_api_keys.items():
                 if encrypted_api_key is not None:
-                    self._registered_api_keys[encrypted_api_key] -= 1
-                    if self._registered_api_keys[encrypted_api_key] == 0:
-                        app_state.credentials.remove_user_lifetime_credential(encrypted_api_key,
-                            credential_user_id)
-                if new_key_state is not None:
-                    decrypted_api_key, encrypted_api_key = new_key_state
-                    if self._registered_api_keys[encrypted_api_key] == 0:
-                        app_state.credentials.add_user_lifetime_credential(encrypted_api_key,
-                            credential_user_id, decrypted_api_key)
-                    self._registered_api_keys[encrypted_api_key] += 1
+                    credential_id = self._registered_api_keys[server_key]
+                    if new_key_state is None:
+                        credentials.remove_indefinite_credential(credential_id)
+                        del self._registered_api_keys[server_key]
+                    else:
+                        unencrypted_value, _encrypted_value = new_key_state
+                        credentials.update_indefinite_credential(credential_id, unencrypted_value)
+                else:
+                    assert new_key_state is not None
+                    unencrypted_value, _encrypted_value = new_key_state
+                    self._registered_api_keys[server_key] = credentials.add_indefinite_credential(
+                        unencrypted_value)
 
             if self._network is not None:
-                self._network.update_servers_for_wallet(self, added_server_rows,
-                    added_server_account_rows, updated_server_rows, updated_server_account_rows,
-                    deleted_server_keys, deleted_server_account_keys, updated_api_keys)
+                added_keys: List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]] = []
+                updated_keys: List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]] = []
+                deleted_keys: List[ServerAccountKey] = []
+
+                for server_row in added_server_rows:
+                    server_key = ServerAccountKey.for_server_row(server_row)
+                    added_keys.append((server_key, self._registered_api_keys.get(server_key)))
+
+                for account_row in added_server_account_rows:
+                    server_key = ServerAccountKey.for_account_row(account_row)
+                    added_keys.append((server_key, self._registered_api_keys.get(server_key)))
+
+                for server_row in updated_server_rows:
+                    server_key = ServerAccountKey.for_server_row(server_row)
+                    if server_key in updated_api_keys:
+                        updated_keys.append((server_key, self._registered_api_keys.get(server_key)))
+
+                for account_row in updated_server_account_rows:
+                    server_key = ServerAccountKey.for_account_row(account_row)
+                    if server_key in updated_api_keys:
+                        updated_keys.append((server_key, self._registered_api_keys.get(server_key)))
+
+                deleted_keys.extend(deleted_server_keys)
+                deleted_keys.extend(deleted_server_account_keys)
+
+                self._network.update_servers_for_wallet(self, added_keys, updated_keys,
+                    deleted_keys)
 
         future = db_functions.update_network_servers(self.get_db_context(), added_server_rows,
             added_server_account_rows, updated_server_rows, updated_server_account_rows,
@@ -3130,8 +3211,9 @@ class Wallet(TriggeredCallbacks):
         self._storage.put('stored_height', local_height)
         self._storage.put('last_tip_hash', chain_tip_hash.hex() if chain_tip_hash else None)
 
-        credential_user_id = self.get_credential_user_id()
-        app_state.credentials.remove_all_user_credentials(credential_user_id)
+        credentials = cast(CredentialCache, app_state.credentials)
+        for credential_id in self._registered_api_keys.values():
+            credentials.remove_indefinite_credential(credential_id)
 
         for account in self.get_accounts():
             account.stop()

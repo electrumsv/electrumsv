@@ -45,7 +45,7 @@ from PyQt5.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, \
     QVBoxLayout, QWidget
 
 from ...app_state import app_state
-from ...constants import NetworkServerFlag, NetworkServerType
+from ...constants import NetworkServerFlag, NetworkServerType, TOKEN_PASSWORD
 from ...crypto import pw_decode, pw_encode
 from ...i18n import _
 from ...logs import logs
@@ -151,8 +151,6 @@ API_KEY_NOT_SET_TEXT = "<"+ _("doubleclick here to set") +">"
 
 PASSWORD_REQUEST_TEXT = _("You have associated a new API key with the wallet '{}'. In order to "
     "encrypt the API key for storage in this wallet, you will need to provide it's password.")
-
-TOKEN_PASSWORD = "631a0b30bf8ee0f4e33e915954c8ee8ffac32d77af5e89302a4ee7dd3ecd99da"
 
 
 def url_to_server_key(url: str) -> SVServerKey:
@@ -431,7 +429,7 @@ class EditServerDialog(WindowModalDialog):
             if entry.data_mapi is not None and entry.data_mapi.application_config["api_key"]:
                 encrypted_api_key = entry.data_mapi.application_config["api_key"]
                 self._edit_state.encrypted_api_key = encrypted_api_key
-                self._edit_state.decrypted_api_key = pw_decode(TOKEN_PASSWORD, encrypted_api_key)
+                self._edit_state.decrypted_api_key = pw_decode(encrypted_api_key, TOKEN_PASSWORD)
         # This is used to track the initial application state, which comes from the config.
         self._edit_state.initial_state = InitialServerState.create_from(self._edit_state)
 
@@ -726,8 +724,8 @@ class EditServerDialog(WindowModalDialog):
             # Store the initial state used to populate the tree.
             assert self._server_url is not None
             assert self._entry is not None
-            server_key = (self._entry.server_type, self._server_url)
-            server_rows, server_account_rows = wallet.read_network_servers(server_key)
+            server_type_url = (self._entry.server_type, self._server_url)
+            server_rows, server_account_rows = wallet.read_network_servers(server_type_url)
             # These are not related to the existence of the server, unless the server is not
             # registered and tracked by the application config.
             if len(server_rows):
@@ -739,20 +737,26 @@ class EditServerDialog(WindowModalDialog):
                 if server_row is not None and server_row.flags & NetworkServerFlag.ANY_ACCOUNT:
                     all_account_state.enabled = True
                     if server_row.encrypted_api_key is not None:
+                        server_key = ServerAccountKey.for_server_row(server_row)
+                        credential_id = wallet.get_credential_id_for_server_key(server_key)
+                        assert credential_id is not None
                         all_account_state.encrypted_api_key = server_row.encrypted_api_key
                         all_account_state.decrypted_api_key = \
-                            app_state.credentials.get_lifetime_credential(
-                                server_row.encrypted_api_key)
+                            app_state.credentials.get_indefinite_credential(
+                                credential_id)
                 all_account_state.initial_state = InitialServerState.create_from(all_account_state)
 
                 for account_row in server_account_rows:
                     account_state = wallet_state[account_row.account_id] = EditServerState()
                     account_state.enabled = True
                     if account_row.encrypted_api_key is not None:
+                        server_key = ServerAccountKey.for_account_row(account_row)
+                        credential_id = wallet.get_credential_id_for_server_key(server_key)
+                        assert credential_id is not None
                         account_state.encrypted_api_key = account_row.encrypted_api_key
                         account_state.decrypted_api_key = \
-                            app_state.credentials.get_lifetime_credential(
-                                account_row.encrypted_api_key)
+                            app_state.credentials.get_indefinite_credential(
+                                credential_id)
                     account_state.initial_state = InitialServerState.create_from(account_state)
 
         wallet_item = QTreeWidgetItem([ f"Wallet: {wallet.name()}" ])
@@ -1056,8 +1060,12 @@ class EditServerDialog(WindowModalDialog):
                 elif account_id == -1:
                     assert account_index == check_wallet_row_index
                     if keeping_account_rows:
-                        assert state.initial_state is not None
-                        if state.initial_state.enabled or \
+                        if state.initial_state is None:
+                            outgoing_state.added_servers.append(
+                                NetworkServerRow(server_url, NetworkServerType.MERCHANT_API,
+                                None, NetworkServerFlag.NONE,
+                                date_now_utc, date_now_utc))
+                        elif state.initial_state.enabled or \
                                 state.initial_state.decrypted_api_key is not None:
                             # Update if something changed.
                             outgoing_state.updated_servers.append(NetworkServerRow(server_url,
@@ -1095,7 +1103,7 @@ class EditServerDialog(WindowModalDialog):
         if saveable_states:
             futures: List[concurrent.futures.Future] = []
             for outgoing_state in saveable_states:
-                future = outgoing_state.wallet.update_network_server_entries(
+                future = outgoing_state.wallet.update_network_servers(
                     outgoing_state.added_servers, outgoing_state.added_server_accounts,
                     outgoing_state.updated_servers, outgoing_state.updated_server_accounts,
                     outgoing_state.deleted_server_keys, outgoing_state.deleted_server_account_keys,
@@ -1474,10 +1482,9 @@ class ServersListWidget(QTableWidget):
             # Delete this server from any loaded wallets. We do not know if it is actually used
             # by any of these servers but we can do the delete and it should flush out any
             # actual uses.
-            deleted_server_keys = [ ServerAccountKey(entry.url, entry.server_type) ]
+            deleted_keys = [ ServerAccountKey(entry.url, entry.server_type) ]
             for wallet in cast(List[Wallet], app_state.app.get_wallets()):
-                future = wallet.update_network_server_entries([], [], [], [], deleted_server_keys,
-                    [], {})
+                future = wallet.update_network_servers([], [], [], [], deleted_keys, [], {})
                 future.result()
             self._network.delete_application_mapi_server(entry.url)
             self._parent_tab.update_servers()

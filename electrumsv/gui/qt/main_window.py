@@ -1585,9 +1585,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         ok, password, new_password = d.run()
         if not ok:
             return
+        assert password is not None
+        assert new_password is not None
         try:
-            self._wallet.update_password(new_password, password)
-        except Exception as e:
+            self._wallet.update_password(password, new_password)
+        except Exception:
             self._logger.exception("")
             self.show_error(_('Failed to update password'))
             return

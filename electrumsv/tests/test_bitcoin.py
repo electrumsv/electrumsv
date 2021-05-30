@@ -5,10 +5,9 @@ from bitcoinx import (
     ElectrumMnemonic
 )
 
-from electrumsv.bitcoin import address_from_string, is_address_valid, scripthash_hex, seed_type
+from electrumsv.bitcoin import address_from_string, is_address_valid, scripthash_hex
 from electrumsv.constants import SEED_PREFIX
 from electrumsv.crypto import sha256d
-from electrumsv.keystore import is_xpub, is_xprv, is_private_key
 from electrumsv import crypto
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.storage import WalletStorage
@@ -180,20 +179,6 @@ class Test_xprv_xpub(SequentialTestCase):
          'xpub': 'xpub6H1LXWLaKsWFhvm6RVpEL9P4KfRZSW7abD2ttkWP3SSQvnyA8FSVqNTEcYFgJS2UaFcxupHiYkro49S8yGasTvXEYBVPamhGW6cFJodrTHy'},
     )
 
-    def test_is_xpub(self):
-        for xprv_details in self.xprv_xpub:
-            xpub = xprv_details['xpub']
-            self.assertTrue(is_xpub(xpub))
-        self.assertFalse(is_xpub('xpub1nval1d'))
-        self.assertFalse(is_xpub('xpub661MyMwAqRbcFWohJWt7PHsFEJfZAvw9ZxwQoDa4SoMgsDDM1T7WK3u9E4edkC4ugRnZ8E4xDZRpk8Rnts3Nbt97dPwT52WRONGBADWRONG'))
-
-    def test_is_xprv(self):
-        for xprv_details in self.xprv_xpub:
-            xprv = xprv_details['xprv']
-            self.assertTrue(is_xprv(xprv))
-        self.assertFalse(is_xprv('xprv1nval1d'))
-        self.assertFalse(is_xprv('xprv661MyMwAqRbcFWohJWt7PHsFEJfZAvw9ZxwQoDa4SoMgsDDM1T7WK3u9E4edkC4ugRnZ8E4xDZRpk8Rnts3Nbt97dPwT52WRONGBADWRONG'))
-
     def test_version_bytes(self):
         xprv_headers_b58 = 'xprv'
         xpub_headers_b58 = 'xpub'
@@ -307,15 +292,6 @@ class Test_keyImport(SequentialTestCase):
 
         self.assertFalse(is_address_valid("not an address"))
 
-    def test_is_private_key(self):
-        for priv_details in self.priv_pub_addr:
-            print(priv_details['priv'])
-            self.assertTrue(is_private_key(priv_details['priv']))
-            self.assertTrue(is_private_key(priv_details['exported_privkey']))
-            self.assertFalse(is_private_key(priv_details['pub']))
-            self.assertFalse(is_private_key(priv_details['address']))
-        self.assertFalse(is_private_key("not a privkey"))
-
     def test_address_to_scripthash(self):
         for priv_details in self.priv_pub_addr:
             sh = scripthash_hex(address_from_string(priv_details['address']).to_script())
@@ -364,7 +340,3 @@ class Test_seeds(SequentialTestCase):
 
         self.assertTrue(ElectrumMnemonic.is_valid_old("0123456789ABCDEF" * 2))
         self.assertTrue(ElectrumMnemonic.is_valid_old("0123456789ABCDEF" * 4))
-
-    def test_seed_type(self):
-        for seed_words, _type in self.mnemonics:
-            self.assertEqual(_type, seed_type(seed_words), msg=seed_words)

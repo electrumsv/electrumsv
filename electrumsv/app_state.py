@@ -41,7 +41,7 @@ from bitcoinx import Headers
 
 from .async_ import ASync
 from .constants import MAX_INCOMING_ELECTRUMX_MESSAGE_MB
-from .credential_cache import CredentialCache
+from .credentials import CredentialCache
 from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig

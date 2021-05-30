@@ -28,7 +28,7 @@
 
 import concurrent.futures
 import enum
-from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Set, Tuple
 
 from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
     bip32_key_from_string, PrivateKey, P2SH_Address, bip32_build_chain_string,
@@ -43,15 +43,16 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import (DEFAULT_COSIGNER_COUNT, DerivationType, IntFlag,
+from electrumsv.constants import (DEFAULT_COSIGNER_COUNT, DerivationType, DerivationPath, IntFlag,
     KeystoreTextType, MAXIMUM_COSIGNER_COUNT, ScriptType, SEED_PREFIX)
 from electrumsv.device import DeviceInfo
 from electrumsv.i18n import _
-from electrumsv.keystore import (bip44_derivation_cointype, from_seed,
+from electrumsv.keystore import (bip44_derivation_cointype,
     instantiate_keystore_from_text, KeyStore, KeystoreMatchType, Multisig_KeyStore)
 from electrumsv.logs import logs
 from electrumsv.networks import Net
 from electrumsv.storage import WalletStorage
+from electrumsv.types import MasterKeyDataHardware
 from electrumsv.wallet import Wallet, instantiate_keystore
 
 from .cosigners_view import CosignerState, CosignerList
@@ -257,7 +258,7 @@ class AddAccountWizardPage(QWizardPage):
         class ListWidget(QListWidget):
             def keyPressEvent(self, event):
                 key = event.key()
-                if key == Qt.Key_Return or key == Qt.Key_Enter:
+                if key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
                     page._event_key_press_selection()
                 else:
                     super(ListWidget, self).keyPressEvent(event)
@@ -283,7 +284,7 @@ class AddAccountWizardPage(QWizardPage):
             list_item.setSizeHint(QSize(40, 40))
             list_item.setIcon(read_QIcon(entry['icon_filename']))
             list_item.setText(entry['description'])
-            list_item.setData(Qt.UserRole, entry)
+            list_item.setData(Qt.ItemDataRole.UserRole, entry)
             option_list.addItem(list_item)
 
         option_list.setMaximumWidth(400)
@@ -291,8 +292,9 @@ class AddAccountWizardPage(QWizardPage):
 
         option_detail = self._option_detail = QLabel()
         option_detail.setMinimumWidth(200)
-        option_detail.setAlignment(Qt.AlignmentFlag(Qt.AlignTop | Qt.AlignLeft))
-        option_detail.setTextFormat(Qt.RichText)
+        option_detail.setAlignment(Qt.AlignmentFlag(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft))
+        option_detail.setTextFormat(Qt.TextFormat.RichText)
         option_detail.setWordWrap(True)
         option_detail.setOpenExternalLinks(True)
         option_detail.setText(self._get_entry_detail())
@@ -346,14 +348,14 @@ class AddAccountWizardPage(QWizardPage):
     def nextId(self) -> int:
         items = self._option_list.selectedItems()
         if len(items) > 0:
-            return items[0].data(Qt.UserRole).get("page", AccountPage.NONE)
+            return items[0].data(Qt.ItemDataRole.UserRole).get("page", AccountPage.NONE)
         return AccountPage.NONE
 
     def _event_selection_changed(self) -> None:
         wizard: AccountWizard = self.wizard()
         items = self._option_list.selectedItems()
         if len(items) > 0:
-            entry = items[0].data(Qt.UserRole)
+            entry = items[0].data(Qt.ItemDataRole.UserRole)
             button_text = entry.get("button_text", self._restore_button_text)
             self._option_detail.setText(self._get_entry_detail(entry))
         else:
@@ -377,7 +379,7 @@ class AddAccountWizardPage(QWizardPage):
             self._select_item(items[0], direct_only=True)
 
     def _select_item(self, item: QListWidgetItem, direct_only: bool=False) -> None:
-        entry = item.data(Qt.UserRole)
+        entry = item.data(Qt.ItemDataRole.UserRole)
         page = entry.get("page", AccountPage.NONE)
         if page == AccountPage.NONE:
             # This is something that either finishes on this page, or requires custom handling
@@ -395,8 +397,9 @@ class AddAccountWizardPage(QWizardPage):
             return
 
         seed_phrase = ElectrumMnemonic.generate_new(Wordlists.bip39_wordlist("english.txt"))
-        keystore = from_seed(seed_phrase, '')
-        keystore.update_password(password)
+        keystore = instantiate_keystore_from_text(KeystoreTextType.ELECTRUM_SEED_WORDS, seed_phrase,
+            password)
+
         wizard.set_keystore_result(ResultType.NEW, keystore)
         wizard.accept()
 
@@ -780,12 +783,12 @@ class ImportWalletTextCustomPage(QWizardPage):
         self._watchonly_button = QCheckBox(_("This is a watch-only account."))
 
         grid = QGridLayout()
-        grid.addWidget(self._passphrase_label, 0, 0, Qt.AlignRight)
-        grid.addWidget(self._passphrase_edit, 0, 1, Qt.AlignLeft)
-        grid.addWidget(self._derivation_label, 1, 0, Qt.AlignRight)
-        grid.addWidget(self._derivation_edit, 1, 1, Qt.AlignLeft)
-        grid.addWidget(self._options_label, 2, 0, Qt.AlignRight)
-        grid.addWidget(self._watchonly_button, 2, 1, Qt.AlignLeft)
+        grid.addWidget(self._passphrase_label, 0, 0, Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(self._passphrase_edit, 0, 1, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self._derivation_label, 1, 0, Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(self._derivation_edit, 1, 1, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self._options_label, 2, 0, Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(self._watchonly_button, 2, 1, Qt.AlignmentFlag.AlignLeft)
 
         layout = QVBoxLayout()
         layout.addLayout(grid)
@@ -854,7 +857,7 @@ class ImportWalletTextCustomPage(QWizardPage):
     def _create_account(self, main_window: Optional[ElectrumWindow]=None,
             password: Optional[str]=None) -> bool:
         passphrase = (self._passphrase_edit.text().strip()
-            if self._allow_passphrase_usage() else None)
+            if self._allow_passphrase_usage() else "")
         derivation_text = self._derivation_text if self._allow_derivation_path_usage() else None
         watch_only = (self._watchonly_button.isChecked()
             if self._allow_watch_only_usage() else False)
@@ -924,17 +927,17 @@ class FindHardwareWalletAccountPage(QWizardPage):
     def _display_scan_in_progress(self) -> None:
         progress_bar = QProgressBar()
         progress_bar.setRange(0, 0)
-        progress_bar.setOrientation(Qt.Horizontal)
+        progress_bar.setOrientation(Qt.Orientation.Horizontal)
         progress_bar.setMinimumWidth(250)
         # This explicitly needs to be done for the progress bar otherwise it has some RHS space.
-        progress_bar.setAlignment(Qt.AlignCenter)
+        progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         progress_label = QLabel(_("Please wait for hardware wallets to be located."))
 
         vbox = QVBoxLayout()
         vbox.addStretch(1)
-        vbox.addWidget(progress_bar, alignment=Qt.AlignCenter)
-        vbox.addWidget(progress_label, alignment=Qt.AlignCenter)
+        vbox.addWidget(progress_bar, alignment=Qt.AlignmentFlag.AlignCenter)
+        vbox.addWidget(progress_label, alignment=Qt.AlignmentFlag.AlignCenter)
         vbox.addStretch(1)
 
         if self.layout():
@@ -982,7 +985,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
         logo_grid.setColumnStretch(1,1)
 
         logo = QLabel()
-        logo.setAlignment(Qt.AlignCenter)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lockfile = "icons8-usb-disconnected-80.png"
         logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(80))
 
@@ -1000,8 +1003,8 @@ class FindHardwareWalletAccountPage(QWizardPage):
         assert self._device_debug_message is not None
         scan_text_edit.setText(self._device_debug_message)
         scan_text_edit.setReadOnly(True)
-        grid.addWidget(scan_text_label, 0, 0, 2, 1, Qt.AlignRight)
-        grid.addWidget(scan_text_edit, 1, 0, 2, 2, Qt.AlignLeft)
+        grid.addWidget(scan_text_label, 0, 0, 2, 1, Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(scan_text_edit, 1, 0, 2, 2, Qt.AlignmentFlag.AlignLeft)
 
         vbox = QVBoxLayout()
         vbox.setContentsMargins(10, 10, 20, 10)
@@ -1100,9 +1103,9 @@ class FindHardwareWalletAccountPage(QWizardPage):
 class SetupHardwareWalletAccountPage(QWizardPage):
     _plugin: Any
     _plugin_debug_message: Optional[str]
-    _derivation_default: Sequence[int] = tuple(bip32_decompose_chain_string(
+    _derivation_default: DerivationPath = tuple(bip32_decompose_chain_string(
         bip44_derivation_cointype(0, 0)))
-    _derivation_user: Optional[Sequence[int]] = None
+    _derivation_user: Optional[DerivationPath] = None
 
     def __init__(self, wizard: AccountWizard):
         super().__init__(wizard)
@@ -1166,7 +1169,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         label.setWordWrap(True)
 
         logo = QLabel()
-        logo.setAlignment(Qt.AlignCenter)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo_filename = "icons8-usb-connected-80.png"
         logo.setPixmap(QPixmap(icon_path(logo_filename)).scaledToWidth(80))
 
@@ -1174,7 +1177,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         logo_grid.setSpacing(18)
         logo_grid.setColumnMinimumWidth(0, 70)
         logo_grid.setColumnStretch(1,1)
-        logo_grid.addWidget(logo,  0, 0, Qt.AlignTop)
+        logo_grid.addWidget(logo,  0, 0, Qt.AlignmentFlag.AlignTop)
         logo_grid.addWidget(label, 0, 1, 1, 2)
 
         grid = QGridLayout()
@@ -1191,8 +1194,8 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         self._path_edit.setFixedWidth(140)
         self._on_derivation_path_changed(path_text)
 
-        grid.addWidget(QLabel(_("Derivation path")), 1, 0, 1, 1, Qt.AlignRight)
-        grid.addWidget(self._path_edit, 1, 1, 1, 2, Qt.AlignLeft)
+        grid.addWidget(QLabel(_("Derivation path")), 1, 0, 1, 1, Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(self._path_edit, 1, 1, 1, 2, Qt.AlignmentFlag.AlignLeft)
 
         vbox = QVBoxLayout()
         vbox.setContentsMargins(10, 10, 20, 10)
@@ -1216,7 +1219,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         logo_grid.setColumnStretch(1,1)
 
         logo = QLabel()
-        logo.setAlignment(Qt.AlignCenter)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         logo_filename = "icons8-usb-disconnected-80.png"
         logo.setPixmap(QPixmap(icon_path(logo_filename)).scaledToWidth(80))
 
@@ -1234,8 +1237,8 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         assert self._plugin_debug_message is not None
         scan_text_edit.setText(self._plugin_debug_message)
         scan_text_edit.setReadOnly(True)
-        grid.addWidget(scan_text_label, 0, 0, 2, 1, Qt.AlignRight)
-        grid.addWidget(scan_text_edit, 1, 0, 2, 2, Qt.AlignLeft)
+        grid.addWidget(scan_text_label, 0, 0, 2, 1, Qt.AlignmentFlag.AlignRight)
+        grid.addWidget(scan_text_edit, 1, 0, 2, 2, Qt.AlignmentFlag.AlignLeft)
 
         vbox = QVBoxLayout()
         vbox.setContentsMargins(10, 10, 20, 10)
@@ -1296,7 +1299,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
             return False
 
         label = device_info.label
-        data = {
+        data: MasterKeyDataHardware = {
             'hw_type': name,
             'derivation': derivation_text,
             'xpub': mpk.to_extended_key_string(),
@@ -1330,17 +1333,17 @@ class CosignWidget(QWidget):
 
     def paintEvent(self, event) -> None:
         bgcolor = self.palette().color(QPalette.Background)
-        pen = QPen(bgcolor, 7, Qt.SolidLine)
+        pen = QPen(bgcolor, 7, Qt.PenStyle.SolidLine)
         qp = QPainter()
         qp.begin(self)
         qp.setPen(pen)
         qp.setRenderHint(QPainter.Antialiasing)
-        qp.setBrush(Qt.gray)
+        qp.setBrush(Qt.GlobalColor.gray)
         x = int((self.width() - self._size) / 2)
         for i in range(self.n):
             alpha = int(16 * 360 * i/self.n)
             alpha2 = int(16 * 360 * 1/self.n)
-            qp.setBrush(self._green if i<self.m else Qt.gray)
+            qp.setBrush(self._green if i<self.m else Qt.GlobalColor.gray)
             qp.drawPie(x, 0, self._size, self._size, alpha, alpha2)
         qp.end()
 
@@ -1405,9 +1408,9 @@ class CreateMultisigAccountSettingsWidget(WizardFormSection):
         self._page = page
         self._form_context = form_context
 
-        m_edit = QSlider(Qt.Horizontal, self)
+        m_edit = QSlider(Qt.Orientation.Horizontal, self)
         m_edit.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Maximum)
-        n_edit = QSlider(Qt.Horizontal, self)
+        n_edit = QSlider(Qt.Orientation.Horizontal, self)
         n_edit.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Maximum)
         n_edit.setMinimum(2)
         n_edit.setMaximum(MAXIMUM_COSIGNER_COUNT)
@@ -1475,7 +1478,7 @@ class CreateMultisigAccountPage(QWizardPage):
         vbox.addStretch(1)
         vbox.addWidget(self._cosign_widget)
         vbox.addStretch(1)
-        vbox.addWidget(self._summary_label, 0, Qt.AlignCenter)
+        vbox.addWidget(self._summary_label, 0, Qt.AlignmentFlag.AlignCenter)
         vbox.addStretch(1)
         vbox.addWidget(self._settings_widget)
 
@@ -1551,7 +1554,7 @@ class CreateMultisigAccountCustomPage(QWizardPage):
         vbox.addStretch(1)
         vbox.addWidget(self._cosign_widget)
         vbox.addStretch(1)
-        vbox.addWidget(self._summary_label, 0, Qt.AlignCenter)
+        vbox.addWidget(self._summary_label, 0, Qt.AlignmentFlag.AlignCenter)
         vbox.addStretch(1)
         vbox.addWidget(self._options_widget)
 

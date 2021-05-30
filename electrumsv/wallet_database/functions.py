@@ -1,9 +1,11 @@
+from collections import defaultdict
 import concurrent.futures
 import datetime
 import json
+import os
 try:
     # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
-    import pysqlite3 as sqlite3
+    import pysqlite3 as sqlite3 # type: ignore
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
     # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
@@ -11,19 +13,22 @@ except ModuleNotFoundError:
 from typing import Any, cast, Iterable, List, Optional, Sequence, Tuple
 
 from ..bitcoin import COINBASE_MATURITY
-from ..constants import (DerivationType, KeyInstanceFlag, NetworkServerType,
+from ..constants import (DerivationType, DerivationPath, KeyInstanceFlag, NetworkServerType,
     pack_derivation_path, PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags,
     unpack_derivation_path, WalletEventFlag)
+from ..crypto import pw_decode, pw_encode
 from ..logs import logs
-from ..types import ServerAccountKey, TxoKeyType
+from ..types import KeyInstanceDataPrivateKey, MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
+    MasterKeyDataMultiSignature, MasterKeyDataTypes, ServerAccountKey, TxoKeyType
 
 from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     TransactionAlreadyExistsError, TransactionRemovalError)
 from .sqlite_support import DatabaseContext, replace_db_context_with_connection
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceRow,
-    KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow,
-    NetworkServerRow, NetworkServerAccountRow,
+    KeyInstanceScriptHashRow, KeyListRow,
+    MasterKeyRow,
+    NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult,
     PaymentRequestRow,
     PaymentRequestUpdateRow, SpendConflictType, TransactionBlockRow,
     TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
@@ -43,7 +48,7 @@ logger = logs.get_logger("db-functions")
 
 @replace_db_context_with_connection
 def count_unused_bip32_keys(db: sqlite3.Connection, account_id: int, masterkey_id: int,
-        derivation_path: Sequence[int]) -> int:
+        derivation_path: DerivationPath) -> int:
     # The derivation path is the relative parent path from the master key.
     prefix_bytes = pack_derivation_path(derivation_path)
     # Keys are created in order of sequence enumeration, so we shouldn't need to order by
@@ -699,7 +704,7 @@ def read_keyinstances(db: sqlite3.Connection, *, account_id: Optional[int]=None,
 
 @replace_db_context_with_connection
 def read_keyinstance_derivation_index_last(db: sqlite3.Connection, account_id: int,
-        masterkey_id: int, derivation_path: Sequence[int]) -> Optional[int]:
+        masterkey_id: int, derivation_path: DerivationPath) -> Optional[int]:
     # The derivation path is the relative parent path from the master key.
     prefix_bytes = pack_derivation_path(derivation_path)
     # Keys are created in order of sequence enumeration, so we shouldn't need to order by
@@ -1096,7 +1101,7 @@ def read_transaction_values(db: sqlite3.Connection, tx_hash: bytes,
 
 @replace_db_context_with_connection
 def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id: int,
-        derivation_path: Sequence[int], limit: int) -> List[KeyInstanceRow]:
+        derivation_path: DerivationPath, limit: int) -> List[KeyInstanceRow]:
     # The derivation path is the relative parent path from the master key.
     prefix_bytes = pack_derivation_path(derivation_path)
     # Keys are created in order of sequence enumeration, so we shouldn't need to order by
@@ -1267,7 +1272,7 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) -> concurren
 
 
 def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_id: int,
-        derivation_path: Sequence[int], allocation_flags: Optional[KeyInstanceFlag]=None) \
+        derivation_path: DerivationPath, allocation_flags: Optional[KeyInstanceFlag]=None) \
             -> concurrent.futures.Future:
     """
     Allocate one keyinstance for the caller's usage.
@@ -1585,17 +1590,150 @@ def update_keyinstance_descriptions(db_context: DatabaseContext,
     return db_context.post_to_thread(_write)
 
 
-def update_masterkey_derivation_datas(db_context: DatabaseContext,
-        entries: Iterable[Tuple[bytes, int]]) -> concurrent.futures.Future:
-    sql = "UPDATE MasterKeys SET derivation_data=?, date_updated=? WHERE masterkey_id=?"
-    timestamp = get_timestamp()
-    rows = []
-    for entry in entries:
-        rows.append((entry[0], timestamp, entry[1]))
+def update_password(db_context: DatabaseContext, old_password: str, new_password: str) \
+        -> concurrent.futures.Future:
+    """
+    Update the wallet password and all data encrypted with it as an atomic action.
 
-    def _write(db: sqlite3.Connection) -> None:
-        nonlocal sql, rows
-        db.executemany(sql, rows)
+    The idea is that if something fails, then the process is aborted and nothing is changed. This
+    cannot be guaranteed if it is done piecemeal at a higher level. Results are returned to the
+    calling wallet context, so that it can notify systems where applicable of changes. Given that
+    the database is authoritative where possible, these changes should be minimal.
+    """
+    token_update_sql = "UPDATE WalletData SET date_updated=?, value=? WHERE key=?"
+    keyinstance_read_sql = "SELECT keyinstance_id, account_id, derivation_data FROM KeyInstances " \
+        f"WHERE derivation_type={DerivationType.PRIVATE_KEY}"
+    keyinstance_update_sql = "UPDATE KeyInstances SET date_updated=?, derivation_data=? " \
+        "WHERE keyinstance_id=?"
+    masterkey_read_sql = "SELECT masterkey_id, derivation_type, derivation_data FROM MasterKeys"
+    masterkey_update_sql = "UPDATE MasterKeys SET date_updated=?, derivation_data=? " \
+        "WHERE masterkey_id=?"
+    server_read_sql = "SELECT url, server_type, encrypted_api_key FROM Servers " \
+        "WHERE encrypted_api_key IS NOT NULL"
+    server_update_sql = "UPDATE Servers SET date_updated=?, encrypted_api_key=? " \
+        "WHERE url=? AND server_type=?"
+    server_account_read_sql = "SELECT url, server_type, account_id, encrypted_api_key " \
+        "FROM ServerAccounts"
+    server_account_update_sql = "UPDATE ServerAccounts SET date_updated=?, encrypted_api_key=? " \
+        "WHERE url=? AND server_type=? AND account_id=?"
+
+    date_updated = get_timestamp()
+
+    def _write(db: sqlite3.Connection) -> PasswordUpdateResult:
+        password_token = pw_encode(os.urandom(32).hex(), new_password)
+
+        cursor = db.execute(token_update_sql, (date_updated, password_token, "password-token"))
+        assert cursor.rowcount == 1
+
+        # This tracks the updated encrypted values for the wallet to replace cached versions of
+        # these with.
+        result = PasswordUpdateResult(
+            password_token=password_token,
+            masterkey_updates=[],
+            account_private_key_updates=defaultdict(list))
+
+        def reencrypt_bip32_masterkey(data: MasterKeyDataBIP32) -> bool:
+            modified = False
+            for entry_name in ("seed", "passphrase", "xprv"):
+                entry_value = cast(Optional[str], data.get(entry_name, None))
+                if not entry_value:
+                    continue
+                if entry_name == "seed":
+                    data["seed"] = pw_encode(pw_decode(entry_value, old_password), new_password)
+                elif entry_name == "passphrase":
+                    data["passphrase"] = pw_encode(pw_decode(entry_value, old_password),
+                        new_password)
+                elif entry_name == "xprv":
+                    data["xprv"] = pw_encode(pw_decode(entry_value, old_password),
+                        new_password)
+                modified = True
+            return modified
+
+        def reencrypt_old_masterkey(data: MasterKeyDataElectrumOld) -> bool:
+            seed = data.get("seed")
+            if seed is None:
+                return False
+            data["seed"] = pw_encode(pw_decode(seed, old_password), new_password)
+            return True
+
+        def reencrypt_masterkey_data(masterkey_id: int, masterkey_derivation_type,
+                source_derivation_data: bytes, result: PasswordUpdateResult) -> Optional[bytes]:
+            modified = False
+            data = cast(MasterKeyDataTypes, json.loads(source_derivation_data))
+            if masterkey_derivation_type == DerivationType.ELECTRUM_MULTISIG:
+                cosigner_keys = cast(MasterKeyDataMultiSignature, data)["cosigner-keys"]
+                for derivation_type, cosigner_derivation_data in cosigner_keys:
+                    if derivation_type == DerivationType.BIP32:
+                        modified |= reencrypt_bip32_masterkey(
+                            cast(MasterKeyDataBIP32, cosigner_derivation_data))
+                    elif derivation_type == DerivationType.ELECTRUM_OLD:
+                        modified |= reencrypt_old_masterkey(
+                            cast(MasterKeyDataElectrumOld, cosigner_derivation_data))
+                    elif derivation_type != DerivationType.HARDWARE:
+                        raise NotImplementedError(f"Unhandled signer type {derivation_type}")
+            elif masterkey_derivation_type == DerivationType.BIP32:
+                modified = reencrypt_bip32_masterkey(cast(MasterKeyDataBIP32, data))
+            elif masterkey_derivation_type == DerivationType.ELECTRUM_OLD:
+                modified = reencrypt_old_masterkey(cast(MasterKeyDataElectrumOld, data))
+            if modified:
+                result.masterkey_updates.append((masterkey_id, masterkey_derivation_type, data))
+                return json.dumps(data).encode()
+            return None
+
+        keyinstance_id: int
+        masterkey_id: int
+        account_id: int
+        source_derivation_data: bytes
+
+        # Re-encrypt the stored private keys with the new password.
+        keyinstance_updates: List[Tuple[int, bytes, int]] = []
+        for keyinstance_id, account_id, source_derivation_data in db.execute(keyinstance_read_sql):
+            data = cast(KeyInstanceDataPrivateKey, json.loads(source_derivation_data))
+            data["prv"] = pw_encode(pw_decode(data["prv"], old_password), new_password)
+            keyinstance_updates.append((date_updated, json.dumps(data).encode(),
+                keyinstance_id))
+            result.account_private_key_updates[account_id].append((keyinstance_id, data["prv"]))
+        if len(keyinstance_updates):
+            db.executemany(keyinstance_update_sql, keyinstance_updates)
+
+        # Re-encrypt masterkey data (seed, passphrase, xprv) with the new password.
+        masterkey_updates: List[Tuple[int, bytes, int]] = []
+        for (masterkey_id, derivation_type, source_derivation_data) in \
+                db.execute(masterkey_read_sql):
+            updated_data = reencrypt_masterkey_data(masterkey_id, derivation_type,
+                source_derivation_data, result)
+            if updated_data is None:
+                continue
+            masterkey_updates.append((date_updated, updated_data, masterkey_id))
+        if len(masterkey_updates):
+            db.executemany(masterkey_update_sql, masterkey_updates)
+
+        url: str
+        raw_server_type: int
+        server_type: NetworkServerType
+        encrypted_api_key: str
+
+        # Re-encrypt network server api keys with the new password.
+        server_updates: List[Tuple[int, str, str, int]] = []
+        for url, raw_server_type, encrypted_api_key in db.execute(server_read_sql):
+            server_type = NetworkServerType(raw_server_type)
+            encrypted_api_key2 = pw_encode(pw_decode(encrypted_api_key, old_password), new_password)
+            server_updates.append((date_updated, encrypted_api_key2, url, server_type))
+        if len(server_updates):
+            db.executemany(server_update_sql, server_updates)
+
+        # Re-encrypt network server account api keys with the new password.
+        server_account_updates: List[Tuple[int, str, str, int, int]] = []
+        for url, raw_server_type, account_id, encrypted_api_key in \
+                db.execute(server_account_read_sql):
+            server_type = NetworkServerType(raw_server_type)
+            encrypted_api_key2 = pw_encode(pw_decode(encrypted_api_key, old_password), new_password)
+            server_account_updates.append((date_updated, encrypted_api_key2, url, server_type,
+                account_id))
+        if len(server_account_updates):
+            db.executemany(server_account_update_sql, server_account_updates)
+
+        return result
     return db_context.post_to_thread(_write)
 
 

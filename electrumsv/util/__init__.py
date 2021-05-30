@@ -29,12 +29,11 @@ import json
 import hmac
 import os
 import stat
-import platform
 import sys
 import threading
 import time
 import types
-from typing import Any, cast, Dict, List, Optional, Sequence
+from typing import Any, cast, Dict, List, Optional, Sequence, Tuple
 
 from bitcoinx import PublicKey
 
@@ -355,7 +354,7 @@ def get_wallet_name_from_path(wallet_path: str) -> str:
     return os.path.splitext(os.path.basename(wallet_path))[0]
 
 
-def versiontuple(v: str) -> Sequence[int]:
+def versiontuple(v: str) -> Tuple[int, ...]:
     return tuple(int(x) for x in v.split("."))
 
 
