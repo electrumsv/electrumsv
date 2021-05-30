@@ -193,6 +193,13 @@ class NewServer:
             if client_key.wallet_path == wallet_path:
                 del self.client_api_keys[client_key]
 
+    def is_unusable(self) -> bool:
+        if len(self.client_api_keys) == 0:
+            if self.application_config is None:
+                return True
+            return self.application_config["enabled_for_all_wallets"]
+        return False
+
     def is_unused(self) -> bool:
         return len(self.client_api_keys) == 0 and self.application_config is None
 
@@ -1720,6 +1727,14 @@ class Network(TriggeredCallbacks):
             if api_key is not None:
                 results.append((mapi_server, api_key))
         return results
+
+    def is_server_disabled(self, url: str, server_type: NetworkServerType) -> bool:
+        """
+        Whether the given server is configured to be unusable by anything.
+        """
+        if server_type == NetworkServerType.ELECTRUMX:
+            return False
+        return self._api_servers[ServerAccountKey(url, server_type)].is_unusable()
 
     def _register_api_servers_for_wallet(self, wallet: "Wallet") -> None:
         server_credential_rows = wallet.read_network_servers_with_credentials()

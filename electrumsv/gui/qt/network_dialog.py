@@ -1317,7 +1317,10 @@ class ServersListWidget(QTableWidget):
                 is_connected = self._is_server_healthy(list_entry.data_electrumx,
                     self._network.sessions)
 
-            if is_connected:
+            if self._network.is_server_disabled(list_entry.url, list_entry.server_type):
+                tooltip_text = _("This server has been configured to be disabled by the user.")
+                considered_good = False
+            elif is_connected:
                 tooltip_text = _("There is an active connection to this server.")
                 considered_good = True
                 is_connected = True
