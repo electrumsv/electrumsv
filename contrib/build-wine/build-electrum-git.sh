@@ -6,6 +6,7 @@ NAME_ROOT=ElectrumSV
 export WINEPREFIX=/opt/wine64
 export WINEDEBUG=fixme-all
 export PYTHONDONTWRITEBYTECODE=1
+export WINEDEBUG=fixme-all
 export PYTHONHASHSEED=22
 
 PYHOME=c:/python3

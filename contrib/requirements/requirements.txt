@@ -1,12 +1,13 @@
 aiohttp>=3.7.4.post
 aiohttp_middlewares
-aiorpcX>=0.18.0,<0.19
+aiorpcX==0.22.1
 certifi
+chardet==3.0.4 # aiohttp 3.7.3 caps the version at this, requests also uses it.
 dnspython<2.0
 ecdsa>=0.13.3
 mypy-extensions
 pyaes>=0.1a1
-requests>=2.25.1
+requests
 python-dateutil>=2.8.0
 qrcode
 yarl

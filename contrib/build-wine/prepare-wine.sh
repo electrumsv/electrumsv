@@ -98,6 +98,7 @@ $PYTHON -m pip install pip --upgrade
 
 $PYTHON -m pip install -r $here/../deterministic-build/requirements-pyinstaller.txt
 $PYTHON -m pip install -r $here/../deterministic-build/requirements-binaries.txt
+$PYTHON -m pip install -r $here/../deterministic-build/requirements-pyinstaller.txt
 
 echo "Compiling PyInstaller bootloader with anti-virus false-positive protection"
 pushd $WINEPREFIX/drive_c/electrum
