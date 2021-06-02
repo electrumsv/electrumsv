@@ -10,7 +10,7 @@ cd $build_dir/../..
 export PYTHONHASHSEED=22
 
 # Paramterize
-PYTHON_VERSION=3.7.8
+PYTHON_VERSION=3.8.10
 BUILDDIR=/tmp/electrum-sv-build
 PACKAGE=ElectrumSV
 GIT_REPO_ACCT=https://github.com/electrumsv
@@ -67,6 +67,8 @@ mkdir $BUILDDIR
 info "Activating virtualenv $BUILDDIR/venv"
 python3 -m venv $BUILDDIR/venv
 source $BUILDDIR/venv/bin/activate
+
+python3 -m pip install -U pip
 
 info "Installing pyinstaller"
 python3 -m pip install pyinstaller -I || fail "Could not install pyinstaller"
