@@ -68,6 +68,8 @@ info "Activating virtualenv $BUILDDIR/venv"
 python3 -m venv $BUILDDIR/venv
 source $BUILDDIR/venv/bin/activate
 
+python3 -m pip install -U pip
+
 info "Installing pyinstaller"
 python3 -m pip install pyinstaller -I || fail "Could not install pyinstaller"
 
