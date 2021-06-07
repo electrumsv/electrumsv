@@ -58,7 +58,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag, WalletEventType,
     WalletSettings)
 from .contacts import Contacts
-from .credentials import CredentialCache, IndefiniteCredentialId
+from .credentials import CredentialCache
 from .crypto import pw_decode, pw_encode
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
     SubscriptionStale, UnsupportedAccountTypeError, UnsupportedScriptTypeError, UserCancelled,
@@ -73,10 +73,10 @@ from .networks import Net
 from .storage import WalletStorage
 from .transaction import (Transaction, TransactionContext, TxSerialisationFormat, NO_SIGNATURE,
     tx_dict_from_text, XPublicKey, XPublicKeyType, XTxInput, XTxOutput)
-from .types import (ElectrumXHistoryList, KeyInstanceDataBIP32SubPath, KeyInstanceDataHash,
-    KeyInstanceDataPrivateKey, MasterKeyDataTypes,
+from .types import (ElectrumXHistoryList, IndefiniteCredentialId, KeyInstanceDataBIP32SubPath,
+    KeyInstanceDataHash, KeyInstanceDataPrivateKey, MasterKeyDataTypes,
     MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
-    ServerAccountKey, SubscriptionEntry,
+    NetworkServerState, ServerAccountKey, SubscriptionEntry,
     SubscriptionKey,
     SubscriptionOwner, SubscriptionKeyScriptHashOwnerContext,
     SubscriptionTransactionScriptHashOwnerContext, TxoKeyType, WaitingUpdateCallback)
@@ -1800,7 +1800,7 @@ class Wallet(TriggeredCallbacks):
         account_flags: Dict[int, AccountInstantiationFlags] = \
             defaultdict(lambda: AccountInstantiationFlags.NONE)
         keyinstances_by_account_id: Dict[int, List[KeyInstanceRow]] = {}
-        # TODO(MAPI) Avoid reading in all the keyinstances we are not interested in.
+        # TODO Avoid reading in all the keyinstances we are not interested in.
         for keyinstance_row in self.read_keyinstances():
             if keyinstance_row.derivation_type == DerivationType.PRIVATE_KEY:
                 if keyinstance_row.account_id not in keyinstances_by_account_id:
@@ -2508,16 +2508,17 @@ class Wallet(TriggeredCallbacks):
             -> Tuple[List[NetworkServerRow], List[NetworkServerAccountRow]]:
         return db_functions.read_network_servers(self.get_db_context(), server_key)
 
-    def read_network_servers_with_credentials(self) \
-            -> List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]]:
-        results: List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]] = []
+    def read_network_servers_with_credentials(self) -> List[NetworkServerState]:
+        results: List[NetworkServerState] = []
         server_rows, account_rows = self.read_network_servers()
         for server_row in server_rows:
             server_key = ServerAccountKey.for_server_row(server_row)
-            results.append((server_key, self._registered_api_keys.get(server_key)))
+            results.append(NetworkServerState(server_key, self._registered_api_keys.get(server_key),
+                server_row.fee_quote_json, server_row.date_last_try, server_row.date_last_good))
         for account_row in account_rows:
             server_key = ServerAccountKey.for_account_row(account_row)
-            results.append((server_key, self._registered_api_keys.get(server_key)))
+            results.append(NetworkServerState(server_key, self._registered_api_keys.get(server_key),
+                account_row.fee_quote_json, account_row.date_last_try, account_row.date_last_good))
         return results
 
     def get_credential_id_for_server_key(self, key: ServerAccountKey) \
@@ -2567,32 +2568,36 @@ class Wallet(TriggeredCallbacks):
                         unencrypted_value)
 
             if self._network is not None:
-                added_keys: List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]] = []
-                updated_keys: List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]] = []
+                added_keys: List[NetworkServerState] = []
+                updated_keys: List[NetworkServerState] = []
                 deleted_keys: List[ServerAccountKey] = []
 
                 for server_row in added_server_rows:
                     server_key = ServerAccountKey.for_server_row(server_row)
-                    added_keys.append((server_key, self._registered_api_keys.get(server_key)))
+                    added_keys.append(NetworkServerState(server_key,
+                        self._registered_api_keys.get(server_key)))
 
                 for account_row in added_server_account_rows:
                     server_key = ServerAccountKey.for_account_row(account_row)
-                    added_keys.append((server_key, self._registered_api_keys.get(server_key)))
+                    added_keys.append(NetworkServerState(server_key,
+                        self._registered_api_keys.get(server_key)))
 
                 for server_row in updated_server_rows:
                     server_key = ServerAccountKey.for_server_row(server_row)
                     if server_key in updated_api_keys:
-                        updated_keys.append((server_key, self._registered_api_keys.get(server_key)))
+                        updated_keys.append(NetworkServerState(server_key,
+                            self._registered_api_keys.get(server_key)))
 
                 for account_row in updated_server_account_rows:
                     server_key = ServerAccountKey.for_account_row(account_row)
                     if server_key in updated_api_keys:
-                        updated_keys.append((server_key, self._registered_api_keys.get(server_key)))
+                        updated_keys.append(NetworkServerState(server_key,
+                            self._registered_api_keys.get(server_key)))
 
                 deleted_keys.extend(deleted_server_keys)
                 deleted_keys.extend(deleted_server_account_keys)
 
-                self._network.update_servers_for_wallet(self, added_keys, updated_keys,
+                self._network.update_api_servers_for_wallet(self, added_keys, updated_keys,
                     deleted_keys)
 
         future = db_functions.update_network_servers(self.get_db_context(), added_server_rows,
@@ -2601,6 +2606,30 @@ class Wallet(TriggeredCallbacks):
         # We do not update the data used by the wallet and network unless the database update
         # successfully applies. There is likely no reason it won't, outside of programmer error.
         future.add_done_callback(update_cached_values)
+        return future
+
+    def update_network_server_states(self, updated_states: List[NetworkServerState]) \
+            -> concurrent.futures.Future:
+        """
+        Update this wallet's network servers for the latest state changes.
+
+        This is the statistics and data sourced from the server, not the definition of the server
+        itself.
+        """
+        server_rows: List[NetworkServerRow] = []
+        server_account_rows: List[NetworkServerAccountRow] = []
+        for state in updated_states:
+            if state.key.account_id == -1:
+                server_rows.append(NetworkServerRow(state.key.url, state.key.server_type,
+                    fee_quote_json=state.fee_quote_json, date_last_good=state.date_last_good,
+                    date_last_try=state.date_last_try))
+            else:
+                server_account_rows.append(NetworkServerAccountRow(state.key.url,
+                    state.key.server_type, state.key.account_id,
+                    fee_quote_json=state.fee_quote_json, date_last_good=state.date_last_good,
+                    date_last_try=state.date_last_try))
+        future = db_functions.update_network_server_states(self.get_db_context(),
+            server_rows, server_account_rows)
         return future
 
     def _get_header_hash_for_height(self, height: int) -> Optional[bytes]:
@@ -3173,7 +3202,7 @@ class Wallet(TriggeredCallbacks):
             f"invalid cache size {maximum_size}"
         self._storage.put('tx_bytedata_cache_size', maximum_size)
         maximum_size_bytes = maximum_size * (1024 * 1024)
-        self._transaction_cache2.set_maximum_size(maximum_size, force_resize)
+        self._transaction_cache2.set_maximum_size(maximum_size_bytes, force_resize)
 
     def get_local_height(self) -> int:
         """ return last known height if we are offline """
@@ -3218,7 +3247,12 @@ class Wallet(TriggeredCallbacks):
         for account in self.get_accounts():
             account.stop()
         if self._network is not None:
-            self._network.remove_wallet(self)
+            updated_states = self._network.remove_wallet(self)
+            if len(updated_states):
+                # We do not need to wait for the future to complete, as closing the storage below
+                # should close out all database pending writes.
+                self.update_network_server_states(updated_states)
+
         self.db_functions_async.close()
         self._storage.close()
         self._network = None

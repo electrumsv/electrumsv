@@ -35,8 +35,6 @@ import time
 from typing import Any, Callable, cast, Dict, Iterable, List, NamedTuple, Optional, TYPE_CHECKING, \
     Tuple, Union
 
-import aiohttp
-# from aiohttp import ClientConnectorError
 from aiorpcx import (
     connect_rs, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
     TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
@@ -49,16 +47,16 @@ from bitcoinx import (
 import certifi
 
 from .app_state import app_state
-from .constants import NetworkServerType, TOKEN_PASSWORD, TxFlags
+from .constants import NetworkServerType, TxFlags
 from .credentials import IndefiniteCredentialId
-from .crypto import pw_decode
 from .i18n import _
 from .logs import logs
-from .transaction import Transaction
-from .types import ElectrumXHistoryList, ScriptHashSubscriptionEntry, ServerAccountKey
-from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
+from .network_support.api_server import NewServer, NewServerAPIContext
 from .networks import Net #, SVRegTestnet
-# from .util.misc import decode_response_body
+from .transaction import Transaction
+from .types import ElectrumXHistoryList, NetworkServerState, ScriptHashSubscriptionEntry, \
+    ServerAccountKey
+from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
 
 if TYPE_CHECKING:
@@ -143,102 +141,6 @@ class DisconnectSessionError(Exception):
     def __init__(self, reason, *, blacklist=False):
         super().__init__(reason)
         self.blacklist = False
-
-
-class NewServerAPIContext(NamedTuple):
-    wallet_path: str
-    account_id: int
-
-
-class NewServerAccessState:
-    """ The state for each URL/api key combination used by the application. """
-
-    def __init__(self) -> None:
-        self.last_try = 0.
-        self.last_good = 0.
-        self.is_disabled = False
-        self.fee_quote: Dict[str, Any] = {}
-
-
-class NewServer:
-    def __init__(self, url: str, server_type: NetworkServerType,
-            application_config: Optional[Dict]=None) -> None:
-        self.url = url
-        self.server_type = server_type
-        self.application_config: Optional[Dict] = application_config
-
-        # These are the enabled clients and which/whether they use an API key.
-        self.client_api_keys: Dict[NewServerAPIContext, Optional[IndefiniteCredentialId]] = {}
-        # We keep per-API key state for a reason. An API key can be considered to be a distinct
-        # account with the service, and it makes sense to keep the statistics/metadata for the
-        # service separated by API key for this reason. We intentionally leave these in place
-        # at least for now as they are kind of relative to the given key value.
-        self.api_key_state: Dict[Optional[IndefiniteCredentialId], NewServerAccessState] = {}
-
-    def set_wallet_usage(self, wallet_path: str, specific_server_key: ServerAccountKey,
-            credential_id: Optional[IndefiniteCredentialId]) -> None:
-        usage_context = NewServerAPIContext(wallet_path, specific_server_key.account_id)
-        self.client_api_keys[usage_context] = credential_id
-
-    def remove_wallet_usage(self, wallet_path: str, specific_server_key: ServerAccountKey) -> None:
-        usage_context = NewServerAPIContext(wallet_path, specific_server_key.account_id)
-        del self.client_api_keys[usage_context]
-
-    def unregister_wallet(self, wallet_path: str) -> None:
-        """
-        Remove all involvement of a wallet that is being unloaded from this server.
-        """
-        # This wallet is being unloaded so remove all it's involvement with the server.
-        for client_key in list(self.client_api_keys):
-            if client_key.wallet_path == wallet_path:
-                del self.client_api_keys[client_key]
-
-    def is_unusable(self) -> bool:
-        if len(self.client_api_keys) == 0:
-            if self.application_config is None:
-                return True
-            return self.application_config["enabled_for_all_wallets"]
-        return False
-
-    def is_unused(self) -> bool:
-        return len(self.client_api_keys) == 0 and self.application_config is None
-
-    def get_api_key(self, client_key: NewServerAPIContext) -> Optional[str]:
-        """
-        Indicate whether the given client can use this server.
-
-        Returns `None` to indicate that the client is not configured to use this server.
-        Returns `""` to indicate the client is configured to use this server with no API key.
-        Returns an API key to indicate the client is configured to use this server with that key.
-        """
-        # Look up the account.
-        if client_key in self.client_api_keys:
-            credential_id = self.client_api_keys[client_key]
-            if credential_id is not None:
-                return app_state.credentials.get_indefinite_credential(credential_id)
-            return ""
-
-        # Look up the account's wallet as the first fallback.
-        wallet_client_key = NewServerAPIContext(client_key.wallet_path, -1)
-        if wallet_client_key in self.client_api_keys:
-            credential_id = self.client_api_keys[wallet_client_key]
-            if credential_id is not None:
-                return app_state.credentials.get_indefinite_credential(credential_id)
-            return ""
-
-        # Finally we look up the application server for this URL, if there is one, and if it
-        # is enabled for global use, we use it's api key.
-        if self.application_config is not None:
-            if self.application_config["enabled_for_all_wallets"]:
-                api_key = self.application_config["api_key"]
-                if api_key:
-                    api_key = pw_decode(self.application_config["api_key"], TOKEN_PASSWORD)
-                else:
-                    assert api_key == ""
-                return api_key
-
-        # This client is not configured to use this server.
-        return None
 
 
 class SVServerState:
@@ -1027,7 +929,7 @@ class Network(TriggeredCallbacks):
         self.proxy = None
 
         # The usable set of MAPI servers for the application and per-wallet/account.
-        self._api_servers: Dict[ServerAccountKey, NewServer] = {}
+        self._mapi_servers: Dict[ServerAccountKey, NewServer] = {}
         # Track the application MAPI servers from the config and add them to the usable set.
         self._mapi_servers_config: List[Dict[str, Any]] = []
         self._read_config_mapi()
@@ -1049,8 +951,6 @@ class Network(TriggeredCallbacks):
         app_state.subscriptions.set_script_hash_callbacks(
             self._on_subscribe_script_hashes, self._on_unsubscribe_script_hashes)
 
-        self.mapi_client: Optional[aiohttp.ClientSession] = None
-
     def _read_config_mapi(self) -> None:
         mapi_servers = cast(List[Dict[str, Any]], app_state.config.get("mapi_servers", []))
         if mapi_servers:
@@ -1068,9 +968,8 @@ class Network(TriggeredCallbacks):
         # Register the MAPI server for visibility and maybe even usage. We pass in the reference
         # to the config entry dictionary, which will be saved via `_mapi_servers_config`.
         for mapi_server in mapi_servers:
-            self._api_servers[
-                ServerAccountKey(mapi_server["url"], NetworkServerType.MERCHANT_API)] = \
-                NewServer(mapi_server["url"], NetworkServerType.MERCHANT_API, mapi_server)
+            server_key = ServerAccountKey(mapi_server["url"], NetworkServerType.MERCHANT_API)
+            self._mapi_servers[server_key] = self._create_config_api_server(server_key, mapi_server)
 
         # This is the collection of application level servers and it is primarily used to group
         # them for persistence.
@@ -1089,23 +988,6 @@ class Network(TriggeredCallbacks):
         # If we request an anonymous fee quote for this server, keep the last one.
         server.setdefault("anonymous_fee_quote", {})
 
-    async def _get_mapi_client(self):
-        # aiohttp session needs to be initialised in async function
-        # https://github.com/tiangolo/fastapi/issues/301
-        if self.mapi_client is None:
-            # resolver = AsyncResolver()
-            # conn = aiohttp.TCPConnector(family=socket.AF_INET, resolver=resolver,
-            #      ttl_dns_cache=10,
-            #                             force_close=True, enable_cleanup_closed=True)
-            # self.mapi_client = aiohttp.ClientSession(connector=conn)
-            self.mapi_client = aiohttp.ClientSession()
-        return self.mapi_client
-
-    async def _close_mapi_client(self) -> None:
-        logger.debug("closing aiohttp client session.")
-        if self.mapi_client:
-            await self.mapi_client.close()
-
     async def _main_task(self) -> None:
         try:
             async with TaskGroup() as group:
@@ -1115,58 +997,15 @@ class Network(TriggeredCallbacks):
                 await group.spawn(self._initial_script_hash_status_subscriptions, group)
                 await group.spawn(self._monitor_script_hash_status_subscriptions, group)
                 await group.spawn(self._monitor_wallets, group)
-                # await group.spawn(self._monitor_mapi_servers)
         finally:
             self.shutdown_complete_event.set()
             app_state.config.set_key('servers', list(SVServer.all_servers.values()), True)
-            app_state.config.set_key('mapi_servers', self.get_application_mapi_servers(), True)
+            app_state.config.set_key('mapi_servers', self.get_config_mapi_servers(), True)
 
     async def _do_mapi_health_check(self) -> None:
         """The last_good and last_try timestamps will be used to include/exclude the mAPI for
         selection"""
         return
-        # now = time.time()
-        # for i, mapi_server in enumerate(self._mapi_servers_config):
-        #     mapi_server['last_try'] = now
-        #     uri = mapi_server['url'] + "/feeQuote"
-        #     headers = {'Content-Type': 'application/json'}
-        #     if Net._net is SVRegTestnet:
-        #         ssl = False
-        #     else:
-        #         ssl = True
-
-        #     assert self.mapi_client is not None
-        #     async with self.mapi_client.get(uri, headers=headers, ssl=ssl) as resp:
-        #         try:
-        #             json_response = await decode_response_body(resp)
-        #         except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
-        #             logger.error("failed connecting to %s", mapi_server['url'])
-        #         else:
-        #             if resp.status != 200:
-        #                 logger.error("feeQuote request to %s failed with: status: %s, reason: %s",
-        #                     mapi_server['url'], resp.status, resp.reason)
-        #             else:
-        #                 assert json_response['encoding'].lower() == 'utf-8'
-        #                 json_payload = json.loads(json_response['payload'])
-        #                 logger.debug("valid feeQuote received from %s", mapi_server['url'])
-        #                 mapi_server['last_good'] = now
-        #                 mapi_server['fee'] = json_payload
-        #         finally:
-        #             self._mapi_servers_config[i] = mapi_server
-
-        # # update mapi servers in json config
-        # app_state.config.set_key('mapi_servers', self._mapi_servers_config, True)
-
-    # async def _monitor_mapi_servers(self) -> None:
-    #     if not self.mapi_client:
-    #         self.mapi_client = await self._get_mapi_client()
-
-    #     if self._mapi_servers_config is None:
-    #         self._read_config_mapi()
-
-    #     while True:
-    #         await self._do_mapi_health_check()
-    #         await asyncio.sleep(60)
 
     async def _restart_network(self) -> None:
         self.stop_network_event.set()
@@ -1674,12 +1513,25 @@ class Network(TriggeredCallbacks):
         """
         return SVServer.all_servers[key]
 
-    def get_application_mapi_servers(self) -> List[Dict[str, Any]]:
-        # These are the default MAPI servers combined with those the user added for all loaded
-        # wallets to be able to use.
+    def get_config_mapi_servers(self) -> List[Dict[str, Any]]:
+        """
+        Update the mapi server config entries and return them.
+
+        This will pull in the live server state.
+        """
+        for config in self._mapi_servers_config:
+            server_key = ServerAccountKey(config["url"], NetworkServerType.MERCHANT_API)
+            server = self._mapi_servers[server_key]
+            key_state = server.api_key_state[server.config_credential_id]
+            config["last_good"] = key_state.last_good
+            config["last_try"] = key_state.last_try
+            if server.config_credential_id is None:
+                config["anonymous_fee_quote"] = key_state.last_fee_quote_response
+            else:
+                config["anonymous_fee_quote"] = None
         return self._mapi_servers_config
 
-    def create_application_mapi_server(self, server_data: Dict[str, Any]) -> None:
+    def create_config_mapi_server(self, server_data: Dict[str, Any]) -> None:
         """
         Register a new application-level MAPI server entry.
 
@@ -1687,11 +1539,16 @@ class Network(TriggeredCallbacks):
         provide a 100% complete entry.
         """
         server_url = server_data["url"]
-        assert server_url not in self._mapi_servers_config
+        assert server_url not in [ d["url"] for d in self._mapi_servers_config ]
         self._migrate_config_mapi_entry(server_data)
         self._mapi_servers_config[server_url] = server_data
 
-    def update_application_mapi_server(self, server_url: str, update_data: Dict[str, Any]) -> None:
+        server_key = ServerAccountKey(server_url, NetworkServerType.MERCHANT_API)
+        if server_key in self._mapi_servers:
+            return
+        self._mapi_servers[server_key] = self._create_config_api_server(server_key)
+
+    def update_config_mapi_server(self, server_url: str, update_data: Dict[str, Any]) -> None:
         """
         Update fields in an existing application-level MAPI server entry.
 
@@ -1700,32 +1557,38 @@ class Network(TriggeredCallbacks):
         update_data["modified_date"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         for config in self._mapi_servers_config:
             if config["url"] == server_url:
+                server_key = ServerAccountKey(server_url, NetworkServerType.MERCHANT_API)
+                server = self._mapi_servers[server_key]
+                server.on_pending_config_change(update_data)
                 config.update(update_data)
                 break
+        else:
+            self.create_config_mapi_server(update_data)
 
-    def delete_application_mapi_server(self, server_url: str) -> None:
+    def delete_config_mapi_server(self, server_url: str) -> None:
         for config_index, config in enumerate(self._mapi_servers_config):
             if config["url"] == server_url:
                 del self._mapi_servers_config[config_index]
-                del self._api_servers[ServerAccountKey(server_url, NetworkServerType.MERCHANT_API)]
+                del self._mapi_servers[ServerAccountKey(server_url, NetworkServerType.MERCHANT_API)]
                 break
         else:
             raise KeyError(f"Server '{server_url}' does not exist")
 
-    def get_registered_mapi_servers(self) -> Dict[ServerAccountKey, NewServer]:
+    def get_mapi_servers(self) -> Dict[ServerAccountKey, NewServer]:
         # These are all the available MAPI servers registered within the application.
-        return self._api_servers
+        return self._mapi_servers
 
-    def get_account_mapi_servers(self, account: "AbstractAccount") -> List[Tuple[NewServer, str]]:
+    def get_mapi_servers_for_account(self, account: "AbstractAccount") \
+            -> List[Tuple[NewServer, Optional[IndefiniteCredentialId]]]:
         wallet = account.get_wallet()
         client_key = NewServerAPIContext(wallet.get_storage_path(), account.get_id())
 
-        results: List[Tuple[NewServer, str]] = []
-        for mapi_server in self._api_servers.values():
-            api_key = mapi_server.get_api_key(client_key)
-            # We differentiate between no server (`api_key=None`) and no API key (`api_key=""`).
-            if api_key is not None:
-                results.append((mapi_server, api_key))
+        results: List[Tuple[NewServer, Optional[IndefiniteCredentialId]]] = []
+        for mapi_server in self._mapi_servers.values():
+            have_credential, credential_id = mapi_server.get_credential_id(client_key)
+            # TODO(MAPI) What about putting the client api context in the result.
+            if have_credential:
+                results.append((mapi_server, credential_id))
         return results
 
     def is_server_disabled(self, url: str, server_type: NetworkServerType) -> bool:
@@ -1734,53 +1597,69 @@ class Network(TriggeredCallbacks):
         """
         if server_type == NetworkServerType.ELECTRUMX:
             return False
-        return self._api_servers[ServerAccountKey(url, server_type)].is_unusable()
+        return self._mapi_servers[ServerAccountKey(url, server_type)].is_unusable()
+
+    def _create_config_api_server(self, server_key: ServerAccountKey,
+            config: Optional[Dict[str,Any]]=None, allow_no_config: bool=False) -> NewServer:
+        if config is None:
+            # The config entry should exist except when an external wallet database is brought
+            # to this installation and loaded, with unknown servers in it.
+            for iter_config in self._mapi_servers_config:
+                if iter_config["url"] == server_key.url:
+                    config = iter_config
+                    break
+            else:
+                if not allow_no_config:
+                    raise KeyError(f"Server config not found {server_key.url}")
+        return NewServer(server_key.url, server_key.server_type, config)
 
     def _register_api_servers_for_wallet(self, wallet: "Wallet") -> None:
-        server_credential_rows = wallet.read_network_servers_with_credentials()
+        rows = wallet.read_network_servers_with_credentials()
 
         wallet_path = wallet.get_storage_path()
-        for specific_server_key, credential_id in server_credential_rows:
-            if specific_server_key.server_type != NetworkServerType.MERCHANT_API:
+        for row in rows:
+            if row.key.server_type != NetworkServerType.MERCHANT_API:
                 continue
             # If the server does not exist already it is not one known globally to the application.
-            server_key = specific_server_key.to_server_key()
-            if server_key not in self._api_servers:
-                self._api_servers[server_key] = NewServer(server_key.url, server_key.server_type)
-            server = self._api_servers[server_key]
-            server.set_wallet_usage(wallet_path, specific_server_key, credential_id)
+            server_key = row.key.to_server_key()
+            if server_key not in self._mapi_servers:
+                self._mapi_servers[server_key] = self._create_config_api_server(server_key,
+                    allow_no_config=True)
+            server = self._mapi_servers[server_key]
+            server.set_wallet_usage(wallet_path, row)
 
-    def _unregister_all_api_servers_for_wallet(self, wallet: "Wallet") -> None:
+    def _unregister_all_api_servers_for_wallet(self, wallet: "Wallet") -> List[NetworkServerState]:
         wallet_path = wallet.get_storage_path()
-        for server_key, server in list(self._api_servers.items()):
-            server.unregister_wallet(wallet_path)
+        updated_states: List[NetworkServerState] = []
+        for server_key, server in list(self._mapi_servers.items()):
+            updated_states.extend(server.unregister_wallet(wallet_path))
             if server.is_unused():
-                del self._api_servers[server_key]
+                del self._mapi_servers[server_key]
+        return updated_states
 
-    def update_servers_for_wallet(self,
-            wallet: "Wallet",
-            added_keys: List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]],
-            updated_keys: List[Tuple[ServerAccountKey, Optional[IndefiniteCredentialId]]],
-            deleted_keys: List[ServerAccountKey]) -> None:
+    def update_api_servers_for_wallet(self,
+            wallet: "Wallet", added_keys: List[NetworkServerState],
+            updated_keys: List[NetworkServerState], deleted_keys: List[ServerAccountKey]) -> None:
         wallet_path = wallet.get_storage_path()
         # We know updated servers will not have changed their type or url, so we do not need
         # to do anything with the accounts at this point. But we do need to have observed the flags
         # of servers for enabling/disabling.
-        for specific_server_key, credential_id in added_keys + updated_keys:
-            server = self._api_servers[specific_server_key.to_server_key()]
-            server.set_wallet_usage(wallet_path, specific_server_key, credential_id)
+        for row in added_keys + updated_keys:
+            server = self._mapi_servers[row.key.to_server_key()]
+            server.set_wallet_usage(wallet_path, row)
 
         for specific_server_key in deleted_keys:
-            server = self._api_servers[specific_server_key.to_server_key()]
+            server = self._mapi_servers[specific_server_key.to_server_key()]
             server.remove_wallet_usage(wallet_path, specific_server_key)
 
     def add_wallet(self, wallet: "Wallet") -> None:
         self._register_api_servers_for_wallet(wallet)
         app_state.async_.spawn(self._wallet_jobs.put, ('add', wallet))
 
-    def remove_wallet(self, wallet: "Wallet") -> None:
-        self._unregister_all_api_servers_for_wallet(wallet)
+    def remove_wallet(self, wallet: "Wallet") -> List[NetworkServerState]:
+        updated_states = self._unregister_all_api_servers_for_wallet(wallet)
         app_state.async_.spawn(self._wallet_jobs.put, ('remove', wallet))
+        return updated_states
 
     def chain(self):
         main_session = self.main_session()

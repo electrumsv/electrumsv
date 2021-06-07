@@ -114,8 +114,11 @@ class MasterKeyRow(NamedTuple):
 class NetworkServerRow(NamedTuple):
     url: str
     server_type: NetworkServerType
-    encrypted_api_key: Optional[str]
-    flags: NetworkServerFlag
+    encrypted_api_key: Optional[str] = None
+    flags: NetworkServerFlag = NetworkServerFlag.NONE
+    fee_quote_json: Optional[str] = None
+    date_last_try: int = 0
+    date_last_good: int = 0
     date_created: int = -1
     date_updated: int = -1
 
@@ -124,7 +127,10 @@ class NetworkServerAccountRow(NamedTuple):
     url: str
     server_type: NetworkServerType
     account_id: int
-    encrypted_api_key: Optional[str]
+    encrypted_api_key: Optional[str] = None
+    fee_quote_json: Optional[str] = None
+    date_last_try: int = 0
+    date_last_good: int = 0
     date_created: int = -1
     date_updated: int = -1
 

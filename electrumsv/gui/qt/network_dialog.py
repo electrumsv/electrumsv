@@ -426,8 +426,8 @@ class EditServerDialog(WindowModalDialog):
         self._edit_state = EditServerState(True)
         if entry is not None:
             self._edit_state.enabled = entry.enabled_for_all_wallets
-            if entry.data_mapi is not None and entry.data_mapi.application_config["api_key"]:
-                encrypted_api_key = entry.data_mapi.application_config["api_key"]
+            if entry.data_mapi is not None and entry.data_mapi.config["api_key"]:
+                encrypted_api_key = entry.data_mapi.config["api_key"]
                 self._edit_state.encrypted_api_key = encrypted_api_key
                 self._edit_state.decrypted_api_key = pw_decode(encrypted_api_key, TOKEN_PASSWORD)
         # This is used to track the initial application state, which comes from the config.
@@ -867,7 +867,7 @@ class EditServerDialog(WindowModalDialog):
                     return _("This URL is already in use.")
         elif server_type == NetworkServerType.MERCHANT_API:
             existing_urls = set(server_key.url.lower() \
-                for server_key in self._network.get_registered_mapi_servers())
+                for server_key in self._network.get_mapi_servers())
             if url.lower() in existing_urls:
                 # If we are editing this server, allow it to save/update with the same URL.
                 if self._is_edit_mode and self._entry.data_mapi.url.lower() == url.lower():
@@ -1025,12 +1025,12 @@ class EditServerDialog(WindowModalDialog):
                             outgoing_state.updated_servers.append(
                                 NetworkServerRow(server_url, NetworkServerType.MERCHANT_API,
                                     encrypted_api_key, NetworkServerFlag.ANY_ACCOUNT,
-                                    -1, date_now_utc))
+                                    date_updated=date_now_utc))
                         else:
                             outgoing_state.updated_server_accounts.append(
                                 NetworkServerAccountRow(server_url, NetworkServerType.MERCHANT_API,
                                     account_id, encrypted_api_key,
-                                    -1, date_now_utc))
+                                    date_updated=date_now_utc))
                     else:
                         # Addition.
                         update_api_key_pair: Optional[Tuple[str, str]] = None
@@ -1051,12 +1051,13 @@ class EditServerDialog(WindowModalDialog):
                             outgoing_state.added_servers.append(
                                 NetworkServerRow(server_url, NetworkServerType.MERCHANT_API,
                                 encrypted_api_key, NetworkServerFlag.ANY_ACCOUNT,
-                                date_now_utc, date_now_utc))
+                                date_created=date_now_utc, date_updated=date_now_utc))
                         else:
                             keeping_account_rows = True
                             outgoing_state.added_server_accounts.append(
                                 NetworkServerAccountRow(server_url, NetworkServerType.MERCHANT_API,
-                                    account_id, encrypted_api_key, date_now_utc, date_now_utc))
+                                    account_id, encrypted_api_key, date_created=date_now_utc,
+                                    date_updated=date_now_utc))
                 elif account_id == -1:
                     assert account_index == check_wallet_row_index
                     if keeping_account_rows:
@@ -1064,13 +1065,14 @@ class EditServerDialog(WindowModalDialog):
                             outgoing_state.added_servers.append(
                                 NetworkServerRow(server_url, NetworkServerType.MERCHANT_API,
                                 None, NetworkServerFlag.NONE,
-                                date_now_utc, date_now_utc))
+                                date_created=date_now_utc, date_updated=date_now_utc))
                         elif state.initial_state.enabled or \
                                 state.initial_state.decrypted_api_key is not None:
                             # Update if something changed.
                             outgoing_state.updated_servers.append(NetworkServerRow(server_url,
                                 NetworkServerType.MERCHANT_API, None,
-                                NetworkServerFlag.NONE, date_now_utc, date_now_utc))
+                                NetworkServerFlag.NONE, date_created=date_now_utc,
+                                date_updated=date_now_utc))
                     elif state.initial_state is not None:
                         # Deletion.
                         if state.initial_state.encrypted_api_key is not None:
@@ -1095,10 +1097,10 @@ class EditServerDialog(WindowModalDialog):
 
         if saveable_application_state:
             if self._is_edit_mode:
-                self._network.update_application_mapi_server(server_url, saveable_application_state)
+                self._network.update_config_mapi_server(server_url, saveable_application_state)
             else:
                 saveable_application_state["url"] = server_url
-                self._network.create_application_mapi_server(saveable_application_state)
+                self._network.create_config_mapi_server(saveable_application_state)
 
         if saveable_states:
             futures: List[concurrent.futures.Future] = []
@@ -1489,7 +1491,7 @@ class ServersListWidget(QTableWidget):
             for wallet in cast(List[Wallet], app_state.app.get_wallets()):
                 future = wallet.update_network_servers([], [], [], [], deleted_keys, [], {})
                 future.result()
-            self._network.delete_application_mapi_server(entry.url)
+            self._network.delete_config_mapi_server(entry.url)
             self._parent_tab.update_servers()
         else:
             raise NotImplementedError(f"Unsupported server type {entry.server_type}")
@@ -1547,25 +1549,25 @@ class ServersTab(QWidget):
                 data_electrumx=server))
 
         # Add mAPI items
-        for server_key, mapi_server in self._network.get_registered_mapi_servers().items():
-            # TODO(mapi) If the server is not an application default and even if it is, there
+        for server_key, mapi_server in self._network.get_mapi_servers().items():
+            # TODO(MAPI) If the server is not an application default and even if it is, there
             # can be multiple last_good/last_try options for all the different api key usages.
             # The application may allow usage without an api key usage for all wallets.
             # An account may have an api key that it uses instead, and it may have it's own
             # last good/last try record.
-            if mapi_server.application_config is not None:
-                last_try = mapi_server.application_config['last_try']
-                last_good = mapi_server.application_config['last_good']
-                enabled_for_all_wallets = mapi_server.application_config['enabled_for_all_wallets']
-                api_key_supported = mapi_server.application_config['api_key_supported']
-                api_key_required = mapi_server.application_config['api_key_required']
+            if mapi_server.config is not None:
+                last_try = mapi_server.config['last_try']
+                last_good = mapi_server.config['last_good']
+                enabled_for_all_wallets = mapi_server.config['enabled_for_all_wallets']
+                api_key_supported = mapi_server.config['api_key_supported']
+                api_key_required = mapi_server.config['api_key_required']
             else:
                 last_try = 0
                 last_good = 0
                 enabled_for_all_wallets = False
                 api_key_supported = True
                 api_key_required = False
-            assert mapi_server.application_config is not None
+            assert mapi_server.config is not None
             items.append(ServerListEntry(
                 NetworkServerType.MERCHANT_API,
                 server_key.url,

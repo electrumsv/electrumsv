@@ -26,11 +26,18 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# Future directions:
+# TODO(Future directions)
 # - Allow users to set long expiry durations so they do not have to re-enter their password.
 # - When we have a funding account type where it can be set to pay for expenses for other accounts,
 #   it makes more sense if the credentials are cached for the funding account and they are not
 #   for the savings account.
+# - Indefinite credentials should be reference counted and shared between credential using "owners"
+#   so that any data associated with them can be shared between the owners (where applicable),
+#   an example of this is server API keys where a server may have a last connection attempt
+#   time and a last successful connection attempt time, and even a last fee quote time.
+#   Really the credential could be used as an id to centralise common management of a resource.
+#   Just hashing a credential value wouldn't be enough, as the user might reuse a password for
+#   instance for different contexts, so maybe hashing b"ESV.api.key"+ unencrypted_bytes.
 
 import dataclasses
 import threading
@@ -42,12 +49,10 @@ from bitcoinx import PrivateKey
 
 from .constants import CredentialPolicyFlag
 from .logs import logs
+from .types import IndefiniteCredentialId
 
 
 logger = logs.get_logger("credentials")
-
-
-IndefiniteCredentialId = uuid.UUID
 
 
 @dataclasses.dataclass

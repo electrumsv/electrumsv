@@ -236,6 +236,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         current_tab = self._tab_widget.currentWidget()
         if current_tab is self.coinsplitting_tab:
             self.coinsplitting_tab.update_layout()
+        elif current_tab is self.send_tab:
+            if self.is_send_view_active():
+                self._send_view.on_tab_activated()
 
     def _on_ready(self) -> None:
         self._accounts_view.on_wallet_loaded()
@@ -346,6 +349,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _on_account_created(self, event_name: str, new_account_id: int) -> None:
         account = self._wallet.get_account(new_account_id)
+        assert account is not None
 
         # NOTE(rt12) single-account At this time we disallow more than one account.
         setting_value = self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)

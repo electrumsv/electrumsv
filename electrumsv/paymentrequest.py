@@ -25,7 +25,7 @@
 
 import json
 import time
-from typing import Any, List, Optional, Dict, TYPE_CHECKING
+from typing import Any, List, Optional, Dict, TYPE_CHECKING, Union
 import urllib.parse
 
 from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
@@ -42,7 +42,7 @@ from .wallet_database.types import PaymentRequestRow
 
 
 if TYPE_CHECKING:
-    from electrumsv.wallet import AbstractAccount, DeterministicAccount
+    from electrumsv.wallet import AbstractAccount
 
 logger = logs.get_logger("paymentrequest")
 
@@ -102,7 +102,7 @@ class Output:
         return cls(Script.from_hex(script_hex), amount, description)
 
     def to_dict(self) -> Dict[str, Any]:
-        data = {
+        data: Dict[str, Any] = {
             'script': self.script.to_hex(),
         }
         if self.amount and type(self.amount) is int:
@@ -166,7 +166,7 @@ class PaymentRequest:
         return cls(outputs, pr.date_created, date_expiry, pr.description)
 
     @classmethod
-    def from_json(cls, s: str) -> 'PaymentRequest':
+    def from_json(cls, s: Union[bytes, str]) -> 'PaymentRequest':
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception(_("Payment request oversized"))
 
@@ -238,7 +238,7 @@ class PaymentRequest:
     def has_expired(self) -> bool:
         return has_expired(self.expiration_timestamp)
 
-    def get_expiration_date(self) -> int:
+    def get_expiration_date(self) -> Optional[int]:
         return self.expiration_timestamp
 
     def get_amount(self) -> int:
@@ -261,7 +261,7 @@ class PaymentRequest:
         assert self.payment_url is not None
         return self.payment_url
 
-    def get_memo(self) -> str:
+    def get_memo(self) -> Optional[str]:
         return self.memo
 
     def get_id(self) -> Optional[int]:
@@ -273,7 +273,7 @@ class PaymentRequest:
     def get_outputs(self) -> List[XTxOutput]:
         return [output.to_tx_output() for output in self.outputs]
 
-    def send_payment(self, account: 'DeterministicAccount', transaction_hex: str) -> bool:
+    def send_payment(self, account: 'AbstractAccount', transaction_hex: str) -> bool:
         self.error = None
 
         if not self.payment_url:
@@ -416,7 +416,7 @@ class PaymentACK:
         return json.dumps(data)
 
     @classmethod
-    def from_json(cls, s: str) -> 'PaymentACK':
+    def from_json(cls, s: Union[bytes, str]) -> 'PaymentACK':
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception(f"Invalid payment ACK, too large")
         data = json.loads(s)

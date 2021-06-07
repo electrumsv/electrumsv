@@ -117,7 +117,7 @@ class RequestList(MyTreeWidget):
         The updating of the list should if necessary restart a timer for the new nearest expiry
         time, if there is one.
         """
-        self._logger.debug("_on_timer_event")
+        # self._logger.debug("_on_timer_event")
 
         event_time = self._timer_event_time
         self._stop_timer()
@@ -135,7 +135,7 @@ class RequestList(MyTreeWidget):
             return
         if not item.isSelected():
             return
-        request_id = item.data(0, Qt.UserRole)
+        request_id = item.data(0, Qt.ItemDataRole.UserRole)
 
         dialog = self._receive_view.get_dialog(request_id)
         if dialog is None:
@@ -163,6 +163,7 @@ class RequestList(MyTreeWidget):
             # TODO(ScriptTypeAssumption) see above for context
             # TODO: This is a per-row database lookup.
             pr_keyinstance = wallet.read_keyinstance(keyinstance_id=row.keyinstance_id)
+            assert pr_keyinstance is not None
             script_template = self._account.get_script_template_for_key_data(pr_keyinstance,
                 self._account.get_default_script_type())
             address_text = script_template_to_string(script_template)
@@ -177,7 +178,7 @@ class RequestList(MyTreeWidget):
             state = flags & sum(pr_icons.keys())
             item = QTreeWidgetItem([date, address_text, '', row.description or "",
                 amount_str, pr_tooltips.get(state,'')])
-            item.setData(0, Qt.UserRole, row.paymentrequest_id)
+            item.setData(0, Qt.ItemDataRole.UserRole, row.paymentrequest_id)
             if state != PaymentFlag.UNKNOWN:
                 icon_name = pr_icons.get(state)
                 if icon_name is not None:
@@ -192,7 +193,7 @@ class RequestList(MyTreeWidget):
         item = self.itemAt(position)
         if not item:
             return
-        request_id = item.data(0, Qt.UserRole)
+        request_id = item.data(0, Qt.ItemDataRole.UserRole)
         column = self.currentColumn()
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()

@@ -391,8 +391,9 @@ class TestTransactionTable:
         assert flags is not None
         assert TxFlags.STATE_DISPATCHED == flags & TxFlags.MASK_STATE
 
-        block_height, block_position, fee_value, date_created = \
-            db_functions.read_transaction_metadata(self.db_context, tx_hash)
+        tx_metadata = db_functions.read_transaction_metadata(self.db_context, tx_hash)
+        assert tx_metadata is not None
+        block_height, block_position, fee_value, date_created = tx_metadata
         assert tx_row.block_height == block_height
         assert tx_row.block_position == block_position
         assert tx_row.fee_value == fee_value
@@ -1254,14 +1255,14 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     URL = "..."
     server_rows = [
         NetworkServerRow(URL, SERVER_TYPE, None, NetworkServerFlag.NONE,
-            date_updated, date_updated),
+            None, 0, 0, date_updated, date_updated),
     ]
     server_account_rows = [
-        NetworkServerAccountRow(URL, SERVER_TYPE, ACCOUNT_ID, None, date_updated,
+        NetworkServerAccountRow(URL, SERVER_TYPE, ACCOUNT_ID, None, None, 0, 0, date_updated,
             date_updated)
     ]
     server_account_rows_no_server = [
-        NetworkServerAccountRow(URL*2, SERVER_TYPE, ACCOUNT_ID, None, date_updated,
+        NetworkServerAccountRow(URL*2, SERVER_TYPE, ACCOUNT_ID, None, None, 0, 0, date_updated,
             date_updated)
     ]
 
@@ -1372,12 +1373,36 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
         assert len(read_server_rows) == 0
         assert len(read_server_account_rows) == 0
 
-    # Restore the rows and verify that the deleting just the ServerAccounts row works too.
+    # Restore the rows.
+    future = db_functions.update_network_servers(db_context, added_server_rows=server_rows,
+        added_server_account_rows=server_account_rows)
+    future.result(timeout=5)
+
+    # Verify that updating the server state works.
     if True:
-        future = db_functions.update_network_servers(db_context, added_server_rows=server_rows,
-            added_server_account_rows=server_account_rows)
+        new_server_rows = [ server_rows[0]._replace(fee_quote_json="fee_quote_json",
+            date_last_good=111111, date_last_try=22222) ]
+        new_server_account_rows = [ server_account_rows[0]._replace(fee_quote_json="zzzz",
+            date_last_try=555555) ]
+        future = db_functions.update_network_server_states(db_context, new_server_rows,
+            new_server_account_rows)
         future.result(timeout=5)
 
+        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+        assert len(read_server_rows) == 1
+        assert len(read_server_account_rows) == 1
+
+        # We need to adjust the new update rows for the row update date used by the database.
+        new_server_rows = [ new_server_rows[0]._replace(
+            date_updated=read_server_rows[0].date_updated) ]
+        new_server_account_rows = [ new_server_account_rows[0]._replace(
+            date_updated=read_server_account_rows[0].date_updated) ]
+
+        assert read_server_rows == new_server_rows
+        assert read_server_account_rows == new_server_account_rows
+
+    # Verify that the deleting just the ServerAccounts row works too.
+    if True:
         # Verify that deleting an unmatched Servers row does not delete the existing row.
         future = db_functions.update_network_servers(db_context,
             deleted_server_keys=[ ServerAccountKey(URL, UNUSED_SERVER_TYPE) ])

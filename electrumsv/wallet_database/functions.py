@@ -652,7 +652,7 @@ def read_keyinstance_scripts(db: sqlite3.Connection, keyinstance_ids: Sequence[i
 
 @replace_db_context_with_connection
 def read_keyinstance(db: sqlite3.Connection, *, account_id: Optional[int]=None,
-        keyinstance_id: Optional[Sequence[int]]=None) -> Optional[KeyInstanceRow]:
+        keyinstance_id: Optional[int]=None) -> Optional[KeyInstanceRow]:
     """
     Read one explicitly requested keyinstance.
     """
@@ -1131,9 +1131,11 @@ def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id
 def read_network_servers(db: sqlite3.Connection,
         server_key: Optional[Tuple[NetworkServerType, str]]=None) \
         -> Tuple[List[NetworkServerRow], List[NetworkServerAccountRow]]:
-    read_server_row_sql = "SELECT url, server_type, encrypted_api_key, flags " \
+    read_server_row_sql = "SELECT url, server_type, encrypted_api_key, flags, fee_quote_json, " \
+            "date_last_tried, date_last_connected, date_created, date_updated " \
         "FROM Servers"
-    read_account_rows_sql = "SELECT url, server_type, account_id, encrypted_api_key " \
+    read_account_rows_sql = "SELECT url, server_type, account_id, encrypted_api_key, " \
+            "fee_quote_json, date_last_tried, date_last_connected, date_created, date_updated " \
         "FROM ServerAccounts"
     params: Sequence[Any] = ()
     if server_key is not None:
@@ -1782,20 +1784,25 @@ def update_network_servers(db_context: DatabaseContext,
         deleted_server_keys: Optional[List[ServerAccountKey]]=None,
         deleted_server_account_keys: Optional[List[ServerAccountKey]]=None) \
             -> concurrent.futures.Future:
-    timestamp_utc = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    """
+    Add, update and remove server definitions for this wallet.
+    """
     delete_server_accounts_sql = "DELETE FROM ServerAccounts WHERE url=? AND server_type=?"
     delete_server_sql = "DELETE FROM Servers WHERE url=? AND server_type=?"
     delete_server_accounts_sql2 = "DELETE FROM ServerAccounts WHERE url=? AND server_type=? AND "\
         "account_id=?"
     insert_server_sql = "INSERT INTO Servers (url, server_type, encrypted_api_key, " \
-        "flags, date_created, date_updated) VALUES (?,?,?,?,?,?)"
+        "flags, fee_quote_json, date_last_connected, date_last_tried, date_created, date_updated) "\
+        "VALUES (?,?,?,?,?,?,?,?,?)"
     insert_server_accounts_sql = "INSERT INTO ServerAccounts (url, server_type, account_id, " \
-        "encrypted_api_key, date_created, date_updated) VALUES (?,?,?,?,?,?)"
+        "encrypted_api_key, fee_quote_json, date_last_connected, date_last_tried, date_created, " \
+        "date_updated) VALUES (?,?,?,?,?,?,?,?,?)"
     update_server_sql = "UPDATE Servers SET date_updated=?, encrypted_api_key=?, " \
         "flags=? WHERE url=? AND server_type=?"
     update_server_account_sql = "UPDATE ServerAccounts SET date_updated=?, encrypted_api_key=? " \
         "WHERE url=? AND server_type=? AND account_id=?"
 
+    timestamp_utc = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
     update_server_rows = []
     if updated_server_rows:
         update_server_rows = [ (timestamp_utc, server_row.encrypted_api_key, server_row.flags,
@@ -1819,6 +1826,37 @@ def update_network_servers(db_context: DatabaseContext,
             db.executemany(insert_server_sql, added_server_rows)
         if added_server_account_rows:
             db.executemany(insert_server_accounts_sql, added_server_account_rows)
+        if update_server_rows:
+            db.executemany(update_server_sql, update_server_rows)
+        if update_server_account_rows:
+            db.executemany(update_server_account_sql, update_server_account_rows)
+    return db_context.post_to_thread(_write)
+
+
+def update_network_server_states(db_context: DatabaseContext,
+        updated_server_rows: List[NetworkServerRow],
+        updated_server_account_rows: List[NetworkServerAccountRow]) -> concurrent.futures.Future:
+    """
+    Update the state fields for server definitions on this wallet.
+
+    Note that we pick and choose from the fields on the passed in rows, and use the standard rows
+    to save having numerous row types with minimal variations each.
+    """
+    update_server_sql = "UPDATE Servers SET date_updated=?, fee_quote_json=?, " \
+        "date_last_connected=?, date_last_tried=? WHERE url=? AND server_type=?"
+    update_server_account_sql = "UPDATE ServerAccounts SET date_updated=?, fee_quote_json=?, " \
+        "date_last_connected=?, date_last_tried=? WHERE url=? AND server_type=? AND account_id=?"
+
+    timestamp_utc = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    update_server_rows = [ (timestamp_utc, server_row.fee_quote_json, server_row.date_last_good,
+        server_row.date_last_try, server_row.url, server_row.server_type)
+        for server_row in updated_server_rows ]
+    update_server_account_rows = [ (timestamp_utc, account_row.fee_quote_json,
+        account_row.date_last_good, account_row.date_last_try,
+        account_row.url, account_row.server_type, account_row.account_id)
+        for account_row in updated_server_account_rows ]
+
+    def _write(db: sqlite3.Connection) -> None:
         if update_server_rows:
             db.executemany(update_server_sql, update_server_rows)
         if update_server_account_rows:

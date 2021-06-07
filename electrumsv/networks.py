@@ -255,7 +255,7 @@ class SVRegTestnet(object):
         coin=BitcoinRegtest)
     REGTEST_FUNDS_PRIVATE_KEY_WIF = REGTEST_FUNDS_PRIVATE_KEY.to_WIF()
     REGTEST_FUNDS_PUBLIC_KEY: PublicKey = REGTEST_FUNDS_PRIVATE_KEY.public_key
-    REGTEST_P2PKH_ADDRESS: P2PKH_Address = REGTEST_FUNDS_PUBLIC_KEY.to_address().to_string()
+    REGTEST_P2PKH_ADDRESS: str = REGTEST_FUNDS_PUBLIC_KEY.to_address().to_string()
 
     # For CI/CD use (restapi will by default reset everything back to empty wallet with this seed)
     # First receive address: mwv1WZTsrtKf3S9mRQABEeMaNefLbQbKpg

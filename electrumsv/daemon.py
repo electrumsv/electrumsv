@@ -87,6 +87,8 @@ def remote_daemon_request(config: SimpleConfig, url: str, json_value: Any=None) 
     lockfile_path = get_lockfile(config)
     with open(lockfile_path) as f:
         text = f.read()
+        if text == "":
+            return { "error": "corrupt lockfile" }
         (host, port), _create_time = json.loads(text)
     assert not url.startswith("http") and host not in url
     full_url = f"http://{host}:{port}{url}"

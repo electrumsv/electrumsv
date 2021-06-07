@@ -1,5 +1,6 @@
 from typing import Any, Awaitable, Callable, Dict, List, NamedTuple, Optional, Tuple, \
     TYPE_CHECKING, TypedDict, Union
+import uuid
 
 from bitcoinx import hash_to_hex_str
 from mypy_extensions import Arg, DefaultArg
@@ -95,6 +96,17 @@ class ServerAccountKey(NamedTuple):
         if self.account_id == -1:
             return self
         return ServerAccountKey(self.url, self.server_type)
+
+
+IndefiniteCredentialId = uuid.UUID
+
+
+class NetworkServerState(NamedTuple):
+    key: ServerAccountKey
+    credential_id: Optional[IndefiniteCredentialId]
+    fee_quote_json: Optional[str] = None
+    date_last_try: int = 0
+    date_last_good: int = 0
 
 
 class MasterKeyDataBIP32(TypedDict):
