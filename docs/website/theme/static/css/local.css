@@ -284,6 +284,18 @@ i.fa-external-link-alt {
 	top: -2px;
 }
 
+table.docutils thead th.head {
+	text-align: center;
+}
+
+table.docutils tbody td {
+	padding-left: 5px;
+}
+
+table.docutils caption {
+	text-align: center;
+}
+
 @font-face{
 	font-family: Lato;
 	src: 	url(../webfonts/lato-normal.woff2?bd03a2cc277bbbc338d464e679fe9942) format("woff2");

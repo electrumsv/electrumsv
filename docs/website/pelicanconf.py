@@ -17,6 +17,7 @@ STATIC_PATHS = [
     "download",
     "release.json",
     "BingSiteAuth.xml",
+    "google2fc36430d2cd4ae1.html",
 ]
 
 ARTICLE_SAVE_AS = 'articles/{date:%Y}/{slug}.html'

@@ -356,7 +356,7 @@ stages:
       enabled: true
       continueOnError: false
       failOnStderr: false
-      displayName: 'Collect build artifacts'
+      displayName: 'Checksum build artifacts'
     - task: PublishPipelineArtifact@0
       inputs:
         artifactName: 'all-build-files'
