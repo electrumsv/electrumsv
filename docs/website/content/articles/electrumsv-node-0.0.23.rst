@@ -1,7 +1,7 @@
 ElectrumSV node 0.0.23
 ######################
 
-:date: 2021-06-01 16:00
+:date: 2021-06-10 20:00
 :slug: electrumsv-node-0_0_23
 :authors: The ElectrumSV Developers
 :summary: A new release of the ElectrumSV node project including Bitcoin SV node v1.0.8.

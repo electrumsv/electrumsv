@@ -1,8 +1,8 @@
 The ElectrumSV node project
 ===========================
 
-:date: 2021-06-01 16:00
-:modified: 2021-06-01 16:00
+:date: 2021-06-10 20:00
+:modified: 2021-06-10 20:00
 :authors: The ElectrumSV Developers
 :url: node-project/
 :save_as: node-project/index.html
