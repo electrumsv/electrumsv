@@ -35,8 +35,6 @@ from .util import assert_bytes
 
 ################################## transactions
 
-MAX_FEE_RATE = 20000
-
 COINBASE_MATURITY = 100
 COIN = 100000000
 

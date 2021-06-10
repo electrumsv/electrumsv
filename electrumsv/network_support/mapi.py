@@ -8,6 +8,7 @@ from aiorpcx import SOCKSError, TaskGroup
 
 from ..app_state import app_state
 from ..logs import logs
+from ..types import TransactionSize
 from ..util.misc import decode_response_body
 
 
@@ -167,7 +168,7 @@ def validate_json_envelope(json_response: JSONEnvelope) -> None:
     Raises a `ValueError` to indicate that the signature is invalid.
     """
     message_bytes = json_response["payload"].encode()
-    if json_response["signature"] and json_response["publicKey"]:
+    if json_response["signature"] is not None and json_response["publicKey"] is not None:
         signature_bytes = bytes.fromhex(json_response["signature"])
         # TODO This should check the public key is the correct one?
         public_key = PublicKey.from_hex(json_response["publicKey"])
@@ -213,4 +214,38 @@ async def broadcast_transaction(tx: "Transaction", server: "NewServer",
                     # TODO(MAPI) Work out if we should be processing the response.
                     # TODO(MAPI) Work out if we should be storing the response.
                     server_state.record_success()
+
+
+class MAPIFeeEstimator:
+    standard_fee_satoshis = 0
+    standard_fee_bytes = 0
+    data_fee_satoshis = 0
+    data_fee_bytes = 0
+
+    def __init__(self, fee_quote: FeeQuote) -> None:
+        standard_fee: Optional[FeeQuoteTypeFee] = None
+        data_fee: Optional[FeeQuoteTypeFee] = None
+        for fee in fee_quote["fees"]:
+            if fee["feeType"] == "standard":
+                standard_fee = fee["miningFee"]
+            elif fee["feeType"] == "data":
+                data_fee = fee["miningFee"]
+
+        assert standard_fee is not None
+        self.standard_fee_satoshis = standard_fee["satoshis"]
+        self.standard_fee_bytes = standard_fee["bytes"]
+        if data_fee is not None:
+            self.data_fee_satoshis = data_fee["satoshis"]
+            self.data_fee_bytes = data_fee["bytes"]
+
+    def estimate_fee(self, tx_size: TransactionSize) -> int:
+        fee = 0
+        standard_size = tx_size.standard_size
+        if self.data_fee_bytes:
+            standard_size = tx_size.standard_size
+            fee += tx_size.data_size * self.data_fee_satoshis // self.data_fee_bytes
+        else:
+            standard_size += tx_size.data_size
+        fee += standard_size * self.standard_fee_satoshis // self.standard_fee_bytes
+        return fee
 

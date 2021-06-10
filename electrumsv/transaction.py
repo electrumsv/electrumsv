@@ -26,7 +26,7 @@ import enum
 from io import BytesIO
 import struct
 from struct import error as struct_error
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, cast, Dict, List, Optional, Tuple, TypeVar, Union
 
 import attr
 from bitcoinx import (
@@ -34,7 +34,7 @@ from bitcoinx import (
     der_signature_to_compact, double_sha256, hash160, hash_to_hex_str, InvalidSignature,
     Ops, P2PK_Output, P2SH_Address, pack_byte, pack_le_int32, pack_le_uint32, pack_list,
     PrivateKey, PublicKey, push_int, push_item, read_le_int32, read_le_int64, read_le_uint32,
-    read_varint, Script, SigHash, Tx, TxInput, TxOutput, unpack_le_uint16,
+    read_varint, Script, SigHash, Tx, TxInput, TxOutput, unpack_le_uint16, varint_len
 )
 
 from .bitcoin import ScriptTemplate
@@ -42,6 +42,7 @@ from .constants import DerivationPath, ScriptType
 from .logs import logs
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
+from .types import TransactionSize
 from .wallet_database.types import KeyDataType
 
 NO_SIGNATURE = b'\xff'
@@ -372,15 +373,16 @@ class XTxInput(TxInput):
         return [x_pubkey for x_pubkey, signature in zip(self.x_pubkeys, self.signatures)
                 if signature == NO_SIGNATURE]
 
-    def estimated_size(self) -> int:
+    def estimated_size(self) -> TransactionSize:
         '''Return an estimated of serialized input size in bytes.'''
         saved_script_sig = self.script_sig
+        # TODO(MAPI) Should this be the raw x_pubkeys not the public keys?
         x_pubkeys = [x_pubkey.to_public_key() for x_pubkey in self.x_pubkeys]
         signatures = [dummy_signature] * self.threshold
         self.script_sig = create_script_sig(self.script_type, self.threshold, x_pubkeys, signatures)
         size = self.size()
         self.script_sig = saved_script_sig
-        return size
+        return TransactionSize(size, 0)
 
     def size(self) -> int:
         return len(TxInput.to_bytes(self))
@@ -396,7 +398,7 @@ class XTxInput(TxInput):
             f'script_sig="{self.script_sig}", sequence={self.sequence}), value={self.value}, '
             f'threshold={self.threshold}, '
             f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys}), '
-            f'keyinstance_id={self.keyinstance_id}'
+            f'key_data={self.key_data}'
         )
 
 
@@ -432,8 +434,18 @@ class XTxOutput(TxOutput):
             script_offset=script_pubkey_offset,
             script_length=len(script_pubkey_bytes))
 
-    def estimated_size(self) -> int:
-        return len(self.to_bytes())
+    def estimated_size(self) -> TransactionSize:
+        # 8               <value>
+        # 1-9             <script size>
+        # <script size>   <script bytes>
+        script_bytes = self.script_pubkey.to_bytes()
+        standard_size = 8 + varint_len(len(script_bytes))
+        data_size = 0
+        if script_bytes.startswith(DATA_PREFIX1) or script_bytes.startswith(DATA_PREFIX2):
+            data_size += len(script_bytes)
+        else:
+            standard_size += len(script_bytes)
+        return TransactionSize(standard_size, data_size)
 
     def __repr__(self):
         return (
@@ -626,6 +638,9 @@ def tx_dict_from_text(text: str) -> Dict[str, Any]:
     return tx_dict
 
 
+DATA_PREFIX1 = bytes.fromhex("6a")
+DATA_PREFIX2 = bytes.fromhex("006a")
+
 
 @attr.s(slots=True)
 class Transaction(Tx):
@@ -783,16 +798,31 @@ class Transaction(Tx):
     def size(self) -> int:
         if self.is_complete():
             return len(self.to_bytes())
-        return self.estimated_size()
+        return sum(self.estimated_size())
 
-    def estimated_size(self) -> int:
+    def base_size(self) -> int:
+        return 10
+
+    def estimated_size(self) -> TransactionSize:
         '''Return an estimated tx size in bytes.'''
-        saved_inputs = self.inputs
-        self.inputs: List[XTxInput] = []
-        size_without_inputs = len(self.to_bytes())
-        self.inputs = saved_inputs
-        input_size = sum(txin.estimated_size() for txin in self.inputs)
-        return size_without_inputs + input_size
+        is_complete = self.is_complete()
+        # 4                 <version>
+        # 1-9               <input count>
+        # <input i size>    <input>
+        # 1-9               <output count>
+        # <output i size>   <output>
+        # 4                 <locktime>
+        standard_size = 4 + varint_len(len(self.inputs)) + varint_len(len(self.outputs)) + 4
+        data_size = 0
+        estimated_total_size = TransactionSize(standard_size, data_size)
+        for input in cast(List[XTxInput], self.inputs):
+            if is_complete:
+                estimated_total_size += TransactionSize(input.size(), 0)
+            else:
+                estimated_total_size += input.estimated_size()
+        for output in cast(List[XTxOutput], self.outputs):
+            estimated_total_size += output.estimated_size()
+        return estimated_total_size
 
     def signature_count(self) -> Tuple[int, int]:
         r = 0

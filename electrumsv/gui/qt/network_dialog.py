@@ -51,6 +51,7 @@ from ...i18n import _
 from ...logs import logs
 from ...wallet import Wallet
 from ...network import NewServer, Network, SVServerKey, SVUserAuth, SVProxy, SVSession, SVServer
+from ...network_support.api_server import CapabilitySupport, SERVER_CAPABILITIES
 from ...types import ServerAccountKey
 from ...util.network import DEFAULT_SCHEMES, UrlValidationError, validate_url
 from ...wallet_database.types import NetworkServerRow, NetworkServerAccountRow
@@ -96,13 +97,6 @@ SERVER_STATUS = {
 }
 
 
-class ServerCapabilities(enum.IntEnum):
-    TRANSACTION_BROADCAST = 1
-    FEE_QUOTE = 2
-    SCRIPTHASH_HISTORY = 3
-    MERKLE_PROOF = 4
-
-
 class ServerListEntry(NamedTuple):
     server_type: NetworkServerType
     url: str
@@ -119,31 +113,6 @@ class ServerListEntry(NamedTuple):
 # The location of the help document.
 HELP_FOLDER_NAME = "misc"
 HELP_SERVER_EDIT_FILE_NAME = "network-server-dialog"
-
-@dataclasses.dataclass
-class CapabilitySupport:
-    name: str
-    is_unsupported: bool=False
-    can_disable: bool=False
-
-
-# TODO Upgrade how this is displayed and what is displayed. It would be valuable for users to
-#      be able to get a per-capability tooltip when they have their mouse over a given entry.
-#      This suggests a list view might be a good choice for an upgrade, but a table also might
-#      be even better as it can show costing and quotas and so on. And the last time a capability
-#      was used and how often it has been used. Given the limited space, this might mean a
-#      tree view is even better.
-MAPI_CAPABILITIES = [
-    CapabilitySupport("Transaction broadcast", can_disable=True),
-    CapabilitySupport("Transaction fee quotes"),
-    CapabilitySupport("Transaction proofs", is_unsupported=True),
-]
-
-ELECTRUMX_CAPABILITIES = [
-    CapabilitySupport("Blockchain scanning"),
-    CapabilitySupport("Transaction broadcast"),
-    CapabilitySupport("Transaction proofs"),
-]
 
 API_KEY_SET_TEXT = "<"+ _("API key hidden") +">"
 API_KEY_UNSUPPORTED_TEXT = "<"+ _("not used for this server type") +">"
@@ -1155,11 +1124,11 @@ class EditServerDialog(WindowModalDialog):
         server_capabilities: List[CapabilitySupport] = []
 
         server_type = self._get_server_type()
+        server_capabilities = SERVER_CAPABILITIES[server_type]
+        assert len(server_capabilities)
         if server_type == NetworkServerType.MERCHANT_API:
-            server_capabilities = MAPI_CAPABILITIES
             self._url_validator.set_criteria(allow_path=True)
         elif server_type == NetworkServerType.ELECTRUMX:
-            server_capabilities = ELECTRUMX_CAPABILITIES
             self._url_validator.set_criteria(allow_path=False)
         else:
             raise NotImplementedError(f"Unsupported server type {server_type}")

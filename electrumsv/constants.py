@@ -323,6 +323,15 @@ class NetworkServerType(IntEnum):
     MERCHANT_API = 2
 
 
+class ServerCapability(IntEnum):
+    TRANSACTION_BROADCAST = 1
+    FEE_QUOTE = 2
+    SCRIPTHASH_HISTORY = 3
+    MERKLE_PROOF_REQUEST = 4
+    MERKLE_PROOF_NOTIFICATION = 4
+    BLOCKCHAIN_SCAN = 5
+
+
 PREFIX_ASM_SCRIPT = "asm:"
 
 # WARNING(script-types) We currently bake all the possible script hashes for a key into the

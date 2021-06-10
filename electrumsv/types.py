@@ -170,4 +170,38 @@ class KeyInstanceDataPrivateKey(TypedDict):
 KeyInstanceDataTypes = Union[KeyInstanceDataBIP32SubPath, KeyInstanceDataHash,
     KeyInstanceDataPrivateKey]
 
+
 DerivationDataTypes = Union[KeyInstanceDataTypes, MasterKeyDataTypes]
+
+
+class TransactionSize(NamedTuple):
+    # This follow the breakdown in different transaction sizes used by MAPI.
+    standard_size: int                              # feeType = "standard"
+    data_size: int = 0                              # feeType = "data"
+    # Duplicated to avoid typing warnings when we assign `__radd__ = __add__`
+    def __add__(self, other: object) -> "TransactionSize":
+        if isinstance(other, int):
+            return TransactionSize(self.standard_size + other, self.data_size)
+        elif isinstance(other, TransactionSize):
+            return TransactionSize(self.standard_size + other.standard_size,
+                self.data_size + other.data_size)
+        else:
+            raise NotImplementedError(f"Do not support {type(other)}")
+    def __radd__(self, other: object) -> "TransactionSize":
+        if isinstance(other, int):
+            return TransactionSize(self.standard_size + other, self.data_size)
+        elif isinstance(other, TransactionSize):
+            return TransactionSize(self.standard_size + other.standard_size,
+                self.data_size + other.data_size)
+        else:
+            raise NotImplementedError(f"Do not support {type(other)}")
+    def __mul__(self, other: object) -> "TransactionSize":
+        assert isinstance(other, int)
+        return TransactionSize(self.standard_size * other, self.data_size * other)
+    # Duplicated to avoid typing warnings when we assign `__rmul__ = __mul__`
+    def __rmul__(self, other: object) -> "TransactionSize":
+        assert isinstance(other, int)
+        return TransactionSize(self.standard_size * other, self.data_size * other)
+
+
+TransactionFeeEstimator = Callable[[TransactionSize], int]

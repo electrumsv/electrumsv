@@ -22,7 +22,7 @@ from electrumsv.app_state import app_state
 from electrumsv.restapi import decode_request_body, Fault, get_network_type
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.storage import WalletStorage
-from electrumsv.types import TxoKeyType
+from electrumsv.types import TransactionSize, TxoKeyType
 from electrumsv.wallet_database.types import (TransactionOutputSpendableRow)
 from examples.applications.restapi.constants import WalletEventNames
 
@@ -167,7 +167,7 @@ class ExtendedHandlerUtils(HandlerUtils):
             check_wallet_availability=True) -> Dict[str, Any]:
         """Extracts and checks all standardized header and body variables from the request object
         as a dictionary to feed to the handlers."""
-        vars: Dict[Any] = {}
+        vars: Dict = {}
         header_vars = self.get_header_vars(request)
         body_vars = await self.get_body_vars(request)
         vars.update(header_vars)
@@ -348,7 +348,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
         tx = Transaction.from_io([], outputs)
         # Size of the transaction with no inputs and no change
-        base_size = tx.estimated_size()
+        base_size = sum(tx.estimated_size())
         spent_amount = tx.output_value()
         fee_estimator = app_state.config.estimate_fee
 
@@ -498,8 +498,8 @@ class ExtendedHandlerUtils(HandlerUtils):
             require_confirmed: bool = True,
             ) -> Union[Tuple[List[TransactionOutputSpendableRow], List[TxOutput], bool], Fault]:
 
-        INPUT_COST = config.estimate_fee(INPUT_SIZE)
-        OUTPUT_COST = config.estimate_fee(OUTPUT_SIZE)
+        INPUT_COST = config.estimate_fee(TransactionSize(INPUT_SIZE, 0))
+        OUTPUT_COST = config.estimate_fee(TransactionSize(OUTPUT_SIZE, 0))
         all_coins = account.get_spendable_transaction_outputs(exclude_frozen=True, mature=True)
 
         # adds extra inputs as required to meet the desired utxo_count.

@@ -33,7 +33,7 @@ import json
 from typing import Dict, Tuple
 
 from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet, \
-    BitcoinRegtest, PrivateKey, PublicKey, P2PKH_Address
+    BitcoinRegtest, PrivateKey, PublicKey
 
 from .util import resource_path
 

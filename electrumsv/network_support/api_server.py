@@ -1,22 +1,53 @@
+import dataclasses
 import datetime
 import json
-from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
 
 import dateutil.parser
 
 from ..app_state import app_state
-from ..constants import NetworkServerType, TOKEN_PASSWORD
+from ..constants import NetworkServerType, ServerCapability, TOKEN_PASSWORD
 from ..credentials import CredentialCache
 from ..crypto import pw_decode
-from ..types import IndefiniteCredentialId, NetworkServerState, ServerAccountKey
+from ..i18n import _
+from ..types import IndefiniteCredentialId, NetworkServerState, ServerAccountKey, \
+    TransactionFeeEstimator, TransactionSize
 
-from .mapi import JSONEnvelope, FeeQuote
+from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator
+
+if TYPE_CHECKING:
+    from ..network import SVServer
+    from ..simple_config import SimpleConfig
 
 
 __all__ = [ "NewServerAPIContext", "NewServerAccessState", "NewServer" ]
 
 
 STALE_PERIOD_SECONDS = 60 * 60 * 24
+
+
+@dataclasses.dataclass
+class CapabilitySupport:
+    name: str
+    type: ServerCapability
+    is_unsupported: bool=False
+    can_disable: bool=False
+
+
+SERVER_CAPABILITIES = {
+    NetworkServerType.MERCHANT_API: [
+        CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST,
+            can_disable=True),
+        CapabilitySupport(_("Transaction fee quotes"), ServerCapability.FEE_QUOTE),
+        CapabilitySupport(_("Transaction proofs"), ServerCapability.MERKLE_PROOF_NOTIFICATION,
+            is_unsupported=True),
+    ],
+    NetworkServerType.ELECTRUMX: [
+        CapabilitySupport(_("Blockchain scanning"), ServerCapability.BLOCKCHAIN_SCAN),
+        CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST),
+        CapabilitySupport(_("Transaction proofs"), ServerCapability.MERKLE_PROOF_REQUEST),
+    ]
+}
 
 
 class NewServerAPIContext(NamedTuple):
@@ -237,4 +268,74 @@ class NewServer:
         decrypted_api_key = credentials.get_indefinite_credential(credential_id)
         header_key, _separator, header_value = authorization_header.partition(": ")
         return { header_key: header_value.format(API_KEY=decrypted_api_key) }
+
+
+class SelectionCandidate(NamedTuple):
+    server_type: NetworkServerType
+    credential_id: Optional[IndefiniteCredentialId]
+    api_server: Optional[NewServer] = None
+    electrumx_server: Optional["SVServer"] = None
+
+
+def select_servers(capability_type: ServerCapability, candidates: List[SelectionCandidate]) \
+        -> List[SelectionCandidate]:
+    """
+    Create a prioritised list of servers to use for the given capability.
+
+    capability_type: The type of capability the calling code wishes to use.
+    candidates: A list server candidates, this should not be limited to api servers but all kinds
+      of different servers that support capabilities.
+
+    Returns the subset of `candidates` that support the given capability type.
+    """
+    filtered_servers: List[SelectionCandidate] = []
+    for candidate in candidates:
+        for server_capability in SERVER_CAPABILITIES[candidate.server_type]:
+            if server_capability.type == capability_type:
+                filtered_servers.append(candidate)
+                break
+    return filtered_servers
+
+
+class BroadcastCandidate(NamedTuple):
+    candidate: SelectionCandidate
+    estimator: TransactionFeeEstimator
+    # Can the calling logic switch servers if they have the same initial fee? Not sure.
+    initial_fee: int
+
+
+def prioritise_broadcast_servers(estimated_tx_size: TransactionSize,
+        servers: List[SelectionCandidate]) -> List[BroadcastCandidate]:
+    """
+    Prioritise the provided servers based on the base fee they would charge for the transaction.
+
+    The transaction at this point might be complete, or it might be incomplete and pending
+    server selection and application of the server's fee rate in it's finalisation.
+
+    estimated_tx_size: The incomplete base transaction size or complete transaction size.
+    servers: The list of server candidates known to support the transaction broadcast capability.
+
+    Returns the ordered list of server candidates based on lowest to highest estimated fee for
+      a transaction of the given size.
+    """
+    electrumx_fee_estimator = cast("SimpleConfig", app_state.config).estimate_fee
+    candidates: List[BroadcastCandidate] = []
+    fee_estimator: TransactionFeeEstimator
+    for candidate in servers:
+        if candidate.server_type == NetworkServerType.MERCHANT_API:
+            assert candidate.api_server is not None
+            key_state = candidate.api_server.api_key_state[candidate.credential_id]
+            assert key_state.last_fee_quote is not None
+            estimator = MAPIFeeEstimator(key_state.last_fee_quote)
+            fee_estimator = estimator.estimate_fee
+        elif candidate.server_type == NetworkServerType.ELECTRUMX:
+            # NOTE At some point if ElectrumX servers stick around maybe they will do their
+            #   own fee quotes.
+            fee_estimator = electrumx_fee_estimator
+        else:
+            raise NotImplementedError(f"Unsupported server type {candidate.server_type}")
+        initial_fee = fee_estimator(estimated_tx_size)
+        candidates.append(BroadcastCandidate(candidate, fee_estimator, initial_fee))
+    candidates.sort(key=lambda entry: entry.initial_fee)
+    return candidates
 

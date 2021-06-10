@@ -70,6 +70,7 @@ from .keystore import (BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore
     SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
 from .networks import Net
+from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .transaction import (Transaction, TransactionContext, TxSerialisationFormat, NO_SIGNATURE,
     tx_dict_from_text, XPublicKey, XPublicKeyType, XTxInput, XTxOutput)
@@ -713,7 +714,7 @@ class AbstractAccount:
         return dust_threshold(self._network)
 
     def make_unsigned_transaction(self, unspent_outputs: List[TransactionOutputSpendableTypes],
-            outputs: List[XTxOutput], fixed_fee: Optional[int]=None) -> Transaction:
+            outputs: List[XTxOutput]) -> Transaction:
         # check outputs
         all_index = None
         for n, output in enumerate(outputs):
@@ -726,11 +727,15 @@ class AbstractAccount:
         if not unspent_outputs:
             raise NotEnoughFunds()
 
-        if fixed_fee is None and app_state.config.fee_per_kb() is None:
+        if app_state.config.fee_per_kb() is None:
             raise Exception('Dynamic fee estimates not available')
 
-        fee_estimator = app_state.config.estimate_fee if fixed_fee is None \
-            else lambda size: fixed_fee
+        # TODO(MAPI) This needs to be replaced with a fee estimator based on whether the server
+        #   is an ElectrumX server, or a MAPI server. If it is a MAPI server, then we need to
+        #   use a per-server fee quote. Really, we might change `estimate_fee` to instead return
+        #   a fee quote.
+        fee_estimator = cast(SimpleConfig, app_state.config).estimate_fee
+
         inputs = [ self.get_extended_input_for_spendable_output(utxo) for utxo in unspent_outputs ]
         if all_index is None:
             # Let the coin chooser select the coins to spend
@@ -773,7 +778,7 @@ class AbstractAccount:
 
         # If user tries to send too big of a fee (more than 50
         # sat/byte), stop them from shooting themselves in the foot
-        tx_in_bytes=tx.estimated_size()
+        tx_in_bytes=sum(tx.estimated_size())
         fee_in_satoshis=tx.get_fee()
         sats_per_byte=fee_in_satoshis/tx_in_bytes
         if sats_per_byte > 50:

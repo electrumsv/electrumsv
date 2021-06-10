@@ -15,6 +15,7 @@ from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, good_response, fault_to_http_response
 from electrumsv.regtest_support import regtest_generate_nblocks, regtest_topup_account
+from electrumsv.types import TransactionSize
 
 from .errors import Errors
 from .handler_utils import ExtendedHandlerUtils, VNAME, InsufficientCoinsError
@@ -375,7 +376,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account = self._get_account(wallet_name, account_id)
 
             # Approximate size of a transaction with one P2PKH input and one P2PKH output.
-            base_fee = self.app_state.config.estimate_fee(203)
+            base_fee = self.app_state.config.estimate_fee(TransactionSize(203, 0))
             loop = asyncio.get_event_loop()
             # run in thread - CPU intensive code
             partial_coin_selection = partial(self.select_inputs_and_outputs,

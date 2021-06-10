@@ -412,7 +412,6 @@ class SendView(QWidget):
             self._not_enough_funds = False
             self._on_entry_changed()
         else:
-            fee = None
             outputs = self._payto_e.get_outputs(self._is_max)
             if not outputs:
                 output_script = self._payto_e.get_payee_script()
@@ -424,7 +423,7 @@ class SendView(QWidget):
             coins = self._get_coins()
             outputs.extend(self._account.create_extra_outputs(coins, outputs))
             try:
-                tx = self._account.make_unsigned_transaction(coins, outputs, fee)
+                tx = self._account.make_unsigned_transaction(coins, outputs)
                 self._not_enough_funds = False
             except NotEnoughFunds:
                 self._logger.debug("Not enough funds")
@@ -460,10 +459,10 @@ class SendView(QWidget):
         if r is None:
             return
 
-        outputs, fee, tx_desc, coins = r
+        outputs, tx_desc, coins = r
         outputs.extend(self._account.create_extra_outputs(coins, outputs))
         try:
-            tx = self._account.make_unsigned_transaction(coins, outputs, fee)
+            tx = self._account.make_unsigned_transaction(coins, outputs)
         except NotEnoughFunds:
             self._main_window.show_message(_("Insufficient funds"))
             return
@@ -482,8 +481,7 @@ class SendView(QWidget):
             amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
             self._sign_tx_and_broadcast_if_complete(amount, tx)
 
-    def _read(self) -> Optional[Tuple[List[XTxOutput], Optional[int], str,
-            List[TransactionOutputSpendableTypes]]]:
+    def _read(self) -> Optional[Tuple[List[XTxOutput], str, List[TransactionOutputSpendableTypes]]]:
         if self._payment_request and self._payment_request.has_expired():
             self._main_window.show_error(_('Payment request has expired'))
             return None
@@ -510,9 +508,8 @@ class SendView(QWidget):
             self._main_window.show_error(_('Invalid Amount'))
             return None
 
-        fee = None
         coins = self._get_coins()
-        return outputs, fee, label, coins
+        return outputs, label, coins
 
     def _get_coins(self) -> List[TransactionOutputSpendableTypes]:
         if self.pay_from:
@@ -524,7 +521,7 @@ class SendView(QWidget):
         fee = tx.get_fee()
 
         msg = []
-        if fee < round(tx.estimated_size() * 0.5):
+        if fee < round(sum(tx.estimated_size()) * 0.5):
             msg.append(_('Warning') + ': ' +
                 _('The fee is less than 500 sats/kb. It may take a very long time to confirm.'))
         msg.append("")

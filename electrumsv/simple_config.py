@@ -5,10 +5,10 @@ import threading
 from typing import cast, Optional
 
 from . import util
-from .bitcoin import MAX_FEE_RATE
 from .constants import DEFAULT_FEE
 from .logs import logs
 from .platform import platform
+from .types import TransactionSize
 from .util import make_dir, JSON
 
 
@@ -210,7 +210,7 @@ class SimpleConfig:
 
     def get_cmdline_wallet_filepath(self) -> Optional[str]:
         if self.get('wallet_path'):
-            return os.path.join(self.get('cwd'), self.get('wallet_path'))
+            return os.path.join(cast(str, self.get('cwd')), cast(str, self.get('wallet_path')))
         return None
 
     def set_session_timeout(self, seconds):
@@ -222,7 +222,7 @@ class SimpleConfig:
 
     def open_last_wallet(self):
         if self.get('wallet_path') is None:
-            last_wallet = self.get('gui_last_wallet')
+            last_wallet = cast(Optional[str], self.get('gui_last_wallet'))
             if last_wallet is not None and os.path.exists(last_wallet):
                 self.cmdline_options['default_wallet_path'] = last_wallet
 
@@ -231,38 +231,21 @@ class SimpleConfig:
             path = wallet.get_storage_path()
             self.set_key('gui_last_wallet', path)
 
-    def max_fee_rate(self):
-        f = self.get('max_fee_rate', MAX_FEE_RATE)
-        if f==0:
-            f = MAX_FEE_RATE
-        return f
+    def custom_fee_rate(self) -> Optional[int]:
+        return self.get('customfee')
 
-    def custom_fee_rate(self):
-        f = self.get('customfee')
-        return f
-
-    def fee_per_kb(self):
-        retval = self.get('customfee')
+    def fee_per_kb(self) -> int:
+        retval = cast(Optional[int], self.get('customfee'))
+        # TODO(MAPI) Not sure this is ever set.
         if retval is None:
-            retval = self.get('fee_per_kb')
+            retval = cast(Optional[int], self.get('fee_per_kb'))
         if retval is None:
             retval = DEFAULT_FEE  # New wallet
         return retval
 
-    def has_custom_fee_rate(self):
-        i = -1
-        # Defensive programming below.. to ensure the custom fee rate is valid ;) This
-        # function mainly controls the appearance (or disappearance) of the fee slider in
-        # the send tab in Qt GUI It is tied to the GUI preferences option 'Custom fee
-        # rate'.
-        try:
-            i = int(self.custom_fee_rate())
-        except (ValueError, TypeError):
-            pass
-        return i >= 0
-
-    def estimate_fee(self, size):
-        return int(self.fee_per_kb() * size / 1000.)
+    def estimate_fee(self, size: TransactionSize) -> int:
+        # The configured fee rate does not differentiate between standard and data sizes.
+        return self.fee_per_kb() * sum(size) // 1000
 
     def get_video_device(self):
         device = self.get("video_device", "default")

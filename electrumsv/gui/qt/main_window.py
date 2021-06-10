@@ -1254,13 +1254,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._receive_view = view
         return tab_widget
 
-    def get_custom_fee_text(self, fee_rate = None) -> str:
-        if not self.config.has_custom_fee_rate():
-            return ""
-        else:
-            if fee_rate is None: fee_rate = self.config.custom_fee_rate() / 1000.0
-            return str(round(fee_rate*100)/100) + " sats/B"
-
     def get_contact_payto(self, contact_id):
         contact = self.contacts.get_contact(contact_id)
         return contact.label
@@ -2236,7 +2229,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.app.close_window(self)
 
     def cpfp(self, account: AbstractAccount, parent_tx: Transaction, new_tx: Transaction) -> None:
-        total_size = parent_tx.size() + new_tx.estimated_size()
+        total_size = parent_tx.size() + sum(new_tx.estimated_size())
         d = WindowModalDialog(self, _('Child Pays for Parent'))
         vbox = QVBoxLayout(d)
         msg = (

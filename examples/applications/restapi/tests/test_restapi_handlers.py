@@ -15,6 +15,7 @@ from electrumsv.constants import ScriptType, TransactionOutputFlag
 from electrumsv.restapi import Fault, good_response
 from electrumsv.wallet import AbstractAccount, Wallet
 from electrumsv.transaction import Transaction
+from electrumsv.types import TransactionSize
 from electrumsv.wallet_database.types import TransactionOutputSpendableRow
 from ..errors import Errors
 
@@ -208,8 +209,8 @@ class MockConfig:
     def __init__(self):
         pass
 
-    def estimate_fee(self, size):
-        return size * 1  # 1 sat/byte
+    def estimate_fee(self, size: TransactionSize) -> int:
+        return sum(size) * 1  # 1 sat/byte
 
     def fee_per_kb(self):
         return 1000  # 1 sat/bytes
