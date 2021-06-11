@@ -52,6 +52,6 @@ __ https://electrumsv-downloads.s3.us-east-2.amazonaws.com/node-releases/0.0.23/
 
 Be aware that Bitcoin node software is commonly integrated into malware, where the malware authors
 use the compromised computers to mine cryptocurrencies. Because of this, it is very likely that you
-will need to work around your browser and virus checker to download these file, in order to avoid
+will need to work around your browser and virus checker to download these files, in order to avoid
 the false positives. We provide instructions in our documentation to help you verify that the
 files you download here are the ones we made available.
