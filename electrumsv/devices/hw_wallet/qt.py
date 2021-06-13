@@ -237,8 +237,8 @@ class QtPluginBase(object):
 
     def replace_gui_handler(self, window: ElectrumWindow, keystore: Hardware_KeyStore):
         handler = self.create_handler(window)
-        keystore.handler = handler # type: ignore
-        keystore.plugin = self # type: ignore
+        keystore.handler = handler
+        keystore.plugin = self
 
         action_label = _('Unnamed')
         if keystore.label and keystore.label.strip():

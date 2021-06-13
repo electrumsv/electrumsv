@@ -15,6 +15,7 @@ from electrumsv.constants import ScriptType, TransactionOutputFlag
 from electrumsv.restapi import Fault, good_response
 from electrumsv.wallet import AbstractAccount, Wallet
 from electrumsv.transaction import Transaction
+from electrumsv.types import TransactionSize
 from electrumsv.wallet_database.types import TransactionOutputSpendableRow
 from ..errors import Errors
 
@@ -125,7 +126,7 @@ def _fake_remove_transaction_raise_fault(tx_hash: bytes, wallet: AbstractAccount
     raise Fault(Errors.DISABLED_FEATURE_CODE, Errors.DISABLED_FEATURE_MESSAGE)
 
 
-async def _fake_load_wallet_succeeds(wallet_name) -> Wallet:
+async def _fake_load_wallet_succeeds(wallet_name: str, password: str) -> Wallet:
     return MockWallet()
 
 
@@ -208,8 +209,8 @@ class MockConfig:
     def __init__(self):
         pass
 
-    def estimate_fee(self, size):
-        return size * 1  # 1 sat/byte
+    def estimate_fee(self, size: TransactionSize) -> int:
+        return sum(size) * 1  # 1 sat/byte
 
     def fee_per_kb(self):
         return 1000  # 1 sat/bytes
@@ -385,7 +386,9 @@ class TestDefaultEndpoints:
         # mock request
         network = "test"
         wallet_name = "wallet_file1.sqlite"
-        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/load_wallet")
+        password = "mypass"
+        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/load_wallet",
+            json= { "password": password })
 
         # check
         expected_json = {"parent_wallet": wallet_name,

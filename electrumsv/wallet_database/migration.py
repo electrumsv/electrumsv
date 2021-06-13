@@ -62,8 +62,8 @@ def update_database(conn: sqlite3.Connection, callbacks: Optional[ProgressCallba
     # Use a dummy set of callbacks if none are provided.
     if callbacks is None:
         callbacks = ProgressCallbacks()
-    # 22, 23, 24, 25, 26
-    callbacks.set_stage_count(5)
+    # 22, 23, 24, 25, 26, 27
+    callbacks.set_stage_count(MIGRATION_CURRENT-22)
 
     from . import migrations
     with conn:
@@ -87,6 +87,10 @@ def update_database(conn: sqlite3.Connection, callbacks: Optional[ProgressCallba
             callbacks.begin_stage(26)
             migrations.migration_0027_tx_refactor2.execute(conn, callbacks)
             version = 27
+        if version == 27:
+            callbacks.begin_stage(27)
+            migrations.migration_0028_mapi.execute(conn, callbacks)
+            version = 28
 
         if version != MIGRATION_CURRENT:
             # This will cause the context manager to rollback its transaction.

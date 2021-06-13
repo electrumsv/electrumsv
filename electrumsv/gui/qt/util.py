@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import DATABASE_EXT
+from electrumsv.constants import CredentialPolicyFlag, DATABASE_EXT
 from electrumsv.exceptions import WaitingTaskCancelled
 from electrumsv.i18n import _, languages
 from electrumsv.logs import logs
@@ -147,6 +147,7 @@ class CloseButton(QPushButton):
         QPushButton.__init__(self, _("Close"))
         self.clicked.connect(dialog.accept)
         self.setDefault(True)
+
 
 class CopyButton(QPushButton):
     def __init__(self, text_getter, app):
@@ -1101,9 +1102,16 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
     if not success or not new_password.strip():
         return None
 
+    assert new_password is not None
     from electrumsv.storage import WalletStorage
     storage = WalletStorage.create(create_filepath, new_password)
+    # This path is guaranteed to be the full file path with file extension.
+    wallet_path = storage.get_path()
     storage.close()
+    # Store the credential in case we most likely are going to open it immediately and do not
+    # want to prompt for the password immediately after the user just specififed it.
+    app_state.credentials.set_wallet_password(wallet_path, new_password,
+        CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD | CredentialPolicyFlag.IS_BEING_ADDED)
     return create_filepath
 
 
@@ -1119,6 +1127,12 @@ class FormSeparatorLine(QFrame):
 FieldType = Union[QWidget, QLayout]
 
 class FormSectionWidget(QWidget):
+    """
+    A standardised look for forms whether informational or user editable.
+
+    In the longer term it might be worth looking at whether the standard Qt FormLayout
+    can be used to do something that looks the same with less custom code to achieve it.
+    """
     show_help_label: bool = True
     minimum_label_width: int = 80
 
@@ -1126,15 +1140,14 @@ class FormSectionWidget(QWidget):
             minimum_label_width: Optional[int]=None) -> None:
         super().__init__(parent)
 
-        if minimum_label_width is not None:
-            self.minimum_label_width = minimum_label_width
-
-        self.frame_layout = QVBoxLayout()
-        self._resizable_rows: List[QVBoxLayout] = []
-
-        frame = QFrame()
+        frame = self._frame = QFrame()
         frame.setObjectName("FormFrame")
-        frame.setLayout(self.frame_layout)
+        self._frame_layout: Optional[QVBoxLayout] = None
+
+        self._initial_minimum_label_width = minimum_label_width
+        self.clear()
+
+        frame.setLayout(self._frame_layout)
 
         self.setStyleSheet("""
         #FormSeparatorLine {
@@ -1151,10 +1164,10 @@ class FormSectionWidget(QWidget):
         }
         """)
 
-        vlayout = QVBoxLayout()
-        vlayout.setContentsMargins(0, 0, 0, 0)
-        vlayout.addWidget(frame)
-        self.setLayout(vlayout)
+        vbox = QVBoxLayout()
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.addWidget(frame)
+        self.setLayout(vbox)
 
     def create_title(self, title_text: str) -> QLabel:
         label = QLabel(title_text)
@@ -1164,20 +1177,25 @@ class FormSectionWidget(QWidget):
 
     def add_title(self, title_text: str) -> None:
         label = self.create_title(title_text)
-        self.frame_layout.addWidget(label, Qt.AlignTop)
+        self._frame_layout.addWidget(label, Qt.AlignTop)
 
     def add_title_row(self, title_object: FieldType) -> None:
         if isinstance(title_object, QLayout):
-            self.frame_layout.addLayout(title_object)
+            self._frame_layout.addLayout(title_object)
         else:
-            self.frame_layout.addWidget(title_object, Qt.AlignTop)
+            self._frame_layout.addWidget(title_object, Qt.AlignTop)
 
     def add_row(self, label_text: Union[str, QLabel], field_object: FieldType,
-            stretch_field: bool=False) -> Optional[QLabel]:
-        result: Optional[QLabel] = None
+            stretch_field: bool=False) -> QWidget:
+        """
+        Add a row to the form section.
 
-        if self.frame_layout.count() > 0:
-            self.frame_layout.addWidget(FormSeparatorLine())
+        Returns the container widget for the generated row layout. It is envisioned that the
+        caller can use that and helper functions to dynamically alter the form section display
+        as needed (hide, show, ..).
+        """
+        if self._frame_layout.count() > 0:
+            self._frame_layout.addWidget(FormSeparatorLine())
 
         if isinstance(label_text, QLabel):
             label = label_text
@@ -1186,7 +1204,6 @@ class FormSectionWidget(QWidget):
             if not label_text.endswith(":"):
                 label_text += ":"
             label = QLabel(label_text)
-            result = label
         label.setObjectName("FormSectionLabel")
         label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
 
@@ -1197,7 +1214,7 @@ class FormSectionWidget(QWidget):
 
         grid_layout = QGridLayout()
         grid_layout.setContentsMargins(0, 0, 0, 0)
-        grid_layout.addWidget(label, 0, 0, Qt.AlignRight | Qt.AlignTop)
+        grid_layout.addWidget(label, 0, 0, Qt.AlignmentFlag(Qt.AlignRight | Qt.AlignTop))
         if stretch_field:
             if isinstance(field_object, QLayout):
                 grid_layout.addLayout(field_object, 0, 1, Qt.AlignTop)
@@ -1219,12 +1236,31 @@ class FormSectionWidget(QWidget):
         grid_layout.setSizeConstraint(QLayout.SetMinimumSize)
 
         if self.minimum_label_width != old_minimum_width:
-            for layout in self._resizable_rows:
+            for layout in self._row_layouts:
                 layout.setColumnMinimumWidth(0, self.minimum_label_width)
 
-        self.frame_layout.addLayout(grid_layout)
-        self._resizable_rows.append(grid_layout)
-        return result
+        grid_widget = QWidget()
+        grid_widget.setLayout(grid_layout)
+
+        self._frame_layout.addWidget(grid_widget)
+        self._row_layouts.append(grid_layout)
+        return grid_widget
+
+    def clear(self) -> None:
+        self.minimum_label_width = FormSectionWidget.minimum_label_width
+        if self._initial_minimum_label_width is not None:
+            self.minimum_label_width = self._initial_minimum_label_width
+
+        if self._frame_layout is not None:
+            # NOTE This is a Qt thing. You have to transplant the layout from an object before you
+            #   can set a new one. So that is what we are doing here, transplanting to nowhere.
+            discardable_widget = QWidget()
+            discardable_widget.setLayout(self._frame_layout)
+
+        self._frame_layout = QVBoxLayout()
+        self._row_layouts: List[QGridLayout] = []
+
+        self._frame.setLayout(self._frame_layout)
 
 
 class FramedTextWidget(QLabel):
@@ -1244,7 +1280,7 @@ class ClickableLabel(QLabel):
 
         self.setCursor(Qt.PointingHandCursor)
 
-    def mousePressEvent(self, ev):
+    def mousePressEvent(self, _event):
         self.clicked.emit()
 
 
@@ -1263,7 +1299,7 @@ class AspectRatioPixmapLabel(QLabel):
 
     def heightForWidth(self, width: int) -> int:
         return self.height() if self._pixmap is None else \
-            (self._pixmap.height() * width) / self._pixmap.width()
+            (self._pixmap.height() * width) // self._pixmap.width()
 
     def sizeHint(self) -> QSize:
         width = self.parent().width()
@@ -1277,3 +1313,49 @@ class AspectRatioPixmapLabel(QLabel):
             super().setPixmap(self._scaled_pixmap())
         super().resizeEvent(event)
 
+
+class ExpandableSection(QWidget):
+    def __init__(self, title: str, child: QWidget) -> None:
+        super().__init__()
+
+        self._child = child
+
+        def on_clicked_button_expand_details() -> None:
+            nonlocal expand_details_button, self
+            is_expanded = expand_details_button.text() == "-"
+            if is_expanded:
+                expand_details_button.setText("+")
+                self._child.setVisible(False)
+            else:
+                expand_details_button.setText("-")
+                self._child.setVisible(True)
+
+        expand_details_button = QPushButton("+")
+        expand_details_button.setStyleSheet("padding: 2px;")
+        expand_details_button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+        expand_details_button.clicked.connect(on_clicked_button_expand_details)
+        expand_details_button.setMinimumWidth(15)
+
+        # NOTE(copy-paste) Generic separation line code used elsewhere as well.
+        details_header_line = QFrame()
+        details_header_line.setStyleSheet("QFrame { border: 1px solid #C3C2C2; }")
+        details_header_line.setFrameShape(QFrame.HLine)
+        details_header_line.setFixedHeight(1)
+
+        details_header = QHBoxLayout()
+        details_header.addWidget(expand_details_button)
+        details_header.addWidget(QLabel(title))
+        details_header.addWidget(details_header_line, 1)
+
+        expandable_section_layout = self._details_layout = QVBoxLayout()
+        expandable_section_layout.addLayout(details_header)
+        expandable_section_layout.addWidget(child)
+        expandable_section_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.setLayout(expandable_section_layout)
+
+    def expand(self) -> None:
+        self._child.setVisible(True)
+
+    def contract(self) -> None:
+        self._child.setVisible(False)

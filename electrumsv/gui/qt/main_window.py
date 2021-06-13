@@ -58,7 +58,7 @@ from ... import bitcoin, commands, paymentrequest, qrscanner, util
 from ...app_state import app_state
 from ...bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
-from ...constants import (DATABASE_EXT, NetworkEventNames, ScriptType,
+from ...constants import (CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames, ScriptType,
     TransactionOutputFlag, TxFlags, WalletSettings)
 from ...exceptions import UserCancelled
 from ...i18n import _
@@ -236,6 +236,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         current_tab = self._tab_widget.currentWidget()
         if current_tab is self.coinsplitting_tab:
             self.coinsplitting_tab.update_layout()
+        elif current_tab is self.send_tab:
+            if self.is_send_view_active():
+                self._send_view.on_tab_activated()
 
     def _on_ready(self) -> None:
         self._accounts_view.on_wallet_loaded()
@@ -346,6 +349,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _on_account_created(self, event_name: str, new_account_id: int) -> None:
         account = self._wallet.get_account(new_account_id)
+        assert account is not None
 
         # NOTE(rt12) single-account At this time we disallow more than one account.
         setting_value = self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
@@ -1089,7 +1093,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _update_network_status(self) -> None:
         "Update the network status portion of the status bar."
         text = _("Offline")
+        tooltip_text = _("You have started ElectrumSV in offline mode.")
         if self.network:
+            tooltip_text = _("You are connected to at least one server.")
             request_count, response_count = self._wallet.get_request_response_counts()
             if request_count > response_count:
                 text = _("Synchronizing...")
@@ -1097,14 +1103,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             else:
                 server_height = self.network.get_server_height()
                 if server_height == 0:
-                    text = _("Not connected")
+                    # This is shown when for instance, there is a forced main server setting and
+                    # the main server is offline. It might also be used on first start up before
+                    # the headers are synced (?).
+                    text = _("Main server pending")
+                    tooltip_text = _("You are not currently connected to a valid main server.")
                 else:
                     server_lag = self.network.get_local_height() - server_height
                     if server_lag > 1:
                         text = _("Server {} blocks behind").format(server_lag)
                     else:
                         text = _("Connected")
-        self._status_bar.set_network_status(text)
+        self._status_bar.set_network_status(text, tooltip_text)
 
     def update_tabs(self, *args) -> None:
         if self.is_receive_view_active():
@@ -1243,13 +1253,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tab_widget.setCurrentWidget(view)
         self._receive_view = view
         return tab_widget
-
-    def get_custom_fee_text(self, fee_rate = None) -> str:
-        if not self.config.has_custom_fee_rate():
-            return ""
-        else:
-            if fee_rate is None: fee_rate = self.config.custom_fee_rate() / 1000.0
-            return str(round(fee_rate*100)/100) + " sats/B"
 
     def get_contact_payto(self, contact_id):
         contact = self.contacts.get_contact(contact_id)
@@ -1579,9 +1582,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         ok, password, new_password = d.run()
         if not ok:
             return
+        assert password is not None
+        assert new_password is not None
         try:
-            self._wallet.update_password(new_password, password)
-        except Exception as e:
+            self._wallet.update_password(password, new_password)
+        except Exception:
             self._logger.exception("")
             self.show_error(_('Failed to update password'))
             return
@@ -1902,12 +1907,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         d.exec_()
 
     def password_dialog(self, msg: Optional[str]=None, parent: Optional[QWidget]=None,
-            fields: List[Tuple[Union[str, QLabel], QWidget]]=None) -> str:
+            fields: List[Tuple[Union[str, QLabel], QWidget]]=None) -> Optional[str]:
+        storage = self._wallet.get_storage()
+        password = app_state.credentials.get_wallet_password(storage.get_path())
+        if password is not None:
+            return password
+
         from .password_dialog import PasswordDialog
         parent = parent or self
-        storage = self._wallet.get_storage()
         d = PasswordDialog(parent, msg, password_check_fn=storage.is_password_valid, fields=fields)
-        return d.run()
+        password = d.run()
+        if password is not None:
+            app_state.credentials.set_wallet_password(storage.get_path(), password,
+                CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
+        return password
 
     def read_tx_from_qrcode(self) -> Optional[Transaction]:
         data: Optional[str] = qrscanner.scan_barcode(self.config.get_video_device())
@@ -2216,7 +2229,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.app.close_window(self)
 
     def cpfp(self, account: AbstractAccount, parent_tx: Transaction, new_tx: Transaction) -> None:
-        total_size = parent_tx.size() + new_tx.estimated_size()
+        total_size = parent_tx.size() + sum(new_tx.estimated_size())
         d = WindowModalDialog(self, _('Child Pays for Parent'))
         vbox = QVBoxLayout(d)
         msg = (

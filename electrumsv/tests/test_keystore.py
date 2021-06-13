@@ -1,13 +1,13 @@
-import pytest
+from typing import cast
 
 from bitcoinx import PublicKey, PrivateKey
+import pytest
 
+from electrumsv.constants import KeystoreTextType
+from electrumsv.crypto import pw_decode, pw_encode
 from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
-from electrumsv.keystore import (
-    Imported_KeyStore, Old_KeyStore, BIP32_KeyStore, from_bip39_seed,
-    from_master_key, from_seed
-)
-from electrumsv.crypto import pw_encode
+from electrumsv.keystore import BIP32_KeyStore, Imported_KeyStore, \
+    instantiate_keystore_from_text, Old_KeyStore, private_key_from_bip32_seed
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.transaction import XPublicKey
 
@@ -20,10 +20,13 @@ class TestOld_KeyStore:
         'acb740e454c3134901d7c8f16497cc1c',
     ))
     def test_from_seed(self, seed_text):
+        password = "sdfdf"
         hex_seed = 'acb740e454c3134901d7c8f16497cc1c'
-        keystore = from_seed(seed_text, None)
+        keystore = cast(Old_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, seed_text, password))
         assert isinstance(keystore, Old_KeyStore)
-        assert keystore.seed == hex_seed
+        assert keystore.seed is not None
+        assert pw_decode(keystore.seed, password) == hex_seed
         assert keystore.mpk == ('e9d4b7866dd1e91c862aebf62a49548c7dbf7bcc6e4b7b8c9da820c7737968df9'
                                 'c09d5a3e271dc814a29981f81b3faaf2737b551ef5dcc6189cf0f8252c442b3')
 
@@ -42,25 +45,28 @@ class TestOld_KeyStore:
         assert pubkey.to_hex() == pubkey_hex
 
     def test_get_seed(self):
-        seed = 'ee6ea9eceaf649640051a4c305ac5c59'
-        keystore = Old_KeyStore.from_seed(seed)
         password = 'password'
-        keystore.update_password(password)
+        seed = 'ee6ea9eceaf649640051a4c305ac5c59'
+        keystore = cast(Old_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, seed, password))
         assert keystore.get_seed(password) == ('duck pattern possibly awaken utter roam sail '
                                                'couple curve travel treat lord')
-        with pytest.raises(AssertionError):
-            keystore.update_password('', password)
+        with pytest.raises(InvalidPassword):
+            keystore.get_seed("wrong password")
 
     def test_get_private_key(self):
+        password = "password-old"
         seed = 'ee6ea9eceaf649640051a4c305ac5c59'
-        keystore = Old_KeyStore.from_seed(seed)
-        result = keystore.get_private_key((0, 10), None)
+        keystore = cast(Old_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, seed, password=password))
+        result = keystore.get_private_key((0, 10), password)
         assert result == (bytes.fromhex(
             '81279e4fe405363eb56e686726d450fe4a76a1d83b64311d7618b845683aab4a'), False)
 
     def test_check_seed(self):
         seed = 'ee6ea9eceaf649640051a4c305ac5c59'
-        keystore = Old_KeyStore.from_seed(seed)
+        keystore = cast(Old_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, seed, password="OLD"))
         keystore.check_seed(seed.encode())
         with pytest.raises(InvalidPassword):
             keystore.check_seed(b'foo')
@@ -69,10 +75,11 @@ class TestOld_KeyStore:
         # An uncompressed public key in hex form without the 04 prefix
         mpk_hex = ("08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a688"
                    "63b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d0")
-        keystore = from_master_key(mpk_hex)
+        keystore = cast(Old_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, mpk_hex, password="OLD"))
         assert isinstance(keystore, Old_KeyStore)
         assert keystore.get_master_public_key() == mpk_hex
-        assert keystore.to_derivation_data() == {'mpk': mpk_hex}
+        assert keystore.to_derivation_data() == { 'mpk': mpk_hex, "seed": None }
         assert keystore.is_watching_only()
         assert keystore.get_xpubkey((0, 4)) == XPublicKey.from_hex(
             'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68'
@@ -86,7 +93,8 @@ class TestOld_KeyStore:
     def test_is_signature_candidate(self):
         mpk_hex = ("08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a688"
                    "63b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d0")
-        keystore = from_master_key(mpk_hex)
+        keystore = cast(Old_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, mpk_hex, password="OLD"))
         assert keystore.is_signature_candidate(XPublicKey.from_hex(
             'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68'
             '863b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d000000400'
@@ -224,16 +232,6 @@ class TestImported_KeyStore:
                 'fd76a914753e5cd1dd15a7028daa03fe5e47389297ac227a88ac'
             ))
 
-    def test_update_password(self):
-        keystore = Imported_KeyStore()
-        keystore._keypairs = { PublicKey.from_hex(a): b for a, b in keypairs_dict.items() }
-        keystore.update_password('new password', 'password')
-        pubkey = list(keystore._keypairs.keys())[0]
-        assert keystore.export_private_key(pubkey, 'new password') == (
-            'KwdMAjGmerYanjeui5SHS7JkmpZvVipYvB2LJGU1ZxJwYvP98617')
-        with pytest.raises(AssertionError):
-            keystore.update_password('', 'new password')
-
 
 class TestBIP32_KeyStore:
 
@@ -293,31 +291,40 @@ class TestXPub:
 
 
 def test_from_bip39_seed():
-    keystore = from_bip39_seed('foo bar baz', '', "m/44'/0'/0'")
-    assert keystore.xprv == ('xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP5FCrKWCacKZBhS3cJVGCe'
-                             'gAUNEp1uXXEncSAyro5CaJFwv7wYFcBQrF6MfWYoAXsTw')
+    password = "password-bip39"
+    seed_phrase = 'foo bar baz'
+    keystore = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+        KeystoreTextType.BIP39_SEED_WORDS, seed_phrase, password, derivation_text="m/44'/0'/0'"))
+    assert keystore.seed is not None
+    assert keystore.xprv is not None
+    assert pw_decode(keystore.seed, password) == seed_phrase
+    assert pw_decode(keystore.xprv, password) == 'xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP' \
+        '5FCrKWCacKZBhS3cJVGCegAUNEp1uXXEncSAyro5CaJFwv7wYFcBQrF6MfWYoAXsTw'
     assert keystore.xpub == ('xpub6BoXuZmXMAUMbiEuHuS3s3L6ienv7u5Npx6GMY3MwQnBj7qM89dojV'
                              'kXTZtbpEvAzxSKAxnnsVDuwSAAvvXHWVncpX46V3LGj5SaKHtNNnc')
 
 
 def test_bip32_root():
     Net.set_to(SVMainnet)
-    k = BIP32_KeyStore({})
-    k.add_xprv_from_seed(b'BitcoinSV', 'm')
-    assert k.xprv == ('xprv9s21ZrQH143K48ebsYkLU9UPzgdDVfhT6SMdWFJ8ZXak1bjKVRLu'
-                      'xdmMCh7HZkwciZd7fga4gK4XW2QZhvWz5os6hJwqLfpZmW9r7pLgn9s')
+
+    private_key = private_key_from_bip32_seed(b'BitcoinSV', 'm')
+    assert private_key.to_extended_key_string() == 'xprv9s21ZrQH143K48ebsYkLU9UPzgdDVfhT6SMdWF' \
+        'J8ZXak1bjKVRLuxdmMCh7HZkwciZd7fga4gK4XW2QZhvWz5os6hJwqLfpZmW9r7pLgn9s'
+
     Net.set_to(SVTestnet)
-    k = BIP32_KeyStore({})
-    k.add_xprv_from_seed(b'BitcoinSV', 'm')
-    assert k.xprv == ('tprv8ZgxMBicQKsPewt8Y7bqdo6PJp3RjBjTRzGkNfib3W5DoCUQUng'
-                      'fUP8o7sGwa8Kw619tfnBpqfeKxsxJq8rvts8hDxA912YcgbuGZX3AZDd')
+    private_key = private_key_from_bip32_seed(b'BitcoinSV', 'm')
+    assert private_key.to_extended_key_string() == 'tprv8ZgxMBicQKsPewt8Y7bqdo6PJp3RjBjTRzGkNf' \
+        'ib3W5DoCUQUngfUP8o7sGwa8Kw619tfnBpqfeKxsxJq8rvts8hDxA912YcgbuGZX3AZDd'
     Net.set_to(SVMainnet)
 
 
-def test_from_master_key():
-    keystore = from_master_key('xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP5FCrKWCacKZBhS3cJVGCe'
-                               'gAUNEp1uXXEncSAyro5CaJFwv7wYFcBQrF6MfWYoAXsTw')
-    assert keystore.xprv == ('xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP5FCrKWCacKZBhS3cJVGCe'
-                             'gAUNEp1uXXEncSAyro5CaJFwv7wYFcBQrF6MfWYoAXsTw')
+def test_from_xprv():
+    password = "password-xprv"
+    xprv = 'xprv9xpBW4EdWnv4PEASBsu3VuPNAcxRiSMXTjAfZ9dkP5FCrKWCacKZBhS3cJVGCegAUNEp1uXXEncSAyr' \
+        'o5CaJFwv7wYFcBQrF6MfWYoAXsTw'
+    keystore = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+        KeystoreTextType.EXTENDED_PRIVATE_KEY, xprv, password=password))
+    assert keystore.xprv is not None
+    assert pw_decode(keystore.xprv, password) == xprv
     assert keystore.xpub == ('xpub6BoXuZmXMAUMbiEuHuS3s3L6ienv7u5Npx6GMY3MwQnBj7qM89dojV'
                              'kXTZtbpEvAzxSKAxnnsVDuwSAAvvXHWVncpX46V3LGj5SaKHtNNnc')

@@ -53,9 +53,13 @@ class TxStateWebSocket(web.View):
             wallet_name = vars[VNAME.WALLET_NAME]
             index = vars[VNAME.ACCOUNT_ID]
 
+            # `aiohttp` does not allow POST body to be passed to the calling `ws_connect` call.
+            # So we need to get the password another way.
+            wallet_password = self.request.headers["X-Wallet-Password"]
+
             # _load_wallet(wallet_name) raises Fault(Errors.BAD_WALLET_NAME_CODE, msg) and
             # Fault(Errors.WALLET_NOT_FOUND_CODE, msg)
-            await self.restapi._load_wallet(wallet_name)
+            await self.restapi._load_wallet(wallet_name, wallet_password)
 
             # _get_account(wallet_name, index) raises Fault(Errors.WALLET_NOT_FOUND_CODE, msg) and
             # Fault(Errors.LOAD_BEFORE_GET_CODE, msg)

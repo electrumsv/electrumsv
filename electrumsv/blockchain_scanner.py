@@ -18,7 +18,7 @@ from bitcoinx import (bip32_key_from_string, BIP32PublicKey, P2PKH_Address, P2SH
 
 from .app_state import app_state
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH, DerivationType,
-    RECEIVING_SUBPATH, ScriptType, SubscriptionOwnerPurpose, SubscriptionType)
+    DerivationPath, RECEIVING_SUBPATH, ScriptType, SubscriptionOwnerPurpose, SubscriptionType)
 from .exceptions import SubscriptionStale, UnsupportedAccountTypeError
 from .logs import logs
 from .keys import get_single_signer_script_template, get_multi_signer_script_template
@@ -48,7 +48,7 @@ DEFAULT_GAP_LIMITS = {
 
 @dataclass
 class AdvancedSettings:
-    gap_limits: Dict[Sequence[int], int] = field(default_factory=dict)
+    gap_limits: Dict[DerivationPath, int] = field(default_factory=dict)
 
     def __post_init__(self):
         # Ensure that the default gap limits are in place if necessary.
@@ -58,7 +58,7 @@ class AdvancedSettings:
 @dataclass
 class BIP32ParentPath:
     # The subpath has already been applied. It is provided solely for context.
-    subpath: Sequence[int]
+    subpath: DerivationPath
     # The signing threshold.
     threshold: int
     # The pre-derived master public keys.
@@ -109,7 +109,7 @@ class ScriptHashHistory:
     The sub-context for the history and the history itself.
     """
     history: ElectrumXHistoryList
-    bip32_subpath: Optional[Sequence[int]] = None
+    bip32_subpath: Optional[DerivationPath] = None
     bip32_subpath_index: int = -1
 
 
@@ -202,7 +202,7 @@ class Scanner:
     def get_result_count(self) -> int:
         return len(self._script_hash_histories)
 
-    def add_bip32_subpath(self, subpath: Sequence[int], master_public_keys: List[BIP32PublicKey],
+    def add_bip32_subpath(self, subpath: DerivationPath, master_public_keys: List[BIP32PublicKey],
             threshold: int, script_types: Sequence[ScriptType]) -> BIP32ParentPath:
         assert not self._started
         data = BIP32ParentPath(subpath, threshold, master_public_keys, script_types)

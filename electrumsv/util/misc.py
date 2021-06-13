@@ -1,6 +1,8 @@
+import json
 from collections import deque
 from itertools import chain
 from sys import getsizeof
+from typing import Dict, Any
 
 from bitcoinx import Script
 
@@ -80,4 +82,10 @@ class ProgressCallbacks:
 
     def progress(self, progress: int, message: str) -> None:
         pass
+
+async def decode_response_body(response) -> Dict[Any, Any]:
+    body = await response.read()
+    if body == b"" or body == b"{}":
+        return {}
+    return json.loads(body.decode())
 

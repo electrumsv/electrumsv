@@ -6,7 +6,7 @@ from typing import Union, Any
 import aiorpcx
 import bitcoinx
 from aiohttp import web
-from electrumsv.constants import RECEIVING_SUBPATH, KeystoreTextType
+from electrumsv.constants import CredentialPolicyFlag, RECEIVING_SUBPATH, KeystoreTextType
 from electrumsv.keystore import instantiate_keystore_from_text
 from electrumsv.storage import WalletStorage
 from electrumsv.networks import Net
@@ -15,6 +15,7 @@ from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import Fault, good_response, fault_to_http_response
 from electrumsv.regtest_support import regtest_generate_nblocks, regtest_topup_account
+from electrumsv.types import TransactionSize
 
 from .errors import Errors
 from .handler_utils import ExtendedHandlerUtils, VNAME, InsufficientCoinsError
@@ -94,9 +95,9 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
 
     async def load_wallet(self, request):
         try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME])
+            vars = await self.argparser(request, required_vars=[VNAME.PASSWORD, VNAME.WALLET_NAME])
             wallet_name = vars[VNAME.WALLET_NAME]
-            parent_wallet = await self._load_wallet(wallet_name)
+            parent_wallet = await self._load_wallet(wallet_name, vars[VNAME.PASSWORD])
             accounts = self._accounts_dto(parent_wallet)
             response = {"parent_wallet": wallet_name,
                         "accounts": accounts}
@@ -116,6 +117,9 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             storage = WalletStorage.create(create_filepath, vars[VNAME.PASSWORD])
             storage.close()
 
+            app_state.credentials.set_wallet_password(create_filepath, vars[VNAME.PASSWORD],
+                CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
+
             parent_wallet = self.app_state.daemon.load_wallet(create_filepath)
 
             # create an account for the Wallet with the same password via an imported seed
@@ -126,7 +130,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             keystore = instantiate_keystore_from_text(text_type, text_match, vars[VNAME.PASSWORD],
                 derivation_text=None, passphrase=None)
             parent_wallet.create_account_from_keystore(keystore)
-            await self._load_wallet(vars[VNAME.WALLET_NAME])
+            await self._load_wallet(vars[VNAME.WALLET_NAME], vars[VNAME.PASSWORD])
             response = {"new_wallet": create_filepath}
             return good_response(response)
         except Fault as e:
@@ -372,7 +376,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account = self._get_account(wallet_name, account_id)
 
             # Approximate size of a transaction with one P2PKH input and one P2PKH output.
-            base_fee = self.app_state.config.estimate_fee(203)
+            base_fee = self.app_state.config.estimate_fee(TransactionSize(203, 0))
             loop = asyncio.get_event_loop()
             # run in thread - CPU intensive code
             partial_coin_selection = partial(self.select_inputs_and_outputs,

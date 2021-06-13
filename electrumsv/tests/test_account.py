@@ -1,8 +1,12 @@
+from typing import cast
+import unittest
+import unittest.mock
+
 import pytest
 
-from electrumsv.constants import (CHANGE_SUBPATH, DerivationType, KeyInstanceFlag,
+from electrumsv.constants import (CHANGE_SUBPATH, KeyInstanceFlag, KeystoreTextType,
     RECEIVING_SUBPATH, ScriptType)
-from electrumsv.keystore import from_seed
+from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text
 from electrumsv.wallet import StandardAccount, Wallet
 from electrumsv.wallet_database.exceptions import KeyInstanceNotFoundError
 from electrumsv.wallet_database.types import AccountRow
@@ -24,19 +28,23 @@ def tmp_storage(tmpdir):
 
 
 @pytest.mark.asyncio
-async def test_key_creation(tmp_storage) -> None:
+@unittest.mock.patch('electrumsv.wallet.app_state')
+async def test_key_creation(mock_app_state, tmp_storage) -> None:
     # Boilerplate setting up of a deterministic account. This is copied from above.
     password = 'password'
     seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
-    child_keystore = from_seed(seed_words, '')
+    child_keystore = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+        KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
+
+    mock_app_state.credentials = unittest.mock.Mock()
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
     wallet = Wallet(tmp_storage)
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
-    wallet.update_password(password)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
     account_row = wallet.add_accounts([ raw_account_row ])[0]
-    account = StandardAccount(wallet, account_row, [], [])
+    account = StandardAccount(wallet, account_row, [])
     wallet.register_account(account.get_id(), account)
 
     # Create two keys via `derive_new_keys_until`.
@@ -55,6 +63,9 @@ async def test_key_creation(tmp_storage) -> None:
     keyinstance_rows = account.get_existing_fresh_keys(RECEIVING_SUBPATH, 4)
     assert len(keyinstance_rows) == 3
     # Check if the existing fresh keys are ordered in an ascending fashion.
+    assert keyinstance_rows[0].derivation_data2 is not None
+    assert keyinstance_rows[1].derivation_data2 is not None
+    assert keyinstance_rows[2].derivation_data2 is not None
     assert (keyinstance_rows[0].derivation_data2 < keyinstance_rows[1].derivation_data2
         < keyinstance_rows[2].derivation_data2)
 
@@ -75,22 +86,25 @@ async def test_key_creation(tmp_storage) -> None:
 
 
 @pytest.mark.asyncio
-async def test_key_reservation(tmp_storage) -> None:
+@unittest.mock.patch('electrumsv.wallet.app_state')
+async def test_key_reservation(mock_app_state, tmp_storage) -> None:
     """
     Verify that the allocate a key on demand database function works as expected for an account.
     """
     # Boilerplate setting up of a deterministic account. This is copied from above.
     password = 'password'
     seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
-    child_keystore = from_seed(seed_words, '')
+    child_keystore = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+        KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
+
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
     wallet = Wallet(tmp_storage)
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
-    wallet.update_password(password)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
     account_row = wallet.add_accounts([ raw_account_row ])[0]
-    account = StandardAccount(wallet, account_row, [], [])
+    account = StandardAccount(wallet, account_row, [])
     wallet.register_account(account.get_id(), account)
 
     account.derive_new_keys_until(RECEIVING_SUBPATH + (0,))

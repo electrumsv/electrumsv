@@ -57,7 +57,7 @@ class LedgerAuthDialog(QDialog):
         def return_pin():
             self.pin = (self.pintxt.text() if self.txdata['confirmationType'] == 1
                         else self.cardtxt.text())
-            self.pin.setText('')
+            self.pintxt.setText('')
             self.cardtxt.setText('')
             if self.cfg['mode'] == 1:
                 self.pin = ''.join(chr(int(str(i),16)) for i in self.pin)

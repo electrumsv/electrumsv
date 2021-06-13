@@ -27,27 +27,16 @@ from typing import Union
 
 from bitcoinx import (hash_to_hex_str, sha256, Address, classify_output_script,
     OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_Address, P2SH_Address,
-    Script, Unknown_Output, ElectrumMnemonic)
+    Script, Unknown_Output)
 
 from .bip276 import bip276_decode, bip276_encode, PREFIX_BIP276_SCRIPT
-from .constants import SEED_PREFIX
 from .networks import Net
 from .util import assert_bytes
 
 ################################## transactions
 
-MAX_FEE_RATE = 20000
-
 COINBASE_MATURITY = 100
 COIN = 100000000
-
-
-def seed_type(x: str) -> str:
-    if ElectrumMnemonic.is_valid_old(x):
-        return 'old'
-    elif ElectrumMnemonic.is_valid_new(x, SEED_PREFIX):
-        return 'standard'
-    return ''
 
 ############ functions from pywallet #####################
 

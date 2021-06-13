@@ -33,7 +33,7 @@ import sys
 import threading
 import time
 import types
-from typing import Any, cast, Dict, List, Optional, Sequence
+from typing import Any, cast, Dict, List, Optional, Sequence, Tuple
 
 from bitcoinx import PublicKey
 
@@ -354,7 +354,7 @@ def get_wallet_name_from_path(wallet_path: str) -> str:
     return os.path.splitext(os.path.basename(wallet_path))[0]
 
 
-def versiontuple(v: str) -> Sequence[int]:
+def versiontuple(v: str) -> Tuple[int, ...]:
     return tuple(int(x) for x in v.split("."))
 
 
@@ -372,9 +372,11 @@ def text_resource_path(*parts: Sequence[str]) -> str:
     return resource_path("text", *parts)
 
 
+
 def read_resource_text(*parts: Sequence[str]) -> str:
     # NOTE(typing) Does not recognize the sequence of strings as strings, waste of time.
     return read_resource_file(os.path.join("text", *parts)) # type:ignore
+
 
 
 def get_update_check_dates(new_date):

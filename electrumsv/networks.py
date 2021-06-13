@@ -33,7 +33,7 @@ import json
 from typing import Dict, Tuple
 
 from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet, \
-    BitcoinRegtest, PrivateKey, PublicKey, P2PKH_Address
+    BitcoinRegtest, PrivateKey, PublicKey
 
 from .util import resource_path
 
@@ -52,6 +52,7 @@ class SVMainnet(object):
     CASHADDR_PREFIX = "bitcoincash"
     DEFAULT_PORTS = {'t': '50001', 's': '50002'}
     DEFAULT_SERVERS = read_json_dict('servers.json')
+    DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers.json')
     GENESIS = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
     NAME = 'mainnet'
     BITCOIN_URI_PREFIX = "bitcoin"
@@ -112,6 +113,7 @@ class SVTestnet(object):
     CASHADDR_PREFIX = "bchtest"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
     DEFAULT_SERVERS = read_json_dict('servers_testnet.json')
+    DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers_testnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
     NAME = 'testnet'
     BITCOIN_URI_PREFIX = "bitcoin"
@@ -173,6 +175,7 @@ class SVScalingTestnet(object):
     CASHADDR_PREFIX = "bchtest"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
     DEFAULT_SERVERS = read_json_dict('servers_scalingtestnet.json')
+    DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers_scalingtestnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
     NAME = 'scalingtestnet'
     BITCOIN_URI_PREFIX = "bitcoin"
@@ -252,7 +255,7 @@ class SVRegTestnet(object):
         coin=BitcoinRegtest)
     REGTEST_FUNDS_PRIVATE_KEY_WIF = REGTEST_FUNDS_PRIVATE_KEY.to_WIF()
     REGTEST_FUNDS_PUBLIC_KEY: PublicKey = REGTEST_FUNDS_PRIVATE_KEY.public_key
-    REGTEST_P2PKH_ADDRESS: P2PKH_Address = REGTEST_FUNDS_PUBLIC_KEY.to_address().to_string()
+    REGTEST_P2PKH_ADDRESS: str = REGTEST_FUNDS_PUBLIC_KEY.to_address().to_string()
 
     # For CI/CD use (restapi will by default reset everything back to empty wallet with this seed)
     # First receive address: mwv1WZTsrtKf3S9mRQABEeMaNefLbQbKpg
@@ -265,6 +268,7 @@ class SVRegTestnet(object):
     CASHADDR_PREFIX = "bchtest"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
     DEFAULT_SERVERS = read_json_dict('servers_regtest.json')
+    DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers_regtest.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
     NAME = 'regtest'
     BITCOIN_URI_PREFIX = "bitcoin"

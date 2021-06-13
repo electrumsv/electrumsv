@@ -21,7 +21,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import concurrent
+import concurrent.futures
 from functools import partial
 import math
 import time
@@ -82,10 +82,10 @@ class InvoiceList(MyTreeWidget):
         # This is used if there is a pending expiry.
         self._timer: Optional[QTimer] = None
 
-    def _start_timer(self, event_time: int) -> None:
+    def _start_timer(self, event_time: float) -> None:
         seconds = math.ceil(event_time - time.time())
         assert seconds > 0, f"got invalid timer duration {seconds}"
-        logger.debug("start_timer for %d seconds", seconds)
+        # logger.debug("start_timer for %d seconds", seconds)
         interval = seconds * 1000
 
         assert self._timer is None, "timer already active"
@@ -100,7 +100,7 @@ class InvoiceList(MyTreeWidget):
         self._timer = None
 
     def _on_timer_event(self) -> None:
-        logger.debug("_on_timer_event")
+        # logger.debug("_on_timer_event")
         self._stop_timer()
         self.update()
 
@@ -115,7 +115,8 @@ class InvoiceList(MyTreeWidget):
             current_id = self._send_view._payment_request.get_id()
         if current_id is None:
             current_item = self.currentItem()
-            current_id = current_item.data(COL_RECEIVED, Qt.UserRole) if current_item else None
+            current_id = current_item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole) \
+                if current_item else None
 
         self.clear()
 
@@ -142,16 +143,17 @@ class InvoiceList(MyTreeWidget):
             received_text = format_time(row.date_created, _("Unknown"))
             expires_text = format_time(row.date_expires, _("Unknown")
                 if row.date_expires else _('Never'))
-            item = QTreeWidgetItem([received_text, expires_text, requestor_text, row.description,
+            description = row.description if row.description is not None else ""
+            item = QTreeWidgetItem([received_text, expires_text, requestor_text, description,
                 app_state.format_amount(row.value, whitespaces=True),
                 # The tooltip text should be None to ensure the icon does not have extra RHS space.
-                pr_tooltips.get(flags, None)])
+                pr_tooltips.get(flags, "")])
             icon_entry = pr_icons.get(flags)
             if icon_entry:
                 item.setIcon(COL_STATUS, read_QIcon(icon_entry))
             if row.invoice_id == current_id:
                 current_item = item
-            item.setData(COL_RECEIVED, Qt.UserRole, row.invoice_id)
+            item.setData(COL_RECEIVED, Qt.ItemDataRole.UserRole, row.invoice_id)
             item.setFont(COL_DESCRIPTION, self._monospace_font)
             item.setFont(COL_AMOUNT, self._monospace_font)
             self.addTopLevelItem(item)
@@ -167,7 +169,7 @@ class InvoiceList(MyTreeWidget):
         text = item.text(column).strip()
         if text == "":
             text = None
-        invoice_id = item.data(COL_RECEIVED, Qt.UserRole)
+        invoice_id = item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole)
         future = self._send_view._account._wallet.update_invoice_descriptions(
             [ (text, invoice_id) ])
         future.result()
@@ -184,6 +186,8 @@ class InvoiceList(MyTreeWidget):
         if not filename:
             return
 
+        # TODO(no-merge) There is no invoices service any more. I am not sure this code ever
+        #   existed with the creation of the invoices service.
         try:
             account.invoices.import_file(filename)
         except FileImportFailed as e:
@@ -199,7 +203,7 @@ class InvoiceList(MyTreeWidget):
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
 
-        invoice_id: int = item.data(COL_RECEIVED, Qt.UserRole)
+        invoice_id: int = item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole)
         row = self._send_view._account._wallet.read_invoice(invoice_id=invoice_id)
         assert row is not None, f"invoice {invoice_id} not found"
 

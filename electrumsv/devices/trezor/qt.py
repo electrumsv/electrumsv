@@ -64,9 +64,9 @@ class MatrixDialog(WindowModalDialog):
         vbox.addLayout(grid)
 
         self.backspace_button = QPushButton("<=")
-        self.backspace_button.clicked.connect(partial(self.process_key, Qt.Key_Backspace))
+        self.backspace_button.clicked.connect(partial(self.process_key, Qt.Key.Key_Backspace))
         self.cancel_button = QPushButton(_("Cancel"))
-        self.cancel_button.clicked.connect(partial(self.process_key, Qt.Key_Escape))
+        self.cancel_button.clicked.connect(partial(self.process_key, Qt.Key.Key_Escape))
         buttons = Buttons(self.backspace_button, self.cancel_button)
         vbox.addSpacing(40)
         vbox.addLayout(buttons)
@@ -82,9 +82,9 @@ class MatrixDialog(WindowModalDialog):
 
     def process_key(self, key):
         self.data = None
-        if key == Qt.Key_Backspace:
+        if key == Qt.Key.Key_Backspace:
             self.data = '\010'
-        elif key == Qt.Key_Escape:
+        elif key == Qt.Key.Key_Escape:
             self.data = 'x'
         elif self.is_valid(key):
             self.char_buttons[key - ord('1')].setFocus()
@@ -472,7 +472,7 @@ class SettingsDialog(WindowModalDialog):
         homescreen_clear_button = QPushButton(_("Reset"))
         cast(pyqtBoundSignal, homescreen_change_button.clicked).connect(change_homescreen)
         try:
-            import PIL
+            import PIL # type: ignore
         except ImportError:
             homescreen_change_button.setDisabled(True)
             homescreen_change_button.setToolTip(

@@ -1,11 +1,11 @@
-from typing import cast, Dict, List, Optional, Sequence, Union
+from typing import cast, Dict, List, Optional, Union
 
 from bitcoinx import (
     bip32_key_from_string, be_bytes_to_int, bip32_decompose_chain_string, Address,
 )
 
 from ...app_state import app_state
-from ...constants import unpack_derivation_path
+from ...constants import DerivationPath, unpack_derivation_path
 from ...device import Device
 from ...exceptions import UserCancelled
 from ...i18n import _
@@ -18,6 +18,7 @@ from ...wallet_database.types import KeyListRow
 
 from ..hw_wallet import HW_PluginBase
 from ..hw_wallet.plugin import LibraryFoundButUnusable
+
 
 logger = logs.get_logger("plugin.trezor")
 
@@ -60,7 +61,7 @@ class TrezorKeyStore(Hardware_KeyStore):
         return self.derivation
 
     def get_client(self, force_pair=True):
-        return self.plugin.get_client(self, force_pair)
+        return cast(TrezorPlugin, self.plugin).get_client(self, force_pair)
 
     def decrypt_message(self, sequence, message, password):
         raise RuntimeError(_('Encryption and decryption are not implemented by {}').format(
@@ -92,7 +93,7 @@ class TrezorKeyStore(Hardware_KeyStore):
                     xpub_path[xpub] = self.get_derivation()
 
         assert self.plugin is not None
-        self.plugin.sign_transaction(self, tx, xpub_path, tx_context)
+        cast(TrezorPlugin, self.plugin).sign_transaction(self, tx, xpub_path, tx_context)
 
 
 class TrezorPlugin(HW_PluginBase):
@@ -325,7 +326,7 @@ class TrezorPlugin(HW_PluginBase):
         client.show_address(derivation_text, script_type, multisig)
 
     def tx_inputs(self, tx: Transaction, xpub_path: Optional[Dict[str, str]]=None,
-            is_prev_tx: bool=False) -> List[TxInputType]:
+            is_prev_tx: bool=False) -> List["TxInputType"]:
         inputs = []
         for txin in tx.inputs:
             txinputtype = TxInputType()
@@ -370,11 +371,11 @@ class TrezorPlugin(HW_PluginBase):
             m=m)
 
     def tx_outputs(self, keystore: TrezorKeyStore, derivation: str, tx: Transaction) \
-            -> List[TxOutputType]:
-        account_derivation: Sequence[int] = tuple(bip32_decompose_chain_string(derivation))
+            -> List["TxOutputType"]:
+        account_derivation: DerivationPath = tuple(bip32_decompose_chain_string(derivation))
         keystore_fingerprint = keystore.get_fingerprint()
 
-        def create_output_by_derivation(key_derivation: Sequence[int], xpubs,
+        def create_output_by_derivation(key_derivation: DerivationPath, xpubs,
                 m: int) -> TxOutputType:
             multisig = self._make_multisig(m, [(xpub, key_derivation) for xpub in xpubs])
             if multisig is None:
@@ -384,7 +385,7 @@ class TrezorPlugin(HW_PluginBase):
             return TxOutputType(
                 multisig=multisig,
                 amount=tx_output.value,
-                address_n=(*account_derivation, *key_derivation),
+                address_n=list(*account_derivation, *key_derivation),
                 script_type=script_type
             )
 

@@ -1,16 +1,13 @@
-import concurrent
+import concurrent.futures
 import json
 import logging
 import time
-from typing import Any, Callable, Iterable, List, Optional
+from typing import Any, Callable, Iterable, Optional
 
-import bitcoinx
 from aiorpcx import run_in_thread
 from bitcoinx import hash_to_hex_str
 
 from electrumsv.app_state import app_state
-from electrumsv.transaction import Transaction
-from electrumsv.wallet import AbstractAccount
 
 from .errors import Errors
 from .constants import WalletEventNames
@@ -32,7 +29,7 @@ class RESTAPIApplication:
             self._teardown_app()
             self.logger.debug("exited application main loop")
 
-    def run_coro(self, coro, *args, on_done=None):
+    def run_coro(self, coro, *args, on_done=None) -> concurrent.futures.Future:
         future = app_state.async_.spawn(coro, *args, on_done=on_done)
         return future
 

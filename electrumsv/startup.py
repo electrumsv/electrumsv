@@ -56,8 +56,3 @@ if vtuple < MINIMUM_SQLITE_VERSION:
 is_bundle = getattr(sys, 'frozen', False)
 package_dir = path.dirname(path.realpath(__file__))
 base_dir, _base_name = path.split(package_dir)
-packages_dir = path.join(base_dir, 'packages')
-
-# Add 'packages' directory to search path if running from source
-if not is_bundle and path.exists(path.join(base_dir, 'electrum-sv.desktop')):
-    sys.path.insert(0, packages_dir)

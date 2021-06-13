@@ -40,7 +40,6 @@ class Platform(object):
         'SimpleWebSocketServer': 'SimpleWebSocketServer',
         'dateutil': 'python-dateutil',
         'electrumsv_secp256k1': 'electrumsv-secp256k1',
-        'jsonrpclib': 'jsonrpclib-pelix',
         'pyaes': 'pyaes',
         'qrcode': 'qrcode',
         'requests': 'requests',

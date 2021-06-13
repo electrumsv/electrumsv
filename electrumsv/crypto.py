@@ -112,8 +112,8 @@ def DecodeAES_bytes(secret: bytes, ciphertext: bytes) -> bytes:
     return s
 
 
-def pw_encode(data: str, password: Union[bytes, str]) -> str:
-    if not password:
+def pw_encode(data: str, password: Optional[Union[bytes, str]]) -> str:
+    if password is None:
         return data
     secret = sha256d(password)
     return EncodeAES_base64(secret, data.encode("utf8")).decode('utf8')

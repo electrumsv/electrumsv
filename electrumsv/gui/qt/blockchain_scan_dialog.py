@@ -5,7 +5,7 @@ from enum import IntEnum
 from functools import partial
 import json
 import time
-from typing import Any, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING
+from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_CHECKING
 import webbrowser
 
 from bitcoinx import hash_to_hex_str, hex_str_to_hash
@@ -16,7 +16,7 @@ from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, 
     QWidget)
 
 from ...app_state import app_state
-from ...constants import CHANGE_SUBPATH, RECEIVING_SUBPATH, TxFlags
+from ...constants import CHANGE_SUBPATH, DerivationPath, RECEIVING_SUBPATH, TxFlags
 from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, Scanner
 from ...i18n import _
 from ...logs import logs
@@ -129,7 +129,7 @@ class Columns(IntEnum):
     COLUMN_COUNT = 3
 
 class ImportRoles(IntEnum):
-    ENTRY = Qt.UserRole
+    ENTRY = Qt.ItemDataRole.UserRole
 
 
 class BlockchainScanDialog(WindowModalDialog):
@@ -181,12 +181,13 @@ class BlockchainScanDialog(WindowModalDialog):
 
         self._about_label = QLabel(TEXT_PRE_SCAN)
         self._about_label.setWordWrap(True)
-        self._about_label.setAlignment(Qt.AlignmentFlag(Qt.AlignLeft | Qt.AlignTop))
+        self._about_label.setAlignment(Qt.AlignmentFlag(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop))
         self._about_label.setMinimumHeight(60)
 
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 100)
-        self._progress_bar.setAlignment(Qt.AlignCenter)
+        self._progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._progress_bar.setFormat("%p% scanned")
         self._progress_bar.setVisible(False)
 
@@ -228,9 +229,9 @@ class BlockchainScanDialog(WindowModalDialog):
         tree.header().setSectionResizeMode(Columns.TX_ID, QHeaderView.Stretch)
         tree.header().setSectionResizeMode(Columns.HEIGHT, QHeaderView.ResizeToContents)
         tree.setVisible(False)
-        tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        tree.customContextMenuRequested.connect(self._on_tree_scan_context_menu)
+        tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         tree.setSelectionMode(tree.ExtendedSelection)
+        tree.customContextMenuRequested.connect(self._on_tree_scan_context_menu)
         self._scan_tree_indexes: Dict[bytes, int] = {}
 
         details_layout = self._details_layout = QVBoxLayout()
@@ -264,10 +265,10 @@ class BlockchainScanDialog(WindowModalDialog):
 
         vbox = QVBoxLayout(self)
         vbox.addWidget(self._about_label)
-        vbox.addWidget(self._progress_bar, Qt.AlignCenter)
+        vbox.addWidget(self._progress_bar, Qt.AlignmentFlag.AlignCenter)
         vbox.addWidget(button_box_line)
         vbox.addLayout(button_box)
-        vbox.setSizeConstraint(QLayout.SetFixedSize)
+        vbox.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
 
         self._scan_button.setFocus()
         self.rejected.connect(self._on_dialog_rejected)
@@ -275,7 +276,7 @@ class BlockchainScanDialog(WindowModalDialog):
 
         self.setLayout(vbox)
 
-    def update_gap_limit(self, subpath: Sequence[int], value: int) -> None:
+    def update_gap_limit(self, subpath: DerivationPath, value: int) -> None:
         # This is a reference to the object the scanner was given. It should only be possible for
         # the scan advanced settings to update this before the scan.
         self._advanced_settings.gap_limits[subpath] = value
@@ -506,7 +507,7 @@ class BlockchainScanDialog(WindowModalDialog):
         self._scan_end_time = int(time.time())
 
         all_tx_hashes: List[bytes] = []
-        subpath_indexes: Dict[Sequence[int], int] = defaultdict(int)
+        subpath_indexes: Dict[DerivationPath, int] = defaultdict(int)
         self._import_state: Dict[bytes, TransactionScanState] = {}
         for script_hash, script_history in self._scanner.get_scan_results().items():
             # TODO Look into why there are empty script history lists. This seems like a minor
@@ -641,7 +642,7 @@ class BlockchainScanDialog(WindowModalDialog):
         tree = self._scan_detail_tree
 
         tree_items = tree.selectedItems()
-        entries = [ tree_item.data(0, Qt.UserRole) for tree_item in tree_items ]
+        entries = [ tree_item.data(0, Qt.ItemDataRole.UserRole) for tree_item in tree_items ]
         if not len(entries):
             return
 
@@ -699,7 +700,7 @@ class AdvancedScanOptionsDialog(WindowModalDialog):
                 return QFontMetrics(self.font()).boundingRect(s).width() + 10
 
             receiving_edit = QSpinBox()
-            receiving_edit.setAlignment(Qt.AlignRight)
+            receiving_edit.setAlignment(Qt.AlignmentFlag.AlignRight)
             receiving_edit.setMinimum(20)
             receiving_edit.setMaximum(100000)
             receiving_edit.setMaximumWidth(mw("8888888") + 10)
@@ -712,7 +713,7 @@ class AdvancedScanOptionsDialog(WindowModalDialog):
             self._adjust_contents_margins(receiving_label, left_plus=5)
 
             change_edit = QSpinBox()
-            change_edit.setAlignment(Qt.AlignRight)
+            change_edit.setAlignment(Qt.AlignmentFlag.AlignRight)
             change_edit.setMinimum(10)
             change_edit.setMaximum(100000)
             change_edit.setMaximumWidth(mw("8888888") + 10)

@@ -8,6 +8,7 @@ services that provide the required data, and a funding account for use of it. Th
 subscription management from the global application to the per-wallet context.
 """
 
+import concurrent.futures
 import threading
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -55,7 +56,8 @@ class SubscriptionManager:
             -> None:
         self._owner_callbacks[owner] = callback
 
-    def remove_owner(self, owner: SubscriptionOwner) -> None:
+    def remove_owner(self, owner: SubscriptionOwner) -> Optional[concurrent.futures.Future]:
+        future: Optional[concurrent.futures.Future] = None
         with self._lock:
             if owner in self._owner_callbacks:
                 del self._owner_callbacks[owner]
@@ -63,8 +65,9 @@ class SubscriptionManager:
             if owner in self._owner_subscriptions:
                 subscribed_entries = [ SubscriptionEntry(key, None)
                     for key in self._owner_subscriptions[owner] ]
-                self.delete_entries(subscribed_entries, owner)
+                future = self.delete_entries(subscribed_entries, owner)
                 del self._owner_subscriptions[owner]
+        return future
 
     def set_script_hash_callbacks(self, added_callback: ScriptHashSubscriptionCallback,
             removed_callback: ScriptHashSubscriptionCallback) -> None:
@@ -160,17 +163,17 @@ class SubscriptionManager:
                 script_hash_entries.append(ScriptHashSubscriptionEntry(subscription_id, key.value))
             return script_hash_entries
 
-    def delete_entries(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) -> int:
+    def delete_entries(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) \
+            -> Optional[concurrent.futures.Future]:
         """
         Remove subscriptions from the given owner.
         """
-        removals = 0
+        future: Optional[concurrent.futures.Future] = None
         with self._lock:
             script_hash_entries: List[ScriptHashSubscriptionEntry] = []
             for entry in entries:
                 subscription_id = self._remove_subscription(entry, owner)
                 if subscription_id is not None:
-                    removals += 1
                     # All subscriptions for this key are removed, notify unsubscribing is possible.
                     if entry.key.value_type == SubscriptionType.SCRIPT_HASH:
                         script_hash_entries.append(
@@ -183,9 +186,9 @@ class SubscriptionManager:
                 #   block the caller. Is this acceptable behaviour? In this case, the caller would
                 #   sometimes be the network thread and it would block it indefinitely, so we did
                 #   not have an option.
-                app_state.app.run_coro(self._script_hashes_removed_callback,
+                future = app_state.app.run_coro(self._script_hashes_removed_callback,
                     script_hash_entries)
-        return removals
+        return future
 
     async def on_script_hash_history(self, subscription_id: int, script_hash: bytes,
             result: ElectrumXHistoryList) -> None:

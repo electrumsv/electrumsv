@@ -20,6 +20,8 @@ from async_timeout import timeout
 
 from electrumsv_sdk import commands
 
+from electrumsv_sdk import commands
+
 from electrumsv.constants import TxFlags
 from electrumsv.networks import SVRegTestnet, Net
 from electrumsv.restapi import Fault
@@ -58,8 +60,11 @@ class TestRestAPI:
         cls.TEST_WALLET_NAME = "worker1.sqlite"
 
     def _load_wallet(self):
+        payload = {
+            "password": "test"
+        }
         _result1 = requests.post(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/'
-                                 f'{self.TEST_WALLET_NAME}/load_wallet')
+                                 f'{self.TEST_WALLET_NAME}/load_wallet', json=payload)
         if _result1.status_code != 200:
             raise requests.exceptions.HTTPError(_result1.text)
         return _result1

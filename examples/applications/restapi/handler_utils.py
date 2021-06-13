@@ -11,8 +11,8 @@ from aiohttp import web
 
 from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.coinchooser import PRNG
-from electrumsv.constants import (CHANGE_SUBPATH, DATABASE_EXT, TransactionOutputFlag, TxFlags,
-    unpack_derivation_path, WalletSettings)
+from electrumsv.constants import (CHANGE_SUBPATH, CredentialPolicyFlag, DATABASE_EXT,
+    TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletSettings)
 from electrumsv.exceptions import NotEnoughFunds
 from electrumsv.restapi_endpoints import ARGTYPES, HandlerUtils, VARNAMES
 from electrumsv.transaction import Transaction
@@ -21,7 +21,8 @@ from electrumsv.logs import logs
 from electrumsv.app_state import app_state
 from electrumsv.restapi import decode_request_body, Fault, get_network_type
 from electrumsv.simple_config import SimpleConfig
-from electrumsv.types import TxoKeyType
+from electrumsv.storage import WalletStorage
+from electrumsv.types import TransactionSize, TxoKeyType
 from electrumsv.wallet_database.types import (TransactionOutputSpendableRow)
 from examples.applications.restapi.constants import WalletEventNames
 
@@ -166,7 +167,7 @@ class ExtendedHandlerUtils(HandlerUtils):
             check_wallet_availability=True) -> Dict[str, Any]:
         """Extracts and checks all standardized header and body variables from the request object
         as a dictionary to feed to the handlers."""
-        vars: Dict[Any] = {}
+        vars: Dict = {}
         header_vars = self.get_header_vars(request)
         body_vars = await self.get_body_vars(request)
         vars.update(header_vars)
@@ -275,30 +276,34 @@ class ExtendedHandlerUtils(HandlerUtils):
         wallet = self._get_parent_wallet(wallet_name)
         return wallet.is_synchronized()
 
-    async def _load_wallet(self, wallet_name: Optional[str] = None) -> Union[Fault, Wallet]:
+    async def _load_wallet(self, wallet_name: str, wallet_password: str) \
+            -> Union[Fault, Wallet]:
         """Loads one parent wallet into the daemon and begins synchronization"""
-        if not wallet_name.endswith(".sqlite"):
-            wallet_name += ".sqlite"
+        wallet_name = WalletStorage.canonical_path(wallet_name)
 
         path_result = self._get_wallet_path(wallet_name)
-        parent_wallet = self.app_state.daemon.get_wallet(path_result)
+        wallet = self.app_state.daemon.get_wallet(path_result)
         # If wallet is not already loaded - register for websocket events and allow gap limit
         # adjustments for faster synchronization with high tx throughput. However, gap limit
         # scanning should become less relevant as wallet matures to 'true SPV' and merchant API use.
         # multiple change addresses is preferred for privacy and keeping utxo set granular
-        if parent_wallet is None:
+        if wallet is None:
             self.network = self.app_state.daemon.network
-            parent_wallet = self.app_state.daemon.load_wallet(path_result)
-            parent_wallet.register_callback(app_state.app.on_triggered_event,
+
+            app_state.credentials.set_wallet_password(path_result, wallet_password,
+                CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
+
+            wallet = self.app_state.daemon.load_wallet(path_result)
+            if wallet is None:
+                raise Fault(Errors.WALLET_NOT_LOADED_CODE, Errors.WALLET_NOT_LOADED_MESSAGE)
+
+            wallet.register_callback(app_state.app.on_triggered_event,
                 [WalletEventNames.TRANSACTION_STATE_CHANGE, WalletEventNames.TRANSACTION_ADDED,
                     WalletEventNames.VERIFIED])
-            parent_wallet.set_boolean_setting(WalletSettings.USE_CHANGE, True)
-            parent_wallet.set_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True)
+            wallet.set_boolean_setting(WalletSettings.USE_CHANGE, True)
+            wallet.set_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True)
 
-        if parent_wallet is None:
-            raise Fault(Errors.WALLET_NOT_LOADED_CODE,
-                         Errors.WALLET_NOT_LOADED_MESSAGE)
-        return parent_wallet
+        return wallet
 
     def _fetch_transaction_dto(self, account: AbstractAccount, tx_id) -> Optional[Dict]:
         tx_hash = hex_str_to_hash(tx_id)
@@ -343,7 +348,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
         tx = Transaction.from_io([], outputs)
         # Size of the transaction with no inputs and no change
-        base_size = tx.estimated_size()
+        base_size = sum(tx.estimated_size())
         spent_amount = tx.output_value()
         fee_estimator = app_state.config.estimate_fee
 
@@ -493,8 +498,8 @@ class ExtendedHandlerUtils(HandlerUtils):
             require_confirmed: bool = True,
             ) -> Union[Tuple[List[TransactionOutputSpendableRow], List[TxOutput], bool], Fault]:
 
-        INPUT_COST = config.estimate_fee(INPUT_SIZE)
-        OUTPUT_COST = config.estimate_fee(OUTPUT_SIZE)
+        INPUT_COST = config.estimate_fee(TransactionSize(INPUT_SIZE, 0))
+        OUTPUT_COST = config.estimate_fee(TransactionSize(OUTPUT_SIZE, 0))
         all_coins = account.get_spendable_transaction_outputs(exclude_frozen=True, mature=True)
 
         # adds extra inputs as required to meet the desired utxo_count.

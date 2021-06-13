@@ -1,2 +1,2 @@
 from .plugin import HW_PluginBase
-from .cmdline import CmdLineHandler
+from .qt import QtHandlerBase, QtPluginBase

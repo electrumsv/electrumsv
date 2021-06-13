@@ -1,7 +1,9 @@
-from typing import Any, NamedTuple, Optional, Sequence, Set, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple, Union
 
-from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag, PaymentFlag, ScriptType,
-    TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
+from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag, NetworkServerFlag,
+    NetworkServerType, PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
+    WalletEventType)
+from ..types import MasterKeyDataTypes
 
 
 class AccountRow(NamedTuple):
@@ -109,6 +111,36 @@ class MasterKeyRow(NamedTuple):
     derivation_data: bytes
 
 
+class NetworkServerRow(NamedTuple):
+    url: str
+    server_type: NetworkServerType
+    encrypted_api_key: Optional[str] = None
+    flags: NetworkServerFlag = NetworkServerFlag.NONE
+    fee_quote_json: Optional[str] = None
+    date_last_try: int = 0
+    date_last_good: int = 0
+    date_created: int = -1
+    date_updated: int = -1
+
+
+class NetworkServerAccountRow(NamedTuple):
+    url: str
+    server_type: NetworkServerType
+    account_id: int
+    encrypted_api_key: Optional[str] = None
+    fee_quote_json: Optional[str] = None
+    date_last_try: int = 0
+    date_last_good: int = 0
+    date_created: int = -1
+    date_updated: int = -1
+
+
+class PasswordUpdateResult(NamedTuple):
+    password_token: str
+    account_private_key_updates: Dict[int, List[Tuple[int, str]]]
+    masterkey_updates: List[Tuple[int, DerivationType, MasterKeyDataTypes]]
+
+
 class PaymentRequestRow(NamedTuple):
     paymentrequest_id: int
     keyinstance_id: int
@@ -185,7 +217,7 @@ class TransactionOutputAddRow(NamedTuple):
     tx_hash: bytes
     txo_index: int
     value: int
-    keyinstance_id: Optional[int]
+    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
     script_type: ScriptType
     flags: TransactionOutputFlag
     script_hash: bytes
