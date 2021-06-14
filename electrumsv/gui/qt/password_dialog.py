@@ -59,7 +59,7 @@ def check_password_strength(password: str) -> str:
     num = re.search("[0-9]", password) is not None and re.match("^[0-9]*$", password) is None
     caps = password != password.upper() and password != password.lower()
     extra = re.match("^[a-zA-Z0-9]*$", password) is None
-    score = len(password)*( n + caps + num + extra)/20
+    score = len(password) * (n + int(caps) + int(num) + int(extra))/20
     password_strength = {0:"Weak",1:"Medium",2:"Strong",3:"Very Strong"}
     return password_strength[min(3, int(score))]
 
@@ -84,17 +84,17 @@ class PasswordLineEdit(QWidget):
         self.pw.setMinimumWidth(220)
         self.reveal_button = self.pw.addButton(self.reveal_png, self.toggle_visible,
             _("Toggle visibility"))
-        self.reveal_button.setFocusPolicy(Qt.NoFocus)
+        self.reveal_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         keyboard_button = self.pw.addButton("keyboard.png", self.toggle_keyboard,
             _("Virtual keyboard"))
-        keyboard_button.setFocusPolicy(Qt.NoFocus)
+        keyboard_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.pw.setEchoMode(QLineEdit.Password)
         self.keyboard = VirtualKeyboard(self.pw)
         self.keyboard.setVisible(False)
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         layout.addWidget(self.pw)
         layout.addWidget(self.keyboard)
         self.setLayout(layout)
@@ -155,7 +155,7 @@ class PasswordLayout(object):
             logo_grid.setColumnStretch(1,1)
 
             logo = QLabel()
-            logo.setAlignment(Qt.AlignCenter)
+            logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
             logo_grid.addWidget(logo,  0, 0)
             logo_grid.addWidget(label, 0, 1, 1, 2)
@@ -189,7 +189,7 @@ class PasswordLayout(object):
         def enable_OK() -> None:
             new_password = self.new_pw.text().strip()
             confirm_password = self.conf_pw.text().strip()
-            ok = len(new_password) and new_password == confirm_password
+            ok = len(new_password) > 0 and new_password == confirm_password
             if password_valid_fn is not None:
                 existing_password = self.pw.text().strip()
                 ok = ok and password_valid_fn(existing_password)
@@ -263,7 +263,7 @@ class ChangePasswordDialog(WindowModalDialog):
         self.setWindowTitle(self.playout.title() if title is None else title)
 
         vbox = QVBoxLayout(self)
-        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        vbox.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         vbox.addLayout(self.playout.layout())
         vbox.addStretch(1)
         buttons = Buttons(CancelButton(self), ok_button)
@@ -291,7 +291,7 @@ class ChangePasswordDialog(WindowModalDialog):
             self.playout.new_pw.setText('')
 
     def _on_key_event(self, keycode: int) -> None:
-        if keycode not in {Qt.Key_Return, Qt.Key_Enter}:
+        if keycode not in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
             return
         if self._ok_button.isEnabled():
             self.accept()
@@ -323,7 +323,7 @@ class PasswordDialog(WindowModalDialog):
         logo_grid.setColumnStretch(1,1)
 
         logo = QLabel()
-        logo.setAlignment(Qt.AlignCenter)
+        logo.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lockfile = "lock.png"
         logo.setPixmap(QPixmap(icon_path(lockfile)).scaledToWidth(36))
 
@@ -342,8 +342,8 @@ class PasswordDialog(WindowModalDialog):
         vbox.addLayout(logo_grid)
         vbox.addWidget(form)
         vbox.addStretch(1)
-        vbox.addLayout(Buttons(CancelButton(self), self._ok_button), Qt.AlignBottom)
-        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        vbox.addLayout(Buttons(CancelButton(self), self._ok_button), Qt.AlignmentFlag.AlignBottom)
+        vbox.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         self.setLayout(vbox)
 
         self.pw.key_event_signal.connect(self._on_key_event)
@@ -367,7 +367,7 @@ class PasswordDialog(WindowModalDialog):
             self._ok_button.setEnabled(False)
 
     def _on_key_event(self, keycode: int) -> None:
-        if keycode not in {Qt.Key_Return, Qt.Key_Enter}:
+        if keycode not in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
             return
         if self._ok_button.isEnabled():
             self.accept()
@@ -390,7 +390,7 @@ class PassphraseDialog(WindowModalDialog):
         self._on_device_selected = False
 
     def _on_key_event(self, keycode: int) -> None:
-        if keycode in {Qt.Key_Return, Qt.Key_Enter}:
+        if keycode in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
             self.accept()
 
     def _on_device_clicked(self) -> None:

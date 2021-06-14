@@ -924,6 +924,10 @@ class TextStore(AbstractStore):
             def update_private_data(data: str) -> str:
                 # We can assume that the new password is the old password.
                 if has_password:
+                    # We do this for several reasons.
+                    # 1. A legacy wallet that has encrypted secured data, but not the file itself.
+                    # 2. Any passworded wallet that has data, to ensure it is correctly encrypted.
+                    pw_decode(data, new_password)
                     return data
                 return pw_encode(data, new_password)
 
@@ -1307,8 +1311,8 @@ class WalletStorage:
             self._set_store(store)
 
     @classmethod
-    def create(klass, wallet_path: str, password: str) -> 'WalletStorage':
-        storage = klass(wallet_path)
+    def create(cls, wallet_path: str, password: str) -> 'WalletStorage':
+        storage = cls(wallet_path)
         storage.put("password-token", pw_encode(os.urandom(32).hex(), password))
         return storage
 
@@ -1432,13 +1436,13 @@ class WalletStorage:
         return None
 
     @classmethod
-    def files_are_matched_by_path(klass, path: Optional[str]) -> bool:
+    def files_are_matched_by_path(cls, path: Optional[str]) -> bool:
         if path is None:
             return False
         return categorise_file(path).kind != StorageKind.UNKNOWN
 
     @classmethod
-    def canonical_path(klass, database_filepath: str) -> str:
+    def canonical_path(cls, database_filepath: str) -> str:
         if not database_filepath.lower().endswith(DATABASE_EXT):
             database_filepath += DATABASE_EXT
         return database_filepath

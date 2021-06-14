@@ -92,6 +92,7 @@ DEVICE_SETUP_SUCCESS_TEXT = _("Your {} hardware wallet was both successfully det
 
 
 class AccountPage(enum.IntEnum):
+    UNKNOWN = -1
     NONE = 0
 
     ADD_ACCOUNT_MENU = 100
@@ -251,7 +252,7 @@ class AddAccountWizardPage(QWizardPage):
     def __init__(self, wizard: AccountWizard) -> None:
         super().__init__(wizard)
 
-        self.setTitle(_("Account Types"))
+        self.setTitle(_("Add an account to your wallet"))
         self.setFinalPage(False)
 
         page = self
@@ -410,8 +411,14 @@ class AddAccountWizardPage(QWizardPage):
             title_start_html = title_end_html = ""
             entry = {
                 'icon_filename': 'icons8-decision-80.png',
-                'description': _("Select the way in which you want to add a new account "+
-                    "from the options to the left."),
+                'description': "<p>"+
+                    _("The first step in adding an account to a wallet, is to choose "
+                    "the type of account. A range of different account types are available to "
+                    "the left.") +
+                    "</p><p>"+
+                    _("If you want to find out more about an account type, select the "
+                    "entry and further detail will be shown here.") +
+                    "</p>",
             }
         html = f"""
         <center>
@@ -428,8 +435,8 @@ class AddAccountWizardPage(QWizardPage):
 
     def _get_entries(self):
         seed_phrase_html = ("<p>"+
-            _("A seed phrase is a way of storing an account's private key. "+
-              "Using it ElectrumSV can access the wallet's previous "+
+            _("A seed phrase (also known as seed words or a mnemonic) is a way of storing an "
+              "account's master key. Using it ElectrumSV can access the wallet's previous "+
               "payments, and send and receive the coins in the wallet.") +
             "</p>")
 
@@ -499,6 +506,19 @@ class AddAccountWizardPage(QWizardPage):
                 'page': AccountPage.FIND_HARDWARE_WALLET,
                 'description': _("Import hardware wallet"),
                 'icon_filename': 'icons8-usb-2-80-blueui-active.png',
+                'long_description': "<p>"+
+                    _("If you have a hardware wallet you can create an account "
+                    "that will be linked to it, requiring the hardware device to be "
+                    "connected to sign any outgoing payments.")+
+                    "</p><p>"+
+                    _("Only the following types of hardware wallet are supported:")+
+                    "<ul>"
+                    "<li>Digital Bitbox</li>"
+                    "<li>KeepKey</li>"
+                    "<li>Ledger</li>"
+                    "<li>Trezor</li>"
+                    "</ul>"
+                    "</p>",
                 'enabled': True,
                 'mode_mask': WizardFlags.ALL_MODES,
             },
@@ -512,7 +532,7 @@ class ImportWalletTextPage(QWizardPage):
         self.setTitle(_("Import Account From Text"))
         self.setFinalPage(True)
 
-        self._next_page_id = -1
+        self._next_page_id = AccountPage.UNKNOWN
         self._checked_match_type: Optional[KeystoreTextType] = None
         self._matches: Dict[KeystoreTextType, KeystoreMatchType] = {}
 
@@ -708,7 +728,7 @@ class ImportWalletTextPage(QWizardPage):
         assert self.isComplete()
 
         wizard: AccountWizard = self.wizard()
-        if self._next_page_id == -1:
+        if self._next_page_id == AccountPage.UNKNOWN:
             # Create the account with no customisation
             if not self._create_account(main_window=wizard._main_window):
                 return False
@@ -724,7 +744,7 @@ class ImportWalletTextPage(QWizardPage):
         return self._next_page_id
 
     def on_enter(self) -> None:
-        self._next_page_id = -1
+        self._next_page_id = AccountPage.UNKNOWN
         wizard: AccountWizard = self.wizard()
 
         button = wizard.button(QWizard.CustomButton1)
@@ -740,7 +760,7 @@ class ImportWalletTextPage(QWizardPage):
         button = self.wizard().button(QWizard.CustomButton1)
         button.clicked.disconnect()
         button.setVisible(False)
-        self._next_page_id = -1
+        self._next_page_id = AccountPage.UNKNOWN
 
     @protected
     def _create_account(self, main_window: Optional[ElectrumWindow]=None,
@@ -1304,6 +1324,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
             'derivation': derivation_text,
             'xpub': mpk.to_extended_key_string(),
             'label': label.strip() if label and label.strip() else None,
+            'cfg': None,
         }
         keystore = instantiate_keystore(DerivationType.HARDWARE, data)
         wizard.set_keystore_result(ResultType.HARDWARE, keystore)

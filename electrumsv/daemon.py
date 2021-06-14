@@ -35,12 +35,13 @@ import requests
 from .restapi import AiohttpServer
 from .app_state import app_state
 from .commands import known_commands, Commands
-from .constants import CredentialPolicyFlag
+from .constants import CredentialPolicyFlag, DATABASE_EXT, StorageKind
+from .credentials import CredentialCache
 from .exchange_rate import FxTask
 from .logs import logs
 from .network import Network
 from .simple_config import SimpleConfig
-from .storage import WalletStorage
+from .storage import categorise_file, WalletStorage
 from .util import json_decode, DaemonThread, get_wallet_name_from_path
 from .version import PACKAGE_VERSION
 from .wallet import Wallet
@@ -213,8 +214,8 @@ class Daemon(DaemonThread):
             wallet_path = WalletStorage.canonical_path(cmdline_wallet_filepath)
             wallet_password = config_options.get('password')
             assert wallet_password is not None
-            app_state.credentials.set_wallet_password(wallet_path, wallet_password,
-                CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
+            cast(CredentialCache, app_state.credentials).set_wallet_password(
+                wallet_path, wallet_password, CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
             wallet = self.load_wallet(wallet_path)
             if wallet is None:
                 response = "Unable to load wallet"
@@ -257,11 +258,15 @@ class Daemon(DaemonThread):
         return "error: ElectrumSV is running in daemon mode; stop the daemon first."
 
     def load_wallet(self, wallet_filepath: str) -> Optional[Wallet]:
-        if wallet_filepath in self.wallets:
-            wallet = self.wallets[wallet_filepath]
-            return wallet
-        if not WalletStorage.files_are_matched_by_path(wallet_filepath):
+        wallet_categorisation = categorise_file(wallet_filepath)
+        if wallet_categorisation.kind == StorageKind.DATABASE:
+            wallet_filepath = wallet_categorisation.wallet_filepath + DATABASE_EXT
+        elif wallet_categorisation.kind != StorageKind.FILE:
             return None
+
+        if wallet_filepath in self.wallets:
+            return self.wallets[wallet_filepath]
+
         storage = WalletStorage(wallet_filepath)
         if storage.requires_split():
             storage.close()
@@ -272,11 +277,10 @@ class Daemon(DaemonThread):
             logger.debug("Wallet '%s' requires an upgrade", wallet_filepath)
             return None
 
-        wallet_password = cast(str, app_state.credentials.get_wallet_password(wallet_filepath))
+        wallet_password = cast(CredentialCache, app_state.credentials).get_wallet_password(
+            wallet_filepath)
         if wallet_password is None:
             logger.debug("Wallet '%s' password is not cached", wallet_filepath)
-            import traceback
-            traceback.print_stack()
             return None
         if not storage.is_password_valid(wallet_password):
             logger.debug("Wallet '%s' password does not match", wallet_filepath)
@@ -304,7 +308,7 @@ class Daemon(DaemonThread):
             wallet.stop()
 
     def stop_wallets(self):
-        for path in list(self.wallets.keys()):
+        for path in list(self.wallets):
             self.stop_wallet_at_path(path)
 
     async def run_cmdline(self, config_options: dict) -> Any:

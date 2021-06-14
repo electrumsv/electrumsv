@@ -1,11 +1,11 @@
 import concurrent.futures
 from enum import IntEnum
 from functools import partial, lru_cache
-import os.path
+import os
 import sys
 import time
 import traceback
-from typing import Any, Iterable, List, Callable, Optional, Set, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Iterable, List, Optional, Set, TYPE_CHECKING, Union
 import weakref
 
 from aiorpcx import RPCError
@@ -30,6 +30,7 @@ from electrumsv.types import WaitingUpdateCallback
 from electrumsv.util import resource_path
 
 if TYPE_CHECKING:
+    from ...credentials import CredentialCache
     from .main_window import ElectrumWindow
 
 
@@ -822,7 +823,7 @@ class ButtonsWidget(QWidget):
                 button.move(x, y - sz.height())
 
     def addButton(self, icon_name: str, on_click: Callable[[], None], tooltip: str,
-            insert: bool=False) -> None:
+            insert: bool=False) -> QToolButton:
         button = QToolButton(self)
         button.setIcon(read_QIcon(icon_name))
         # Horizontal buttons are inside the edit widget and do not have borders.
@@ -1110,7 +1111,7 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
     storage.close()
     # Store the credential in case we most likely are going to open it immediately and do not
     # want to prompt for the password immediately after the user just specififed it.
-    app_state.credentials.set_wallet_password(wallet_path, new_password,
+    cast("CredentialCache", app_state.credentials).set_wallet_password(wallet_path, new_password,
         CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD | CredentialPolicyFlag.IS_BEING_ADDED)
     return create_filepath
 

@@ -227,7 +227,23 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._wallet.register_callback(self._on_transaction_verified, ['transaction_verified'])
 
         self.load_wallet()
-        self._on_ready()
+
+        self._accounts_view.on_wallet_loaded()
+
+        use_multiple_accounts = self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
+        self._update_add_account_button(use_multiple_accounts)
+
+        # This is what should normally happen when the window is ready, and multiple-accounts
+        # are allowed.
+        # self._add_account_action.setEnabled(True)
+
+        # If the user is opening a wallet with no accounts, we show them the add an account wizard
+        # automatically. It may be that at a later time, we allow people to disable this optionally
+        # but some users struggle to read the "add account" text or maybe just like to complain.
+        if not len(wallet.get_accounts()):
+            from . import account_wizard
+            wizard = account_wizard.AccountWizard(self)
+            wizard.show()
 
         self.app.timer.timeout.connect(self.timer_actions)
 
@@ -245,16 +261,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         elif current_tab is self.send_tab:
             if self.is_send_view_active():
                 self._send_view.on_tab_activated()
-
-    def _on_ready(self) -> None:
-        self._accounts_view.on_wallet_loaded()
-
-        use_multiple_accounts = self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
-        self._update_add_account_button(use_multiple_accounts)
-
-        # This is what should normally happen when the window is ready, and multiple-accounts
-        # are allowed.
-        # self._add_account_action.setEnabled(True)
 
     def _create_tabs(self) -> None:
         tabs = self._tab_widget
@@ -889,10 +895,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # from importlib import reload
         # reload(account_wizard)
         wizard_window = account_wizard.AccountWizard(self)
-        result = wizard_window.run()
-        if result != QDialog.Accepted:
-            # Clean up?
-            return
+        wizard_window.show()
+        # if result != QDialog.Accepted:
+        #     # Clean up?
+        #     return
 
     def new_payment(self) -> None:
         from . import payment

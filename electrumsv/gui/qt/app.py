@@ -30,7 +30,7 @@ from functools import partial
 import signal
 import sys
 import threading
-from typing import Callable, Iterable, Optional
+from typing import Callable, cast, Iterable, Optional, TYPE_CHECKING
 
 from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
@@ -53,6 +53,9 @@ from .label_sync import LabelSync
 from .log_window import SVLogWindow, SVLogHandler
 from .util import ColorScheme, get_default_language, MessageBox, read_QIcon
 from .wallet_wizard import WalletWizard
+
+if TYPE_CHECKING:
+    from ...daemon import Daemon
 
 
 logger = logs.get_logger('app')
@@ -161,7 +164,7 @@ class SVApplication(QApplication):
 
     def _close_window(self, window):
         logger.debug(f"app.close_window.executing {window!r}")
-        app_state.daemon.stop_wallet_at_path(window._wallet.get_storage_path())
+        cast("Daemon", app_state.daemon).stop_wallet_at_path(window._wallet.get_storage_path())
         self.windows.remove(window)
         self.window_closed_signal.emit(window)
         self._build_tray_menu()
@@ -214,7 +217,7 @@ class SVApplication(QApplication):
         self.create_new_window_signal.emit(path, uri)
 
     def show_network_dialog(self, parent) -> None:
-        if not app_state.daemon.network:
+        if not cast("Daemon", app_state.daemon).network:
             parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
                                   'ElectrumSV if you want to get connected'), title=_('Offline'))
             return
@@ -225,7 +228,10 @@ class SVApplication(QApplication):
             return
         # from importlib import reload
         # reload(network_dialog)
-        self.net_dialog = network_dialog.NetworkDialog(app_state.daemon.network)
+        daemon = cast("Daemon", app_state.daemon)
+        network = daemon.network
+        assert network is not None
+        self.net_dialog = network_dialog.NetworkDialog(network)
         self.net_dialog.show()
 
     def show_log_viewer(self) -> None:
@@ -312,14 +318,16 @@ class SVApplication(QApplication):
                 wizard_window = WalletWizard(is_startup=is_startup)
             if wizard_window is not None:
                 result = wizard_window.run()
+                # This will return Accepted in some failure cases, like migration failure, due
+                # to wallet wizard standard buttons not being easily dynamically changeable.
                 if result != QDialog.Accepted:
                     return None
                 wallet_path = wizard_window.get_wallet_path()
-                # We cannot rely on accept alone indicating success.
                 if wallet_path is None:
                     return None
             # All paths leading to this obtain a password and put it in the credential cache.
-            wallet = app_state.daemon.load_wallet(wallet_path)
+            assert wallet_path is not None
+            wallet = cast("Daemon", app_state.daemon).load_wallet(wallet_path)
             assert wallet is not None
             w = self._create_window_for_wallet(wallet)
         if uri:

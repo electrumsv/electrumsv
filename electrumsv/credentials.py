@@ -47,7 +47,7 @@ import uuid
 
 from bitcoinx import PrivateKey
 
-from .constants import CredentialPolicyFlag
+from .constants import CredentialPolicyFlag, DATABASE_EXT
 from .logs import logs
 from .types import IndefiniteCredentialId
 
@@ -107,17 +107,20 @@ class CredentialCache:
         if self.fatal_error:
             logger.error("Ignoring request to store credential due to fatal error")
             return
+        # We ensure all the wallet paths have database extensions so that legacy wallets
+        # passwords are applied to the migrated database paths.
+        if not wallet_path.endswith(DATABASE_EXT):
+            wallet_path += DATABASE_EXT
         with self._credential_lock:
             assert wallet_path not in self._wallet_credentials
-        creation_time = time.time()
-        encrypted_value = cast(bytes, self._public_key.encrypt_message(password))
-        if policy is None:
-            credential = WalletCredential(encrypted_value, creation_time)
-        else:
-            credential = WalletCredential(encrypted_value, creation_time, policy)
-        if credential.policy & CredentialPolicyFlag.DISCARD_IMMEDIATELY:
-            return
-        with self._credential_lock:
+            creation_time = time.time()
+            encrypted_value = cast(bytes, self._public_key.encrypt_message(password))
+            if policy is None:
+                credential = WalletCredential(encrypted_value, creation_time)
+            else:
+                credential = WalletCredential(encrypted_value, creation_time, policy)
+            if credential.policy & CredentialPolicyFlag.DISCARD_IMMEDIATELY:
+                return
             assert not self.closed
             self._wallet_credentials[wallet_path] = credential
 
@@ -127,6 +130,10 @@ class CredentialCache:
 
     def get_wallet_password_and_policy(self, wallet_path: str) \
             -> Tuple[Optional[str], CredentialPolicyFlag]:
+        # We ensure all the wallet paths have database extensions so that legacy wallets
+        # passwords are applied to the migrated database paths.
+        if not wallet_path.endswith(DATABASE_EXT):
+            wallet_path += DATABASE_EXT
         with self._credential_lock:
             credential = self._wallet_credentials.get(wallet_path)
             if credential is not None:
