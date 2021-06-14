@@ -38,9 +38,10 @@ from PyQt5.QtWidgets import QMenu, QMessageBox, QTreeWidgetItem, QVBoxLayout, QW
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COINBASE_MATURITY
-from electrumsv.constants import TxFlags
+from electrumsv.constants import PaymentFlag, TxFlags
 from electrumsv.i18n import _
 from electrumsv.logs import logs
+from electrumsv.paymentrequest import has_expired
 from electrumsv.platform import platform
 from electrumsv.util import timestamp_to_datetime, profiler, format_time
 from electrumsv.wallet import AbstractAccount
@@ -377,9 +378,32 @@ class HistoryList(MyTreeWidget):
                     lambda: self._main_window.cpfp(account, tx, child_tx))
 
         if flags is not None and flags & TxFlags.MASK_STATE_UNCLEARED != 0:
+            if flags & TxFlags.PAYS_INVOICE:
+                broadcast_action = menu.addAction(self._invoice_icon, _("Pay invoice"),
+                    lambda: self._pay_invoice(tx_hash))
+
+                row = self._account._wallet.read_invoice(tx_hash=tx_hash)
+                if row is None:
+                    # The associated invoice has been deleted.
+                    broadcast_action.setEnabled(False)
+                elif row.flags & PaymentFlag.UNPAID == 0:
+                    # The associated invoice has already been paid.
+                    broadcast_action.setEnabled(False)
+                elif has_expired(row.date_expires):
+                    # The associated invoice has expired.
+                    broadcast_action.setEnabled(False)
+            else:
+                menu.addAction(_("Broadcast"),
+                    lambda: self._broadcast_transaction(tx_hash))
+
             menu.addAction(_("Remove from account"), partial(self._delete_transaction, tx_hash))
 
         menu.exec_(self.viewport().mapToGlobal(position))
+
+    def _broadcast_transaction(self, tx_hash: bytes) -> None:
+        tx = self._wallet.get_transaction(tx_hash)
+        self._main_window.broadcast_transaction(self._account, tx,
+            window=self._main_window.reference())
 
     def _show_invoice_window(self, invoice_id: int) -> None:
         row = self._wallet.read_invoice(invoice_id=invoice_id)

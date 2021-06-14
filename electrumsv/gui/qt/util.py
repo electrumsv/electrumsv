@@ -279,8 +279,9 @@ class MessageBox:
 class UntrustedMessageDialog(QDialog):
     def __init__(self, parent, title, description, exception: Optional[Exception]=None,
             untrusted_text: str="") -> None:
-        QDialog.__init__(self, parent, Qt.WindowFlag(Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint))
+        QDialog.__init__(self, parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint |
+            Qt.WindowType.WindowCloseButtonHint))
         self.setWindowTitle(title)
         self.setMinimumSize(500, 280)
         self.setMaximumSize(1000, 400)
