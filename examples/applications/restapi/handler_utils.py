@@ -377,11 +377,12 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     # ----- Data transfer objects ----- #
 
-    def _balance_dto(self, wallet) -> Dict[Any, Any]:
-        confirmed_bal, unconfirmed_bal, unmatured_balance = wallet.get_balance()
-        return {"confirmed_balance": confirmed_bal,
-                "unconfirmed_balance": unconfirmed_bal,
-                "unmatured_balance": unmatured_balance}
+    def _balance_dto(self, wallet: AbstractAccount) -> Dict[Any, Any]:
+        wallet_balance = wallet.get_balance()
+        return {"confirmed_balance": wallet_balance.confirmed,
+                "unconfirmed_balance": wallet_balance.unconfirmed,
+                "unmatured_balance": wallet_balance.unmatured,
+                "allocated_balance": wallet_balance.allocated}
 
     def _utxo_dto(self, utxos: List[TransactionOutputSpendableRow]) -> List[Dict]:
         utxos_as_dicts = []
