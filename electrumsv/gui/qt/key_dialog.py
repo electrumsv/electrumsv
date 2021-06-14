@@ -23,7 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import List, Optional
+from typing import Optional, Sequence
 
 from PyQt5.QtWidgets import QComboBox, QLabel, QVBoxLayout
 
@@ -146,10 +146,11 @@ class KeyDialog(WindowModalDialog):
             self._script_type)
         self._script_edit.setText(payment_template.to_script_bytes().hex())
 
-    def get_domain(self) -> Optional[List[int]]:
+    def get_domain(self) -> Optional[Sequence[int]]:
         """
         This filters the history list for whatever key instances are returned below.
         """
+        assert self._key_data.keyinstance_id is not None
         return [ self._key_data.keyinstance_id ]
 
     def show_qr(self) -> None:

@@ -521,11 +521,11 @@ class AbstractAccount:
         secret, compressed = keystore.get_private_key(derivation_path, password)
         return PrivateKey(secret).to_WIF(compressed=compressed, coin=Net.COIN)
 
-    def get_frozen_balance(self) -> Tuple[int, int, int]:
+    def get_frozen_balance(self) -> WalletBalance:
         return self._wallet.read_account_balance(self._id, self._wallet.get_local_height(),
             TransactionOutputFlag.IS_FROZEN)
 
-    def get_balance(self) -> Tuple[int, int, int]:
+    def get_balance(self) -> WalletBalance:
         return self._wallet.read_account_balance(self._id, self._wallet.get_local_height())
 
     def maybe_set_transaction_dispatched(self, tx_hash: bytes) -> bool:
@@ -541,10 +541,6 @@ class AbstractAccount:
 
     # def get_paid_requests(self, keyinstance_ids: Sequence[int]) -> List[int]:
     #     return self._wallet.read_paid_requests(self._id, keyinstance_ids)
-
-    def get_raw_balance(self, flags: Optional[int]=None, mask: Optional[int]=None) \
-            -> TransactionDeltaSumRow:
-        return self._wallet.read_account_balance_raw(self._id, flags, mask)
 
     def get_key_list(self, keyinstance_ids: Optional[List[int]]=None) -> List[KeyListRow]:
         return self._wallet.read_key_list(self._id, keyinstance_ids)
@@ -606,7 +602,7 @@ class AbstractAccount:
                                     row.derivation_type, row.derivation_data2)
         )
 
-    def get_history(self, domain: Optional[Tuple[int, ...]]=None) -> List[HistoryListEntry]:
+    def get_history(self, domain: Optional[Sequence[int]]=None) -> List[HistoryListEntry]:
         """
         Return the list of transactions in the account kind of sorted from newest to oldest.
 
@@ -1997,7 +1993,7 @@ class Wallet(TriggeredCallbacks):
             account.start(self._network)
         return account
 
-    def read_history_list(self, account_id: int, keyinstance_ids: Optional[Tuple[int, ...]]=None) \
+    def read_history_list(self, account_id: int, keyinstance_ids: Optional[Sequence[int]]=None) \
             -> List[HistoryListRow]:
         return db_functions.read_history_list(self.get_db_context(), account_id, keyinstance_ids)
 

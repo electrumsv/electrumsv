@@ -1,9 +1,11 @@
 import os
+from typing import cast
 import unittest
 
 from electrumsv.i18n import _
 from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.util import format_time
+from electrumsv.wallet import AbstractAccount
 
 
 class MockWhatever:
@@ -18,14 +20,15 @@ class HistoryListTests(unittest.TestCase):
     def test_get_tx_status(self) -> None:
         from electrumsv.gui.qt.history_list import TxStatus, get_tx_status
 
-        account = MockWhatever()
+        mock_account = MockWhatever()
         local_height = 1000
         def _get_local_height() -> int:
             return local_height
-        account._wallet = MockWhatever()
-        account._wallet.get_local_height = _get_local_height
+        mock_account._wallet = MockWhatever()
+        mock_account._wallet.get_local_height = _get_local_height
         timestamp = 1 # Ignored
 
+        account = cast(AbstractAccount, mock_account)
         tx_hash = os.urandom(32)
 
         height = -1 # Legacy unconfirmed parent.

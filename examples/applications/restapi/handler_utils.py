@@ -389,7 +389,8 @@ class ExtendedHandlerUtils(HandlerUtils):
             utxos_as_dicts.append(self.utxo_as_dict(utxo))
         return utxos_as_dicts
 
-    def _history_dto(self, account: AbstractAccount, tx_flags: int=None) -> List[Dict[Any, Any]]:
+    def _history_dto(self, account: AbstractAccount, tx_flags: Optional[TxFlags]=None) \
+            -> List[Dict[Any, Any]]:
         result = []
         entries = account.get_transaction_value_entries(mask=tx_flags)
         for entry in entries:

@@ -26,7 +26,7 @@
 import enum
 from functools import partial
 import time
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Optional, Sequence, TYPE_CHECKING
 import weakref
 import webbrowser
 
@@ -34,7 +34,7 @@ from bitcoinx import hash_to_hex_str, MissingHeader
 
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QBrush, QIcon, QColor, QFont
-from PyQt5.QtWidgets import QLabel, QMenu, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QMenu, QMessageBox, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import COINBASE_MATURITY
@@ -59,13 +59,15 @@ logger = logs.get_logger("history-list")
 
 class TxStatus(enum.IntEnum):
     MISSING = 0
-    UNCONFIRMED = 1
-    UNVERIFIED = 2
-    UNMATURED = 3
-    FINAL = 4
+    LOCAL = 1
+    UNCONFIRMED = 2
+    UNVERIFIED = 3
+    UNMATURED = 4
+    FINAL = 5
 
-TX_ICONS = [
+TX_ICONS: List[Optional[str]] = [
     "icons8-question-mark-96.png",      # Missing.
+    None,                               # Local.
     "icons8-checkmark-grey-52.png",     # Unconfirmed.
     "icons8-checkmark-grey-52.png",     # Unverified.
     "icons8-lock-96.png",               # Unmatured.
@@ -73,6 +75,7 @@ TX_ICONS = [
 ]
 
 TX_STATUS = {
+    TxStatus.LOCAL: _('Local'),
     TxStatus.FINAL: _('Confirmed'),
     TxStatus.MISSING: _('Missing'),
     TxStatus.UNCONFIRMED: _('Unconfirmed'),
@@ -110,8 +113,8 @@ class Columns(enum.IntEnum):
 
 class HistoryList(MyTreeWidget):
     filter_columns = [ Columns.DATE, Columns.DESCRIPTION, Columns.AMOUNT ]
-    ACCOUNT_ROLE = Qt.UserRole
-    TX_ROLE = Qt.UserRole + 2
+    ACCOUNT_ROLE = Qt.ItemDataRole.UserRole
+    TX_ROLE = Qt.ItemDataRole.UserRole + 2
 
     def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
         MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [], Columns.DESCRIPTION)
@@ -128,7 +131,7 @@ class HistoryList(MyTreeWidget):
         self.setUniformRowHeights(True)
         self.setColumnHidden(Columns.TX_ID, True)
         self.setSortingEnabled(True)
-        self.sortByColumn(Columns.STATUS, Qt.DescendingOrder)
+        self.sortByColumn(Columns.STATUS, Qt.SortOrder.DescendingOrder)
 
         self.monospace_font = QFont(platform.monospace_font)
         self.withdrawalBrush = QBrush(QColor("#BC1E1E"))
@@ -160,7 +163,7 @@ class HistoryList(MyTreeWidget):
             headers.extend(['%s '%fx.ccy + _('Amount'), '%s '%fx.ccy + _('Balance')])
         self.update_headers(headers)
 
-    def get_domain(self) -> Optional[List[int]]:
+    def get_domain(self) -> Optional[Sequence[int]]:
         '''Overridden in key_dialog.py'''
         return None
 
@@ -212,16 +215,19 @@ class HistoryList(MyTreeWidget):
                     line.append(text)
 
             item = SortableTreeWidgetItem(line)
-            # If there is no text,
-            item.setIcon(Columns.STATUS, get_tx_icon(status))
+            icon = get_tx_icon(status)
+            if icon is not None:
+                item.setIcon(Columns.STATUS, icon)
             item.setToolTip(Columns.STATUS, get_tx_tooltip(status, conf))
             if row.tx_flags & TxFlags.PAYS_INVOICE:
                 item.setIcon(Columns.DESCRIPTION, self.invoiceIcon)
             for i in range(len(line)):
                 if i > Columns.DESCRIPTION:
-                    item.setTextAlignment(i, Qt.AlignRight | Qt.AlignVCenter)
+                    item.setTextAlignment(i, Qt.AlignmentFlag.AlignRight |
+                        Qt.AlignmentFlag.AlignVCenter)
                 else:
-                    item.setTextAlignment(i, Qt.AlignLeft | Qt.AlignVCenter)
+                    item.setTextAlignment(i, Qt.AlignmentFlag.AlignLeft |
+                        Qt.AlignmentFlag.AlignVCenter)
                 if i != Columns.DATE:
                     item.setFont(i, self.monospace_font)
             if row.value_delta and row.value_delta < 0:
@@ -278,13 +284,14 @@ class HistoryList(MyTreeWidget):
 
         status = get_tx_status(self._account, block_height, block_position, confirmations)
         tx_id = hash_to_hex_str(tx_hash)
-        # NOTE(typing) The combination of match flags does not match the available signatures.
         items = self.findItems(tx_id,
-            self.TX_ROLE | Qt.MatchContains | Qt.MatchRecursive, # type: ignore
+            Qt.MatchFlag(Qt.MatchFlag.MatchContains | Qt.MatchFlag.MatchRecursive),
             column=Columns.TX_ID)
         if items:
             item = items[0]
-            item.setIcon(Columns.STATUS, get_tx_icon(status))
+            icon = get_tx_icon(status)
+            if icon is not None:
+                item.setIcon(Columns.STATUS, icon)
             item.setText(Columns.DATE, get_tx_desc(status, timestamp))
             item.setToolTip(Columns.STATUS, get_tx_tooltip(status, confirmations))
 
@@ -310,16 +317,17 @@ class HistoryList(MyTreeWidget):
             # item.setData(Columns.DATE, SortableTreeWidgetItem.DataRole, sort_key)
 
     def create_menu(self, position: QPoint) -> None:
-        self.selectedIndexes()
         item = self.currentItem()
         if not item:
             return
+
         column = self.currentColumn()
         account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
         tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
         if account_id is None or tx_hash is None:
             return
-        if column == 0:
+
+        if column == Columns.STATUS:
             column_title = "ID"
             column_data = hash_to_hex_str(tx_hash)
         else:
@@ -333,7 +341,7 @@ class HistoryList(MyTreeWidget):
         height = self._wallet.get_transaction_height(tx_hash)
         tx = account.get_transaction(tx_hash)
         if not tx: return # this happens sometimes on account synch when first starting up.
-        is_unconfirmed = height <= 0
+        is_unconfirmed = height == 0 or height == -1
 
         menu = QMenu()
         menu.addAction(_("Copy {}").format(column_title),
@@ -345,11 +353,7 @@ class HistoryList(MyTreeWidget):
             menu.addAction(_("Edit {}").format(column_title), # type: ignore
                 lambda: self.currentItem() and self.editItem(self.currentItem(), column))
         menu.addAction(_("Details"), lambda: self._main_window.show_transaction(account, tx))
-        if is_unconfirmed and tx:
-            child_tx = account.cpfp(tx, 0)
-            if child_tx:
-                menu.addAction(_("Child pays for parent"),
-                    lambda: self._main_window.cpfp(account, tx, child_tx))
+
         flags = self._wallet.get_transaction_flags(tx_hash)
         if flags is not None and flags & TxFlags.PAYS_INVOICE:
             invoice_row = self._account._wallet.read_invoice(tx_hash=tx_hash)
@@ -363,6 +367,18 @@ class HistoryList(MyTreeWidget):
             # NOTE(typing) The `webbrowser.open` call does not factor in the above for used types.
             menu.addAction(_("View on block explorer"), # type: ignore
                 lambda: webbrowser.open(tx_URL)) # type: ignore
+
+        menu.addSeparator()
+
+        if is_unconfirmed:
+            child_tx = account.cpfp(tx, 0)
+            if child_tx:
+                menu.addAction(_("Child pays for parent"),
+                    lambda: self._main_window.cpfp(account, tx, child_tx))
+
+        if flags is not None and flags & TxFlags.MASK_STATE_UNCLEARED != 0:
+            menu.addAction(_("Remove from account"), partial(self._delete_transaction, tx_hash))
+
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _show_invoice_window(self, invoice_id: int) -> None:
@@ -372,9 +388,20 @@ class HistoryList(MyTreeWidget):
             return
         self._main_window.show_invoice(self._account, row)
 
+    def _delete_transaction(self, tx_hash: bytes) -> None:
+        if self._main_window.question(_("Are you sure you want to remove this transaction?") +
+                "<br/><br/>" +
+                _("This removes the transaction from all associated accounts and frees up any "
+                "coins that are allocated for it."), title=_("Remove transaction"),
+                icon=QMessageBox.Warning):
+            self._wallet.remove_transaction(tx_hash)
 
-def get_tx_status(account: AbstractAccount, height: Optional[int], position: Optional[int],
+
+def get_tx_status(account: AbstractAccount, height: int, position: Optional[int],
         conf: int) -> TxStatus:
+    if height == -2:
+        return TxStatus.LOCAL
+
     if position == 0:
         if height + COINBASE_MATURITY > account._wallet.get_local_height():
             return TxStatus.UNMATURED
@@ -387,21 +414,27 @@ def get_tx_status(account: AbstractAccount, height: Optional[int], position: Opt
 
 
 def get_tx_desc(status: TxStatus, timestamp: Optional[int]) -> str:
-    if status in [ TxStatus.UNCONFIRMED, TxStatus.MISSING ]:
+    if status in [ TxStatus.UNCONFIRMED, TxStatus.MISSING, TxStatus.LOCAL ]:
         return TX_STATUS[status]
     return format_time(timestamp, _("unknown")) if timestamp else _("unknown")
 
 
 def get_tx_tooltip(status: TxStatus, conf: int) -> str:
+    if status == TxStatus.LOCAL:
+        return _("This is a local transaction.")
     text = str(conf) + " confirmation" + ("s" if conf != 1 else "")
     if status == TxStatus.UNMATURED:
-        text = text + "\n" + _("Unmatured")
+        text = text + "\n" + _("This is a mined block reward that is not spendable yet.")
     elif status in TX_STATUS:
         text = text + "\n"+ TX_STATUS[status]
     return text
 
-def get_tx_icon(status: TxStatus) -> QIcon:
-    return read_QIcon(TX_ICONS[status])
+
+def get_tx_icon(status: TxStatus) -> Optional[QIcon]:
+    icon_filename = TX_ICONS[status]
+    if icon_filename is None:
+        return None
+    return read_QIcon(icon_filename)
 
 
 class HistoryView(QWidget):
@@ -412,20 +445,6 @@ class HistoryView(QWidget):
 
         self._account_id: Optional[int] = None
         self._account: Optional[AbstractAccount] = None
-
-        # The history view is created before the transactions view, so this will be updated by
-        # an event from the transactions view. If this ordering changes you may see that it is
-        # not updated.
-        self._local_count = 0
-        self._local_value = 0
-        label = self._local_summary_label = QLabel()
-        label.setAlignment(Qt.AlignCenter)
-        label.setToolTip(_("The account balance shown in the status bar does "
-            "not include any coins allocated and used by transactions in the Transactions tab."
-            "<br/><br/>"
-            "This summary indicates the current balance of the Transactions tab."))
-        label.setContentsMargins(5, 5, 5, 5)
-        label.setVisible(False)
 
         self.list = HistoryList(parent, main_window)
         self._top_button_layout = TableTopButtonLayout()
@@ -440,12 +459,9 @@ class HistoryView(QWidget):
         vbox = QVBoxLayout()
         vbox.setSpacing(0)
         vbox.setContentsMargins(0, 0, 0, 0)
-        vbox.addWidget(label)
         vbox.addLayout(self._top_button_layout)
         vbox.addWidget(self.list, 1)
         self.setLayout(vbox)
-
-        self._update_transactions_tab_summary()
 
         # NOTE(typing) signals are not handled properly by Pyright
         main_window.account_change_signal.connect(self._on_account_changed) # type: ignore
@@ -453,35 +469,6 @@ class HistoryView(QWidget):
     def _on_account_changed(self, new_account_id: int, new_account: AbstractAccount) -> None:
         self._account_id = new_account_id
         self._account = new_account
-
-        self._update_transactions_tab_summary()
-
-    def on_transaction_view_changed(self, account_id: int) -> None:
-        if self._account_id == account_id:
-            self._update_transactions_tab_summary()
-
-    def _update_transactions_tab_summary(self) -> None:
-        local_count = 0
-        local_value = 0
-
-        if self._account_id is not None:
-            _account_id, local_value, local_count = self._account.get_raw_balance(
-                mask=TxFlags.MASK_STATE_UNCLEARED)
-
-        if local_count == 0:
-            self._local_summary_label.setVisible(False)
-            return
-
-        value_text = app_state.format_amount(local_value) +" "+ app_state.base_unit()
-        if local_count == 1:
-            text = _("The Transactions tab has <b>1</b> transaction containing <b>{balance}</b> "
-                "in allocated coins.").format(balance=value_text)
-        else:
-            text = _("The Transactions tab has <b>{count}</b> transactions containing "
-                "<b>{balance}</b> in allocated coins.").format(count=local_count,
-                balance=value_text)
-        self._local_summary_label.setText(text)
-        self._local_summary_label.setVisible(True)
 
     def update_tx_labels(self) -> None:
         self.list.update_tx_labels()

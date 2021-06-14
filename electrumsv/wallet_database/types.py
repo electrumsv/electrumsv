@@ -368,9 +368,22 @@ class TxProofResult(NamedTuple):
 
 
 class WalletBalance(NamedTuple):
-    confirmed: int
-    unconfirmed: int
-    unmatured: int
+    confirmed: int = 0
+    unconfirmed: int = 0
+    unmatured: int = 0
+    allocated: int = 0
+
+    def __add__(self, other) -> "WalletBalance":
+        if not isinstance(other, WalletBalance):
+            raise NotImplementedError
+        return WalletBalance(self.confirmed + other.confirmed, self.unconfirmed + other.unconfirmed,
+            self.unmatured + other.unmatured, self.allocated + other.allocated)
+
+    def __radd__(self, other) -> "WalletBalance":
+        if not isinstance(other, WalletBalance):
+            raise NotImplementedError
+        return WalletBalance(self.confirmed + other.confirmed, self.unconfirmed + other.unconfirmed,
+            self.unmatured + other.unmatured, self.allocated + other.allocated)
 
 
 class WalletDataRow(NamedTuple):

@@ -280,10 +280,13 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
                 f"AND (TX.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?) "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "CAST(TOTAL(CASE WHEN TX.block_height < 1 THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.block_height = 0 OR TX.block_height = 1 "
+                "THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
             f"CAST(TOTAL(CASE WHEN TX.block_height > 0 AND TX.flags&{coinbase_mask} "
-                f"AND TX.block_height+{COINBASE_MATURITY}>? THEN TXO.value ELSE 0 END) AS INT) "
+                f"AND TX.block_height+{COINBASE_MATURITY}>? THEN TXO.value ELSE 0 END) AS INT), "
+            # Allocated total.
+            "CAST(TOTAL(CASE WHEN TX.block_height = -2 THEN TXO.value ELSE 0 END) AS INT) "
         "FROM AccountTransactions ATX "
         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash "
         "INNER JOIN Transactions TX ON TX.tx_hash=ATX.tx_hash "
@@ -291,7 +294,7 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
             f"(TXO.flags&{filter_mask})={filter_bits}")
     row = db.execute(sql, (local_height, local_height, account_id)).fetchone()
     if row is None:
-        return WalletBalance(0, 0, 0)
+        return WalletBalance(0, 0, 0, 0)
     return WalletBalance(*row)
 
 

@@ -1,4 +1,4 @@
-from typing import Optional, Tuple
+from typing import Optional, Tuple, TYPE_CHECKING
 import weakref
 
 from PyQt5.QtCore import Qt, QSize
@@ -8,8 +8,12 @@ from PyQt5.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QSta
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
+from electrumsv.wallet_database.types import WalletBalance
 
 from .util import icon_path, read_QIcon
+
+if TYPE_CHECKING:
+    from .main_window import ElectrumWindow
 
 
 class XToolButton(QToolButton):
@@ -35,7 +39,7 @@ class XToolButton(QToolButton):
         iconSize = max(h, w) # - 2 * self.pad
         opt.iconSize = QSize(iconSize, iconSize)
         # Draw
-        self.style().drawComplexControl(QStyle.CC_ToolButton, opt, qp, self)
+        self.style().drawComplexControl(QStyle.ComplexControl.CC_ToolButton, opt, qp, self)
         qp.end()
 
 
@@ -88,27 +92,24 @@ class BalancePopup(QWidget):
         grid_layout.addWidget(QLabel(_('Confirmed')), 0, 0, 1, 1)
         grid_layout.addWidget(QLabel(_('Unconfirmed')), 1, 0, 1, 1)
         grid_layout.addWidget(QLabel(_('Unmatured')), 2, 0, 1, 1)
+        grid_layout.addWidget(QLabel(_('Allocated')), 3, 0, 1, 1)
 
-        cc = uu = xx = 0
+        wallet_balance = WalletBalance()
         for account in main_window._wallet.get_accounts():
-            c, u, x = account.get_balance()
-            cc += c
-            uu += u
-            xx += x
+            wallet_balance += account.get_balance()
 
-        balances = (cc, uu, xx)
-        for i, balance in enumerate(balances):
+        for i, balance in enumerate(wallet_balance):
             bsv_status, fiat_status = app_state.get_amount_and_units(balance)
-            grid_layout.addWidget(QLabel(bsv_status), i, 1, 1, 1, Qt.AlignRight)
+            grid_layout.addWidget(QLabel(bsv_status), i, 1, 1, 1, Qt.AlignmentFlag.AlignRight)
             if status_bar._fiat_widget.isVisible():
-                grid_layout.addWidget(QLabel(fiat_status), i, 2, 1, 1, Qt.AlignRight)
+                grid_layout.addWidget(QLabel(fiat_status), i, 2, 1, 1, Qt.AlignmentFlag.AlignRight)
 
         self.setLayout(grid_layout)
 
 
 class BalancePopupAction(QWidgetAction):
     def __init__(self, main_window: 'ElectrumWindow', status_bar: 'StatusBar',
-            parent: Optional[QWidget]=None) -> None:
+            parent: QWidget) -> None:
         super().__init__(parent)
 
         self._status_bar = status_bar
@@ -119,16 +120,16 @@ class BalancePopupAction(QWidgetAction):
 
 
 class StatusBar(QStatusBar):
-    _balance_bsv_label: QLabel = None
-    _balance_equals_label: QLabel = None
-    _balance_fiat_label: QLabel = None
-    _balance_widget: QToolButton = None
+    _balance_bsv_label: QLabel
+    _balance_equals_label: QLabel
+    _balance_fiat_label: QLabel
+    _balance_widget: QToolButton
 
-    _fiat_bsv_label: QLabel = None
-    _fiat_value_label: QLabel = None
-    _fiat_widget: QWidget = None
+    _fiat_bsv_label: QLabel
+    _fiat_value_label: QLabel
+    _fiat_widget: QWidget
 
-    _network_label: QLabel = None
+    _network_label: QLabel
 
     def __init__(self, main_window: 'ElectrumWindow') -> None:
         super().__init__(None)
@@ -207,7 +208,11 @@ class StatusBar(QStatusBar):
 
         self._balance_equals_label.setVisible(have_fiat_text)
         self._balance_fiat_label.setVisible(have_fiat_text)
-        self._balance_fiat_label.setText(fiat_text if have_fiat_text else '')
+        if have_fiat_text:
+            assert fiat_text is not None
+            self._balance_fiat_label.setText(fiat_text)
+        else:
+            self._balance_fiat_label.setText('')
 
     def set_fiat_status(self, status: Optional[Tuple[str, str]]) -> None:
         # None: Fiat is disabled.

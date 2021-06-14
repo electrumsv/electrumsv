@@ -27,6 +27,7 @@ import base64
 from collections import Counter
 import concurrent.futures
 import csv
+import datetime
 from decimal import Decimal
 from functools import partial
 import gzip
@@ -36,7 +37,8 @@ import os
 import shutil
 import threading
 import time
-from typing import Any, Callable, Dict, Iterable, List, Set, Tuple, TypeVar, Optional, Union
+from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Set, Tuple, \
+    TYPE_CHECKING, TypeVar, Union
 import weakref
 import webbrowser
 
@@ -89,6 +91,9 @@ from .util import (Buttons, CancelButton, CloseButton, ColorScheme,
     protected, read_QIcon, show_in_file_explorer, text_dialog, top_level_window_recurse,
     UntrustedMessageDialog, WaitingDialog, WindowModalDialog, WWLabel)
 from .wallet_api import WalletAPI
+
+if TYPE_CHECKING:
+    from .transaction_dialog import TxDialog
 
 
 logger = logs.get_logger("mainwindow")
@@ -167,8 +172,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.init_menubar()
         self.init_toolbar()
 
-        QShortcut(QKeySequence("Ctrl+W"), self, self.close)
-        QShortcut(QKeySequence("Ctrl+Q"), self, self.close)
+        # NOTE(typing) `close` does not have the right signature.
+        QShortcut(QKeySequence("Ctrl+W"), self, self.close) # type: ignore
+        QShortcut(QKeySequence("Ctrl+Q"), self, self.close) # type: ignore
         QShortcut(QKeySequence("Ctrl+R"), self, self.refresh_wallet_display)
         QShortcut(QKeySequence("Ctrl+PgUp"), self,
                   lambda: tabs.setCurrentIndex((tabs.currentIndex() - 1)%tabs.count()))
@@ -265,19 +271,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         history_view = self.create_history_tab()
 
         tabs.addTab(history_view, read_QIcon("tab_history.png"), _('History'))
-
-        transaction_tab = self.create_transaction_tab()
-        self.transaction_view.changed_signal.connect(history_view.on_transaction_view_changed)
-
-        tabs.addTab(transaction_tab, read_QIcon("icons8-transaction-list-96.png"),
-            _('Transactions'))
         tabs.addTab(self.send_tab, read_QIcon("tab_send.png"), _('Send'))
         tabs.addTab(self.receive_tab, read_QIcon("tab_receive.png"), _('Receive'))
 
         tabs.setTabToolTip(0, _("Published transactions"))
-        tabs.setTabToolTip(1, _("Unpublished transactions"))
-        tabs.setTabToolTip(2, _("Create a transaction"))
-        tabs.setTabToolTip(3, _("Receive a transaction"))
+        tabs.setTabToolTip(1, _("Create a transaction"))
+        tabs.setTabToolTip(2, _("Receive a transaction"))
 
         self._add_optional_tab(tabs, self.notifications_tab,
             read_QIcon("icons8-event-64-cute-clipart.png"), _("Notifications"), "notifications",
@@ -318,6 +317,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Account ids is the accounts that have changed the balance.
         self._logger.debug("_on_transaction_added %s %s %s", self._wallet.get_account_ids(),
             link_result.account_ids, is_external)
+        assert link_result.account_ids is not None
         if self._wallet.get_account_ids() & link_result.account_ids and is_external:
             # Always notify of incoming transactions regardless of the active account.
             self.tx_notifications.append(tx)
@@ -331,6 +331,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     # Map the wallet event to a Qt UI signal.
     def _on_transaction_deleted(self, event_name: str, account_id: int, tx_hash: bytes) -> None:
+        self.need_update.set()
         self.transaction_deleted_signal.emit(account_id, tx_hash)
 
     # Map the wallet event to a Qt UI signal.
@@ -626,7 +627,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
 
         if not os.path.exists(wallet_folder):
-            wallet_folder = None
+            wallet_folder = ""
         filename, __ = QFileDialog.getOpenFileName(self, "Select your wallet file", wallet_folder)
         if not filename:
             return
@@ -656,7 +657,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         save_copy_action.setShortcut(QKeySequence.SaveAs)
         save_copy_action.setEnabled(False)
         file_menu.addSeparator()
-        file_menu.addAction(_("&Quit"), self.close)
+        # NOTE(typing) `close` has an incorrect signature for `addAction`, not that it matters.
+        file_menu.addAction(_("&Quit"), self.close) # type: ignore
 
         wallet_menu = menubar.addMenu(_("&Wallet"))
         wallet_menu.addAction(_("&Information"), self._show_wallet_information)
@@ -676,6 +678,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         weakself = weakref.proxy(self)
         self._account_menu = menubar.addMenu(_("&Account"))
         if self._account_id is not None:
+            assert self._account is not None
             self._accounts_view.add_menu_items(self._account_menu, self._account, weakself)
 
         # Make sure the lambda reference does not prevent garbage collection.
@@ -713,7 +716,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         help_menu = menubar.addMenu(_("&Help"))
         help_menu.addAction(_("&About"), self.show_about)
         help_menu.addAction(_("&Check for updates"), self.show_update_check)
-        help_menu.addAction(_("&Official website"), lambda: webbrowser.open("http://electrumsv.io"))
+        # NOTE(typing) The `webbrowser.open` signature does not match `addAction`.
+        help_menu.addAction(_("&Official website"), # type: ignore
+            lambda: webbrowser.open("http://electrumsv.io"))
         help_menu.addSeparator()
         help_menu.addAction(_("Documentation"), self._open_documentation).setShortcut(
             QKeySequence.HelpContents)
@@ -737,6 +742,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._paytomany_menu.setEnabled(enable_spending_menus)
 
         if account_id is not None:
+            assert self._account is not None
             weakself = weakref.proxy(self)
             self._accounts_view.add_menu_items(self._account_menu, self._account, weakself)
 
@@ -751,7 +757,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         icon_size = self.app.dpi / 5.8
         toolbar.setMovable(False)
         toolbar.setIconSize(QSize(icon_size, icon_size))
-        toolbar.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
 
         self._add_account_action = QAction(read_QIcon("icons8-add-folder-80.png"),
             _("Add Account"), self)
@@ -805,6 +811,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         update_check_state = "default"
         check_result = self.config.get('last_update_check')
         stable_version = "?"
+        release_date: Optional[datetime.datetime] = None
         if check_result is not None:
             # The latest stable release date, the date of the build we are using.
             stable_result = check_result["stable"]
@@ -847,6 +854,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._update_view_pending_action = menu.addAction(
                 _("View Pending Update"), _on_view_pending_update)
             menu.setDefaultAction(self._update_view_pending_action)
+        else:
+            raise NotImplementedError("Unknown check state")
+
         # Apply the update state.
         self._update_action.setMenu(menu)
         self._update_action.setIcon(read_QIcon(icon_path))
@@ -972,10 +982,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.tx_notify_timer = QTimer(self)
             self.tx_notify_timer.setSingleShot(True)
             self.tx_notify_timer.timeout.connect(self._notify_tx_cb)
-            when = (self.notify_tx_rate - elapsed)
+            when = int((self.notify_tx_rate - elapsed) * 1e3) # time in ms
             self._logger.debug("Notify spam control: will notify GUI of %d new tx's in %f seconds",
                               len(self.tx_notifications), when)
-            self.tx_notify_timer.start(when * 1e3) # time in ms
+            self.tx_notify_timer.start(when)
         else:
             # it's been a while since we got a tx notify -- so do it immediately (no timer
             # necessary)
@@ -1082,8 +1092,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if app_state.fx.is_enabled():
                 balance = 0
                 for account in self._wallet.get_accounts():
-                    c, u, x = account.get_balance()
-                    balance += c
+                    balance += account.get_balance().confirmed
                 fiat_status = app_state.fx.get_fiat_status(
                     balance, app_state.base_unit(), app_state.decimal_point)
         self.set_status_bar_balance(True)
@@ -1134,20 +1143,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.history_view = HistoryView(self._accounts_view, self)
         return self.history_view
 
-    def create_transaction_tab(self) -> QWidget:
-        from .transaction_list import TransactionView
-        self.transaction_view = TransactionView(self._accounts_view, self)
-        return self.create_list_tab(self.transaction_view)
-
     def show_key(self, account: AbstractAccount, key_data: KeyDataTypes,
             script_type: ScriptType) -> None:
         from . import key_dialog
         d = key_dialog.KeyDialog(self, account.get_id(), key_data, script_type)
         d.exec_()
 
-    def show_transaction(self, account: AbstractAccount, tx: Transaction,
+    def show_transaction(self, account: Optional[AbstractAccount], tx: Transaction,
             prompt_if_unsaved: bool=False,
-            pr: Optional[paymentrequest.PaymentRequest]=None) -> None:
+            pr: Optional[paymentrequest.PaymentRequest]=None) -> "TxDialog":
         self._wallet.ensure_incomplete_transaction_keys_exist(tx)
         from . import transaction_dialog
         # from importlib import reload
@@ -1175,7 +1179,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _reset_receive_tab(self) -> None:
         self._receive_view = self._reset_stacked_tab(self.receive_tab, self.get_receive_view)
 
-    def _reset_stacked_tab(self, stack_tab: QStackedWidget, create_func: Callable[[int], T]) -> T:
+    def _reset_stacked_tab(self, stack_tab: QStackedWidget, create_func: Callable[[int], T]) \
+            -> Optional[T]:
         current_widget = stack_tab.currentWidget()
         assert current_widget is not None, f"should be unavailable or a view of the correct type"
 
@@ -1184,10 +1189,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return None
 
         view = create_func(self._account_id)
-        widget_index = stack_tab.indexOf(view)
+        view_widget = cast(QWidget, view)
+        widget_index = stack_tab.indexOf(view_widget)
         if widget_index == -1:
-            stack_tab.addWidget(view)
-        stack_tab.setCurrentWidget(view)
+            stack_tab.addWidget(view_widget)
+        stack_tab.setCurrentWidget(view_widget)
         return view
 
     def _create_account_unavailable_layout(self, text: Optional[str]=None) -> QVBoxLayout:
@@ -1195,7 +1201,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             text = _("No active account.")
 
         label_title = WWLabel(_("<p>"+ text +"</p>"))
-        label_title.setAlignment(Qt.AlignCenter)
+        label_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         vbox2 = QVBoxLayout()
         vbox2.addStretch(1)
@@ -1210,13 +1216,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._tab_widget.setCurrentIndex(self._tab_widget.indexOf(self.receive_tab))
 
     def get_send_view(self, account_id: Optional[int]) -> SendViewTypes:
-        view = self._send_views.get(account_id)
+        view = None if account_id is None else self._send_views.get(account_id)
         if view is None:
             text: Optional[str] = None
             if account_id is not None:
                 account = self._wallet.get_account(account_id)
                 if account.can_spend():
-                    view = SendView(self, self._account_id)
+                    view = SendView(self, account_id)
                 else:
                     text = _("This functionality is not available for this type of account.")
             if view is None:
@@ -1227,10 +1233,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return view
 
     def get_receive_view(self, account_id: Optional[int]) -> ReceiveViewTypes:
-        view = self._receive_views.get(account_id)
+        view = None if account_id is None else self._receive_views.get(account_id)
         if view is None:
             if account_id is not None:
-                view = ReceiveView(self, self._account_id)
+                view = ReceiveView(self, account_id)
             if view is None:
                 view = QWidget()
                 view.setLayout(self._create_account_unavailable_layout())
@@ -1335,7 +1341,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             success_text = _('Payment sent.')
         window = window or self
 
-        def broadcast_tx(update_cb: WaitingUpdateCallback) -> None:
+        def broadcast_tx(update_cb: WaitingUpdateCallback) -> Optional[str]:
             nonlocal tx, account
             # non-GUI thread
             if account and not self._send_view.maybe_send_invoice_payment(tx):
@@ -1446,7 +1452,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         from .notifications_view import View
         return View(self._api, self)
 
-    def create_list_tab(self, list_widget: QWidget) -> None:
+    def create_list_tab(self, list_widget: QWidget) -> QWidget:
         top_button_layout: Optional[TableTopButtonLayout] = None
 
         w = QWidget()
@@ -1472,12 +1478,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.key_view = l = KeyView(self)
         return self.create_list_tab(l)
 
-    def create_utxo_tab(self) -> None:
+    def create_utxo_tab(self) -> QWidget:
         from .utxo_list import UTXOList
         self.utxo_list = l = UTXOList(self._accounts_view, self)
         return self.create_list_tab(l)
 
-    def create_contacts_tab(self) -> None:
+    def create_contacts_tab(self) -> QWidget:
         self.contact_list = l = ContactList(self._api, self)
         return self.create_list_tab(l)
 
@@ -1568,8 +1574,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if shown:
             balance = 0
             for account in self._wallet.get_accounts():
-                c, u, x = account.get_balance()
-                balance += c
+                balance += account.get_balance().confirmed
             bsv_status, fiat_status = app_state.get_amount_and_units(balance)
         else:
             bsv_status, fiat_status = _("Unknown"), None
@@ -1718,7 +1723,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     @protected
     def do_sign(self, account: AbstractAccount, key_data: Optional[KeyDataTypes],
             message: QTextEdit, signature: QTextEdit, password: str) -> None:
-        message = message.toPlainText().strip()
+        message_text = message.toPlainText().strip()
         if account.is_watching_only():
             self.show_message(_('This is a watching-only account.'))
             return
@@ -1736,7 +1741,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if not len(sig) or sip.isdeleted(signature):
                 return
             signature.setText(base64.b64encode(sig).decode('ascii'))
-        self.run_in_thread(account.sign_message, key_data, message, password,
+        self.run_in_thread(account.sign_message, key_data, message_text, password,
             on_success=show_signed_message)
 
     def run_in_thread(self, func, *args, on_success=None):
@@ -1751,10 +1756,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return self.app.run_in_thread(func, *args, on_done=_on_done)
 
     def do_verify(self, account: AbstractAccount, key_data: Optional[KeyDataTypes],
-            address: QLineEdit, message, signature) -> None:
+            address_widget: QLineEdit, message_widget, signature) -> None:
         if key_data is None:
             try:
-                address = address_from_string(address.text().strip()).to_string()
+                address = address_from_string(address_widget.text().strip())
             except Exception:
                 self.show_message(_('Invalid Bitcoin SV address.'))
                 return
@@ -1762,11 +1767,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             public_key = account.get_public_keys_for_key_data(key_data)[0]
             address = public_key.to_address(coin=Net.COIN)
 
-        message = message.toPlainText().strip()
+        message_text = message_widget.toPlainText().strip()
         try:
             # This can throw on invalid base64
             sig = base64.b64decode(signature.toPlainText())
-            verified = PublicKey.verify_message_and_address(sig, message, address)
+            verified = PublicKey.verify_message_and_address(sig, message_text, address)
         except Exception:
             verified = False
 
@@ -1809,7 +1814,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         b = QPushButton(_("Sign"))
         def do_sign(checked=False) -> None:
             # pylint: disable=no-value-for-parameter
-            self.do_sign(account, key_data, message_e, signature_e)
+            # NOTE(typing) The password decorator is not visible to Pylance.
+            self.do_sign(account, key_data, message_e, signature_e) # type: ignore
         b.clicked.connect(do_sign)
         hbox.addWidget(b)
 
@@ -1858,6 +1864,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def encrypt_message(self, account: Optional[AbstractAccount]=None,
             key_data: Optional[KeyDataTypes]=None) -> None:
         account = self._account if account is None else account
+        assert account is not None
 
         d = WindowModalDialog(self, _('Encrypt/decrypt Message'))
         d.setMinimumSize(630, 490)
@@ -1886,14 +1893,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         hbox = QHBoxLayout()
         b = QPushButton(_("Encrypt"))
-        b.clicked.connect(lambda: self.do_encrypt(account, key_data, message_e, pubkey_e,
-            encrypted_e))
+        # NOTE(typing) Pylance seems incapable of detecting `account` is not None.
+        b.clicked.connect(lambda: self.do_encrypt(account, key_data, message_e, # type: ignore
+            pubkey_e, encrypted_e))
         hbox.addWidget(b)
 
         b = QPushButton(_("Decrypt"))
         def do_decrypt(checked=False):
             # pylint: disable=no-value-for-parameter
-            self.do_decrypt(account, key_data, message_e, encrypted_e)
+            # NOTE(typing) The password decorator is not visible to Pylance.
+            self.do_decrypt(account, key_data, message_e, encrypted_e) # type: ignore
         b.clicked.connect(do_decrypt)
         hbox.addWidget(b)
 
@@ -1960,6 +1969,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def do_process_from_text(self):
         text = text_dialog(self, _('Input raw transaction'), _("Transaction:"),
                            _("Load transaction"))
+        if text is None:
+            return
         try:
             tx = self._wallet.load_transaction_from_text(text)
             if tx:
@@ -2036,6 +2047,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if filename_ext not in (".csv", ".json"):
             return
 
+        assert self._account is not None
         try:
             self._do_export_history(self._account, export_filename, filename_ext == ".csv")
         except (IOError, os.error) as reason:
@@ -2216,9 +2228,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if self.key_view:
             self.key_view.clean_up()
 
-        if self.transaction_view:
-            self.transaction_view.clean_up()
-
         for account in self._wallet.get_accounts():
             for keystore in account.get_keystores():
                 keystore.clean_up()
@@ -2254,7 +2263,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         grid.addWidget(output_amount, 2, 1)
         fee_e = BTCAmountEdit()
         def f(x):
-            a = max_fee - fee_e.get_amount()
+            a = max_fee - cast(int, fee_e.get_amount())
             output_amount.setText((app_state.format_amount(a) + ' ' + app_state.base_unit())
                                   if a else '')
         fee_e.textChanged.connect(f)
@@ -2267,11 +2276,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if not d.exec_():
             return
         fee = fee_e.get_amount()
+        assert fee is not None
         if fee > max_fee:
             self.show_error(_('Max fee exceeded'))
             return
-        new_tx = account.cpfp(parent_tx, fee)
-        if new_tx is None:
+        cpfp_tx = account.cpfp(parent_tx, fee)
+        if cpfp_tx is None:
             self.show_error(_('CPFP no longer valid'))
             return
-        self.show_transaction(self._account, new_tx)
+        self.show_transaction(account, cpfp_tx)
