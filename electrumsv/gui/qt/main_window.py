@@ -81,6 +81,7 @@ from ... import web
 from .amountedit import AmountEdit, BTCAmountEdit
 from .constants import CSS_WALLET_WINDOW_STYLE, UIBroadcastSource
 from .contact_list import ContactList, edit_contact_dialog
+from .notifications_view import View
 from .qrcodewidget import QRDialog
 from .qrtextedit import ShowQRTextEdit
 from .receive_view import ReceiveView
@@ -386,6 +387,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # - The receive tab.
         self._reset_receive_tab()
         self._receive_view.update_contents()
+
+        # We must show this in order to warn the user to back up their secured data. At this time
+        # we only have one notification, and that is it. If it's there the user should deal with
+        # it.
+        if not self.notifications_tab.is_empty():
+            self.toggle_tab(self.notifications_tab, True, to_front=True)
 
         # Update the status bar, and maybe the tab contents. If we are mid-synchronisation the
         # tab contents will be skipped, but that's okay as the synchronisation completion takes
@@ -1455,7 +1462,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return CoinSplittingTab(self)
 
     def create_notifications_tab(self) -> QWidget:
-        from .notifications_view import View
         return View(self._api, self)
 
     def create_list_tab(self, list_widget: QWidget) -> QWidget:

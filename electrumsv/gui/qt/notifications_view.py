@@ -105,8 +105,8 @@ class View(QWidget):
 
         toolbar = QToolBar(self)
         toolbar.setMovable(False)
-        toolbar.setOrientation(Qt.Vertical)
-        toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        toolbar.setOrientation(Qt.Orientation.Vertical)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         toolbar.addAction(sort_action)
 
         self._layout = QHBoxLayout()
@@ -124,11 +124,14 @@ class View(QWidget):
         if self._sort_type == 1:
             self._sort_type = -1
             self._sort_action.setIcon(read_QIcon("icons8-alphabetical-sorting-80-blueui.png"))
-            self._cards._list.sortItems(Qt.DescendingOrder)
+            self._cards._list.sortItems(Qt.SortOrder.DescendingOrder)
         else:
             self._sort_type = 1
             self._sort_action.setIcon(read_QIcon("icons8-alphabetical-sorting-2-80-blueui.png"))
-            self._cards._list.sortItems(Qt.AscendingOrder)
+            self._cards._list.sortItems(Qt.SortOrder.AscendingOrder)
+
+    def is_empty(self) -> bool:
+        return self._cards.is_empty()
 
 
 class Cards(QWidget):
@@ -157,6 +160,9 @@ class Cards(QWidget):
         self._context.entry_removed.connect(partial(self._on_entry_added_or_removed, False))
         self._context.on_list_updated(len(rows))
 
+    def is_empty(self) -> bool:
+        return self._empty_label is not None
+
     def _add_entry(self, row: Any) -> None:
         self._remove_empty_label()
         if self._list is None:
@@ -173,7 +179,6 @@ class Cards(QWidget):
         self._list.setItemWidget(list_item, card)
 
     def _remove_entry(self, row: Any) -> None:
-        removal_entries = []
         for i in range(self._list.count()-1, -1, -1):
             item = self._list.item(i)
             widget = self._list.itemWidget(item)
@@ -182,7 +187,8 @@ class Cards(QWidget):
 
         if self._list.count() == 0:
             # Remove the list.
-            self._list.setParent(None)
+            # NOTE(typing) This is a unrecognized Pylance signature.
+            self._list.setParent(None) # type: ignore
             self._list = None
 
             # Replace it with the placeholder label.
@@ -199,12 +205,14 @@ class Cards(QWidget):
 
     def _add_empty_label(self) -> None:
         self._empty_label = QLabel(self._context.get_empty_text())
-        self._empty_label.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+        self._empty_label.setAlignment(Qt.AlignmentFlag(Qt.AlignmentFlag.AlignHCenter |
+            Qt.AlignmentFlag.AlignVCenter))
         self._layout.addWidget(self._empty_label)
 
     def _remove_empty_label(self) -> None:
         if self._empty_label is not None:
-            self._empty_label.setParent(None)
+            # NOTE(typing) This is a unrecognized Pylance signature.
+            self._empty_label.setParent(None) # type: ignore
             self._empty_label = None
 
 
@@ -225,7 +233,7 @@ class Card(QWidget):
         image_container_label.setObjectName("NotificationCardImage")
 
         image_label = QLabel(image_text)
-        image_label.setAlignment(Qt.AlignHCenter)
+        image_label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         name_layout = QVBoxLayout()
         name_layout.setContentsMargins(0, 0, 0, 0)
@@ -252,7 +260,7 @@ class Card(QWidget):
         opt = QStyleOption()
         opt.initFrom(self)
         p = QPainter(self)
-        self.style().drawPrimitive(QStyle.PE_Widget, opt, p, self)
+        self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, p, self)
 
     def add_main_content(self, layout: QLayout) -> None:
         raise NotImplementedError
@@ -279,11 +287,11 @@ class NotificationCard(Card):
                 "is <a href=\"help:view-secured-data\">available here</a>."))
             description_label.setObjectName("NotificationCardDescription")
             description_label.setWordWrap(True)
-            description_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            description_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
             description_label.linkActivated.connect(self.on_link_activated)
 
             date_context_label = QLabel(format_time(self._row.date_created, _("Unknown")))
-            date_context_label.setAlignment(Qt.AlignRight)
+            date_context_label.setAlignment(Qt.AlignmentFlag.AlignRight)
             date_context_label.setObjectName("NotificationCardContext")
 
             account_name = self._context.wallet_api.get_account_name(self._row.account_id)
@@ -291,8 +299,8 @@ class NotificationCard(Card):
             account_context_label.setObjectName("NotificationCardContext")
 
             bottom_layout = QHBoxLayout()
-            bottom_layout.addWidget(account_context_label, 1, Qt.AlignLeft)
-            bottom_layout.addWidget(date_context_label, 1, Qt.AlignRight)
+            bottom_layout.addWidget(account_context_label, 1, Qt.AlignmentFlag.AlignLeft)
+            bottom_layout.addWidget(date_context_label, 1, Qt.AlignmentFlag.AlignRight)
 
             layout.addWidget(title_label)
             layout.addWidget(description_label)
@@ -304,7 +312,7 @@ class NotificationCard(Card):
     def add_actions(self, layout: QVBoxLayout) -> None:
         dismiss_label = ClickableLabel()
         dismiss_label.setPixmap(QPixmap(icon_path("icons8-delete.svg"))
-            .scaledToWidth(15, Qt.SmoothTransformation))
+            .scaledToWidth(15, Qt.TransformationMode.SmoothTransformation))
         dismiss_label.setToolTip(_("Dismiss this notification"))
         dismiss_label.clicked.connect(self._on_dismiss_button_clicked)
 

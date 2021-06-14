@@ -45,8 +45,8 @@ class AccountsView(QSplitter):
             def selectionCommand(self, index: QModelIndex, event: Optional[QEvent]) \
                     -> QItemSelectionModel.SelectionFlag:
                 flags = super().selectionCommand(index, event)
-                if flags == QItemSelectionModel.Deselect:
-                    return QItemSelectionModel.NoUpdate
+                if flags == QItemSelectionModel.SelectionFlag.Deselect:
+                    return QItemSelectionModel.SelectionFlag.NoUpdate
                 return flags
 
             def paintEvent(self, event: QPaintEvent) -> None:
@@ -56,7 +56,8 @@ class AccountsView(QSplitter):
                     return
 
                 painter = QPainter(self.viewport())
-                painter.drawText(self.rect(), Qt.AlignCenter, _("Add your first account.."))
+                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                    _("Add your first account.."))
 
         self._account_ids: List[int] = []
         self._tab_widget = QTabWidget()
@@ -64,7 +65,7 @@ class AccountsView(QSplitter):
         self._selection_list = CustomListWidget()
         self._selection_list.setMinimumWidth(150)
         self._selection_list.setIconSize(QSize(32, 32))
-        self._selection_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._selection_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._selection_list.customContextMenuRequested.connect(self._show_account_menu)
         self._selection_list.currentItemChanged.connect(self._on_current_item_changed)
 
@@ -99,7 +100,7 @@ class AccountsView(QSplitter):
             self._import_invoices_action.setEnabled(self._main_window.is_send_view_active())
 
     def _on_current_item_changed(self, item: QListWidgetItem, last_item: QListWidgetItem) -> None:
-        account_id = item.data(Qt.UserRole)
+        account_id = item.data(Qt.ItemDataRole.UserRole)
         # This should update the internal tracking, and also the active wallet account.
         if self._update_active_account(account_id):
             account = self._main_window._wallet.get_account(account_id)
@@ -122,14 +123,15 @@ class AccountsView(QSplitter):
         self._selection_list.clear()
         self._account_ids.clear()
 
-        # TODO(rt12): These should respect user ordering, and perhaps also later hierarchy.
+        # TODO These could respect user ordering, perhaps also later hierarchy.
         for account in self._wallet.get_accounts():
             self._add_account_to_list(account)
 
         if len(self._account_ids):
             self._selection_list.setCurrentRow(0)
+
             currentItem = self._selection_list.currentItem()
-            account_id = currentItem.data(Qt.UserRole)
+            account_id = currentItem.data(Qt.ItemDataRole.UserRole)
             if self._update_active_account(account_id):
                 account = self._main_window._wallet.get_account(account_id)
                 assert account is not None
@@ -166,7 +168,7 @@ class AccountsView(QSplitter):
         if is_watching_only:
             tooltip_text += f" ({_('watch only')})"
         item.setIcon(read_QIcon(icon_filename.format(icon_state)))
-        item.setData(Qt.UserRole, account_id)
+        item.setData(Qt.ItemDataRole.UserRole, account_id)
         item.setText(account.display_name())
         item.setToolTip(tooltip_text)
         self._selection_list.addItem(item)
@@ -177,7 +179,7 @@ class AccountsView(QSplitter):
         if not item:
             return
 
-        account_id = item.data(Qt.UserRole)
+        account_id = item.data(Qt.ItemDataRole.UserRole)
         account = self._wallet.get_account(account_id)
         assert account is not None
 

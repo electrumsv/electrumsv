@@ -376,7 +376,8 @@ class XTxInput(TxInput):
     def estimated_size(self) -> TransactionSize:
         '''Return an estimated of serialized input size in bytes.'''
         saved_script_sig = self.script_sig
-        # TODO(MAPI) Should this be the raw x_pubkeys not the public keys?
+        # TODO(MAPI) Should this be the raw x_pubkeys not the public keys? It does not matter
+        #   as the `create_script_sig` method only calls `to_bytes`.
         x_pubkeys = [x_pubkey.to_public_key() for x_pubkey in self.x_pubkeys]
         signatures = [dummy_signature] * self.threshold
         self.script_sig = create_script_sig(self.script_type, self.threshold, x_pubkeys, signatures)
