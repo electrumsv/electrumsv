@@ -568,7 +568,7 @@ class AbstractAccount:
         mature_height = self._wallet.get_local_height() if mature else None
         return self._wallet.read_account_transaction_outputs_spendable(self._id,
             confirmed_only=confirmed_only, mature_height=mature_height,
-            exclude_frozen=exclude_frozen)
+            exclude_frozen=exclude_frozen, keyinstance_ids=keyinstance_ids)
 
     def get_spendable_transaction_outputs_extended(self, exclude_frozen: bool=True,
             mature: bool=True, confirmed_only: Optional[bool]=None,
@@ -578,7 +578,7 @@ class AbstractAccount:
         mature_height = self._wallet.get_local_height() if mature else None
         return self._wallet.read_account_transaction_outputs_spendable_extended(self._id,
             confirmed_only=confirmed_only, mature_height=mature_height,
-            exclude_frozen=exclude_frozen)
+            exclude_frozen=exclude_frozen, keyinstance_ids=keyinstance_ids)
 
     def get_extended_input_for_spendable_output(self, row: TransactionOutputSpendableTypes) \
             -> XTxInput:

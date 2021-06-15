@@ -22,6 +22,7 @@ from electrumsv.types import MasterKeyDataBIP32, TxoKeyType
 from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount, MultisigAccount,
     Wallet, StandardAccount)
 from electrumsv.wallet_database import functions as db_functions
+from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, WalletBalance
 
 from .util import setup_async, MockStorage, tear_down_async, TEST_WALLET_PATH
@@ -650,11 +651,17 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         assert len(rows) == 2
         assert set(rows) == { tx_hash_1, tx_hash_2 }
 
+        # Trying to remove the parent transaction when there is a child transaction should fail.
+        with pytest.raises(TransactionRemovalError):
+            wallet.remove_transaction(tx_hash_1)
+
         # Remove both transactions (does not delete).
-        future_1 = wallet.remove_transaction(tx_hash_1)
         future_2 = wallet.remove_transaction(tx_hash_2)
-        future_1.result()
+        # We need to wait for this to succeed to delete the second. If we really wanted faster
+        # removal, we would have a bulk removal function.
         future_2.result()
+        future_1 = wallet.remove_transaction(tx_hash_1)
+        future_1.result()
 
         # Verify that the transaction outputs are still linked to key usage (harmless).
         txo_rows = db_functions.read_transaction_outputs_explicit(db_context,

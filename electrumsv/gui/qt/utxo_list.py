@@ -93,10 +93,10 @@ class UTXOList(MyTreeWidget):
             utxo_item = SortableTreeWidgetItem(
                 [ prevout_str, label, amount, str(utxo.block_height) ])
             # set this here to avoid sorting based on Qt.UserRole+1
-            utxo_item.DataRole = Qt.UserRole+100
+            utxo_item.DataRole = Qt.ItemDataRole.UserRole+100
             for col in (0, 2):
                 utxo_item.setFont(col, self._monospace_font)
-            utxo_item.setData(0, Qt.UserRole+2, utxo)
+            utxo_item.setData(0, Qt.ItemDataRole.UserRole+2, utxo)
             if utxo.flags & TransactionOutputFlag.IS_FROZEN:
                 utxo_item.setBackground(0, ColorScheme.BLUE.as_color(True))
             self.addChild(utxo_item)
@@ -105,7 +105,7 @@ class UTXOList(MyTreeWidget):
                 utxo_item.setSelected(True) # restore previous selection
 
     def get_selected(self) -> Set[TransactionOutputSpendableRow2]:
-        return {item.data(0, Qt.UserRole+2) for item in self.selectedItems()}
+        return {item.data(0, Qt.ItemDataRole.UserRole+2) for item in self.selectedItems()}
 
     def create_menu(self, position) -> None:
         coins = self.get_selected()
@@ -129,13 +129,11 @@ class UTXOList(MyTreeWidget):
             tx = self._wallet.get_transaction(coin.tx_hash)
             menu.addAction(_("Details"), lambda: self._main_window.show_transaction(
                 self._account, tx))
-            needsep = True
             if any_c_frozen:
                 menu.addSeparator()
                 menu.addAction(_("Coin is frozen"), lambda: None).setEnabled(False)
                 menu.addAction(_("Unfreeze Coin"), unfreeze_coins)
                 menu.addSeparator()
-                needsep = False
             else:
                 menu.addAction(_("Freeze Coin"), freeze_coins)
         else:

@@ -26,7 +26,7 @@
 import enum
 from functools import partial
 import time
-from typing import List, Optional, Sequence, TYPE_CHECKING
+from typing import cast, List, Optional, Sequence, TYPE_CHECKING
 import weakref
 import webbrowser
 
@@ -36,16 +36,17 @@ from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QBrush, QIcon, QColor, QFont
 from PyQt5.QtWidgets import QMenu, QMessageBox, QTreeWidgetItem, QVBoxLayout, QWidget
 
-from electrumsv.app_state import app_state
-from electrumsv.bitcoin import COINBASE_MATURITY
-from electrumsv.constants import PaymentFlag, TxFlags
-from electrumsv.i18n import _
-from electrumsv.logs import logs
-from electrumsv.paymentrequest import has_expired
-from electrumsv.platform import platform
-from electrumsv.util import timestamp_to_datetime, profiler, format_time
-from electrumsv.wallet import AbstractAccount
-import electrumsv.web as web
+from ...app_state import app_state
+from ...bitcoin import COINBASE_MATURITY
+from ...constants import PaymentFlag, TxFlags
+from ...i18n import _
+from ...logs import logs
+from ...paymentrequest import has_expired
+from ...platform import platform
+from ...util import timestamp_to_datetime, profiler, format_time
+from ...wallet import AbstractAccount
+from ...wallet_database.exceptions import TransactionRemovalError
+from ... import web
 
 from .constants import ICON_NAME_INVOICE_PAYMENT
 from .table_widgets import TableTopButtonLayout
@@ -120,7 +121,7 @@ class HistoryList(MyTreeWidget):
     def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
         MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [], Columns.DESCRIPTION)
 
-        self._main_window = weakref.proxy(main_window)
+        self._main_window = cast("ElectrumWindow", weakref.proxy(main_window))
         self._account_id: Optional[int] = None
         self._account: Optional[AbstractAccount] = None
         self._wallet = main_window._wallet
@@ -336,6 +337,7 @@ class HistoryList(MyTreeWidget):
             column_data = item.text(column).strip()
 
         account = self._wallet.get_account(account_id)
+        assert account is not None
 
         tx_id = hash_to_hex_str(tx_hash)
         tx_URL = web.BE_URL(self.config, 'tx', tx_id)
@@ -375,7 +377,7 @@ class HistoryList(MyTreeWidget):
             child_tx = account.cpfp(tx, 0)
             if child_tx:
                 menu.addAction(_("Child pays for parent"),
-                    lambda: self._main_window.cpfp(account, tx, child_tx))
+                    partial(self._main_window.cpfp, account, tx, child_tx))
 
         if flags is not None and flags & TxFlags.MASK_STATE_UNCLEARED != 0:
             if flags & TxFlags.PAYS_INVOICE:
@@ -402,6 +404,7 @@ class HistoryList(MyTreeWidget):
 
     def _broadcast_transaction(self, tx_hash: bytes) -> None:
         tx = self._wallet.get_transaction(tx_hash)
+        assert tx is not None
         self._main_window.broadcast_transaction(self._account, tx,
             window=self._main_window.reference())
 
@@ -410,6 +413,7 @@ class HistoryList(MyTreeWidget):
         if row is None:
             self._main_window.show_error(_("The invoice for the transaction has been deleted."))
             return
+        assert self._account is not None
         self._main_window.show_invoice(self._account, row)
 
     def _delete_transaction(self, tx_hash: bytes) -> None:
@@ -418,7 +422,10 @@ class HistoryList(MyTreeWidget):
                 _("This removes the transaction from all associated accounts and frees up any "
                 "coins that are allocated for it."), title=_("Remove transaction"),
                 icon=QMessageBox.Warning):
-            self._wallet.remove_transaction(tx_hash)
+            try:
+                self._wallet.remove_transaction(tx_hash)
+            except TransactionRemovalError as e:
+                self._main_window.show_error(e.args[0])
 
 
 def get_tx_status(account: AbstractAccount, height: int, position: Optional[int],

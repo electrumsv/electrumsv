@@ -17,6 +17,7 @@ from ..constants import (DerivationType, DerivationPath, KeyInstanceFlag, Networ
     pack_derivation_path, PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags,
     unpack_derivation_path, WalletEventFlag)
 from ..crypto import pw_decode, pw_encode
+from ..i18n import _
 from ..logs import logs
 from ..types import KeyInstanceDataPrivateKey, MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
     MasterKeyDataMultiSignature, MasterKeyDataTypes, ServerAccountKey, TxoKeyType
@@ -390,26 +391,29 @@ def read_account_transaction_outputs_spendable(db: sqlite3.Connection, account_i
     exclude_frozen: only return unspent coins that are not frozen.
     """
     # Default to selecting all unallocated unspent transaction outputs.
+    tx_mask = TxFlags.REMOVED
+    tx_flags = TxFlags.UNSET
+    if confirmed_only:
+        tx_mask |= TxFlags.STATE_SETTLED
+        tx_flags |= TxFlags.STATE_SETTLED
+
     txo_flags = TransactionOutputFlag.NONE
     txo_mask = TransactionOutputFlag.IS_SPENT | TransactionOutputFlag.IS_ALLOCATED
     if exclude_frozen:
         txo_mask |= TransactionOutputFlag.IS_FROZEN
 
-    sql_values = [ account_id ]
+    sql_values: List[Any] = [ account_id, txo_mask, txo_flags, tx_mask, tx_flags ]
     sql = (
         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
             "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2 "
         "FROM TransactionOutputs TXO "
-        "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id ")
-    if confirmed_only or mature_height is not None:
-        sql += "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
-    sql += f"WHERE KI.account_id=? AND TXO.flags&{txo_mask}={txo_flags}"
-    if confirmed_only:
-        sql += f" AND TX.flags&{TxFlags.STATE_SETTLED}!=0"
+        "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
+        "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
+        "WHERE KI.account_id=? AND TXO.flags&?=? AND TX.flags&?=?")
     if mature_height is not None:
         coinbase_mask = TransactionOutputFlag.IS_COINBASE
         sql += f" AND (TXO.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?)"
-        sql_values = [ account_id, mature_height ]
+        sql_values.append(mature_height)
     if keyinstance_ids is not None:
         sql += " AND TXO.keyinstance_id IN ({})"
         rows = read_rows_by_id(TransactionOutputSpendableRow, db, sql, sql_values, keyinstance_ids)
@@ -437,12 +441,18 @@ def read_account_transaction_outputs_spendable_extended(db: sqlite3.Connection, 
     exclude_frozen: only return unspent coins that are not frozen.
     """
     # Default to selecting all unallocated unspent transaction outputs.
+    tx_mask = TxFlags.REMOVED
+    tx_flags = TxFlags.UNSET
+    if confirmed_only:
+        tx_mask |= TxFlags.STATE_SETTLED
+        tx_flags |= TxFlags.STATE_SETTLED
+
     txo_flags = TransactionOutputFlag.NONE
     txo_mask = TransactionOutputFlag.IS_SPENT | TransactionOutputFlag.IS_ALLOCATED
     if exclude_frozen:
         txo_mask |= TransactionOutputFlag.IS_FROZEN
 
-    sql_values = [ account_id ]
+    sql_values: List[Any] = [ account_id, txo_mask, txo_flags, tx_mask, tx_flags ]
     sql = (
         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
             "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2, "
@@ -450,13 +460,11 @@ def read_account_transaction_outputs_spendable_extended(db: sqlite3.Connection, 
         "FROM TransactionOutputs TXO "
         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
-        f"WHERE KI.account_id=? AND TXO.flags&{txo_mask}={txo_flags}")
-    if confirmed_only:
-        sql += f" AND TX.flags&{TxFlags.STATE_SETTLED}!=0"
+        f"WHERE KI.account_id=? AND TXO.flags&?=? AND TX.flags&?=?")
     if mature_height is not None:
         coinbase_mask = TransactionOutputFlag.IS_COINBASE
         sql += f" AND (TXO.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?)"
-        sql_values = [ account_id, mature_height ]
+        sql_values.append(mature_height)
     if keyinstance_ids is not None:
         sql += " AND TXO.keyinstance_id IN ({})"
         rows = read_rows_by_id(TransactionOutputSpendableRow2, db, sql, sql_values, keyinstance_ids)
@@ -1250,15 +1258,28 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) -> concurren
     if tx_flags & TxFlags.MASK_STATE_BROADCAST != 0:
         raise TransactionRemovalError("Unable to delete broadcast transactions")
 
+    check_sql1 = "SELECT COUNT(*) FROM TransactionOutputs " \
+        "WHERE tx_hash=? AND spending_tx_hash IS NOT NULL"
+
+    db = db_context.acquire_connection()
+    try:
+        cursor = db.execute(check_sql1, (tx_hash,))
+        if cursor.fetchone()[0] > 0:
+            raise TransactionRemovalError(_("Another transaction spends this transaction. Try "
+                "removing that transaction first."))
+    finally:
+        db_context.release_connection(db)
+
     timestamp = get_timestamp()
+    tx_out_mask = ~TransactionOutputFlag.IS_SPENT
     # Back out the association of the transaction with accounts. We do not bother clearing the
     # key id and script type from the transaction outputs at this time.
     sql1 = "DELETE FROM AccountTransactions WHERE tx_hash=?"
     sql1_values = (tx_hash,)
     sql2 = ("UPDATE TransactionOutputs "
-        f"SET date_updated=?, spending_tx_hash=NULL, spending_txi_index=NULL "
-        "WHERE tx_hash=? OR spending_tx_hash=?")
-    sql2_values = (timestamp, tx_hash, tx_hash)
+        f"SET date_updated=?, flags=flags&?, spending_tx_hash=NULL, spending_txi_index=NULL "
+        "WHERE spending_tx_hash=?")
+    sql2_values = (timestamp, tx_out_mask, tx_hash)
     sql3 = "UPDATE Invoices SET date_updated=?, tx_hash=NULL WHERE tx_hash=?"
     sql3_values = (timestamp, tx_hash)
     sql4 = (f"UPDATE Transactions SET date_updated=?, flags=flags|{TxFlags.REMOVED} "
@@ -2029,11 +2050,6 @@ class AsynchronousFunctions:
             "SET date_updated=?, keyinstance_id=KIS.keyinstance_id, script_type=KIS.script_type "
             "FROM KeyInstanceScripts KIS "
             "WHERE TXO.tx_hash=? AND TXO.script_hash=KIS.script_hash")
-            # "UPDATE TransactionOutputs "
-            # "SET date_updated=?, keyinstance_id=KIS.keyinstance_id, script_type=KIS.script_type "
-            # "FROM TransactionOutputs TXO "
-            # "INNER JOIN KeyInstanceScripts KIS ON TXO.script_hash=KIS.script_hash "
-            # "WHERE TXO.tx_hash=?")
         sql_values = (timestamp, tx_hash)
         cursor = db.execute(sql, sql_values)
         return cursor.rowcount
