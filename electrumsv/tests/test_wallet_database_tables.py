@@ -813,8 +813,12 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     future.result()
 
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
+    # NOTE This is not properly reserving the keys and setting the flags that way, instead it is
+    #   adding them manually and setting the expected flags itself. But maybe that is outside the
+    #   scope of this unit test.
     entries = [ KeyInstanceRow(KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-        DERIVATION_DATA, None, KeyInstanceFlag.NONE, None) for i in range(LINE_COUNT) ]
+        DERIVATION_DATA, None, KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST,
+        None) for i in range(LINE_COUNT) ]
     future = db_functions.create_keyinstances(db_context, entries)
     future.result(timeout=5)
 

@@ -74,14 +74,14 @@ class TxFlags(IntFlag):
     # Not currently used.
     INCOMPLETE = 1 << 14
 
-    # A transaction received over the p2p network which is unconfirmed and in the mempool.
+    # A transaction known to the p2p network which is unconfirmed and in the mempool.
     STATE_CLEARED = 1 << 20
-    # A transaction received over the p2p network which is confirmed and known to be in a block.
+    # A transaction known to the p2p network which is confirmed and known to be in a block.
     STATE_SETTLED = 1 << 21
     # A transaction received from another party which is unknown to the p2p network.
     STATE_RECEIVED = 1 << 22
     # A transaction you have not sent or given to anyone else, but are with-holding and are
-    # considering the inputs it uses allocated. """
+    # considering the inputs it uses allocated.
     STATE_SIGNED = 1 << 23
     # A transaction you have given to someone else, and are considering the inputs it uses
     # allocated.
@@ -98,7 +98,6 @@ class TxFlags(IntFlag):
 
     def __repr__(self):
         return self.to_repr(self.value)
-        # return f"TxFlags({self.name})"
 
     @staticmethod
     def to_repr(bitmask: Optional[int]) -> str:
@@ -110,7 +109,7 @@ class TxFlags(IntFlag):
         if entry.name is not None:
             return f"TxFlags({entry.name})"
 
-        # Handle bit flags.
+        # Handle bit flags. Start with the highest bit, work back.
         mask = int(TxFlags.PAYS_INVOICE)
         names = []
         while mask > 0:
@@ -195,19 +194,26 @@ class KeyInstanceFlag(IntFlag):
     NONE = 0
 
     ## These are the two primary flags.
-    # This key should be loaded and managed appropriately.
+    # This key should be loaded and managed appropriately. This flag has supplementary flags
+    # like `USER_SET_ACTIVE`.
     IS_ACTIVE = 1 << 0
-    # This key has been assigned for some use and should not be reassigned ever.
-    IS_ASSIGNED = 1 << 1
+    # This key has been assigned for some use and should not be reassigned ever. This will mean
+    # that if a user assigns it, then deletes whatever thing it was assigned for, it will stay
+    # marked as assigned to prevent accidental reuse.
+    USED = 1 << 1
 
     ## These are the secondary flags for `IS_ACTIVE`.
     # The user explicitly set this key to be active. It is not intended that the wallet go and
-    # mark it inactive without good reason.
+    # mark it inactive without good reason. The wallet should detect all usage of this key and
+    # obtain any transaction seen to be involved with it.
     USER_SET_ACTIVE = 1 << 8
 
-    ## These are the secondary reason flags for `IS_ASSIGNED`.
+    ## These are the secondary reason flags that may be set in addition to `USED`.
     IS_PAYMENT_REQUEST = 1 << 9
     IS_INVOICE = 1 << 10
+
+    MASK_RESERVATION = IS_PAYMENT_REQUEST | IS_INVOICE
+    MASK_ACTIVE_REASON = MASK_RESERVATION | USER_SET_ACTIVE
 
 
 class SubscriptionType(IntEnum):

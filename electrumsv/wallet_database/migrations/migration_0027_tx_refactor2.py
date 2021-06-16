@@ -29,8 +29,9 @@ from ...types import TxoKeyType
 from ...util.misc import ProgressCallbacks
 
 from ..storage_migration import (AccountRow1, convert_masterkey_derivation_data1,
-    KeyInstanceDataBIP32SubPath1, KeyInstanceDataTypes1, KeyInstanceRow1, MasterKeyDataBIP321,
-    MasterKeyDataTypes1, MasterKeyRow1, TransactionOutputFlag1, TxFlags1, upgrade_masterkey1)
+    KeyInstanceDataBIP32SubPath1, KeyInstanceDataTypes1, KeyInstanceFlag1, KeyInstanceRow1,
+    MasterKeyDataBIP321, MasterKeyDataTypes1, MasterKeyRow1, TransactionOutputFlag1, TxFlags1,
+    upgrade_masterkey1)
 from ..util import create_derivation_data2
 
 logger = logs.get_logger("migration-0027")
@@ -613,13 +614,21 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             updated_masterkey_derivation_data)
 
     # TABLE: KeyInstances
+    assert KeyInstanceFlag1.IS_ACTIVE == KeyInstanceFlag.IS_ACTIVE
     # Mark any keyinstance as reserved that has a script type (is in use in an output).
-    conn.execute(f"UPDATE KeyInstances SET flags=flags|{KeyInstanceFlag.IS_ASSIGNED} "
+    # This is introducing an post-migration flag `KeyInstanceFlag.USED` into pre-migration flags.
+    conn.execute(f"UPDATE KeyInstances SET flags=flags|{KeyInstanceFlag.USED} "
         f"WHERE script_type!={ScriptType.NONE}")
-    # Mark any keyinstance as inactive that has no script and is only active (anything that has
+    # Mark any keyinstance as not ative that has no script and is only active (anything that has
     # the invoice or payment request flag is in use).
-    conn.execute(f"UPDATE KeyInstances SET flags=flags&{~KeyInstanceFlag.IS_ACTIVE} "
-        f"WHERE script_type={ScriptType.NONE} AND flags={KeyInstanceFlag.IS_ACTIVE}")
+    # TODO(no-merge) Think this through. Why are we doing this?
+    conn.execute(f"UPDATE KeyInstances SET flags=flags&{~KeyInstanceFlag1.IS_ACTIVE} "
+        f"WHERE script_type={ScriptType.NONE} AND flags={KeyInstanceFlag1.IS_ACTIVE}")
+    # Mark any keyinstance as not active that is marked as used in a payment request that is
+    # no longer present.
+    conn.execute(f"UPDATE KeyInstances SET flags=flags&{~KeyInstanceFlag1.IS_ACTIVE} "
+        f"WHERE flags={KeyInstanceFlag1.IS_ACTIVE|KeyInstanceFlag.USED}")
+
 
     logger.debug("fix table KeyInstances by creating secondary table")
     conn.execute("CREATE TABLE IF NOT EXISTS KeyInstances2 ("

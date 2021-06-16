@@ -29,7 +29,7 @@
 import concurrent.futures
 import textwrap
 import time
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+from typing import Any, cast, Dict, Iterable, List, Tuple, Optional, TYPE_CHECKING
 import weakref
 
 from bitcoinx import hash_to_hex_str
@@ -84,7 +84,7 @@ class SendView(QWidget):
     def __init__(self, main_window: 'ElectrumWindow', account_id: int) -> None:
         super().__init__(main_window)
 
-        self._main_window = weakref.proxy(main_window)
+        self._main_window = cast("ElectrumWindow", weakref.proxy(main_window))
         self._account_id = account_id
         self._account = main_window._wallet.get_account(account_id)
         self._logger = logs.get_logger(f"send_view[{self._account_id}]")
@@ -306,8 +306,8 @@ class SendView(QWidget):
         if self._not_enough_funds:
             amt_color = ColorScheme.RED
             text = _( "Not enough funds" )
-            c, u, x = self._account.get_frozen_balance()
-            if c+u+x:
+            c, u, x, a = self._account.get_frozen_balance()
+            if c+u+x+a:
                 text += (' (' + app_state.format_amount(c+u+x).strip() + ' ' +
                             app_state.base_unit() + ' ' + _("are frozen") + ')')
 
@@ -361,7 +361,7 @@ class SendView(QWidget):
     def update_fee(self) -> None:
         self._require_fee_update = time.monotonic()
 
-    def set_pay_from(self, coins: List[TransactionOutputSpendableTypes]) -> None:
+    def set_pay_from(self, coins: Iterable[TransactionOutputSpendableTypes]) -> None:
         self.pay_from = list(coins)
         self.redraw_from_list()
 

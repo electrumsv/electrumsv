@@ -11,7 +11,7 @@ Further work
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Callable, cast, Dict, List, NamedTuple, Optional, Sequence
+from typing import Callable, cast, Dict, List, NamedTuple, Optional, Sequence, TYPE_CHECKING
 
 from bitcoinx import (bip32_key_from_string, BIP32PublicKey, P2PKH_Address, P2SH_Address,
     PublicKey, sha256)
@@ -26,6 +26,10 @@ from .networks import Net
 from .types import (ElectrumXHistoryList, SubscriptionEntry, SubscriptionKey,
     SubscriptionScannerScriptHashOwnerContext, SubscriptionOwner)
 from .wallet import AbstractAccount
+
+
+if TYPE_CHECKING:
+    from .network import Network
 
 
 logger = logs.get_logger("scanner")
@@ -119,9 +123,10 @@ class Scanner:
     NOTE(rt12) At this time, only one `Scanner` instance is supported. The main reason for this
     is that.. I do not remember! Work out why this should be the case or not before using more.
     """
-    def __init__(self, wallet_id: int=0, account_id: int=0,
+    def __init__(self, network: "Network", wallet_id: int=0, account_id: int=0,
             settings: Optional[AdvancedSettings]=None,
             extend_range_cb: Optional[ExtendRangeCallback]=None) -> None:
+        self._network = network
         self._started = False
         self._scan_entry_count = 0
         self._extend_range_cb = extend_range_cb
@@ -140,7 +145,7 @@ class Scanner:
 
         self._subscription_owner = SubscriptionOwner(wallet_id, account_id,
             SubscriptionOwnerPurpose.SCANNER)
-        app_state.subscriptions.set_owner_callback(self._subscription_owner,
+        self._network.subscriptions.set_owner_callback(self._subscription_owner,
             self._on_script_hash_result)
 
     def shutdown(self) -> None:
@@ -152,7 +157,7 @@ class Scanner:
             return
         logger.debug("shutdown scanner")
         self._should_exit = True
-        app_state.subscriptions.remove_owner(self._subscription_owner)
+        self._network.subscriptions.remove_owner(self._subscription_owner)
 
     @classmethod
     def from_account(cls, account: AbstractAccount, settings: Optional[AdvancedSettings]=None,
@@ -165,7 +170,8 @@ class Scanner:
         wallet = account.get_wallet()
         wallet_id = wallet.get_id()
         script_types = ACCOUNT_SCRIPT_TYPES[account_type]
-        scanner = cls(wallet_id, account_id, settings, extend_range_cb)
+        assert wallet._network is not None
+        scanner = cls(wallet._network, wallet_id, account_id, settings, extend_range_cb)
 
         if account.is_deterministic():
             threshold = account.get_threshold()
@@ -253,7 +259,8 @@ class Scanner:
                         SubscriptionKey(SubscriptionType.SCRIPT_HASH, entry.script_hash),
                         SubscriptionScannerScriptHashOwnerContext(entry)))
                 self._extend_range(len(new_entries))
-                app_state.subscriptions.create_entries(subscribe_entries, self._subscription_owner)
+                self._network.subscriptions.create_entries(subscribe_entries,
+                    self._subscription_owner)
             elif len(self._active_scripts) == 0 and len(self._pending_scripts) == 0:
                 # BIP32 paths do not get removed, but they can be exhausted of candidates.
                 if all(self._get_bip32_path_count(pp) == 0 for pp in self._bip32_paths):

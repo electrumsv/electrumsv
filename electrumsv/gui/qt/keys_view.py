@@ -32,7 +32,7 @@ import enum
 from functools import partial
 import threading
 import time
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, Union
 import weakref
 import webbrowser
 
@@ -43,27 +43,27 @@ from PyQt5.QtCore import (QAbstractItemModel, QModelIndex, QVariant, Qt, QSortFi
 from PyQt5.QtGui import QFont, QFontMetrics, QKeySequence
 from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 
-from electrumsv.i18n import _
-from electrumsv.app_state import app_state
-from electrumsv.bitcoin import scripthash_bytes, sha256
-from electrumsv.constants import (ACCOUNT_SCRIPT_TYPES, DerivationType, IntFlag, KeyInstanceFlag,
+from ...i18n import _
+from ...app_state import app_state
+from ...bitcoin import scripthash_bytes, sha256
+from ...constants import (ACCOUNT_SCRIPT_TYPES, DerivationType, IntFlag, KeyInstanceFlag,
     ScriptType, TransactionOutputFlag, unpack_derivation_path)
-from electrumsv.keystore import Hardware_KeyStore
-from electrumsv.logs import logs
-from electrumsv.networks import Net
-from electrumsv.platform import platform
-from electrumsv.types import TxoKeyType
-from electrumsv.util import profiler
-from electrumsv.wallet import MultisigAccount, AbstractAccount, StandardAccount
-from electrumsv.wallet_database.types import KeyInstanceRow, KeyListRow
-from electrumsv import web
+from ...keystore import Hardware_KeyStore
+from ...logs import logs
+from ...networks import Net
+from ...platform import platform
+from ...types import TxoKeyType
+from ...util import profiler
+from ...wallet import MultisigAccount, AbstractAccount, StandardAccount
+from ...wallet_database.types import KeyInstanceRow, KeyListRow
+from ... import web
 
 from .main_window import ElectrumWindow
 from .util import read_QIcon, get_source_index
 
 
-QT_SORT_ROLE = Qt.UserRole+1
-QT_FILTER_ROLE = Qt.UserRole+2
+QT_SORT_ROLE = Qt.ItemDataRole.UserRole+1
+QT_FILTER_ROLE = Qt.ItemDataRole.UserRole+2
 
 COLUMN_NAMES = [ _("Type"), _("State"), _('Key'), _('Script'), _('Label'), _('Balance'), '' ]
 
@@ -108,12 +108,13 @@ def get_key_text(line: KeyLine) -> str:
     text = f"{line.keyinstance_id}:{line.masterkey_id}"
     derivation_text = ""
     if line.derivation_type == DerivationType.BIP32_SUBPATH:
+        assert line.derivation_data2 is not None
         derivation_path = unpack_derivation_path(line.derivation_data2)
         derivation_text = bip32_build_chain_string(derivation_path)
     return text +":"+ derivation_text
 
 
-def data_row_key(row: KeyListRow) -> Tuple[int, bytes, int]:
+def data_row_key(row: KeyListRow) -> Tuple[int, Optional[bytes], Optional[int]]:
     return row.keyinstance_id, row.tx_hash, row.txo_index
 
 
@@ -239,12 +240,12 @@ class _ItemModel(QAbstractItemModel):
                 if column == KEY_COLUMN:
                     return line
 
-            elif role == Qt.DecorationRole:
+            elif role == Qt.ItemDataRole.DecorationRole:
                 if column == TYPE_COLUMN:
                     # TODO(rt12) BACKLOG Need to add variation in icons.
                     return self._receive_icon
 
-            elif role == Qt.DisplayRole:
+            elif role == Qt.ItemDataRole.DisplayRole:
                 if column == TYPE_COLUMN:
                     return None
                 elif column == STATE_COLUMN:
@@ -257,7 +258,7 @@ class _ItemModel(QAbstractItemModel):
                         state_text += "P"
                     if line.flags & KeyInstanceFlag.USER_SET_ACTIVE:
                         state_text += "F"
-                    if line.flags & KeyInstanceFlag.IS_ASSIGNED:
+                    if line.flags & KeyInstanceFlag.USED:
                         state_text += "X"
                     if not len(state_text) and line.flags:
                         state_text = str(line.flags)
@@ -281,21 +282,21 @@ class _ItemModel(QAbstractItemModel):
                             fx = app_state.fx
                             rate = fx.exchange_rate()
                             return fx.value_str(value, rate)
-            elif role == Qt.FontRole:
+            elif role == Qt.ItemDataRole.FontRole:
                 if column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     return self._view._monospace_font
 
-            elif role == Qt.BackgroundRole:
+            elif role == Qt.ItemDataRole.BackgroundRole:
                 # This does not work because the CSS overrides it.
                 pass
-            elif role == Qt.TextAlignmentRole:
+            elif role == Qt.ItemDataRole.TextAlignmentRole:
                 if column in (TYPE_COLUMN, STATE_COLUMN):
-                    return Qt.AlignCenter
+                    return Qt.AlignmentFlag.AlignCenter
                 elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
-                    return Qt.AlignRight | Qt.AlignVCenter
-                return Qt.AlignVCenter
+                    return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+                return Qt.AlignmentFlag.AlignVCenter
 
-            elif role == Qt.ToolTipRole:
+            elif role == Qt.ItemDataRole.ToolTipRole:
                 if column == TYPE_COLUMN:
                     return _("Key")
                 elif column == STATE_COLUMN:
@@ -308,13 +309,14 @@ class _ItemModel(QAbstractItemModel):
                         lines.append(_("P: Payment request related"))
                     if line.flags & KeyInstanceFlag.USER_SET_ACTIVE:
                         lines.append(_("F: Forced active"))
-                    if line.flags & KeyInstanceFlag.IS_ASSIGNED:
+                    if line.flags & KeyInstanceFlag.USED:
                         lines.append(_("X: Assigned"))
                     if len(lines):
                         return "\n".join(lines)
                 elif column == KEY_COLUMN:
                     derivation_path_text: str = ""
                     if line.derivation_type == DerivationType.BIP32_SUBPATH:
+                        assert line.derivation_data2 is not None
                         derivation_path = unpack_derivation_path(line.derivation_data2)
                         derivation_path_text = bip32_build_chain_string(derivation_path)
                     return "\n".join([
@@ -323,21 +325,21 @@ class _ItemModel(QAbstractItemModel):
                         f"Derivation path {derivation_path_text}",
                     ])
 
-            elif role == Qt.EditRole:
+            elif role == Qt.ItemDataRole.EditRole:
                 if column == LABEL_COLUMN:
                     return line.description
 
-    def flags(self, model_index: QModelIndex) -> int:
+    def flags(self, model_index: QModelIndex) -> Qt.ItemFlag:
         if model_index.isValid():
             column = model_index.column()
             flags = super().flags(model_index)
             if column == LABEL_COLUMN:
-                flags |= Qt.ItemIsEditable
+                flags |= Qt.ItemFlag.ItemIsEditable
             return flags
-        return Qt.ItemIsEnabled
+        return Qt.ItemFlag.ItemIsEnabled
 
     def headerData(self, section: int, orientation: int, role: int) -> Any:
-        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+        if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
             if section < len(self._column_names):
                 return self._column_names[section]
 
@@ -353,7 +355,7 @@ class _ItemModel(QAbstractItemModel):
         return len(self._data)
 
     def setData(self, model_index: QModelIndex, value: QVariant, role: int) -> bool:
-        if model_index.isValid() and role == Qt.EditRole:
+        if model_index.isValid() and role == Qt.ItemDataRole.EditRole:
             row = model_index.row()
             line = self._data[row]
             if model_index.column() == LABEL_COLUMN:
@@ -413,7 +415,7 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
         if self._filter_type == MatchType.TEXT:
             for column in (KEY_COLUMN, LABEL_COLUMN, SCRIPT_COLUMN):
                 column_index = source_model.index(source_row, column, source_parent)
-                cell_data = source_model.data(column_index, Qt.DisplayRole)
+                cell_data = source_model.data(column_index, Qt.ItemDataRole.DisplayRole)
                 # In rare occasions the filter may get a None result for cell data.
                 if cell_data and match in cell_data.lower():
                     return True
@@ -433,7 +435,7 @@ class KeyView(QTableView):
         super().__init__(main_window)
         self._logger = logs.get_logger("key-view")
 
-        self._main_window = weakref.proxy(main_window)
+        self._main_window = cast(ElectrumWindow, weakref.proxy(main_window))
         self._account: Optional[AbstractAccount] = None
         self._account_id: Optional[int] = None
 
@@ -465,7 +467,7 @@ class KeyView(QTableView):
         self._set_fiat_columns_enabled(fx and fx.get_fiat_address_config())
 
         # Sort by type then by index, by making sure the initial sort is our type column.
-        self.sortByColumn(BALANCE_COLUMN, Qt.DescendingOrder)
+        self.sortByColumn(BALANCE_COLUMN, Qt.SortOrder.DescendingOrder)
         self.setSortingEnabled(True)
 
         defaultFontMetrics = QFontMetrics(app_state.app.font())
@@ -501,7 +503,7 @@ class KeyView(QTableView):
         # New selections clear existing selections, unless the user holds down control.
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
 
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._event_create_menu)
 
         app_state.app.base_unit_changed.connect(self._on_balance_display_change)
@@ -604,11 +606,15 @@ class KeyView(QTableView):
     def _dispatch_updates(self, pending_actions: Set[ListActions],
             pending_state: Dict[int, EventFlags]) -> None:
         account_id = self._account_id
+        assert account_id is not None
         account = self._main_window._wallet.get_account(account_id)
+        assert account is not None
 
         if ListActions.RESET in pending_actions:
             self._logger.debug("_on_update_check reset")
 
+            # This gets key usages or non-usages. If a key has not been used, it will appear as
+            # such. If it has been used, there will be one entry per usage.
             self._data = account.get_key_list()
             self._base_model.set_data(account_id, self._data)
             return
@@ -747,6 +753,8 @@ class KeyView(QTableView):
         with self._update_lock:
             new_flags = EventFlags.KEY_UPDATED | EventFlags.FREEZE_UPDATE
             for keyinstance_id in keyinstance_ids:
+                if keyinstance_id is None:
+                    continue
                 flags = self._pending_state.get(keyinstance_id, EventFlags.UNSET)
                 self._pending_state[keyinstance_id] = new_flags
 
@@ -798,6 +806,7 @@ class KeyView(QTableView):
         self._account.set_keyinstance_flags(list(keyinstance_ids), flags, mask)
 
     def _event_double_clicked(self, model_index: QModelIndex) -> None:
+        assert self._account is not None
         base_index = get_source_index(model_index, _ItemModel)
         column = base_index.column()
         if column == LABEL_COLUMN:
@@ -824,7 +833,8 @@ class KeyView(QTableView):
                 copy_text = get_key_text(menu_line)
             else:
                 copy_text = str(
-                    menu_source_index.model().data(menu_source_index, Qt.DisplayRole)).strip()
+                    menu_source_index.model().data(menu_source_index,
+                        Qt.ItemDataRole.DisplayRole)).strip()
             menu.addAction(_("Copy {}").format(column_title),
                 lambda: self._main_window.app.clipboard().setText(copy_text))
 
@@ -859,14 +869,15 @@ class KeyView(QTableView):
                 menu.addAction(_("Request payment"),
                     lambda: self._main_window._receive_view.receive_at_key(line))
                 if self._account.can_export():
+                    # NOTE(typing) `show_private_key` has a password decorator that typing blind to.
                     menu.addAction(_("Private key"),
-                        lambda: self._main_window.show_private_key(self._account, line,
-                            line.txo_script_type))
+                        lambda: self._main_window.show_private_key(self._account, # type: ignore
+                            line, line.txo_script_type))
                 if not is_multisig and not self._account.is_watching_only():
                     menu.addAction(_("Sign/verify message"),
                         lambda: self._main_window.sign_verify_message(self._account, line))
                     menu.addAction(_("Encrypt/decrypt message"),
-                                lambda: self._main_window.encrypt_message(self._account, line))
+                        lambda: self._main_window.encrypt_message(self._account, line))
 
                 explore_menu = menu.addMenu(_("View on block explorer"))
 

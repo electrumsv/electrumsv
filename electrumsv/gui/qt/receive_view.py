@@ -81,7 +81,7 @@ class ReceiveView(QWidget):
             if self._fiat_receive_e.is_last_edited else self._receive_amount_e)
         edit.textEdited.emit(edit.text())
 
-    def _create_form_layout(self) -> QHBoxLayout:
+    def _create_form_layout(self) -> QVBoxLayout:
         # A 4-column grid layout.  All the stretch is in the last column.
         # The exchange rate plugin adds a fiat widget in column 2
         grid = QGridLayout()
@@ -99,7 +99,7 @@ class ReceiveView(QWidget):
         self._fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
         if not app_state.fx or not app_state.fx.is_enabled():
             self._fiat_receive_e.setVisible(False)
-        grid.addWidget(self._fiat_receive_e, 2, 2, Qt.AlignLeft)
+        grid.addWidget(self._fiat_receive_e, 2, 2, Qt.AlignmentFlag.AlignLeft)
         self._main_window.connect_fields(self._receive_amount_e, self._fiat_receive_e)
 
         self._expires_combo = QComboBox()
@@ -116,7 +116,7 @@ class ReceiveView(QWidget):
         grid.addWidget(self._expires_combo, 3, 1)
         self._expires_label = QLineEdit('')
         self._expires_label.setReadOnly(True)
-        self._expires_label.setFocusPolicy(Qt.NoFocus)
+        self._expires_label.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._expires_label.hide()
         grid.addWidget(self._expires_label, 3, 1)
 
@@ -127,7 +127,7 @@ class ReceiveView(QWidget):
         bhbox.addWidget(self._help_button)
         bhbox.addWidget(self._create_button)
         bhbox.addStretch(1)
-        grid.addLayout(bhbox, 4, 0, 1, -1, Qt.AlignHCenter)
+        grid.addLayout(bhbox, 4, 0, 1, -1, Qt.AlignmentFlag.AlignHCenter)
 
         vbox = QVBoxLayout()
         vbox.addLayout(grid)
@@ -144,7 +144,7 @@ class ReceiveView(QWidget):
 
         request_box = QGroupBox()
         request_box.setTitle(_('Incoming payments'))
-        request_box.setAlignment(Qt.AlignCenter)
+        request_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
         request_box.setContentsMargins(0, 0, 0, 0)
         request_box.setLayout(layout)
         return request_box
@@ -163,9 +163,6 @@ class ReceiveView(QWidget):
         return [ self._receive_amount_e ]
 
     def _on_create_button_clicked(self) -> None:
-        """
-        The user clicked the "Create" button.
-        """
         # These are the same constraints imposed in the receive view.
         message = self._receive_message_e.text()
         if not message:

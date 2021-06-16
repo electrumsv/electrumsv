@@ -108,8 +108,9 @@ async def test_scanner_pump_mixed(app_state):
 
     assert isinstance(xpub1, BIP32PublicKey)
 
-    app_state.subscriptions = unittest.mock.Mock()
-    app_state.subscriptions.create_entries.side_effect = create_entries
+    network = unittest.mock.Mock()
+    network.subscriptions = unittest.mock.Mock()
+    network.subscriptions.create_entries.side_effect = create_entries
     app_state.async_.event.side_effect = create_event
 
     range_index = -1
@@ -125,7 +126,7 @@ async def test_scanner_pump_mixed(app_state):
         range_index += 1
         assert new_range == expected_ranges[range_index]
 
-    scanner = Scanner(extend_range_cb=extend_range_cb)
+    scanner = Scanner(network, extend_range_cb=extend_range_cb)
     for input_line in input_lines_script:
         scanner.add_script(input_line.keyinstance_id, ScriptType.P2PKH, input_line.script_hash)
     scanner.add_bip32_subpath(RECEIVING_SUBPATH, [ xpub1 ], 1, SINGLE_SIGNER_SCRIPT_TYPES)
@@ -170,8 +171,9 @@ async def test_scanner_pump_bip32(app_state):
 
     assert isinstance(xpub1, BIP32PublicKey)
 
-    app_state.subscriptions = unittest.mock.Mock()
-    app_state.subscriptions.create_entries.side_effect = create_entries
+    network = unittest.mock.Mock()
+    network.subscriptions = unittest.mock.Mock()
+    network.subscriptions.create_entries.side_effect = create_entries
     app_state.async_.event.side_effect = create_event
 
     input_lines, input_line_map = await generate_bip32_input_lines(SINGLE_SIGNER_SCRIPT_TYPES)
@@ -187,7 +189,7 @@ async def test_scanner_pump_bip32(app_state):
         range_index += 1
         assert new_range == expected_ranges[range_index]
 
-    scanner = Scanner(extend_range_cb=extend_range_cb)
+    scanner = Scanner(network, extend_range_cb=extend_range_cb)
     receiving_path = scanner.add_bip32_subpath(RECEIVING_SUBPATH, [ xpub1 ], 1,
         SINGLE_SIGNER_SCRIPT_TYPES)
     await scanner.scan_for_usage()
@@ -229,8 +231,9 @@ async def test_scanner_pump_script(app_state):
             worker_task = asyncio.create_task(post_event(scanner, entry, input_lines[i].history))
             worker_tasks.append(worker_task)
 
-    app_state.subscriptions = unittest.mock.Mock()
-    app_state.subscriptions.create_entries.side_effect = create_entries
+    network = unittest.mock.Mock()
+    network.subscriptions = unittest.mock.Mock()
+    network.subscriptions.create_entries.side_effect = create_entries
     app_state.async_.event.side_effect = create_event
 
     extend_range_called = False
@@ -239,7 +242,7 @@ async def test_scanner_pump_script(app_state):
         extend_range_called = True
         assert new_range == len(input_lines)
 
-    scanner = Scanner(extend_range_cb=extend_range_cb)
+    scanner = Scanner(network, extend_range_cb=extend_range_cb)
     for input_line in input_lines:
         scanner.add_script(input_line.keyinstance_id, ScriptType.P2PKH, input_line.script_hash)
 
@@ -259,10 +262,11 @@ async def test_scanner_pump_script(app_state):
 
 @unittest.mock.patch('electrumsv.blockchain_scanner.app_state')
 def test_scanner_bip32_correctness(app_state):
+    network = unittest.mock.Mock()
     app_state.subscriptions = unittest.mock.Mock()
     assert isinstance(xpub1, BIP32PublicKey)
 
-    scanner = Scanner()
+    scanner = Scanner(network)
 
     receiving_xpub = xpub1.child_safe(RECEIVING_SUBPATH[0])
     receiving_path = BIP32ParentPath(RECEIVING_SUBPATH, 1, [ xpub1 ], (ScriptType.P2PKH,))

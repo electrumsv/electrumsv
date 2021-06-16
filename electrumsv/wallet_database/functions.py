@@ -56,10 +56,11 @@ def count_unused_bip32_keys(db: sqlite3.Connection, account_id: int, masterkey_i
     # the derivation_data2 bytes to get them ordered from oldest to newest, just id.
     sql = ("SELECT COUNT(*) FROM KeyInstances "
         "WHERE account_id=? AND masterkey_id=? "
-            f"AND (flags&{KeyInstanceFlag.IS_ASSIGNED})=0 "
+            f"AND (flags&?)=0 "
             "AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
         "ORDER BY keyinstance_id")
     cursor = db.execute(sql, (account_id, masterkey_id,
+        KeyInstanceFlag.USED,
         len(prefix_bytes)+4,  # The length of the parent path and sequence index.
         len(prefix_bytes),    # Just the length of the parent path.
         prefix_bytes))        # The packed parent path bytes.
@@ -238,18 +239,25 @@ def delete_invoices(db_context: DatabaseContext, entries: Iterable[Tuple[int]]) 
 def delete_payment_request(db_context: DatabaseContext, paymentrequest_id: int,
         keyinstance_id: int) -> concurrent.futures.Future:
     timestamp = get_timestamp()
+    expected_key_flags = KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST
+    read_sql1 = "SELECT flags from KeyInstances WHERE keyinstance_id=?"
+    read_sql1_values = (keyinstance_id,)
+    write_sql1 = "UPDATE KeyInstances SET date_updated=?, flags=flags&? WHERE keyinstance_id=?"
+    write_sql2 = "DELETE FROM PaymentRequests WHERE paymentrequest_id=?"
+    write_sql2_values = (paymentrequest_id,)
 
-    sql1 = ("UPDATE KeyInstances SET date_updated=?, "
-        f"flags=flags&{~KeyInstanceFlag.IS_PAYMENT_REQUEST} WHERE keyinstance_id=?")
-    sql1_values = (timestamp, keyinstance_id)
-
-    sql2 = "DELETE FROM PaymentRequests WHERE paymentrequest_id=?"
-    sql2_values = (paymentrequest_id,)
-
-    def _write(db: sqlite3.Connection) -> None:
-        nonlocal sql1, sql1_values, sql2, sql2_values
-        db.execute(sql1, sql1_values)
-        db.execute(sql2, sql2_values)
+    def _write(db: sqlite3.Connection) -> KeyInstanceFlag:
+        # We need the flags for the key instance to work out why it is active.
+        flags = db.execute(read_sql1, read_sql1_values).fetchone()[0]
+        assert flags & expected_key_flags == expected_key_flags, "not a valid payment request key"
+        # If there are other reasons the key is active, do not remove `IS_ACTIVE`.
+        key_flags_mask = KeyInstanceFlag.IS_PAYMENT_REQUEST
+        if flags & KeyInstanceFlag.MASK_ACTIVE_REASON == KeyInstanceFlag.IS_PAYMENT_REQUEST:
+            # We have confirmed this is the sole reason the key is active. Remove `IS_ACTIVE`.
+            key_flags_mask = expected_key_flags
+        db.execute(write_sql1, (timestamp, ~key_flags_mask, keyinstance_id))
+        db.execute(write_sql2, write_sql2_values)
+        return key_flags_mask
     return db_context.post_to_thread(_write)
 
 
@@ -258,7 +266,6 @@ def delete_wallet_data(db_context: DatabaseContext, key: str) -> concurrent.futu
     timestamp = get_timestamp()
 
     def _write(db: sqlite3.Connection) -> None:
-        nonlocal sql, key
         db.execute(sql, (key,))
     return db_context.post_to_thread(_write)
 
@@ -584,7 +591,7 @@ def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: 
     We are not concerned about reorgs, the reorg processing should happen independently and even
     on account/wallet load before these subscriptions are made.
     """
-    sql_values = [account_id, account_id]
+    sql_values = [account_id, TxFlags.REMOVED, account_id, TxFlags.REMOVED]
     sql = ("""
         WITH summary AS (
             SELECT TXO.tx_hash,
@@ -597,6 +604,7 @@ def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: 
             INNER JOIN AccountTransactions ATX ON ATX.tx_hash = TXO.tx_hash
             INNER JOIN Transactions TX ON TX.tx_hash = TXO.tx_hash
             WHERE TXO.keyinstance_id IS NOT NULL AND ATX.account_id=? AND TX.proof_data IS NULL
+                AND TX.flags&?=0
             UNION
             SELECT TXI.tx_hash,
                 2 AS put_type,
@@ -609,7 +617,8 @@ def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: 
             INNER JOIN Transactions TX ON TX.tx_hash = TXI.tx_hash
             INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash
                 AND TXO.txo_index=TXI.spent_txo_index
-            WHERE TXO.keyinstance_id IS NOT NULL AND ATX.account_id=? AND TX.proof_data IS NULL)
+            WHERE TXO.keyinstance_id IS NOT NULL AND ATX.account_id=? AND TX.proof_data IS NULL
+                AND TX.flags&?=0)
         SELECT s.tx_hash, s.put_type, s.keyinstance_id, s.script_hash
         FROM summary s
         WHERE s.rk = 1
@@ -722,7 +731,7 @@ def read_keyinstance_derivation_index_last(db: sqlite3.Connection, account_id: i
     # the derivation_data2 bytes to get them ordered from oldest to newest, just id.
     sql = ("SELECT derivation_data2 FROM KeyInstances "
         "WHERE account_id=? AND masterkey_id=? "
-            f"AND (flags&{KeyInstanceFlag.IS_ASSIGNED})=0 "
+            f"AND (flags&{KeyInstanceFlag.USED})=0 "
             "AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
         "ORDER BY keyinstance_id DESC "
         "LIMIT 1")
@@ -933,12 +942,12 @@ def read_transactions_exist(db: sqlite3.Connection, tx_hashes: Sequence[bytes],
     Return the subset of transactions that are already present in the database.
     """
     if account_id is None:
-        sql = ("SELECT tx_hash, flags, NULL "
+        sql = ("SELECT tx_hash, flags, block_height, NULL "
             "FROM Transactions "
             "WHERE tx_hash IN ({})")
         return read_rows_by_id(TransactionExistsRow, db, sql, [ ], tx_hashes)
 
-    sql = ("SELECT T.tx_hash, T.flags, ATX.account_id "
+    sql = ("SELECT T.tx_hash, T.flags, T.block_height, ATX.account_id "
         "FROM Transactions T "
         "LEFT JOIN AccountTransactions ATX ON ATX.tx_hash=T.tx_hash AND ATX.account_id=? "
         "WHERE T.tx_hash IN ({})")
@@ -1120,11 +1129,11 @@ def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id
     sql = ("SELECT keyinstance_id, account_id, masterkey_id, derivation_type, "
         "derivation_data, derivation_data2, flags, description FROM KeyInstances "
         "WHERE account_id=? AND masterkey_id=? "
-            f"AND (flags&{KeyInstanceFlag.IS_ASSIGNED})=0 "
-            "AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
+            "AND (flags&?)=0 AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
         "ORDER BY keyinstance_id "
         f"LIMIT {limit}")
     cursor = db.execute(sql, (account_id, masterkey_id,
+        KeyInstanceFlag.USED,
         len(prefix_bytes)+4,  # The length of the parent path and sequence index.
         len(prefix_bytes),    # Just the length of the parent path.
         prefix_bytes))        # The packed parent path bytes.
@@ -1311,33 +1320,31 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
     prefix_bytes = pack_derivation_path(derivation_path)
     if allocation_flags is None:
         allocation_flags = KeyInstanceFlag.NONE
-    allocation_flags |= KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_ASSIGNED
+    allocation_flags |= KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USED
     # We need to do this in two steps to get the id of the keyinstance we allocated.
     sql_read = (
         "SELECT keyinstance_id "
         "FROM KeyInstances "
-        "WHERE account_id=? AND masterkey_id=? AND length(derivation_data2)=? AND "
-            f"(flags&{KeyInstanceFlag.IS_ASSIGNED})=0 AND substr(derivation_data2,1,?)=? "
+        "WHERE account_id=? AND masterkey_id=? AND (flags&?)=0 AND length(derivation_data2)=? AND "
+            "substr(derivation_data2,1,?)=? "
         "ORDER BY keyinstance_id ASC "
         "LIMIT 1")
     sql_read_values = [ account_id, masterkey_id,
-        len(prefix_bytes)+4,  # The length of the parent path and sequence index.
-        len(prefix_bytes),    # Just the length of the parent path.
-        prefix_bytes ]        # The packed parent path bytes.
+        KeyInstanceFlag.USED,           # Filter out rows with these flags.
+        len(prefix_bytes)+4,            # The length of the parent path and sequence index.
+        len(prefix_bytes),              # Just the length of the parent path.
+        prefix_bytes ]                  # The packed parent path bytes.
     sql_write = (
-        "UPDATE KeyInstances "
-        f"SET flags=flags|{allocation_flags} "
-        f"WHERE keyinstance_id=? AND flags&{KeyInstanceFlag.IS_ASSIGNED}=0")
+        "UPDATE KeyInstances SET flags=flags|? WHERE keyinstance_id=? AND flags&?=0")
 
     def _write(db: sqlite3.Connection) -> Tuple[int, KeyInstanceFlag]:
-        nonlocal allocation_flags, sql_read, sql_read_values, sql_write
-
         keyinstance_row = db.execute(sql_read, sql_read_values).fetchone()
         if keyinstance_row is None:
             raise KeyInstanceNotFoundError()
 
         # The result of the read operation just happens to be the parameters we need for the write.
-        cursor = db.execute(sql_write, keyinstance_row)
+        cursor = db.execute(sql_write,
+            (allocation_flags, keyinstance_row[0], KeyInstanceFlag.USED))
         if cursor.rowcount != 1:
             # The key was allocated by something else between the read and the write.
             raise DatabaseUpdateError()
@@ -1355,14 +1362,15 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
         mask = ~flags # type: ignore
     sql = (
         "UPDATE KeyInstances "
-        f"SET date_updated=?, flags=(flags&{mask})|{flags} "
+        f"SET date_updated=?, flags=(flags&?)|? "
         "WHERE keyinstance_id IN ({})")
     # Ensure that we rollback if we are applying changes that are already in place. We expect to
     # update all the rows we are asked to update, and this will filter out the rows that already
     # have any of the flags we intend to set.
     # NOTE If any caller wants to do overwrites or partial updates then that should be a standard
     # policy optionally passed into all update calls.
-    sql_values = [ get_timestamp() ]
+    sql_values = [ get_timestamp(), mask, flags ]
+    print(sql_values)
 
     def _write(db: sqlite3.Connection) -> bool:
         nonlocal sql, sql_values, key_ids
@@ -1374,26 +1382,30 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
     return db_context.post_to_thread(_write)
 
 
-def set_transaction_dispatched(db_context: DatabaseContext, tx_hash: bytes) \
-        -> concurrent.futures.Future:
+def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxFlags,
+        ignore_mask: Optional[TxFlags]=None) -> concurrent.futures.Future:
     """
-    Set a transaction to dispatched state.
+    Set a transaction to given state.
 
-    If the transaction is in a pre-dispatched state, this should succeed and will return `True`.
+    If the transaction is in an pre-dispatched state, this should succeed and will return `True`.
     If the transaction is not in a pre-dispatched state, then this will return `False` and no
     change will be made.
     """
+    # TODO(python) Python 3.10 has `flag.bitcount()` supposedly.
+    assert bin(flag).count("1") == 1, "only one state can be specified at a time"
+    # We will clear any existing state bits.
     mask_bits = ~TxFlags.MASK_STATE
-    set_bits = TxFlags.STATE_DISPATCHED
-    ignore_bits = TxFlags.STATE_DISPATCHED | TxFlags.MASK_STATE_BROADCAST
+    if ignore_mask is None:
+        ignore_mask = flag
+    # ignore_bits = TxFlags.STATE_DISPATCHED | TxFlags.MASK_STATE_BROADCAST
     timestamp = get_timestamp()
-    sql = ("UPDATE Transactions "
-        f"SET date_updated=?, flags=(flags&{mask_bits})|{set_bits} "
-        f"WHERE tx_hash=? AND flags&{ignore_bits}=0")
+    sql = (
+        "UPDATE Transactions SET date_updated=?, flags=(flags&?)|? "
+        "WHERE tx_hash=? AND flags&?=0")
+    sql_values = [ timestamp, mask_bits, flag, tx_hash, ignore_mask ]
 
     def _write(db: sqlite3.Connection) -> bool:
-        nonlocal sql, timestamp, tx_hash
-        cursor = db.execute(sql, (timestamp, tx_hash))
+        cursor = db.execute(sql, sql_values)
         if cursor.rowcount == 0:
             # Rollback the database transaction (nothing to rollback but upholding the convention).
             raise DatabaseUpdateError("Rollback as nothing updated")
@@ -2013,8 +2025,8 @@ class AsynchronousFunctions:
         spends should only occur in synchronisation, and we can special case that at a higher
         level.
         """
-        _rowcount1 = self._link_transaction_key_usage(db, tx_hash)
-        _rowcount2 = self._link_transaction_to_accounts(db, tx_hash)
+        self._link_transaction_key_usage(db, tx_hash)
+        self._link_transaction_to_accounts(db, tx_hash)
 
         # NOTE We do not handle removing the conflict flag here. That whole process can be
         # done elsewhere.
@@ -2037,7 +2049,8 @@ class AsynchronousFunctions:
             sql2_values = (TxFlags.CONFLICTING, tx_hash)
             db.execute(sql2, sql2_values)
 
-    def _link_transaction_key_usage(self, db: sqlite3.Connection, tx_hash: bytes) -> int:
+    def _link_transaction_key_usage(self, db: sqlite3.Connection, tx_hash: bytes) \
+            -> Tuple[int, int]:
         """
         Link transaction outputs to key usage.
 
@@ -2045,14 +2058,26 @@ class AsynchronousFunctions:
         were not created when it was first called for a transaction.
         """
         timestamp = get_timestamp()
-        sql = (
+        sql_write_1 = (
             "UPDATE TransactionOutputs AS TXO "
             "SET date_updated=?, keyinstance_id=KIS.keyinstance_id, script_type=KIS.script_type "
             "FROM KeyInstanceScripts KIS "
             "WHERE TXO.tx_hash=? AND TXO.script_hash=KIS.script_hash")
-        sql_values = (timestamp, tx_hash)
-        cursor = db.execute(sql, sql_values)
-        return cursor.rowcount
+        sql_write_1_values = (timestamp, tx_hash)
+        cursor_1 = db.execute(sql_write_1, sql_write_1_values)
+
+        # We explicitly mark keys as used when we use them. See `KeyInstanceFlag.USED`
+        # for a rationale.
+        sql_write_2 = (
+            "UPDATE KeyInstances AS KI "
+            "SET date_updated=?, flags=KI.flags|? "
+            "FROM KeyInstanceScripts KIS "
+            "INNER JOIN TransactionOutputs TXO ON TXO.keyinstance_id=KIS.keyinstance_id "
+            "WHERE TXO.tx_hash=? AND KI.keyinstance_id=TXO.keyinstance_id")
+        sql_write_2_values = (timestamp, KeyInstanceFlag.USED, tx_hash)
+        cursor_2 = db.execute(sql_write_2, sql_write_2_values)
+
+        return cursor_1.rowcount, cursor_2.rowcount
 
     def _link_transaction_to_accounts(self, db: sqlite3.Connection, tx_hash: bytes) -> int:
         """

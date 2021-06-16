@@ -316,6 +316,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _on_transaction_state_change(self, event_name: str, account_id: int, tx_hash: bytes,
             new_state: TxFlags) -> None:
+        self.update_history_view()
         self.transaction_state_signal.emit(account_id, tx_hash, new_state)
 
     # Map the wallet event to a Qt UI signal.
@@ -1374,7 +1375,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # Not all transactions that are broadcast are in the account. Arbitrary transaction
             # broadcast is supported.
             if result == tx.txid() and account and self._wallet.have_transaction(tx_hash):
-                account.maybe_set_transaction_dispatched(tx_hash)
+                account.maybe_set_transaction_cleared(tx_hash)
             update_cb(False, _("Done."))
             return result
 

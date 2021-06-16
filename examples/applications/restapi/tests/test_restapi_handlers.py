@@ -158,7 +158,7 @@ class MockAccount(AbstractAccount):
         self._id = 1
         self._wallet = wallet
 
-    def maybe_set_transaction_dispatched(self, tx_hash):
+    def maybe_set_transaction_cleared(self, tx_hash):
         return True
 
     def dumps(self):

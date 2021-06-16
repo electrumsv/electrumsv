@@ -1,4 +1,4 @@
-from typing import Any, Awaitable, Callable, Dict, List, NamedTuple, Optional, Tuple, \
+from typing import Any, Callable, Coroutine, Dict, List, NamedTuple, Optional, Tuple, \
     TYPE_CHECKING, TypedDict, Union
 import uuid
 
@@ -58,9 +58,9 @@ class ScriptHashSubscriptionEntry(NamedTuple):
 
 
 ScriptHashSubscriptionCallback = Callable[[List[ScriptHashSubscriptionEntry]],
-    Awaitable[None]]
+    Coroutine[Any, Any, None]]
 ScriptHashResultCallback = Callable[[SubscriptionKey, SubscriptionOwnerContextType,
-    ElectrumXHistoryList], Awaitable[None]]
+    ElectrumXHistoryList], Coroutine[Any, Any, None]]
 
 
 class TxoKeyType(NamedTuple):

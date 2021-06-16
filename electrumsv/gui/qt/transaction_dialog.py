@@ -137,9 +137,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         QDialog.__init__(self, parent=None, flags=Qt.WindowType(Qt.WindowSystemMenuHint |
             Qt.WindowTitleHint | Qt.WindowCloseButtonHint))
 
-        # NOTE(typing) Pylance/pyright do not have typing information this aspect of PyQt5.
-        self.copy_data_ready_signal.connect(self._copy_transaction_ready) # type:ignore
-        self.save_data_ready_signal.connect(self._save_transaction_ready) # type:ignore
+        self.copy_data_ready_signal.connect(self._copy_transaction_ready)
+        self.save_data_ready_signal.connect(self._save_transaction_ready)
 
         # Take a copy; it might get updated in the main window by the FX thread.  If this
         # happens during or after a long sign operation the signatures are lost.
@@ -241,10 +240,9 @@ class TxDialog(QDialog, MessageBoxMixin):
         vbox.addLayout(hbox)
         self.update()
 
-        # NOTE(typing) Pylance/pyright do not have typing information this aspect of PyQt5.
-        main_window.history_updated_signal.connect(self.update_tx_if_in_wallet) # type:ignore
-        main_window.transaction_added_signal.connect(self._on_transaction_added) # type:ignore
-        main_window.transaction_verified_signal.connect(self._on_transaction_verified) # type:ignore
+        main_window.history_updated_signal.connect(self.update_tx_if_in_wallet)
+        main_window.transaction_added_signal.connect(self._on_transaction_added)
+        main_window.transaction_verified_signal.connect(self._on_transaction_verified)
 
     def _validate_account_event(self, account_ids: Set[int]) -> bool:
         return self._account_id in account_ids

@@ -29,10 +29,6 @@ if TYPE_CHECKING:
 from .util import FormSectionWidget, read_QIcon, WindowModalDialog
 
 
-# TODO Need to ensure the keys are generated for all matched scans. Otherwise the linking stage
-#   will fail.
-
-
 logger = logs.get_logger("scanner-ui")
 
 

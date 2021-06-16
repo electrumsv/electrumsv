@@ -95,7 +95,7 @@ class RequestList(MyTreeWidget):
         # Cap the time spent waiting to 50 seconds
         seconds = min(all_seconds, 50) # * 60)
         assert seconds > 0, f"got invalid timer duration {seconds}"
-        self._logger.debug("start_timer for %d seconds", seconds)
+        # self._logger.debug("start_timer for %d seconds", seconds)
         interval = seconds * 1000
 
         assert self._timer is None, "timer already active"

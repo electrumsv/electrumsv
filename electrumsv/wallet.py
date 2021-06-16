@@ -167,7 +167,7 @@ class AbstractAccount:
             SubscriptionOwnerPurpose.TRANSACTION_STATE)
 
         self._logger = logs.get_logger("account[{}]".format(self.name()))
-        self._network = None
+        self._network: Optional["Network"] = None
 
         self.request_count = 0
         self.response_count = 0
@@ -285,7 +285,10 @@ class AbstractAccount:
             keyinstance_ids=keyinstance_ids)
         assert len(keyinstances) == len(keyinstance_ids)
 
-        assert flags & KeyInstanceFlag.IS_ACTIVE == 0, "cannot be set directly at this time"
+        # There is no situation where keys should be marked active, as this is meaningless.
+        # Keys should only be activated with supplementary reasons so we can know if we can
+        # deactivate it fully.
+        assert flags & KeyInstanceFlag.IS_ACTIVE == 0, "do not set directly"
 
         # Setting `USER_SET_ACTIVE` is additive to the base `IS_ACTIVE` flag.
         if flags & KeyInstanceFlag.USER_SET_ACTIVE:
@@ -298,18 +301,16 @@ class AbstractAccount:
         #   request a merkle proof.
         subscription_keyinstance_ids: List[int] = []
         unsubscription_keyinstance_ids: List[int] = []
-        for keyinstance in keyinstances:
-            if flags & KeyInstanceFlag.IS_ACTIVE:
-                if not keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
-                    # Inactive -> active.
-                    subscription_keyinstance_ids.append(keyinstance.keyinstance_id)
-            else:
-                if keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
-                    # TODO(no-merge) It is not correct to make a key inactive when USER_SET_ACTIVE
-                    #   is cleared as we may still have obligations with the key to detect when the
-                    #   transaction is mined and need the key to be subscribed for that.
-                    # Active -> inactive.
-                    unsubscription_keyinstance_ids.append(keyinstance.keyinstance_id)
+        if self._network is not None:
+            for keyinstance in keyinstances:
+                if flags & KeyInstanceFlag.IS_ACTIVE:
+                    if not keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
+                        # Inactive -> active.
+                        subscription_keyinstance_ids.append(keyinstance.keyinstance_id)
+                else:
+                    if keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
+                        # Active -> inactive.
+                        unsubscription_keyinstance_ids.append(keyinstance.keyinstance_id)
 
         def callback(future: concurrent.futures.Future) -> None:
             # Ensure we abort if it is cancelled.
@@ -318,21 +319,28 @@ class AbstractAccount:
             # Ensure we abort if there is an error.
             future.result()
 
-            if len(subscription_keyinstance_ids):
-                app_state.subscriptions.create_entries(
-                    self._get_subscription_entries_for_keyinstance_ids(
-                        subscription_keyinstance_ids), self._subscription_owner_for_keys)
+            if self._network is not None:
+                if len(subscription_keyinstance_ids):
+                    self._network.subscriptions.create_entries(
+                        self._get_subscription_entries_for_keyinstance_ids(
+                            subscription_keyinstance_ids), self._subscription_owner_for_keys)
 
-            if len(unsubscription_keyinstance_ids):
-                app_state.subscriptions.delete_entries(
-                    self._get_subscription_entries_for_keyinstance_ids(
-                        unsubscription_keyinstance_ids), self._subscription_owner_for_keys)
+                if len(unsubscription_keyinstance_ids):
+                    self._network.subscriptions.delete_entries(
+                        self._get_subscription_entries_for_keyinstance_ids(
+                            unsubscription_keyinstance_ids), self._subscription_owner_for_keys)
 
             self._wallet.trigger_callback('on_keys_updated', self._id, keyinstance_ids)
 
         future = self._wallet.set_keyinstance_flags(keyinstance_ids, flags, mask)
         future.add_done_callback(callback)
         return future
+
+    def delete_key_subscriptions(self, keyinstance_ids: List[int]) -> None:
+        assert self._network is not None
+        self._network.subscriptions.delete_entries(
+            self._get_subscription_entries_for_keyinstance_ids(
+                keyinstance_ids), self._subscription_owner_for_keys)
 
     def get_script_template_for_key_data(self, keydata: KeyDataTypes,
             script_type: ScriptType) -> ScriptTemplate:
@@ -528,14 +536,15 @@ class AbstractAccount:
     def get_balance(self) -> WalletBalance:
         return self._wallet.read_account_balance(self._id, self._wallet.get_local_height())
 
-    def maybe_set_transaction_dispatched(self, tx_hash: bytes) -> bool:
+    def maybe_set_transaction_cleared(self, tx_hash: bytes) -> bool:
         """
-        We should only ever mark a transaction as dispatched if it hasn't already been broadcast.
-        raises UnknownTransactionException
+        We should only ever mark a transaction as cleared if it hasn't already been broadcast.
         """
-        if self._wallet.set_transaction_dispatched(tx_hash):
+        future = self._wallet.set_transaction_state(tx_hash, TxFlags.STATE_CLEARED,
+                TxFlags.MASK_STATE_BROADCAST)
+        if future.result():
             self._wallet.trigger_callback('transaction_state_change', self._id, tx_hash,
-                TxFlags.STATE_DISPATCHED)
+                TxFlags.STATE_CLEARED)
             return True
         return False
 
@@ -640,13 +649,14 @@ class AbstractAccount:
         fx = app_state.fx
         out = []
 
-        network = app_state.daemon.network
+        # TODO(no-merge) This should work in offline mode, where `self._network is None`.
         chain = app_state.headers.longest_chain()
-        backfill_headers = network.backfill_headers_at_heights
+        backfill_headers = self._network.backfill_headers_at_heights
         header_at_height = app_state.headers.header_at_height
-        server_height = network.get_server_height() if network else 0
+        server_height = self._network.get_server_height() if self._network else 0
         for entry in h:
             _sort_key, history_line, balance = entry.sort_key, entry.row, entry.balance
+            assert history_line.block_height is not None
             try:
                 timestamp = timestamp_to_datetime(header_at_height(chain,
                                 history_line.block_height).timestamp)
@@ -789,31 +799,35 @@ class AbstractAccount:
         tx.locktime = locktime
         return tx
 
-    def start(self, network) -> None:
+    def start(self, network: Optional["Network"]) -> None:
         self._network = network
-        if network is None:
+        # TODO(no-merge) Why is this `network is None`? Shouldn't this be `network is not None`?
+        #   Why do things seem to work regardless?
+        if network is not None:
             # Set up the key monitoring for the account.
-            app_state.subscriptions.set_owner_callback(self._subscription_owner_for_keys,
+            network.subscriptions.set_owner_callback(self._subscription_owner_for_keys,
                 self._on_network_key_script_hash_result)
             # TODO(deferred) This only needs to read keyinstance ids and could be combined with
             #   the second call in `_get_subscription_entries_for_keyinstance_ids`
             keyinstances = self._wallet.read_keyinstances(account_id=self._id,
                 mask=KeyInstanceFlag.IS_ACTIVE)
             if len(keyinstances):
-                self._logger.debug("Creating %d active key subscriptions",
-                    len(keyinstances))
+                self._logger.debug("Creating %d active key subscriptions: %s",
+                    len(keyinstances), [ row.keyinstance_id for row in keyinstances ])
                 subscription_keyinstance_ids = [ row.keyinstance_id for row in keyinstances ]
-                app_state.subscriptions.create_entries(
+                network.subscriptions.create_entries(
                     self._get_subscription_entries_for_keyinstance_ids(
                         subscription_keyinstance_ids), self._subscription_owner_for_keys)
 
             # Set up the transaction monitoring for the account.
-            app_state.subscriptions.set_owner_callback(self._subscription_owner_for_transactions,
+            network.subscriptions.set_owner_callback(self._subscription_owner_for_transactions,
                 self._on_network_transaction_script_hash_result)
-            # We need to filter out any input match for a transaction if we have an output match.
-            # The query will provide both, but order outputs before inputs. An input match has the
-            # script hash of the spent output, but the tx hash of the spending transaction. So
-            # the tx hash will always be the local transaction we need the event for.
+            # At this point, this is used to get a script hash per transaction that does not have
+            # a proof. In theory, we could just grab the script hash of the first output of any
+            # unproven transaction, but it is not a given that all transactions have outputs let
+            # alone outputs that can be used for this. If there is one, we use the script hash for
+            # it but if there isn't we will use the script hash of a spent output and associate
+            # it with the unproven spending transaction.
             tx_seen: Set[bytes] = set()
             tx_rows_by_script_hash: Dict[bytes, List[TransactionSubscriptionRow]] = {}
             tx_subscription_entries: List[SubscriptionEntry] = []
@@ -821,6 +835,8 @@ class AbstractAccount:
                 if tx_row.tx_hash not in tx_seen:
                     tx_seen.add(tx_row.tx_hash)
                     if tx_row.script_hash in tx_rows_by_script_hash:
+                        # The subscription entry has a reference to this, so appending will add
+                        # to that subscription.
                         tx_rows_by_script_hash[tx_row.script_hash].append(tx_row)
                     else:
                         tx_entry_rows = tx_rows_by_script_hash[tx_row.script_hash] = [ tx_row ]
@@ -831,7 +847,7 @@ class AbstractAccount:
             if len(tx_subscription_entries):
                 self._logger.debug("Creating %d transaction subscriptions",
                     len(tx_subscription_entries))
-                app_state.subscriptions.create_entries(tx_subscription_entries,
+                network.subscriptions.create_entries(tx_subscription_entries,
                     self._subscription_owner_for_transactions)
 
     def stop(self) -> None:
@@ -841,7 +857,7 @@ class AbstractAccount:
         self._logger.debug("stopping account %s", self)
         if self._network:
             # Unsubscribe from the account's existing subscriptions.
-            future = app_state.subscriptions.remove_owner(self._subscription_owner_for_keys)
+            future = self._network.subscriptions.remove_owner(self._subscription_owner_for_keys)
             if future is not None:
                 future.result()
             self._network = None
@@ -864,19 +880,10 @@ class AbstractAccount:
             ]
 
         Use cases handled:
-        * Ignore all information about unknown transactions that use this key, and solely
-          observe whether the known transaction is mined in order to know when we can obtain a
-          merkle proof.
-          - The user creates a local transaction and gives it to another party.
-          - The user creates and broadcasts a payment (pays to a payment destination).
-          - The user is paying an invoice.
-          - The user makes a payment to via Paymail.
-          - The user receives a payment via Paymail.
         * Process the information about transactions that use this key.
           - The user has created a payment request (receiving to a dispensed payment destination).
             o Transactions are only processed as long as the payment request is in UNPAID state.
-            o Observe whether payment transactions are mined to know when we can obtain a merkle
-              proof.
+              There is a good argument we should log an error otherwise.
         """
         if not history:
             return
@@ -894,15 +901,27 @@ class AbstractAccount:
         keyinstance = self._wallet.read_keyinstance(account_id=self._id,
             keyinstance_id=context.keyinstance_id)
         assert keyinstance is not None
-        if keyinstance.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
+
+        obtain_missing_transactions = False
+        if keyinstance.flags & KeyInstanceFlag.USER_SET_ACTIVE:
+            # If a user has told the wallet to fetch all transactions related to a given key by
+            # marking it as forced active by the user, then we do as they tell us.
+            obtain_missing_transactions = True
+        elif keyinstance.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
             # We subscribe for events for keys used in unpaid payment requests. So we need to
             # ensure that we fetch the transactins when we receive these events as the model no
             # longer monitors all key usage any more.
             request = self._wallet.read_payment_request(keyinstance_id=context.keyinstance_id)
             assert request is not None
             if (request.state & (PaymentFlag.UNPAID | PaymentFlag.ARCHIVED)) == PaymentFlag.UNPAID:
-                await self._wallet.maybe_obtain_transactions_async(tx_hashes,
-                    tx_heights, tx_fee_hints)
+                obtain_missing_transactions = True
+        else:
+            self._logger.error("received unexpected key subscriptions for id: %d row: %r",
+                context.keyinstance_id, keyinstance)
+
+        if obtain_missing_transactions:
+            await self._wallet.maybe_obtain_transactions_async(tx_hashes,
+                tx_heights, tx_fee_hints)
 
     # TODO(no-merge) unit test malleation replacement of a transaction
     # TODO(no-merge) unit test spam transaction presence
@@ -1470,16 +1489,16 @@ class DeterministicAccount(AbstractAccount):
 
         If there are no existing keys available, then it creates new keys and uses those.
 
-        TODO This should be safe for re-entrant calls in that if a call creates a key and which
-          is then reserved by another call before it can reserve it itself, it should error with
-          no available keys to reserve. However it should be possible to make it correctly
-          re-entrant where it avoids this created key sniping scenario.
-
         TODO For now keys are implicitly marked active as part of this. But it is not the case that
           something that reserves keys necessarily wants the key to be active. When we have a use
           case we should refactor this so that only cases that want active keys get them. All other
-          cases just get IS_ASSIGNED.
+          cases just get KeyInstanceFlag.USED.
         """
+        # We specifically handle closing out reserved keys for the various reasons they are
+        # assigned. For this reason it is imperative we do not allow unhandled reservation
+        # cases.
+        assert flags & KeyInstanceFlag.MASK_RESERVATION != 0
+
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         masterkey_id = keystore.get_id()
         future = self._wallet.reserve_keyinstance(self._id, masterkey_id, derivation_parent,
@@ -1487,15 +1506,19 @@ class DeterministicAccount(AbstractAccount):
         try:
             keyinstance_id, final_flags = future.result()
         except KeyInstanceNotFoundError:
+            # TODO This should be safe for re-entrant calls in that if a call creates a key and
+            #   which is then reserved by another call before it can reserve it itself, it should
+            #   error with no available keys to reserve. However it should be possible to make it
+            #   correctly re-entrant where it avoids this created key sniping scenario.
             self.create_keys(derivation_parent, 1)
             future = self._wallet.reserve_keyinstance(self._id, masterkey_id,
                 derivation_parent, flags)
             keyinstance_id, final_flags = future.result()
 
-        if final_flags & KeyInstanceFlag.IS_ACTIVE:
+        if final_flags & KeyInstanceFlag.IS_ACTIVE and self._network is not None:
             # NOTE(ActivitySubscription) This represents a key that was not previously active
             #   becoming active and requiring a subscription for events.
-            app_state.subscriptions.create_entries(
+            self._network.subscriptions.create_entries(
                 self._get_subscription_entries_for_keyinstance_ids([ keyinstance_id ]),
                     self._subscription_owner_for_keys)
         return keyinstance_id
@@ -2294,11 +2317,22 @@ class Wallet(TriggeredCallbacks):
 
     def delete_payment_request(self, account_id: int, request_id: int, keyinstance_id: int) \
             -> concurrent.futures.Future:
+        """
+        Deletes a payment request and clears any flags on the key as appropriate.
+
+        Returns the `KeyInstanceFlag` values that are cleared from the key that was allocated for
+        the payment request.
+        """
         def callback(callback_future: concurrent.futures.Future) -> None:
-            nonlocal account_id, keyinstance_id
             if callback_future.cancelled():
                 return
-            callback_future.result()
+            cleared_flags = callback_future.result()
+            if self._network is not None and cleared_flags & KeyInstanceFlag.IS_ACTIVE:
+                # This payment request was the only reason the key was active and being monitored
+                # on the indexing server for new transactions. We can now delete the subscription.
+                account = self._accounts[account_id]
+                account.delete_key_subscriptions([ keyinstance_id ])
+
             self.trigger_callback('on_keys_updated', account_id, [ keyinstance_id ])
 
         future = db_functions.delete_payment_request(self.get_db_context(), request_id,
@@ -2400,9 +2434,10 @@ class Wallet(TriggeredCallbacks):
     def get_transaction_flags(self, tx_hash: bytes) -> Optional[TxFlags]:
         return db_functions.read_transaction_flags(self.get_db_context(), tx_hash)
 
-    def set_transaction_dispatched(self, tx_hash: bytes) -> bool:
-        future = db_functions.set_transaction_dispatched(self.get_db_context(), tx_hash)
-        return future.result()
+    def set_transaction_state(self, tx_hash: bytes, flag: TxFlags,
+            ignore_mask: Optional[TxFlags]=None) -> concurrent.futures.Future:
+        return db_functions.set_transaction_state(self.get_db_context(), tx_hash, flag,
+            ignore_mask)
 
     def get_transaction_metadata(self, tx_hash: bytes) -> Optional[TransactionMetadata]:
         return db_functions.read_transaction_metadata(self.get_db_context(), tx_hash)
@@ -2961,8 +2996,13 @@ class Wallet(TriggeredCallbacks):
             fee_hint = missing_entry.fee_hint
 
         link_state = TransactionLinkState()
-        await self._import_transaction(tx_hash, tx, flags, link_state, block_hash, block_height,
-            fee_hint, external=external)
+        import traceback
+        try:
+            await self._import_transaction(tx_hash, tx, flags, link_state, block_hash, block_height,
+                fee_hint, external=external)
+        except Exception:
+            traceback.print_exc()
+            raise
 
     async def _import_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
             link_state: TransactionLinkState, block_hash: Optional[bytes]=None,
@@ -3043,8 +3083,6 @@ class Wallet(TriggeredCallbacks):
             block_position, proof)
 
         confirmations = max(self.get_local_height() - block_height + 1, 0)
-        timestamp = header.timestamp
-
         self._logger.debug("add_transaction_proof %d %d %d", block_height, confirmations,
             header.timestamp)
         self.trigger_callback('transaction_verified', tx_hash, block_height, block_position,

@@ -34,6 +34,25 @@ class IntFlag(_IntFlag):
         return format(self.value, spec)
 
 
+class KeyInstanceFlag1(IntFlag):
+    NONE = 0
+
+    # This key should be loaded and managed appropriately.
+    IS_ACTIVE = 1 << 0
+
+    # The user explicitly set this key to be active. It is not intended that the management
+    # mark it inactive without good reason.
+    USER_SET_ACTIVE = 1 << 8
+    IS_PAYMENT_REQUEST = 1 << 9
+    IS_INVOICE = 1 << 10
+
+    # The mask used to load the subset of keys that are actively cached by accounts.
+    CACHE_MASK = IS_ACTIVE
+    ACTIVE_MASK = IS_ACTIVE | USER_SET_ACTIVE
+    INACTIVE_MASK = ~IS_ACTIVE
+    ALLOCATED_MASK = IS_PAYMENT_REQUEST | IS_INVOICE
+
+
 class TransactionOutputFlag1(IntFlag):
     NONE = 0
 

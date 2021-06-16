@@ -53,6 +53,7 @@ from .i18n import _
 from .logs import logs
 from .network_support.api_server import NewServer, NewServerAPIContext
 from .networks import Net #, SVRegTestnet
+from .subscription import SubscriptionManager
 from .transaction import Transaction
 from .types import ElectrumXHistoryList, NetworkServerState, ScriptHashSubscriptionEntry, \
     ServerAccountKey
@@ -701,8 +702,8 @@ class SVSession(RPCSession):
 
         self.logger.debug("received history for %s length %d", subscription_id, len(result))
 
-        await app_state.subscriptions.on_script_hash_history(subscription_id, script_hash_bytes,
-            result)
+        await self._network.subscriptions.on_script_hash_history(subscription_id,
+            script_hash_bytes, result)
 
     async def _main_server_batch(self):
         '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
@@ -922,6 +923,8 @@ class Network(TriggeredCallbacks):
 
         app_state.read_headers()
 
+        self.subscriptions = SubscriptionManager()
+
         # Sessions
         self.sessions: List[SVSession] = []
         self._chosen_servers: set[SVServer] = set()
@@ -948,7 +951,7 @@ class Network(TriggeredCallbacks):
 
         self.future = app_state.async_.spawn(self._main_task)
 
-        app_state.subscriptions.set_script_hash_callbacks(
+        self.subscriptions.set_script_hash_callbacks(
             self._on_subscribe_script_hashes, self._on_unsubscribe_script_hashes)
 
     def _read_config_mapi(self) -> None:
@@ -1287,7 +1290,7 @@ class Network(TriggeredCallbacks):
         logger.info("main server: %s, proxy: %s", main_server, proxy)
         return main_server, proxy
 
-    async def _request_transactions(self, wallet, missing_hashes: List[bytes]) -> bool:
+    async def _request_transactions(self, wallet: "Wallet", missing_hashes: List[bytes]) -> bool:
         wallet.request_count += len(missing_hashes)
         wallet.progress_event.set()
         had_timeout = False
@@ -1382,7 +1385,7 @@ class Network(TriggeredCallbacks):
             logger.info("Pending subscription to script hashes")
             await self.check_main_chain_event.wait()
             main_session = await self._main_session()
-            entries = app_state.subscriptions.read_script_hashes()
+            entries = self.subscriptions.read_script_hashes()
             main_session.logger.info("Subscribing to %d script hashes", len(entries))
             await main_session.subscribe_to_script_hashes(entries, initial_subscription=True)
             # When we switch main servers we close the connection to the old main server. This

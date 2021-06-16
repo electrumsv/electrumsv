@@ -204,7 +204,8 @@ class HistoryList(MyTreeWidget):
                     else:
                         logger.debug("Unable to backfill header at %d (> %d)",
                             row.block_height, server_height)
-            status = get_tx_status(self._account, row.block_height, row.block_position, conf)
+            status = get_tx_status(self._account, row.tx_flags & TxFlags.MASK_STATE,
+                row.block_height, row.block_position, conf)
             status_str = get_tx_desc(status, timestamp)
             v_str = app_state.format_amount(row.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(entry.balance, whitespaces=True)
@@ -284,7 +285,8 @@ class HistoryList(MyTreeWidget):
         if self._account is None:
             return
 
-        status = get_tx_status(self._account, block_height, block_position, confirmations)
+        status = get_tx_status(self._account, TxFlags.STATE_SETTLED, block_height, block_position,
+            confirmations)
         tx_id = hash_to_hex_str(tx_hash)
         items = self.findItems(tx_id,
             Qt.MatchFlag(Qt.MatchFlag.MatchContains | Qt.MatchFlag.MatchRecursive),
@@ -428,15 +430,16 @@ class HistoryList(MyTreeWidget):
                 self._main_window.show_error(e.args[0])
 
 
-def get_tx_status(account: AbstractAccount, height: int, position: Optional[int],
-        conf: int) -> TxStatus:
-    if height == -2:
+def get_tx_status(account: AbstractAccount, state_flag: TxFlags, height: int,
+        position: Optional[int], conf: int) -> TxStatus:
+    # TODO `STATE_DISPATCHED`/`STATE_RECEIVED` should be handled differently at some point.
+    if state_flag in { TxFlags.STATE_SIGNED, TxFlags.STATE_RECEIVED, TxFlags.STATE_DISPATCHED }:
         return TxStatus.LOCAL
 
     if position == 0:
         if height + COINBASE_MATURITY > account._wallet.get_local_height():
             return TxStatus.UNMATURED
-    elif conf == 0:
+    elif state_flag == TxFlags.STATE_CLEARED:
         if height > 0:
             return TxStatus.UNVERIFIED
         return TxStatus.UNCONFIRMED
@@ -479,11 +482,8 @@ class HistoryView(QWidget):
 
         self.list = HistoryList(parent, main_window)
         self._top_button_layout = TableTopButtonLayout()
-        # NOTE(typing) signals are not handled properly by Pyright
-        self._top_button_layout.refresh_signal.connect( # type: ignore
-            self._main_window.refresh_wallet_display)
-        # NOTE(typing) signals are not handled properly by Pyright
-        self._top_button_layout.filter_signal.connect(self.filter_tx_list) # type: ignore
+        self._top_button_layout.refresh_signal.connect(self._main_window.refresh_wallet_display)
+        self._top_button_layout.filter_signal.connect(self.filter_tx_list)
         self._top_button_layout.add_button("icons8-export-32-windows.png",
             self._main_window.export_history_dialog, _("Export history as.."))
 
@@ -494,8 +494,7 @@ class HistoryView(QWidget):
         vbox.addWidget(self.list, 1)
         self.setLayout(vbox)
 
-        # NOTE(typing) signals are not handled properly by Pyright
-        main_window.account_change_signal.connect(self._on_account_changed) # type: ignore
+        main_window.account_change_signal.connect(self._on_account_changed)
 
     def _on_account_changed(self, new_account_id: int, new_account: AbstractAccount) -> None:
         self._account_id = new_account_id

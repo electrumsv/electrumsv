@@ -117,7 +117,7 @@ async def test_key_reservation(mock_app_state, tmp_storage) -> None:
     keyinstance_id, flags = future.result()
     assert keyinstance_id == 1
     # The flags it thinks were updated as part of this operation.
-    assert flags == KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_ASSIGNED
+    assert flags == KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USED
 
     future = wallet.reserve_keyinstance(account.get_id(), masterkey_row.masterkey_id,
         RECEIVING_SUBPATH)
@@ -129,13 +129,13 @@ async def test_key_reservation(mock_app_state, tmp_storage) -> None:
     keyinstance_id, flags = future.result()
     assert keyinstance_id == 2
     # The flags it thinks were updated as part of this operation.
-    assert flags == (KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_ASSIGNED
+    assert flags == (KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USED
         | KeyInstanceFlag.IS_PAYMENT_REQUEST)
 
     keyinstances = wallet.read_keyinstances(account_id=account.get_id(), keyinstance_ids=[1, 2])
     keyinstance1 = [ ki for ki in keyinstances if ki.keyinstance_id == 1 ][0]
     keyinstance2 = [ ki for ki in keyinstances if ki.keyinstance_id == 2 ][0]
     # That the flags were actually updated in the database.
-    assert keyinstance1.flags == KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_ASSIGNED
-    assert keyinstance2.flags == (KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_ASSIGNED |
+    assert keyinstance1.flags == KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USED
+    assert keyinstance2.flags == (KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USED |
         KeyInstanceFlag.IS_PAYMENT_REQUEST)

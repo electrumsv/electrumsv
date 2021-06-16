@@ -3,7 +3,7 @@ import os
 import logging
 from concurrent.futures.thread import ThreadPoolExecutor
 from json import JSONDecodeError
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, cast, Dict, List, Optional, Tuple, Union
 
 import bitcoinx
 from bitcoinx import hash_to_hex_str, hex_str_to_hash, TxOutput
@@ -262,22 +262,19 @@ class ExtendedHandlerUtils(HandlerUtils):
             raise Fault(code=Errors.LOAD_BEFORE_GET_CODE, message=message)
         return parent_wallet
 
-    def _get_account(self, wallet_name: str, account_id: int=1) \
-            -> Union[Fault, AbstractAccount]:
+    def _get_account(self, wallet_name: str, account_id: int=1) -> AbstractAccount:
         parent_wallet = self._get_parent_wallet(wallet_name=wallet_name)
-        try:
-            child_wallet = parent_wallet.get_account(account_id)
-        except KeyError:
+        child_wallet = parent_wallet.get_account(account_id)
+        if child_wallet is None:
             message = f"There is no account at account_id: {account_id}."
             raise Fault(Errors.WALLET_NOT_FOUND_CODE, message)
         return child_wallet
 
-    def _is_wallet_ready(self, wallet_name: Optional[str]=None) -> Union[Fault, bool]:
+    def _is_wallet_ready(self, wallet_name: Optional[str]=None) -> bool:
         wallet = self._get_parent_wallet(wallet_name)
         return wallet.is_synchronized()
 
-    async def _load_wallet(self, wallet_name: str, wallet_password: str) \
-            -> Union[Fault, Wallet]:
+    async def _load_wallet(self, wallet_name: str, wallet_password: str) -> Wallet:
         """Loads one parent wallet into the daemon and begins synchronization"""
         wallet_name = WalletStorage.canonical_path(wallet_name)
 
@@ -334,7 +331,8 @@ class ExtendedHandlerUtils(HandlerUtils):
         session = await self.app_state.daemon.network._main_session()
         return await session.send_request(method, args)
 
-    def preselect_utxos(self, utxos, outputs, batch_size=10):
+    def preselect_utxos(self, utxos: List[TransactionOutputSpendableRow], outputs, batch_size=10) \
+            -> List[TransactionOutputSpendableRow]:
         """Inexact, random pre-selectiion of utxos for performance reasons.
         'make_unsigned_transaction' is slow if it iterates over all utxos.
         - Disabled via {'utxo_preselection': False} in body of request."""
@@ -450,7 +448,7 @@ class ExtendedHandlerUtils(HandlerUtils):
             outputs = vars[VNAME.OUTPUTS]
 
             # TODO(no-merge) this should pass in ids and lookup values
-            utxos = vars.get(VNAME.UTXOS, None)
+            utxos = cast(Optional[List[TransactionOutputSpendableRow]], vars.get(VNAME.UTXOS, None))
             utxo_preselection = vars.get(VNAME.UTXO_PRESELECTION, True)
             password = vars.get(VNAME.PASSWORD, None)
 
@@ -476,7 +474,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     async def _broadcast_transaction(self, rawtx: str, tx_hash: bytes, account: AbstractAccount):
         result = await self.send_request('blockchain.transaction.broadcast', [rawtx])
-        account.maybe_set_transaction_dispatched(tx_hash)
+        account.maybe_set_transaction_cleared(tx_hash)
         self.logger.debug("successful broadcast for %s", result)
         return result
 

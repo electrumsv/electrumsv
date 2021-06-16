@@ -182,6 +182,7 @@ class TransactionDescriptionResult(NamedTuple):
 class TransactionExistsRow(NamedTuple):
     tx_hash: bytes
     flags: TxFlags
+    block_height: int
     account_id: Optional[int]
 
 
