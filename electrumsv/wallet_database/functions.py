@@ -288,7 +288,7 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
                 f"AND (TX.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?) "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "CAST(TOTAL(CASE WHEN TX.block_height = 0 OR TX.block_height = 1 "
+            "CAST(TOTAL(CASE WHEN TX.block_height = 0 OR TX.block_height = -1 "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
             f"CAST(TOTAL(CASE WHEN TX.block_height > 0 AND TX.flags&{coinbase_mask} "
@@ -1212,10 +1212,13 @@ def read_wallet_balance(db: sqlite3.Connection, local_height: int,
                 f"AND (TX.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?) "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "CAST(TOTAL(CASE WHEN TX.block_height < 1 THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.block_height = 0 OR TX.block_height = -1 "
+                "THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
             f"CAST(TOTAL(CASE WHEN TX.block_height > 0 AND TX.flags&{coinbase_mask} "
-                f"AND TX.block_height+{COINBASE_MATURITY}>? THEN TXO.value ELSE 0 END) AS INT) "
+                f"AND TX.block_height+{COINBASE_MATURITY}>? THEN TXO.value ELSE 0 END) AS INT), "
+            # Allocated total.
+            "CAST(TOTAL(CASE WHEN TX.block_height = -2 THEN TXO.value ELSE 0 END) AS INT) "
         "FROM TransactionOutputs TXO "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
         f"WHERE TXO.keyinstance_id IS NOT NULL AND (TXO.flags&{filter_mask})={filter_bits}")
@@ -1270,6 +1273,8 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) -> concurren
     check_sql1 = "SELECT COUNT(*) FROM TransactionOutputs " \
         "WHERE tx_hash=? AND spending_tx_hash IS NOT NULL"
 
+    # TODO(database) There should be a cleaner way of doing this, whether a context manager or
+    #   whatever.
     db = db_context.acquire_connection()
     try:
         cursor = db.execute(check_sql1, (tx_hash,))
@@ -1291,6 +1296,9 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) -> concurren
     sql2_values = (timestamp, tx_out_mask, tx_hash)
     sql3 = "UPDATE Invoices SET date_updated=?, tx_hash=NULL WHERE tx_hash=?"
     sql3_values = (timestamp, tx_hash)
+    # The block height is left as it was, and can be any value unrepresentative of the state
+    # of the transaction should it still exist elsewhere. Filtering for rows without the `REMOVED`
+    # flag will make this correct behaviour.
     sql4 = (f"UPDATE Transactions SET date_updated=?, flags=flags|{TxFlags.REMOVED} "
         "WHERE tx_hash=?")
     sql4_values = (timestamp, tx_hash)
@@ -1307,20 +1315,21 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) -> concurren
 
 
 def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_id: int,
-        derivation_path: DerivationPath, allocation_flags: Optional[KeyInstanceFlag]=None) \
+        derivation_path: DerivationPath, allocation_flags: KeyInstanceFlag) \
             -> concurrent.futures.Future:
     """
     Allocate one keyinstance for the caller's usage.
+
+    See the account `reserve_keyinstance` docstring for more detail about how to correctly use this.
 
     Returns the allocated `keyinstance_id` if successful.
     Raises `KeyInstanceNotFoundError` if there are no available key instances.
     Raises `DatabaseUpdateError` if something else allocated the selected keyinstance first.
     """
+    assert allocation_flags & KeyInstanceFlag.USED == 0
     # The derivation path is the relative parent path from the master key.
     prefix_bytes = pack_derivation_path(derivation_path)
-    if allocation_flags is None:
-        allocation_flags = KeyInstanceFlag.NONE
-    allocation_flags |= KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USED
+    allocation_flags |= KeyInstanceFlag.USED
     # We need to do this in two steps to get the id of the keyinstance we allocated.
     sql_read = (
         "SELECT keyinstance_id "
@@ -1334,8 +1343,7 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
         len(prefix_bytes)+4,            # The length of the parent path and sequence index.
         len(prefix_bytes),              # Just the length of the parent path.
         prefix_bytes ]                  # The packed parent path bytes.
-    sql_write = (
-        "UPDATE KeyInstances SET flags=flags|? WHERE keyinstance_id=? AND flags&?=0")
+    sql_write = "UPDATE KeyInstances SET flags=flags|? WHERE keyinstance_id=? AND flags&?=0"
 
     def _write(db: sqlite3.Connection) -> Tuple[int, KeyInstanceFlag]:
         keyinstance_row = db.execute(sql_read, sql_read_values).fetchone()
@@ -1343,8 +1351,7 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
             raise KeyInstanceNotFoundError()
 
         # The result of the read operation just happens to be the parameters we need for the write.
-        cursor = db.execute(sql_write,
-            (allocation_flags, keyinstance_row[0], KeyInstanceFlag.USED))
+        cursor = db.execute(sql_write, (allocation_flags, keyinstance_row[0], KeyInstanceFlag.USED))
         if cursor.rowcount != 1:
             # The key was allocated by something else between the read and the write.
             raise DatabaseUpdateError()

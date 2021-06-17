@@ -346,7 +346,6 @@ class HistoryList(MyTreeWidget):
         height = self._wallet.get_transaction_height(tx_hash)
         tx = account.get_transaction(tx_hash)
         if not tx: return # this happens sometimes on account synch when first starting up.
-        is_unconfirmed = height == 0 or height == -1
 
         menu = QMenu()
         menu.addAction(_("Copy {}").format(column_title),
@@ -375,7 +374,7 @@ class HistoryList(MyTreeWidget):
 
         menu.addSeparator()
 
-        if is_unconfirmed:
+        if flags is not None and flags & TxFlags.STATE_CLEARED:
             child_tx = account.cpfp(tx, 0)
             if child_tx:
                 menu.addAction(_("Child pays for parent"),

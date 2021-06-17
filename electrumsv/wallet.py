@@ -244,7 +244,7 @@ class AbstractAccount:
             derivation_data = json.dumps(derivation_data_dict).encode()
             derivation_data2 = create_derivation_data2(ka.derivation_type, derivation_data_dict)
             keyinstances.append(KeyInstanceRow(-1, self.get_id(), ka.masterkey_id,
-                ka.derivation_type, derivation_data, derivation_data2, KeyInstanceFlag.IS_ACTIVE,
+                ka.derivation_type, derivation_data, derivation_data2, KeyInstanceFlag.NONE,
                 None))
         keyinstance_future, rows = self._wallet.create_keyinstances(self._id, keyinstances)
 
@@ -801,8 +801,6 @@ class AbstractAccount:
 
     def start(self, network: Optional["Network"]) -> None:
         self._network = network
-        # TODO(no-merge) Why is this `network is None`? Shouldn't this be `network is not None`?
-        #   Why do things seem to work regardless?
         if network is not None:
             # Set up the key monitoring for the account.
             network.subscriptions.set_owner_callback(self._subscription_owner_for_keys,
@@ -1006,8 +1004,9 @@ class AbstractAccount:
             update_count = future.result()
             self._logger.debug("maybe_obtain_proofs_async: updated %d of %d entries",
                 update_count, len(entries))
-            # The network loop that fetches transactions and proofs needs to be signalled that we
-            # have altered data it can use to potentially get new items to work on.
+            # Notify the network loop that if it has blocked waiting for more work to do
+            # requesting proofs and transactions, otherwise it will block indefinitely waiting
+            # to be told.
             if update_count:
                 self._wallet.txs_changed_event.set()
 
@@ -1201,10 +1200,9 @@ class AbstractAccount:
                         if k.is_signature_candidate(x_public_key) ]
                     if len(candidate_keystores) == 0:
                         continue
-                    # TODO(checkin)
                     pubkeys = self.get_public_keys_for_key_data(tx_output)
-                    pubkeys = [pubkey.to_hex() for pubkey in pubkeys]
-                    sorted_pubkeys, sorted_xpubs = zip(*sorted(zip(pubkeys, xpubs)))
+                    pubkeys_hex = [pubkey.to_hex() for pubkey in pubkeys]
+                    sorted_pubkeys, sorted_xpubs = zip(*sorted(zip(pubkeys_hex, xpubs)))
                     item = (x_public_key.derivation_path(), sorted_xpubs, self.get_threshold())
                     output_items[candidate_keystores[0].get_fingerprint()] = item
             info.append(output_items)
@@ -1485,18 +1483,18 @@ class DeterministicAccount(AbstractAccount):
     def reserve_unassigned_key(self, derivation_parent: DerivationPath, flags: KeyInstanceFlag) \
             -> int:
         """
-        Select the first available unassigned key from the given sequence and mark it active.
+        Reserve the first available unused key from the given derivation path.
 
-        If there are no existing keys available, then it creates new keys and uses those.
+        If there are no existing keys available, then it creates new keys and uses one of those.
 
-        TODO For now keys are implicitly marked active as part of this. But it is not the case that
-          something that reserves keys necessarily wants the key to be active. When we have a use
-          case we should refactor this so that only cases that want active keys get them. All other
-          cases just get KeyInstanceFlag.USED.
+        Callers should not set `IS_ACTIVE` unless there is a reason we should be watching for
+        transactions using this key via an indexer. And the calling system should be responsible
+        for ensuring that the `IS_ACTIVE` flag is removed, when the user no longer wants to
+        monitor the key (directly or indirectly).
         """
-        # We specifically handle closing out reserved keys for the various reasons they are
-        # assigned. For this reason it is imperative we do not allow unhandled reservation
-        # cases.
+        # It is expected that a caller will have a flag that is sufficient to indicate the reasons
+        # it is in use/reserved. The calling system is expected at this stage to clear this flag
+        # when they are done using the key.
         assert flags & KeyInstanceFlag.MASK_RESERVATION != 0
 
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
@@ -1511,8 +1509,8 @@ class DeterministicAccount(AbstractAccount):
             #   error with no available keys to reserve. However it should be possible to make it
             #   correctly re-entrant where it avoids this created key sniping scenario.
             self.create_keys(derivation_parent, 1)
-            future = self._wallet.reserve_keyinstance(self._id, masterkey_id,
-                derivation_parent, flags)
+            future = self._wallet.reserve_keyinstance(self._id, masterkey_id, derivation_parent,
+                flags)
             keyinstance_id, final_flags = future.result()
 
         if final_flags & KeyInstanceFlag.IS_ACTIVE and self._network is not None:
@@ -2218,10 +2216,12 @@ class Wallet(TriggeredCallbacks):
             keyinstance_ids=keyinstance_ids, flags=flags, mask=mask)
 
     def reserve_keyinstance(self, account_id: int, masterkey_id: int,
-            derivation_path: DerivationPath, allocation_flags: Optional[KeyInstanceFlag]=None) \
-                -> concurrent.futures.Future:
+            derivation_path: DerivationPath,
+            allocation_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) -> concurrent.futures.Future:
         """
         Allocate one keyinstance for the caller's usage.
+
+        See the account `reserve_keyinstance` docstring for more detail about how to use this.
 
         Returns a future.
         The result of the future is the allocated `keyinstance_id` if successful.
@@ -2980,15 +2980,31 @@ class Wallet(TriggeredCallbacks):
         #   Put it in the cache.
 
     async def add_local_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags) -> None:
+        """
+        This is currently only called when an account constructs and signs a transaction
+        """
         link_state = TransactionLinkState()
         link_state.rollback_on_spend_conflict = True
-        await self._import_transaction(tx_hash, tx, flags, link_state)
+        await self._import_transaction(tx_hash, tx, flags, link_state, block_hash=None,
+            block_height=-2, block_position=None, fee_hint=None, external=False)
+
+        # TODO(no-merge) Do we
 
     async def import_transaction_async(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
             external: bool=False) -> None:
+        """
+        This is currently only called when a missing transaction arrives.
+
+        Note that a new transaction is imported as state cleared even if we know it has been
+        mined through the `block_height` and `block_hash` values. It is not changed to state
+        settled until we have obtained the merkle proof.
+        """
         block_hash: Optional[bytes] = None
-        block_height = -2
+        block_height: int = -2
         fee_hint: Optional[int] = None
+
+        # If there is a missing transaction entry it is almost certain that the indexer monitoring
+        # detected, obtained and is importing the transaction.
         missing_entry = self._missing_transactions.get(tx_hash)
         if missing_entry is not None:
             block_hash = missing_entry.block_hash
@@ -2996,13 +3012,8 @@ class Wallet(TriggeredCallbacks):
             fee_hint = missing_entry.fee_hint
 
         link_state = TransactionLinkState()
-        import traceback
-        try:
-            await self._import_transaction(tx_hash, tx, flags, link_state, block_hash, block_height,
-                fee_hint, external=external)
-        except Exception:
-            traceback.print_exc()
-            raise
+        await self._import_transaction(tx_hash, tx, flags, link_state, block_hash, block_height,
+            fee_hint, external=external)
 
     async def _import_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
             link_state: TransactionLinkState, block_hash: Optional[bytes]=None,
@@ -3013,6 +3024,9 @@ class Wallet(TriggeredCallbacks):
 
         We do not know whether the transaction uses any wallet keys, and is related to any
         accounts related to those keys. We will work this out as part of the importing process.
+
+        We do not attempt to correct the block height for the transaction state. It is assumed
+        that the caller is passing in legitimate data
         """
         assert tx.is_complete()
         timestamp = int(time.time())

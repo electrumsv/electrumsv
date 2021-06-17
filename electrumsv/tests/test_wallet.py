@@ -612,7 +612,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         assert balance == WalletBalance(0, 0, 0, 1044113)
 
         balance = db_functions.read_wallet_balance(db_context, 100)
-        assert balance == WalletBalance(0, 1044113, 0, 0)
+        assert balance == WalletBalance(0, 0, 0, 1044113)
 
         tx_2 = Transaction.from_hex(tx_hex_2)
         tx_hash_2 = tx_2.hash()

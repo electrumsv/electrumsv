@@ -619,15 +619,14 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # This is introducing an post-migration flag `KeyInstanceFlag.USED` into pre-migration flags.
     conn.execute(f"UPDATE KeyInstances SET flags=flags|{KeyInstanceFlag.USED} "
         f"WHERE script_type!={ScriptType.NONE}")
-    # Mark any keyinstance as not ative that has no script and is only active (anything that has
-    # the invoice or payment request flag is in use).
-    # TODO(no-merge) Think this through. Why are we doing this?
-    conn.execute(f"UPDATE KeyInstances SET flags=flags&{~KeyInstanceFlag1.IS_ACTIVE} "
-        f"WHERE script_type={ScriptType.NONE} AND flags={KeyInstanceFlag1.IS_ACTIVE}")
-    # Mark any keyinstance as not active that is marked as used in a payment request that is
-    # no longer present.
-    conn.execute(f"UPDATE KeyInstances SET flags=flags&{~KeyInstanceFlag1.IS_ACTIVE} "
-        f"WHERE flags={KeyInstanceFlag1.IS_ACTIVE|KeyInstanceFlag.USED}")
+    # Only keys flagged for a known reason should be left active. We do not want to leak active
+    # keys and have user's wallets monitoring arbitrary number of keys we do not know why we are
+    # monitoring.
+    conn.execute(f"UPDATE KeyInstances SET flags=flags&? WHERE flags&?=?",
+        (~KeyInstanceFlag1.IS_ACTIVE,
+        KeyInstanceFlag1.IS_ACTIVE|KeyInstanceFlag1.IS_PAYMENT_REQUEST|
+            KeyInstanceFlag1.USER_SET_ACTIVE,
+        KeyInstanceFlag1.IS_ACTIVE))
 
 
     logger.debug("fix table KeyInstances by creating secondary table")

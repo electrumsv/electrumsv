@@ -177,8 +177,11 @@ class ReceiveView(QWidget):
         i = self._expires_combo.currentIndex()
         expiration = [ x[1] for x in EXPIRATION_VALUES ][i]
 
+        # Note that we are allowed to set `IS_ACTIVE` here because we clear it when we delete
+        # the payment request, and we need to know about payments made to the given script or
+        # address on the blockchain.
         keyinstance_id = self._account.reserve_unassigned_key(RECEIVING_SUBPATH,
-            KeyInstanceFlag.IS_PAYMENT_REQUEST)
+            KeyInstanceFlag.IS_PAYMENT_REQUEST | KeyInstanceFlag.IS_ACTIVE)
 
         def callback(future: concurrent.futures.Future) -> None:
             # Skip if the operation was cancelled.

@@ -1,11 +1,29 @@
 """
-While we solely rely on the indexer, it makes sense to centralise subscriptions. This ensures that
-there is no overlap between accounts within any of the different wallets that may be open, given
-that subscriptions can only be made once.
+A wallet may share a need for information from the indexer, or for that matter any services that
+it uses. This code manages the subscriptions and handles dispatching responses to any incoming
+information.
 
-In the longer run it is expected that each wallet might have it's own connection to a service or
-services that provide the required data, and a funding account for use of it. This would move the
-subscription management from the global application to the per-wallet context.
+TODO At this time the subscriptions state is shared for all wallets using the network singleton.
+But this is the wrong model for the future. If each account may have different credentials for
+using a service, then these will all need to use that service independently.
+
+Key subscriptions:
+
+  These are used to detect usage of keys on the indexer. Presence of unknown transactions for
+  registered scripts for keys, will result in the subscribing account being notified - presumably
+  to obtain it.
+
+  Some use cases:
+  - Detect incoming payments on dispensed addresses and payment scripts.
+  - Detect usage of keys in a watch only wallet.
+
+Transaction subscriptions:
+
+  These are used to:
+  - Detect when a transaction has been mined, so as to know when to obtain the merkle proof.
+  - Detect if a transaction has entered the mempool. Perhaps it was dispatched to another
+    party, or received from them, and intended to be held until an unknown time.
+
 """
 
 import concurrent.futures
