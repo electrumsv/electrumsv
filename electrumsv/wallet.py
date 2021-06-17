@@ -1514,6 +1514,7 @@ class DeterministicAccount(AbstractAccount):
             future = self._wallet.reserve_keyinstance(self._id, masterkey_id, derivation_parent,
                 flags)
             keyinstance_id, final_flags = future.result()
+        self._wallet.trigger_callback('on_keys_updated', self._id, [ keyinstance_id ])
 
         if final_flags & KeyInstanceFlag.IS_ACTIVE and self._network is not None:
             # NOTE(ActivitySubscription) This represents a key that was not previously active

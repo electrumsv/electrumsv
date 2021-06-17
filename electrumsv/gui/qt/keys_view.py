@@ -32,7 +32,7 @@ import enum
 from functools import partial
 import threading
 import time
-from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, Union
+from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_CHECKING, Union
 import weakref
 import webbrowser
 
@@ -60,6 +60,10 @@ from ... import web
 
 from .main_window import ElectrumWindow
 from .util import read_QIcon, get_source_index
+
+
+if TYPE_CHECKING:
+    from ...transaction import Transaction
 
 
 QT_SORT_ROLE = Qt.ItemDataRole.UserRole+1
@@ -448,9 +452,13 @@ class KeyView(QTableView):
 
         self._pending_state: Dict[int, EventFlags] = {}
         self._pending_actions = { ListActions.RESET }
+        # Create a payment request.
         self._main_window.keys_created_signal.connect(self._on_keys_created)
+        # Delete a payment request.
         self._main_window.keys_updated_signal.connect(self._on_keys_updated)
         self._main_window.account_change_signal.connect(self._on_account_change)
+        self._main_window.transaction_added_signal.connect(self._on_transaction_added)
+        self._main_window.transaction_deleted_signal.connect(self._on_transaction_deleted)
 
         model = _ItemModel(self, self._headers)
         model.set_data(self._account_id, [])
@@ -547,6 +555,16 @@ class KeyView(QTableView):
             if old_account_id is None:
                 self._timer.start()
             self._proxy_model.set_account(self._account)
+
+    def _on_transaction_added(self, tx_hash: bytes, tx: "Transaction", account_ids: Set[int]) \
+            -> None:
+        if self._account_id not in account_ids:
+            return
+        self.reset_table()
+
+    def _on_transaction_deleted(self, account_id: int, tx_hash: bytes) -> None:
+        if account_id == self._account_id:
+            self.reset_table()
 
     def keyPressEvent(self, event):
         if event.matches(QKeySequence.Copy):
