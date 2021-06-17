@@ -77,7 +77,7 @@ class BaseWizard(QWizard):
         self.currentIdChanged.connect(self._event_wizard_page_changed)
         self.helpRequested.connect(self._event_help_requested)
 
-    def run(self):
+    def run(self) -> int:
         self.ensure_shown()
         return self.exec()
 

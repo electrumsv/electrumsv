@@ -37,7 +37,7 @@ from bitcoinx import DecryptionError
 from PyQt5.QtCore import pyqtSignal, Qt, QItemSelection, QModelIndex
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
-    QAbstractItemView, QAction,
+    QAbstractItemView, QAction, QDialog,
     QFileDialog, QHeaderView, QHBoxLayout, QLabel, QMenu,
     QProgressBar, QPushButton, QSizePolicy, QSpacerItem, QTableWidget, QTextBrowser,
     QVBoxLayout, QWidget, QWizard, QWizardPage
@@ -238,6 +238,7 @@ class WalletWizard(BaseWizard):
     _wallet_path: Optional[str] = None
     _password_state = PasswordState.UNKNOWN
     _wallet: Optional[Wallet] = None
+    _completed_migration_entry: Optional[FileState] = None
 
     def __init__(self, is_startup: bool=False,
             migration_data: Optional[MigrationContext]=None) -> None:
@@ -264,6 +265,27 @@ class WalletWizard(BaseWizard):
             self.setStartId(WalletPage.SPLASH_SCREEN)
         else:
             self.setStartId(WalletPage.CHOOSE_WALLET)
+
+    def run(self) -> int:
+        result = super().run()
+        # What we are doing here is ensuring that before we open the wallet, we check
+        # the password is still cached. It is very possible for the user to sit on the migration
+        # page after the migration finishes, and in the meantime the wallet password drops out
+        # of the credential cache. If we re-request the password here, it'll be immediately
+        # used by the GUI application logic that invokes this wizard.
+        if result == QDialog.Accepted and self._completed_migration_entry is not None:
+            assert self._wallet_path is not None
+            storage = WalletStorage(self._wallet_path)
+            try:
+                # If the password is still cached, it'll be returned. If it is not cached
+                # it will be requested and re-cached.
+                request_password(None, storage, self._completed_migration_entry)
+            finally:
+                storage.close()
+        return result
+
+    def set_completed_migration_entry(self, migration_entry: FileState) -> None:
+        self._completed_migration_entry = migration_entry
 
     @classmethod
     def attempt_open(cls, wallet_path: str) -> WalletOpenResult:
@@ -1003,8 +1025,8 @@ class OlderWalletMigrationPage(QWizardPage):
             self._stage_progress_bar.setStyleSheet(style_sheet)
             self._progress_label.setText(self._migration_error_text)
 
-            wizard = cast(WalletWizard, self.wizard())
-            wizard.button(QWizard.FinishButton).setText("E&xit")
+        wizard = cast(WalletWizard, self.wizard())
+        wizard.set_completed_migration_entry(self._migration_entry)
 
         self.completeChanged.emit()
 
