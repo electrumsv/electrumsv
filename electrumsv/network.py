@@ -47,7 +47,7 @@ from bitcoinx import (
 import certifi
 
 from .app_state import app_state
-from .constants import NetworkServerType, TxFlags
+from .constants import NetworkServerType, TransactionImportFlag, TxFlags
 from .credentials import IndefiniteCredentialId
 from .i18n import _
 from .logs import logs
@@ -1318,7 +1318,7 @@ class Network(TriggeredCallbacks):
                     logger.exception('unexpected error fetching transaction %s', tx_id)
                 else:
                     await wallet.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
-                        external=True)
+                        TransactionImportFlag.EXTERNAL)
         return had_timeout
 
     def _available_servers(self, protocol):

@@ -51,7 +51,8 @@ from . import coinchooser
 from .app_state import app_state
 from .bitcoin import scripthash_bytes, ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH,
-    DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath, KeyInstanceFlag, KeystoreTextType,
+    DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath, TransactionImportFlag,
+    KeyInstanceFlag, KeystoreTextType,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerType,
     pack_derivation_path, PaymentFlag,
     SubscriptionOwnerPurpose, SubscriptionType, ScriptType, TransactionInputFlag,
@@ -132,6 +133,7 @@ class MissingTransactionEntry:
     block_hash: Optional[bytes]
     block_height: int
     fee_hint: Optional[int]
+    import_flags: TransactionImportFlag
 
 
 ADDRESS_TYPES = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
@@ -2477,7 +2479,8 @@ class Wallet(TriggeredCallbacks):
     # Data acquisition.
 
     async def maybe_obtain_transactions_async(self, tx_hashes: List[bytes],
-            tx_heights: Dict[bytes, int], tx_fee_hints: Dict[bytes, Optional[int]]) -> Set[bytes]:
+            tx_heights: Dict[bytes, int], tx_fee_hints: Dict[bytes, Optional[int]],
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> Set[bytes]:
         """
         Update the registry of transactions we do not have or are in the process of getting.
 
@@ -2505,7 +2508,7 @@ class Wallet(TriggeredCallbacks):
                     self._missing_transactions[tx_hash].fee_hint = fee_hint
                 else:
                     self._missing_transactions[tx_hash] = MissingTransactionEntry(block_hash,
-                        block_height, fee_hint)
+                        block_height, fee_hint, import_flags)
                     missing_tx_hashes.add(tx_hash)
             self._logger.debug("Registering %d missing transactions", len(missing_tx_hashes))
             if len(missing_tx_hashes):
@@ -2986,12 +2989,12 @@ class Wallet(TriggeredCallbacks):
         link_state = TransactionLinkState()
         link_state.rollback_on_spend_conflict = True
         await self._import_transaction(tx_hash, tx, flags, link_state, block_hash=None,
-            block_height=-2, block_position=None, fee_hint=None, external=False)
+            block_height=-2, block_position=None, fee_hint=None)
 
         # TODO(no-merge) Do we
 
     async def import_transaction_async(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
-            external: bool=False) -> None:
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
         """
         This is currently only called when a missing transaction arrives.
 
@@ -3010,15 +3013,16 @@ class Wallet(TriggeredCallbacks):
             block_hash = missing_entry.block_hash
             block_height = missing_entry.block_height
             fee_hint = missing_entry.fee_hint
+            import_flags |= missing_entry.import_flags
 
         link_state = TransactionLinkState()
         await self._import_transaction(tx_hash, tx, flags, link_state, block_hash, block_height,
-            fee_hint, external=external)
+            fee_hint, import_flags=import_flags)
 
     async def _import_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
             link_state: TransactionLinkState, block_hash: Optional[bytes]=None,
-            block_height: int=-2, block_position: Optional[int]=None,
-            fee_hint: Optional[int]=None, external: bool=False) -> None:
+            block_height: int=-2, block_position: Optional[int]=None, fee_hint: Optional[int]=None,
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
         """
         Add an external complete transaction to the database.
 
@@ -3069,7 +3073,7 @@ class Wallet(TriggeredCallbacks):
                 self._logger.debug("Removed missing transaction %s", hash_to_hex_str(tx_hash)[:8])
                 self.trigger_callback('missing_transaction_obtained', tx_hash, tx, link_state)
 
-        self.trigger_callback('transaction_added', tx_hash, tx, link_state, external)
+        self.trigger_callback('transaction_added', tx_hash, tx, link_state, import_flags)
 
     async def link_transaction_async(self, tx_hash: bytes, link_state: TransactionLinkState) \
             -> None:

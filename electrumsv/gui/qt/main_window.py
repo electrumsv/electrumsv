@@ -61,7 +61,7 @@ from ...app_state import app_state
 from ...bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
 from ...constants import (CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames, ScriptType,
-    TransactionOutputFlag, TxFlags, WalletSettings)
+    TransactionImportFlag, TransactionOutputFlag, TxFlags, WalletSettings)
 from ...exceptions import UserCancelled
 from ...i18n import _
 from ...logs import logs
@@ -321,12 +321,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     # Map the wallet event to a Qt UI signal.
     def _on_transaction_added(self, event_name: str, tx_hash: bytes, tx: Transaction,
-            link_result: TransactionLinkState, is_external: bool) -> None:
+            link_result: TransactionLinkState, import_flags: TransactionImportFlag) -> None:
         # Account ids is the accounts that have changed the balance.
         self._logger.debug("_on_transaction_added %s %s %s", self._wallet.get_account_ids(),
-            link_result.account_ids, is_external)
+            link_result.account_ids, import_flags)
         assert link_result.account_ids is not None
-        if self._wallet.get_account_ids() & link_result.account_ids and is_external:
+        if self._wallet.get_account_ids() & link_result.account_ids and \
+                import_flags & TransactionImportFlag.PROMPTED == 0:
             # Always notify of incoming transactions regardless of the active account.
             self.tx_notifications.append(tx)
             self.notify_transactions_signal.emit()

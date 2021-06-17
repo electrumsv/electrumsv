@@ -229,6 +229,15 @@ class SubscriptionOwnerPurpose(IntEnum):
     TRANSACTION_STATE = 4
 
 
+class TransactionImportFlag(IntFlag):
+    UNSET = 0
+    # The transaction was obtained externally and is being imported into an account.
+    EXTERNAL = 1 << 0
+    # The user drove the process that caused this transaction to be imported.
+    # This is used to decide if we should notify the user about the arrival of this transaction.
+    PROMPTED = 1 << 1
+
+
 class TransactionInputFlag(IntFlag):
     NONE = 0
 

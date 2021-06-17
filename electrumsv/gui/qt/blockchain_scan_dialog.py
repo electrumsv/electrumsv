@@ -16,7 +16,8 @@ from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, 
     QWidget)
 
 from ...app_state import app_state
-from ...constants import CHANGE_SUBPATH, DerivationPath, RECEIVING_SUBPATH, TxFlags
+from ...constants import CHANGE_SUBPATH, DerivationPath, RECEIVING_SUBPATH, TransactionImportFlag, \
+    TxFlags
 from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, Scanner
 from ...i18n import _
 from ...logs import logs
@@ -330,7 +331,8 @@ class BlockchainScanDialog(WindowModalDialog):
                 # user use the cancel UI. We could extend the wallet to attempt this, but it is not
                 # within the scope of the intitial feature set.
                 future = app_state.async_.spawn(self._wallet.maybe_obtain_transactions_async,
-                    missing_tx_hashes, missing_tx_heights, missing_tx_fee_hints)
+                    missing_tx_hashes, missing_tx_heights, missing_tx_fee_hints,
+                    TransactionImportFlag.PROMPTED)
                 future.add_done_callback(self._on_import_obtain_transactions_started)
 
             if len(link_tx_hashes):

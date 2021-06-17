@@ -291,7 +291,7 @@ class CoinSplittingTab(QWidget):
                 return
 
             our_script = self._allocated_key_state.script_template.to_script_bytes()
-            # args = (tx_hash, tx, involved_account_ids, external)
+            # args = (tx_hash, tx, involved_account_ids, import_flags)
             tx: Transaction = args[1]
             for tx_output in tx.outputs:
                 if tx_output.script_pubkey == our_script:
