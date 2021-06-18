@@ -170,9 +170,6 @@ class ReceiveView(QWidget):
             return
 
         amount = self._receive_amount_e.get_amount()
-        if not amount:
-            self._main_window.show_error(_('An amount is required'))
-            return
 
         i = self._expires_combo.currentIndex()
         expiration = [ x[1] for x in EXPIRATION_VALUES ][i]

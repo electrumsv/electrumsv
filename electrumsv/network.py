@@ -40,10 +40,8 @@ from aiorpcx import (
     TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
     SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth, NewlineFramer
 )
-from bitcoinx import (
-    MissingHeader, IncorrectBits, InsufficientPoW, hex_str_to_hash, hash_to_hex_str,
-    sha256, double_sha256
-)
+from bitcoinx import BitcoinRegtest, double_sha256, IncorrectBits, InsufficientPoW, \
+    MissingHeader, hash_to_hex_str, hex_str_to_hash, sha256
 import certifi
 
 from .app_state import app_state
@@ -52,7 +50,7 @@ from .credentials import IndefiniteCredentialId
 from .i18n import _
 from .logs import logs
 from .network_support.api_server import NewServer, NewServerAPIContext
-from .networks import Net #, SVRegTestnet
+from .networks import Net
 from .subscription import SubscriptionManager
 from .transaction import Transaction
 from .types import ElectrumXHistoryList, NetworkServerState, ScriptHashSubscriptionEntry, \
@@ -1279,7 +1277,12 @@ class Network(TriggeredCallbacks):
             app_state.config.set_key('server', main_server, True)
         if not isinstance(main_server, SVServer):
             logger.info('choosing an SSL server randomly; none in config')
-            main_server = self._random_server_nowait('s')
+            # TODO We need a better server selection mechanism where if we choose the secure
+            #   version it falls back to the insecure version if there is one specified.
+            if Net.COIN is BitcoinRegtest:
+                main_server = self._random_server_nowait('t')
+            else:
+                main_server = self._random_server_nowait('s')
             if not main_server:
                 raise RuntimeError('no servers available')
 

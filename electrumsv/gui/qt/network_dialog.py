@@ -1529,7 +1529,7 @@ class ServersTab(QWidget):
                 last_good = mapi_server.config['last_good']
                 enabled_for_all_wallets = mapi_server.config['enabled_for_all_wallets']
                 api_key_supported = mapi_server.config['api_key_supported']
-                api_key_required = mapi_server.config['api_key_required']
+                api_key_required = mapi_server.config.get('api_key_required', False)
             else:
                 last_try = 0
                 last_good = 0

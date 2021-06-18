@@ -282,26 +282,24 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
     sql = (
         "SELECT "
             # Confirmed.
-            f"CAST(TOTAL(CASE WHEN TX.block_height > {BlockHeight.MEMPOOL} "
-                f"AND (TX.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?) "
+            "CAST(TOTAL(CASE WHEN TX.block_height>? AND (TXO.flags&?=0 OR TX.block_height+?<=?) "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "CAST(TOTAL(CASE WHEN TX.block_height IN "
-                f"({BlockHeight.MEMPOOL}, {BlockHeight.MEMPOOL_UNCONFIRMED_PARENT}) "
-                "THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.block_height IN (?,?) THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
-            f"CAST(TOTAL(CASE WHEN TX.block_height>{BlockHeight.MEMPOOL} AND "
-                f"TX.flags&{coinbase_mask} AND TX.block_height+{COINBASE_MATURITY}>? "
+            "CAST(TOTAL(CASE WHEN TX.block_height>? AND TXO.flags&? AND TX.block_height+?>? "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Allocated total.
-            f"CAST(TOTAL(CASE WHEN TX.block_height={BlockHeight.LOCAL} "
-                "THEN TXO.value ELSE 0 END) AS INT) "
+            "CAST(TOTAL(CASE WHEN TX.block_height=? THEN TXO.value ELSE 0 END) AS INT) "
         "FROM AccountTransactions ATX "
         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash "
         "INNER JOIN Transactions TX ON TX.tx_hash=ATX.tx_hash "
         "WHERE ATX.account_id=? AND TXO.keyinstance_id IS NOT NULL AND "
             f"(TXO.flags&{filter_mask})={filter_bits}")
-    row = db.execute(sql, (local_height, local_height, account_id)).fetchone()
+    sql_values = [ BlockHeight.MEMPOOL, coinbase_mask, COINBASE_MATURITY, local_height,
+        BlockHeight.MEMPOOL, BlockHeight.MEMPOOL_UNCONFIRMED_PARENT, BlockHeight.MEMPOOL,
+        coinbase_mask, COINBASE_MATURITY, local_height, BlockHeight.LOCAL, account_id ]
+    row = db.execute(sql, sql_values).fetchone()
     if row is None:
         return WalletBalance(0, 0, 0, 0)
     return WalletBalance(*row)
@@ -420,8 +418,8 @@ def read_account_transaction_outputs_spendable(db: sqlite3.Connection, account_i
         "WHERE KI.account_id=? AND TXO.flags&?=? AND TX.flags&?=?")
     if mature_height is not None:
         coinbase_mask = TransactionOutputFlag.IS_COINBASE
-        sql += f" AND (TXO.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?)"
-        sql_values.append(mature_height)
+        sql += f" AND (TXO.flags&?=0 OR TX.block_height+?<=?)"
+        sql_values.extend([ coinbase_mask, COINBASE_MATURITY, mature_height ])
     if keyinstance_ids is not None:
         sql += " AND TXO.keyinstance_id IN ({})"
         rows = read_rows_by_id(TransactionOutputSpendableRow, db, sql, sql_values, keyinstance_ids)
@@ -739,15 +737,15 @@ def read_keyinstance_derivation_index_last(db: sqlite3.Connection, account_id: i
     # the derivation_data2 bytes to get them ordered from oldest to newest, just id.
     sql = ("SELECT derivation_data2 FROM KeyInstances "
         "WHERE account_id=? AND masterkey_id=? "
-            f"AND (flags&{KeyInstanceFlag.USED})=0 "
             "AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
         "ORDER BY keyinstance_id DESC "
         "LIMIT 1")
-    cursor = db.execute(sql, (account_id, masterkey_id,
+    sql_values = [ account_id, masterkey_id,
         len(prefix_bytes)+4,  # The length of the parent path and sequence index.
         len(prefix_bytes),    # Just the length of the parent path.
-        prefix_bytes))        # The packed parent path bytes.
-    row = cursor.fetchone()
+        prefix_bytes          # The packed parent path bytes.
+    ]
+    row = db.execute(sql, sql_values).fetchone()
     if row is not None:
         return unpack_derivation_path(row[0])[-1]
     return None
@@ -1216,24 +1214,22 @@ def read_wallet_balance(db: sqlite3.Connection, local_height: int,
     sql = (
         "SELECT "
             # Confirmed.
-            f"CAST(TOTAL(CASE WHEN TX.block_height > {BlockHeight.MEMPOOL} "
-                f"AND (TX.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?) "
+            "CAST(TOTAL(CASE WHEN TX.block_height>? AND (TXO.flags&?=0 OR TX.block_height+?<=?) "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "CAST(TOTAL(CASE WHEN TX.block_height IN "
-                f"({BlockHeight.MEMPOOL}, {BlockHeight.MEMPOOL_UNCONFIRMED_PARENT}) "
-                "THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.block_height IN (?,?) THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
-            f"CAST(TOTAL(CASE WHEN TX.block_height>{BlockHeight.MEMPOOL} AND "
-                f"TX.flags&{coinbase_mask} AND TX.block_height+{COINBASE_MATURITY}>? "
+            "CAST(TOTAL(CASE WHEN TX.block_height>? AND TXO.flags&? AND TX.block_height+?>? "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Allocated total.
-            f"CAST(TOTAL(CASE WHEN TX.block_height={BlockHeight.LOCAL} "
-                "THEN TXO.value ELSE 0 END) AS INT) "
+            "CAST(TOTAL(CASE WHEN TX.block_height=? THEN TXO.value ELSE 0 END) AS INT) "
         "FROM TransactionOutputs TXO "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
         f"WHERE TXO.keyinstance_id IS NOT NULL AND (TXO.flags&{filter_mask})={filter_bits}")
-    cursor = db.execute(sql, (local_height, local_height))
+    sql_values = [ BlockHeight.MEMPOOL, coinbase_mask, COINBASE_MATURITY, local_height,
+        BlockHeight.MEMPOOL, BlockHeight.MEMPOOL_UNCONFIRMED_PARENT, BlockHeight.MEMPOOL,
+        coinbase_mask, COINBASE_MATURITY, local_height, BlockHeight.LOCAL ]
+    cursor = db.execute(sql, sql_values)
     return WalletBalance(*cursor.fetchone())
 
 

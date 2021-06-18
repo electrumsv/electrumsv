@@ -894,6 +894,7 @@ class AbstractAccount:
 
         Use cases handled:
         * Process the information about transactions that use this key.
+          - The user has manually marked a key as being actively watched.
           - The user has created a payment request (receiving to a dispensed payment destination).
             o Transactions are only processed as long as the payment request is in UNPAID state.
               There is a good argument we should log an error otherwise.
@@ -925,7 +926,7 @@ class AbstractAccount:
             # ensure that we fetch the transactins when we receive these events as the model no
             # longer monitors all key usage any more.
             request = self._wallet.read_payment_request(keyinstance_id=context.keyinstance_id)
-            assert request is not None
+            assert request is not None, f"no payment request for key {context.keyinstance_id}"
             if (request.state & (PaymentFlag.UNPAID | PaymentFlag.ARCHIVED)) == PaymentFlag.UNPAID:
                 obtain_missing_transactions = True
         else:
@@ -1488,10 +1489,11 @@ class DeterministicAccount(AbstractAccount):
         if count <= 0:
             return []
 
-        self._logger.info(f'creating {count} new keys within {parent_derivation_path}')
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         masterkey_id = keystore.get_id()
         next_index = self.get_next_derivation_index(parent_derivation_path)
+        self._logger.info(f"creating {count} new keys within {parent_derivation_path} "
+            f"next_index={next_index}")
         return tuple(DeterministicKeyAllocation(masterkey_id, DerivationType.BIP32_SUBPATH,
             tuple(parent_derivation_path) + (i,)) for i in range(next_index, next_index + count))
 
@@ -2521,6 +2523,7 @@ class Wallet(TriggeredCallbacks):
                     self._missing_transactions[tx_hash].block_hash = block_hash
                     self._missing_transactions[tx_hash].block_height = block_height
                     self._missing_transactions[tx_hash].fee_hint = fee_hint
+                    self._missing_transactions[tx_hash].import_flags |= import_flags
                 else:
                     self._missing_transactions[tx_hash] = MissingTransactionEntry(block_hash,
                         block_height, fee_hint, import_flags)
@@ -3048,6 +3051,8 @@ class Wallet(TriggeredCallbacks):
         """
         assert tx.is_complete()
         timestamp = int(time.time()) # TODO(no-merge)
+        txo_flags = TransactionOutputFlag.IS_COINBASE if tx.is_coinbase() else \
+            TransactionOutputFlag.NONE
 
         # The database layer should be decoupled from core wallet logic so we need to
         # break down the transaction and related data for it to consume.
@@ -3074,7 +3079,7 @@ class Wallet(TriggeredCallbacks):
             txo_row = TransactionOutputAddRow(tx_hash, txo_index, txo.value,
                 None,                           # Raw transaction means no idea of key usage.
                 ScriptType.NONE,                # Raw transaction means no idea of script type.
-                TransactionOutputFlag.NONE,     # TODO(no-merge) work out if different
+                txo_flags,
                 scripthash_bytes(txo.script_pubkey),
                 txo.script_offset, txo.script_length,
                 timestamp, timestamp)

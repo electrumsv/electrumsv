@@ -677,6 +677,9 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         "FOREIGN KEY (keyinstance_id) REFERENCES KeyInstances (keyinstance_id)"
     ")")
 
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
+        "idx_KeyInstanceScripts_unique ON KeyInstanceScripts(keyinstance_id, script_type)")
+
     # Add all the possible keyinstance script hashes.
     key_scripts_rows: List[Tuple[int, int, bytes, int, int]] = []
     for possible_script in key_script_hashes.values():
