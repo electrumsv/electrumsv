@@ -573,7 +573,8 @@ def read_invoices_for_account(db: sqlite3.Connection, account_id: int, flags: Op
 
 
 @replace_db_context_with_connection
-def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: int) \
+def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: int,
+        tx_hash: Optional[bytes]=None) \
         -> List[TransactionSubscriptionRow]:
     """
     Find all script hashes we need to monitor for our transaction-related script hash subscriptions.
@@ -591,7 +592,7 @@ def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: 
     We are not concerned about reorgs, the reorg processing should happen independently and even
     on account/wallet load before these subscriptions are made.
     """
-    sql_values = [account_id, TxFlags.REMOVED, account_id, TxFlags.REMOVED]
+    sql_values: List[Any] = [account_id, TxFlags.REMOVED, account_id, TxFlags.REMOVED]
     sql = ("""
         WITH summary AS (
             SELECT TXO.tx_hash,
@@ -621,8 +622,11 @@ def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: 
                 AND TX.flags&?=0)
         SELECT s.tx_hash, s.put_type, s.keyinstance_id, s.script_hash
         FROM summary s
-        WHERE s.rk = 1
-        ORDER BY s.put_type""")
+        WHERE s.rk = 1""")
+    if tx_hash is not None:
+        sql += " AND tx_hash=?"
+        sql_values.append(tx_hash)
+    sql += " ORDER BY s.put_type"
 
     rows = db.execute(sql, sql_values).fetchall()
     return [ TransactionSubscriptionRow(*t) for t in rows ]

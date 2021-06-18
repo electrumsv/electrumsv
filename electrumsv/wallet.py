@@ -73,8 +73,9 @@ from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
 from .storage import WalletStorage
-from .transaction import (Transaction, TransactionContext, TxSerialisationFormat, NO_SIGNATURE,
-    tx_dict_from_text, XPublicKey, XPublicKeyType, XTxInput, XTxOutput)
+from .transaction import (Transaction, TransactionContext,
+    TxSerialisationFormat, NO_SIGNATURE, tx_dict_from_text, XPublicKey, XPublicKeyType, XTxInput,
+    XTxOutput)
 from .types import (ElectrumXHistoryList, IndefiniteCredentialId, KeyInstanceDataBIP32SubPath,
     KeyInstanceDataHash, KeyInstanceDataPrivateKey, MasterKeyDataTypes,
     MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
@@ -822,33 +823,37 @@ class AbstractAccount:
             # Set up the transaction monitoring for the account.
             network.subscriptions.set_owner_callback(self._subscription_owner_for_transactions,
                 self._on_network_transaction_script_hash_result)
-            # At this point, this is used to get a script hash per transaction that does not have
-            # a proof. In theory, we could just grab the script hash of the first output of any
-            # unproven transaction, but it is not a given that all transactions have outputs let
-            # alone outputs that can be used for this. If there is one, we use the script hash for
-            # it but if there isn't we will use the script hash of a spent output and associate
-            # it with the unproven spending transaction.
-            tx_seen: Set[bytes] = set()
-            tx_rows_by_script_hash: Dict[bytes, List[TransactionSubscriptionRow]] = {}
-            tx_subscription_entries: List[SubscriptionEntry] = []
-            for tx_row in self._wallet.read_keys_for_transaction_subscriptions(self._id):
-                if tx_row.tx_hash not in tx_seen:
-                    tx_seen.add(tx_row.tx_hash)
-                    if tx_row.script_hash in tx_rows_by_script_hash:
-                        # The subscription entry has a reference to this, so appending will add
-                        # to that subscription.
-                        tx_rows_by_script_hash[tx_row.script_hash].append(tx_row)
-                    else:
-                        tx_entry_rows = tx_rows_by_script_hash[tx_row.script_hash] = [ tx_row ]
-                        tx_entry = SubscriptionEntry(
-                            SubscriptionKey(SubscriptionType.SCRIPT_HASH, tx_row.script_hash),
-                            SubscriptionTransactionScriptHashOwnerContext(tx_entry_rows))
-                        tx_subscription_entries.append(tx_entry)
-            if len(tx_subscription_entries):
-                self._logger.debug("Creating %d transaction subscriptions",
-                    len(tx_subscription_entries))
-                network.subscriptions.create_entries(tx_subscription_entries,
-                    self._subscription_owner_for_transactions)
+            self.register_for_transaction_proofs()
+
+    def register_for_transaction_proofs(self, tx_hash: Optional[bytes]=None) -> None:
+        assert self._network is not None
+        # At this point, this is used to get a script hash per transaction that does not have
+        # a proof. In theory, we could just grab the script hash of the first output of any
+        # unproven transaction, but it is not a given that all transactions have outputs let
+        # alone outputs that can be used for this. If there is one, we use the script hash for
+        # it but if there isn't we will use the script hash of a spent output and associate
+        # it with the unproven spending transaction.
+        tx_seen: Set[bytes] = set()
+        tx_rows_by_script_hash: Dict[bytes, List[TransactionSubscriptionRow]] = {}
+        tx_subscription_entries: List[SubscriptionEntry] = []
+        for tx_row in self._wallet.read_keys_for_transaction_subscriptions(self._id, tx_hash):
+            if tx_row.tx_hash not in tx_seen:
+                tx_seen.add(tx_row.tx_hash)
+                if tx_row.script_hash in tx_rows_by_script_hash:
+                    # The subscription entry has a reference to this, so appending will add
+                    # to that subscription.
+                    tx_rows_by_script_hash[tx_row.script_hash].append(tx_row)
+                else:
+                    tx_entry_rows = tx_rows_by_script_hash[tx_row.script_hash] = [ tx_row ]
+                    tx_entry = SubscriptionEntry(
+                        SubscriptionKey(SubscriptionType.SCRIPT_HASH, tx_row.script_hash),
+                        SubscriptionTransactionScriptHashOwnerContext(tx_entry_rows))
+                    tx_subscription_entries.append(tx_entry)
+        if len(tx_subscription_entries):
+            self._logger.debug("Creating %d transaction subscriptions (%s)",
+                len(tx_subscription_entries), hash_to_hex_str(tx_hash))
+            self._network.subscriptions.create_entries(tx_subscription_entries,
+                self._subscription_owner_for_transactions)
 
     def stop(self) -> None:
         assert not self._stopped
@@ -2196,10 +2201,10 @@ class Wallet(TriggeredCallbacks):
             -> List[KeyListRow]:
         return db_functions.read_key_list(self.get_db_context(), account_id, keyinstance_ids)
 
-    def read_keys_for_transaction_subscriptions(self, account_id: int) \
-            -> List[TransactionSubscriptionRow]:
+    def read_keys_for_transaction_subscriptions(self, account_id: int,
+            tx_hash: Optional[bytes]=None) -> List[TransactionSubscriptionRow]:
         return db_functions.read_keys_for_transaction_subscriptions(self.get_db_context(),
-            account_id)
+            account_id, tx_hash)
 
     def read_keyinstance_for_derivation(self, account_id: int,
             derivation_type: DerivationType, derivation_data2: bytes,
@@ -3017,8 +3022,8 @@ class Wallet(TriggeredCallbacks):
             import_flags |= missing_entry.import_flags
 
         link_state = TransactionLinkState()
-        await self._import_transaction(tx_hash, tx, flags, link_state, block_hash, block_height,
-            fee_hint, import_flags=import_flags)
+        await self._import_transaction(tx_hash, tx, flags, link_state, block_hash=block_hash,
+            block_height=block_height, fee_hint=fee_hint, import_flags=import_flags)
 
     async def _import_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
             link_state: TransactionLinkState, block_hash: Optional[bytes]=None,
@@ -3055,7 +3060,8 @@ class Wallet(TriggeredCallbacks):
 
         # TODO(no-merge) Unit test that the output script offset and lengths are correct.
         txo_rows: List[TransactionOutputAddRow] = []
-        for txo_index, txo in enumerate(tx.outputs):
+        for txo_index, raw_txo in enumerate(tx.outputs):
+            txo = cast(XTxOutput, raw_txo)
             txo_row = TransactionOutputAddRow(tx_hash, txo_index, txo.value,
                 None,                           # Raw transaction means no idea of key usage.
                 ScriptType.NONE,                # Raw transaction means no idea of script type.
@@ -3067,6 +3073,17 @@ class Wallet(TriggeredCallbacks):
 
         await self.db_functions_async.import_transaction_async(tx_row, txi_rows, txo_rows,
             link_state)
+
+        # This is non-optimal. We should only really do this in the case we do not know the
+        # block height. And later on we would have some way of asking servers whether a
+        # transaction has been mined, or to get notified if they get mined.
+        # TODO(no-merge) If the transaction has a block height, we know it has been mined and
+        #   that we can request the proof. There is no need to register for notifications in that
+        #   case.
+        if self._network is not None and link_state.account_ids:
+            for account_id in link_state.account_ids:
+                account = self._accounts[account_id]
+                account.register_for_transaction_proofs(tx_hash)
 
         async with self._obtain_transactions_async_lock:
             if tx_hash in self._missing_transactions:

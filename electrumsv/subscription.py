@@ -111,6 +111,9 @@ class SubscriptionManager:
             # This is an existing subscription, it should already be subscribed.
             self._subscriptions[key].add(owner)
             owner_subscriptions.add(key)
+            logger.debug("added a duplicate %s subscription for %s", key.value_type,
+                hash_to_hex_str(key.value) if key.value_type == SubscriptionType.SCRIPT_HASH \
+                    else str(key.value_type))
             return self._subscription_ids[key], False
         # This is a new subscription, it needs to be subscribed.
         subscription_id = self._next_id

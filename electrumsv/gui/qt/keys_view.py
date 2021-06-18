@@ -452,9 +452,7 @@ class KeyView(QTableView):
 
         self._pending_state: Dict[int, EventFlags] = {}
         self._pending_actions = { ListActions.RESET }
-        # Create a payment request.
         self._main_window.keys_created_signal.connect(self._on_keys_created)
-        # Delete a payment request.
         self._main_window.keys_updated_signal.connect(self._on_keys_updated)
         self._main_window.account_change_signal.connect(self._on_account_change)
         self._main_window.transaction_added_signal.connect(self._on_transaction_added)
