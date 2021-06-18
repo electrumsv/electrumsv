@@ -14,9 +14,9 @@ from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple
 from bitcoinx import hash_to_hex_str, P2PKH_Address, P2SH_Address, PublicKey
 
 from ...bitcoin import scripthash_bytes, sha256
-from ...constants import AccountTxFlags, CHANGE_SUBPATH, DerivationType, DerivationPath, \
-    KeyInstanceFlag, KeystoreType, RECEIVING_SUBPATH, ScriptType, TransactionInputFlag, \
-    TransactionOutputFlag
+from ...constants import AccountTxFlags, BlockHeight, CHANGE_SUBPATH, DerivationType, \
+    DerivationPath, KeyInstanceFlag, KeystoreType, RECEIVING_SUBPATH, ScriptType, \
+    TransactionInputFlag, TransactionOutputFlag
 from ...exceptions import DatabaseMigrationError
 from ...i18n import _
 from ...keys import get_multi_signer_script_template, get_single_signer_script_template
@@ -571,7 +571,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     logger.debug("adding column Transactions.version")
     conn.execute("ALTER TABLE Transactions ADD COLUMN block_hash BLOB DEFAULT NULL")
 
-    conn.execute("UPDATE Transactions SET block_height=-2 WHERE block_height IS NULL")
+    conn.execute(f"UPDATE Transactions SET block_height={BlockHeight.LOCAL} "
+        "WHERE block_height IS NULL")
 
     logger.debug("setting Transactions.version/locktime values for %d affected rows",
         len(tx_updates))

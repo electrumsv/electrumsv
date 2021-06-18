@@ -50,7 +50,7 @@ from bitcoinx import (Address, double_sha256, hash_to_hex_str, Header, hex_str_t
 from . import coinchooser
 from .app_state import app_state
 from .bitcoin import scripthash_bytes, ScriptTemplate
-from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH,
+from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, BlockHeight, CHANGE_SUBPATH,
     DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath, TransactionImportFlag,
     KeyInstanceFlag, KeystoreTextType,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerType,
@@ -664,7 +664,7 @@ class AbstractAccount:
                 timestamp = timestamp_to_datetime(header_at_height(chain,
                                 history_line.block_height).timestamp)
             except MissingHeader:
-                if history_line.block_height > 0:
+                if history_line.block_height > BlockHeight.MEMPOOL:
                     self._logger.debug("fetching missing headers at height: %s",
                                        history_line.block_height)
                     assert history_line.block_height <= server_height, \
@@ -837,23 +837,31 @@ class AbstractAccount:
         tx_rows_by_script_hash: Dict[bytes, List[TransactionSubscriptionRow]] = {}
         tx_subscription_entries: List[SubscriptionEntry] = []
         for tx_row in self._wallet.read_keys_for_transaction_subscriptions(self._id, tx_hash):
-            if tx_row.tx_hash not in tx_seen:
-                tx_seen.add(tx_row.tx_hash)
-                if tx_row.script_hash in tx_rows_by_script_hash:
-                    # The subscription entry has a reference to this, so appending will add
-                    # to that subscription.
-                    tx_rows_by_script_hash[tx_row.script_hash].append(tx_row)
-                else:
-                    tx_entry_rows = tx_rows_by_script_hash[tx_row.script_hash] = [ tx_row ]
-                    tx_entry = SubscriptionEntry(
-                        SubscriptionKey(SubscriptionType.SCRIPT_HASH, tx_row.script_hash),
-                        SubscriptionTransactionScriptHashOwnerContext(tx_entry_rows))
-                    tx_subscription_entries.append(tx_entry)
+            # It is possible we will get multiple entries for a transaction. Does it happen?
+            if tx_row.tx_hash in tx_seen:
+                continue
+            tx_seen.add(tx_row.tx_hash)
+            if tx_row.script_hash in tx_rows_by_script_hash:
+                # The subscription entry has a reference to this, so appending will add
+                # to that subscription.
+                tx_rows_by_script_hash[tx_row.script_hash].append(tx_row)
+            else:
+                tx_entry_rows = tx_rows_by_script_hash[tx_row.script_hash] = [ tx_row ]
+                tx_entry = SubscriptionEntry(
+                    SubscriptionKey(SubscriptionType.SCRIPT_HASH, tx_row.script_hash),
+                    SubscriptionTransactionScriptHashOwnerContext(tx_entry_rows))
+                tx_subscription_entries.append(tx_entry)
+
         if len(tx_subscription_entries):
-            self._logger.debug("Creating %d transaction subscriptions (%s)",
-                len(tx_subscription_entries), hash_to_hex_str(tx_hash))
+            self._logger.debug("Creating %d transaction subscriptions (tx_hash=%s)",
+                len(tx_subscription_entries),
+                hash_to_hex_str(tx_hash) if tx_hash is not None else None)
             self._network.subscriptions.create_entries(tx_subscription_entries,
                 self._subscription_owner_for_transactions)
+
+        # This will awaken the loop that pulls in proofs for transactions we know are mined
+        # but have not yet fetched the proof for.
+        self._wallet.txs_changed_event.set()
 
     def stop(self) -> None:
         assert not self._stopped
@@ -983,7 +991,7 @@ class AbstractAccount:
                     # where we do not need to monitor it any more. If it is in the mempool we
                     # need to wait for it to be included in a block, and will continue to monitor
                     # it.
-                    if block_height > 0:
+                    if block_height > BlockHeight.MEMPOOL:
                         context.tx_rows.remove(row)
                 else:
                     pending_rows.append(row)
@@ -1741,6 +1749,7 @@ class Wallet(TriggeredCallbacks):
         self._accounts: Dict[int, AbstractAccount] = {}
         self._keystores: Dict[int, KeyStore] = {}
         self._missing_transactions: Dict[bytes, MissingTransactionEntry] = {}
+        # self._missing_proofs: Set[bytes] = set()
 
         # Guards `transaction_locks`.
         self._transaction_lock = threading.RLock()
@@ -2995,9 +3004,7 @@ class Wallet(TriggeredCallbacks):
         link_state = TransactionLinkState()
         link_state.rollback_on_spend_conflict = True
         await self._import_transaction(tx_hash, tx, flags, link_state, block_hash=None,
-            block_height=-2, block_position=None, fee_hint=None)
-
-        # TODO(no-merge) Do we
+            block_height=BlockHeight.LOCAL, block_position=None, fee_hint=None)
 
     async def import_transaction_async(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
@@ -3009,7 +3016,7 @@ class Wallet(TriggeredCallbacks):
         settled until we have obtained the merkle proof.
         """
         block_hash: Optional[bytes] = None
-        block_height: int = -2
+        block_height: int = BlockHeight.LOCAL
         fee_hint: Optional[int] = None
 
         # If there is a missing transaction entry it is almost certain that the indexer monitoring
@@ -3027,7 +3034,8 @@ class Wallet(TriggeredCallbacks):
 
     async def _import_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
             link_state: TransactionLinkState, block_hash: Optional[bytes]=None,
-            block_height: int=-2, block_position: Optional[int]=None, fee_hint: Optional[int]=None,
+            block_height: int=BlockHeight.LOCAL, block_position: Optional[int]=None,
+            fee_hint: Optional[int]=None,
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
         """
         Add an external complete transaction to the database.
@@ -3039,10 +3047,11 @@ class Wallet(TriggeredCallbacks):
         that the caller is passing in legitimate data
         """
         assert tx.is_complete()
-        timestamp = int(time.time())
+        timestamp = int(time.time()) # TODO(no-merge)
 
         # The database layer should be decoupled from core wallet logic so we need to
         # break down the transaction and related data for it to consume.
+        assert isinstance(block_height, (int, BlockHeight))
         tx_row = TransactionRow(tx_hash, tx.to_bytes(), flags, block_hash, block_height,
             block_position, fee_hint, None, tx.version, tx.locktime, timestamp, timestamp)
 
@@ -3074,16 +3083,18 @@ class Wallet(TriggeredCallbacks):
         await self.db_functions_async.import_transaction_async(tx_row, txi_rows, txo_rows,
             link_state)
 
-        # This is non-optimal. We should only really do this in the case we do not know the
-        # block height. And later on we would have some way of asking servers whether a
+        # TODO(rt12) later on we would have some way of asking servers whether a
         # transaction has been mined, or to get notified if they get mined.
-        # TODO(no-merge) If the transaction has a block height, we know it has been mined and
-        #   that we can request the proof. There is no need to register for notifications in that
-        #   case.
-        if self._network is not None and link_state.account_ids:
-            for account_id in link_state.account_ids:
-                account = self._accounts[account_id]
-                account.register_for_transaction_proofs(tx_hash)
+        if self._network is not None:
+            if block_height < BlockHeight.BLOCK1:
+                if link_state.account_ids is not None:
+                    for account_id in link_state.account_ids:
+                        account = self._accounts[account_id]
+                        account.register_for_transaction_proofs(tx_hash)
+            else:
+                # This will awaken the loop that pulls in proofs for transactions we know are mined
+                # but have not yet fetched the proof for.
+                self.txs_changed_event.set()
 
         async with self._obtain_transactions_async_lock:
             if tx_hash in self._missing_transactions:

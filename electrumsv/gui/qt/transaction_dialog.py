@@ -44,8 +44,8 @@ from bitcoinx import hash_to_hex_str, MissingHeader, Unknown_Output
 
 from ...app_state import app_state
 from ...bitcoin import base_encode
-from ...constants import (CHANGE_SUBPATH_BYTES, DerivationType, RECEIVING_SUBPATH_BYTES,
-    ScriptType, TransactionOutputFlag, TxFlags)
+from ...constants import (BlockHeight, CHANGE_SUBPATH_BYTES, DerivationType,
+    RECEIVING_SUBPATH_BYTES, ScriptType, TransactionOutputFlag, TxFlags)
 from ...i18n import _
 from ...logs import logs
 from ...paymentrequest import PaymentRequest
@@ -729,7 +729,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                 # any accounts. We still need to factor that in.
                 fee = metadata.fee_value
 
-                if metadata.block_height is not None and metadata.block_height > 0:
+                if metadata.block_height > BlockHeight.MEMPOOL:
                     chain = app_state.headers.longest_chain()
                     try:
                         header = app_state.headers.header_at_height(chain, metadata.block_height)
@@ -745,7 +745,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                     conf = max(wallet.get_local_height() - height + 1, 0)
                     status = _("{:,d} confirmations (in block {:,d})").format(conf, height)
                 elif state & TxFlags.STATE_CLEARED:
-                    if metadata.block_height > 0:
+                    if metadata.block_height > BlockHeight.MEMPOOL:
                         status = _('Not verified')
                     else:
                         status = _('Unconfirmed')

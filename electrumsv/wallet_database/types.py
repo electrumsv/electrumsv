@@ -339,8 +339,11 @@ class TransactionRow(NamedTuple):
 
 class TransactionSubscriptionRow(NamedTuple):
     tx_hash: bytes
+    # 1 = Transaction output, 2 = Transaction output.
     put_type: int
+    # TODO Document why this is present.
     keyinstance_id: int
+    # TODO Document why this is present.
     script_hash: bytes
 
 

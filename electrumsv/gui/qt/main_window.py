@@ -346,9 +346,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     # Map the wallet event to a Qt UI signal.
     def _on_transaction_verified(self, event_name: str, tx_hash: bytes, block_height: int,
             block_position: int, confirmations: int, timestamp: int) -> None:
-        # TODO(deferred) This is overkill and some UI elements now listen for the signal directly.
-        #   We need to do directed updates everywhere based off the signal, but there are issues
-        #   with that .. see the history tab
         self.need_update.set()
         self.transaction_verified_signal.emit(tx_hash, block_height, block_position, confirmations,
             timestamp)

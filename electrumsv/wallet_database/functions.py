@@ -13,9 +13,9 @@ except ModuleNotFoundError:
 from typing import Any, cast, Iterable, List, Optional, Sequence, Tuple
 
 from ..bitcoin import COINBASE_MATURITY
-from ..constants import (DerivationType, DerivationPath, KeyInstanceFlag, NetworkServerType,
-    pack_derivation_path, PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags,
-    unpack_derivation_path, WalletEventFlag)
+from ..constants import (BlockHeight, DerivationType, DerivationPath, KeyInstanceFlag,
+    NetworkServerType, pack_derivation_path, PaymentFlag, ScriptType, TransactionOutputFlag,
+    TxFlags, unpack_derivation_path, WalletEventFlag)
 from ..crypto import pw_decode, pw_encode
 from ..i18n import _
 from ..logs import logs
@@ -263,8 +263,6 @@ def delete_payment_request(db_context: DatabaseContext, paymentrequest_id: int,
 
 def delete_wallet_data(db_context: DatabaseContext, key: str) -> concurrent.futures.Future:
     sql = "DELETE FROM WalletData WHERE key=?"
-    timestamp = get_timestamp()
-
     def _write(db: sqlite3.Connection) -> None:
         db.execute(sql, (key,))
     return db_context.post_to_thread(_write)
@@ -284,17 +282,20 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
     sql = (
         "SELECT "
             # Confirmed.
-            "CAST(TOTAL(CASE WHEN TX.block_height > 0 "
+            f"CAST(TOTAL(CASE WHEN TX.block_height > {BlockHeight.MEMPOOL} "
                 f"AND (TX.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?) "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "CAST(TOTAL(CASE WHEN TX.block_height = 0 OR TX.block_height = -1 "
+            "CAST(TOTAL(CASE WHEN TX.block_height IN "
+                f"({BlockHeight.MEMPOOL}, {BlockHeight.MEMPOOL_UNCONFIRMED_PARENT}) "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
-            f"CAST(TOTAL(CASE WHEN TX.block_height > 0 AND TX.flags&{coinbase_mask} "
-                f"AND TX.block_height+{COINBASE_MATURITY}>? THEN TXO.value ELSE 0 END) AS INT), "
+            f"CAST(TOTAL(CASE WHEN TX.block_height>{BlockHeight.MEMPOOL} AND "
+                f"TX.flags&{coinbase_mask} AND TX.block_height+{COINBASE_MATURITY}>? "
+                "THEN TXO.value ELSE 0 END) AS INT), "
             # Allocated total.
-            "CAST(TOTAL(CASE WHEN TX.block_height = -2 THEN TXO.value ELSE 0 END) AS INT) "
+            f"CAST(TOTAL(CASE WHEN TX.block_height={BlockHeight.LOCAL} "
+                "THEN TXO.value ELSE 0 END) AS INT) "
         "FROM AccountTransactions ATX "
         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash "
         "INNER JOIN Transactions TX ON TX.tx_hash=ATX.tx_hash "
@@ -589,10 +590,13 @@ def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: 
     For these reasons we stick to our outputs (whether spends or receives) related to any given
     transaction.
 
-    We are not concerned about reorgs, the reorg processing should happen independently and even
-    on account/wallet load before these subscriptions are made.
+    We are not concerned about reorgs here, the reorg processing should happen independently and
+    even on account/wallet load before these subscriptions are made. We do not need to worry
+    about mined transactions even if we do not have the proof, because these can be picked up
+    by the network transaction/proof fetching as long as it is awakened.
     """
-    sql_values: List[Any] = [account_id, TxFlags.REMOVED, account_id, TxFlags.REMOVED]
+    sql_values: List[Any] = [account_id, BlockHeight.BLOCK1, TxFlags.REMOVED, account_id,
+        BlockHeight.BLOCK1, TxFlags.REMOVED]
     sql = ("""
         WITH summary AS (
             SELECT TXO.tx_hash,
@@ -605,7 +609,7 @@ def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: 
             INNER JOIN AccountTransactions ATX ON ATX.tx_hash = TXO.tx_hash
             INNER JOIN Transactions TX ON TX.tx_hash = TXO.tx_hash
             WHERE TXO.keyinstance_id IS NOT NULL AND ATX.account_id=? AND TX.proof_data IS NULL
-                AND TX.flags&?=0
+                AND TX.block_height<? AND TX.flags&?=0
             UNION
             SELECT TXI.tx_hash,
                 2 AS put_type,
@@ -619,7 +623,7 @@ def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: 
             INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash
                 AND TXO.txo_index=TXI.spent_txo_index
             WHERE TXO.keyinstance_id IS NOT NULL AND ATX.account_id=? AND TX.proof_data IS NULL
-                AND TX.flags&?=0)
+                AND TX.block_height<? AND TX.flags&?=0)
         SELECT s.tx_hash, s.put_type, s.keyinstance_id, s.script_hash
         FROM summary s
         WHERE s.rk = 1""")
@@ -1188,8 +1192,8 @@ def read_unverified_transactions(db: sqlite3.Connection, local_height: int) \
     sql = (
         "SELECT tx_hash, block_height "
         "FROM Transactions "
-        f"WHERE flags={TxFlags.STATE_CLEARED} AND block_height>0 "
-            "AND block_height<? AND proof_data IS NULL "
+        f"WHERE flags={TxFlags.STATE_CLEARED} AND block_height>{BlockHeight.MEMPOOL} "
+            "AND block_height<=? AND proof_data IS NULL "
         "ORDER BY date_created "
         "LIMIT 200"
     )
@@ -1212,17 +1216,20 @@ def read_wallet_balance(db: sqlite3.Connection, local_height: int,
     sql = (
         "SELECT "
             # Confirmed.
-            "CAST(TOTAL(CASE WHEN TX.block_height > 0 "
+            f"CAST(TOTAL(CASE WHEN TX.block_height > {BlockHeight.MEMPOOL} "
                 f"AND (TX.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?) "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "CAST(TOTAL(CASE WHEN TX.block_height = 0 OR TX.block_height = -1 "
+            "CAST(TOTAL(CASE WHEN TX.block_height IN "
+                f"({BlockHeight.MEMPOOL}, {BlockHeight.MEMPOOL_UNCONFIRMED_PARENT}) "
                 "THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
-            f"CAST(TOTAL(CASE WHEN TX.block_height > 0 AND TX.flags&{coinbase_mask} "
-                f"AND TX.block_height+{COINBASE_MATURITY}>? THEN TXO.value ELSE 0 END) AS INT), "
+            f"CAST(TOTAL(CASE WHEN TX.block_height>{BlockHeight.MEMPOOL} AND "
+                f"TX.flags&{coinbase_mask} AND TX.block_height+{COINBASE_MATURITY}>? "
+                "THEN TXO.value ELSE 0 END) AS INT), "
             # Allocated total.
-            "CAST(TOTAL(CASE WHEN TX.block_height = -2 THEN TXO.value ELSE 0 END) AS INT) "
+            f"CAST(TOTAL(CASE WHEN TX.block_height={BlockHeight.LOCAL} "
+                "THEN TXO.value ELSE 0 END) AS INT) "
         "FROM TransactionOutputs TXO "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
         f"WHERE TXO.keyinstance_id IS NOT NULL AND (TXO.flags&{filter_mask})={filter_bits}")
@@ -1435,7 +1442,7 @@ def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]
     """
     timestamp = get_timestamp()
     sql = ("UPDATE Transactions "
-        f"SET date_updated=?, flags=(flags&?)|?, block_height=0 "
+        f"SET date_updated=?, flags=(flags&?)|?, block_height={BlockHeight.MEMPOOL} "
         "WHERE tx_hash IN ({})")
     sql_values = [ timestamp, TxFlags.STATE_CLEARED, ~TxFlags.STATE_SETTLED ]
 
@@ -1536,13 +1543,14 @@ def _update_transaction_proof(db: sqlite3.Connection, tx_hash: bytes, block_heig
     timestamp = get_timestamp()
     clear_bits = ~TxFlags.MASK_STATE
     set_bits = TxFlags.STATE_SETTLED
-    query = ("UPDATE Transactions "
-        "SET date_updated=?, proof_data=?, block_height=?, block_position=?, "
-            f"flags=(flags&{clear_bits})|{set_bits} "
+    sql = ("UPDATE Transactions "
+        "SET date_updated=?, proof_data=?, block_height=?, block_position=?, flags=(flags&?)|? "
         "WHERE tx_hash=?")
+    sql_values = [ timestamp, pack_proof(proof), block_height, block_position, clear_bits,
+        set_bits, tx_hash ]
     # NOTE(rt12) at some later point we will have a standard binary packed proof format
     # that we can use, i.e. bitcoin association's specification.
-    db.execute(query, (timestamp, pack_proof(proof), block_height, block_position, tx_hash))
+    db.execute(sql, sql_values)
 
 
 def update_account_names(db_context: DatabaseContext, entries: Iterable[Tuple[str, int]]) \
@@ -1977,6 +1985,7 @@ class AsynchronousFunctions:
         # with inputs and outputs.
         assert tx_row.tx_bytes is not None
         assert (tx_row.flags & TxFlags.HAS_BYTEDATA) == 0, "this flag is not applicable"
+        assert isinstance(tx_row.block_height, (int, BlockHeight)), "all heights should be integers"
 
         # Constraint: tx_hash should be unique.
         try:

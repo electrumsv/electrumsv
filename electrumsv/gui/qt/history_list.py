@@ -38,7 +38,7 @@ from PyQt5.QtWidgets import QMenu, QMessageBox, QTreeWidgetItem, QVBoxLayout, QW
 
 from ...app_state import app_state
 from ...bitcoin import COINBASE_MATURITY
-from ...constants import PaymentFlag, TxFlags
+from ...constants import BlockHeight, PaymentFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
 from ...paymentrequest import has_expired
@@ -195,7 +195,7 @@ class HistoryList(MyTreeWidget):
             tx_id = hash_to_hex_str(row.tx_hash)
             conf = 0 if row.block_height <= 0 else max(local_height - row.block_height + 1, 0)
             timestamp = False
-            if row.block_height > 0:
+            if row.block_height > BlockHeight.MEMPOOL:
                 try:
                     timestamp = header_at_height(chain, row.block_height).timestamp
                 except MissingHeader:
@@ -439,7 +439,7 @@ def get_tx_status(account: AbstractAccount, state_flag: TxFlags, height: int,
         if height + COINBASE_MATURITY > account._wallet.get_local_height():
             return TxStatus.UNMATURED
     elif state_flag == TxFlags.STATE_CLEARED:
-        if height > 0:
+        if height > BlockHeight.MEMPOOL:
             return TxStatus.UNVERIFIED
         return TxStatus.UNCONFIRMED
 

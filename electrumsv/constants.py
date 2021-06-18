@@ -144,6 +144,17 @@ class AccountTxFlags(IntFlag):
     IRRELEVANT_MASK = REPLACED | DELETED
 
 
+class BlockHeight(IntEnum):
+    """
+    If there is one reason we avoid setting the block height to `NULL` or `None`, it is so we can
+    always sort transactions by `block_height` in the database.
+    """
+    LOCAL = -2
+    MEMPOOL_UNCONFIRMED_PARENT = -1
+    MEMPOOL = 0
+    BLOCK1 = 1
+
+
 class ScriptType(IntEnum):
     NONE = 0
     COINBASE = 1
