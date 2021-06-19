@@ -33,7 +33,6 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     PaymentRequestRow,
     PaymentRequestUpdateRow, SpendConflictType, TransactionBlockRow,
     TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
-    # TransactionDescriptionResult,
     TransactionOutputAddRow, TransactionOutputSpendableRow,
     TransactionValueRow, TransactionMetadata,
     TransactionOutputFullRow, TransactionOutputShortRow,
@@ -1384,7 +1383,6 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
     # NOTE If any caller wants to do overwrites or partial updates then that should be a standard
     # policy optionally passed into all update calls.
     sql_values = [ get_timestamp(), mask, flags ]
-    print(sql_values)
 
     def _write(db: sqlite3.Connection) -> bool:
         nonlocal sql, sql_values, key_ids
@@ -1790,17 +1788,52 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
     return db_context.post_to_thread(_write)
 
 
-def update_payment_request_states(db_context: DatabaseContext,
-        entries: Iterable[Tuple[Optional[PaymentFlag], int]]) -> concurrent.futures.Future:
-    sql = (f"""UPDATE PaymentRequests SET date_updated=?,
-        state=(state&{~PaymentFlag.MASK_STATE})|? WHERE keyinstance_id=?""")
+def _update_payment_request_states(db: sqlite3.Connection) -> Tuple[int, int]:
     timestamp = get_timestamp()
-    rows = [ (timestamp, *entry) for entry in entries ]
+    sql_read_1 = """
+    WITH key_payments AS (
+        SELECT TXO.keyinstance_id, SUM(TXO.value) AS total_value
+        FROM TransactionOutputs TXO
+        INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id
+        WHERE KI.flags&?!=0
+        GROUP BY TXO.keyinstance_id
+    )
 
-    def _write(db: sqlite3.Connection) -> None:
-        nonlocal sql, rows
-        db.executemany(sql, rows)
-    return db_context.post_to_thread(_write)
+    SELECT PR.paymentrequest_id, PR.keyinstance_id
+    FROM PaymentRequests AS PR
+    INNER JOIN key_payments KP ON KP.keyinstance_id=PR.keyinstance_id
+    WHERE PR.state&?=? AND (PR.value IS NULL OR PR.value <= KP.total_value)
+    """
+    sql_read_1_values = [
+        KeyInstanceFlag.IS_PAYMENT_REQUEST, PaymentFlag.MASK_STATE, PaymentFlag.UNPAID,
+    ]
+    rows = db.execute(sql_read_1, sql_read_1_values).fetchall()
+
+    if len(rows):
+        sql_write_1 = "UPDATE PaymentRequests SET date_updated=?, state=(state&?)|? " \
+            "WHERE paymentrequest_id=?"
+        sql_write_2 = "UPDATE KeyInstances SET date_updated=?, flags=flags&? WHERE keyinstance_id=?"
+        paymentrequest_update_rows = []
+        keyinstance_update_rows = []
+        for paymentrequest_id, keyinstance_id in rows:
+            paymentrequest_update_rows.append((timestamp, PaymentFlag.CLEARED_MASK_STATE,
+                PaymentFlag.PAID, paymentrequest_id))
+            keyinstance_update_rows.append((timestamp,
+                ~(KeyInstanceFlag.IS_PAYMENT_REQUEST|KeyInstanceFlag.IS_ACTIVE), keyinstance_id))
+        update_count_1 = db.executemany(sql_write_1, paymentrequest_update_rows).rowcount
+        update_count_2 = db.executemany(sql_write_2, keyinstance_update_rows).rowcount
+        return update_count_1, update_count_2
+
+    return 0, 0
+
+
+async def update_payment_request_states_async(db_context: DatabaseContext) \
+        -> Tuple[int, int]:
+    """
+    Wrap the database operations required to link a transaction so the processing is
+    offloaded to the SQLite writer thread while this task is blocked.
+    """
+    return await db_context.run_in_thread_async(_update_payment_request_states)
 
 
 def update_payment_requests(db_context: DatabaseContext,
@@ -2078,8 +2111,9 @@ class AsynchronousFunctions:
             "UPDATE TransactionOutputs AS TXO "
             "SET date_updated=?, keyinstance_id=KIS.keyinstance_id, script_type=KIS.script_type "
             "FROM KeyInstanceScripts KIS "
-            "WHERE TXO.tx_hash=? AND TXO.script_hash=KIS.script_hash")
-        sql_write_1_values = (timestamp, tx_hash)
+            "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
+            "WHERE TX.flags&?=0 AND TXO.tx_hash=? AND TXO.script_hash=KIS.script_hash")
+        sql_write_1_values = (timestamp, TxFlags.MASK_UNLINKED, tx_hash)
         cursor_1 = db.execute(sql_write_1, sql_write_1_values)
 
         # We explicitly mark keys as used when we use them. See `KeyInstanceFlag.USED`
@@ -2087,10 +2121,10 @@ class AsynchronousFunctions:
         sql_write_2 = (
             "UPDATE KeyInstances AS KI "
             "SET date_updated=?, flags=KI.flags|? "
-            "FROM KeyInstanceScripts KIS "
-            "INNER JOIN TransactionOutputs TXO ON TXO.keyinstance_id=KIS.keyinstance_id "
-            "WHERE TXO.tx_hash=? AND KI.keyinstance_id=TXO.keyinstance_id")
-        sql_write_2_values = (timestamp, KeyInstanceFlag.USED, tx_hash)
+            "FROM TransactionOutputs TXO "
+            "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
+            "WHERE TXO.keyinstance_id=KI.keyinstance_id AND TX.flags&?=0 AND TXO.tx_hash=?")
+        sql_write_2_values = [timestamp, KeyInstanceFlag.USED, TxFlags.MASK_UNLINKED, tx_hash]
         cursor_2 = db.execute(sql_write_2, sql_write_2_values)
 
         return cursor_1.rowcount, cursor_2.rowcount

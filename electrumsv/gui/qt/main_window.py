@@ -120,6 +120,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     transaction_added_signal = pyqtSignal(object, object, object)
     transaction_deleted_signal = pyqtSignal(object, object)
     transaction_verified_signal = pyqtSignal(object, object, object, object, object)
+    payment_requests_paid_signal = pyqtSignal()
     show_secured_data_signal = pyqtSignal(object)
     wallet_setting_changed_signal = pyqtSignal(str, object)
 
@@ -226,6 +227,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._wallet.register_callback(self._on_transaction_added, ['transaction_added'])
         self._wallet.register_callback(self._on_transaction_deleted, ['transaction_deleted'])
         self._wallet.register_callback(self._on_transaction_verified, ['transaction_verified'])
+        self._wallet.register_callback(self._on_payment_requests_paid, ['payment_requests_paid'])
 
         self.load_wallet()
 
@@ -353,6 +355,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # to the balance column being dependent on order. Redirected to the `need_update` flow.
         # self.history_view.update_tx_item(tx_hash, block_height, block_position, confirmations,
         #     timestamp)
+
+    def _on_payment_requests_paid(self, event_name: str) -> None:
+        self.payment_requests_paid_signal.emit()
 
     def _on_account_created(self, event_name: str, new_account_id: int) -> None:
         account = self._wallet.get_account(new_account_id)

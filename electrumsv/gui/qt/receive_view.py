@@ -58,11 +58,13 @@ class ReceiveView(QWidget):
 
         app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
         self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
+        self._main_window.payment_requests_paid_signal.connect(self._on_payment_requests_paid)
 
     def clean_up(self) -> None:
         """
         Called by the main window when it is closed.
         """
+        self._main_window.payment_requests_paid_signal.disconnect(self._on_payment_requests_paid)
         self._main_window.new_fx_quotes_signal.disconnect(self._on_ui_exchange_rate_quotes)
         app_state.app.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
 
@@ -80,6 +82,9 @@ class ReceiveView(QWidget):
         edit = (self._fiat_receive_e
             if self._fiat_receive_e.is_last_edited else self._receive_amount_e)
         edit.textEdited.emit(edit.text())
+
+    def _on_payment_requests_paid(self) -> None:
+        self.update_widgets()
 
     def _create_form_layout(self) -> QVBoxLayout:
         # A 4-column grid layout.  All the stretch is in the last column.

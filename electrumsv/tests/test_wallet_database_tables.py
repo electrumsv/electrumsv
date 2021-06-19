@@ -776,14 +776,15 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert db_rows[0].flags == TransactionOutputFlag.IS_SPENT
 
 
-def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
+@pytest.mark.asyncio
+async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     rows = db_functions.read_payment_requests(db_context)
     assert len(rows) == 0
 
     TX_BYTES = os.urandom(10)
     TX_HASH = bitcoinx.double_sha256(TX_BYTES)
     TX_INDEX = 1
-    TXOUT_FLAGS = 1 << 15
+    TXOUT_FLAGS = TransactionOutputFlag.NONE
     KEYINSTANCE_ID = 1
     ACCOUNT_ID = 10
     MASTERKEY_ID = 20
@@ -876,6 +877,29 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     row = db_functions.read_payment_request(db_context, request_id=100101)
     assert row is None
 
+    ## Pay the payment request.
+    # Create the transaction and outputs.
+    tx_rows = [ TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlags.UNSET,
+        block_hash=b'11', block_height=1, block_position=None, fee_value=2, description=None,
+        version=None, locktime=None, date_created=1, date_updated=1) ]
+    future = db_functions.create_transactions(db_context, tx_rows)
+    future.result(timeout=5)
+
+    txo_row1 = TransactionOutputShortRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID+1, TXOUT_FLAGS,
+        ScriptType.P2PKH, b'')
+
+    future = db_functions.create_transaction_outputs(db_context, [ txo_row1 ])
+    future.result(timeout=5)
+
+    db = db_context.acquire_connection()
+    try:
+        requests_updated, keys_updated = db_functions._update_payment_request_states(db)
+    finally:
+        db_context.release_connection(db)
+    assert requests_updated == 1
+    assert keys_updated == 1
+
+    ## Continue.
     future = db_functions.update_payment_requests(db_context, [ PaymentRequestUpdateRow(
         PaymentFlag.UNKNOWN, 20, 999, "newdesc", line2.paymentrequest_id) ])
     future.result()
@@ -897,13 +921,13 @@ def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     db_lines = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)
     assert 2 == len(db_lines)
 
-    future = db_functions.delete_payment_request(db_context, line2.paymentrequest_id,
-        line2.keyinstance_id)
+    future = db_functions.delete_payment_request(db_context, line1.paymentrequest_id,
+        line1.keyinstance_id)
     future.result()
 
     db_lines = db_functions.read_payment_requests(db_context)
     assert 1 == len(db_lines)
-    assert db_lines[0].paymentrequest_id == line1.paymentrequest_id
+    assert db_lines[0].paymentrequest_id == line2.paymentrequest_id
 
 
 def test_table_walletevents_crud(db_context: DatabaseContext) -> None:

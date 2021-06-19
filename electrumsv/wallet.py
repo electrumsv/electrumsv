@@ -104,6 +104,7 @@ from .wallet_database.util import create_derivation_data2, TxProof
 
 if TYPE_CHECKING:
     from .network import Network
+    from electrumsv.async_ import ASync
     from electrumsv.gui.qt.main_window import ElectrumWindow
     from electrumsv.devices.hw_wallet.qt import QtPluginBase
 
@@ -2325,11 +2326,6 @@ class Wallet(TriggeredCallbacks):
         return db_functions.read_payment_requests(self.get_db_context(), account_id, flags,
             mask)
 
-    # TODO(no-merge) What called this? Nothing seems to now.
-    def update_payment_request_states(self, entries: Iterable[Tuple[Optional[PaymentFlag], int]]) \
-            -> concurrent.futures.Future:
-        return db_functions.update_payment_request_states(self.get_db_context(), entries)
-
     def update_payment_requests(self, entries: Iterable[PaymentRequestUpdateRow]) \
             -> concurrent.futures.Future:
         return db_functions.update_payment_requests(self.get_db_context(), entries)
@@ -3000,17 +2996,19 @@ class Wallet(TriggeredCallbacks):
         #   Amend it with signing metadata.
         #   Put it in the cache.
 
-    async def add_local_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags) -> None:
+    async def add_local_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags) \
+            -> concurrent.futures.Future:
         """
         This is currently only called when an account constructs and signs a transaction
         """
         link_state = TransactionLinkState()
         link_state.rollback_on_spend_conflict = True
-        await self._import_transaction(tx_hash, tx, flags, link_state, block_hash=None,
+        return await self._import_transaction(tx_hash, tx, flags, link_state, block_hash=None,
             block_height=BlockHeight.LOCAL, block_position=None, fee_hint=None)
 
     async def import_transaction_async(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
-            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) \
+                -> concurrent.futures.Future:
         """
         This is currently only called when a missing transaction arrives.
 
@@ -3032,14 +3030,15 @@ class Wallet(TriggeredCallbacks):
             import_flags |= missing_entry.import_flags
 
         link_state = TransactionLinkState()
-        await self._import_transaction(tx_hash, tx, flags, link_state, block_hash=block_hash,
+        return await self._import_transaction(tx_hash, tx, flags, link_state, block_hash=block_hash,
             block_height=block_height, fee_hint=fee_hint, import_flags=import_flags)
 
     async def _import_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
             link_state: TransactionLinkState, block_hash: Optional[bytes]=None,
             block_height: int=BlockHeight.LOCAL, block_position: Optional[int]=None,
             fee_hint: Optional[int]=None,
-            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) \
+                -> concurrent.futures.Future:
         """
         Add an external complete transaction to the database.
 
@@ -3107,7 +3106,12 @@ class Wallet(TriggeredCallbacks):
                 self._logger.debug("Removed missing transaction %s", hash_to_hex_str(tx_hash)[:8])
                 self.trigger_callback('missing_transaction_obtained', tx_hash, tx, link_state)
 
+        # This primarily routes a notification to the user interface, for it to update for this
+        # specific change.
         self.trigger_callback('transaction_added', tx_hash, tx, link_state, import_flags)
+
+        return cast("ASync", app_state.async_).spawn(self._check_payment_request_for_key_async,
+            tx_hash)
 
     async def link_transaction_async(self, tx_hash: bytes, link_state: TransactionLinkState) \
             -> None:
@@ -3121,6 +3125,21 @@ class Wallet(TriggeredCallbacks):
         await self.db_functions_async.link_transaction_async(tx_hash, link_state)
 
         self.trigger_callback('transaction_link_result', tx_hash, link_state)
+
+    async def _check_payment_request_for_key_async(self, tx_hash: bytes) -> Tuple[int, int]:
+        """
+        Apply paid status to any payment requests and keys satisfied by this transaction.
+
+        This will identify the payment requests that are `UNPAID` and whose value is satisfied
+        by the outputs in the given transaction that receive value into the payment requests
+        keys. It will mark those as `PAID` and it will remove the flag on the keys that
+        identifies them as used in a payment request.
+        """
+        requests_closed, keys_unflagged = await db_functions.update_payment_request_states_async(
+            self.get_db_context())
+        if requests_closed:
+            self.trigger_callback("payment_requests_paid")
+        return requests_closed, keys_unflagged
 
     # Called by network.
     async def add_transaction_proof(self, tx_hash: bytes, block_height: int, header: Header,

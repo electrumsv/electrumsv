@@ -402,7 +402,7 @@ class SVApplication(QApplication):
         self.timer.stop()
         # clipboard persistence
         # see http://www.mail-archive.com/pyqt@riverbankcomputing.com/msg17328.html
-        event = QtCore.QEvent(QtCore.QEvent.Clipboard)
+        event = QtCore.QEvent(QtCore.QEvent.Type.Clipboard)
         self.sendEvent(self.clipboard(), event)
         self.tray.hide()
 
