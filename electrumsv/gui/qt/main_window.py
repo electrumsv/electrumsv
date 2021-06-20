@@ -120,6 +120,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     transaction_added_signal = pyqtSignal(object, object, object)
     transaction_deleted_signal = pyqtSignal(object, object)
     transaction_verified_signal = pyqtSignal(object, object, object, object, object)
+    transaction_labels_updated_signal = pyqtSignal(object)
     payment_requests_paid_signal = pyqtSignal()
     show_secured_data_signal = pyqtSignal(object)
     wallet_setting_changed_signal = pyqtSignal(str, object)
@@ -190,6 +191,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.network_status_signal.connect(self._update_network_status)
         self.notify_transactions_signal.connect(self._notify_transactions)
         self.show_secured_data_signal.connect(self._on_show_secured_data)
+        self.transaction_labels_updated_signal.connect(self._on_transaction_labels_updated_signal)
         self.transaction_state_signal.connect(self._on_transaction_state_change_signal)
         self.history_view.setFocus()
 
@@ -228,6 +230,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._wallet.register_callback(self._on_transaction_added, ['transaction_added'])
         self._wallet.register_callback(self._on_transaction_deleted, ['transaction_deleted'])
         self._wallet.register_callback(self._on_transaction_verified, ['transaction_verified'])
+        self._wallet.register_callback(self._on_transaction_labels_updated,
+            ['transaction_labels_updated'])
         self._wallet.register_callback(self._on_payment_requests_paid, ['payment_requests_paid'])
 
         self.load_wallet()
@@ -2115,6 +2119,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_critical(_("The following entries could not be imported") +
                                ':\n'+ '\n'.join(bad))
         self.update_history_view()
+
+    def _on_transaction_labels_updated(self, event_name: str,
+            update_entries: List[Tuple[Optional[str], int, bytes]]) -> None:
+        self.transaction_labels_updated_signal.emit(update_entries)
+
+    def _on_transaction_labels_updated_signal(self,
+            update_entries: List[Tuple[Optional[str], int, bytes]]) -> None:
+        self.history_view.update_tx_labels()
 
     def _on_transaction_state_change_signal(self, account_id: int, tx_hash: bytes,
             new_state: TxFlags) -> None:

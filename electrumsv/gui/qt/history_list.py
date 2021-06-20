@@ -23,9 +23,10 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from collections import defaultdict
 import enum
 from functools import partial
-from typing import cast, Optional, Sequence, TYPE_CHECKING
+from typing import cast, Dict, List, Optional, Sequence, TYPE_CHECKING
 import weakref
 import webbrowser
 
@@ -45,6 +46,7 @@ from ...platform import platform
 from ...util import format_posix_timestamp, get_posix_timestamp, posix_timestamp_to_datetime, \
     profiler
 from ...wallet import AbstractAccount
+from ...wallet_database.types import AccountTransactionDescriptionRow
 from ...wallet_database.exceptions import TransactionRemovalError
 from ... import web
 
@@ -161,7 +163,6 @@ class HistoryList(MyTreeWidget):
         tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
         account = self._wallet.get_account(account_id)
         account.set_transaction_label(tx_hash, text)
-        self._main_window.history_view.update_tx_labels()
 
     def update_tx_headers(self) -> None:
         headers = ['', '', _('Date'), _('Description') , _('Amount'), _('Balance')]
@@ -215,8 +216,8 @@ class HistoryList(MyTreeWidget):
             status_str = get_tx_desc(status, timestamp)
             v_str = app_state.format_amount(row.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(entry.balance, whitespaces=True)
-            label = self._account.get_transaction_label(row.tx_hash)
-            line = [None, tx_id, status_str, label, v_str, balance_str]
+            line = [None, tx_id, status_str,
+                row.description if row.description is not None else "", v_str, balance_str]
             if fx and fx.show_history():
                 date = posix_timestamp_to_datetime(
                     get_posix_timestamp() if conf <= 0 else timestamp)
@@ -277,13 +278,30 @@ class HistoryList(MyTreeWidget):
     def update_tx_labels(self) -> None:
         root = self.invisibleRootItem()
         child_count = root.childCount()
+
+        tx_hashes_for_account_id: Dict[int, List[bytes]] = defaultdict(list)
+        for i in range(child_count):
+            item = root.child(i)
+            account_id = cast(int, item.data(Columns.STATUS, self.ACCOUNT_ROLE))
+            tx_hash = cast(bytes, item.data(Columns.STATUS, self.TX_ROLE))
+            tx_hashes_for_account_id[account_id].append(tx_hash)
+
+        descriptions_for_account_id: Dict[int, List[AccountTransactionDescriptionRow]] = {}
+        for account_id, tx_hashes in tx_hashes_for_account_id.items():
+            account = self._wallet.get_account(account_id)
+            assert account is not None
+            descriptions_for_account_id[account_id] = account.get_transaction_labels(tx_hashes)
+
         for i in range(child_count):
             item = root.child(i)
             account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
             tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
-            account = self._wallet.get_account(account_id)
-            label = account.get_transaction_label(tx_hash)
-            item.setText(Columns.DESCRIPTION, label)
+            label: Optional[str] = None
+            for label_row in descriptions_for_account_id.get(account_id, []):
+                if label_row.tx_hash == tx_hash:
+                    label = label_row.description
+                    break
+            item.setText(Columns.DESCRIPTION, label or "")
 
     # From the wallet 'verified' event.
     def update_tx_item(self, tx_hash: bytes, block_height: int, block_position: int,

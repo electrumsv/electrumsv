@@ -23,7 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import List, Optional, Set
+from typing import Dict, List, Optional, Set
 import weakref
 
 from PyQt5.QtCore import Qt
@@ -50,7 +50,7 @@ class UTXOList(MyTreeWidget):
 
     def __init__(self, parent: QWidget, main_window: ElectrumWindow) -> None:
         MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [
-            _('Output point'), _('Label'), _('Amount'), _('Height')], 1)
+            _('Output point'), _('Transaction label'), _('Amount'), _('Height')], 1)
 
         self._main_window = weakref.proxy(main_window)
         self._wallet = main_window._wallet
@@ -85,10 +85,18 @@ class UTXOList(MyTreeWidget):
         prev_selection = self.get_selected() # cache previous selection, if any
         self.clear()
 
-        for utxo in self._account.get_spendable_transaction_outputs_extended():
+        utxo_rows = self._account.get_spendable_transaction_outputs_extended()
+        tx_hashes = set(utxo_row.tx_hash for utxo_row in utxo_rows)
+        tx_labels: Dict[bytes, str] = {}
+        if len(tx_hashes):
+            for tx_label_row in self._account.get_transaction_labels(list(tx_hashes)):
+                if tx_label_row.description:
+                    tx_labels[tx_label_row.tx_hash] = tx_label_row.description
+
+        for utxo in utxo_rows:
             prevout_str = f"{hash_to_hex_str(utxo.tx_hash)}:{utxo.txo_index}"
             prevout_str = prevout_str[0:10] + '...' + prevout_str[-2:]
-            label = self._account.get_transaction_label(utxo.tx_hash)
+            label = tx_labels.get(utxo.tx_hash, "")
             amount = app_state.format_amount(utxo.value, whitespaces=True)
             utxo_item = SortableTreeWidgetItem(
                 [ prevout_str, label, amount, str(utxo.block_height) ])

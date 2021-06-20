@@ -64,10 +64,10 @@ class LabelImporter(QDialog):
     labels_updated = pyqtSignal(int, object, object)
 
     def __init__(self, main_window: 'ElectrumWindow', wallet: Wallet, account_id: int) -> None:
-        super().__init__(main_window, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+        super().__init__(main_window, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
-        self.setWindowModality(Qt.WindowModal)
+        self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setWindowTitle(_("Label Importer"))
         self.setMinimumWidth(600)
         self.setStyleSheet("""
@@ -142,24 +142,24 @@ class LabelImporter(QDialog):
 
         self.setLayout(vbox)
 
-    def run(self) -> int:
+    def run(self) -> Optional[int]:
         import_path = self._main_window.getOpenFileName(_("Open labels file"), "*.json")
         if not import_path:
-            return
+            return None
 
         try:
             with open(import_path, 'r') as f:
                 text = f.read()
         except (IOError, os.error) as reason:
             MessageBox.show_error(_("Unable to import the selected file.") +"\n"+ str(reason))
-            return
+            return None
 
         matched_format = identify_label_import_format(text)
         if matched_format == LabelImportFormat.UNKNOWN:
             MessageBox.show_error(_("Unable to import the selected file.") +"\n"+
                 _("The selected file is not recognized as any of the supported label export "
                 "formats."))
-            return
+            return None
 
         self._path = import_path
 
@@ -169,7 +169,7 @@ class LabelImporter(QDialog):
             on_done=self._threaded_import_complete)
 
         result = self.exec()
-        if result == QDialog.Accepted:
+        if result == QDialog.DialogCode.Accepted:
             self._on_import_button_clicked()
         return result
 
@@ -200,6 +200,7 @@ class LabelImporter(QDialog):
         The worker logic that does the import processing.
         """
         account = self._wallet.get_account(self._account_id)
+        assert account is not None
 
         if matched_format == LabelImportFormat.ACCOUNT:
             result = LabelImport.parse_label_export_json(account, text)
@@ -208,8 +209,8 @@ class LabelImporter(QDialog):
         else:
             return
 
-        account_tx_hashes = { r.tx_hash for r
-            in self.read_account_transaction_descriptions(self._account_id) }
+        account_tx_hashes = { r.tx_hash
+            for r in self._wallet.read_transaction_descriptions(self._account_id) }
 
         for tx_hash, tx_description in result.transaction_labels.items():
             if tx_hash not in account_tx_hashes:

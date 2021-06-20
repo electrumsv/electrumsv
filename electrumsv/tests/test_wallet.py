@@ -290,7 +290,7 @@ class TestLegacyWalletCreation:
 
         raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
         account_row = wallet.add_accounts([ raw_account_row ])[0]
-        account = StandardAccount(wallet, account_row, [])
+        account = StandardAccount(wallet, account_row)
         wallet.register_account(account.get_id(), account)
 
         check_legacy_parent_of_standard_wallet(wallet, password=password)
@@ -311,7 +311,7 @@ class TestLegacyWalletCreation:
         masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
         account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
         account_row = wallet.add_accounts([ account_row ])[0]
-        account = StandardAccount(wallet, account_row, [])
+        account = StandardAccount(wallet, account_row)
         wallet.register_account(account.get_id(), account)
 
         parent_keystores = wallet.get_keystores()
@@ -389,7 +389,7 @@ class TestLegacyWalletCreation:
 
         account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_BARE, 'text')
         account_row = wallet.add_accounts([ account_row ])[0]
-        account = MultisigAccount(wallet, account_row, [])
+        account = MultisigAccount(wallet, account_row)
         wallet.register_account(account.get_id(), account)
 
         check_legacy_parent_of_multisig_wallet(wallet, password, seed_words)
@@ -571,7 +571,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
     account_row = wallet.add_accounts([ raw_account_row ])[0]
-    account = StandardAccount(wallet, account_row, [])
+    account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
 
     # Ensure that the keys used by the transaction are present to be linked to.

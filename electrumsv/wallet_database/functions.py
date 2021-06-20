@@ -328,21 +328,6 @@ def read_account_balance_raw(db: sqlite3.Connection, account_id: int, flags: Opt
     return TransactionDeltaSumRow(*row)
 
 
-@replace_db_context_with_connection
-def read_account_transaction_descriptions(db: sqlite3.Connection, account_id: Optional[int]=None) \
-        -> List[AccountTransactionDescriptionRow]:
-    sql = (
-        "SELECT account_id, tx_hash, description "
-        "FROM AccountTransactions "
-        "WHERE description IS NOT NULL")
-    sql_values: List[Any] = []
-    if account_id is not None:
-        sql += " AND account_id=?"
-        sql_values = [ account_id ]
-    return [ AccountTransactionDescriptionRow(*row)
-        for row in db.execute(sql, sql_values).fetchall() ]
-
-
 # @replace_db_context_with_connection
 # def read_account_transaction_outputs(db: sqlite3.Connection, account_id: int,
 #         flags: TransactionOutputFlag, mask: TransactionOutputFlag,
@@ -493,22 +478,24 @@ def read_history_list(db: sqlite3.Connection, account_id: int,
     if keyinstance_ids:
         # Used for the address dialog.
         sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_height, TX.block_position, "
-                "TOTAL(TXV.value), TX.date_created "
+                "ATX.description, TOTAL(TXV.value), TX.date_created "
             "FROM TransactionValues TXV "
             "INNER JOIN Transactions AS TX ON TX.tx_hash=TXV.tx_hash "
-            "WHERE TXV.account_id=? AND TXV.keyinstance_id IN ({}) AND "
-                f"(TX.flags & {TxFlags.MASK_STATE})!=0 "
+            "INNER JOIN AccountTransactions AS ATX ON ATX.tx_hash=TXV.tx_hash "
+            "WHERE TXV.account_id=? AND TXV.keyinstance_id IN ({}) AND (TX.flags&?)!=0 "
             "GROUP BY TXV.tx_hash")
-        return read_rows_by_id(HistoryListRow, db, sql, [ account_id ], keyinstance_ids)
+        return read_rows_by_id(HistoryListRow, db, sql, [ account_id, TxFlags.MASK_STATE ],
+            keyinstance_ids)
 
     # Used for the history list and export.
-    sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_height, TX.block_position, "
-            "TOTAL(TXV.value), TX.date_created "
+    sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_height, TX.block_position,"
+            "ATX.description, TOTAL(TXV.value), TX.date_created "
         "FROM TransactionValues TXV "
         "INNER JOIN Transactions AS TX ON TX.tx_hash=TXV.tx_hash "
-        f"WHERE TXV.account_id=? AND (TX.flags & {TxFlags.MASK_STATE})!=0 "
+        "INNER JOIN AccountTransactions AS ATX ON ATX.tx_hash=TXV.tx_hash "
+        "WHERE TXV.account_id=? AND (TX.flags&?)!=0 "
         "GROUP BY TXV.tx_hash")
-    cursor = db.execute(sql, (account_id,))
+    cursor = db.execute(sql, (account_id, TxFlags.MASK_STATE))
     rows = cursor.fetchall()
     cursor.close()
     return [ HistoryListRow(*t) for t in rows ]
@@ -918,26 +905,23 @@ def read_transaction_block_info(db: sqlite3.Connection, tx_hash: bytes) -> Tuple
     return row
 
 
-# TODO(no-merge) descriptions have moved to AccountTransactions
-# @replace_db_context_with_connection
-# def read_transaction_descriptions(db: sqlite3.Connection,
-#         tx_hashes: Optional[Sequence[bytes]]=None) -> List[TransactionDescriptionResult]:
-#     # Shared wallet data between all accounts.
-#     def read_descriptions(self,
-#             ) -> :
-#         query = self.READ_DESCRIPTION_SQL
-#         return self._get_many_common(query, None, None, tx_hashes)
-#     sql = (
-#         "SELECT tx_hash, T.description "
-#         "FROM Transactions T "
-#         "WHERE T.description IS NOT NULL")
-#     sql = "SELECT block_height, block_position FROM Transactions WHERE tx_hash=?"
-#     cursor = db.execute(sql, (tx_hash,))
-#     row = cursor.fetchone()
-#     cursor.close()
-#     if row is None:
-#         return None, None
-#     return row
+@replace_db_context_with_connection
+def read_transaction_descriptions(db: sqlite3.Connection, account_id: Optional[int]=None,
+        tx_hashes: Optional[Sequence[bytes]]=None) -> List[AccountTransactionDescriptionRow]:
+    sql = (
+        "SELECT account_id, tx_hash, description "
+        "FROM AccountTransactions "
+        "WHERE description IS NOT NULL")
+    sql_values: List[Any] = []
+    if account_id is not None:
+        sql += " AND account_id=?"
+        sql_values = [ account_id ]
+    if tx_hashes:
+        sql += " AND tx_hash IN ({})"
+        return read_rows_by_id(AccountTransactionDescriptionRow, db, sql, sql_values, tx_hashes)
+    return [ AccountTransactionDescriptionRow(*row)
+        for row in db.execute(sql, sql_values).fetchall() ]
+
 
 @replace_db_context_with_connection
 def read_transactions_exist(db: sqlite3.Connection, tx_hashes: Sequence[bytes],

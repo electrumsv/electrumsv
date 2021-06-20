@@ -662,7 +662,7 @@ class MyTreeWidget(QTreeWidget):
         self.setAlternatingRowColors(True)
         self.setUniformRowHeights(True)
 
-        self._main_window = weakref.proxy(main_window)
+        self._main_window = cast("ElectrumWindow", weakref.proxy(main_window))
         self.config = self._main_window.config
         self.stretch_column = stretch_column
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -760,7 +760,6 @@ class MyTreeWidget(QTreeWidget):
         account_id, tx_hash = item.data(0, Qt.ItemDataRole.UserRole)
         account = self._main_window._wallet.get_account(account_id)
         account.set_transaction_label(tx_hash, text)
-        self._main_window.history_view.update_tx_labels()
 
     def update(self) -> None:
         # Defer updates if editing

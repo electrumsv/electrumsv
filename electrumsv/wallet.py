@@ -157,8 +157,7 @@ class AbstractAccount:
 
     max_change_outputs = 10
 
-    def __init__(self, wallet: 'Wallet', row: AccountRow,
-            transaction_descriptions: List[AccountTransactionDescriptionRow]) -> None:
+    def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
         # Prevent circular reference keeping parent and accounts alive.
         self._wallet: 'Wallet' = cast('Wallet', weakref.proxy(wallet))
         self._row = row
@@ -175,9 +174,6 @@ class AbstractAccount:
         self.request_count = 0
         self.response_count = 0
         self.last_poll_time: Optional[float] = None
-
-        self._transaction_descriptions: Dict[bytes, str] = { r.tx_hash: cast(str, r.description)
-            for r in transaction_descriptions }
 
         # locks: if you need to take several, acquire them in the order they are defined here!
         self.lock = threading.RLock()
@@ -398,27 +394,40 @@ class AbstractAccount:
             return tx
         return None
 
-    def set_transaction_label(self, tx_hash: bytes, text: Optional[str]) -> None:
-        self.set_transaction_labels([ (tx_hash, text) ])
+    def set_transaction_label(self, tx_hash: bytes, text: Optional[str]) \
+            -> concurrent.futures.Future:
+        return self.set_transaction_labels([ (tx_hash, text) ])
 
-    def set_transaction_labels(self, entries: List[Tuple[bytes, Optional[str]]]) -> None:
-        update_entries = []
-        for tx_hash, value in entries:
-            text = None if value is None or value.strip() == "" else value.strip()
-            label = self._transaction_descriptions.get(tx_hash)
-            if label != text:
-                if label is not None and value is None:
-                    del self._transaction_descriptions[tx_hash]
-                update_entries.append((text, self._id, tx_hash))
+    def set_transaction_labels(self, entries: Iterable[Tuple[bytes, Optional[str]]]) \
+            -> concurrent.futures.Future:
+        def callback(future: concurrent.futures.Future) -> None:
+            # Skip if the operation was cancelled.
+            if future.cancelled():
+                return
+            # Raise any exception if it errored or get the result if completed successfully.
+            future.result()
 
-        future_ = self._wallet.update_account_transaction_descriptions(update_entries)
+            self._wallet.trigger_callback('transaction_labels_updated', update_entries)
 
-        for text, _account_id, tx_hash in update_entries:
-            app_state.app.on_transaction_label_change(self, tx_hash, text)
+            for tx_hash, text in entries:
+                app_state.app.on_transaction_label_change(self, tx_hash, text)
+
+        update_entries: List[Tuple[Optional[str], int, bytes]] = []
+        for tx_hash, description in entries:
+            update_entries.append((description, self._id, tx_hash))
+        future = self._wallet.update_account_transaction_descriptions(update_entries)
+        future.add_done_callback(callback)
+        return future
 
     def get_transaction_label(self, tx_hash: bytes) -> str:
-        label = self._transaction_descriptions.get(tx_hash)
-        return "" if label is None else label
+        rows = self._wallet.read_transaction_descriptions(self._id, tx_hashes=[ tx_hash ])
+        if len(rows) and rows[0].description:
+            return rows[0].description
+        return ""
+
+    def get_transaction_labels(self, tx_hashes: Sequence[bytes]) \
+            -> List[AccountTransactionDescriptionRow]:
+        return self._wallet.read_transaction_descriptions(self._id, tx_hashes=tx_hashes)
 
     def __str__(self) -> str:
         return self.name()
@@ -470,7 +479,7 @@ class AbstractAccount:
             (unpack_derivation_path(key.derivation_data2),  key.description) # type: ignore
             for key in self.get_keyinstances() if key.description is not None
         ]
-        rows = self._wallet.read_account_transaction_descriptions(self._id)
+        rows = self._wallet.read_transaction_descriptions(self._id)
         transaction_entries = [
             (hash_to_hex_str(tx_hash), description) for account_id, tx_hash, description in rows
         ]
@@ -685,7 +694,7 @@ class AbstractAccount:
                 'value': format_satoshis(history_line.value_delta,
                             is_diff=True) if history_line.value_delta is not None else '--',
                 'balance': format_satoshis(balance),
-                'label': self.get_transaction_label(history_line.tx_hash)
+                'label': history_line.description or "",
             }
             if fx:
                 date = timestamp
@@ -1397,10 +1406,9 @@ class ImportedAddressAccount(ImportedAccountBase):
 
 
 class ImportedPrivkeyAccount(ImportedAccountBase):
-    def __init__(self, wallet: 'Wallet', row: AccountRow,
-            description_rows: List[AccountTransactionDescriptionRow]) -> None:
+    def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
         self._default_keystore = Imported_KeyStore()
-        AbstractAccount.__init__(self, wallet, row, description_rows)
+        AbstractAccount.__init__(self, wallet, row)
 
     def type(self) -> AccountType:
         return AccountType.IMPORTED_PRIVATE_KEY
@@ -1467,9 +1475,8 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
 
 
 class DeterministicAccount(AbstractAccount):
-    def __init__(self, wallet: 'Wallet', row: AccountRow,
-            description_rows: List[AccountTransactionDescriptionRow]) -> None:
-        AbstractAccount.__init__(self, wallet, row, description_rows)
+    def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
+        AbstractAccount.__init__(self, wallet, row)
 
     def has_seed(self) -> bool:
         return cast(Deterministic_KeyStore, self.get_keystore()).has_seed()
@@ -1579,9 +1586,8 @@ class DeterministicAccount(AbstractAccount):
 class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
     """ Deterministic Wallet with a single pubkey per address """
 
-    def __init__(self, wallet: 'Wallet', row: AccountRow,
-            description_rows: List[AccountTransactionDescriptionRow]) -> None:
-        DeterministicAccount.__init__(self, wallet, row, description_rows)
+    def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
+        DeterministicAccount.__init__(self, wallet, row)
 
     def get_master_public_key(self) -> str:
         keystore = cast(StandardKeystoreTypes, self.get_keystore())
@@ -1626,14 +1632,13 @@ class StandardAccount(SimpleDeterministicAccount):
 
 
 class MultisigAccount(DeterministicAccount):
-    def __init__(self, wallet: 'Wallet', row: AccountRow,
-            description_rows: List[AccountTransactionDescriptionRow]) -> None:
+    def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
         self._multisig_keystore = cast(Multisig_KeyStore,
             wallet.get_keystore(cast(int, row.default_masterkey_id)))
         self.m = self._multisig_keystore.m
         self.n = self._multisig_keystore.n
 
-        DeterministicAccount.__init__(self, wallet, row, description_rows)
+        DeterministicAccount.__init__(self, wallet, row)
 
     def type(self) -> AccountType:
         return AccountType.MULTISIG
@@ -1827,11 +1832,6 @@ class Wallet(TriggeredCallbacks):
         self._keystores.clear()
         self._accounts.clear()
 
-        all_account_tx_descriptions: Dict[int, List[AccountTransactionDescriptionRow]] = {}
-        for atd_row in self.read_account_transaction_descriptions():
-            atd_rows = all_account_tx_descriptions.setdefault(atd_row.account_id, [])
-            atd_rows.append(atd_row)
-
         masterkey_rows = db_functions.read_masterkeys(self.get_db_context())
         # Create the keystores for masterkeys without parent masterkeys first.
         for mk_row in sorted(masterkey_rows,
@@ -1854,9 +1854,7 @@ class Wallet(TriggeredCallbacks):
                     AccountInstantiationFlags.IMPORTED_ADDRESSES
 
         for account_row in db_functions.read_accounts(self.get_db_context()):
-            account_descriptions = all_account_tx_descriptions.get(account_row.account_id, [])
-            account = self._instantiate_account(account_row, account_descriptions,
-                account_flags[account_row.account_id])
+            account = self._instantiate_account(account_row, account_flags[account_row.account_id])
             if account.type() == AccountType.IMPORTED_PRIVATE_KEY:
                 keyinstance_rows = keyinstances_by_account_id[account_row.account_id]
                 assert keyinstance_rows
@@ -1986,32 +1984,31 @@ class Wallet(TriggeredCallbacks):
         self._keystores[row.masterkey_id] = keystore
         self._masterkey_rows[row.masterkey_id] = row
 
-    def _instantiate_account(self, account_row: AccountRow,
-            transaction_descriptions: List[AccountTransactionDescriptionRow],
-            flags: AccountInstantiationFlags) -> AbstractAccount:
+    def _instantiate_account(self, account_row: AccountRow, flags: AccountInstantiationFlags) \
+            -> AbstractAccount:
         """
         Create the correct account type instance and register it for the given account id.
         """
         account: Optional[AbstractAccount] = None
         if account_row.default_masterkey_id is None:
             if flags & AccountInstantiationFlags.IMPORTED_ADDRESSES:
-                account = ImportedAddressAccount(self, account_row, transaction_descriptions)
+                account = ImportedAddressAccount(self, account_row)
             elif flags & AccountInstantiationFlags.IMPORTED_PRIVATE_KEYS:
-                account = ImportedPrivkeyAccount(self, account_row, transaction_descriptions)
+                account = ImportedPrivkeyAccount(self, account_row)
             else:
                 raise WalletLoadError(_("unknown imported account type"))
         else:
             masterkey_row = self._masterkey_rows[account_row.default_masterkey_id]
             if masterkey_row.derivation_type == DerivationType.BIP32:
-                account = StandardAccount(self, account_row, transaction_descriptions)
+                account = StandardAccount(self, account_row)
             elif masterkey_row.derivation_type == DerivationType.BIP32_SUBPATH:
-                account = StandardAccount(self, account_row, transaction_descriptions)
+                account = StandardAccount(self, account_row)
             elif masterkey_row.derivation_type == DerivationType.ELECTRUM_OLD:
-                account = StandardAccount(self, account_row, transaction_descriptions)
+                account = StandardAccount(self, account_row)
             elif masterkey_row.derivation_type == DerivationType.ELECTRUM_MULTISIG:
-                account = MultisigAccount(self, account_row, transaction_descriptions)
+                account = MultisigAccount(self, account_row)
             elif masterkey_row.derivation_type == DerivationType.HARDWARE:
-                account = StandardAccount(self, account_row, transaction_descriptions)
+                account = StandardAccount(self, account_row)
             else:
                 raise WalletLoadError(_("unknown account type %d"), masterkey_row.derivation_type)
         assert account is not None
@@ -2019,9 +2016,8 @@ class Wallet(TriggeredCallbacks):
         return account
 
     def _create_account_from_data(self, account_row: AccountRow,
-            transaction_descriptions: List[AccountTransactionDescriptionRow],
             flags: AccountInstantiationFlags) -> AbstractAccount:
-        account = self._instantiate_account(account_row, transaction_descriptions, flags)
+        account = self._instantiate_account(account_row, flags)
         self.trigger_callback("on_account_created", account_row.account_id)
 
         self.create_wallet_events([
@@ -2075,7 +2071,7 @@ class Wallet(TriggeredCallbacks):
 
         basic_row = AccountRow(-1, masterkey_row.masterkey_id, script_type, account_name)
         rows = self.add_accounts([ basic_row ])
-        return self._create_account_from_data(rows[0], [], AccountInstantiationFlags.NONE)
+        return self._create_account_from_data(rows[0], AccountInstantiationFlags.NONE)
 
     def create_account_from_text_entries(self, text_type: KeystoreTextType,
             script_type: ScriptType, entries: Set[str], password: str) -> AbstractAccount:
@@ -2116,7 +2112,7 @@ class Wallet(TriggeredCallbacks):
         _keyinstance_future, keyinstance_rows = self.create_keyinstances(account_row.account_id,
             raw_keyinstance_rows)
 
-        account = self._create_account_from_data(account_row, [], account_flags)
+        account = self._create_account_from_data(account_row, account_flags)
         if account.type() == AccountType.IMPORTED_PRIVATE_KEY:
             cast(ImportedPrivkeyAccount, account).set_initial_state(keyinstance_rows)
         return account
@@ -2140,9 +2136,10 @@ class Wallet(TriggeredCallbacks):
 
     # Account transactions.
 
-    def read_account_transaction_descriptions(self, account_id: Optional[int]=None) \
-            -> List[AccountTransactionDescriptionRow]:
-        return db_functions.read_account_transaction_descriptions(self.get_db_context(), account_id)
+    def read_transaction_descriptions(self, account_id: Optional[int]=None,
+            tx_hashes: Optional[Sequence[bytes]]=None) -> List[AccountTransactionDescriptionRow]:
+        return db_functions.read_transaction_descriptions(self.get_db_context(),
+            account_id, tx_hashes)
 
     def update_account_transaction_descriptions(self,
             entries: Iterable[Tuple[Optional[str], int, bytes]]) -> concurrent.futures.Future:

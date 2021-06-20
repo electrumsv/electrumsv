@@ -31,6 +31,7 @@ class HistoryListRow(NamedTuple):
     tx_flags: TxFlags
     block_height: Optional[int]
     block_position: Optional[int]
+    description: Optional[str]
     value_delta: int
     date_created: int
 
