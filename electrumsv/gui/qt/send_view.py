@@ -548,8 +548,11 @@ class SendView(QWidget):
 
         self._main_window.sign_tx_with_password(tx, sign_done, password, tx_context=tx.context)
 
+    def is_invoice_payment(self) -> bool:
+        return self._payment_request is not None
+
     def get_transaction_for_invoice(self) -> Optional[Transaction]:
-        invoice_row = self._send_view._account._wallet.read_invoice(
+        invoice_row = self._account._wallet.read_invoice(
             invoice_id=self._payment_request.get_id())
         if invoice_row.tx_hash is not None:
             return self._main_window._wallet.get_transaction(invoice_row.tx_hash)
@@ -568,7 +571,7 @@ class SendView(QWidget):
             # transaction that is not related to the active invoice and it's repercussions, has
             # been confirmed by the appropriate calling logic. Like `confirm_broadcast_transaction`
             # in the main window logic.
-            invoice_row =self._account._wallet.read_invoice(invoice_id=invoice_id)
+            invoice_row = self._account._wallet.read_invoice(invoice_id=invoice_id)
             if tx_hash != invoice_row.tx_hash:
                 # Calling logic should have detected this and warned/confirmed with the user.
                 return True

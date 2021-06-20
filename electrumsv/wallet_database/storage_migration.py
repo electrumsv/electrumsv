@@ -6,13 +6,12 @@ import concurrent.futures
 from enum import IntFlag as _IntFlag
 import json
 try:
-    # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
+    # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
     import pysqlite3 as sqlite3 # type: ignore
 except ModuleNotFoundError:
-    # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
-    # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
+    # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
+    # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore
-import time
 from typing import Any, cast, Iterable, List, NamedTuple, Optional, Sequence, Tuple, TypedDict, \
     Union
 
@@ -22,10 +21,10 @@ from ..constants import DerivationPath, DerivationType, KeyInstanceFlag, Payment
 from ..types import MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
     MasterKeyDataHardware, MasterKeyDataMultiSignature, MultiSignatureMasterKeyDataTypes, \
     MasterKeyDataTypes
+from ..util import get_posix_timestamp
 
 from .sqlite_support import DatabaseContext, replace_db_context_with_connection
 from .types import MasterKeyRow
-from .util import get_timestamp
 
 
 # https://bugs.python.org/issue41907
@@ -239,7 +238,7 @@ ADDRESS_TYPES1 = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
 
 def create_accounts1(db_context: DatabaseContext, entries: Iterable[AccountRow1]) \
         -> concurrent.futures.Future:
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
         "account_name, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?)")
@@ -251,7 +250,7 @@ def create_accounts1(db_context: DatabaseContext, entries: Iterable[AccountRow1]
 
 def create_keys1(db_context: DatabaseContext, entries: Iterable[KeyInstanceRow1]) \
         -> concurrent.futures.Future:
-    timestamp = int(time.time())
+    timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries]
     query = ("INSERT INTO KeyInstances (keyinstance_id, account_id, masterkey_id, "
         "derivation_type, derivation_data, script_type, flags, description, date_created, "
@@ -264,7 +263,7 @@ def create_keys1(db_context: DatabaseContext, entries: Iterable[KeyInstanceRow1]
 
 def create_master_keys1(db_context: DatabaseContext, entries: Iterable[MasterKeyRow1]) \
         -> concurrent.futures.Future:
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
         "derivation_data, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?)")
@@ -289,7 +288,7 @@ def create_payment_requests1(db_context: DatabaseContext, entries: Iterable[Paym
 
 def create_transaction_outputs1(db_context: DatabaseContext,
         entries: Iterable[TransactionOutputRow1]) -> concurrent.futures.Future:
-    timestamp = int(time.time())
+    timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, keyinstance_id, "
         "flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
@@ -332,7 +331,7 @@ def create_wallet_datas1(db_context: DatabaseContext, entries: Iterable[WalletDa
         -> concurrent.futures.Future:
     sql = ("INSERT INTO WalletData (key, value, date_created, date_updated) "
         "VALUES (?, ?, ?, ?)")
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = []
     for entry in entries:
         assert type(entry.key) is str, f"bad key '{entry.key}'"
@@ -356,7 +355,7 @@ def read_wallet_data1(db: sqlite3.Connection, key: str) -> Any:
 def update_wallet_datas1(db_context: DatabaseContext, entries: Iterable[WalletDataRow1]) \
         -> concurrent.futures.Future:
     sql = "UPDATE WalletData SET value=?, date_updated=? WHERE key=?"
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = []
     for entry in entries:
         rows.append((json.dumps(entry.value), timestamp, entry.key))

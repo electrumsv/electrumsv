@@ -427,6 +427,6 @@ class FxTask:
             return Decimal(satoshis) / COIN * Decimal(rate)
 
     def timestamp_rate(self, timestamp):
-        from .util import timestamp_to_datetime
-        date = timestamp_to_datetime(timestamp)
+        from .util import posix_timestamp_to_datetime
+        date = posix_timestamp_to_datetime(timestamp)
         return self.history_rate(date)

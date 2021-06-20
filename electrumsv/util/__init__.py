@@ -24,7 +24,7 @@
 
 from collections import defaultdict
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 import hmac
 import os
@@ -256,16 +256,26 @@ def format_satoshis(x: Optional[int], num_zeros=0, decimal_point=8, precision=No
 def format_fee_satoshis(fee, num_zeros=0):
     return format_satoshis(fee, num_zeros, 0, precision=num_zeros)
 
-def timestamp_to_datetime(timestamp):
+
+def get_posix_timestamp() -> int:
+    # In theory we can just return `int(time.time())` but this returns the posix timestamp and
+    # try reading the documentation for `time.time` and being sure of that.
+    return int(datetime.now().timestamp())
+
+
+def posix_timestamp_to_datetime(timestamp: int) -> Optional[datetime]:
+    "Get a local timezone unaware datetime object for the given posix timestamp."
     try:
         return datetime.fromtimestamp(timestamp)
     except Exception:
         return None
 
-def format_time(timestamp, default_text: str) -> str:
-    date = timestamp_to_datetime(timestamp)
+
+def format_posix_timestamp(timestamp: int, default_text: str) -> str:
+    "Get the date and time for the given posix timestamp."
+    date = posix_timestamp_to_datetime(timestamp)
     if date:
-        return date.isoformat(' ')[:-3]
+        return date.isoformat(' ')[:16]
     return default_text
 
 

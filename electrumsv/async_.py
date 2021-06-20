@@ -113,7 +113,7 @@ class ASync(object):
         future = self._spawn(coro, args)
         return future.result(timeout)
 
-    def run_pending_callbacks(self):
+    def run_pending_callbacks(self) -> None:
         while not self._queue.empty():
             on_done, future = self._queue.get()
             try:

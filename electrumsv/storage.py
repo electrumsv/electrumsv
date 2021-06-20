@@ -35,7 +35,6 @@ import re
 import shutil
 import stat
 import threading
-import time
 from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Set, Sequence, Tuple,
     Type, TypeVar)
 import zlib
@@ -54,6 +53,7 @@ from .keystore import bip44_derivation
 from .logs import logs
 from .networks import Net
 from .transaction import Transaction, classify_tx_output, parse_script_sig
+from .util import get_posix_timestamp
 from .util.misc import ProgressCallbacks
 from .wallet_database import migration
 from .wallet_database import functions as db_functions
@@ -872,7 +872,7 @@ class TextStore(AbstractStore):
             address_states: Dict[str, _AddressState] = {}
             tx_states: Dict[str, _TxState] = {}
 
-            date_added = int(time.time())
+            date_added = get_posix_timestamp()
             for tx_id, tx_hex in tx_map_in.items():
                 tx_hash = hex_str_to_hash(tx_id)
                 tx_bytedata = bytes.fromhex(tx_hex)
@@ -982,7 +982,7 @@ class TextStore(AbstractStore):
                             ScriptType.NONE, flags, description))
                         next_keyinstance_id += 1
 
-            def process_transactions(*script_classes: Tuple[Any]) -> None:
+            def process_transactions(*script_classes: Any) -> None:
                 nonlocal _receiving_address_strings, _change_address_strings
                 nonlocal keyinstance_rows, txoutput_rows
                 nonlocal address_states, tx_states
@@ -1155,7 +1155,8 @@ class TextStore(AbstractStore):
                     address_state.keyinstance_id,
                     request_data.get('status', 2), # PaymentFlag.UNKNOWN = 2
                     request_data.get('amount', None), request_data.get('exp', None),
-                    request_data.get('memo', None), request_data.get('time', time.time())))
+                    request_data.get('memo', None),
+                        request_data.get('time', get_posix_timestamp())))
                 next_paymentrequest_id += 1
 
             # Reconcile what addresses we found for transactions with the addresses that were in

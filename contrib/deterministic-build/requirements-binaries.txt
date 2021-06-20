@@ -191,7 +191,7 @@ pyqt5==5.15.4 \
     --hash=sha256:8c0848ba790a895801d5bfd171da31cad3e551dbcc4e59677a3b622de2ceca98 \
     --hash=sha256:a88526a271e846e44779bb9ad7a738c6d3c4a9d01e15a128ecfc6dd4696393b7
     # via -r C:\Data\Git\electrumsv\contrib\requirements\requirements-binaries.txt
-websocket-client==1.0.1 \
-    --hash=sha256:3e2bf58191d4619b161389a95bdce84ce9e0b24eb8107e7e590db682c2d0ca81 \
-    --hash=sha256:abf306dc6351dcef07f4d40453037e51cc5d9da2ef60d0fc5d0fe3bcda255372
+websocket-client==1.1.0 \
+    --hash=sha256:b68e4959d704768fa20e35c9d508c8dc2bbc041fd8d267c0d7345cffe2824568 \
+    --hash=sha256:e5c333bfa9fa739538b652b6f8c8fc2559f1d364243c8a689d7c0e1d41c2e611
     # via -r C:\Data\Git\electrumsv\contrib\requirements\requirements-binaries.txt

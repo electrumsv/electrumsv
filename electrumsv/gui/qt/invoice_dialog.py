@@ -12,7 +12,7 @@ from electrumsv.i18n import _
 from electrumsv.networks import Net
 from electrumsv.paymentrequest import has_expired, PaymentRequest
 from electrumsv.transaction import script_to_display_text
-from electrumsv.util import format_time
+from electrumsv.util import format_posix_timestamp
 from electrumsv.wallet_database.types import InvoiceRow
 
 from .constants import pr_tooltips
@@ -48,15 +48,15 @@ class InvoiceDialog(WindowModalDialog):
         form.add_row(_('Type'), QLabel(_("BIP270")))
         form.add_row(_("State"), QLabel(pr_tooltips.get(state, _("Unknown"))))
         form.add_row(_('Amount'),
-            QLabel(app_state.format_amount(output.amount) +" "+ app_state.base_unit()))
+            QLabel(app_state.format_amount(total_amount) +" "+ app_state.base_unit()))
         form.add_row(_('Memo'), QLabel(row.description))
         form.add_row(_('Date Created'),
-            QLabel(format_time(pr.creation_timestamp, _("Unknown"))))
+            QLabel(format_posix_timestamp(pr.creation_timestamp, _("Unknown"))))
         form.add_row(_('Date Received'),
-            QLabel(format_time(row.date_created, _("Unknown"))))
+            QLabel(format_posix_timestamp(row.date_created, _("Unknown"))))
         if row.date_expires:
             form.add_row(_('Date Expires'),
-                QLabel(format_time(row.date_expires, _("Unknown"))))
+                QLabel(format_posix_timestamp(row.date_expires, _("Unknown"))))
         vbox.addWidget(form)
 
         self._table = table = ButtonsTableWidget()
@@ -68,7 +68,7 @@ class InvoiceDialog(WindowModalDialog):
         vh.hide()
 
         table.setColumnCount(3)
-        table.setContextMenuPolicy(Qt.CustomContextMenu)
+        table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         table.customContextMenuRequested.connect(self._on_table_menu)
         table.setHorizontalHeaderLabels(self._table_column_names)
         table.setRowCount(len(pr.outputs))
@@ -79,15 +79,15 @@ class InvoiceDialog(WindowModalDialog):
         hh = table.horizontalHeader()
         hh.setStretchLastSection(True)
 
-        for row, output in enumerate(pr.outputs):
+        for output_idx, output in enumerate(pr.outputs):
             label = QLabel(app_state.format_amount(output.amount) +" "+ app_state.base_unit())
-            table.setCellWidget(row, 0, label)
+            table.setCellWidget(output_idx, 0, label)
 
-            table.setCellWidget(row, 1, QLabel(output.description))
+            table.setCellWidget(output_idx, 1, QLabel(output.description))
 
             kind = classify_output_script(output.script, Net.COIN)
             text = script_to_display_text(output.script, kind)
-            table.setCellWidget(row, 2, QLabel(text))
+            table.setCellWidget(output_idx, 2, QLabel(text))
 
             vbox.addWidget(table, 1)
 
@@ -95,7 +95,7 @@ class InvoiceDialog(WindowModalDialog):
             fn = self._main_window.getSaveFileName(_("Export invoice to file"), "*.bip270.json")
             if not fn:
                 return
-            with open(fn, 'w') as f:
+            with open(fn, 'wb') as f:
                 data = f.write(row.invoice_data)
             self._main_window.show_message(_('Invoice saved as' + ' ' + fn))
         exportButton = EnterButton(_('Export'), do_export)

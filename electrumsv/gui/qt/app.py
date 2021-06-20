@@ -54,7 +54,9 @@ from .log_window import SVLogWindow, SVLogHandler
 from .util import ColorScheme, get_default_language, MessageBox, read_QIcon
 from .wallet_wizard import WalletWizard
 
+
 if TYPE_CHECKING:
+    from ...async_ import ASync
     from ...daemon import Daemon
 
 
@@ -114,7 +116,7 @@ class SVApplication(QApplication):
         self.log_handler = SVLogHandler()
         self.log_window = None
         self.net_dialog = None
-        self.timer = QTimer()
+        self.timer = QTimer(self)
         self.exception_hook = None
         # A floating point number, e.g. 129.1
         self.dpi = self.primaryScreen().physicalDotsPerInch()
@@ -137,7 +139,7 @@ class SVApplication(QApplication):
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.installEventFilter(OpenFileEventFilter(self.windows))
         self.create_new_window_signal.connect(self.start_new_window)
-        self.async_tasks_done.connect(app_state.async_.run_pending_callbacks)
+        self.async_tasks_done.connect(cast("ASync", app_state.async_).run_pending_callbacks)
         self.num_zeros_changed.connect(partial(self._signal_all, 'on_num_zeros_changed'))
         self.fiat_ccy_changed.connect(partial(self._signal_all, 'on_fiat_ccy_changed'))
         self.base_unit_changed.connect(partial(self._signal_all, 'on_base_unit_changed'))
@@ -204,7 +206,7 @@ class SVApplication(QApplication):
         self.tray.setIcon(self._tray_icon())
 
     def _tray_activated(self, reason) -> None:
-        if reason == QSystemTrayIcon.DoubleClick:
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             if all([w.is_hidden() for w in self.windows]):
                 for w in self.windows:
                     w.bring_to_top()
@@ -406,19 +408,20 @@ class SVApplication(QApplication):
         self.sendEvent(self.clipboard(), event)
         self.tray.hide()
 
-    def run_coro(self, coro, *args, on_done=None):
+    def run_coro(self, coro, *args, on_done=None) -> concurrent.futures.Future:
         '''Run a coroutine.  on_done, if given, is passed the future containing the reuslt or
         exception, and is guaranteed to be called in the context of the GUI thread.
         '''
         def task_done(future):
             self.async_tasks_done.emit()
 
-        future = app_state.async_.spawn(coro, *args, on_done=on_done)
+        future = cast("ASync", app_state.async_).spawn(coro, *args, on_done=on_done)
         future.add_done_callback(task_done)
         return future
 
     def run_in_thread(self, func, *args,
-            on_done: Optional[Callable[[concurrent.futures.Future], None]]=None):
+            on_done: Optional[Callable[[concurrent.futures.Future], None]]=None) \
+                -> concurrent.futures.Future:
         '''Run func(*args) in a thread.  on_done, if given, is passed the future containing the
         reuslt or exception, and is guaranteed to be called in the context of the GUI
         thread.

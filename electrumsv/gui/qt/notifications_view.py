@@ -37,7 +37,7 @@ from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QLayout, QWidget,
 
 from electrumsv.constants import WalletEventFlag, WalletEventType
 from electrumsv.i18n import _
-from electrumsv.util import format_time
+from electrumsv.util import format_posix_timestamp
 from electrumsv.wallet_database.types import WalletEventRow
 
 from .util import ClickableLabel, icon_path, read_QIcon
@@ -290,7 +290,8 @@ class NotificationCard(Card):
             description_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
             description_label.linkActivated.connect(self.on_link_activated)
 
-            date_context_label = QLabel(format_time(self._row.date_created, _("Unknown")))
+            date_context_label = QLabel(
+                format_posix_timestamp(self._row.date_created, _("Unknown")))
             date_context_label.setAlignment(Qt.AlignmentFlag.AlignRight)
             date_context_label.setObjectName("NotificationCardContext")
 

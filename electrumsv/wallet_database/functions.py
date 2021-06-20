@@ -1,16 +1,15 @@
 from collections import defaultdict
 import concurrent.futures
-import datetime
 import json
 import os
 try:
-    # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
+    # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
     import pysqlite3 as sqlite3 # type: ignore
 except ModuleNotFoundError:
-    # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
-    # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
+    # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
+    # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore
-from typing import Any, cast, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, cast, Iterable, List, Optional, Sequence, Set, Tuple
 
 from ..bitcoin import COINBASE_MATURITY
 from ..constants import (BlockHeight, DerivationType, DerivationPath, KeyInstanceFlag,
@@ -21,6 +20,7 @@ from ..i18n import _
 from ..logs import logs
 from ..types import KeyInstanceDataPrivateKey, MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
     MasterKeyDataMultiSignature, MasterKeyDataTypes, ServerAccountKey, TxoKeyType
+from ..util import get_posix_timestamp
 
 from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     TransactionAlreadyExistsError, TransactionRemovalError)
@@ -39,8 +39,8 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     TransactionOutputSpendableRow2, TransactionRow,
     TransactionSubscriptionRow, TxProof, TxProofResult,
     WalletBalance, WalletDataRow, WalletEventRow)
-from .util import (flag_clause, get_timestamp, pack_proof, read_rows_by_id,
-    read_rows_by_ids, execute_sql_for_ids, update_rows_by_ids)
+from .util import (flag_clause, pack_proof, read_rows_by_id, read_rows_by_ids,
+    execute_sql_for_ids, update_rows_by_ids)
 
 
 logger = logs.get_logger("db-functions")
@@ -70,7 +70,7 @@ def count_unused_bip32_keys(db: sqlite3.Connection, account_id: int, masterkey_i
 
 def create_accounts(db_context: DatabaseContext, entries: Iterable[AccountRow]) \
         -> concurrent.futures.Future:
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
         "account_name, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?)")
@@ -86,7 +86,7 @@ def create_account_transactions(db_context: DatabaseContext,
         "INSERT INTO AccountTransactions "
         "(account_id, tx_hash, flags, description, date_created, date_updated) "
         "VALUES (?, ?, ?, ?, ?, ?)")
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = [ (*t, timestamp, timestamp) for t in entries ]
     def _write(db: sqlite3.Connection):
         nonlocal sql, rows
@@ -100,18 +100,17 @@ def create_invoices(db_context: DatabaseContext, entries: Iterable[InvoiceRow]) 
         "(account_id, tx_hash, payment_uri, description, invoice_flags, value, "
         "invoice_data, date_expires, date_created, date_updated) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    # Discard the first column for the id.
-    timestamp = get_timestamp()
-    rows = [ (*entry[1:], timestamp) for entry in entries ]
+    timestamp = get_posix_timestamp()
+    # Discard the first column for the id and the last column for date updated.
+    rows = [ (*entry[1:-1], timestamp, timestamp) for entry in entries ]
     def _write(db: sqlite3.Connection):
-        nonlocal sql, rows
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
 
 def create_keyinstances(db_context: DatabaseContext, entries: Iterable[KeyInstanceRow]) \
         -> concurrent.futures.Future:
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries]
     sql = ("INSERT INTO KeyInstances "
         "(keyinstance_id, account_id, masterkey_id, derivation_type, derivation_data, "
@@ -128,7 +127,7 @@ def create_keyinstance_scripts(db_context: DatabaseContext,
     sql = ("INSERT INTO KeyInstanceScripts "
         "(keyinstance_id, script_type, script_hash, date_created, date_updated) "
         "VALUES (?, ?, ?, ?, ?)")
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = [ (*t, timestamp, timestamp) for t in entries]
     def _write(db: sqlite3.Connection):
         nonlocal sql, rows
@@ -138,7 +137,7 @@ def create_keyinstance_scripts(db_context: DatabaseContext,
 
 def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyRow]) \
         -> concurrent.futures.Future:
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     sql = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
         "derivation_data, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?)")
@@ -155,7 +154,7 @@ def create_payment_requests(db_context: DatabaseContext,
         "(paymentrequest_id, keyinstance_id, state, value, expiration, description, date_created, "
             "date_updated) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     sql_values = [ (*t[:-1], timestamp, timestamp) for t in entries ]
     def _write(db: sqlite3.Connection) -> None:
         nonlocal sql, sql_values
@@ -168,7 +167,7 @@ def create_transaction_outputs(db_context: DatabaseContext,
     sql = ("INSERT INTO TransactionOutputs (tx_hash, txo_index, value, keyinstance_id, "
         "flags, script_type, script_hash, date_created, date_updated) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     db_rows = [ (*t, timestamp, timestamp) for t in entries ]
     def _write(db: sqlite3.Connection) -> None:
         nonlocal sql, db_rows
@@ -199,7 +198,7 @@ def create_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDat
         -> concurrent.futures.Future:
     sql = ("INSERT INTO WalletData (key, value, date_created, date_updated) "
         "VALUES (?, ?, ?, ?)")
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = []
     for entry in entries:
         assert type(entry.key) is str, f"bad key '{entry.key}'"
@@ -237,7 +236,7 @@ def delete_invoices(db_context: DatabaseContext, entries: Iterable[Tuple[int]]) 
 
 def delete_payment_request(db_context: DatabaseContext, paymentrequest_id: int,
         keyinstance_id: int) -> concurrent.futures.Future:
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     expected_key_flags = KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST
     read_sql1 = "SELECT flags from KeyInstances WHERE keyinstance_id=?"
     read_sql1_values = (keyinstance_id,)
@@ -1290,7 +1289,7 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) -> concurren
     finally:
         db_context.release_connection(db)
 
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     tx_out_mask = ~TransactionOutputFlag.IS_SPENT
     # Back out the association of the transaction with accounts. We do not bother clearing the
     # key id and script type from the transaction outputs at this time.
@@ -1382,7 +1381,7 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
     # have any of the flags we intend to set.
     # NOTE If any caller wants to do overwrites or partial updates then that should be a standard
     # policy optionally passed into all update calls.
-    sql_values = [ get_timestamp(), mask, flags ]
+    sql_values = [ get_posix_timestamp(), mask, flags ]
 
     def _write(db: sqlite3.Connection) -> bool:
         nonlocal sql, sql_values, key_ids
@@ -1403,14 +1402,13 @@ def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxF
     If the transaction is not in a pre-dispatched state, then this will return `False` and no
     change will be made.
     """
-    # TODO(python) Python 3.10 has `flag.bitcount()` supposedly.
+    # TODO(python-3.10) Python 3.10 has `flag.bitcount()` supposedly.
     assert bin(flag).count("1") == 1, "only one state can be specified at a time"
     # We will clear any existing state bits.
     mask_bits = ~TxFlags.MASK_STATE
     if ignore_mask is None:
         ignore_mask = flag
-    # ignore_bits = TxFlags.STATE_DISPATCHED | TxFlags.MASK_STATE_BROADCAST
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     sql = (
         "UPDATE Transactions SET date_updated=?, flags=(flags&?)|? "
         "WHERE tx_hash=? AND flags&?=0")
@@ -1434,7 +1432,7 @@ def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]
     and -1 is unconfirmed parents. We do not have the information to know if it has unconfirmed
     parents.
     """
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     sql = ("UPDATE Transactions "
         f"SET date_updated=?, flags=(flags&?)|?, block_height={BlockHeight.MEMPOOL} "
         "WHERE tx_hash IN ({})")
@@ -1459,7 +1457,7 @@ def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[
     sql = ("UPDATE TransactionOutputs "
         f"SET date_updated=?, flags=(flags&{mask})|{flags}")
     sql_id_expression = "tx_hash=? AND txo_index=?"
-    sql_values = [ get_timestamp() ]
+    sql_values = [ get_posix_timestamp() ]
 
     def _write(db: sqlite3.Connection) -> bool:
         nonlocal sql, sql_id_expression, sql_values, txo_keys
@@ -1475,7 +1473,7 @@ def set_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDataRo
         -> concurrent.futures.Future:
     sql = ("INSERT INTO WalletData (key, value, date_created, date_updated) VALUES (?, ?, ?, ?) "
         "ON CONFLICT(key) DO UPDATE SET value=excluded.value, date_updated=excluded.date_updated")
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = []
     for entry in entries:
         rows.append((entry.key, json.dumps(entry.value), timestamp, timestamp))
@@ -1490,7 +1488,7 @@ def set_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDataRo
 # def update_transaction_descriptions(db_context: DatabaseContext,
 #         entries: Iterable[Tuple[str, bytes]]) -> concurrent.futures.Future:
 #     sql = "UPDATE Transactions SET date_updated=?, description=? WHERE tx_hash=?"
-#     timestamp = get_timestamp()
+#     timestamp = get_posix_timestamp()
 #     rows = [ (timestamp,) + entry for entry in entries ]
 #     def _write(db: sqlite3.Connection) -> None:
 #         nonlocal rows, sql
@@ -1500,7 +1498,7 @@ def set_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDataRo
 
 def update_transaction_block_many(db_context: DatabaseContext,
         entries: Iterable[TransactionBlockRow]) -> concurrent.futures.Future:
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows: List[Tuple[int, int, Optional[bytes], bytes, int, Optional[bytes]]] = []
     for entry in entries:
         # NOTE(typing) Type checker does not understand unpacking `entry`.
@@ -1534,7 +1532,7 @@ def _update_transaction_proof(db: sqlite3.Connection, tx_hash: bytes, block_heig
 
     This should only be called in the context of the writer thread.
     """
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     clear_bits = ~TxFlags.MASK_STATE
     set_bits = TxFlags.STATE_SETTLED
     sql = ("UPDATE Transactions "
@@ -1550,7 +1548,7 @@ def _update_transaction_proof(db: sqlite3.Connection, tx_hash: bytes, block_heig
 def update_account_names(db_context: DatabaseContext, entries: Iterable[Tuple[str, int]]) \
         -> concurrent.futures.Future:
     sql = "UPDATE Accounts SET date_updated=?, account_name=? WHERE account_id=?"
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
     def _write(db: sqlite3.Connection) -> None:
         nonlocal sql, rows
@@ -1561,7 +1559,7 @@ def update_account_names(db_context: DatabaseContext, entries: Iterable[Tuple[st
 def update_account_script_types(db_context: DatabaseContext,
         entries: Iterable[Tuple[ScriptType, int]]) -> concurrent.futures.Future:
     sql = "UPDATE Accounts SET date_updated=?, default_script_type=? WHERE account_id=?"
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
     def _write(db: sqlite3.Connection) -> None:
         nonlocal sql, rows
@@ -1571,7 +1569,7 @@ def update_account_script_types(db_context: DatabaseContext,
 
 def update_account_transaction_descriptions(db_context: DatabaseContext,
         entries: Iterable[Tuple[Optional[str], int, bytes]]) -> concurrent.futures.Future:
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     sql = "UPDATE AccountTransactions SET date_updated=?, description=? " \
         "WHERE account_id=? AND tx_hash=?"
     rows = [ (timestamp,) + entry for entry in entries ]
@@ -1584,7 +1582,7 @@ def update_account_transaction_descriptions(db_context: DatabaseContext,
 def update_invoice_transactions(db_context: DatabaseContext,
         entries: Iterable[Tuple[Optional[bytes], int]]) -> concurrent.futures.Future:
     sql = "UPDATE Invoices SET date_updated=?, tx_hash=? WHERE invoice_id=?"
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
     def _write(db: sqlite3.Connection) -> None:
         nonlocal sql, rows
@@ -1596,7 +1594,7 @@ def update_invoice_descriptions(db_context: DatabaseContext,
         entries: Iterable[Tuple[Optional[str], int]]) -> concurrent.futures.Future:
     sql = ("UPDATE Invoices SET date_updated=?, description=? "
         "WHERE invoice_id=?")
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
     def _write(db: sqlite3.Connection) -> None:
         nonlocal sql, rows
@@ -1609,7 +1607,7 @@ def update_invoice_flags(db_context: DatabaseContext,
     sql = ("UPDATE Invoices SET date_updated=?, "
             "invoice_flags=((invoice_flags&?)|?) "
         "WHERE invoice_id=?")
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
     def _write(db: sqlite3.Connection) -> None:
         nonlocal sql, rows
@@ -1621,7 +1619,7 @@ def update_keyinstance_derivation_datas(db_context: DatabaseContext,
         entries: Iterable[Tuple[bytes, int]]) -> concurrent.futures.Future:
     sql = ("UPDATE KeyInstances SET date_updated=?, derivation_data=? WHERE keyinstance_id=?")
 
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
 
     def _write(db: sqlite3.Connection) -> None:
@@ -1633,7 +1631,7 @@ def update_keyinstance_derivation_datas(db_context: DatabaseContext,
 def update_keyinstance_descriptions(db_context: DatabaseContext,
         entries: Iterable[Tuple[Optional[str], int]]) -> concurrent.futures.Future:
     sql = ("UPDATE KeyInstances SET date_updated=?, description=? WHERE keyinstance_id=?")
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
     def _write(db: sqlite3.Connection) -> None:
         nonlocal sql, rows
@@ -1668,7 +1666,7 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
     server_account_update_sql = "UPDATE ServerAccounts SET date_updated=?, encrypted_api_key=? " \
         "WHERE url=? AND server_type=? AND account_id=?"
 
-    date_updated = get_timestamp()
+    date_updated = get_posix_timestamp()
 
     def _write(db: sqlite3.Connection) -> PasswordUpdateResult:
         password_token = pw_encode(os.urandom(32).hex(), new_password)
@@ -1788,8 +1786,9 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
     return db_context.post_to_thread(_write)
 
 
-def _update_payment_request_states(db: sqlite3.Connection) -> Tuple[int, int]:
-    timestamp = get_timestamp()
+def _close_paid_payment_requests(db: sqlite3.Connection) \
+        -> Tuple[Set[int], List[Tuple[int, int, int]]]:
+    timestamp = get_posix_timestamp()
     sql_read_1 = """
     WITH key_payments AS (
         SELECT TXO.keyinstance_id, SUM(TXO.value) AS total_value
@@ -1805,42 +1804,57 @@ def _update_payment_request_states(db: sqlite3.Connection) -> Tuple[int, int]:
     WHERE PR.state&?=? AND (PR.value IS NULL OR PR.value <= KP.total_value)
     """
     sql_read_1_values = [
-        KeyInstanceFlag.IS_PAYMENT_REQUEST, PaymentFlag.MASK_STATE, PaymentFlag.UNPAID,
+        KeyInstanceFlag.IS_PAYMENT_REQUEST,
+        PaymentFlag.MASK_STATE, PaymentFlag.UNPAID,
     ]
     rows = db.execute(sql_read_1, sql_read_1_values).fetchall()
 
     if len(rows):
-        sql_write_1 = "UPDATE PaymentRequests SET date_updated=?, state=(state&?)|? " \
-            "WHERE paymentrequest_id=?"
-        sql_write_2 = "UPDATE KeyInstances SET date_updated=?, flags=flags&? WHERE keyinstance_id=?"
         paymentrequest_update_rows = []
-        keyinstance_update_rows = []
         for paymentrequest_id, keyinstance_id in rows:
             paymentrequest_update_rows.append((timestamp, PaymentFlag.CLEARED_MASK_STATE,
                 PaymentFlag.PAID, paymentrequest_id))
-            keyinstance_update_rows.append((timestamp,
-                ~(KeyInstanceFlag.IS_PAYMENT_REQUEST|KeyInstanceFlag.IS_ACTIVE), keyinstance_id))
-        update_count_1 = db.executemany(sql_write_1, paymentrequest_update_rows).rowcount
-        update_count_2 = db.executemany(sql_write_2, keyinstance_update_rows).rowcount
-        return update_count_1, update_count_2
+        sql_write_1 = "UPDATE PaymentRequests SET date_updated=?, state=(state&?)|? " \
+            "WHERE paymentrequest_id=?"
+        db.executemany(sql_write_1, paymentrequest_update_rows).rowcount
 
-    return 0, 0
+        # We cannot do an `executemany` here, as it doesn't handle whatever adding the
+        # `RETURNING` made this, given that it worked before we added it.
+        keyinstance_update_row = [
+            timestamp,
+            KeyInstanceFlag.MASK_ACTIVE_REASON, KeyInstanceFlag.IS_PAYMENT_REQUEST,
+            ~(KeyInstanceFlag.IS_PAYMENT_REQUEST|KeyInstanceFlag.IS_ACTIVE),
+            ~KeyInstanceFlag.IS_PAYMENT_REQUEST,
+        ]
+        keyinstance_update_row.extend(row[1] for row in rows)
+        sql_write_2 = f"""
+        UPDATE KeyInstances SET date_updated=?, flags=CASE
+            WHEN flags&?=? THEN flags&? ELSE flags&? END
+        WHERE keyinstance_id IN ({",".join("?" for v in rows)})
+        RETURNING account_id, keyinstance_id, flags
+        """
+        keyinstance_rows = db.execute(sql_write_2, keyinstance_update_row).fetchall()
+
+        paymentrequest_ids = { row[0] for row in rows }
+        return paymentrequest_ids, keyinstance_rows
+
+    return set(), []
 
 
-async def update_payment_request_states_async(db_context: DatabaseContext) \
-        -> Tuple[int, int]:
+async def close_paid_payment_requests_async(db_context: DatabaseContext) \
+        -> Tuple[Set[int], List[Tuple[int, int, int]]]:
     """
     Wrap the database operations required to link a transaction so the processing is
     offloaded to the SQLite writer thread while this task is blocked.
     """
-    return await db_context.run_in_thread_async(_update_payment_request_states)
+    return await db_context.run_in_thread_async(_close_paid_payment_requests)
 
 
 def update_payment_requests(db_context: DatabaseContext,
         entries: Iterable[PaymentRequestUpdateRow]) -> concurrent.futures.Future:
     sql = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, expiration=?, "
         "description=? WHERE paymentrequest_id=?")
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
 
     def _write(db: sqlite3.Connection) -> None:
@@ -1852,7 +1866,7 @@ def update_payment_requests(db_context: DatabaseContext,
 def update_wallet_event_flags(db_context: DatabaseContext,
         entries: Iterable[Tuple[WalletEventFlag, int]]) -> concurrent.futures.Future:
     sql = "UPDATE WalletEvents SET date_updated=?, event_flags=? WHERE event_id=?"
-    timestamp = get_timestamp()
+    timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
     def _write(db: sqlite3.Connection) -> None:
         nonlocal rows, sql
@@ -1886,7 +1900,7 @@ def update_network_servers(db_context: DatabaseContext,
     update_server_account_sql = "UPDATE ServerAccounts SET date_updated=?, encrypted_api_key=? " \
         "WHERE url=? AND server_type=? AND account_id=?"
 
-    timestamp_utc = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    timestamp_utc = get_posix_timestamp()
     update_server_rows = []
     if updated_server_rows:
         update_server_rows = [ (timestamp_utc, server_row.encrypted_api_key, server_row.flags,
@@ -1931,7 +1945,7 @@ def update_network_server_states(db_context: DatabaseContext,
     update_server_account_sql = "UPDATE ServerAccounts SET date_updated=?, fee_quote_json=?, " \
         "date_last_connected=?, date_last_tried=? WHERE url=? AND server_type=? AND account_id=?"
 
-    timestamp_utc = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
+    timestamp_utc = get_posix_timestamp()
     update_server_rows = [ (timestamp_utc, server_row.fee_quote_json, server_row.date_last_good,
         server_row.date_last_try, server_row.url, server_row.server_type)
         for server_row in updated_server_rows ]
@@ -2106,7 +2120,7 @@ class AsynchronousFunctions:
         This function can be repeatedly called, which might be useful if for some reason keys
         were not created when it was first called for a transaction.
         """
-        timestamp = get_timestamp()
+        timestamp = get_posix_timestamp()
         sql_write_1 = (
             "UPDATE TransactionOutputs AS TXO "
             "SET date_updated=?, keyinstance_id=KIS.keyinstance_id, script_type=KIS.script_type "
@@ -2136,7 +2150,7 @@ class AsynchronousFunctions:
         This function can be repeatedly called, which might be useful if for some reason keys
         were not created when it was first called for a transaction.
         """
-        timestamp = get_timestamp()
+        timestamp = get_posix_timestamp()
 
         # Assuming transactions are mapped to key usage, we can insert transaction mappings to
         # accounts they are associated with. The reason we do this is that we want per-account
@@ -2182,7 +2196,7 @@ class AsynchronousFunctions:
         before this transaction. This seems unlikely and if it ever happens, it is possible that
         we might address the cause and choose not to handle it.
         """
-        timestamp = get_timestamp()
+        timestamp = get_posix_timestamp()
         # The base SQL is just the spends of parent transaction outputs.
         sql = (
             "SELECT TXI.tx_hash, TXI.txi_index, TXO.tx_hash, TXO.txo_index, TXO.spending_tx_hash "

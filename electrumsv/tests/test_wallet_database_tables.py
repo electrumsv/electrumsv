@@ -1,21 +1,24 @@
-import bitcoinx
 import os
-import pytest
-try:
-    # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
-    import pysqlite3 as sqlite3 # type: ignore
-except ModuleNotFoundError:
-    # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
-    # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
-    import sqlite3 # type: ignore
 import tempfile
 from typing import List
+import unittest.mock
+
+import bitcoinx
+import pytest
+try:
+    # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
+    import pysqlite3 as sqlite3 # type: ignore
+except ModuleNotFoundError:
+    # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
+    # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
+    import sqlite3 # type: ignore
 
 from electrumsv.constants import (AccountTxFlags, DerivationType, KeyInstanceFlag,
     NetworkServerFlag, NetworkServerType,
     PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
 from electrumsv.types import ServerAccountKey, TxoKeyType
+from electrumsv import util
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.sqlite_support import DatabaseContext, LeakedSQLiteConnectionError
@@ -818,7 +821,8 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     #   adding them manually and setting the expected flags itself. But maybe that is outside the
     #   scope of this unit test.
     entries = [ KeyInstanceRow(KEYINSTANCE_ID+i, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-        DERIVATION_DATA, None, KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST,
+        DERIVATION_DATA, None,
+        KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST | KeyInstanceFlag.USED,
         None) for i in range(LINE_COUNT) ]
     future = db_functions.create_keyinstances(db_context, entries)
     future.result(timeout=5)
@@ -893,11 +897,11 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
 
     db = db_context.acquire_connection()
     try:
-        requests_updated, keys_updated = db_functions._update_payment_request_states(db)
+        closed_request_ids, updated_key_rows = db_functions._close_paid_payment_requests(db)
     finally:
         db_context.release_connection(db)
-    assert requests_updated == 1
-    assert keys_updated == 1
+    assert closed_request_ids == { line2.paymentrequest_id }
+    assert updated_key_rows == [ (ACCOUNT_ID, KEYINSTANCE_ID+1, KeyInstanceFlag.USED) ]
 
     ## Continue.
     future = db_functions.update_payment_requests(db_context, [ PaymentRequestUpdateRow(
@@ -1110,7 +1114,10 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
 #     tx_table.close()
 
 
-def test_table_invoice_crud(db_context: DatabaseContext) -> None:
+@unittest.mock.patch('electrumsv.wallet_database.functions.get_posix_timestamp')
+def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContext) -> None:
+    mock_get_posix_timestamp.side_effect = lambda: 111
+
     db_lines = db_functions.read_invoices_for_account(db_context, 1)
     assert len(db_lines) == 0
 

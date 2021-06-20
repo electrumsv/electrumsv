@@ -31,6 +31,7 @@ from electrumsv.util import resource_path
 
 if TYPE_CHECKING:
     from ...credentials import CredentialCache
+    from .app import SVApplication
     from .main_window import ElectrumWindow
 
 
@@ -46,7 +47,7 @@ class EnterButton(QPushButton):
         self.clicked.connect(func)
 
     def keyPressEvent(self, e: QKeyEvent):
-        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+        if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.func()
 
 
@@ -54,9 +55,11 @@ class KeyEventLineEdit(QLineEdit):
     key_event_signal = pyqtSignal(int)
 
     def __init__(self, parent: Optional[QWidget]=None, text: str='',
-            override_events: Set[int]=frozenset()) -> None:
+            override_events: Optional[Set[int]]=None) -> None:
         QLineEdit.__init__(self, text, parent)
 
+        if override_events is None:
+            override_events = set()
         self._override_events = override_events
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -89,23 +92,23 @@ class HelpLabel(QLabel):
     def enterEvent(self, event):
         self._font.setUnderline(True)
         self.setFont(self._font)
-        self.app.setOverrideCursor(QCursor(Qt.PointingHandCursor))
+        self.app.setOverrideCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         return QLabel.enterEvent(self, event)
 
     def leaveEvent(self, event):
         self._font.setUnderline(False)
         self.setFont(self._font)
-        self.app.setOverrideCursor(QCursor(Qt.ArrowCursor))
+        self.app.setOverrideCursor(QCursor(Qt.CursorShape.ArrowCursor))
         return QLabel.leaveEvent(self, event)
 
 
 class HelpButton(QPushButton):
-    def __init__(self, text, textFormat=Qt.AutoText, title="Help", button_text="?"):
+    def __init__(self, text, textFormat=Qt.TextFormat.AutoText, title="Help", button_text="?"):
         self.textFormat = textFormat
         self.title = title
         QPushButton.__init__(self, button_text)
         self.help_text = text
-        self.setFocusPolicy(Qt.NoFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setFixedWidth(20)
         self.clicked.connect(self._on_clicked)
 
@@ -132,7 +135,7 @@ class Buttons(QHBoxLayout):
         }
     """
 
-    def __init__(self, *buttons: Iterable[QAbstractButton]) -> None:
+    def __init__(self, *buttons: QAbstractButton) -> None:
         QHBoxLayout.__init__(self)
         self.addStretch(1)
         for b in buttons:
@@ -242,8 +245,8 @@ class MessageBoxMixin(object):
         parent = parent or self.top_level_window()
         d = QMessageBox(icon, title, str(text), buttons, parent)
         if not app_state.config.get('ui_disable_modal_dialogs', False):
-            d.setWindowModality(Qt.WindowModal)
-        d.setWindowFlags(d.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+            d.setWindowModality(Qt.WindowModality.WindowModal)
+        d.setWindowFlags(d.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
@@ -271,7 +274,7 @@ class MessageBox:
     def msg_box(cls, icon, parent, title, text, buttons=QMessageBox.Ok,
                 defaultButton=QMessageBox.NoButton):
         d = QMessageBox(icon, title, str(text), buttons, parent)
-        d.setWindowFlags(d.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        d.setWindowFlags(d.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
@@ -313,18 +316,19 @@ class WindowModalDialog(QDialog, MessageBoxMixin):
     '''Handy wrapper; window modal dialogs are better for our multi-window
     daemon model as other wallet windows can still be accessed.'''
     def __init__(self, parent: QWidget, title: Optional[str]=None, hide_close_button: bool=False):
-        flags = Qt.WindowSystemMenuHint | Qt.WindowTitleHint
+        flags = Qt.WindowType.WindowSystemMenuHint | Qt.WindowType.WindowTitleHint
         # This is the window close button, not any one we add ourselves.
         if not hide_close_button:
-            flags |= Qt.WindowCloseButtonHint
+            flags |= Qt.WindowType.WindowCloseButtonHint
         QDialog.__init__(self, parent, Qt.WindowType(flags))
         if not app_state.config.get('ui_disable_modal_dialogs', False):
-            self.setWindowModality(Qt.WindowModal)
+            self.setWindowModality(Qt.WindowModality.WindowModal)
         if title:
             self.setWindowTitle(title)
 
 
 WaitingCompletionCallback = Optional[Callable[[concurrent.futures.Future], None]]
+
 
 class WaitingDialog(WindowModalDialog):
     """
@@ -370,18 +374,18 @@ class WaitingDialog(WindowModalDialog):
         # If we do not do this, waiting dialogs get leaked. This can be observed by commenting
         # out this line and looking for the `__del__` call which should happen after this
         # dialog is closed.
-        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
         self._title = title
         self._base_message = message
         self._close_delay = close_delay
 
         self._main_label = QLabel()
-        self._main_label.setAlignment(Qt.AlignCenter)
+        self._main_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._main_label.setWordWrap(True)
 
         self._secondary_label = QLabel()
-        self._secondary_label.setAlignment(Qt.AlignCenter)
+        self._secondary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._secondary_label.setWordWrap(True)
 
         self._progress_bar: Optional[QProgressBar] = None
@@ -389,10 +393,10 @@ class WaitingDialog(WindowModalDialog):
             progress_bar = self._progress_bar = QProgressBar()
             progress_bar.setRange(0, progress_steps)
             progress_bar.setValue(0)
-            progress_bar.setOrientation(Qt.Horizontal)
+            progress_bar.setOrientation(Qt.Orientation.Horizontal)
             progress_bar.setMinimumWidth(250)
             # This explicitly needs to be done for the progress bar else it has some RHS space.
-            progress_bar.setAlignment(Qt.AlignCenter)
+            progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.advance_progress_signal.connect(self._advance_progress)
 
@@ -408,13 +412,14 @@ class WaitingDialog(WindowModalDialog):
         button_box_1 = QHBoxLayout()
         lm, tm, rm, bm = button_box_1.getContentsMargins()
         button_box_1.setContentsMargins(lm, tm + 10, rm, bm)
-        button_box_1.addWidget(self._dismiss_button, False, Qt.AlignHCenter)
+        button_box_1.addWidget(self._dismiss_button, False, Qt.AlignmentFlag.AlignHCenter)
         vbox.addLayout(button_box_1)
 
         args = (*args, self._step_progress)
-        # NOTE: The `on_done` callback runs in the GUI thread.
+        # NOTE: `run_in_thread` ensures the `on_done` callback runs in the GUI thread.
         self._on_done_callback = on_done
-        self._future = app_state.app.run_in_thread(func, *args, on_done=self._on_run_done)
+        self._future = cast("SVApplication", app_state.app).run_in_thread(func, *args,
+            on_done=self._on_run_done)
 
         self.accepted.connect(self._on_accepted)
         self.rejected.connect(self._on_rejected)
@@ -465,6 +470,7 @@ class WaitingDialog(WindowModalDialog):
         future = self._future
         self._future = None
         on_done_callback = self._on_done_callback
+        assert on_done_callback is not None
         self._on_done_callback = None
 
         # To get here the future has to have completed successfully (or unsuccessfully).
@@ -487,7 +493,7 @@ class WaitingDialog(WindowModalDialog):
             self.update_message(message)
 
     @classmethod
-    def test(cls, window: 'ElectrumWindow', delay: int=5) -> None:
+    def test(cls, window: 'ElectrumWindow', delay: int=5) -> "WaitingDialog":
         title = "title"
         message = "message"
         steps = 5
@@ -620,7 +626,8 @@ def filename_field(config, defaultname, select_msg):
         _filter = ("*.csv" if text.endswith(".csv") else
                    "*.json" if text.endswith(".json") else
                    None)
-        p, __ = QFileDialog.getSaveFileName(None, select_msg, text, _filter)
+        # NOTE(typing) None filter seems to be no filter, but unsupported by the type signature.
+        p, __ = QFileDialog.getSaveFileName(None, select_msg, text, _filter) # type: ignore
         if p:
             filename_e.setText(p)
 
@@ -640,9 +647,11 @@ def filename_field(config, defaultname, select_msg):
 
     return vbox, filename_e, b1
 
+
 class ElectrumItemDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         return self.parent().createEditor(parent, option, index)
+
 
 class MyTreeWidget(QTreeWidget):
 
@@ -656,7 +665,7 @@ class MyTreeWidget(QTreeWidget):
         self._main_window = weakref.proxy(main_window)
         self.config = self._main_window.config
         self.stretch_column = stretch_column
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(create_menu)
         # extend the syntax for consistency
         self.addChild = self.addTopLevelItem
@@ -686,12 +695,12 @@ class MyTreeWidget(QTreeWidget):
         if column in self.editable_columns:
             self.editing_itemcol = (item, column, item.text(column))
             # Calling setFlags causes on_changed events for some reason
-            item.setFlags(item.flags() | Qt.ItemIsEditable)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
             QTreeWidget.editItem(self, item, column)
-            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
     def keyPressEvent(self, event: QKeyEvent):
-        if event.key() in [ Qt.Key_F2, Qt.Key_Return ] and self.editor is None:
+        if event.key() in [ Qt.Key.Key_F2, Qt.Key.Key_Return ] and self.editor is None:
             self.on_activated(self.currentItem(), self.currentColumn())
         else:
             QTreeWidget.keyPressEvent(self, event)
@@ -714,8 +723,9 @@ class MyTreeWidget(QTreeWidget):
         self.customContextMenuRequested.emit(pt)
 
     def createEditor(self, parent, option, index):
-        self.editor = QStyledItemDelegate.createEditor(self.itemDelegate(),
-                                                       parent, option, index)
+        self.editor = QStyledItemDelegate.createEditor(
+            cast(QStyledItemDelegate, self.itemDelegate()),
+            parent, option, index)
         self.editor.editingFinished.connect(self.editing_finished)
         return self.editor
 
@@ -747,7 +757,7 @@ class MyTreeWidget(QTreeWidget):
         text = item.text(column).strip()
         if text == "":
             text = None
-        account_id, tx_hash = item.data(0, Qt.UserRole)
+        account_id, tx_hash = item.data(0, Qt.ItemDataRole.UserRole)
         account = self._main_window._wallet.get_account(account_id)
         account.set_transaction_label(tx_hash, text)
         self._main_window.history_view.update_tx_labels()
@@ -795,10 +805,10 @@ class ButtonsWidget(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.buttons: Iterable[QAbstractButton] = []
+        self.buttons: List[QAbstractButton] = []
 
     def resizeButtons(self):
-        frame_width = self.style().pixelMetric(QStyle.PM_DefaultFrameWidth)
+        frame_width = self.style().pixelMetric(QStyle.PixelMetric.PM_DefaultFrameWidth)
         if self.buttons_mode == ButtonsMode.INTERNAL:
             x = self.rect().right() - frame_width
             y = self.rect().top() + frame_width
@@ -833,7 +843,7 @@ class ButtonsWidget(QWidget):
                                 "pressed {border: 1px} padding: 0px; }")
         button.setVisible(True)
         button.setToolTip(tooltip)
-        button.setCursor(QCursor(Qt.PointingHandCursor))
+        button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         button.clicked.connect(on_click)
         if insert:
             self.buttons.insert(0, button)
@@ -842,7 +852,7 @@ class ButtonsWidget(QWidget):
 
         # Vertical buttons are integrated into the widget, within a margin that moves the edge
         # of the edit widget over to make space.
-        frame_width = self.style().pixelMetric(QStyle.PM_DefaultFrameWidth)
+        frame_width = self.style().pixelMetric(QStyle.PixelMetric.PM_DefaultFrameWidth)
         if self.buttons_mode == ButtonsMode.TOOLBAR_RIGHT:
             self.button_padding = max(button.sizeHint().width() for button in self.buttons) + 4
             self.setStyleSheet(self.qt_css_class +
@@ -872,8 +882,8 @@ class ButtonsLineEdit(KeyEventLineEdit, ButtonsWidget):
     qt_css_class = "QLineEdit"
 
     def __init__(self, text=''):
-        KeyEventLineEdit.__init__(self, None, text, {Qt.Key_Return, Qt.Key_Enter})
-        self.buttons: Iterable[QAbstractButton] = []
+        KeyEventLineEdit.__init__(self, None, text, {Qt.Key.Key_Return, Qt.Key.Key_Enter})
+        self.buttons: List[QAbstractButton] = []
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         QLineEdit.resizeEvent(self, event)
@@ -891,7 +901,7 @@ class ButtonsTextEdit(QPlainTextEdit, ButtonsWidget):
         QPlainTextEdit.__init__(self, text)
         self.setText = self.setPlainText
         self.text = self.toPlainText
-        self.buttons: Iterable[QAbstractButton] = []
+        self.buttons: List[QAbstractButton] = []
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         QPlainTextEdit.resizeEvent(self, event)
@@ -955,7 +965,7 @@ class ColorScheme:
 
 
 class SortableTreeWidgetItem(QTreeWidgetItem):
-    DataRole = Qt.UserRole + 1
+    DataRole = Qt.ItemDataRole.UserRole + 1
 
     def __lt__(self, other):
         column = self.treeWidget().sortColumn()
@@ -1057,6 +1067,7 @@ def show_in_file_explorer(path: str) -> bool:
             args.append('/select,')
         args.append(QDir.toNativeSeparators(path))
         QProcess.startDetached('explorer', args)
+        return True
     elif sys.platform == 'darwin':
         args = [
             '-e', 'tell application "Finder"',
@@ -1066,6 +1077,8 @@ def show_in_file_explorer(path: str) -> bool:
             '-e', 'return',
         ]
         QProcess.execute('/usr/bin/osascript', args)
+        return True
+    return False
 
 
 def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
@@ -1098,7 +1111,9 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
     ]
     from .password_dialog import ChangePasswordDialog, PasswordAction
     from .wallet_wizard import PASSWORD_NEW_TEXT
-    d = ChangePasswordDialog(parent, PASSWORD_NEW_TEXT, _("Create New Wallet"), fields,
+    # NOTE(typing) The signature matches for `fields` but the type checker gives a false positive.
+    d = ChangePasswordDialog(parent, PASSWORD_NEW_TEXT, _("Create New Wallet"),
+        fields, # type: ignore
         kind=PasswordAction.NEW)
     success, _old_password, new_password = d.run()
     if not success or not new_password.strip():
@@ -1179,13 +1194,13 @@ class FormSectionWidget(QWidget):
 
     def add_title(self, title_text: str) -> None:
         label = self.create_title(title_text)
-        self._frame_layout.addWidget(label, Qt.AlignTop)
+        self._frame_layout.addWidget(label, Qt.AlignmentFlag.AlignTop)
 
     def add_title_row(self, title_object: FieldType) -> None:
         if isinstance(title_object, QLayout):
             self._frame_layout.addLayout(title_object)
         else:
-            self._frame_layout.addWidget(title_object, Qt.AlignTop)
+            self._frame_layout.addWidget(title_object, Qt.AlignmentFlag.AlignTop)
 
     def add_row(self, label_text: Union[str, QLabel], field_object: FieldType,
             stretch_field: bool=False) -> QWidget:
@@ -1216,12 +1231,13 @@ class FormSectionWidget(QWidget):
 
         grid_layout = QGridLayout()
         grid_layout.setContentsMargins(0, 0, 0, 0)
-        grid_layout.addWidget(label, 0, 0, Qt.AlignmentFlag(Qt.AlignRight | Qt.AlignTop))
+        grid_layout.addWidget(label, 0, 0,
+            Qt.AlignmentFlag(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop))
         if stretch_field:
             if isinstance(field_object, QLayout):
-                grid_layout.addLayout(field_object, 0, 1, Qt.AlignTop)
+                grid_layout.addLayout(field_object, 0, 1, Qt.AlignmentFlag.AlignTop)
             else:
-                grid_layout.addWidget(field_object, 0, 1, Qt.AlignTop)
+                grid_layout.addWidget(field_object, 0, 1, Qt.AlignmentFlag.AlignTop)
         else:
             field_layout = QHBoxLayout()
             field_layout.setContentsMargins(0, 0, 0, 0)
@@ -1230,12 +1246,12 @@ class FormSectionWidget(QWidget):
             else:
                 field_layout.addWidget(field_object)
             field_layout.addStretch(1)
-            grid_layout.addLayout(field_layout, 0, 1, Qt.AlignTop)
+            grid_layout.addLayout(field_layout, 0, 1, Qt.AlignmentFlag.AlignTop)
         grid_layout.setColumnMinimumWidth(0, self.minimum_label_width)
         grid_layout.setColumnStretch(0, 0)
         grid_layout.setColumnStretch(1, 1)
         grid_layout.setHorizontalSpacing(10)
-        grid_layout.setSizeConstraint(QLayout.SetMinimumSize)
+        grid_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
 
         if self.minimum_label_width != old_minimum_width:
             for layout in self._row_layouts:
@@ -1280,7 +1296,7 @@ class ClickableLabel(QLabel):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def mousePressEvent(self, _event):
         self.clicked.emit()
@@ -1308,7 +1324,8 @@ class AspectRatioPixmapLabel(QLabel):
         return QSize(width, self.heightForWidth(width))
 
     def _scaled_pixmap(self) -> QPixmap:
-        return self._pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        return self._pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         if self._pixmap is not None:

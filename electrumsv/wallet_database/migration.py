@@ -1,11 +1,11 @@
 import json
 import os
 try:
-    # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
+    # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
     import pysqlite3 as sqlite3
 except ModuleNotFoundError:
-    # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
-    # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
+    # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
+    # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore
 from typing import Optional
 

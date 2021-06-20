@@ -40,7 +40,7 @@ from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.platform import platform
-from electrumsv.util import format_time
+from electrumsv.util import format_posix_timestamp, get_posix_timestamp
 from electrumsv.wallet import AbstractAccount
 from electrumsv.wallet_database.types import InvoiceRow
 
@@ -96,11 +96,11 @@ class InvoiceList(MyTreeWidget):
     def _stop_timer(self) -> None:
         if self._timer is None:
             return
+        # logger.debug("_stop_timer")
         self._timer.stop()
         self._timer = None
 
     def _on_timer_event(self) -> None:
-        # logger.debug("_on_timer_event")
         self._stop_timer()
         self.update()
 
@@ -121,7 +121,7 @@ class InvoiceList(MyTreeWidget):
         self.clear()
 
         current_item = None
-        current_time = time.time()
+        current_time = get_posix_timestamp()
         nearest_expiry_time = float("inf")
 
         # TODO Ability to change the invoice list to specify what invoices are shown.
@@ -140,9 +140,9 @@ class InvoiceList(MyTreeWidget):
 
             requestor_uri = urllib.parse.urlparse(row.payment_uri)
             requestor_text = requestor_uri.netloc
-            received_text = format_time(row.date_created, _("Unknown"))
-            expires_text = format_time(row.date_expires, _("Unknown")
-                if row.date_expires else _('Never'))
+            received_text = format_posix_timestamp(row.date_created, _("Unknown"))
+            expires_text = format_posix_timestamp(row.date_expires, _("Unknown")) \
+                if row.date_expires else _('Never')
             description = row.description if row.description is not None else ""
             item = QTreeWidgetItem([received_text, expires_text, requestor_text, description,
                 app_state.format_amount(row.value, whitespaces=True),
@@ -209,7 +209,7 @@ class InvoiceList(MyTreeWidget):
 
         flags = row.flags & PaymentFlag.MASK_STATE
         if flags & PaymentFlag.UNPAID and row.date_expires:
-            if row.date_expires <= time.time() + 4:
+            if row.date_expires <= get_posix_timestamp() + 4:
                 flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
 
         if column_data:

@@ -5,7 +5,7 @@ import unittest
 from electrumsv.i18n import _
 from electrumsv.bitcoin import COINBASE_MATURITY
 from electrumsv.constants import TxFlags
-from electrumsv.util import format_time
+from electrumsv.util import format_posix_timestamp
 from electrumsv.wallet import AbstractAccount
 
 
@@ -91,7 +91,7 @@ class HistoryListTests(unittest.TestCase):
         for status_kind in [ TxStatus.UNCONFIRMED, TxStatus.MISSING ]:
             self.assertEqual(TX_STATUS[status_kind], get_tx_desc(status_kind, 1))
         # Otherwise the timestamp should be used.
-        time_string = format_time(1, "...")
+        time_string = format_posix_timestamp(1, "...")
         self.assertNotEqual("...", time_string)
         self.assertEqual(time_string, get_tx_desc(TxStatus.FINAL, 1))
         self.assertEqual(_("unknown"), get_tx_desc(TxStatus.FINAL, False))

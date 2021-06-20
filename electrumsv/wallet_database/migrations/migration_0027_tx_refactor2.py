@@ -1,14 +1,13 @@
 from collections import defaultdict
 import json
 try:
-    # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
+    # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
     # NOTE(typing) pylance complains about a missing import.
     import pysqlite3 as sqlite3 # type: ignore
 except ModuleNotFoundError:
-    # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
-    # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
+    # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
+    # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore
-import time
 from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple
 
 from bitcoinx import hash_to_hex_str, P2PKH_Address, P2SH_Address, PublicKey
@@ -26,6 +25,7 @@ from ...logs import logs
 from ...networks import Net
 from ...transaction import Transaction
 from ...types import TxoKeyType
+from ...util import get_posix_timestamp
 from ...util.misc import ProgressCallbacks
 
 from ..storage_migration import (AccountRow1, convert_masterkey_derivation_data1,
@@ -117,7 +117,7 @@ SINGLESIG_SCRIPT_TYPES = (ScriptType.P2PK, ScriptType.P2PKH)
 MIGRATION = 27
 
 def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
-    date_updated = int(time.time())
+    date_updated = get_posix_timestamp()
 
     callbacks.progress(0, _("Reading existing data"))
     ## Cache all the data we need in order to create key instances and tx deltas.
@@ -754,6 +754,6 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
 
     callbacks.progress(100, _("Rechecking work done"))
 
-    date_updated = int(time.time())
+    date_updated = get_posix_timestamp()
     conn.execute("UPDATE WalletData SET value=?, date_updated=? WHERE key=?",
         [json.dumps(MIGRATION),date_updated,"migration"])

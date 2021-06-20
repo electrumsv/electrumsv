@@ -24,20 +24,20 @@
 # SOFTWARE.
 
 import json
-import time
 from typing import Any, List, Optional, Dict, TYPE_CHECKING, Union
 import urllib.parse
 
-from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
 from bitcoinx import Script
 import certifi
 import requests
 
+from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
 from .exceptions import Bip270Exception
 from .i18n import _
 from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
 from .transaction import XTxOutput
+from .util import get_posix_timestamp
 from .wallet_database.types import PaymentRequestRow
 
 
@@ -66,7 +66,7 @@ ca_path = certifi.where()
 # https://github.com/moneybutton/bips/blob/master/bip-0270.mediawiki
 
 def has_expired(expiration_timestamp: Optional[int]=None) -> bool:
-    return expiration_timestamp is not None and expiration_timestamp < int(time.time())
+    return expiration_timestamp is not None and expiration_timestamp < get_posix_timestamp()
 
 
 class Output:
@@ -128,8 +128,9 @@ class PaymentRequest:
 
     error: Optional[str] = None
 
-    def __init__(self, outputs, creation_timestamp=None, expiration_timestamp=None, memo=None,
-                 payment_url=None, merchant_data=None):
+    def __init__(self, outputs, creation_timestamp: Optional[int]=None,
+            expiration_timestamp: Optional[int]=None, memo: Optional[str]=None,
+            payment_url: Optional[str]=None, merchant_data=None):
         # This is only used if there is a requestor identity (old openalias, needs rewrite).
         self._id: Optional[int] = None
         self.tx = None
@@ -139,7 +140,7 @@ class PaymentRequest:
         if creation_timestamp is not None:
             creation_timestamp = int(creation_timestamp)
         else:
-            creation_timestamp = int(time.time())
+            creation_timestamp = get_posix_timestamp()
         self.creation_timestamp = creation_timestamp
         if expiration_timestamp is not None:
             expiration_timestamp = int(expiration_timestamp)
@@ -218,7 +219,8 @@ class PaymentRequest:
         return pr
 
     def to_json(self) -> str:
-        d = {}
+        # TODO: This should be a TypedDict.
+        d: Dict = {}
         d['network'] = self.network
         d['outputs'] = [output.to_dict() for output in self.outputs]  # type: ignore
         d['creationTimestamp'] = self.creation_timestamp

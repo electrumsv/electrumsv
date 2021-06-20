@@ -40,7 +40,7 @@ from ...i18n import _
 from ...logs import logs
 from ...paymentrequest import PaymentRequest
 from ...platform import platform
-from ...util import format_time
+from ...util import format_posix_timestamp, get_posix_timestamp
 from ...wallet import AbstractAccount
 from ...web import create_URI
 
@@ -117,8 +117,6 @@ class RequestList(MyTreeWidget):
         The updating of the list should if necessary restart a timer for the new nearest expiry
         time, if there is one.
         """
-        # self._logger.debug("_on_timer_event")
-
         event_time = self._timer_event_time
         self._stop_timer()
         if event_time == 0:
@@ -130,7 +128,6 @@ class RequestList(MyTreeWidget):
             self.update()
 
     def _on_item_double_clicked(self, item) -> None:
-        self._logger.debug("request_list._on_item_double_clicked")
         if item is None:
             return
         if not item.isSelected():
@@ -146,7 +143,7 @@ class RequestList(MyTreeWidget):
         if self._account_id is None:
             return
 
-        current_time = time.time()
+        current_time = get_posix_timestamp()
         nearest_expiry_time = float('inf')
 
         wallet = self._account._wallet
@@ -157,7 +154,7 @@ class RequestList(MyTreeWidget):
         self.clear()
         for row in rows:
             flags = row.state & PaymentFlag.MASK_STATE
-            date = format_time(row.date_created, _("Unknown"))
+            date = format_posix_timestamp(row.date_created, _("Unknown"))
             amount_str = app_state.format_amount(row.value, whitespaces=True) if row.value else ""
 
             # TODO(ScriptTypeAssumption) see above for context

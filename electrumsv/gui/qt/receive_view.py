@@ -11,7 +11,7 @@ from ...constants import KeyInstanceFlag, PaymentFlag, RECEIVING_SUBPATH
 from ...i18n import _
 from ...logs import logs
 from ...wallet_database.types import KeyDataTypes, PaymentRequestRow
-from ...wallet_database.util import get_timestamp
+from ...util import get_posix_timestamp
 
 from .amountedit import AmountEdit, BTCAmountEdit
 from .constants import EXPIRATION_VALUES
@@ -196,7 +196,7 @@ class ReceiveView(QWidget):
 
         # Update the payment request next.
         row = PaymentRequestRow(-1, keyinstance_id, PaymentFlag.UNPAID, amount, expiration, message,
-            get_timestamp())
+            get_posix_timestamp())
         wallet = self._account.get_wallet()
         future = wallet.create_payment_requests(self._account.get_id(), [ row ])
         future.add_done_callback(callback)

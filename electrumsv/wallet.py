@@ -37,7 +37,6 @@ import json
 import os
 import random
 import threading
-import time
 from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence,
     Set, Tuple, TypeVar, TYPE_CHECKING, Union)
 import weakref
@@ -83,8 +82,8 @@ from .types import (ElectrumXHistoryList, IndefiniteCredentialId, KeyInstanceDat
     SubscriptionKey,
     SubscriptionOwner, SubscriptionKeyScriptHashOwnerContext,
     SubscriptionTransactionScriptHashOwnerContext, TxoKeyType, WaitingUpdateCallback)
-from .util import (format_satoshis, get_wallet_name_from_path, timestamp_to_datetime,
-    TriggeredCallbacks)
+from .util import (format_satoshis, get_posix_timestamp, get_wallet_name_from_path,
+    posix_timestamp_to_datetime, TriggeredCallbacks)
 from .util.cache import LRUCache
 from .wallet_database.exceptions import KeyInstanceNotFoundError
 from .wallet_database import functions as db_functions
@@ -540,15 +539,15 @@ class AbstractAccount:
     def get_balance(self) -> WalletBalance:
         return self._wallet.read_account_balance(self._id, self._wallet.get_local_height())
 
-    def maybe_set_transaction_cleared(self, tx_hash: bytes) -> bool:
+    def maybe_set_transaction_state(self, tx_hash: bytes, flags: TxFlags,
+            ignore_mask: Optional[TxFlags]=None) -> bool:
         """
-        We should only ever mark a transaction as cleared if it hasn't already been broadcast.
+        We should only ever mark a transaction as a state if it it isn't already in a related
+        state.
         """
-        future = self._wallet.set_transaction_state(tx_hash, TxFlags.STATE_CLEARED,
-                TxFlags.MASK_STATE_BROADCAST)
+        future = self._wallet.set_transaction_state(tx_hash, flags, ignore_mask)
         if future.result():
-            self._wallet.trigger_callback('transaction_state_change', self._id, tx_hash,
-                TxFlags.STATE_CLEARED)
+            self._wallet.trigger_callback('transaction_state_change', self._id, tx_hash, flags)
             return True
         return False
 
@@ -662,7 +661,7 @@ class AbstractAccount:
             _sort_key, history_line, balance = entry.sort_key, entry.row, entry.balance
             assert history_line.block_height is not None
             try:
-                timestamp = timestamp_to_datetime(header_at_height(chain,
+                timestamp = posix_timestamp_to_datetime(header_at_height(chain,
                                 history_line.block_height).timestamp)
             except MissingHeader:
                 if history_line.block_height > BlockHeight.MEMPOOL:
@@ -671,7 +670,7 @@ class AbstractAccount:
                     assert history_line.block_height <= server_height, \
                         "inconsistent blockchain data"
                     backfill_headers([history_line.block_height])
-                    timestamp = timestamp_to_datetime(header_at_height(chain,
+                    timestamp = posix_timestamp_to_datetime(header_at_height(chain,
                                     history_line.block_height).timestamp)
                 else:
                     timestamp = datetime.now()
@@ -2027,7 +2026,7 @@ class Wallet(TriggeredCallbacks):
 
         self.create_wallet_events([
             WalletEventRow(0, WalletEventType.SEED_BACKUP_REMINDER, account_row.account_id,
-                WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, int(time.time()))
+                WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, get_posix_timestamp())
         ])
 
         if self._network is not None:
@@ -3049,7 +3048,7 @@ class Wallet(TriggeredCallbacks):
         that the caller is passing in legitimate data
         """
         assert tx.is_complete()
-        timestamp = int(time.time()) # TODO(no-merge)
+        timestamp = get_posix_timestamp()
         txo_flags = TransactionOutputFlag.IS_COINBASE if tx.is_coinbase() else \
             TransactionOutputFlag.NONE
 
@@ -3110,8 +3109,10 @@ class Wallet(TriggeredCallbacks):
         # specific change.
         self.trigger_callback('transaction_added', tx_hash, tx, link_state, import_flags)
 
-        return cast("ASync", app_state.async_).spawn(self._check_payment_request_for_key_async,
-            tx_hash)
+        # NOTE It is kind of arbitrary that this returns a future, let alone the one for closed
+        #   payment requests. In the future, perhaps this will return a grouped set of futures
+        #   for all the related dependent updates?
+        return cast("ASync", app_state.async_).spawn(self._close_paid_payment_requests)
 
     async def link_transaction_async(self, tx_hash: bytes, link_state: TransactionLinkState) \
             -> None:
@@ -3126,7 +3127,7 @@ class Wallet(TriggeredCallbacks):
 
         self.trigger_callback('transaction_link_result', tx_hash, link_state)
 
-    async def _check_payment_request_for_key_async(self, tx_hash: bytes) -> Tuple[int, int]:
+    async def _close_paid_payment_requests(self) -> Tuple[Set[int], List[Tuple[int, int, int]]]:
         """
         Apply paid status to any payment requests and keys satisfied by this transaction.
 
@@ -3135,11 +3136,22 @@ class Wallet(TriggeredCallbacks):
         keys. It will mark those as `PAID` and it will remove the flag on the keys that
         identifies them as used in a payment request.
         """
-        requests_closed, keys_unflagged = await db_functions.update_payment_request_states_async(
+        paymentrequest_ids, key_update_rows = await db_functions.close_paid_payment_requests_async(
             self.get_db_context())
-        if requests_closed:
+
+        # Notify any dependent systems including the GUI that payment requests have updated.
+        if len(paymentrequest_ids):
             self.trigger_callback("payment_requests_paid")
-        return requests_closed, keys_unflagged
+
+        # Unsubscribe from any deactivated keys.
+        account_keyinstance_ids: Dict[int, List[int]] = defaultdict(list)
+        for account_id, keyinstance_id, flags in key_update_rows:
+            if flags & KeyInstanceFlag.IS_ACTIVE:
+                account_keyinstance_ids[account_id].append(keyinstance_id)
+        for account_id, keyinstance_ids in account_keyinstance_ids.items():
+            self._accounts[account_id].delete_key_subscriptions(keyinstance_ids)
+
+        return paymentrequest_ids, key_update_rows
 
     # Called by network.
     async def add_transaction_proof(self, tx_hash: bytes, block_height: int, header: Header,

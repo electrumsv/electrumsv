@@ -190,6 +190,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.network_status_signal.connect(self._update_network_status)
         self.notify_transactions_signal.connect(self._notify_transactions)
         self.show_secured_data_signal.connect(self._on_show_secured_data)
+        self.transaction_state_signal.connect(self._on_transaction_state_change_signal)
         self.history_view.setFocus()
 
         # Link wallet synchronisation to throttled UI updates.
@@ -318,7 +319,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _on_transaction_state_change(self, event_name: str, account_id: int, tx_hash: bytes,
             new_state: TxFlags) -> None:
-        self.update_history_view()
         self.transaction_state_signal.emit(account_id, tx_hash, new_state)
 
     # Map the wallet event to a Qt UI signal.
@@ -1378,7 +1378,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # Not all transactions that are broadcast are in the account. Arbitrary transaction
             # broadcast is supported.
             if result == tx.txid() and account and self._wallet.have_transaction(tx_hash):
-                account.maybe_set_transaction_cleared(tx_hash)
+                account.maybe_set_transaction_state(tx_hash, TxFlags.STATE_CLEARED,
+                    TxFlags.MASK_STATE_BROADCAST)
             update_cb(False, _("Done."))
             return result
 
@@ -2113,6 +2114,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if bad:
             self.show_critical(_("The following entries could not be imported") +
                                ':\n'+ '\n'.join(bad))
+        self.update_history_view()
+
+    def _on_transaction_state_change_signal(self, account_id: int, tx_hash: bytes,
+            new_state: TxFlags) -> None:
         self.update_history_view()
 
     def update_history_view(self) -> None:

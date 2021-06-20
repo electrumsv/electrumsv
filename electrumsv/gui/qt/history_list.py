@@ -25,12 +25,11 @@
 
 import enum
 from functools import partial
-import time
-from typing import cast, List, Optional, Sequence, TYPE_CHECKING
+from typing import cast, Optional, Sequence, TYPE_CHECKING
 import weakref
 import webbrowser
 
-from bitcoinx import hash_to_hex_str, MissingHeader
+from bitcoinx import hash_to_hex_str, Headers, MissingHeader
 
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QBrush, QIcon, QColor, QFont
@@ -43,7 +42,8 @@ from ...i18n import _
 from ...logs import logs
 from ...paymentrequest import has_expired
 from ...platform import platform
-from ...util import timestamp_to_datetime, profiler, format_time
+from ...util import format_posix_timestamp, get_posix_timestamp, posix_timestamp_to_datetime, \
+    profiler
 from ...wallet import AbstractAccount
 from ...wallet_database.exceptions import TransactionRemovalError
 from ... import web
@@ -61,23 +61,28 @@ logger = logs.get_logger("history-list")
 
 class TxStatus(enum.IntEnum):
     MISSING = 0
-    LOCAL = 1
-    UNCONFIRMED = 2
-    UNVERIFIED = 3
-    UNMATURED = 4
-    FINAL = 5
+    SIGNED = 1
+    DISPATCHED = 2
+    RECEIVED = 3
+    UNCONFIRMED = 4
+    UNVERIFIED = 5
+    UNMATURED = 6
+    FINAL = 7
 
-TX_ICONS: List[Optional[str]] = [
-    "icons8-question-mark-96.png",      # Missing.
-    None,                               # Local.
-    "icons8-checkmark-grey-52.png",     # Unconfirmed.
-    "icons8-checkmark-grey-52.png",     # Unverified.
-    "icons8-lock-96.png",               # Unmatured.
-    "icons8-checkmark-green-52.png",    # Confirmed / verified.
-]
+
+TX_ICONS = {
+    TxStatus.MISSING: "icons8-question-mark-96.png",
+    TxStatus.FINAL: "icons8-checkmark-green-52.png",
+    TxStatus.UNCONFIRMED: "icons8-checkmark-grey-52.png",
+    TxStatus.UNMATURED: "icons8-lock-96.png",
+    TxStatus.UNVERIFIED: "icons8-checkmark-grey-52.png",
+}
+
 
 TX_STATUS = {
-    TxStatus.LOCAL: _('Local'),
+    TxStatus.SIGNED: _('Signed'),
+    TxStatus.DISPATCHED: _('Dispatched'),
+    TxStatus.RECEIVED: _('Received'),
     TxStatus.FINAL: _('Confirmed'),
     TxStatus.MISSING: _('Missing'),
     TxStatus.UNCONFIRMED: _('Unconfirmed'),
@@ -185,8 +190,9 @@ class HistoryList(MyTreeWidget):
         local_height = self._wallet.get_local_height()
         server_height = self._main_window.network.get_server_height() if self._main_window.network \
             else 0
-        header_at_height = app_state.headers.header_at_height
-        chain = app_state.headers.longest_chain()
+        headers_obj = cast(Headers, app_state.headers)
+        header_at_height = headers_obj.header_at_height
+        chain = headers_obj.longest_chain()
         missing_header_heights = []
         items = []
         for entry in self._account.get_history(self.get_domain()):
@@ -212,7 +218,8 @@ class HistoryList(MyTreeWidget):
             label = self._account.get_transaction_label(row.tx_hash)
             line = [None, tx_id, status_str, label, v_str, balance_str]
             if fx and fx.show_history():
-                date = timestamp_to_datetime(time.time() if conf <= 0 else timestamp)
+                date = posix_timestamp_to_datetime(
+                    get_posix_timestamp() if conf <= 0 else timestamp)
                 for amount in [row.value_delta, entry.balance]:
                     text = fx.historical_value_str(amount, date)
                     line.append(text)
@@ -382,7 +389,7 @@ class HistoryList(MyTreeWidget):
 
         if flags is not None and flags & TxFlags.MASK_STATE_UNCLEARED != 0:
             if flags & TxFlags.PAYS_INVOICE:
-                broadcast_action = menu.addAction(self._invoice_icon, _("Pay invoice"),
+                broadcast_action = menu.addAction(self.invoiceIcon, _("Pay invoice"),
                     lambda: self._pay_invoice(tx_hash))
 
                 row = self._account._wallet.read_invoice(tx_hash=tx_hash)
@@ -432,8 +439,12 @@ class HistoryList(MyTreeWidget):
 def get_tx_status(account: AbstractAccount, state_flag: TxFlags, height: int,
         position: Optional[int], conf: int) -> TxStatus:
     # TODO `STATE_DISPATCHED`/`STATE_RECEIVED` should be handled differently at some point.
-    if state_flag in { TxFlags.STATE_SIGNED, TxFlags.STATE_RECEIVED, TxFlags.STATE_DISPATCHED }:
-        return TxStatus.LOCAL
+    if state_flag == TxFlags.STATE_SIGNED:
+        return TxStatus.SIGNED
+    elif state_flag == TxFlags.STATE_RECEIVED:
+        return TxStatus.RECEIVED
+    elif state_flag == TxFlags.STATE_DISPATCHED:
+        return TxStatus.DISPATCHED
 
     if position == 0:
         if height + COINBASE_MATURITY > account._wallet.get_local_height():
@@ -447,14 +458,15 @@ def get_tx_status(account: AbstractAccount, state_flag: TxFlags, height: int,
 
 
 def get_tx_desc(status: TxStatus, timestamp: Optional[int]) -> str:
-    if status in [ TxStatus.UNCONFIRMED, TxStatus.MISSING, TxStatus.LOCAL ]:
+    if status in { TxStatus.UNCONFIRMED, TxStatus.MISSING, TxStatus.SIGNED, TxStatus.DISPATCHED,
+            TxStatus.RECEIVED }:
         return TX_STATUS[status]
-    return format_time(timestamp, _("unknown")) if timestamp else _("unknown")
+    return format_posix_timestamp(timestamp, _("unknown")) if timestamp else _("unknown")
 
 
 def get_tx_tooltip(status: TxStatus, conf: int) -> str:
-    if status == TxStatus.LOCAL:
-        return _("This is a local transaction.")
+    if status in { TxStatus.SIGNED, TxStatus.DISPATCHED, TxStatus.RECEIVED }:
+        return _("This is a local signed transaction.")
     text = str(conf) + " confirmation" + ("s" if conf != 1 else "")
     if status == TxStatus.UNMATURED:
         text = text + "\n" + _("This is a mined block reward that is not spendable yet.")
@@ -464,7 +476,7 @@ def get_tx_tooltip(status: TxStatus, conf: int) -> str:
 
 
 def get_tx_icon(status: TxStatus) -> Optional[QIcon]:
-    icon_filename = TX_ICONS[status]
+    icon_filename = TX_ICONS.get(status)
     if icon_filename is None:
         return None
     return read_QIcon(icon_filename)

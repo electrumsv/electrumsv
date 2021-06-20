@@ -11,7 +11,7 @@ from bitcoinx import BitcoinTestnet, hex_str_to_hash
 from typing import List, Union, Dict, Any, Optional, Tuple
 from concurrent.futures.thread import ThreadPoolExecutor
 
-from electrumsv.constants import ScriptType, TransactionOutputFlag
+from electrumsv.constants import ScriptType, TransactionOutputFlag, TxFlags
 from electrumsv.restapi import Fault, good_response
 from electrumsv.wallet import AbstractAccount, Wallet
 from electrumsv.transaction import Transaction
@@ -158,7 +158,8 @@ class MockAccount(AbstractAccount):
         self._id = 1
         self._wallet = wallet
 
-    def maybe_set_transaction_cleared(self, tx_hash):
+    def maybe_set_transaction_state(self, tx_hash: bytes, flags: TxFlags,
+            ignore_mask: Optional[TxFlags]=None) -> bool:
         return True
 
     def dumps(self):

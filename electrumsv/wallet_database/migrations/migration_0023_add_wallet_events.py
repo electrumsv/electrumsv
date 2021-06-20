@@ -1,14 +1,14 @@
 import json
 try:
-    # Linux expects the latest package version of 3.34.0 (as of pysqlite-binary 0.4.5)
-    import pysqlite3 as sqlite3
+    # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
+    import pysqlite3 as sqlite3 # type: ignore
 except ModuleNotFoundError:
-    # MacOS has latest brew version of 3.34.0 (as of 2021-01-13).
-    # Windows builds use the official Python 3.9.1 builds and bundled version of 3.33.0.
+    # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
+    # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore
-import time
 
-from electrumsv.constants import WalletEventFlag, WalletEventType
+from ...constants import WalletEventFlag, WalletEventType
+from ...util import get_posix_timestamp
 
 MIGRATION = 23
 
@@ -23,7 +23,7 @@ def execute(conn: sqlite3.Connection) -> None:
         "FOREIGN KEY(account_id) REFERENCES Accounts (account_id)"
     ")")
 
-    date_updated = int(time.time())
+    date_updated = get_posix_timestamp()
     conn.execute("UPDATE WalletData SET value=?, date_updated=? WHERE key=?",
         [json.dumps(MIGRATION),date_updated,"migration"])
 
