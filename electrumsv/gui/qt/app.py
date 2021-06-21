@@ -43,7 +43,6 @@ from electrumsv.contacts import ContactEntry, ContactIdentity
 from electrumsv.i18n import _, set_language
 from electrumsv.logs import logs
 from electrumsv.wallet import AbstractAccount, Wallet
-from electrumsv.wallet_database.types import WalletEventRow
 
 from . import dialogs, network_dialog
 from .cosigner_pool import CosignerPool
@@ -69,7 +68,7 @@ class OpenFileEventFilter(QObject):
         self.windows = windows
 
     def eventFilter(self, obj, event):
-        if event.type() == QtCore.QEvent.FileOpen:
+        if event.type() == QtCore.QEvent.Type.FileOpen:
             if len(self.windows) >= 1:
                 self.windows[0].pay_to_URI(event.url().toString())
                 return True
@@ -103,12 +102,12 @@ class SVApplication(QApplication):
     contact_removed_signal = pyqtSignal(object)
     identity_added_signal = pyqtSignal(object, object)
     identity_removed_signal = pyqtSignal(object, object)
-    new_notification = pyqtSignal(object, object)
 
     def __init__(self, argv):
-        QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_X11InitThreads)
+        QtCore.QCoreApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_X11InitThreads)
         if hasattr(QtCore.Qt, "AA_ShareOpenGLContexts"):
-            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
+            QtCore.QCoreApplication.setAttribute(
+                QtCore.Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
         if hasattr(QGuiApplication, 'setDesktopFileName'):
             QGuiApplication.setDesktopFileName('electrum-sv.desktop')
         super().__init__(argv)
@@ -278,9 +277,6 @@ class SVApplication(QApplication):
 
     def _on_contact_removed(self, contact: ContactEntry) -> None:
         self.contact_removed_signal.emit(contact)
-
-    def on_new_wallet_event(self, wallet_path: str, row: WalletEventRow) -> None:
-        self.new_notification.emit(wallet_path, row)
 
     def get_wallets(self) -> Iterable[Wallet]:
         return [ window._wallet for window in self.windows ]

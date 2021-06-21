@@ -2017,15 +2017,19 @@ class Wallet(TriggeredCallbacks):
         self.register_account(account_row.account_id, account)
         return account
 
-    def _create_account_from_data(self, account_row: AccountRow,
-            flags: AccountInstantiationFlags) -> AbstractAccount:
+    def _create_account_from_data(self, account_row: AccountRow, flags: AccountInstantiationFlags) \
+            -> AbstractAccount:
         account = self._instantiate_account(account_row, flags)
-        self.trigger_callback("on_account_created", account_row.account_id)
 
-        self.create_wallet_events([
+        # NOTE(wallet-event-race-condition) For now we block creating this as we want the
+        #   main window to be able to find it present, to display on new account creation.
+        future = self.create_wallet_events([
             WalletEventRow(0, WalletEventType.SEED_BACKUP_REMINDER, account_row.account_id,
                 WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, get_posix_timestamp())
         ])
+        future.result()
+
+        self.trigger_callback("on_account_created", account_row.account_id)
 
         if self._network is not None:
             account.start(self._network)
@@ -2418,21 +2422,21 @@ class Wallet(TriggeredCallbacks):
 
     # Wallet events.
 
-    def create_wallet_events(self,  entries: List[WalletEventRow]) -> List[WalletEventRow]:
+    def create_wallet_events(self,  entries: List[WalletEventRow]) -> concurrent.futures.Future:
         next_id = self._storage.get("next_wallet_event_id", 1)
         rows = []
         for entry in entries:
             rows.append(entry._replace(event_id=next_id))
             next_id += 1
-        db_functions.create_wallet_events(self.get_db_context(), rows)
+        future = db_functions.create_wallet_events(self.get_db_context(), rows)
         self._storage.put("next_wallet_event_id", next_id)
-        for row in rows:
-            app_state.app.on_new_wallet_event(self.get_storage_path(), row)
-        return rows
+        self.trigger_callback('notifications_created', self.get_storage_path(), rows)
+        return future
 
-    def read_wallet_events(self, mask: WalletEventFlag=WalletEventFlag.NONE) \
-            -> List[WalletEventRow]:
-        return db_functions.read_wallet_events(self.get_db_context(), mask=mask)
+    def read_wallet_events(self, account_id: Optional[int]=None,
+            mask: WalletEventFlag=WalletEventFlag.NONE) -> List[WalletEventRow]:
+        return db_functions.read_wallet_events(self.get_db_context(), account_id=account_id,
+            mask=mask)
 
     def update_wallet_event_flags(self,
             entries: Iterable[Tuple[WalletEventFlag, int]]) -> concurrent.futures.Future:

@@ -255,7 +255,7 @@ class ReceiveDialog(QDialog):
             #   be made, unless we emit a signal to do it.
             def ui_callback() -> None:
                 self.close()
-            self._main_window.ui_callback_signal.emit(ui_callback)
+            self._main_window.ui_callback_signal.emit(ui_callback, ())
 
         wallet = self._account.get_wallet()
         i = self._expires_combo.currentIndex()

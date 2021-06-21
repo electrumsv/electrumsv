@@ -116,6 +116,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     account_change_signal = pyqtSignal(int, object)
     keys_updated_signal = pyqtSignal(object, object)
     keys_created_signal = pyqtSignal(object, object)
+    notifications_created_signal = pyqtSignal(object, object)
     transaction_state_signal = pyqtSignal(object, object, object)
     transaction_added_signal = pyqtSignal(object, object, object)
     transaction_deleted_signal = pyqtSignal(object, object)
@@ -126,7 +127,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     wallet_setting_changed_signal = pyqtSignal(str, object)
     # This signal should only be emitted to. It is just used to dispatch callback execution in
     # the UI thread, without having to do a signal per callback.
-    ui_callback_signal = pyqtSignal(object)
+    ui_callback_signal = pyqtSignal(object, object)
 
     def __init__(self, wallet: Wallet):
         QMainWindow.__init__(self)
@@ -195,7 +196,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.notify_transactions_signal.connect(self._notify_transactions)
         self.show_secured_data_signal.connect(self._on_show_secured_data)
         self.transaction_labels_updated_signal.connect(self._on_transaction_labels_updated_signal)
-        self.transaction_state_signal.connect(self._on_transaction_state_change_signal)
+        self.transaction_state_signal.connect(self._on_transaction_state_change)
         self.ui_callback_signal.connect(self._on_ui_callback_to_dispatch)
         self.history_view.setFocus()
 
@@ -229,17 +230,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         #   to ensure that they are happening in the UI thread.
         self._wallet.register_callback(self._on_account_created, ['on_account_created'])
         self._wallet.register_callback(self._on_wallet_setting_changed, ['on_setting_changed'])
-        self._wallet.register_callback(self._on_keys_updated, ['on_keys_updated'])
-        self._wallet.register_callback(self._on_keys_created, ['on_keys_created'])
-        self._wallet.register_callback(self._on_transaction_heights_updated,
-            ['transaction_heights_updated'])
-        self._wallet.register_callback(self._on_transaction_state_change,
-            ['transaction_state_change'])
+        self._wallet.register_callback(self._dispatch_in_ui_thread, ['on_keys_updated'])
+        self._wallet.register_callback(self._dispatch_in_ui_thread, ['on_keys_created'])
+        self._wallet.register_callback(self._dispatch_in_ui_thread, ['notifications_created'])
+        self._wallet.register_callback(self._dispatch_in_ui_thread, ['transaction_heights_updated'])
+        self._wallet.register_callback(self._dispatch_in_ui_thread, ['transaction_state_change'])
         self._wallet.register_callback(self._on_transaction_added, ['transaction_added'])
         self._wallet.register_callback(self._on_transaction_deleted, ['transaction_deleted'])
         self._wallet.register_callback(self._on_transaction_verified, ['transaction_verified'])
-        self._wallet.register_callback(self._on_transaction_labels_updated,
-            ['transaction_labels_updated'])
+        self._wallet.register_callback(self._dispatch_in_ui_thread, ['transaction_labels_updated'])
         self._wallet.register_callback(self._on_payment_requests_paid, ['payment_requests_paid'])
 
         self.load_wallet()
@@ -329,15 +328,25 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._update_add_account_button(setting_value)
         self.wallet_setting_changed_signal.emit(setting_name, setting_value)
 
-    def _on_transaction_heights_updated(self, event_name: str, account_id: int,
+    def _on_transaction_heights_updated(self, account_id: int,
             entries: List[TransactionBlockRow]) -> None:
-        def ui_callback() -> None:
-            self.utxo_list.update()
-        self.ui_callback_signal.emit(ui_callback)
+        self.utxo_list.update()
 
-    def _on_transaction_state_change(self, event_name: str, account_id: int, tx_hash: bytes,
-            new_state: TxFlags) -> None:
-        self.transaction_state_signal.emit(account_id, tx_hash, new_state)
+    def _dispatch_in_ui_thread(self, event_name, *args: Any) -> None:
+        if event_name == "notifications_created":
+            self.notifications_created_signal.emit(*args)
+        elif event_name == "on_keys_created":
+            self.keys_created_signal.emit(*args)
+        elif event_name == "on_keys_updated":
+            self.keys_updated_signal.emit(*args)
+        elif event_name == "transaction_heights_updated":
+            self.ui_callback_signal.emit(self._on_transaction_heights_updated, args)
+        elif event_name == "transaction_labels_updated":
+            self.transaction_labels_updated_signal.emit(*args)
+        elif event_name == "transaction_state_change":
+            self.transaction_state_signal.emit(*args)
+        else:
+            raise NotImplementedError(f"Event '{event_name}' not recognised")
 
     # Map the wallet event to a Qt UI signal.
     def _on_transaction_added(self, event_name: str, tx_hash: bytes, tx: Transaction,
@@ -410,9 +419,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._reset_receive_tab()
         self._receive_view.update_contents()
 
-        # We must show this in order to warn the user to back up their secured data. At this time
-        # we only have one notification, and that is it. If it's there the user should deal with
-        # it.
+        # NOTE(wallet-event-race-condition) For now we block creating the rows before the account
+        #   is created, in order to be sure that when we look here they will be present.
         if not self.notifications_tab.is_empty():
             self.toggle_tab(self.notifications_tab, True, to_front=True)
 
@@ -428,15 +436,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._add_account_action.setToolTip("Accounts are limited to one at this time.")
         else:
             self._add_account_action.setToolTip("Experimental multiple account creation enabled.")
-
-    def _on_keys_created(self, event_name: str, account_id: int,
-            keyinstance_ids: Iterable[int]) -> None:
-        self.keys_created_signal.emit(account_id, keyinstance_ids)
-
-    def _on_keys_updated(self, event_name: str, account_id: int,
-            keyinstance_ids: Iterable[int]) -> None:
-        # logger.debug("_on_keys_updated %r", keys)
-        self.keys_updated_signal.emit(account_id, keyinstance_ids)
 
     def _on_show_secured_data(self, account_id: int) -> None:
         self._accounts_view._view_secured_data(main_window=self, account_id=account_id)
@@ -1485,7 +1484,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self.utxo_list.update()
                 send_view = self.get_send_view(account.get_id())
                 send_view.update_fee()
-            self.ui_callback_signal.emit(ui_callback)
+            self.ui_callback_signal.emit(ui_callback, ())
 
         # Attempt to make the change.
         future = account.get_wallet().update_transaction_output_flags(
@@ -2151,15 +2150,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _on_ui_callback_to_dispatch(self, callback: Callable[[], None]) -> None:
         callback()
 
-    def _on_transaction_labels_updated(self, event_name: str,
-            update_entries: List[Tuple[Optional[str], int, bytes]]) -> None:
-        self.transaction_labels_updated_signal.emit(update_entries)
-
     def _on_transaction_labels_updated_signal(self,
             update_entries: List[Tuple[Optional[str], int, bytes]]) -> None:
         self.history_view.update_tx_labels()
 
-    def _on_transaction_state_change_signal(self, account_id: int, tx_hash: bytes,
+    def _on_transaction_state_change(self, account_id: int, tx_hash: bytes,
             new_state: TxFlags) -> None:
         self.update_history_view()
 

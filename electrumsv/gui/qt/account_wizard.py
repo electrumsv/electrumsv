@@ -181,6 +181,15 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
 
         self.setStartId(AccountPage.ADD_ACCOUNT_MENU)
 
+        self.accepted.connect(self._on_accepted)
+        self.rejected.connect(self._on_rejected)
+
+    def _on_accepted(self) -> None:
+        print("ACCOUNT WIZARD ACCEPTED")
+
+    def _on_rejected(self) -> None:
+        print("ACCOUNT WIZARD REJECTED")
+
     # Used by hardware wallets.
     def query_choice(self, msg: str, choices: Iterable[str]) -> Optional[int]:
         return query_choice(self, msg, choices)
@@ -192,7 +201,8 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
     def set_selected_device(self, device: Optional[Tuple[str, DeviceInfo]]) -> None:
         self._selected_device = device
 
-    def get_selected_device(self) -> Optional[Tuple[str, DeviceInfo]]:
+    def get_selected_device(self) -> Tuple[str, DeviceInfo]:
+        assert self._selected_device is not None
         return self._selected_device
 
     def get_main_window(self) -> ElectrumWindow:
@@ -312,7 +322,7 @@ class AddAccountWizardPage(QWizardPage):
 
     # Qt default QWizardPage event when page is entered.
     def on_enter(self) -> None:
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         # Clear the result. This shouldn't be needed except in the case of an unexpected error
         # where the wizard does not exit and the user returns back to this page.
         wizard.set_keystore_result(ResultType.UNKNOWN, None)
@@ -323,7 +333,7 @@ class AddAccountWizardPage(QWizardPage):
         self._restore_button_text = wizard.buttonText(QWizard.NextButton)
 
     def on_leave(self) -> None:
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         next_button = wizard.button(QWizard.NextButton)
         next_button.clicked.disconnect(self._event_click_next_button)
         wizard.setButtonText(QWizard.NextButton, self._restore_button_text)
@@ -340,7 +350,7 @@ class AddAccountWizardPage(QWizardPage):
             if next_page_id != AccountPage.NONE:
                 return True
             # In the case we manually accept for a no-page option, check we have the result.
-            wizard: AccountWizard = self.wizard()
+            wizard = cast(AccountWizard, self.wizard())
             if wizard.has_result():
                 return True
         return False
@@ -353,7 +363,7 @@ class AddAccountWizardPage(QWizardPage):
         return AccountPage.NONE
 
     def _event_selection_changed(self) -> None:
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         items = self._option_list.selectedItems()
         if len(items) > 0:
             entry = items[0].data(Qt.ItemDataRole.UserRole)
@@ -391,7 +401,7 @@ class AddAccountWizardPage(QWizardPage):
             self.wizard().next()
 
     def _create_new_account(self) -> None:
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         wallet_storage = wizard.get_main_window()._wallet.get_storage()
         password = request_password(self, wallet_storage)
         if password is None:
@@ -622,7 +632,7 @@ class ImportWalletTextPage(QWizardPage):
             if len(matches) > 1:
                 matches.clear()
 
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         for match_type, button in self._get_buttons(wizard):
             if len(matches) == 1 and match_type in matches:
                 self._checked_match_type = match_type
@@ -714,7 +724,7 @@ class ImportWalletTextPage(QWizardPage):
         assert self.isComplete()
         self._next_page_id = AccountPage.IMPORT_ACCOUNT_TEXT_CUSTOM
 
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         wizard.next()
 
     # Qt method called to determine if 'Next' or 'Finish' should be enabled or disabled.
@@ -727,7 +737,7 @@ class ImportWalletTextPage(QWizardPage):
         # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         assert self.isComplete()
 
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         if self._next_page_id == AccountPage.UNKNOWN:
             # Create the account with no customisation
             if not self._create_account(main_window=wizard._main_window):
@@ -745,7 +755,7 @@ class ImportWalletTextPage(QWizardPage):
 
     def on_enter(self) -> None:
         self._next_page_id = AccountPage.UNKNOWN
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
 
         button = wizard.button(QWizard.CustomButton1)
         button.setText(_("&Customize"))
@@ -765,7 +775,7 @@ class ImportWalletTextPage(QWizardPage):
     @protected
     def _create_account(self, main_window: Optional[ElectrumWindow]=None,
             password: Optional[str]=None) -> bool:
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         assert self._checked_match_type is not None
         entries = self._matches[self._checked_match_type]
         if self._checked_match_type in (KeystoreTextType.ADDRESSES, KeystoreTextType.PRIVATE_KEYS):
@@ -833,7 +843,7 @@ class ImportWalletTextCustomPage(QWizardPage):
         # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         assert self.isComplete()
 
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         if not self._create_account(main_window=wizard._main_window):
             return False
         return True
@@ -843,7 +853,7 @@ class ImportWalletTextCustomPage(QWizardPage):
         return -1
 
     def on_enter(self) -> None:
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
 
         self._text_type = wizard.get_text_import_type()
         self._text_matches = wizard.get_text_import_matches()
@@ -887,7 +897,7 @@ class ImportWalletTextCustomPage(QWizardPage):
         _keystore = instantiate_keystore_from_text(self._text_type,
             self._text_matches,
             password, derivation_text, passphrase, watch_only)
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         wizard.set_keystore_result(ResultType.IMPORTED, _keystore)
         return True
 
@@ -914,7 +924,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
 
     # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
     def validatePage(self) -> bool:
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         wizard.set_selected_device(self._selected_device)
         return True
 
@@ -1142,7 +1152,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
 
     # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
     def validatePage(self) -> bool:
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         if self._create_account(main_window=wizard._main_window):
             return True
         return False
@@ -1178,7 +1188,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         self.completeChanged.emit()
 
     def _display_setup_success_results(self) -> None:
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         name, device_info = wizard.get_selected_device()
 
         wallet_type = "standard"
@@ -1277,7 +1287,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         self._plugin = None
         self._plugin_debug_message = None
 
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         name, device_info = wizard.get_selected_device()
         self._plugin = app_state.device_manager.get_plugin(name)
         try:
@@ -1306,7 +1316,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
     def _create_account(self, main_window: Optional[ElectrumWindow]=None,
             password: Optional[str]=None) -> bool:
         # The derivation path is valid, proceed to create the account.
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         name, device_info = wizard.get_selected_device()
 
         assert self._derivation_user is not None
@@ -1537,7 +1547,7 @@ class CreateMultisigAccountPage(QWizardPage):
         assert self.isComplete()
         self._next_page_id = AccountPage.CREATE_MULTISIG_ACCOUNT_CUSTOM
 
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         wizard.next()
 
 
@@ -1641,7 +1651,7 @@ class MultisigAccountCosignerListPage(QWizardPage):
             assert state.keystore is not None, f"Expected complete keystore {state.cosigner_index}"
             keystore.add_cosigner_keystore(state.keystore)
 
-        wizard: AccountWizard = self.wizard()
+        wizard = cast(AccountWizard, self.wizard())
         wizard.set_keystore_result(ResultType.MULTISIG, keystore)
         return True
 

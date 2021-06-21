@@ -342,7 +342,6 @@ class TestLegacyWalletCreation:
 
         keypairs = {'02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997':
             'KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6'}
-        mock_app_state.app.on_new_wallet_event.assert_called_once()
         check_legacy_parent_of_imported_privkey_wallet(wallet, keypairs=keypairs,
             password='password')
 
@@ -358,7 +357,6 @@ class TestLegacyWalletCreation:
             ScriptType.NONE,
             { "15hETetDmcXm1mM4sEf7U2KXC9hDHFMSzz", "1GPHVTY8UD9my6jyP4tb2TYJwUbDetyNC6" },
             "password")
-        mock_app_state.app.on_new_wallet_event.assert_called_once()
         check_legacy_parent_of_imported_address_wallet(wallet)
 
     @unittest.mock.patch('electrumsv.wallet.app_state')
