@@ -191,8 +191,10 @@ class ReceiveView(QWidget):
                 return
             # Raise any exception if it errored or get the result if completed successfully.
             future.result()
-            # NOTE(typing) pylance does not recognise `emit` on signals.
-            self._request_list.update_signal.emit() # type: ignore
+
+            # NOTE This callback will be happening in the database thread. No UI calls should
+            #   be made, unless we emit a signal to do it.
+            self._request_list.update_signal.emit()
 
         # Update the payment request next.
         row = PaymentRequestRow(-1, keyinstance_id, PaymentFlag.UNPAID, amount, expiration, message,

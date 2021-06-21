@@ -35,6 +35,7 @@ from bitcoinx import hash_to_hex_str
 from ...app_state import app_state
 from ...constants import TransactionOutputFlag
 from ...i18n import _
+from ...logs import logs
 from ...platform import platform
 from ...types import TxoKeyType
 from ...util import profiler
@@ -43,6 +44,9 @@ from ...wallet_database.types import TransactionOutputSpendableRow2
 
 from .main_window import ElectrumWindow
 from .util import SortableTreeWidgetItem, MyTreeWidget, ColorScheme
+
+
+logger = logs.get_logger("utxo-list")
 
 
 class UTXOList(MyTreeWidget):
@@ -85,7 +89,8 @@ class UTXOList(MyTreeWidget):
         prev_selection = self.get_selected() # cache previous selection, if any
         self.clear()
 
-        utxo_rows = self._account.get_spendable_transaction_outputs_extended()
+        utxo_rows = self._account.get_spendable_transaction_outputs_extended(
+            confirmed_only=False, mature=False, exclude_frozen=False)
         tx_hashes = set(utxo_row.tx_hash for utxo_row in utxo_rows)
         tx_labels: Dict[bytes, str] = {}
         if len(tx_hashes):

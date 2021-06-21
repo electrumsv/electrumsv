@@ -74,8 +74,8 @@ from ...util import (format_fee_satoshis, get_update_check_dates,
     get_identified_release_signers, get_wallet_name_from_path, profiler)
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, Wallet
-from ...wallet_database.types import (InvoiceRow, KeyDataTypes, TransactionLinkState,
-    TransactionOutputSpendableTypes)
+from ...wallet_database.types import (InvoiceRow, KeyDataTypes, TransactionBlockRow,
+    TransactionLinkState, TransactionOutputSpendableTypes)
 from ... import web
 
 from .amountedit import AmountEdit, BTCAmountEdit
@@ -124,6 +124,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     payment_requests_paid_signal = pyqtSignal()
     show_secured_data_signal = pyqtSignal(object)
     wallet_setting_changed_signal = pyqtSignal(str, object)
+    # This signal should only be emitted to. It is just used to dispatch callback execution in
+    # the UI thread, without having to do a signal per callback.
+    ui_callback_signal = pyqtSignal(object)
 
     def __init__(self, wallet: Wallet):
         QMainWindow.__init__(self)
@@ -193,6 +196,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.show_secured_data_signal.connect(self._on_show_secured_data)
         self.transaction_labels_updated_signal.connect(self._on_transaction_labels_updated_signal)
         self.transaction_state_signal.connect(self._on_transaction_state_change_signal)
+        self.ui_callback_signal.connect(self._on_ui_callback_to_dispatch)
         self.history_view.setFocus()
 
         # Link wallet synchronisation to throttled UI updates.
@@ -221,10 +225,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
             self.new_fx_history_signal.connect(self._on_ui_historical_exchange_rates)
 
+        # NOTE(ui-thread) These callbacks should actually all be routed through signals, in order
+        #   to ensure that they are happening in the UI thread.
         self._wallet.register_callback(self._on_account_created, ['on_account_created'])
         self._wallet.register_callback(self._on_wallet_setting_changed, ['on_setting_changed'])
         self._wallet.register_callback(self._on_keys_updated, ['on_keys_updated'])
         self._wallet.register_callback(self._on_keys_created, ['on_keys_created'])
+        self._wallet.register_callback(self._on_transaction_heights_updated,
+            ['transaction_heights_updated'])
         self._wallet.register_callback(self._on_transaction_state_change,
             ['transaction_state_change'])
         self._wallet.register_callback(self._on_transaction_added, ['transaction_added'])
@@ -320,6 +328,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if setting_name == WalletSettings.MULTIPLE_ACCOUNTS:
             self._update_add_account_button(setting_value)
         self.wallet_setting_changed_signal.emit(setting_name, setting_value)
+
+    def _on_transaction_heights_updated(self, event_name: str, account_id: int,
+            entries: List[TransactionBlockRow]) -> None:
+        def ui_callback() -> None:
+            self.utxo_list.update()
+        self.ui_callback_signal.emit(ui_callback)
 
     def _on_transaction_state_change(self, event_name: str, account_id: int, tx_hash: bytes,
             new_state: TxFlags) -> None:
@@ -1445,7 +1459,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         send_view.set_payment_request_data(out)
 
     def set_frozen_coin_state(self, account: AbstractAccount, txo_keys: List[TxoKeyType],
-            freeze: bool) -> None:
+            freeze: bool) -> concurrent.futures.Future:
         """
         Encapsulate the blocking action of freezing or unfreezing coins.
 
@@ -1454,17 +1468,31 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         data that is involved in ongoing actions like this), and using a signal to wake it up
         in a callback from whatever does the work.
         """
+        def callback(future: concurrent.futures.Future) -> None:
+            # Skip if the operation was cancelled.
+            if future.cancelled():
+                return
+            # Raise any exception if it errored or get the result if completed successfully.
+            future.result()
+
+            # Apply the visual effects of coins being frozen or unfrozen.
+            if self.key_view:
+                self.key_view.update_frozen_transaction_outputs(txo_keys, freeze)
+
+            # NOTE This callback will be happening in the database thread. No UI calls should
+            #   be made within it, unless we explicitly emit a signal to do it.
+            def ui_callback() -> None:
+                self.utxo_list.update()
+                send_view = self.get_send_view(account.get_id())
+                send_view.update_fee()
+            self.ui_callback_signal.emit(ui_callback)
+
         # Attempt to make the change.
         future = account.get_wallet().update_transaction_output_flags(
             txo_keys, TransactionOutputFlag.IS_FROZEN)
-        future.result()
+        future.add_done_callback(callback)
 
-        # Apply the visual effects of coins being frozen or unfrozen.
-        if self.key_view:
-            self.key_view.update_frozen_transaction_outputs(txo_keys, freeze)
-        self.utxo_list.update()
-        send_view = self.get_send_view(account.get_id())
-        send_view.update_fee()
+        return future
 
     def create_coinsplitting_tab(self) -> QWidget:
         from .coinsplitting_tab import CoinSplittingTab
@@ -2119,6 +2147,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_critical(_("The following entries could not be imported") +
                                ':\n'+ '\n'.join(bad))
         self.update_history_view()
+
+    def _on_ui_callback_to_dispatch(self, callback: Callable[[], None]) -> None:
+        callback()
 
     def _on_transaction_labels_updated(self, event_name: str,
             update_entries: List[Tuple[Optional[str], int, bytes]]) -> None:

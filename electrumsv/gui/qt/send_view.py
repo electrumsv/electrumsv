@@ -656,6 +656,8 @@ class SendView(QWidget):
                 # Raise any exception encountered.
                 future.result()
 
+                # NOTE This callback will be happening in the database thread. No UI calls should
+                #   be made, unless we emit a signal to do it.
                 row = wallet.read_invoice(payment_uri=pr.get_payment_uri())
                 pr.set_id(row.invoice_id)
                 self.payment_request_imported_signal.emit(row)

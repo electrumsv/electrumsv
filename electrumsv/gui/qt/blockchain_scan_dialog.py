@@ -25,9 +25,11 @@ from ...wallet import Wallet
 from ...wallet_database.types import TransactionLinkState
 from ...web import BE_URL
 
-if TYPE_CHECKING:
-    from .main_window import ElectrumWindow
 from .util import FormSectionWidget, read_QIcon, WindowModalDialog
+
+if TYPE_CHECKING:
+    from .app import SVApplication
+    from .main_window import ElectrumWindow
 
 
 logger = logs.get_logger("scanner-ui")
@@ -330,7 +332,8 @@ class BlockchainScanDialog(WindowModalDialog):
                 # is not tied to the lifetime of this process, so we cannot cancel it should the
                 # user use the cancel UI. We could extend the wallet to attempt this, but it is not
                 # within the scope of the intitial feature set.
-                future = app_state.async_.spawn(self._wallet.maybe_obtain_transactions_async,
+                future = cast("SVApplication", app_state.app).run_coro(
+                    self._wallet.maybe_obtain_transactions_async,
                     missing_tx_hashes, missing_tx_heights, missing_tx_fee_hints,
                     TransactionImportFlag.PROMPTED)
                 future.add_done_callback(self._on_import_obtain_transactions_started)
@@ -412,6 +415,9 @@ class BlockchainScanDialog(WindowModalDialog):
         This will return which out of the transactions we asked it to import were not already
         present, and will go through the missing transaction obtaining process and automatically
         import those transactions into the matching accounts (not just the selected account).
+
+        As the work that was completed was run through `SVApplication.run_coro` this is
+        guaranteed to be called in the UI thread.
         """
         if future.cancelled():
             return
@@ -420,9 +426,6 @@ class BlockchainScanDialog(WindowModalDialog):
         self._import_fetch_hashes = set(future.result())
         self._import_fetch_steps = len(self._import_fetch_hashes)
 
-        # This is a UI function being called in a callback following completion of a future.
-        # It must be called in a UI thread, and in this case we know that future callbacks
-        # happen in UI threads.
         total_work_units, _remaining_work_units = self._get_import_work_units()
         self._on_scanner_range_extended(total_work_units)
 

@@ -249,6 +249,9 @@ class InvoiceList(MyTreeWidget):
                 return
             # Raise any exception if it errored or get the result if completed successfully.
             future.result()
+
+            # NOTE This callback will be happening in the database thread. No UI calls should
+            #   be made, unless we emit a signal to do it.
             self._send_view.payment_request_deleted_signal.emit(invoice_id)
 
         future = self._send_view._account._wallet.delete_invoices([ (invoice_id,) ])

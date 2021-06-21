@@ -1029,11 +1029,13 @@ class AbstractAccount:
             update_count = future.result()
             self._logger.debug("maybe_obtain_proofs_async: updated %d of %d entries",
                 update_count, len(entries))
-            # Notify the network loop that if it has blocked waiting for more work to do
-            # requesting proofs and transactions, otherwise it will block indefinitely waiting
-            # to be told.
             if update_count:
+                # Notify the network loop that if it has blocked waiting for more work to do
+                # requesting proofs and transactions, otherwise it will block indefinitely waiting
+                # to be told.
                 self._wallet.txs_changed_event.set()
+                # Updating the height needs to happen in related UI.
+                self._wallet.trigger_callback('transaction_heights_updated', self._id, entries)
 
             # Ensure that all subscriptions to this script hash for our transaction needs are
             # removed and cleaned up.

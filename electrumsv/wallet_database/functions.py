@@ -1167,17 +1167,15 @@ def read_unverified_transactions(db: sqlite3.Connection, local_height: int) \
     that it is correct for our local blockchain headers, we get a batch of transactions that
     need to be verified and settled for the caller.
     """
-    # NOTE This implicitly excludes `flags&TxFlags.MASK_UNLINKED` rows as it only looks at rows
-    #     with `TxFlags.STATE_CLEARED`.
     sql = (
         "SELECT tx_hash, block_height "
         "FROM Transactions "
-        f"WHERE flags={TxFlags.STATE_CLEARED} AND block_height>{BlockHeight.MEMPOOL} "
-            "AND block_height<=? AND proof_data IS NULL "
+        "WHERE (flags&?)=? AND block_height>? AND block_height<=? AND proof_data IS NULL "
         "ORDER BY date_created "
         "LIMIT 200"
     )
-    cursor = db.execute(sql, (local_height,))
+    cursor = db.execute(sql, (TxFlags.MASK_STATE|TxFlags.MASK_UNLINKED, TxFlags.STATE_CLEARED,
+        BlockHeight.MEMPOOL, local_height))
     results = list(cursor.fetchall())
     cursor.close()
     return results

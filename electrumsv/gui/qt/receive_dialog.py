@@ -250,7 +250,12 @@ class ReceiveDialog(QDialog):
                 return
             # Raise any exception if it errored or get the result if completed successfully.
             future.result()
-            self.close()
+
+            # NOTE This callback will be happening in the database thread. No UI calls should
+            #   be made, unless we emit a signal to do it.
+            def ui_callback() -> None:
+                self.close()
+            self._main_window.ui_callback_signal.emit(ui_callback)
 
         wallet = self._account.get_wallet()
         i = self._expires_combo.currentIndex()
