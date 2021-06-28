@@ -174,25 +174,26 @@ class InvoiceList(MyTreeWidget):
             [ (text, invoice_id) ])
         future.result()
 
-    def import_invoices(self, account: AbstractAccount) -> None:
-        try:
-            wallet_folder = self.config.get_preferred_wallet_dirpath()
-        except FileNotFoundError as e:
-            self._main_window.show_error(str(e))
-            return
+    # TODO(invoice-import) What format are these imported files? No idea.
+    #   This imported some json files directly into an invoice store.
+    #   https://github.com/electrumsv/electrumsv/blob/sv-1.2.5/electrumsv/paymentrequest.py#L523
+    # def import_invoices(self, account: AbstractAccount) -> None:
+    #     try:
+    #         wallet_folder = self.config.get_preferred_wallet_dirpath()
+    #     except FileNotFoundError as e:
+    #         self._main_window.show_error(str(e))
+    #         return
 
-        filename, __ = QFileDialog.getOpenFileName(self._main_window.reference(),
-            _("Select your wallet file"), wallet_folder)
-        if not filename:
-            return
+    #     filename, __ = QFileDialog.getOpenFileName(self._main_window.reference(),
+    #         _("Select your wallet file"), wallet_folder)
+    #     if not filename:
+    #         return
 
-        # TODO(no-merge) There is no invoices service any more. I am not sure this code ever
-        #   existed with the creation of the invoices service.
-        try:
-            account.invoices.import_file(filename)
-        except FileImportFailed as e:
-            self._main_window.show_message(str(e))
-        self.on_update()
+    #     try:
+    #         account.invoices.import_file(filename)
+    #     except FileImportFailed as e:
+    #         self._main_window.show_message(str(e))
+    #     self.on_update()
 
     def create_menu(self, position: QPoint) -> None:
         menu = QMenu()

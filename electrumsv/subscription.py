@@ -32,6 +32,7 @@ from typing import cast, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from bitcoinx import hash_to_hex_str
 
+from .app_state import app_state, DefaultApp
 from .constants import SubscriptionType
 from .exceptions import SubscriptionStale
 from .logs import logs
@@ -73,7 +74,6 @@ class SubscriptionManager:
             SubscriptionOwnerContextType] = {}
         self._owner_callbacks: Dict[SubscriptionOwner, ScriptHashResultCallback] = {}
 
-        from .app_state import app_state
         async_ = cast("ASync", app_state.async_)
         self._script_hash_notification_queue = async_.queue()
         self._script_hash_notification_future = async_.spawn(self._process_scripthash_notifications)
@@ -176,10 +176,9 @@ class SubscriptionManager:
                     # This should not block and will spawn a task to do the notification.
                     self.check_notify_script_hash_history(entry.key, owner)
             if self._script_hashes_added_callback is not None and len(script_hash_entries):
-                from .app_state import app_state
-                # TODO(no-merge) This used to be spawn and wait but was changed to spawn to not
-                #   block the caller. Is this acceptable behaviour?
-                app_state.app.run_coro(self._script_hashes_added_callback,
+                # NOTE(no-merge) This used to be spawn and wait but was changed to spawn to not
+                #   block the caller.
+                cast("DefaultApp", app_state.app).run_coro(self._script_hashes_added_callback,
                     script_hash_entries)
 
     def read_script_hashes(self) -> List[ScriptHashSubscriptionEntry]:
@@ -213,13 +212,11 @@ class SubscriptionManager:
                     else:
                         raise NotImplementedError(f"{entry.key.value_type} not supported")
             if self._script_hashes_removed_callback is not None and len(script_hash_entries):
-                from .app_state import app_state
-                # TODO(no-merge) This used to be spawn and wait but was changed to spawn to not
-                #   block the caller. Is this acceptable behaviour? In this case, the caller would
-                #   sometimes be the network thread and it would block it indefinitely, so we did
-                #   not have an option.
-                future = app_state.app.run_coro(self._script_hashes_removed_callback,
-                    script_hash_entries)
+                # TODO This used to be spawn and wait but was changed to `spawn`/`run_coro` to not
+                #   block the caller where the caller would sometimes be the network thread and
+                #   it would block it indefinitely.
+                future = cast(DefaultApp, app_state.app).run_coro(
+                    self._script_hashes_removed_callback, script_hash_entries)
         return future
 
     async def on_script_hash_history(self, subscription_id: int, script_hash: bytes,
@@ -263,7 +260,6 @@ class SubscriptionManager:
             except SubscriptionStale:
                 logger.debug("Removing a stale subscription for %s/%s", subscription_key,
                     owner)
-                # TODO(no-merge) This needs to be unit tested.
                 self.delete_entries([ SubscriptionEntry(subscription_key, context) ],
                     owner)
             except Exception:
@@ -280,7 +276,6 @@ class SubscriptionManager:
         if callback is None:
             return
 
-        from .app_state import app_state
-        app_state.app.run_coro(self._notify_script_hash_history,
+        cast(DefaultApp, app_state.app).run_coro(self._notify_script_hash_history,
             subscription_key, owner, callback, result)
 

@@ -53,8 +53,6 @@ SEED_PREFIX      = '01'      # Standard wallet
 TOKEN_PASSWORD = "631a0b30bf8ee0f4e33e915954c8ee8ffac32d77af5e89302a4ee7dd3ecd99da"
 
 
-# TODO(no-merge) Go through and work out where REMOVED and CONFLICTING need to be used to filter
-#    out transactions.
 # TODO Add an UNRELATED flag? used for external transactions that have been added
 #    to the database. I do not believe that we add these transactions at this time, they are
 #    instead ephemeral.
@@ -133,13 +131,11 @@ class AccountTxFlags(IntFlag):
     # transaction that has the same set of ordered inputs.
     REPLACED = 1 << 10
     # This transaction has been manually removed from the account by the user.
-    # TODO(no-merge) Implement?
     DELETED = 1 << 11
 
     # This transaction is part of paying an invoice.
     PAYS_INVOICE = 1 << 30
 
-    # TODO(no-merge) Ensure this is observed where it should be.
     # This transaction should be ignored from being included in the account balance.
     IRRELEVANT_MASK = REPLACED | DELETED
 
@@ -222,6 +218,8 @@ class KeyInstanceFlag(IntFlag):
     ## These are the secondary reason flags that may be set in addition to `USED`.
     IS_PAYMENT_REQUEST = 1 << 9
     IS_INVOICE = 1 << 10
+
+    FROZEN = 1 << 15
 
     MASK_RESERVATION = IS_PAYMENT_REQUEST | IS_INVOICE
     MASK_ACTIVE_REASON = MASK_RESERVATION | USER_SET_ACTIVE

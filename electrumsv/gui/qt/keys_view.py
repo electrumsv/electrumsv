@@ -28,6 +28,9 @@
 #     requires perhaps using an item delegate and overriding the paint method to shift the icon
 #     into the center.
 
+# TODO(rt12): Key uses appear as per-usage not per-key. An example of this is where an address
+#   is reused, where there won't be one entry for the address, but one for each use of the address.
+
 import enum
 from functools import partial
 import threading
@@ -40,7 +43,7 @@ from bitcoinx import Address, bip32_build_chain_string, hash_to_hex_str
 
 from PyQt5.QtCore import (QAbstractItemModel, QModelIndex, QVariant, Qt, QSortFilterProxyModel,
     QTimer)
-from PyQt5.QtGui import QFont, QFontMetrics, QKeySequence
+from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QKeySequence
 from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 
 from ...i18n import _
@@ -70,12 +73,12 @@ if TYPE_CHECKING:
 QT_SORT_ROLE = Qt.ItemDataRole.UserRole+1
 QT_FILTER_ROLE = Qt.ItemDataRole.UserRole+2
 
-COLUMN_NAMES = [ _("Type"), _("State"), _('Key'), _('Script'), _('Label'), _('Balance'), '' ]
+COLUMN_NAMES = [ _("State"), _('Key'), _('Script'), _('Address'), _('Label'), _('Balance'), '' ]
 
-TYPE_COLUMN = 0
-STATE_COLUMN = 1
-KEY_COLUMN = 2
-SCRIPT_COLUMN = 3
+STATE_COLUMN = 0
+KEY_COLUMN = 1
+SCRIPT_COLUMN = 2
+ADDRESS_COLUMN = 3
 LABEL_COLUMN = 4
 BALANCE_COLUMN = 5
 FIAT_BALANCE_COLUMN = 6
@@ -103,9 +106,7 @@ class KeyFlags(IntFlag):
     FROZEN = 1 << 16
     INACTIVE = 1 << 17
 
-# TODO(no-merge) This should allow multi-select
-# TODO(no-merge) This should combine key uses instead of having one row per key/txout.
-# TODO(no-merge) Add back in the Uses column.
+
 KeyLine = KeyListRow
 
 
@@ -127,13 +128,13 @@ class _ItemModel(QAbstractItemModel):
     def __init__(self, parent: Any, column_names: List[str]) -> None:
         super().__init__(parent)
 
-        self._view = parent
+        self._view = cast(KeyView, parent)
         self._logger = self._view._logger
 
         self._column_names = column_names
         self._account_id: Optional[int] = None
 
-        self._receive_icon = read_QIcon("icons8-down-arrow-96")
+        self._frozen_icon = read_QIcon("icons8-winter-96-win10")
 
     def set_column_names(self, column_names: List[str]) -> None:
         self._column_names = column_names[:]
@@ -218,13 +219,11 @@ class _ItemModel(QAbstractItemModel):
 
             # First check the custom sort role.
             if role == QT_SORT_ROLE:
-                if column == TYPE_COLUMN:
-                    return line.txo_script_type
-                elif column == STATE_COLUMN:
+                if column == STATE_COLUMN:
                     return line.flags
                 elif column == KEY_COLUMN:
                     return get_key_text(line)
-                elif column == SCRIPT_COLUMN:
+                elif column in (SCRIPT_COLUMN, ADDRESS_COLUMN):
                     if line.txo_script_type is None:
                         return ""
                     return ScriptType(line.txo_script_type).name
@@ -246,14 +245,12 @@ class _ItemModel(QAbstractItemModel):
                     return line
 
             elif role == Qt.ItemDataRole.DecorationRole:
-                if column == TYPE_COLUMN:
-                    # TODO(rt12) BACKLOG Need to add variation in icons.
-                    return self._receive_icon
+                if column == LABEL_COLUMN:
+                    if line.flags & KeyInstanceFlag.FROZEN:
+                        return self._frozen_icon
 
             elif role == Qt.ItemDataRole.DisplayRole:
-                if column == TYPE_COLUMN:
-                    return None
-                elif column == STATE_COLUMN:
+                if column == STATE_COLUMN:
                     state_text = ""
                     if line.flags & KeyInstanceFlag.IS_ACTIVE:
                         state_text += "A"
@@ -262,9 +259,11 @@ class _ItemModel(QAbstractItemModel):
                     if line.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
                         state_text += "P"
                     if line.flags & KeyInstanceFlag.USER_SET_ACTIVE:
-                        state_text += "F"
+                        state_text += "U"
                     if line.flags & KeyInstanceFlag.USED:
                         state_text += "X"
+                    if line.flags & KeyInstanceFlag.FROZEN:
+                        state_text += "F"
                     if not len(state_text) and line.flags:
                         state_text = str(line.flags)
                     if state_text:
@@ -275,6 +274,13 @@ class _ItemModel(QAbstractItemModel):
                     if line.txo_script_type is None:
                         return ""
                     return ScriptType(line.txo_script_type).name
+                elif column == ADDRESS_COLUMN:
+                    if line.txo_script_type is None or line.txo_script_type not in \
+                            (ScriptType.MULTISIG_P2SH, ScriptType.P2PKH):
+                        return ""
+                    account = self._view._account
+                    template = account.get_script_template_for_key_data(line, line.txo_script_type)
+                    return template.to_string() # type: ignore
                 elif column == LABEL_COLUMN:
                     return line.description
                 elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
@@ -292,19 +298,18 @@ class _ItemModel(QAbstractItemModel):
                     return self._view._monospace_font
 
             elif role == Qt.ItemDataRole.BackgroundRole:
-                # This does not work because the CSS overrides it.
-                pass
+                # QBrush for background color
+                if line.flags & KeyInstanceFlag.FROZEN:
+                    pass
             elif role == Qt.ItemDataRole.TextAlignmentRole:
-                if column in (TYPE_COLUMN, STATE_COLUMN):
+                if column == STATE_COLUMN:
                     return Qt.AlignmentFlag.AlignCenter
                 elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     return Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
                 return Qt.AlignmentFlag.AlignVCenter
 
             elif role == Qt.ItemDataRole.ToolTipRole:
-                if column == TYPE_COLUMN:
-                    return _("Key")
-                elif column == STATE_COLUMN:
+                if column == STATE_COLUMN:
                     lines = []
                     if line.flags & KeyInstanceFlag.IS_ACTIVE:
                         lines.append(_("A: Activated by wallet"))
@@ -313,9 +318,11 @@ class _ItemModel(QAbstractItemModel):
                     if line.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
                         lines.append(_("P: Payment request related"))
                     if line.flags & KeyInstanceFlag.USER_SET_ACTIVE:
-                        lines.append(_("F: Forced active"))
+                        lines.append(_("U: Forced active by user"))
                     if line.flags & KeyInstanceFlag.USED:
                         lines.append(_("X: Assigned"))
+                    if line.flags & KeyInstanceFlag.FROZEN:
+                        lines.append(_("L: Frozen"))
                     if len(lines):
                         return "\n".join(lines)
                 elif column == KEY_COLUMN:
@@ -451,6 +458,8 @@ class KeyView(QTableView):
         self.verticalHeader().setVisible(False)
         self.setAlternatingRowColors(True)
 
+        self._frozen_brush = QBrush(QColor("powderblue"))
+
         self._pending_state: Dict[int, EventFlags] = {}
         self._pending_actions = { ListActions.RESET }
         self._main_window.keys_created_signal.connect(self._on_keys_created)
@@ -477,7 +486,7 @@ class KeyView(QTableView):
         self.sortByColumn(BALANCE_COLUMN, Qt.SortOrder.DescendingOrder)
         self.setSortingEnabled(True)
 
-        defaultFontMetrics = QFontMetrics(app_state.app.font())
+        defaultFontMetrics = QFontMetrics(self.font())
         def fw(s: str) -> int:
             return defaultFontMetrics.boundingRect(s).width() + 10
 
@@ -490,10 +499,11 @@ class KeyView(QTableView):
         # because ResizeToContents does not scale for thousands of rows.
         horizontalHeader = self.horizontalHeader()
         horizontalHeader.setMinimumSectionSize(20)
-        horizontalHeader.resizeSection(TYPE_COLUMN, fw(COLUMN_NAMES[TYPE_COLUMN]))
         horizontalHeader.resizeSection(STATE_COLUMN, fw(COLUMN_NAMES[STATE_COLUMN]))
-        horizontalHeader.resizeSection(KEY_COLUMN, fw("1442:01:m/000/1392"))
-        horizontalHeader.resizeSection(SCRIPT_COLUMN, fw("MULTISIG_ACCUMULATOR"))
+        horizontalHeader.resizeSection(KEY_COLUMN, fw("42:1:m/00/92"))
+        horizontalHeader.resizeSection(SCRIPT_COLUMN, fw("MULTISIG"))
+        # horizontalHeader.resizeSection(ADDRESS_COLUMN, mw("P2PKH"))
+        horizontalHeader.setSectionResizeMode(ADDRESS_COLUMN, QHeaderView.Stretch)
         horizontalHeader.setSectionResizeMode(LABEL_COLUMN, QHeaderView.Stretch)
         balance_width = mw(app_state.format_amount(1.2, whitespaces=True))
         horizontalHeader.resizeSection(BALANCE_COLUMN, balance_width)
@@ -538,13 +548,13 @@ class KeyView(QTableView):
     def update_top_button_layout(self, button_layout: Optional[TableTopButtonLayout]) -> None:
         if button_layout is None:
             return
-        button_layout.add_button("icons8-key-win10-plus.svg", self._on_button_clicked_add_key,
-            _("Add keys"))
+        # TODO(key-tab-addition) Need to support adding keys.
+        # button_layout.add_button("icons8-key-win10-plus.svg", self._on_button_clicked_add_key,
+        #     _("Add keys"))
 
     def _on_button_clicked_add_key(self) -> None:
-        # TODO(no-merge) Need to implement this. Different for imported keys and deterministic
-        #   accounts.
-        print("....")
+        # TODO(key-tab-addition) Need to support adding keys.
+        pass
 
     def reset_table(self) -> None:
         with self._update_lock:
@@ -831,7 +841,17 @@ class KeyView(QTableView):
     def _set_user_active(self, keyinstance_ids: Set[int], enable: bool) -> None:
         self._logger.debug("_set_user_active %s %s", keyinstance_ids, enable)
         flags = KeyInstanceFlag.USER_SET_ACTIVE if enable else KeyInstanceFlag.NONE
+        # We do not clear `IS_ACTIVE` as there may be other reasons for activeness, and we rely
+        # on this function to take care of clearing it if they are not present for the key.
         mask = KeyInstanceFlag(~KeyInstanceFlag.USER_SET_ACTIVE)
+        self._account.set_keyinstance_flags(list(keyinstance_ids), flags, mask)
+
+    def _set_key_frozen(self, keyinstance_ids: Set[int], enable: bool) -> None:
+        self._logger.debug("_set_key_frozen %s %s", keyinstance_ids, enable)
+        flags = KeyInstanceFlag.FROZEN if enable else KeyInstanceFlag.NONE
+        # We do not clear `IS_ACTIVE` as there may be other reasons for activeness, and we rely
+        # on this function to take care of clearing it if they are not present for the key.
+        mask = KeyInstanceFlag(~KeyInstanceFlag.FROZEN)
         self._account.set_keyinstance_flags(list(keyinstance_ids), flags, mask)
 
     def _event_double_clicked(self, model_index: QModelIndex) -> None:
@@ -895,10 +915,12 @@ class KeyView(QTableView):
                     column_title = self._headers[menu_column]
                     menu.addAction(_("Edit {}").format(column_title),
                         lambda: self.edit(selected_index))
+                # TODO(no-merge) This needs to be tested/thought out as to relevance. For instance
+                #   do we allow it, but not if there is currently a payment request for it.
                 menu.addAction(_("Request payment"),
                     lambda: self._main_window._receive_view.receive_at_key(line))
                 if self._account.can_export():
-                    # NOTE(typing) `show_private_key` has a password decorator that typing blind to.
+                    # NOTE(typing) typing is blind to the `show_private_key` password decorator.
                     menu.addAction(_("Private key"),
                         lambda: self._main_window.show_private_key(self._account, # type: ignore
                             line, line.txo_script_type))
@@ -907,8 +929,6 @@ class KeyView(QTableView):
                         lambda: self._main_window.sign_verify_message(self._account, line))
                     menu.addAction(_("Encrypt/decrypt message"),
                         lambda: self._main_window.encrypt_message(self._account, line))
-
-                explore_menu = menu.addMenu(_("View on block explorer"))
 
                 addr_URL = script_URL = None
                 if line.txo_script_type != ScriptType.NONE:
@@ -922,6 +942,7 @@ class KeyView(QTableView):
                     scripthash_hex = hash_to_hex_str(scripthash)
                     script_URL = web.BE_URL(self._main_window.config, 'script', scripthash_hex)
 
+                explore_menu = menu.addMenu(_("View on block explorer"))
                 # NOTE(typing) `addAction` does not like a return value for the callback.
                 addr_action = explore_menu.addAction(_("By address"),
                     partial(webbrowser.open, addr_URL)) # type: ignore
@@ -955,26 +976,31 @@ class KeyView(QTableView):
 
             user_active_keyinstance_ids: Set[int] = set()
             non_user_active_keyinstance_ids: Set[int] = set()
+            frozen_keyinstance_ids: Set[int] = set()
+            non_frozen_keyinstance_ids: Set[int] = set()
             for _row, _column, line, _selected_index, _base_index in selected:
                 if (line.flags & KeyInstanceFlag.USER_SET_ACTIVE) == 0:
                     non_user_active_keyinstance_ids.add(line.keyinstance_id)
                 else:
                     user_active_keyinstance_ids.add(line.keyinstance_id)
+                if (line.flags & KeyInstanceFlag.FROZEN) == 0:
+                    non_frozen_keyinstance_ids.add(line.keyinstance_id)
+                else:
+                    frozen_keyinstance_ids.add(line.keyinstance_id)
 
             if len(non_user_active_keyinstance_ids):
-                menu.addAction(_("Force activeness"),
+                menu.addAction(_("Set forced activeness"),
                     partial(self._set_user_active, non_user_active_keyinstance_ids, True))
             if len(user_active_keyinstance_ids):
                 menu.addAction(_("Remove forced activeness"),
                     partial(self._set_user_active, user_active_keyinstance_ids, False))
 
-            # TODO(no-merge) Add option to set/unset frozen flag.
-
-            # freeze = self._main_window.set_frozen_state
-            # if any(self._account.is_frozen_address(addr) for addr in addrs):
-            #     menu.addAction(_("Unfreeze"), partial(freeze, self._account, addrs, False))
-            # if not all(self._account.is_frozen_address(addr) for addr in addrs):
-            #     menu.addAction(_("Freeze"), partial(freeze, self._account, addrs, True))
+            if frozen_keyinstance_ids:
+                menu.addAction(_("Unfreeze"),
+                    partial(self._set_key_frozen, frozen_keyinstance_ids, False))
+            if non_frozen_keyinstance_ids:
+                menu.addAction(_("Freeze"),
+                    partial(self._set_key_frozen, non_frozen_keyinstance_ids, True))
 
             # These are KeyData-based rows, that may contain some limited output data.
             # We need spendable transaction output rows to give to the send tab.

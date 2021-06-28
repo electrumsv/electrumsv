@@ -95,8 +95,9 @@ class AccountsView(QSplitter):
             row = self._account_ids.index(new_account_id)
             self._selection_list.setCurrentRow(row)
 
-        if self._import_invoices_action is not None:
-            self._import_invoices_action.setEnabled(self._main_window.is_send_view_active())
+        # TODO(invoice-import) What format are these imported files? No idea.
+        # if self._import_invoices_action is not None:
+        #     self._import_invoices_action.setEnabled(self._main_window.is_send_view_active())
 
     def _on_current_item_changed(self, item: QListWidgetItem, last_item: QListWidgetItem) -> None:
         account_id = item.data(Qt.ItemDataRole.UserRole)
@@ -225,7 +226,8 @@ class AccountsView(QSplitter):
         invoices_menu = menu.addMenu(_("Invoices"))
         self._import_invoices_action = invoices_menu.addAction(_("Import"),
             partial(self._on_menu_import_invoices, account_id))
-        self._import_invoices_action.setEnabled(main_window.is_send_view_active())
+        self._import_invoices_action.setEnabled(False)
+        # self._import_invoices_action.setEnabled(main_window.is_send_view_active())
 
         payments_menu = menu.addMenu(_("Payments"))
         ed_action = payments_menu.addAction(_("Export destinations"),
@@ -241,8 +243,10 @@ class AccountsView(QSplitter):
         self._main_window.do_export_labels(account_id)
 
     def _on_menu_import_invoices(self, account_id: int) -> None:
-        send_view = self._main_window.get_send_view(account_id)
-        send_view.import_invoices()
+        pass
+    # TODO(invoice-import) What format are these imported files? No idea.
+    #     send_view = self._main_window.get_send_view(account_id)
+    #     send_view.import_invoices()
 
     def _rename_account(self, account_id: int) -> None:
         assert self._current_account_id is not None

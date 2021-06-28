@@ -321,16 +321,22 @@ class AbstractAccount:
         #   request a merkle proof.
         subscription_keyinstance_ids: List[int] = []
         unsubscription_keyinstance_ids: List[int] = []
-        if self._network is not None:
-            for keyinstance in keyinstances:
-                if flags & KeyInstanceFlag.IS_ACTIVE:
-                    if not keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
-                        # Inactive -> active.
-                        subscription_keyinstance_ids.append(keyinstance.keyinstance_id)
-                else:
-                    if keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
-                        # Active -> inactive.
-                        unsubscription_keyinstance_ids.append(keyinstance.keyinstance_id)
+        for keyinstance in keyinstances:
+            if flags & KeyInstanceFlag.IS_ACTIVE:
+                if not keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
+                    # Inactive -> active
+                    subscription_keyinstance_ids.append(keyinstance.keyinstance_id)
+            else:
+                if keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
+                    # Active -> inactive.
+                    unsubscription_keyinstance_ids.append(keyinstance.keyinstance_id)
+                    # We want to clear the `IS_ACTIVE` flag if we are clearing all the set reasons
+                    # for activeness.
+                    if mask is not None:
+                        active_bits = ((~mask) & # pylint: disable=invalid-unary-operand-type
+                            KeyInstanceFlag.MASK_ACTIVE_REASON)
+                        if keyinstance.flags & KeyInstanceFlag.MASK_ACTIVE_REASON == active_bits:
+                            mask &= ~KeyInstanceFlag.IS_ACTIVE
 
         def callback(future: concurrent.futures.Future) -> None:
             # Ensure we abort if it is cancelled.

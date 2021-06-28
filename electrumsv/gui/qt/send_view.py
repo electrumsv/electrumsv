@@ -738,9 +738,10 @@ class SendView(QWidget):
         ])
         self._main_window.show_message(msg, title=_('Pay to many'))
 
-    def import_invoices(self) -> None:
-        assert self._account is not None
-        self._invoice_list.import_invoices(self._account)
+    # TODO(invoice-import) What format are these imported files? No idea.
+    # def import_invoices(self) -> None:
+    #     assert self._account is not None
+    #     self._invoice_list.import_invoices(self._account)
 
     def update_widgets(self) -> None:
         self._invoice_list.update()

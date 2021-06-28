@@ -1503,11 +1503,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             freeze: bool) -> concurrent.futures.Future:
         """
         Encapsulate the blocking action of freezing or unfreezing coins.
-
-        TODO This is called in the UI thread and will block it. A better approach would be
-        to have some generic way of visually blocking the wallet window (or interaction with
-        data that is involved in ongoing actions like this), and using a signal to wake it up
-        in a callback from whatever does the work.
         """
         def callback(future: concurrent.futures.Future) -> None:
             # Skip if the operation was cancelled.
@@ -1525,6 +1520,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             def ui_callback() -> None:
                 self.utxo_list.update()
                 send_view = self.get_send_view(account.get_id())
+                # This will refresh the send view for selected coins.
                 send_view.update_fee()
             self.ui_callback_signal.emit(ui_callback, ())
 
