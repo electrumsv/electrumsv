@@ -80,8 +80,7 @@ class RequestList(MyTreeWidget):
         self.setColumnWidth(0, 180)
         self.hideColumn(1)
 
-        # NOTE(typing) pylance does not recognise `connect` on signals.
-        self.update_signal.connect(self.update) # type: ignore
+        self.update_signal.connect(self.update)
 
         # This is used if there is a pending expiry.
         self._timer: Optional[QTimer] = None
@@ -249,10 +248,7 @@ class RequestList(MyTreeWidget):
         future = wallet.delete_payment_request(self._account_id, request_id, row.keyinstance_id)
         future.result()
 
-        # NOTE(typing) pylance does not recognise `emit` on signals.
-        self.update_signal.emit() # type: ignore
-        # The key may have been freed up and should be used first.
-        # NOTE(rt12) WTF does this even mean? ^
+        self.update_signal.emit()
         self._receive_view.update_contents()
 
     def _view_and_paste(self, title: str, msg: str, data: str) -> None:

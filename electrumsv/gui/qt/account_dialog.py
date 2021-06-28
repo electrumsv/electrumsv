@@ -21,8 +21,8 @@ class AccountDialog(QDialog):
 
     def __init__(self, main_window: ElectrumWindow, wallet: Wallet, account_id: int,
             parent: QWidget) -> None:
-        super().__init__(parent, Qt.WindowType(Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint))
+        super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
         assert type(main_window) is weakref.ProxyType
         self._main_window = main_window
@@ -35,7 +35,7 @@ class AccountDialog(QDialog):
 
         vbox = QVBoxLayout()
         # Ensure the size of the dialog is hard fixed to the space used by the widgets.
-        vbox.setSizeConstraint(QVBoxLayout.SetFixedSize)
+        vbox.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         # The fixed size constraint leaves no way to ensure a minimum width, so we use a spacer.
         vbox.addSpacerItem(QSpacerItem(600, 1))
 
@@ -78,9 +78,9 @@ class AccountDialog(QDialog):
                 view = self._main_window.get_receive_view(account.get_id())
                 view.update_destination()
 
+        update_script_types()
         script_type_combo.currentIndexChanged.connect(on_script_type_change)
 
-        update_script_types()
         # NOTE(warning) We explicitly do not allow accumulator multi-signature because it is an
         # experimental option and requires some form of testing. This is the reason we do not
         # allow changing the script type at this time. If it is enabled for some reason,
@@ -114,7 +114,7 @@ class AccountDialog(QDialog):
                 mpk_text.addCopyButton(self._main_window.app)
                 mpk_text.setText(mpk_list[0])
                 mpk_text.repaint()   # macOS hack for Electrum #4777
-                form.add_row(QLabel(_("Master public key")), mpk_text, True)
+                form.add_row(_("Master public key"), mpk_text, True)
         if add_stretch:
             vbox.addStretch(1)
 

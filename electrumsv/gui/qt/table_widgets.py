@@ -23,11 +23,9 @@ class TableTopButtonLayout(QHBoxLayout):
         self._button_index = 0
 
         self._filter_button: Optional[QToolButton] = None
-        self._filter_box = KeyEventLineEdit(override_events={Qt.Key_Escape})
+        self._filter_box = KeyEventLineEdit(override_events={Qt.Key.Key_Escape})
         # When the focus is in the search box, if the user presses Escape the filtering exits.
-        # NOTE(typing) The checker does not have correct signal handling.
-        self._filter_box.key_event_signal.connect( # type: ignore
-            self._on_search_override_key_press_event)
+        self._filter_box.key_event_signal.connect(self._on_search_override_key_press_event)
         # As text in the search box changes, the filter updates in real time.
         self._filter_box.textChanged.connect(self._on_search_text_changed)
         if not filter_placeholder_text:
@@ -54,7 +52,7 @@ class TableTopButtonLayout(QHBoxLayout):
         button = QToolButton()
         button.setIcon(read_QIcon(icon_name))
         button.setToolTip(tooltip)
-        button.setCursor(QCursor(Qt.PointingHandCursor))
+        button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         button.clicked.connect(on_click)
         return button
 
@@ -91,11 +89,10 @@ class TableTopButtonLayout(QHBoxLayout):
     def _on_search_text_changed(self, text: str) -> None:
         if self._filter_box.isHidden():
             return
-        # NOTE(typing) The checker does not have correct signal handling.
-        self.filter_signal.emit(text) # type: ignore
+        self.filter_signal.emit(text)
 
     def _on_search_override_key_press_event(self, event_key: int) -> None:
-        if event_key == Qt.Key_Escape:
+        if event_key == Qt.Key.Key_Escape:
             self.on_toggle_filter()
 
     # Call externally to toggle the filter.
@@ -112,5 +109,4 @@ class TableTopButtonLayout(QHBoxLayout):
             self._filter_button.setIcon(read_QIcon("icons8-filter-edit-32-windows.png"))
             self._filter_box.setText('')
             self._filter_box.hide()
-            # NOTE(typing) The checker does not have correct signal handling.
-            self.filter_signal.emit('') # type: ignore
+            self.filter_signal.emit('')

@@ -228,7 +228,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         # NOTE(ui-thread) These callbacks should actually all be routed through signals, in order
         #   to ensure that they are happening in the UI thread.
-        self._wallet.register_callback(self._on_account_created, ['on_account_created'])
+        self._wallet.register_callback(self._on_account_created, ['account_created'])
         self._wallet.register_callback(self._on_wallet_setting_changed, ['on_setting_changed'])
         self._wallet.register_callback(self._dispatch_in_ui_thread, ['on_keys_updated'])
         self._wallet.register_callback(self._dispatch_in_ui_thread, ['on_keys_created'])
@@ -328,8 +328,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._update_add_account_button(setting_value)
         self.wallet_setting_changed_signal.emit(setting_name, setting_value)
 
-    def _on_transaction_heights_updated(self, account_id: int,
-            entries: List[TransactionBlockRow]) -> None:
+    def _on_transaction_heights_updated(self, args: Tuple[int, List[TransactionBlockRow]]) -> None:
         self.utxo_list.update()
 
     def _dispatch_in_ui_thread(self, event_name, *args: Any) -> None:
@@ -399,6 +398,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.account_created_signal.emit(new_account_id, account)
         self.set_active_account(account)
 
+        if account.is_deterministic():
+            self.scan_active_account()
+
     def set_active_account(self, account: AbstractAccount) -> None:
         account_id = account.get_id()
         self._account_id = account_id
@@ -419,6 +421,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._reset_receive_tab()
         self._receive_view.update_contents()
 
+        self._update_scan_active_account_button()
+
         # NOTE(wallet-event-race-condition) For now we block creating the rows before the account
         #   is created, in order to be sure that when we look here they will be present.
         if not self.notifications_tab.is_empty():
@@ -436,6 +440,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._add_account_action.setToolTip("Accounts are limited to one at this time.")
         else:
             self._add_account_action.setToolTip("Experimental multiple account creation enabled.")
+
+    def _update_scan_active_account_button(self) -> None:
+        # The scanner only works for deterministic accounts. Accounts that contain individual
+        # imported keys currently have all their keys imported in "user forced active" state and
+        # it should not be necessary for them to scan.
+        if self._account.is_deterministic():
+            self._scan_account_action.setEnabled(True)
+        else:
+            self._scan_account_action.setEnabled(False)
 
     def _on_show_secured_data(self, account_id: int) -> None:
         self._accounts_view._view_secured_data(main_window=self, account_id=account_id)
@@ -795,10 +808,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._add_account_action = QAction(read_QIcon("icons8-add-folder-80.png"),
             _("Add Account"), self)
-        self._add_account_action.triggered.connect(self.add_account)
+        self._add_account_action.triggered.connect(self.show_account_creation_wizard)
         toolbar.addAction(self._add_account_action)
         self._add_account_action.setEnabled(
             self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS))
+
+        self._scan_account_action = QAction(read_QIcon("icons8-blockchain-technology-80-scan.png"),
+            _("Scan Account"), self)
+        self._scan_account_action.triggered.connect(self.scan_active_account)
+        toolbar.addAction(self._scan_account_action)
+        self._scan_account_action.setEnabled(False)
 
         # make_payment_action = QAction(read_QIcon("icons8-initiate-money-transfer-80.png"),
         #     _("Make Payment"), self)
@@ -918,15 +937,36 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._update_check_toolbar_update()
 
-    def add_account(self) -> None:
+    def show_account_creation_wizard(self) -> None:
         from . import account_wizard
         # from importlib import reload
         # reload(account_wizard)
         wizard_window = account_wizard.AccountWizard(self)
         wizard_window.show()
-        # if result != QDialog.Accepted:
-        #     # Clean up?
-        #     return
+
+    def scan_active_account(self) -> None:
+        """
+        Display the blockchain scanning UI for the active account.
+
+        This is displayed in two different circumstances:
+        - The user creates a new account that uses deterministic key derivation.
+        - The user clicks the button in the toolbar.
+        """
+        assert self._account_id is not None
+        assert self._account is not None
+        assert self._account.is_deterministic()
+
+        if not self.has_connected_main_server():
+            self.show_message(_("The wallet is not currently connected to an indexing "
+                "server. As such, the blockchain scanner cannot be used at this time."), self)
+            return
+
+        from . import blockchain_scan_dialog
+        # from importlib import reload # TODO(dev-helper) Remove at some point.
+        # reload(blockchain_scan_dialog)
+        dialog = blockchain_scan_dialog.BlockchainScanDialog(self, self._wallet, self._account_id,
+            blockchain_scan_dialog.ScanDialogRole.MANUAL_RESCAN)
+        dialog.show()
 
     def new_payment(self) -> None:
         from . import payment
@@ -1180,6 +1220,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def show_key(self, account: AbstractAccount, key_data: KeyDataTypes,
             script_type: ScriptType) -> None:
         from . import key_dialog
+        # from importlib import reload
+        # reload(key_dialog)
         d = key_dialog.KeyDialog(self, account.get_id(), key_data, script_type)
         d.exec_()
 
@@ -1512,6 +1554,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 top_button_layout.refresh_signal.connect(self.refresh_wallet_display)
             top_button_layout.filter_signal.connect(list_widget.filter)
             w.on_search_toggled = partial(top_button_layout.on_toggle_filter)
+
         vbox = QVBoxLayout()
         w.setLayout(vbox)
         vbox.setContentsMargins(0, 0, 0, 0)
@@ -1519,6 +1562,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if top_button_layout is not None:
             vbox.addLayout(top_button_layout)
         vbox.addWidget(list_widget)
+
+        if hasattr(list_widget, "update_top_button_layout"):
+            list_widget.update_top_button_layout(top_button_layout)
+
         return w
 
     def create_keys_tab(self):
@@ -1619,10 +1666,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.setStatusBar(self._status_bar)
 
     def set_status_bar_balance(self, shown: bool) -> None:
+        spend_confirmed_only = cast(bool, app_state.config.get('confirmed_only', False))
         if shown:
             balance = 0
             for account in self._wallet.get_accounts():
-                balance += account.get_balance().confirmed
+                account_balance = account.get_balance()
+                if not spend_confirmed_only:
+                    balance += account_balance.unconfirmed
+                balance += account_balance.confirmed
             bsv_status, fiat_status = app_state.get_amount_and_units(balance)
         else:
             bsv_status, fiat_status = _("Unknown"), None
@@ -2147,8 +2198,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                                ':\n'+ '\n'.join(bad))
         self.update_history_view()
 
-    def _on_ui_callback_to_dispatch(self, callback: Callable[[], None]) -> None:
-        callback()
+    def _on_ui_callback_to_dispatch(self, callback: Callable[[Tuple[Any, ...]], None],
+            args: Tuple[Any, ...]) -> None:
+        callback(args)
 
     def _on_transaction_labels_updated_signal(self,
             update_entries: List[Tuple[Optional[str], int, bytes]]) -> None:

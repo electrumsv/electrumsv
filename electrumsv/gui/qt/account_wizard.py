@@ -181,15 +181,6 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
 
         self.setStartId(AccountPage.ADD_ACCOUNT_MENU)
 
-        self.accepted.connect(self._on_accepted)
-        self.rejected.connect(self._on_rejected)
-
-    def _on_accepted(self) -> None:
-        print("ACCOUNT WIZARD ACCEPTED")
-
-    def _on_rejected(self) -> None:
-        print("ACCOUNT WIZARD REJECTED")
-
     # Used by hardware wallets.
     def query_choice(self, msg: str, choices: Iterable[str]) -> Optional[int]:
         return query_choice(self, msg, choices)

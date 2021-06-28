@@ -3,7 +3,7 @@ from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple, 
 from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag, NetworkServerFlag,
     NetworkServerType, PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
     WalletEventType)
-from ..types import MasterKeyDataTypes
+from ..types import DerivationTypeData, MasterKeyDataTypes
 
 
 class AccountRow(NamedTuple):
@@ -308,6 +308,10 @@ KeyDataTypes = Union[
     KeyListRow,                         # Missing `account_id` so does not quite fit
     TransactionOutputSpendableRow,
     TransactionOutputSpendableRow2]
+
+# Types which have the common derivation-related fields.
+#   masterkey_id, derivation_type, derivation_data2
+DerivationTypes = Union[KeyDataTypes, DerivationTypeData]
 
 # Types which have the common output fields.
 TransactionOutputTypes = Union[

@@ -82,8 +82,6 @@ async def test_key_creation(mock_app_state, tmp_storage) -> None:
     account.get_fresh_keys(RECEIVING_SUBPATH, 12)
     assert account.get_next_derivation_index(RECEIVING_SUBPATH) == 12
 
-    assert account._count_unused_keys(RECEIVING_SUBPATH) == 12
-
 
 @pytest.mark.asyncio
 @unittest.mock.patch('electrumsv.wallet.app_state')
@@ -109,8 +107,6 @@ async def test_key_reservation(mock_app_state, tmp_storage) -> None:
 
     account.derive_new_keys_until(RECEIVING_SUBPATH + (0,))
     account.derive_new_keys_until(CHANGE_SUBPATH + (9,))
-    assert account._count_unused_keys(RECEIVING_SUBPATH) == 1
-    assert account._count_unused_keys(CHANGE_SUBPATH) == 10
 
     future = wallet.reserve_keyinstance(account.get_id(), masterkey_row.masterkey_id,
         RECEIVING_SUBPATH)

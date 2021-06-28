@@ -73,7 +73,7 @@ class CoinSplittingTab(QWidget):
         self._main_window.account_change_signal.connect(self._on_account_change)
         self._wallet = main_window._wallet
 
-        self._account: AbstractAccount = None
+        self._account: Optional[AbstractAccount] = None
         self._account_id: Optional[int] = None
 
     def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:

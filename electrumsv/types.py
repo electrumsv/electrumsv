@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any, Callable, Coroutine, Dict, List, NamedTuple, Optional, Tuple, \
     TYPE_CHECKING, TypedDict, Union
 import uuid
@@ -16,6 +17,13 @@ if TYPE_CHECKING:
 
 ElectrumXHistoryEntry = Dict[str, Union[int, str]]
 ElectrumXHistoryList = List[ElectrumXHistoryEntry]
+
+
+@dataclasses.dataclass(frozen=True)
+class DerivationTypeData:
+    masterkey_id: Optional[int]
+    derivation_type: DerivationType
+    derivation_data2: Optional[bytes]
 
 
 class SubscriptionOwner(NamedTuple):
@@ -42,9 +50,16 @@ class SubscriptionScannerScriptHashOwnerContext(NamedTuple):
     value: Any
 
 
-SubscriptionOwnerContextType = Union[SubscriptionKeyScriptHashOwnerContext,
+class SubscriptionDerivationScriptHashOwnerContext(NamedTuple):
+    derivation_type_data: DerivationTypeData
+    script_type: ScriptType
+
+
+SubscriptionOwnerContextType = Union[
+    SubscriptionKeyScriptHashOwnerContext,
     SubscriptionScannerScriptHashOwnerContext,
-    SubscriptionTransactionScriptHashOwnerContext]
+    SubscriptionTransactionScriptHashOwnerContext,
+    SubscriptionDerivationScriptHashOwnerContext]
 
 
 class SubscriptionEntry(NamedTuple):

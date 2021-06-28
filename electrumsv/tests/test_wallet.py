@@ -23,7 +23,8 @@ from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount, M
     Wallet, StandardAccount)
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.exceptions import TransactionRemovalError
-from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, WalletBalance
+from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, TransactionLinkState, \
+    WalletBalance
 
 from .util import setup_async, MockStorage, tear_down_async, TEST_WALLET_PATH
 
@@ -218,7 +219,8 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
     keyinstance_ids: Set[int] = set()
 
     for count in (0, 1, 5):
-        future, new_keyinstances = account.create_keys(RECEIVING_SUBPATH, count)
+        future1, future2, new_keyinstances, new_scripthashes = \
+            account.allocate_and_create_keys(count, RECEIVING_SUBPATH)
         assert count == len(new_keyinstances)
         check_rows(new_keyinstances, account_script_type)
         keyinstance_ids |= set(keyinstance.keyinstance_id for keyinstance in new_keyinstances)
@@ -226,10 +228,10 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
         assert len(keyinstance_ids) == len(keyinstances)
         # Wait for the creation to complete before we look.
         if count > 0:
-            assert future is not None
-            future.result()
+            assert future2 is not None
+            future2.result()
         else:
-            assert future is None
+            assert future2 is None
         # Both the local list and the database result should be in the order they were created.
         assert keyinstances == \
             account.get_existing_fresh_keys(RECEIVING_SUBPATH, 1000), f"failed for {count}"
@@ -243,13 +245,15 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
 
         last_allocation_index = next_index + count - 1
         if count == 0:
-            new_keyinstances = account.derive_new_keys_until(
+            future4, new_keyinstances = account.derive_new_keys_until(
                 RECEIVING_SUBPATH + (last_allocation_index,))
+            assert future4 is None
             assert len(new_keyinstances) == 0
             continue
 
-        new_keyinstances = account.derive_new_keys_until(
+        future3, new_keyinstances = account.derive_new_keys_until(
             RECEIVING_SUBPATH + (last_allocation_index,))
+        future3.result()
         assert count == len(new_keyinstances)
         check_rows(new_keyinstances, account_script_type)
 
@@ -569,6 +573,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
     account_row = wallet.add_accounts([ raw_account_row ])[0]
+    assert account_row.default_masterkey_id is not None
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
 
@@ -598,7 +603,9 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         tx_1 = Transaction.from_hex(tx_hex_1)
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
-        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED)
+        link_state = TransactionLinkState()
+        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED,
+            link_state=link_state)
 
         # Verify the received funds are present.
         tv_rows1 = db_functions.read_transaction_values(db_context, tx_hash_1)
@@ -615,7 +622,9 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         tx_2 = Transaction.from_hex(tx_hex_2)
         tx_hash_2 = tx_2.hash()
         # Add the spending transaction to the database and link it to key usage.
-        await wallet.import_transaction_async(tx_hash_2, tx_2, TxFlags.STATE_SIGNED)
+        link_state = TransactionLinkState()
+        await wallet.import_transaction_async(tx_hash_2, tx_2, TxFlags.STATE_SIGNED,
+            link_state=link_state)
 
         # Verify both the received funds are present.
         tv_rows2 = db_functions.read_transaction_values(db_context, tx_hash_2)

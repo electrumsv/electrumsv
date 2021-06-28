@@ -28,7 +28,7 @@ Transaction subscriptions:
 
 import concurrent.futures
 import threading
-from typing import Dict, List, Optional, Set, Tuple
+from typing import cast, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from bitcoinx import hash_to_hex_str
 
@@ -38,6 +38,9 @@ from .logs import logs
 from .types import (ElectrumXHistoryList, SubscriptionEntry, SubscriptionKey,
     ScriptHashSubscriptionCallback, ScriptHashSubscriptionEntry, ScriptHashResultCallback,
     SubscriptionOwner, SubscriptionOwnerContextType)
+
+if TYPE_CHECKING:
+    from .async_ import ASync
 
 
 logger = logs.get_logger("subscriptions")
@@ -69,6 +72,14 @@ class SubscriptionManager:
         self._owner_subscription_context: Dict[Tuple[SubscriptionOwner, SubscriptionKey],
             SubscriptionOwnerContextType] = {}
         self._owner_callbacks: Dict[SubscriptionOwner, ScriptHashResultCallback] = {}
+
+        from .app_state import app_state
+        async_ = cast("ASync", app_state.async_)
+        self._script_hash_notification_queue = async_.queue()
+        self._script_hash_notification_future = async_.spawn(self._process_scripthash_notifications)
+
+    def stop(self) -> None:
+        self._script_hash_notification_future.cancel()
 
     def set_owner_callback(self, owner: SubscriptionOwner, callback: ScriptHashResultCallback) \
             -> None:
@@ -213,22 +224,38 @@ class SubscriptionManager:
 
     async def on_script_hash_history(self, subscription_id: int, script_hash: bytes,
             result: ElectrumXHistoryList) -> None:
-        subscription_key = SubscriptionKey(SubscriptionType.SCRIPT_HASH, script_hash)
-        existing_subscription_id = self._subscription_ids.get(subscription_key)
-        if existing_subscription_id != subscription_id:
-            logger.error("Mismatched subscription for %s, expected %d got %s",
-                hash_to_hex_str(script_hash), subscription_id, existing_subscription_id)
-            return
+        # One of the problems we had in the past was we would process the script hash history
+        # under the call stack of the network event. Blocking that network event to do so, would
+        # block the processing of many incoming events and result in them timing out (as asyncio
+        # had some kind of timeout when incoming JSON-RPC messages were not processed in a
+        # timely fashion). In order to get around this, we just queue the messages and return to
+        # the network processing ASAP.
+        self._script_hash_notification_queue.put_nowait((subscription_id, script_hash, result))
 
-        self._subscription_results[subscription_key] = result
+    async def _process_scripthash_notifications(self) -> None:
+        subscription_id: int
+        script_hash: bytes
+        result: ElectrumXHistoryList
+        while True:
+            subscription_id, script_hash, result = await self._script_hash_notification_queue.get()
+            subscription_key = SubscriptionKey(SubscriptionType.SCRIPT_HASH, script_hash)
+            existing_subscription_id = self._subscription_ids.get(subscription_key)
+            if existing_subscription_id != subscription_id:
+                logger.error("Mismatched subscription for %s, expected %d got %s",
+                    hash_to_hex_str(script_hash), subscription_id, existing_subscription_id)
+                return
 
-        for owner, callback in list(self._owner_callbacks.items()):
-            await self._notify_script_hash_history(subscription_key, owner, callback, result)
+            self._subscription_results[subscription_key] = result
+
+            for owner, callback in list(self._owner_callbacks.items()):
+                await self._notify_script_hash_history(subscription_key, owner, callback, result)
 
     async def _notify_script_hash_history(self, subscription_key: SubscriptionKey,
             owner: SubscriptionOwner, callback: ScriptHashResultCallback,
             result: ElectrumXHistoryList) -> None:
-        if owner in self._subscriptions[subscription_key]:
+            #
+        if subscription_key in self._subscriptions and \
+                owner in self._subscriptions[subscription_key]:
             # This may modify the contents of the owner context for this subscription.
             context = self._owner_subscription_context[(owner, subscription_key)]
             try:

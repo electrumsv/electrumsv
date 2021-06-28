@@ -9,8 +9,8 @@
 .. |crowdin_badge| image:: https://d322cqt584bo4o.cloudfront.net/electrumsv/localized.svg
     :target: https://crowdin.com/project/electrumsv
     :alt: Help translate ElectrumSV online \
-.. |rtd_badge| image:: https://readthedocs.org/projects/electrumsv/badge/?version=sv-1.3.13
-    :target: https://electrumsv.readthedocs.io/en/sv-1.3.13/?badge=sv-1.3.13
+.. |rtd_badge| image:: https://readthedocs.org/projects/electrumsv/badge/?version=sv-1.4.0
+    :target: https://electrumsv.readthedocs.io/en/sv-1.4.0/?badge=sv-1.4.0
     :alt: Documentation Status
 
 ElectrumSV - Lightweight Bitcoin SV client

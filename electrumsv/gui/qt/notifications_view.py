@@ -195,7 +195,6 @@ class Cards(QWidget):
             self._add_empty_label()
 
     def _on_entry_added_or_removed(self, added: bool, row: Any) -> None:
-        print("NOTIIFCATION ADDED")
         if added:
             self._add_entry(row)
         else:

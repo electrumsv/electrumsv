@@ -58,7 +58,7 @@ class ReceiveDialog(QDialog):
         self.setLayout(self._create_form_layout())
         self._layout_pending = False
 
-        self._update_destination()
+        self.update_destination()
         self._receive_amount_e.setAmount(self._request_row.value)
 
         # TODO(no-merge) Verify that these get disconnected on exit.
@@ -175,10 +175,17 @@ class ReceiveDialog(QDialog):
         return hbox
 
     def update_widgets(self) -> None:
-        # TODO(no-merge) Who calls this and when?
+        # This is currently unused, but is called in the generic `update_tabs` call in the
+        # wallet window code.
         pass
 
-    def _update_destination(self) -> None:
+    def update_destination(self) -> None:
+        """
+        Update the payment destination field.
+
+        This is called both locally, and from the account information dialog when the script type
+        is changed.
+        """
         assert self._key_data is not None
         text = ""
         script_template = self._account.get_script_template_for_key_data(self._key_data,

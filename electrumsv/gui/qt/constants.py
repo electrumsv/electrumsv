@@ -61,33 +61,6 @@ QListView:item:selected {
 f"  background-color: {CSS_TABLE_CELL_FOCUS_COLOR};"
 """
 }
-
-QTableView {
-  outline: 0;
-"""
-f"  alternate-background-color: {CSS_ALTERNATING_BACKGROUND_COLOR};"
-"""
-}
-QTableView:item {
-  color: black;
-  border: 0px;
-}
-QTableView::item:focus {
-  color: black;
-"""
-f"  background-color: {CSS_TABLE_CELL_FOCUS_COLOR};"
-"""
-  border: 0px;
-}
-
-QTreeView {
-"""
-f"  alternate-background-color: {CSS_ALTERNATING_BACKGROUND_COLOR};"
-"""
-}
-QTreeView::item {
-  padding: 0px 0px 0px 4px;
-}
 """)
 
 CSS_STYLES = """

@@ -380,7 +380,7 @@ SINGLE_SIGNER_SCRIPT_TYPES: Sequence[ScriptType] = tuple([
 # an implicit script type depending on the derivation type of the given key, therefore the user
 # has no choice. Addresses are a legacy concept.
 ACCOUNT_SCRIPT_TYPES = {
-    AccountType.IMPORTED_ADDRESS: (),
+    AccountType.IMPORTED_ADDRESS: (ScriptType.P2PKH,),
     AccountType.IMPORTED_PRIVATE_KEY: SINGLE_SIGNER_SCRIPT_TYPES,
     AccountType.MULTISIG: MULTI_SIGNER_SCRIPT_TYPES,
     AccountType.STANDARD: SINGLE_SIGNER_SCRIPT_TYPES,

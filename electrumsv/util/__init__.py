@@ -24,7 +24,7 @@
 
 from collections import defaultdict
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import datetime
 import json
 import hmac
 import os
@@ -458,3 +458,31 @@ class TriggeredCallbacks:
         with self._callback_lock:
             callbacks = self._callbacks[event][:]
         [callback(event, *args) for callback in callbacks]
+
+
+class ValueLocks:
+    def __init__(self) -> None:
+        self._namespace_lock = threading.Lock()
+        self._namespace: Dict[Any, threading.RLock] = {}
+        self._counters: Dict[Any, int] = {}
+
+    def acquire_lock(self, value: Any) -> None:
+        with self._namespace_lock:
+            if value in self._namespace:
+                self._counters[value] += 1
+            else:
+                self._namespace[value] = threading.RLock()
+                self._counters[value] = 1
+
+        self._namespace[value].acquire()
+
+    def release_lock(self, value: Any) -> None:
+        with self._namespace_lock:
+            if self._counters[value] == 1:
+                del self._counters[value]
+                lock = self._namespace.pop(value)
+            else:
+                self._counters[value] -= 1
+                lock = self._namespace[value]
+
+        lock.release()

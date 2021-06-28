@@ -36,9 +36,8 @@ class AccountsView(QSplitter):
         self._main_window = cast(ElectrumWindow, weakref.proxy(main_window))
         self._wallet = wallet
 
-        # NOTE(typing) pylance does not recognise `connect` on signals.
-        self._main_window.account_created_signal.connect(self._on_account_created) # type:ignore
-        self._main_window.account_change_signal.connect(self._on_account_changed) # type:ignore
+        self._main_window.account_created_signal.connect(self._on_account_created)
+        self._main_window.account_change_signal.connect(self._on_account_changed)
 
         # We subclass QListWidget so accounts cannot be deselected.
         class CustomListWidget(QListWidget):
@@ -235,10 +234,6 @@ class AccountsView(QSplitter):
         ed_action.setEnabled(keystore is not None and
             keystore.type() != KeystoreType.IMPORTED_PRIVATE_KEY)
 
-        advanced_menu = menu.addMenu(_("&Advanced"))
-        self._scan_blockchain_action = advanced_menu.addAction(_("&Blockchain scan"),
-            partial(self._on_menu_blockchain_scan, account_id))
-
     def _on_menu_import_labels(self, account_id: int) -> None:
         self._main_window.do_import_labels(account_id)
 
@@ -281,8 +276,8 @@ class AccountsView(QSplitter):
             return
 
         from . import blockchain_scan_dialog
-        from importlib import reload # TODO(dev-helper) Remove at some point.
-        reload(blockchain_scan_dialog)
+        # from importlib import reload # TODO(dev-helper) Remove at some point.
+        # reload(blockchain_scan_dialog)
         dialog = blockchain_scan_dialog.BlockchainScanDialog(self._main_window,
             self._wallet, account_id, blockchain_scan_dialog.ScanDialogRole.MANUAL_RESCAN)
         dialog.exec_()
@@ -391,12 +386,10 @@ class AccountsView(QSplitter):
                 script_template = account.get_script_template_for_key_data(keyinstance, script_type)
                 script_text = script_template_to_string(script_template)
                 private_keys[script_text] = privkey
-                # NOTE(typing) pylance does not recognise `emit` on signals.
-                self.computing_privkeys_signal.emit() # type:ignore
+                self.computing_privkeys_signal.emit()
             if not cancelled:
-                # NOTE(typing) pylance does not recognise `disconnect`/`emit` on signals.
-                self.computing_privkeys_signal.disconnect() # type:ignore
-                self.show_privkeys_signal.emit() # type:ignore
+                self.computing_privkeys_signal.disconnect()
+                self.show_privkeys_signal.emit()
 
         def show_privkeys():
             nonlocal b, done, e
@@ -404,22 +397,19 @@ class AccountsView(QSplitter):
                           for script_text, privkey in private_keys.items())
             e.setText(s)
             b.setEnabled(True)
-            # NOTE(typing) pylance does not recognise `disconnect` on signals.
-            self.show_privkeys_signal.disconnect() # type:ignore
+            self.show_privkeys_signal.disconnect()
             done = True
 
         def on_dialog_closed(*args):
             nonlocal cancelled, done
             if not done:
                 cancelled = True
-                # NOTE(typing) pylance does not recognise `disconnect` on signals.
-                self.computing_privkeys_signal.disconnect() # type:ignore
-                self.show_privkeys_signal.disconnect() # type:ignore
+                self.computing_privkeys_signal.disconnect()
+                self.show_privkeys_signal.disconnect()
 
-        # NOTE(typing) pylance does not recognise `connect` on signals.
-        self.computing_privkeys_signal.connect(lambda: e.setText( # type:ignore
+        self.computing_privkeys_signal.connect(lambda: e.setText(
             "Please wait... %d/%d" % (len(private_keys), len(keyinstances))))
-        self.show_privkeys_signal.connect(show_privkeys) # type:ignore
+        self.show_privkeys_signal.connect(show_privkeys)
         d.finished.connect(on_dialog_closed)
         threading.Thread(target=privkeys_thread).start()
 

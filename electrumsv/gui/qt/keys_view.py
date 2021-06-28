@@ -59,6 +59,7 @@ from ...wallet_database.types import KeyInstanceRow, KeyListRow
 from ... import web
 
 from .main_window import ElectrumWindow
+from .table_widgets import TableTopButtonLayout
 from .util import read_QIcon, get_source_index
 
 
@@ -505,9 +506,10 @@ class KeyView(QTableView):
         verticalHeader.setDefaultSectionSize(lineHeight)
 
         self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         # New selections clear existing selections, unless the user holds down control.
-        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
 
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._event_create_menu)
@@ -532,6 +534,17 @@ class KeyView(QTableView):
 
     def filter(self, text: Optional[str]) -> None:
         self._proxy_model.set_filter_match(text)
+
+    def update_top_button_layout(self, button_layout: Optional[TableTopButtonLayout]) -> None:
+        if button_layout is None:
+            return
+        button_layout.add_button("icons8-key-win10-plus.svg", self._on_button_clicked_add_key,
+            _("Add keys"))
+
+    def _on_button_clicked_add_key(self) -> None:
+        # TODO(no-merge) Need to implement this. Different for imported keys and deterministic
+        #   accounts.
+        print("....")
 
     def reset_table(self) -> None:
         with self._update_lock:
@@ -858,7 +871,7 @@ class KeyView(QTableView):
         selected_indexes = self.selectedIndexes()
         if len(selected_indexes):
             # This is an index on the sort/filter model, translate it to the base model.
-            selected = []
+            selected: List[Tuple[int, int, KeyListRow, QModelIndex, QModelIndex]] = []
             for selected_index in selected_indexes:
                 base_index = get_source_index(selected_index, _ItemModel)
 
@@ -899,6 +912,7 @@ class KeyView(QTableView):
 
                 addr_URL = script_URL = None
                 if line.txo_script_type != ScriptType.NONE:
+                    assert line.txo_script_type is not None
                     script_template = self._account.get_script_template_for_key_data(line,
                         line.txo_script_type)
                     if isinstance(script_template, Address):

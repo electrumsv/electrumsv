@@ -43,8 +43,8 @@ from .util import Buttons, CloseButton, FormSectionWidget
 class SecuredDataDialog(QDialog):
     def __init__(self, main_window: ElectrumWindow, parent: QWidget, keystore: KeyStore,
             password: str) -> None:
-        super().__init__(parent, Qt.WindowType(Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint))
+        super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
         self._main_window = main_window
 
@@ -62,19 +62,30 @@ class SecuredDataDialog(QDialog):
 
             seed_type_text = _("Unknown")
             if keystore.derivation_type == DerivationType.BIP32:
+                seed_type_text = _("BIP32")
+
+                possible_seed_types = []
                 if ElectrumMnemonic.is_valid_new(seed_text, SEED_PREFIX):
-                    seed_type_text = _("Electrum")
+                    possible_seed_types.append(_("Electrum"))
+
                 is_bip39_valid = False
                 try:
                     is_bip39_valid = BIP39Mnemonic.is_valid(seed_text,
                         Wordlists.bip39_wordlist("english.txt"))
                 except (ValueError, BIP39Mnemonic.BadWords):
+                    import traceback
+                    traceback.print_exc()
                     pass
                 else:
                     if is_bip39_valid:
-                        seed_type_text = _("BIP39")
+                        possible_seed_types.append(_("BIP39"))
+
+                if len(possible_seed_types) == 1:
+                    seed_type_text += f" ({possible_seed_types[0]})"
+                else:
+                    seed_type_text += f" (either {' or '.join(possible_seed_types)})"
             elif keystore.derivation_type == DerivationType.ELECTRUM_OLD:
-                seed_type_text = _("Old-style Electrum")
+                seed_type_text = _("BIP32 (Old-style Electrum)")
             form.add_row(_("Seed type"), QLabel(seed_type_text))
 
             seed_edit = ShowQRTextEdit(self)

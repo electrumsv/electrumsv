@@ -524,17 +524,13 @@ class BlockchainScanDialog(WindowModalDialog):
             for result in script_history.history:
                 tx_id = cast(str, result["tx_hash"])
                 tx_hash = hex_str_to_hash(tx_id)
-                block_sort_height = cast(int, result["height"])
-                if block_sort_height == 0:
-                    block_sort_height = MEMPOOL_SORT_HEIGHT
-                elif block_sort_height == -1:
-                    block_sort_height = MEMPOOL_PARENT_SORT_HEIGHT
+                tx_block_height = cast(int, result["height"])
                 fee_hint = cast(Optional[int], result.get("fee"))
 
                 state = self._import_state.get(tx_hash)
                 if state is None:
                     state = self._import_state[tx_hash] = TransactionScanState(tx_id,
-                        { script_hash }, block_sort_height, fee_hint)
+                        { script_hash }, tx_block_height, fee_hint)
                     all_tx_hashes.append(tx_hash)
                 else:
                     state.script_hashes.add(script_hash)
@@ -542,13 +538,21 @@ class BlockchainScanDialog(WindowModalDialog):
                     # it is expected a reorg being encountered during the process is unlikely.
                     # Beyond the differences encountered within the indexer state that is located
                     # in the scan, it is also possible for the state to change after the scan.
-                    state.block_height = max(block_sort_height, state.block_height)
+                    state.block_height = max(tx_block_height, state.block_height)
 
         # The linking of transaction to accounts cannot be done unless the keys exist with their
         # script hashes.
         account = self._wallet.get_account(self._account_id)
+        last_scripthash_future: Optional[concurrent.futures.Future] = None
         for subpath, subpath_index in subpath_indexes.items():
-            account.derive_new_keys_until(tuple(subpath) + (subpath_index,))
+            scripthash_future, keyinstance_rows = account.derive_new_keys_until(
+                tuple(subpath) + (subpath_index,))
+            if scripthash_future is not None:
+                last_scripthash_future = scripthash_future
+        # All the key creation writes get queued in the database dispatcher. We can wait on the
+        # last one if we want to be sure they are created and ready for use.
+        if last_scripthash_future is not None:
+            last_scripthash_future.result()
 
         all_are_imported = True
         conflicts_were_found = False
@@ -590,7 +594,14 @@ class BlockchainScanDialog(WindowModalDialog):
         self._progress_bar.setValue(-1)
         self._progress_bar.setFormat("%p% imported")
 
-        tx_state_items = sorted(self._import_state.items(), key=lambda x: x[1].block_height)
+        def sort_height(sort_entry: Tuple[bytes, TransactionScanState]) -> int:
+            if sort_entry[1].block_height == 0:
+                return MEMPOOL_SORT_HEIGHT
+            elif sort_entry[1].block_height == -1:
+                return MEMPOOL_PARENT_SORT_HEIGHT
+            return sort_entry[1].block_height
+
+        tx_state_items = sorted(self._import_state.items(), key=sort_height)
         tree_items: List[QTreeWidgetItem] = []
         for entry_index, (tx_hash, entry) in enumerate(tx_state_items):
             if entry.block_height in (MEMPOOL_SORT_HEIGHT, MEMPOOL_PARENT_SORT_HEIGHT):
@@ -661,7 +672,7 @@ class BlockchainScanDialog(WindowModalDialog):
             {
                 "tx_id": entry.tx_id,
                 "script_hashes": list(hash_to_hex_str(hash) for hash in entry.script_hashes),
-                "block_height": self._convert_height(entry.block_height)
+                "block_height": entry.block_height,
             } for entry in entries))
         self._main_window.app.clipboard().setText(entries_text)
 
@@ -674,14 +685,6 @@ class BlockchainScanDialog(WindowModalDialog):
             tx_URL = BE_URL(app_state.config, 'tx', entry.tx_id)
             assert tx_URL is not None
             webbrowser.open(tx_URL)
-
-    def _convert_height(self, block_height: int) -> int:
-        if block_height == MEMPOOL_SORT_HEIGHT:
-            return 0
-        elif block_height == MEMPOOL_PARENT_SORT_HEIGHT:
-            return -1
-        else:
-            return block_height
 
 
 

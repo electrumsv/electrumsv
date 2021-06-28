@@ -11,6 +11,8 @@ except ModuleNotFoundError:
     import sqlite3 # type: ignore
 from typing import Any, cast, Iterable, List, Optional, Sequence, Set, Tuple
 
+from bitcoinx import hash_to_hex_str
+
 from ..bitcoin import COINBASE_MATURITY
 from ..constants import (BlockHeight, DerivationType, DerivationPath, KeyInstanceFlag,
     NetworkServerType, pack_derivation_path, PaymentFlag, ScriptType, TransactionOutputFlag,
@@ -44,28 +46,6 @@ from .util import (flag_clause, pack_proof, read_rows_by_id, read_rows_by_ids,
 
 
 logger = logs.get_logger("db-functions")
-
-
-@replace_db_context_with_connection
-def count_unused_bip32_keys(db: sqlite3.Connection, account_id: int, masterkey_id: int,
-        derivation_path: DerivationPath) -> int:
-    # The derivation path is the relative parent path from the master key.
-    prefix_bytes = pack_derivation_path(derivation_path)
-    # Keys are created in order of sequence enumeration, so we shouldn't need to order by
-    # the derivation_data2 bytes to get them ordered from oldest to newest, just id.
-    sql = ("SELECT COUNT(*) FROM KeyInstances "
-        "WHERE account_id=? AND masterkey_id=? "
-            f"AND (flags&?)=0 "
-            "AND length(derivation_data2)=? AND substr(derivation_data2,1,?)=? "
-        "ORDER BY keyinstance_id")
-    cursor = db.execute(sql, (account_id, masterkey_id,
-        KeyInstanceFlag.USED,
-        len(prefix_bytes)+4,  # The length of the parent path and sequence index.
-        len(prefix_bytes),    # Just the length of the parent path.
-        prefix_bytes))        # The packed parent path bytes.
-    rows = cursor.fetchone()
-    cursor.close()
-    return rows[0]
 
 
 def create_accounts(db_context: DatabaseContext, entries: Iterable[AccountRow]) \
@@ -482,7 +462,7 @@ def read_history_list(db: sqlite3.Connection, account_id: int,
             "FROM TransactionValues TXV "
             "INNER JOIN Transactions AS TX ON TX.tx_hash=TXV.tx_hash "
             "INNER JOIN AccountTransactions AS ATX ON ATX.tx_hash=TXV.tx_hash "
-            "WHERE TXV.account_id=? AND TXV.keyinstance_id IN ({}) AND (TX.flags&?)!=0 "
+            "WHERE TXV.account_id=? AND (TX.flags&?)!=0 AND TXV.keyinstance_id IN ({}) "
             "GROUP BY TXV.tx_hash")
         return read_rows_by_id(HistoryListRow, db, sql, [ account_id, TxFlags.MASK_STATE ],
             keyinstance_ids)
@@ -714,10 +694,28 @@ def read_keyinstances(db: sqlite3.Connection, *, account_id: Optional[int]=None,
 
 
 @replace_db_context_with_connection
+def read_keyinstance_derivation_indexes_last(db: sqlite3.Connection, account_id: int) \
+        -> List[Tuple[int, bytes, bytes]]:
+    # Keys are created in order of sequence enumeration, so we shouldn't need to order by
+    # the derivation_data2 bytes to get them ordered from oldest to newest, just id.
+    sql = """
+    SELECT masterkey_id,
+        substring(derivation_data2, 1, length(derivation_data2)-4) AS derivation_subpath,
+        max(substring(derivation_data2, length(derivation_data2)-3,
+        length(derivation_data2))) AS derivation_index
+    FROM KeyInstances
+    WHERE account_id=? AND derivation_type=?
+    GROUP BY masterkey_id, derivation_subpath
+    """
+    sql_values = [ account_id, DerivationType.BIP32_SUBPATH ]
+    return cast(List[Tuple[int, bytes, bytes]], db.execute(sql, sql_values).fetchall())
+
+
+@replace_db_context_with_connection
 def read_keyinstance_derivation_index_last(db: sqlite3.Connection, account_id: int,
-        masterkey_id: int, derivation_path: DerivationPath) -> Optional[int]:
+        masterkey_id: int, derivation_subpath: DerivationPath) -> Optional[int]:
     # The derivation path is the relative parent path from the master key.
-    prefix_bytes = pack_derivation_path(derivation_path)
+    prefix_bytes = pack_derivation_path(derivation_subpath)
     # Keys are created in order of sequence enumeration, so we shouldn't need to order by
     # the derivation_data2 bytes to get them ordered from oldest to newest, just id.
     sql = ("SELECT derivation_data2 FROM KeyInstances "
@@ -765,22 +763,6 @@ def read_masterkeys(db: sqlite3.Connection) -> List[MasterKeyRow]:
         "SELECT masterkey_id, parent_masterkey_id, derivation_type, derivation_data "
         "FROM MasterKeys")
     return [ MasterKeyRow(*row) for row in db.execute(sql).fetchall() ]
-
-
-# @replace_db_context_with_connection
-# def read_paid_requests(db: sqlite3.Connection, account_id: int, keyinstance_ids: Sequence[int]) \
-#         -> List[int]:
-#     # TODO ensure this is filtering out transactions or transaction outputs that
-#     # are not relevant.
-#     sql = ("SELECT PR.keyinstance_id "
-#         "FROM PaymentRequests PR "
-#         "INNER JOIN TransactionOutputs TXO ON TXO.keyinstance_id=PR.keyinstance_id "
-#         "INNER JOIN AccountTransactions ATX ON ATX.tx_hash=TXO.tx_hash AND ATX.account_id = ? "
-#         "WHERE PR.keyinstance_id IN ({}) "
-#             f"AND (PR.state & {PaymentFlag.UNPAID}) != 0 "
-#         "GROUP BY PR.keyinstance_id "
-#         "HAVING PR.value IS NULL OR PR.value <= TOTAL(TXO.value)")
-#     return read_rows_by_id(int, db, sql, [ account_id ], keyinstance_ids)
 
 
 @replace_db_context_with_connection
@@ -1133,6 +1115,44 @@ def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id
     #    the non-keydata fields and return a more limited keydata-specific result.
     return [ KeyInstanceRow(row[0], row[1], row[2], DerivationType(row[3]), row[4], row[5],
         KeyInstanceFlag(row[6]), row[7]) for row in rows ]
+
+
+
+@replace_db_context_with_connection
+def read_bip32_keys_gap_size(db: sqlite3.Connection, account_id: int,
+        masterkey_id: int, prefix_bytes: bytes) -> int:
+    """
+    Identify the trailing BIP32 gap (of unused keys) at the end of a derivation sequence.
+
+    For now we create keys in a BIP32 sequence sequentially with no gaps, so we can take the
+    `window_size` from the query as indicating how many unused keys are in the trailing BIP32
+    gap.
+    """
+    sql = """
+    SELECT derivation_data2, flags, window_size FROM
+        (SELECT KI.keyinstance_id, KI.derivation_data2, KI.flags, COUNT(*) OVER win AS window_size,
+            row_number() OVER win AS window_row
+        FROM KeyInstances KI
+        WHERE account_id=? AND masterkey_id=? AND length(KI.derivation_data2)=?
+            AND substr(KI.derivation_data2,1,?)=?
+        WINDOW win AS (PARTITION BY flags&? ORDER BY keyinstance_id DESC
+            RANGE BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
+    WHERE window_row=1
+    ORDER BY keyinstance_id DESC
+    LIMIT 1
+    """
+    sql_values = [ account_id, masterkey_id, len(prefix_bytes)+4, len(prefix_bytes), prefix_bytes,
+        KeyInstanceFlag.USED ]
+    read_rows = db.execute(sql, sql_values).fetchall()
+    if not len(read_rows):
+        return 0
+    # This should be the last sequence in the given derivation path, and the number of
+    # entries with the given USED status.
+    derivation_path_bytes, flags, gap_size = read_rows[0]
+    if flags & KeyInstanceFlag.USED:
+        return 0
+    return gap_size
+
 
 
 @replace_db_context_with_connection
@@ -1969,6 +1989,7 @@ class AsynchronousFunctions:
         Wrap the database operations required to import a transaction so the processing is
         offloaded to the SQLite writer thread while this task is blocked.
         """
+        logger.debug("IMPORT TX %s %d", hash_to_hex_str(tx_row.tx_hash), tx_row.block_height)
         return await self._db_context.run_in_thread_async(self._import_transaction, tx_row,
             txi_rows, txo_rows, link_state)
 
@@ -2070,7 +2091,7 @@ class AsynchronousFunctions:
         spends should only occur in synchronisation, and we can special case that at a higher
         level.
         """
-        self._link_transaction_key_usage(db, tx_hash)
+        self._link_transaction_key_usage(db, tx_hash, link_state)
         self._link_transaction_to_accounts(db, tx_hash)
 
         # NOTE We do not handle removing the conflict flag here. That whole process can be
@@ -2094,8 +2115,8 @@ class AsynchronousFunctions:
             sql2_values = (TxFlags.CONFLICTING, tx_hash)
             db.execute(sql2, sql2_values)
 
-    def _link_transaction_key_usage(self, db: sqlite3.Connection, tx_hash: bytes) \
-            -> Tuple[int, int]:
+    def _link_transaction_key_usage(self, db: sqlite3.Connection, tx_hash: bytes,
+            link_state: TransactionLinkState) -> Tuple[int, int]:
         """
         Link transaction outputs to key usage.
 
@@ -2113,21 +2134,25 @@ class AsynchronousFunctions:
         cursor_1 = db.execute(sql_write_1, sql_write_1_values)
 
         # We explicitly mark keys as used when we use them. See `KeyInstanceFlag.USED`
-        # for a rationale.
+        # for a rationale. We want to know that keys were marked as used by this so that
+        # the calling logic can use it, if need be. An example of this would be maintaining
+        # a gap limit of unused addresses.
         sql_write_2 = (
             "UPDATE KeyInstances AS KI "
             "SET date_updated=?, flags=KI.flags|? "
             "FROM TransactionOutputs TXO "
             "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
-            "WHERE TXO.keyinstance_id=KI.keyinstance_id AND TX.flags&?=0 AND TXO.tx_hash=?")
-        sql_write_2_values = [timestamp, KeyInstanceFlag.USED, TxFlags.MASK_UNLINKED, tx_hash]
+            "WHERE TXO.keyinstance_id=KI.keyinstance_id AND TX.flags&?=0 AND TXO.tx_hash=? "
+            "RETURNING account_id, masterkey_id, derivation_type, derivation_data2")
+        sql_write_2_values = [timestamp, KeyInstanceFlag.USED,
+            TxFlags.MASK_UNLINKED|KeyInstanceFlag.USED, tx_hash]
         cursor_2 = db.execute(sql_write_2, sql_write_2_values)
 
         return cursor_1.rowcount, cursor_2.rowcount
 
     def _link_transaction_to_accounts(self, db: sqlite3.Connection, tx_hash: bytes) -> int:
         """
-        Link transaction outpout key usage to account involvement.
+        Link transaction output key usage to account involvement.
 
         This function can be repeatedly called, which might be useful if for some reason keys
         were not created when it was first called for a transaction.
@@ -2159,8 +2184,7 @@ class AsynchronousFunctions:
             (tx_hash, tx_hash, tx_hash, timestamp, timestamp))
         return cursor.rowcount
 
-    def _reconcile_transaction_output_spends(self, db: sqlite3.Connection, tx_hash: bytes,
-            self_spends: bool=False) -> bool:
+    def _reconcile_transaction_output_spends(self, db: sqlite3.Connection, tx_hash: bytes) -> bool:
         """
         Spend the transaction outputs of the parent and even our own if applicable.
 
@@ -2185,13 +2209,8 @@ class AsynchronousFunctions:
             "FROM TransactionInputs TXI "
             "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash = TXI.spent_tx_hash AND "
                 "TXO.txo_index = TXI.spent_txo_index "
-            "WHERE TXI.tx_hash=?")
-        # The caller can specify that there might be out of order spends of this transaction.
-        if self_spends:
-            sql += " OR TXI.spent_tx_hash=?"
-            cursor = db.execute(sql, (tx_hash, tx_hash))
-        else:
-            cursor = db.execute(sql, (tx_hash,))
+            "WHERE TXI.tx_hash=? OR TXI.spent_tx_hash=?")
+        cursor = db.execute(sql, (tx_hash, tx_hash))
 
         spend_conflicts: List[SpendConflictType] = []
         spent_rows: List[Tuple[int, bytes, int, bytes, int]] = []

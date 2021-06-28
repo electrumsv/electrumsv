@@ -1321,7 +1321,7 @@ class Network(TriggeredCallbacks):
                     logger.exception('unexpected error fetching transaction %s', tx_id)
                 else:
                     await wallet.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
-                        TransactionImportFlag.EXTERNAL)
+                        import_flags=TransactionImportFlag.EXTERNAL)
         return had_timeout
 
     def _available_servers(self, protocol):
@@ -1495,6 +1495,7 @@ class Network(TriggeredCallbacks):
         self.future.cancel()
         await self.shutdown_complete_event.wait()
         assert not self.sessions
+        self.subscriptions.stop()
         logger.warning('stopped')
 
     def auto_connect(self) -> bool:

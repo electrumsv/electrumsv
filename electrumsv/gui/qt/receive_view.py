@@ -40,10 +40,9 @@ class ReceiveView(QWidget):
             weakref.WeakValueDictionary()
 
         self._request_list_toolbar_layout = TableTopButtonLayout()
-        # NOTE(typing) pylance does not recognise `connect` on signals.
-        self._request_list_toolbar_layout.refresh_signal.connect( # type: ignore
+        self._request_list_toolbar_layout.refresh_signal.connect(
             self._main_window.refresh_wallet_display)
-        self._request_list_toolbar_layout.filter_signal.connect( # type: ignore
+        self._request_list_toolbar_layout.filter_signal.connect(
             self._filter_request_list)
 
         form_layout = self._create_form_layout()

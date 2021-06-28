@@ -34,7 +34,7 @@ from ...wallet_database.types import KeyDataTypes
 
 from .main_window import ElectrumWindow
 from .util import WindowModalDialog, ButtonsLineEdit, ColorScheme, Buttons, CloseButton
-from .history_list import HistoryList
+from . import history_list
 from .qrtextedit import ShowQRTextEdit
 
 
@@ -104,7 +104,9 @@ class KeyDialog(WindowModalDialog):
 
         # NOTE(rt12) This history is for all the entries for the key, not just the
         vbox.addWidget(QLabel(_("History")))
-        self._history_list = HistoryList(self._main_window, self._main_window)
+        # from importlib import reload
+        # reload(history_list)
+        self._history_list = history_list.HistoryList(self._main_window, self._main_window)
         self._history_list._on_account_change(self._account_id, self._account)
         self._history_list.get_domain = self.get_domain
         vbox.addWidget(self._history_list)
