@@ -356,7 +356,7 @@ class AbstractAccount:
                         self._get_subscription_entries_for_keyinstance_ids(
                             unsubscription_keyinstance_ids), self._subscription_owner_for_keys)
 
-            self._wallet.trigger_callback('on_keys_updated', self._id, keyinstance_ids)
+            self._wallet.trigger_callback('keys_updated', self._id, keyinstance_ids)
 
         future = self._wallet.set_keyinstance_flags(keyinstance_ids, flags, mask)
         future.add_done_callback(callback)
@@ -526,14 +526,16 @@ class AbstractAccount:
         assert keyinstance is not None
         return keyinstance.description or ""
 
-    def set_keyinstance_label(self, keyinstance_id: int, text: Optional[str]) -> None:
+    def set_keyinstance_label(self, keyinstance_id: int, text: Optional[str]) \
+            -> Optional[concurrent.futures.Future]:
         text = None if text is None or text.strip() == "" else text.strip()
         keyinstance = self._wallet.read_keyinstance(keyinstance_id=keyinstance_id)
         assert keyinstance is not None
         if keyinstance.description == text:
-            return
-        self._wallet.update_keyinstance_descriptions([ (text, keyinstance_id) ])
+            return None
+        future = self._wallet.update_keyinstance_descriptions([ (text, keyinstance_id) ])
         app_state.app.on_keyinstance_label_change(self, keyinstance_id, text)
+        return future
 
     def get_dummy_script_template(self, script_type: Optional[ScriptType]=None) -> ScriptTemplate:
         public_key = PrivateKey(os.urandom(32)).public_key
@@ -1784,7 +1786,7 @@ class DeterministicAccount(AbstractAccount):
             final_flags = keyinstance_rows[0].flags
             scripthash_future.result()
 
-        self._wallet.trigger_callback('on_keys_updated', self._id, [ keyinstance_id ])
+        self._wallet.trigger_callback('keys_updated', self._id, [ keyinstance_id ])
 
         if final_flags & KeyInstanceFlag.ACTIVE and self._network is not None:
             # NOTE(ActivitySubscription) This represents a key that was not previously active
@@ -1809,7 +1811,6 @@ class DeterministicAccount(AbstractAccount):
         self._value_locks.acquire_lock(derivation_subpath)
         try:
             next_index = self.get_next_derivation_index(derivation_subpath)
-            self._logger.debug("gndi %d %s %s", next_index, derivation_subpath, derivation_path)
             required_count = (final_index - next_index) + 1
             if required_count < 1:
                 return None, []
@@ -2605,7 +2606,7 @@ class Wallet(TriggeredCallbacks):
             callback_future.result()
 
             updated_keyinstance_ids = [ row.keyinstance_id for row in requests ]
-            self.trigger_callback('on_keys_updated', account_id, updated_keyinstance_ids)
+            self.trigger_callback('keys_updated', account_id, updated_keyinstance_ids)
 
         request_id = self._storage.get("next_paymentrequest_id", 1)
         rows = []
@@ -2649,7 +2650,7 @@ class Wallet(TriggeredCallbacks):
                 account = self._accounts[account_id]
                 account.delete_key_subscriptions([ keyinstance_id ])
 
-            self.trigger_callback('on_keys_updated', account_id, [ keyinstance_id ])
+            self.trigger_callback('keys_updated', account_id, [ keyinstance_id ])
 
         future = db_functions.delete_payment_request(self.get_db_context(), request_id,
             keyinstance_id)

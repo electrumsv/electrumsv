@@ -61,7 +61,6 @@ class ReceiveDialog(QDialog):
         self.update_destination()
         self._receive_amount_e.setAmount(self._request_row.value)
 
-        # TODO(no-merge) Verify that these get disconnected on exit.
         app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
         self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
 

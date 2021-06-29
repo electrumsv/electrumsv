@@ -108,11 +108,13 @@ class SendView(QWidget):
         self._main_window.wallet_setting_changed_signal.connect(self._on_wallet_setting_changed)
         app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
         self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
+        self._main_window.keys_updated_signal.connect(self._on_keys_updated)
 
     def clean_up(self) -> None:
         if self._mapi_future is not None:
             self._mapi_future.cancel()
 
+        self._main_window.keys_updated_signal.disconnect(self._on_keys_updated)
         self._main_window.new_fx_quotes_signal.disconnect(self._on_ui_exchange_rate_quotes)
         app_state.app.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
 
@@ -127,6 +129,14 @@ class SendView(QWidget):
     def _on_ui_exchange_rate_quotes(self) -> None:
         edit = self._fiat_send_e if self._fiat_send_e.is_last_edited else self.amount_e
         edit.textEdited.emit(edit.text())
+
+    def _on_keys_updated(self, account_id: int, keyinstance_ids: List[int]) -> None:
+        # Mostly this will re-select outputs, and for instance not select newly frozen
+        # keys. However, if the user has spent from specific keys we assume they want to
+        # spend those coins, and we do not reselect them.
+        if account_id != self._account_id:
+            return
+        self.update_fee()
 
     def create_send_layout(self) -> QVBoxLayout:
         """ Re-render the layout and it's child widgets of this view. """
@@ -149,7 +159,7 @@ class SendView(QWidget):
         grid.addWidget(self._from_label, 1, 0)
 
         self._from_list = MyTreeWidget(self, self._main_window.reference(), self.from_list_menu,
-            ['Address / Outpoint','Amount'])
+            [ _('Outpoint / Key ID'), _('Amount') ])
         self._from_list.setMaximumHeight(80)
         grid.addWidget(self._from_list, 1, 1, 1, -1)
         self.set_pay_from([])
@@ -384,8 +394,7 @@ class SendView(QWidget):
 
         def format_utxo(utxo: TransactionOutputSpendableTypes) -> str:
             h = hash_to_hex_str(utxo.tx_hash)
-            # TODO(no-merge) do not have a .address attribute to use here.
-            return '{}...{}:{:d}\t{}'.format(h[0:10], h[-10:], utxo.txo_index, utxo.address)
+            return '{}...{}:{:d}\t{}'.format(h[0:10], h[-10:], utxo.txo_index, utxo.keyinstance_id)
 
         for utxo in self.pay_from:
             self._from_list.addTopLevelItem(QTreeWidgetItem(

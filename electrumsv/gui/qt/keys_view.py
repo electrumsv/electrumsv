@@ -371,8 +371,13 @@ class _ItemModel(QAbstractItemModel):
             row = model_index.row()
             line = self._data[row]
             if model_index.column() == LABEL_COLUMN:
+                # Update the database (we do not wait on the future as we update the model data).
                 self._view._account.set_keyinstance_label(line.keyinstance_id, value)
-            self.dataChanged.emit(model_index, model_index)
+                # Update the model data.
+                text = None if value is None or value.strip() == "" else value.strip()
+                self._data[row] = line._replace(description=text)
+                # Force the label cell for the given keyinstance to update.
+                self.dataChanged.emit(model_index, model_index)
             return True
         return False
 

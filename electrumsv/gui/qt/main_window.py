@@ -230,7 +230,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         #   to ensure that they are happening in the UI thread.
         self._wallet.register_callback(self._on_account_created, ['account_created'])
         self._wallet.register_callback(self._on_wallet_setting_changed, ['on_setting_changed'])
-        self._wallet.register_callback(self._dispatch_in_ui_thread, ['on_keys_updated'])
+        self._wallet.register_callback(self._dispatch_in_ui_thread, ['keys_updated'])
         self._wallet.register_callback(self._dispatch_in_ui_thread, ['on_keys_created'])
         self._wallet.register_callback(self._dispatch_in_ui_thread, ['notifications_created'])
         self._wallet.register_callback(self._dispatch_in_ui_thread, ['transaction_heights_updated'])
@@ -336,7 +336,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.notifications_created_signal.emit(*args)
         elif event_name == "on_keys_created":
             self.keys_created_signal.emit(*args)
-        elif event_name == "on_keys_updated":
+        elif event_name == 'keys_updated':
             self.keys_updated_signal.emit(*args)
         elif event_name == "transaction_heights_updated":
             self.ui_callback_signal.emit(self._on_transaction_heights_updated, args)
@@ -2218,15 +2218,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def on_fiat_ccy_changed(self) -> None:
         '''Called when the user changes fiat currency in preferences.'''
-        b = bool(app_state.fx and app_state.fx.is_enabled())
-        if self._account_id is not None:
-            for send_view in self._send_views.values():
-                if isinstance(send_view, SendView):
-                    send_view.set_fiat_ccy_enabled(b)
-            # TODO(no-merge) The receive views should be getting the event directly now.
-            # for receive_view in self._receive_views.values():
-            #     if isinstance(receive_view, ReceiveView):
-            #         receive_view.set_fiat_ccy_enabled(b)
         self.history_view.update_tx_headers()
         self.update_history_view()
         self.update_status_bar()
