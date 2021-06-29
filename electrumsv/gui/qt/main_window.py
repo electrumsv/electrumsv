@@ -1526,7 +1526,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         # Attempt to make the change.
         future = account.get_wallet().update_transaction_output_flags(
-            txo_keys, TransactionOutputFlag.IS_FROZEN)
+            txo_keys, TransactionOutputFlag.FROZEN)
         future.add_done_callback(callback)
 
         return future

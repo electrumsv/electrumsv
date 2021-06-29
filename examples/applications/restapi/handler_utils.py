@@ -205,7 +205,7 @@ class ExtendedHandlerUtils(HandlerUtils):
                 "out_index": utxo.txo_index,
                 "keyinstance_id": utxo.keyinstance_id,
                 # "address": utxo.address.to_string(), # TODO(no-merge) not in struct
-                "is_coinbase": utxo.flags & TransactionOutputFlag.IS_COINBASE != 0,
+                "is_coinbase": utxo.flags & TransactionOutputFlag.COINBASE != 0,
                 "flags": utxo.flags}  # TransactionOutputFlag(s) only
 
     def outputs_from_dicts(self, outputs: Optional[List[Dict[str, Any]]]) -> List[TxOutput]:
@@ -422,7 +422,7 @@ class ExtendedHandlerUtils(HandlerUtils):
         settled_coins = []
 
         for coin in all_coins:
-            if coin.flags & TransactionOutputFlag.IS_COINBASE:
+            if coin.flags & TransactionOutputFlag.COINBASE:
                 if coin.block_height + COINBASE_MATURITY > account._wallet.get_local_height():
                     unmatured_coins.append(coin)
                     continue

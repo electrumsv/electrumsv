@@ -16,7 +16,7 @@ def execute(conn: sqlite3.Connection) -> None:
     # Ensure that for all transactions in block position 0, all outputs for those transactions
     # have the IS_COINBASE flag.
     conn.execute("UPDATE TransactionOutputs "
-        f"SET flags=flags|{TransactionOutputFlag.IS_COINBASE} "
+        f"SET flags=flags|{TransactionOutputFlag.COINBASE} "
         "WHERE tx_hash in (SELECT tx_hash FROM Transactions WHERE block_position = 0)")
 
     date_updated = get_posix_timestamp()

@@ -1,7 +1,6 @@
 """
 Keeps backwards compatible logic for storage migration.
 """
-# TODO(no-merge) write a decision document for why we have this file.
 import concurrent.futures
 from enum import IntFlag as _IntFlag
 import json

@@ -972,7 +972,7 @@ class TextStore(AbstractStore):
                         address_states[address_string] = _AddressState(next_keyinstance_id,
                             len(keyinstance_rows), script_type)
                         description = labels.pop(address_string, None)
-                        flags = KeyInstanceFlag.IS_ACTIVE
+                        flags = KeyInstanceFlag.ACTIVE
                         derivation_info = {
                             "subpath": (type_idx, address_idx),
                         }
@@ -1091,13 +1091,13 @@ class TextStore(AbstractStore):
                             len(keyinstance_rows), ScriptType.P2PKH)
                         keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
                             None, DerivationType.PUBLIC_KEY_HASH, derivation_data,
-                            ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, description))
+                            ScriptType.P2PKH, KeyInstanceFlag.ACTIVE, description))
                     elif isinstance(address, P2SH_Address):
                         address_states[address_string] = _AddressState(next_keyinstance_id,
                             len(keyinstance_rows), ScriptType.MULTISIG_P2SH)
                         keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
                             None, DerivationType.SCRIPT_HASH, derivation_data,
-                            ScriptType.MULTISIG_P2SH, KeyInstanceFlag.IS_ACTIVE, description))
+                            ScriptType.MULTISIG_P2SH, KeyInstanceFlag.ACTIVE, description))
                     else:
                         raise IncompatibleWalletError("imported address wallet has non-address")
                     next_keyinstance_id += 1
@@ -1123,7 +1123,7 @@ class TextStore(AbstractStore):
                     derivation_data = json.dumps(ik_data).encode()
                     keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
                         None, DerivationType.PRIVATE_KEY, derivation_data,
-                        ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, description))
+                        ScriptType.P2PKH, KeyInstanceFlag.ACTIVE, description))
                     next_keyinstance_id += 1
 
                 account_rows.append(AccountRow1(account_id, None, ScriptType.P2PKH,

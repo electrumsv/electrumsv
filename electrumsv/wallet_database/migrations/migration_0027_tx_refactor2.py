@@ -222,7 +222,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             raise DatabaseMigrationError("Transaction data mismatch "+ hash_to_hex_str(tx_hash) +
                 " vs "+ hash_to_hex_str(tx.hash()))
 
-        base_txo_flags = TransactionOutputFlag.IS_COINBASE if tx.is_coinbase() \
+        base_txo_flags = TransactionOutputFlag.COINBASE if tx.is_coinbase() \
             else TransactionOutputFlag.NONE
 
         # Collect the change to the transaction.
@@ -394,17 +394,17 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             if txo_update:
                 # The output already exists. So there should already be a positive tx delta also.
                 if txi_spend:
-                    if txo_data.flags & TransactionOutputFlag.IS_SPENT:
+                    if txo_data.flags & TransactionOutputFlag.SPENT:
                         assert txo_update.keyinstance_id == keyinstance_id, \
                             "Transaction output spending key does not match"
                     else:
                         # EFFECT: Account for a previously unrecognised spend.
                         # tx_deltas[(txi_spend.tx_hash, keyinstance_id)] -= txo_data.value
-                        txo_flags |= TransactionOutputFlag.IS_SPENT
+                        txo_flags |= TransactionOutputFlag.SPENT
                     spending_tx_hash = txi_spend.tx_hash
                     spending_txi_index = txi_spend.txi_index
                 else:
-                    if txo_data.flags & TransactionOutputFlag.IS_SPENT:
+                    if txo_data.flags & TransactionOutputFlag.SPENT:
                         raise DatabaseMigrationError(_("txo update spent with no txi"))
                 txo_updates[txo_data.key] = txo_update._replace(
                     flags=txo_flags,
@@ -416,7 +416,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                 txo_insert = txo_inserts[txo_data.key]
                 txo_flags = txo_data.flags
                 if txi_spend:
-                    txo_flags |= TransactionOutputFlag.IS_SPENT
+                    txo_flags |= TransactionOutputFlag.SPENT
                     spending_tx_hash = txi_spend.tx_hash
                     spending_txi_index = txi_spend.txi_index
                 txo_inserts[txo_data.key] = txo_insert._replace(
@@ -615,7 +615,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             updated_masterkey_derivation_data)
 
     # TABLE: KeyInstances
-    assert KeyInstanceFlag1.IS_ACTIVE == KeyInstanceFlag.IS_ACTIVE
+    assert KeyInstanceFlag1.IS_ACTIVE == KeyInstanceFlag.ACTIVE
     # Mark any keyinstance as reserved that has a script type (is in use in an output).
     # This is introducing an post-migration flag `KeyInstanceFlag.USED` into pre-migration flags.
     conn.execute(f"UPDATE KeyInstances SET flags=flags|{KeyInstanceFlag.USED} "

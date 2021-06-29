@@ -110,7 +110,7 @@ class UTXOList(MyTreeWidget):
             for col in (0, 2):
                 utxo_item.setFont(col, self._monospace_font)
             utxo_item.setData(0, Qt.ItemDataRole.UserRole+2, utxo)
-            if utxo.flags & TransactionOutputFlag.IS_FROZEN:
+            if utxo.flags & TransactionOutputFlag.FROZEN:
                 utxo_item.setBackground(0, ColorScheme.BLUE.as_color(True))
             self.addChild(utxo_item)
             if utxo in prev_selection:
@@ -132,8 +132,8 @@ class UTXOList(MyTreeWidget):
         def unfreeze_coins() -> None:
             self._freeze_coins(coins, False)
 
-        any_c_frozen = any(coin.flags & TransactionOutputFlag.IS_FROZEN for coin in coins)
-        all_c_frozen = all(coin.flags & TransactionOutputFlag.IS_FROZEN for coin in coins)
+        any_c_frozen = any(coin.flags & TransactionOutputFlag.FROZEN for coin in coins)
+        all_c_frozen = all(coin.flags & TransactionOutputFlag.FROZEN for coin in coins)
 
         if len(coins) == 1:
             # single selection, offer them the "Details" option and also coin

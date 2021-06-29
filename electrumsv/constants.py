@@ -203,13 +203,13 @@ class KeyInstanceFlag(IntFlag):
     ## These are the two primary flags.
     # This key should be loaded and managed appropriately. This flag has supplementary flags
     # like `USER_SET_ACTIVE`.
-    IS_ACTIVE = 1 << 0
+    ACTIVE = 1 << 0
     # This key has been assigned for some use and should not be reassigned ever. This will mean
     # that if a user assigns it, then deletes whatever thing it was assigned for, it will stay
     # marked as assigned to prevent accidental reuse.
     USED = 1 << 1
 
-    ## These are the secondary flags for `IS_ACTIVE`.
+    ## These are the secondary flags for `ACTIVE`.
     # The user explicitly set this key to be active. It is not intended that the wallet go and
     # mark it inactive without good reason. The wallet should detect all usage of this key and
     # obtain any transaction seen to be involved with it.
@@ -255,17 +255,13 @@ class TransactionOutputFlag(IntFlag):
     NONE = 0
 
     # If the UTXO is in a local or otherwise unconfirmed transaction.
-    IS_ALLOCATED = 1 << 1
+    ALLOCATED = 1 << 1
     # If the UTXO is in a confirmed transaction.
-    IS_SPENT = 1 << 2
+    SPENT = 1 << 2
     # If the UTXO is marked as not to be used. It should not be allocated if unallocated, and
     # if allocated then ideally we might extend this to prevent further dispatch in any form.
-    IS_FROZEN = 1 << 3
-    IS_COINBASE = 1 << 4
-
-    RESERVED_MASK = IS_FROZEN | IS_ALLOCATED
-    # When IS_SPENT is set, these flags are preserved and not cleared.
-    SPEND_PRESERVE_MASK = IS_COINBASE
+    FROZEN = 1 << 3
+    COINBASE = 1 << 4
 
 
 class PaymentFlag(IntFlag):

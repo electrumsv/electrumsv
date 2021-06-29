@@ -217,7 +217,7 @@ def delete_invoices(db_context: DatabaseContext, entries: Iterable[Tuple[int]]) 
 def delete_payment_request(db_context: DatabaseContext, paymentrequest_id: int,
         keyinstance_id: int) -> concurrent.futures.Future:
     timestamp = get_posix_timestamp()
-    expected_key_flags = KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST
+    expected_key_flags = KeyInstanceFlag.ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST
     read_sql1 = "SELECT flags from KeyInstances WHERE keyinstance_id=?"
     read_sql1_values = (keyinstance_id,)
     write_sql1 = "UPDATE KeyInstances SET date_updated=?, flags=flags&? WHERE keyinstance_id=?"
@@ -228,10 +228,10 @@ def delete_payment_request(db_context: DatabaseContext, paymentrequest_id: int,
         # We need the flags for the key instance to work out why it is active.
         flags = db.execute(read_sql1, read_sql1_values).fetchone()[0]
         assert flags & expected_key_flags == expected_key_flags, "not a valid payment request key"
-        # If there are other reasons the key is active, do not remove `IS_ACTIVE`.
+        # If there are other reasons the key is active, do not remove `ACTIVE`.
         key_flags_mask = KeyInstanceFlag.IS_PAYMENT_REQUEST
         if flags & KeyInstanceFlag.MASK_ACTIVE_REASON == KeyInstanceFlag.IS_PAYMENT_REQUEST:
-            # We have confirmed this is the sole reason the key is active. Remove `IS_ACTIVE`.
+            # We have confirmed this is the sole reason the key is active. Remove `ACTIVE`.
             key_flags_mask = expected_key_flags
         db.execute(write_sql1, (timestamp, ~key_flags_mask, keyinstance_id))
         db.execute(write_sql2, write_sql2_values)
@@ -248,14 +248,12 @@ def delete_wallet_data(db_context: DatabaseContext, key: str) -> concurrent.futu
 
 @replace_db_context_with_connection
 def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: int,
-        filter_bits: Optional[TransactionOutputFlag]=None,
-        filter_mask: Optional[TransactionOutputFlag]=None) -> WalletBalance:
-    coinbase_mask = TransactionOutputFlag.IS_COINBASE
-    # This defaults to . . .
-    if filter_bits is None:
-        filter_bits = TransactionOutputFlag.NONE
-    if filter_mask is None:
-        filter_mask = TransactionOutputFlag.IS_SPENT|TransactionOutputFlag.IS_FROZEN
+        txo_flags: TransactionOutputFlag=TransactionOutputFlag.NONE,
+        txo_mask: TransactionOutputFlag=TransactionOutputFlag.SPENT,
+        exclude_frozen: bool=True) -> WalletBalance:
+    coinbase_mask = TransactionOutputFlag.COINBASE
+    if exclude_frozen:
+        txo_mask |= TransactionOutputFlag.FROZEN
     # NOTE(linked-balance-calculations) the general formula is used elsewhere
     sql = (
         "SELECT "
@@ -270,83 +268,25 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
             # Allocated total.
             "CAST(TOTAL(CASE WHEN TX.block_height=? THEN TXO.value ELSE 0 END) AS INT) "
         "FROM AccountTransactions ATX "
-        "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash "
-        "INNER JOIN Transactions TX ON TX.tx_hash=ATX.tx_hash "
+        "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash ")
+    if exclude_frozen:
+        sql += "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
+    sql += ("INNER JOIN Transactions TX ON TX.tx_hash=ATX.tx_hash "
         "WHERE ATX.account_id=? AND TXO.keyinstance_id IS NOT NULL AND "
-            f"(TXO.flags&{filter_mask})={filter_bits}")
+            "TXO.flags&?=?")
     sql_values = [ BlockHeight.MEMPOOL, coinbase_mask, COINBASE_MATURITY, local_height,
         BlockHeight.MEMPOOL, BlockHeight.MEMPOOL_UNCONFIRMED_PARENT, BlockHeight.MEMPOOL,
-        coinbase_mask, COINBASE_MATURITY, local_height, BlockHeight.LOCAL, account_id ]
+        coinbase_mask, COINBASE_MATURITY, local_height, BlockHeight.LOCAL, account_id,
+        txo_mask, txo_flags ]
+    if exclude_frozen:
+        sql += " AND KI.flags&?=0"
+        sql_values.append(KeyInstanceFlag.FROZEN)
     row = db.execute(sql, sql_values).fetchone()
     if row is None:
         return WalletBalance(0, 0, 0, 0)
     return WalletBalance(*row)
 
 
-@replace_db_context_with_connection
-def read_account_balance_raw(db: sqlite3.Connection, account_id: int, flags: Optional[int]=None,
-        mask: Optional[int]=None) -> TransactionDeltaSumRow:
-    sql = ("SELECT TXV.account_id, TOTAL(TXV.value), COUNT(DISTINCT TXV.tx_hash) "
-        "FROM TransactionValues TXV "
-        "{} "
-        "WHERE TXV.account_id = ? "
-        "{}"
-        "GROUP BY TXV.account_id")
-    sql_values: List[Any] = [ account_id ]
-    clause, extra_sql_values = flag_clause("TX.flags", flags, mask)
-    if clause:
-        sql = sql.format("INNER JOIN Transactions TX ON TX.tx_hash=TXV.tx_hash ",
-            f" AND {clause} ")
-        sql_values.extend(extra_sql_values)
-    else:
-        sql = sql.format("", "")
-    cursor = db.execute(sql, sql_values)
-    row = cursor.fetchone()
-    cursor.close()
-    if row is None:
-        return TransactionDeltaSumRow(account_id, 0, 0)
-    return TransactionDeltaSumRow(*row)
-
-
-# @replace_db_context_with_connection
-# def read_account_transaction_outputs(db: sqlite3.Connection, account_id: int,
-#         flags: TransactionOutputFlag, mask: TransactionOutputFlag,
-#         require_key_usage: bool=False, tx_hash: Optional[bytes]=None,
-#         keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow2]:
-#     sql = (
-#         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
-#             "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2, "
-#             "TX.flags AS tx_flags, TX.block_height "
-#         "FROM AccountTransactions ATX "
-#         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash "
-#         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
-#         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
-#         f"WHERE ATX.account_id=? AND TXO.flags&{mask}={flags} ")
-#     sql_values: List[Any] = [ account_id ]
-#     if tx_hash is not None:
-#         sql += "AND ATX.tx_hash=? "
-#         sql_values.append(tx_hash)
-#     else:
-#         sql_values = [account_id]
-#     if keyinstance_ids is not None:
-#         sql += "AND TXO.keyinstance_id IN ({}) "
-#     elif require_key_usage:
-#         sql += "AND TXO.keyinstance_id IS NOT NULL "
-
-#     if keyinstance_ids is not None:
-#         rows = read_rows_by_id(TransactionOutputSpendableRow2, db, sql, sql_values,
-#             keyinstance_ids)
-#     else:
-#         cursor = db.execute(sql, sql_values)
-#         rows = [ TransactionOutputSpendableRow2(*row) for row in cursor.fetchall() ]
-#         cursor.close()
-#     return rows
-
-
-# TODO(no-merge) test default
-# TODO(no-merge) test exclude_frozen
-# TODO(no-merge) test confirmed_only
-# TODO(no-merge) test mature
 @replace_db_context_with_connection
 def read_account_transaction_outputs_spendable(db: sqlite3.Connection, account_id: int,
         confirmed_only: bool=False, mature_height: Optional[int]=None, exclude_frozen: bool=False,
@@ -366,22 +306,24 @@ def read_account_transaction_outputs_spendable(db: sqlite3.Connection, account_i
         tx_mask |= TxFlags.STATE_SETTLED
         tx_flags |= TxFlags.STATE_SETTLED
 
-    txo_flags = TransactionOutputFlag.NONE
-    txo_mask = TransactionOutputFlag.IS_SPENT | TransactionOutputFlag.IS_ALLOCATED
+    txo_mask = TransactionOutputFlag.SPENT | TransactionOutputFlag.ALLOCATED
     if exclude_frozen:
-        txo_mask |= TransactionOutputFlag.IS_FROZEN
+        txo_mask |= TransactionOutputFlag.FROZEN
 
-    sql_values: List[Any] = [ account_id, txo_mask, txo_flags, tx_mask, tx_flags ]
     sql = (
         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
             "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2 "
         "FROM TransactionOutputs TXO "
         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
-        "WHERE KI.account_id=? AND TXO.flags&?=? AND TX.flags&?=?")
+        "WHERE KI.account_id=? AND TXO.flags&?=0 AND TX.flags&?=?")
+    sql_values: List[Any] = [ account_id, txo_mask, tx_mask, tx_flags ]
+    if exclude_frozen:
+        sql += " AND KI.flags&?=0"
+        sql_values.append(KeyInstanceFlag.FROZEN)
     if mature_height is not None:
-        coinbase_mask = TransactionOutputFlag.IS_COINBASE
-        sql += f" AND (TXO.flags&?=0 OR TX.block_height+?<=?)"
+        coinbase_mask = TransactionOutputFlag.COINBASE
+        sql += " AND (TXO.flags&?=0 OR TX.block_height+?<=?)"
         sql_values.extend([ coinbase_mask, COINBASE_MATURITY, mature_height ])
     if keyinstance_ids is not None:
         sql += " AND TXO.keyinstance_id IN ({})"
@@ -393,10 +335,6 @@ def read_account_transaction_outputs_spendable(db: sqlite3.Connection, account_i
     return rows
 
 
-# TODO(no-merge) test default
-# TODO(no-merge) test exclude_frozen
-# TODO(no-merge) test confirmed_only
-# TODO(no-merge) test mature
 @replace_db_context_with_connection
 def read_account_transaction_outputs_spendable_extended(db: sqlite3.Connection, account_id: int,
         confirmed_only: bool=False, mature_height: Optional[int]=None, exclude_frozen: bool=False,
@@ -416,12 +354,10 @@ def read_account_transaction_outputs_spendable_extended(db: sqlite3.Connection, 
         tx_mask |= TxFlags.STATE_SETTLED
         tx_flags |= TxFlags.STATE_SETTLED
 
-    txo_flags = TransactionOutputFlag.NONE
-    txo_mask = TransactionOutputFlag.IS_SPENT | TransactionOutputFlag.IS_ALLOCATED
+    txo_mask = TransactionOutputFlag.SPENT | TransactionOutputFlag.ALLOCATED
     if exclude_frozen:
-        txo_mask |= TransactionOutputFlag.IS_FROZEN
+        txo_mask |= TransactionOutputFlag.FROZEN
 
-    sql_values: List[Any] = [ account_id, txo_mask, txo_flags, tx_mask, tx_flags ]
     sql = (
         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
             "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2, "
@@ -429,9 +365,13 @@ def read_account_transaction_outputs_spendable_extended(db: sqlite3.Connection, 
         "FROM TransactionOutputs TXO "
         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
-        f"WHERE KI.account_id=? AND TXO.flags&?=? AND TX.flags&?=?")
+        "WHERE KI.account_id=? AND TXO.flags&?=0 AND TX.flags&?=?")
+    sql_values: List[Any] = [ account_id, txo_mask, tx_mask, tx_flags ]
+    if exclude_frozen:
+        sql += " AND KI.flags&?=0"
+        sql_values.append(KeyInstanceFlag.FROZEN)
     if mature_height is not None:
-        coinbase_mask = TransactionOutputFlag.IS_COINBASE
+        coinbase_mask = TransactionOutputFlag.COINBASE
         sql += f" AND (TXO.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?)"
         sql_values.append(mature_height)
     if keyinstance_ids is not None:
@@ -613,7 +553,6 @@ def read_key_list(db: sqlite3.Connection, account_id: int,
     If a `keyinstance_ids` value is given, then the results will only reflect usage of those
     keys.
     """
-    sql_values = [TransactionOutputFlag.IS_SPENT, account_id]
     sql = (
         "SELECT KI.keyinstance_id, KI.masterkey_id, KI.derivation_type, "
             "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description, KI.date_updated, "
@@ -622,9 +561,9 @@ def read_key_list(db: sqlite3.Connection, account_id: int,
         "FROM KeyInstances AS KI "
         "LEFT JOIN TransactionOutputs TXO ON TXO.keyinstance_id = KI.keyinstance_id "
         "WHERE KI.account_id = ?")
+    sql_values = [ TransactionOutputFlag.SPENT, account_id ]
     if keyinstance_ids is not None:
         sql += " AND KI.keyinstance_id IN ({})"
-
     sql += " GROUP BY KI.keyinstance_id"
 
     if keyinstance_ids is not None:
@@ -1208,13 +1147,12 @@ def read_unverified_transactions(db: sqlite3.Connection, local_height: int) \
 
 @replace_db_context_with_connection
 def read_wallet_balance(db: sqlite3.Connection, local_height: int,
-        filter_bits: Optional[TransactionOutputFlag]=None,
-        filter_mask: Optional[TransactionOutputFlag]=None) -> WalletBalance:
-    coinbase_mask = TransactionOutputFlag.IS_COINBASE
-    if filter_bits is None:
-        filter_bits = TransactionOutputFlag.NONE
-    if filter_mask is None:
-        filter_mask = TransactionOutputFlag.IS_SPENT|TransactionOutputFlag.IS_FROZEN
+        txo_flags: TransactionOutputFlag=TransactionOutputFlag.NONE,
+        txo_mask: TransactionOutputFlag=TransactionOutputFlag.SPENT,
+        exclude_frozen: bool=True) -> WalletBalance:
+    coinbase_mask = TransactionOutputFlag.COINBASE
+    if exclude_frozen:
+        txo_mask |= TransactionOutputFlag.FROZEN
     # NOTE(linked-balance-calculations) the general formula is used elsewhere
     sql = (
         "SELECT "
@@ -1230,10 +1168,15 @@ def read_wallet_balance(db: sqlite3.Connection, local_height: int,
             "CAST(TOTAL(CASE WHEN TX.block_height=? THEN TXO.value ELSE 0 END) AS INT) "
         "FROM TransactionOutputs TXO "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
-        f"WHERE TXO.keyinstance_id IS NOT NULL AND (TXO.flags&{filter_mask})={filter_bits}")
+        "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
+        "WHERE TXO.flags&?=?")
     sql_values = [ BlockHeight.MEMPOOL, coinbase_mask, COINBASE_MATURITY, local_height,
         BlockHeight.MEMPOOL, BlockHeight.MEMPOOL_UNCONFIRMED_PARENT, BlockHeight.MEMPOOL,
-        coinbase_mask, COINBASE_MATURITY, local_height, BlockHeight.LOCAL ]
+        coinbase_mask, COINBASE_MATURITY, local_height, BlockHeight.LOCAL,
+        txo_mask, txo_flags ]
+    if exclude_frozen:
+        sql += " AND KI.flags&?=0"
+        sql_values.append(KeyInstanceFlag.FROZEN)
     cursor = db.execute(sql, sql_values)
     return WalletBalance(*cursor.fetchone())
 
@@ -1297,7 +1240,7 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) -> concurren
         db_context.release_connection(db)
 
     timestamp = get_posix_timestamp()
-    tx_out_mask = ~TransactionOutputFlag.IS_SPENT
+    tx_out_mask = ~TransactionOutputFlag.SPENT
     # Back out the association of the transaction with accounts. We do not bother clearing the
     # key id and script type from the transaction outputs at this time.
     sql1 = "DELETE FROM AccountTransactions WHERE tx_hash=?"
@@ -1381,7 +1324,7 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
         mask = ~flags # type: ignore
     sql = (
         "UPDATE KeyInstances "
-        f"SET date_updated=?, flags=(flags&?)|? "
+        "SET date_updated=?, flags=(flags&?)|? "
         "WHERE keyinstance_id IN ({})")
     # Ensure that we rollback if we are applying changes that are already in place. We expect to
     # update all the rows we are asked to update, and this will filter out the rows that already
@@ -1830,7 +1773,7 @@ def _close_paid_payment_requests(db: sqlite3.Connection) \
         keyinstance_update_row = [
             timestamp,
             KeyInstanceFlag.MASK_ACTIVE_REASON, KeyInstanceFlag.IS_PAYMENT_REQUEST,
-            ~(KeyInstanceFlag.IS_PAYMENT_REQUEST|KeyInstanceFlag.IS_ACTIVE),
+            ~(KeyInstanceFlag.IS_PAYMENT_REQUEST|KeyInstanceFlag.ACTIVE),
             ~KeyInstanceFlag.IS_PAYMENT_REQUEST,
         ]
         keyinstance_update_row.extend(row[1] for row in rows)
@@ -2243,8 +2186,8 @@ class AsynchronousFunctions:
         # If there were no spend conflicts, we can consider ourselves to be valid and can mark
         # the spent coins as spent. As allocation is an indication of unavailability pending use
         # we can clear it when we set the output as spent.
-        clear_bits = TransactionOutputFlag.IS_ALLOCATED
-        set_bits = TransactionOutputFlag.IS_SPENT
+        clear_bits = TransactionOutputFlag.ALLOCATED
+        set_bits = TransactionOutputFlag.SPENT
         cursor = db.executemany("UPDATE TransactionOutputs "
             "SET date_updated=?, spending_tx_hash=?, spending_txi_index=?, "
                 f"flags=(flags&{~clear_bits})|{set_bits} "

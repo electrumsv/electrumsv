@@ -9,7 +9,8 @@ import unittest.mock
 import pytest
 
 from electrumsv.constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, KeystoreTextType,
-    RECEIVING_SUBPATH, ScriptType, StorageKind, TxFlags, unpack_derivation_path)
+    RECEIVING_SUBPATH, ScriptType, StorageKind, TxFlags,
+    unpack_derivation_path)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
@@ -519,12 +520,12 @@ def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) 
 #             self._deactivated_keys = []
 #             self._keyinstances = {
 #                 1: KeyInstanceRow(1, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 1]}),
-#                     ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, ""),
+#                     ScriptType.P2PKH, KeyInstanceFlag.ACTIVE, ""),
 #                 2: KeyInstanceRow(2, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 2]}),
 #                     ScriptType.P2PKH, KeyInstanceFlag.USER_SET_ACTIVE, ""),
 #                 3: KeyInstanceRow(3, 1, 1, DerivationType.BIP32, json.dumps({"subpath": [0, 3]}),
 #                     ScriptType.P2PKH,
-#                     (KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE), "")}
+#                     (KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE), "")}
 #             self._deactivated_keys_event = asyncio.Event()
 #             self._logger = logging.getLogger("MockAccount")
 
@@ -534,9 +535,9 @@ def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) 
 
 #     mocker.patch.object(TransactionDeltaTable, 'update_used_keys', mock_update_used_keys)
 #     account = MockAccount()
-#     assert account._keyinstances[1].flags == KeyInstanceFlag.IS_ACTIVE
+#     assert account._keyinstances[1].flags == KeyInstanceFlag.ACTIVE
 #     assert account._keyinstances[2].flags == KeyInstanceFlag.USER_SET_ACTIVE
-#     assert account._keyinstances[3].flags == KeyInstanceFlag.IS_ACTIVE | \
+#     assert account._keyinstances[3].flags == KeyInstanceFlag.ACTIVE | \
 #            KeyInstanceFlag.USER_SET_ACTIVE
 #     account.detect_used_keys()
 #     assert account._keyinstances[1].flags == KeyInstanceFlag.NONE

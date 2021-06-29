@@ -102,7 +102,7 @@ class CoinSplittingTab(QWidget):
         unused_key = self._account.get_fresh_keys(CHANGE_SUBPATH, 1)[0]
         script_type = self._account.get_default_script_type()
         script = self._account.get_script_for_key_data(unused_key, script_type)
-        coins = self._account.get_spendable_transaction_outputs(exclude_frozen=True, mature=True)
+        coins = self._account.get_spendable_transaction_outputs()
         outputs = [ XTxOutput(all, script) ]
         outputs.extend(self._account.create_extra_outputs(coins, outputs, force=True))
         try:

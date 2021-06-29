@@ -633,7 +633,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                     if not is_tx_known:
                         # The transaction is not in the database, any outputs it spends should
                         # indicate as broken. This does
-                        is_broken = (prev_txo.flags & TransactionOutputFlag.IS_SPENT) != 0
+                        is_broken = (prev_txo.flags & TransactionOutputFlag.SPENT) != 0
                         broken_text = _("The viewed transaction is not in the database. The "
                            "output spent by this input is known to the database and is considered "
                            "to be spent by another transaction.")

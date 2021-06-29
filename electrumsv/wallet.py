@@ -308,11 +308,11 @@ class AbstractAccount:
         # There is no situation where keys should be marked active, as this is meaningless.
         # Keys should only be activated with supplementary reasons so we can know if we can
         # deactivate it fully.
-        assert flags & KeyInstanceFlag.IS_ACTIVE == 0, "do not set directly"
+        assert flags & KeyInstanceFlag.ACTIVE == 0, "do not set directly"
 
-        # Setting `USER_SET_ACTIVE` is additive to the base `IS_ACTIVE` flag.
+        # Setting `USER_SET_ACTIVE` is additive to the base `ACTIVE` flag.
         if flags & KeyInstanceFlag.USER_SET_ACTIVE:
-            flags |= KeyInstanceFlag.IS_ACTIVE
+            flags |= KeyInstanceFlag.ACTIVE
 
         # NOTE(ActivitySubscription) If a key becomes active here through one of the specialised
         #   activity flags, then we will want to subscribe to it. But if it has one of those flags
@@ -322,21 +322,21 @@ class AbstractAccount:
         subscription_keyinstance_ids: List[int] = []
         unsubscription_keyinstance_ids: List[int] = []
         for keyinstance in keyinstances:
-            if flags & KeyInstanceFlag.IS_ACTIVE:
-                if not keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
+            if flags & KeyInstanceFlag.ACTIVE:
+                if not keyinstance.flags & KeyInstanceFlag.ACTIVE:
                     # Inactive -> active
                     subscription_keyinstance_ids.append(keyinstance.keyinstance_id)
             else:
-                if keyinstance.flags & KeyInstanceFlag.IS_ACTIVE:
+                if keyinstance.flags & KeyInstanceFlag.ACTIVE:
                     # Active -> inactive.
                     unsubscription_keyinstance_ids.append(keyinstance.keyinstance_id)
-                    # We want to clear the `IS_ACTIVE` flag if we are clearing all the set reasons
+                    # We want to clear the `ACTIVE` flag if we are clearing all the set reasons
                     # for activeness.
                     if mask is not None:
                         active_bits = ((~mask) & # pylint: disable=invalid-unary-operand-type
                             KeyInstanceFlag.MASK_ACTIVE_REASON)
                         if keyinstance.flags & KeyInstanceFlag.MASK_ACTIVE_REASON == active_bits:
-                            mask &= ~KeyInstanceFlag.IS_ACTIVE
+                            mask &= ~KeyInstanceFlag.ACTIVE
 
         def callback(future: concurrent.futures.Future) -> None:
             # Ensure we abort if it is cancelled.
@@ -570,7 +570,7 @@ class AbstractAccount:
 
     def get_frozen_balance(self) -> WalletBalance:
         return self._wallet.read_account_balance(self._id, self._wallet.get_local_height(),
-            TransactionOutputFlag.IS_FROZEN)
+            TransactionOutputFlag.FROZEN)
 
     def get_balance(self) -> WalletBalance:
         return self._wallet.read_account_balance(self._id, self._wallet.get_local_height())
@@ -598,12 +598,6 @@ class AbstractAccount:
     def get_transaction_value_entries(self, mask: Optional[TxFlags]=None) \
             -> List[TransactionValueRow]:
         return self._wallet.read_transaction_value_entries(self._id, mask=mask)
-
-    # def get_transaction_outputs(self, flags: TransactionOutputFlag, mask: TransactionOutputFlag,
-    #         require_key_usage: bool=False, tx_hash: Optional[bytes]=None) \
-    #             -> List[TransactionOutputSpendableRow2]:
-    #     return self._wallet.read_account_transaction_outputs(self._id, flags, mask,
-    #         require_key_usage, tx_hash)
 
     def get_spendable_transaction_outputs(self, exclude_frozen: bool=True, mature: bool=True,
             confirmed_only: Optional[bool]=None, keyinstance_ids: Optional[List[int]]=None) \
@@ -845,7 +839,7 @@ class AbstractAccount:
             # TODO(deferred) This only needs to read keyinstance ids and could be combined with
             #   the second call in `_get_subscription_entries_for_keyinstance_ids`
             keyinstances = self._wallet.read_keyinstances(account_id=self._id,
-                mask=KeyInstanceFlag.IS_ACTIVE)
+                mask=KeyInstanceFlag.ACTIVE)
             self.register_for_keyinstance_events(keyinstances)
 
             # Set up the transaction monitoring for the account.
@@ -1438,7 +1432,7 @@ class ImportedAddressAccount(ImportedAccountBase):
         derivation_data = json.dumps(derivation_data_dict).encode()
         derivation_data2 = create_derivation_data2(derivation_type, derivation_data_dict)
         raw_keyinstance = KeyInstanceRow(-1, -1, None, derivation_type, derivation_data,
-            derivation_data2, KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None)
+            derivation_data2, KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None)
         keyinstance_future, scripthash_future, keyinstance_rows, scripthash_rows = \
             self.create_provided_keyinstances([ raw_keyinstance ])
         scripthash_future.add_done_callback(callback)
@@ -1502,7 +1496,7 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         derivation_data = json.dumps(derivation_data_dict).encode()
         derivation_data2 = create_derivation_data2(DerivationType.PRIVATE_KEY, derivation_data_dict)
         raw_keyinstance = KeyInstanceRow(-1, -1, None, DerivationType.PRIVATE_KEY, derivation_data,
-            derivation_data2, KeyInstanceFlag.IS_ACTIVE, None)
+            derivation_data2, KeyInstanceFlag.ACTIVE, None)
         _keyinstance_future, rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
         # TODO(no-merge) imported private keystores need the key instances.
         keystore.import_private_key(rows[0].keyinstance_id, public_key, enc_private_key_text)
@@ -1765,9 +1759,9 @@ class DeterministicAccount(AbstractAccount):
 
         If there are no existing keys available, then it creates new keys and uses one of those.
 
-        Callers should not set `IS_ACTIVE` unless there is a reason we should be watching for
+        Callers should not set `ACTIVE` unless there is a reason we should be watching for
         transactions using this key via an indexer. And the calling system should be responsible
-        for ensuring that the `IS_ACTIVE` flag is removed, when the user no longer wants to
+        for ensuring that the `ACTIVE` flag is removed, when the user no longer wants to
         monitor the key (directly or indirectly).
         """
         # It is expected that a caller will have a flag that is sufficient to indicate the reasons
@@ -1792,7 +1786,7 @@ class DeterministicAccount(AbstractAccount):
 
         self._wallet.trigger_callback('on_keys_updated', self._id, [ keyinstance_id ])
 
-        if final_flags & KeyInstanceFlag.IS_ACTIVE and self._network is not None:
+        if final_flags & KeyInstanceFlag.ACTIVE and self._network is not None:
             # NOTE(ActivitySubscription) This represents a key that was not previously active
             #   becoming active and requiring a subscription for events.
             self._network.subscriptions.create_entries(
@@ -2410,7 +2404,7 @@ class Wallet(TriggeredCallbacks):
                 raw_keyinstance_rows.append(KeyInstanceRow(-1, -1,
                     None, DerivationType.PUBLIC_KEY_HASH, derivation_data,
                     create_derivation_data2(DerivationType.PUBLIC_KEY_HASH, derivation_data_hash),
-                    KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None))
+                    KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None))
         elif text_type == KeystoreTextType.PRIVATE_KEYS:
             for private_key_text in entries:
                 private_key = PrivateKey.from_text(private_key_text)
@@ -2423,7 +2417,7 @@ class Wallet(TriggeredCallbacks):
                 raw_keyinstance_rows.append(KeyInstanceRow(-1, -1,
                     None, DerivationType.PRIVATE_KEY, derivation_data,
                     create_derivation_data2(DerivationType.PRIVATE_KEY, derivation_data_dict),
-                    KeyInstanceFlag.IS_ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None))
+                    KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None))
 
         def callback(future: concurrent.futures.Future) -> None:
             if future.cancelled():
@@ -2441,14 +2435,11 @@ class Wallet(TriggeredCallbacks):
         return account
 
     def read_account_balance(self, account_id: int, local_height: int,
-            filter_bits: Optional[TransactionOutputFlag]=None,
-            filter_mask: Optional[TransactionOutputFlag]=None) -> WalletBalance:
+            txo_flags: TransactionOutputFlag=TransactionOutputFlag.NONE,
+            txo_mask: TransactionOutputFlag=TransactionOutputFlag.SPENT,
+            exclude_frozen: bool=True) -> WalletBalance:
         return db_functions.read_account_balance(self.get_db_context(),
-            account_id, local_height, filter_bits, filter_mask)
-
-    def read_account_balance_raw(self, account_id: int, flags: Optional[int]=None,
-            mask: Optional[int]=None) -> TransactionDeltaSumRow:
-        return db_functions.read_account_balance_raw(self.get_db_context(), account_id, flags, mask)
+            account_id, local_height, txo_flags, txo_mask)
 
     def update_account_names(self, entries: Iterable[Tuple[str, int]]) -> concurrent.futures.Future:
         return db_functions.update_account_names(self.get_db_context(), entries)
@@ -2652,7 +2643,7 @@ class Wallet(TriggeredCallbacks):
             if callback_future.cancelled():
                 return
             cleared_flags = callback_future.result()
-            if self._network is not None and cleared_flags & KeyInstanceFlag.IS_ACTIVE:
+            if self._network is not None and cleared_flags & KeyInstanceFlag.ACTIVE:
                 # This payment request was the only reason the key was active and being monitored
                 # on the indexing server for new transactions. We can now delete the subscription.
                 account = self._accounts[account_id]
@@ -2681,13 +2672,6 @@ class Wallet(TriggeredCallbacks):
             entries: List[TransactionOutputShortRow]) -> List[TransactionOutputShortRow]:
         db_functions.create_transaction_outputs(self.get_db_context(), entries)
         return entries
-
-    # def read_account_transaction_outputs(self, account_id: int,
-    #         flags: TransactionOutputFlag, mask: TransactionOutputFlag,
-    #         require_key_usage: bool=False, tx_hash: Optional[bytes]=None,
-    #         keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow2]:
-    #     return db_functions.read_account_transaction_outputs(self.get_db_context(), account_id,
-    #         flags, mask, require_key_usage, tx_hash, keyinstance_ids)
 
     def read_account_transaction_outputs_spendable(self, account_id: int,
             confirmed_only: bool=False, mature_height: Optional[int]=None,
@@ -3361,7 +3345,7 @@ class Wallet(TriggeredCallbacks):
         """
         assert tx.is_complete()
         timestamp = get_posix_timestamp()
-        txo_flags = TransactionOutputFlag.IS_COINBASE if tx.is_coinbase() else \
+        txo_flags = TransactionOutputFlag.COINBASE if tx.is_coinbase() else \
             TransactionOutputFlag.NONE
 
         # The database layer should be decoupled from core wallet logic so we need to
@@ -3459,7 +3443,7 @@ class Wallet(TriggeredCallbacks):
         # Unsubscribe from any deactivated keys.
         account_keyinstance_ids: Dict[int, List[int]] = defaultdict(list)
         for account_id, keyinstance_id, flags in key_update_rows:
-            if flags & KeyInstanceFlag.IS_ACTIVE:
+            if flags & KeyInstanceFlag.ACTIVE:
                 account_keyinstance_ids[account_id].append(keyinstance_id)
         for account_id, keyinstance_ids in account_keyinstance_ids.items():
             self._accounts[account_id].delete_key_subscriptions(keyinstance_ids)

@@ -258,7 +258,7 @@ class _ItemModel(QAbstractItemModel):
             elif role == Qt.ItemDataRole.DisplayRole:
                 if column == STATE_COLUMN:
                     state_text = ""
-                    if line.flags & KeyInstanceFlag.IS_ACTIVE:
+                    if line.flags & KeyInstanceFlag.ACTIVE:
                         state_text += "A"
                     if line.flags & KeyInstanceFlag.IS_INVOICE:
                         state_text += "I"
@@ -311,7 +311,7 @@ class _ItemModel(QAbstractItemModel):
             elif role == Qt.ItemDataRole.ToolTipRole:
                 if column == STATE_COLUMN:
                     lines = []
-                    if line.flags & KeyInstanceFlag.IS_ACTIVE:
+                    if line.flags & KeyInstanceFlag.ACTIVE:
                         lines.append(_("A: Activated by wallet"))
                     if line.flags & KeyInstanceFlag.IS_INVOICE:
                         lines.append(_("I: Invoice related"))
@@ -840,7 +840,7 @@ class KeyView(QTableView):
     def _set_user_active(self, keyinstance_ids: Set[int], enable: bool) -> None:
         self._logger.debug("_set_user_active %s %s", keyinstance_ids, enable)
         flags = KeyInstanceFlag.USER_SET_ACTIVE if enable else KeyInstanceFlag.NONE
-        # We do not clear `IS_ACTIVE` as there may be other reasons for activeness, and we rely
+        # We do not clear `ACTIVE` as there may be other reasons for activeness, and we rely
         # on this function to take care of clearing it if they are not present for the key.
         mask = KeyInstanceFlag(~KeyInstanceFlag.USER_SET_ACTIVE)
         self._account.set_keyinstance_flags(list(keyinstance_ids), flags, mask)
@@ -848,7 +848,7 @@ class KeyView(QTableView):
     def _set_key_frozen(self, keyinstance_ids: Set[int], enable: bool) -> None:
         self._logger.debug("_set_key_frozen %s %s", keyinstance_ids, enable)
         flags = KeyInstanceFlag.FROZEN if enable else KeyInstanceFlag.NONE
-        # We do not clear `IS_ACTIVE` as there may be other reasons for activeness, and we rely
+        # We do not clear `ACTIVE` as there may be other reasons for activeness, and we rely
         # on this function to take care of clearing it if they are not present for the key.
         mask = KeyInstanceFlag(~KeyInstanceFlag.FROZEN)
         self._account.set_keyinstance_flags(list(keyinstance_ids), flags, mask)
