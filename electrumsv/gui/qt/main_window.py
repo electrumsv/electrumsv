@@ -192,6 +192,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             QShortcut(QKeySequence("Alt+" + str(i + 1)), self,
                       lambda i=i: tabs.setCurrentIndex(i))
 
+        self.keys_updated_signal.connect(self._on_keys_updated)
         self.network_status_signal.connect(self._update_network_status)
         self.notify_transactions_signal.connect(self._notify_transactions)
         self.show_secured_data_signal.connect(self._on_show_secured_data)
@@ -1150,6 +1151,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.network_status_signal.emit()
             # Throttle updates
             await asyncio.sleep(1.0)
+
+    def _on_keys_updated(self, account_id: int, keyinstance_ids: List[int]) -> None:
+        self.update_status_bar()
 
     @profiler
     def refresh_wallet_display(self) -> None:

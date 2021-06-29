@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-#
 # Electrum - lightweight Bitcoin client
 # Copyright (C) 2015 Thomas Voegtlin
 #
@@ -27,9 +25,6 @@
 #   - This is because the non-existent text (DisplayRole) is still the main focus. To fix this
 #     requires perhaps using an item delegate and overriding the paint method to shift the icon
 #     into the center.
-
-# TODO(rt12): Key uses appear as per-usage not per-key. An example of this is where an address
-#   is reused, where there won't be one entry for the address, but one for each use of the address.
 
 import enum
 from functools import partial
