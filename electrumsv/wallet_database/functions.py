@@ -613,16 +613,21 @@ def read_key_list(db: sqlite3.Connection, account_id: int,
     If a `keyinstance_ids` value is given, then the results will only reflect usage of those
     keys.
     """
-    sql_values = [account_id]
+    sql_values = [TransactionOutputFlag.IS_SPENT, account_id]
     sql = (
         "SELECT KI.keyinstance_id, KI.masterkey_id, KI.derivation_type, "
             "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description, KI.date_updated, "
-            "TXO.tx_hash, TXO.txo_index, TXO.flags, TXO.script_type, coalesce(TXO.value, 0) "
+            "TOTAL(CASE WHEN TXO.flags&?=0 THEN TXO.value ELSE 0 END), "
+            "TOTAL(CASE WHEN TXO.flags IS NULL THEN 0 ELSE 1 END) "
         "FROM KeyInstances AS KI "
         "LEFT JOIN TransactionOutputs TXO ON TXO.keyinstance_id = KI.keyinstance_id "
         "WHERE KI.account_id = ?")
     if keyinstance_ids is not None:
         sql += " AND KI.keyinstance_id IN ({})"
+
+    sql += " GROUP BY KI.keyinstance_id"
+
+    if keyinstance_ids is not None:
         return read_rows_by_id(KeyListRow, db, sql, sql_values, keyinstance_ids)
 
     cursor = db.execute(sql, sql_values)

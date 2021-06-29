@@ -31,17 +31,15 @@ import weakref
 
 from PyQt5.QtCore import Qt, QPoint, QTimer
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QHeaderView, QTreeWidgetItem, QFileDialog, QMenu
+from PyQt5.QtWidgets import QHeaderView, QTreeWidgetItem, QMenu
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentFlag
-from electrumsv.exceptions import FileImportFailed
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.platform import platform
 from electrumsv.util import format_posix_timestamp, get_posix_timestamp
-from electrumsv.wallet import AbstractAccount
 from electrumsv.wallet_database.types import InvoiceRow
 
 from .constants import pr_icons, pr_tooltips

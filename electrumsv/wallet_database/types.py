@@ -98,11 +98,8 @@ class KeyListRow(NamedTuple):
     flags: KeyInstanceFlag
     description: Optional[str]
     date_updated: int
-    tx_hash: Optional[bytes]
-    txo_index: Optional[int]
-    txo_flags: Optional[TransactionOutputFlag]
-    txo_script_type: Optional[ScriptType]
     txo_value: int
+    txo_count: int
 
 
 class MasterKeyRow(NamedTuple):

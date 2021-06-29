@@ -48,7 +48,9 @@ async def test_key_creation(mock_app_state, tmp_storage) -> None:
     wallet.register_account(account.get_id(), account)
 
     # Create two keys via `derive_new_keys_until`.
-    account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+    scripthash_future, keyinstance_rows = account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+    scripthash_future.result(5)
+
     assert account.get_next_derivation_index(RECEIVING_SUBPATH) == 3
     assert account.get_next_derivation_index(CHANGE_SUBPATH) == 0
 

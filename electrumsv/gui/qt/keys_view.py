@@ -49,8 +49,8 @@ from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 from ...i18n import _
 from ...app_state import app_state
 from ...bitcoin import scripthash_bytes, sha256
-from ...constants import (ACCOUNT_SCRIPT_TYPES, DerivationType, IntFlag, KeyInstanceFlag,
-    ScriptType, TransactionOutputFlag, unpack_derivation_path)
+from ...constants import (ACCOUNT_SCRIPT_TYPES, ADDRESSABLE_SCRIPT_TYPES, DerivationType, IntFlag,
+    KeyInstanceFlag, ScriptType, unpack_derivation_path)
 from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
@@ -73,13 +73,14 @@ if TYPE_CHECKING:
 QT_SORT_ROLE = Qt.ItemDataRole.UserRole+1
 QT_FILTER_ROLE = Qt.ItemDataRole.UserRole+2
 
-COLUMN_NAMES = [ _("State"), _('Key'), _('Script'), _('Address'), _('Label'), _('Balance'), '' ]
+COLUMN_NAMES = [ _("State"), _('Key'), _('Address'), _('Label'), _('Usages'),
+    _('Balance'), '' ]
 
 STATE_COLUMN = 0
 KEY_COLUMN = 1
-SCRIPT_COLUMN = 2
-ADDRESS_COLUMN = 3
-LABEL_COLUMN = 4
+ADDRESS_COLUMN = 2
+LABEL_COLUMN = 3
+USAGES_COLUMN = 4
 BALANCE_COLUMN = 5
 FIAT_BALANCE_COLUMN = 6
 
@@ -120,8 +121,8 @@ def get_key_text(line: KeyLine) -> str:
     return text +":"+ derivation_text
 
 
-def data_row_key(row: KeyListRow) -> Tuple[int, Optional[bytes], Optional[int]]:
-    return row.keyinstance_id, row.tx_hash, row.txo_index
+def data_row_key(row: KeyListRow) -> int:
+    return row.keyinstance_id
 
 
 class _ItemModel(QAbstractItemModel):
@@ -217,22 +218,27 @@ class _ItemModel(QAbstractItemModel):
         if model_index.isValid():
             line = self._data[row]
 
+            account = self._view._account
+            default_script_type = account.get_default_script_type()
+
             # First check the custom sort role.
             if role == QT_SORT_ROLE:
                 if column == STATE_COLUMN:
                     return line.flags
                 elif column == KEY_COLUMN:
                     return get_key_text(line)
-                elif column in (SCRIPT_COLUMN, ADDRESS_COLUMN):
-                    if line.txo_script_type is None:
-                        return ""
-                    return ScriptType(line.txo_script_type).name
+                elif column == ADDRESS_COLUMN:
+                    if default_script_type in ADDRESSABLE_SCRIPT_TYPES:
+                        template = account.get_script_template_for_key_data(line,
+                            default_script_type)
+                        return template.to_string() # type: ignore
                 elif column == LABEL_COLUMN:
                     return line.description
+                elif column == USAGES_COLUMN:
+                    return line.txo_count
                 elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     if line.txo_value is not None:
-                        value = line.txo_value if line.txo_flags and \
-                            (line.txo_flags & TransactionOutputFlag.IS_SPENT) == 0 else 0
+                        value = line.txo_value
                         if column == BALANCE_COLUMN:
                             return value
                         elif column == FIAT_BALANCE_COLUMN:
@@ -270,29 +276,23 @@ class _ItemModel(QAbstractItemModel):
                         return state_text
                 elif column == KEY_COLUMN:
                     return get_key_text(line)
-                elif column == SCRIPT_COLUMN:
-                    if line.txo_script_type is None:
-                        return ""
-                    return ScriptType(line.txo_script_type).name
                 elif column == ADDRESS_COLUMN:
-                    if line.txo_script_type is None or line.txo_script_type not in \
-                            (ScriptType.MULTISIG_P2SH, ScriptType.P2PKH):
-                        return ""
-                    account = self._view._account
-                    template = account.get_script_template_for_key_data(line, line.txo_script_type)
-                    return template.to_string() # type: ignore
+                    if default_script_type in ADDRESSABLE_SCRIPT_TYPES:
+                        template = account.get_script_template_for_key_data(line,
+                            default_script_type)
+                        return template.to_string() # type: ignore
                 elif column == LABEL_COLUMN:
                     return line.description
+                elif column == USAGES_COLUMN:
+                    return line.txo_count
                 elif column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
-                    if line.txo_flags is not None:
-                        value = 0 if line.txo_flags & TransactionOutputFlag.IS_SPENT \
-                            else line.txo_value
-                        if column == BALANCE_COLUMN:
-                            return app_state.format_amount(value, whitespaces=True)
-                        elif column == FIAT_BALANCE_COLUMN:
-                            fx = app_state.fx
-                            rate = fx.exchange_rate()
-                            return fx.value_str(value, rate)
+                    value = line.txo_value
+                    if column == BALANCE_COLUMN:
+                        return app_state.format_amount(value, whitespaces=True)
+                    elif column == FIAT_BALANCE_COLUMN:
+                        fx = app_state.fx
+                        rate = fx.exchange_rate()
+                        return fx.value_str(value, rate)
             elif role == Qt.ItemDataRole.FontRole:
                 if column in (BALANCE_COLUMN, FIAT_BALANCE_COLUMN):
                     return self._view._monospace_font
@@ -425,7 +425,7 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
 
         source_model = self.sourceModel()
         if self._filter_type == MatchType.TEXT:
-            for column in (KEY_COLUMN, LABEL_COLUMN, SCRIPT_COLUMN):
+            for column in (KEY_COLUMN, LABEL_COLUMN):
                 column_index = source_model.index(source_row, column, source_parent)
                 cell_data = source_model.data(column_index, Qt.ItemDataRole.DisplayRole)
                 # In rare occasions the filter may get a None result for cell data.
@@ -501,8 +501,7 @@ class KeyView(QTableView):
         horizontalHeader.setMinimumSectionSize(20)
         horizontalHeader.resizeSection(STATE_COLUMN, fw(COLUMN_NAMES[STATE_COLUMN]))
         horizontalHeader.resizeSection(KEY_COLUMN, fw("42:1:m/00/92"))
-        horizontalHeader.resizeSection(SCRIPT_COLUMN, fw("MULTISIG"))
-        # horizontalHeader.resizeSection(ADDRESS_COLUMN, mw("P2PKH"))
+        horizontalHeader.resizeSection(USAGES_COLUMN, fw("Usages"))
         horizontalHeader.setSectionResizeMode(ADDRESS_COLUMN, QHeaderView.Stretch)
         horizontalHeader.setSectionResizeMode(LABEL_COLUMN, QHeaderView.Stretch)
         balance_width = mw(app_state.format_amount(1.2, whitespaces=True))
@@ -862,9 +861,7 @@ class KeyView(QTableView):
             self.edit(model_index)
         else:
             line: KeyListRow = self._data[base_index.row()]
-            script_type = ScriptType(line.txo_script_type) if line.txo_script_type is not None \
-                else ScriptType.NONE
-            self._main_window.show_key(self._account, line, script_type)
+            self._main_window.show_key(self._account, line, self._account.get_default_script_type())
 
     def _event_create_menu(self, position):
         menu = QMenu()
@@ -907,8 +904,7 @@ class KeyView(QTableView):
 
             if not multi_select:
                 row, column, line, selected_index, base_index = selected[0]
-                script_type = ScriptType(line.txo_script_type) if line.txo_script_type is not None \
-                    else ScriptType.NONE
+                script_type = self._account.get_default_script_type()
                 menu.addAction(_('Details'),
                     partial(self._main_window.show_key, self._account, line, script_type))
                 if column == LABEL_COLUMN:
@@ -923,7 +919,7 @@ class KeyView(QTableView):
                     # NOTE(typing) typing is blind to the `show_private_key` password decorator.
                     menu.addAction(_("Private key"),
                         lambda: self._main_window.show_private_key(self._account, # type: ignore
-                            line, line.txo_script_type))
+                            line, script_type))
                 if not is_multisig and not self._account.is_watching_only():
                     menu.addAction(_("Sign/verify message"),
                         lambda: self._main_window.sign_verify_message(self._account, line))
@@ -931,10 +927,10 @@ class KeyView(QTableView):
                         lambda: self._main_window.encrypt_message(self._account, line))
 
                 addr_URL = script_URL = None
-                if line.txo_script_type != ScriptType.NONE:
-                    assert line.txo_script_type is not None
+                if script_type != ScriptType.NONE:
+                    assert script_type is not None
                     script_template = self._account.get_script_template_for_key_data(line,
-                        line.txo_script_type)
+                        script_type)
                     if isinstance(script_template, Address):
                         addr_URL = web.BE_URL(self._main_window.config, 'addr', script_template)
 
