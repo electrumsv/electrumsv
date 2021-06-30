@@ -72,6 +72,17 @@ class KeyDataType(NamedTuple):
     derivation_data2: Optional[bytes]   # Spendable type field.
 
 
+class KeyInstanceFlagRow(NamedTuple):
+    keyinstance_id: int
+    flags: KeyInstanceFlag
+
+
+class KeyInstanceFlagChangeRow(NamedTuple):
+    keyinstance_id: int
+    flags_old: KeyInstanceFlag
+    flags_new: KeyInstanceFlag=KeyInstanceFlag.NONE
+
+
 class KeyInstanceRow(NamedTuple):
     keyinstance_id: int                 # Overlapping common output/spendable type field.
     account_id: int                     # Spendable type field.

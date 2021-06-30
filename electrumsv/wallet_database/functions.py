@@ -28,9 +28,8 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     TransactionAlreadyExistsError, TransactionRemovalError)
 from .sqlite_support import DatabaseContext, replace_db_context_with_connection
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
-    HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceRow,
-    KeyInstanceScriptHashRow, KeyListRow,
-    MasterKeyRow,
+    HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
+    KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult,
     PaymentRequestRow,
     PaymentRequestUpdateRow, SpendConflictType, TransactionBlockRow,
@@ -246,6 +245,9 @@ def delete_wallet_data(db_context: DatabaseContext, key: str) -> concurrent.futu
     return db_context.post_to_thread(_write)
 
 
+# TODO Maybe at some stage this should include a frozen balance, but it needs some thinking
+#   through. Each case statement would need to filter out frozen UTXOs, and a frozen case
+#   would need to be added.
 @replace_db_context_with_connection
 def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: int,
         txo_flags: TransactionOutputFlag=TransactionOutputFlag.NONE,
@@ -1318,28 +1320,61 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
 
 def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
         flags: KeyInstanceFlag, mask: Optional[KeyInstanceFlag]=None) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[List[KeyInstanceFlagChangeRow]]:
     if mask is None:
         # NOTE(typing) There is no gain in casting to KeyInstanceFlag.
         mask = ~flags # type: ignore
-    sql = (
+    # We need to clear the `ACTIVE` flag if all the reasons why this key is `ACTIVE` are cleared
+    # with the update for the given role.
+    sql_write = (
         "UPDATE KeyInstances "
-        "SET date_updated=?, flags=(flags&?)|? "
-        "WHERE keyinstance_id IN ({})")
+        "SET date_updated=?, flags=CASE "
+            "WHEN ((flags&?)|?)&?=? THEN ((flags&?)|?)&? "
+            "ELSE (flags&?)|? "
+            "END "
+        "WHERE keyinstance_id IN ({}) "
+        "RETURNING keyinstance_id, flags")
     # Ensure that we rollback if we are applying changes that are already in place. We expect to
     # update all the rows we are asked to update, and this will filter out the rows that already
     # have any of the flags we intend to set.
     # NOTE If any caller wants to do overwrites or partial updates then that should be a standard
     # policy optionally passed into all update calls.
-    sql_values = [ get_posix_timestamp(), mask, flags ]
+    sql_write_values = [ get_posix_timestamp(),
+        mask, flags, KeyInstanceFlag.MASK_ACTIVE_REASON | KeyInstanceFlag.ACTIVE,
+            KeyInstanceFlag.ACTIVE,
+        mask, flags, ~KeyInstanceFlag.ACTIVE,
+        mask, flags,
+    ]
 
-    def _write(db: sqlite3.Connection) -> bool:
-        nonlocal sql, sql_values, key_ids
-        rows_updated = execute_sql_for_ids(db, sql, sql_values, key_ids)
-        if rows_updated != len(key_ids):
-            raise DatabaseUpdateError(f"Rollback as only {rows_updated} of {len(key_ids)} "
+    sql_read = (
+        "SELECT keyinstance_id, flags "
+        "FROM KeyInstances "
+        "WHERE keyinstance_id IN ({})")
+
+    def _write(db: sqlite3.Connection) -> List[KeyInstanceFlagChangeRow]:
+        # TODO(optimisation) It is potentially possible to combine this into the update by using
+        #   a join or a sub-select. But whether this works with Sqlite, is another matter.
+        #   Reference: https://stackoverflow.com/a/7927957
+        old_rows = read_rows_by_id(KeyInstanceFlagRow, db, sql_read, [], key_ids)
+        if len(old_rows) != len(key_ids):
+            raise DatabaseUpdateError(f"Rollback as only {len(old_rows)} of {len(key_ids)} "
+                "rows were located")
+
+        # Sqlite is not guaranteed to set `rowcount` reliably. We have `new_rows` anyway.
+        rows_updated, new_rows = execute_sql_for_ids(db, sql_write, sql_write_values, key_ids,
+            return_type=KeyInstanceFlagRow)
+        if len(new_rows) != len(key_ids):
+            raise DatabaseUpdateError(f"Rollback as only {len(new_rows)} of {len(key_ids)} "
                 "rows were updated")
-        return True
+
+        final_rows: List[KeyInstanceFlagChangeRow] = []
+        rows_by_keyinstance_id = { row.keyinstance_id: row for row in old_rows }
+        for new_row in new_rows:
+            old_row = rows_by_keyinstance_id[new_row.keyinstance_id]
+            final_rows.append(KeyInstanceFlagChangeRow(new_row.keyinstance_id,
+                old_row.flags, new_row.flags))
+
+        return final_rows
     return db_context.post_to_thread(_write)
 
 
@@ -1390,7 +1425,7 @@ def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]
 
     def _write(db: sqlite3.Connection) -> bool:
         nonlocal sql, sql_values, tx_hashes
-        rows_updated = execute_sql_for_ids(db, sql, sql_values, tx_hashes)
+        rows_updated = execute_sql_for_ids(db, sql, sql_values, tx_hashes)[0]
         if rows_updated < len(tx_hashes):
             # Rollback the database transaction (nothing to rollback but upholding the convention).
             raise DatabaseUpdateError("Rollback as nothing updated")
@@ -1736,6 +1771,9 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
     return db_context.post_to_thread(_write)
 
 
+# TODO(no-merge) It is not expected that the number of closed payment requests
+#   will be larger than the amount of possible bindings, for an executed statement. This
+#   is why we should be calling `execute_sql_for_ids`
 def _close_paid_payment_requests(db: sqlite3.Connection) \
         -> Tuple[Set[int], List[Tuple[int, int, int]]]:
     timestamp = get_posix_timestamp()

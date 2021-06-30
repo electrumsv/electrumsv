@@ -134,23 +134,29 @@ def read_rows_by_ids(return_type: Type[T], db: sqlite3.Connection, sql: str, sql
     return results
 
 
-def execute_sql_for_ids(db: sqlite3.Connection, sql: str, sql_values: List[Any], \
-        ids: Sequence[T]) -> int:
+# TODO(no-merge) This is an inconsistent naming with ids meaning a sequence of ids, not
+#   a sequence of grouped ids as in `update_rows_by_ids`.
+def execute_sql_for_ids(db: sqlite3.Connection, sql: str,
+        sql_values: List[Any], ids: Sequence[T2], return_type: Optional[Type[T]]=None) \
+            -> Tuple[int, List[T]]:
     """
     Update, delete or whatever rows in batches as constrained by database limitations.
     """
     batch_size = SQLITE_MAX_VARS - len(sql_values)
     rows_updated = 0
     remaining_ids = ids
+    rows: List[T] = []
     while len(remaining_ids):
         batch_ids = remaining_ids[:batch_size]
         sql = sql.format(",".join("?" for k in batch_ids))
         # NOTE(typing) Cannot add a sequence to a list.
         cursor = db.execute(sql, sql_values + batch_ids) # type: ignore
+        if return_type is not None:
+            rows.extend(return_type(*row) for row in cursor.fetchall())
         rows_updated += cursor.rowcount
         cursor.close()
         remaining_ids = remaining_ids[batch_size:]
-    return rows_updated
+    return rows_updated, rows
 
 
 def update_rows_by_ids(db: sqlite3.Connection, sql: str, sql_id_expression: str,

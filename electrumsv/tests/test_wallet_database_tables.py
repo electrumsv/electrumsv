@@ -345,6 +345,56 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
     assert rows[0].keyinstance_id == line1.keyinstance_id
     assert rows[0].description == "line1"
 
+    future = db_functions.set_keyinstance_flags(db_context, [ line1.keyinstance_id ],
+        flags=KeyInstanceFlag.FROZEN)
+    update_rows = future.result(5)
+    assert len(update_rows) == 1
+    assert update_rows[0].keyinstance_id == line1.keyinstance_id
+    assert update_rows[0].flags_old == KeyInstanceFlag.NONE
+    assert update_rows[0].flags_new == KeyInstanceFlag.FROZEN
+
+    # Set the active flags and ensure they are additive to the `FROZEN` flag.
+    active_flags = KeyInstanceFlag.ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST
+    future = db_functions.set_keyinstance_flags(db_context, [ line1.keyinstance_id ],
+        flags=active_flags)
+    update_rows = future.result(5)
+    assert len(update_rows) == 1
+    assert update_rows[0].keyinstance_id == line1.keyinstance_id
+    assert update_rows[0].flags_old == KeyInstanceFlag.FROZEN
+    assert update_rows[0].flags_new == active_flags | KeyInstanceFlag.FROZEN
+
+    # Clear the `IS_PAYMENT_REQUEST` flag and ensure it clears `IS_ACTIVE` as there are no other
+    # active reason states present to maintain it.
+    future = db_functions.set_keyinstance_flags(db_context, [ line1.keyinstance_id ],
+        flags=KeyInstanceFlag.NONE, mask=KeyInstanceFlag(~KeyInstanceFlag.IS_PAYMENT_REQUEST))
+    update_rows = future.result(5)
+    assert len(update_rows) == 1
+    assert update_rows[0].keyinstance_id == line1.keyinstance_id
+    assert KeyInstanceFlag(update_rows[0].flags_old) == active_flags | KeyInstanceFlag.FROZEN
+    assert KeyInstanceFlag(update_rows[0].flags_new) == KeyInstanceFlag.FROZEN
+
+    # Set the multiple active reason flags and ensure they are additive to the `FROZEN` flag.
+    active_flags = KeyInstanceFlag.ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST | \
+        KeyInstanceFlag.USER_SET_ACTIVE
+    future = db_functions.set_keyinstance_flags(db_context, [ line1.keyinstance_id ],
+        flags=active_flags)
+    update_rows = future.result(5)
+    assert len(update_rows) == 1
+    assert update_rows[0].keyinstance_id == line1.keyinstance_id
+    assert update_rows[0].flags_old == KeyInstanceFlag.FROZEN
+    assert update_rows[0].flags_new == active_flags | KeyInstanceFlag.FROZEN
+
+    # Clear the `IS_PAYMENT_REQUEST` flag and ensure it preserves `IS_ACTIVE` as the
+    # `USER_SET_ACTIVE` flag maintains the need for it.
+    future = db_functions.set_keyinstance_flags(db_context, [ line1.keyinstance_id ],
+        flags=KeyInstanceFlag.NONE, mask=KeyInstanceFlag(~KeyInstanceFlag.IS_PAYMENT_REQUEST))
+    update_rows = future.result(5)
+    assert len(update_rows) == 1
+    assert update_rows[0].keyinstance_id == line1.keyinstance_id
+    assert KeyInstanceFlag(update_rows[0].flags_old) == active_flags | KeyInstanceFlag.FROZEN
+    assert KeyInstanceFlag(update_rows[0].flags_new) == \
+        KeyInstanceFlag.ACTIVE| KeyInstanceFlag.USER_SET_ACTIVE| KeyInstanceFlag.FROZEN
+
 
 class TestTransactionTable:
     @classmethod

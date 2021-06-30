@@ -92,6 +92,7 @@ from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
     DerivationTypes,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataType, KeyDataTypes,
+    KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult,
     PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
@@ -293,59 +294,46 @@ class AbstractAccount:
         return entries
 
     def set_keyinstance_flags(self, keyinstance_ids: Sequence[int], flags: KeyInstanceFlag,
-            mask: Optional[KeyInstanceFlag]=None) -> concurrent.futures.Future:
+            mask: Optional[KeyInstanceFlag]=None) \
+                -> concurrent.futures.Future[List[KeyInstanceFlagChangeRow]]:
         """
         Encapsulate updating the flags for keyinstances belonging to this account.
 
         This will subscribe or unsubscribe from script hash notifications from any indexer
         automatically as any flags relating to activeness of the key are set or unset.
         """
-        # We need the current flags in order to reconcile keys becoming/losing active status.
-        keyinstances = self._wallet.read_keyinstances(account_id=self._id,
-            keyinstance_ids=keyinstance_ids)
-        assert len(keyinstances) == len(keyinstance_ids)
-
         # There is no situation where keys should be marked active, as this is meaningless.
         # Keys should only be activated with supplementary reasons so we can know if we can
         # deactivate it fully.
         assert flags & KeyInstanceFlag.ACTIVE == 0, "do not set directly"
 
-        # Setting `USER_SET_ACTIVE` is additive to the base `ACTIVE` flag.
-        if flags & KeyInstanceFlag.USER_SET_ACTIVE:
+        # Setting any `MASK_ACTIVE_REASON` flag is additive to the base `ACTIVE` flag.
+        if flags & KeyInstanceFlag.MASK_ACTIVE_REASON:
             flags |= KeyInstanceFlag.ACTIVE
 
-        # NOTE(ActivitySubscription) If a key becomes active here through one of the specialised
-        #   activity flags, then we will want to subscribe to it. But if it has one of those flags
-        #   removed this does not mean we will want to unsubscribe. We may still want to get
-        #   notifications to detect whether a transaction has been mined, so that we know to
-        #   request a merkle proof.
-        subscription_keyinstance_ids: List[int] = []
-        unsubscription_keyinstance_ids: List[int] = []
-        for keyinstance in keyinstances:
-            if flags & KeyInstanceFlag.ACTIVE:
-                if not keyinstance.flags & KeyInstanceFlag.ACTIVE:
-                    # Inactive -> active
-                    subscription_keyinstance_ids.append(keyinstance.keyinstance_id)
-            else:
-                if keyinstance.flags & KeyInstanceFlag.ACTIVE:
-                    # Active -> inactive.
-                    unsubscription_keyinstance_ids.append(keyinstance.keyinstance_id)
-                    # We want to clear the `ACTIVE` flag if we are clearing all the set reasons
-                    # for activeness.
-                    if mask is not None:
-                        active_bits = ((~mask) & # pylint: disable=invalid-unary-operand-type
-                            KeyInstanceFlag.MASK_ACTIVE_REASON)
-                        if keyinstance.flags & KeyInstanceFlag.MASK_ACTIVE_REASON == active_bits:
-                            mask &= ~KeyInstanceFlag.ACTIVE
-
-        def callback(future: concurrent.futures.Future) -> None:
+        def callback(future: concurrent.futures.Future[List[KeyInstanceFlagChangeRow]]) -> None:
             # Ensure we abort if it is cancelled.
             if future.cancelled():
                 return
             # Ensure we abort if there is an error.
-            future.result()
+            results = future.result()
 
+            # NOTE(ActivitySubscription) If a key becomes active here through one of the specialised
+            #   activity flags, then we will want to subscribe to it. But if it has one of those
+            #   flags removed this does not mean we will want to unsubscribe. We may still want to
+            #   get notifications to detect whether a transaction has been mined, so that we know
+            #   to request a merkle proof.
             if self._network is not None:
+                subscription_keyinstance_ids: List[int] = []
+                unsubscription_keyinstance_ids: List[int] = []
+                for keyinstance_id, flags, final_flags in results:
+                    if flags & KeyInstanceFlag.ACTIVE:
+                        if final_flags & KeyInstanceFlag.ACTIVE == 0:
+                            unsubscription_keyinstance_ids.append(keyinstance_id)
+                    else:
+                        if final_flags & KeyInstanceFlag.ACTIVE:
+                            subscription_keyinstance_ids.append(keyinstance_id)
+
                 if len(subscription_keyinstance_ids):
                     self._network.subscriptions.create_entries(
                         self._get_subscription_entries_for_keyinstance_ids(
@@ -2557,7 +2545,8 @@ class Wallet(TriggeredCallbacks):
             derivation_path, allocation_flags)
 
     def set_keyinstance_flags(self, key_ids: Sequence[int], flags: KeyInstanceFlag,
-            mask: Optional[KeyInstanceFlag]=None) -> concurrent.futures.Future:
+            mask: Optional[KeyInstanceFlag]=None) \
+                -> concurrent.futures.Future[List[KeyInstanceFlagChangeRow]]:
         return db_functions.set_keyinstance_flags(self.get_db_context(), key_ids, flags, mask)
 
     def get_next_derivation_index(self, account_id, masterkey_id: int,
