@@ -2016,6 +2016,12 @@ class AsynchronousFunctions:
         assert tx_row.tx_bytes is not None
         assert (tx_row.flags & TxFlags.HAS_BYTEDATA) == 0, "this flag is not applicable"
         assert isinstance(tx_row.block_height, (int, BlockHeight)), "all heights should be integers"
+        for input in txi_rows:
+            assert input.script_offset != 0
+            assert input.script_length != 0
+        for output in txo_rows:
+            assert output.script_offset != 0
+            assert output.script_length != 0
 
         # Constraint: tx_hash should be unique.
         try:
