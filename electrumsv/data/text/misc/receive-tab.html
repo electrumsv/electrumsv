@@ -18,12 +18,13 @@ quarantine any such funds and avoid spending or using them in any way.
 The <cite>Description</cite> field is there to tell the user what the payment is related to,
 perhaps noting who it might be from.
 </p>
-<h4>Requested amount (required)</h4>
+<h4>Requested amount (optional)</h4>
 <p>
 This <cite>Requested amount</cite> field is for both the user's records, and also for the wallet
 software to use in matching payments. Detected incoming payments to the reserved payment
 destination will count towards this amount, and the payment state will be toggled to "Paid" if
-they are of sufficient value.
+they are of sufficient value. If no value is provides, then this address will be observed
+indefinitely regardless of how many payments are made to it.
 </p>
 <h4>Request expires (required)</h4>
 <p>
