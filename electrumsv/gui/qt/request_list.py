@@ -190,6 +190,7 @@ class RequestList(MyTreeWidget):
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
         menu = QMenu(self)
+        menu.addAction(_("Details"), lambda: self._receive_view.show_dialog(request_id))
         menu.addAction(_("Copy {}").format(column_title),
             lambda: app_state.app.clipboard().setText(column_data))
         menu.addAction(_("Copy URI"),

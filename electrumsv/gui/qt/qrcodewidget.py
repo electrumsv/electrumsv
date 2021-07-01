@@ -1,5 +1,4 @@
 import os
-from typing import Callable, TYPE_CHECKING
 
 from PyQt5.QtCore import pyqtSignal, QEvent, Qt
 from PyQt5.QtGui import QColor, QCursor, QMouseEvent, QPainter
@@ -11,9 +10,6 @@ from electrumsv.i18n import _
 from electrumsv.app_state import app_state
 
 from .util import WindowModalDialog
-
-if TYPE_CHECKING:
-    from .main_window import ElectrumWindow
 
 
 class QRCodeWidget(QWidget):

@@ -11,8 +11,6 @@ except ModuleNotFoundError:
     import sqlite3 # type: ignore
 from typing import Any, cast, Iterable, List, Optional, Sequence, Set, Tuple
 
-from bitcoinx import hash_to_hex_str
-
 from ..bitcoin import COINBASE_MATURITY
 from ..constants import (BlockHeight, DerivationType, DerivationPath, KeyInstanceFlag,
     NetworkServerType, pack_derivation_path, PaymentFlag, ScriptType, TransactionOutputFlag,
