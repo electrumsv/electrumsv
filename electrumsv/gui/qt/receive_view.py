@@ -2,7 +2,7 @@ import concurrent.futures
 from typing import List, Optional, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtWidgets import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QVBoxLayout, QWidget)
 
@@ -10,7 +10,7 @@ from ...app_state import app_state
 from ...constants import KeyInstanceFlag, PaymentFlag, RECEIVING_SUBPATH
 from ...i18n import _
 from ...logs import logs
-from ...wallet_database.types import KeyDataTypes, PaymentRequestRow
+from ...wallet_database.types import PaymentRequestRow
 from ...util import get_posix_timestamp
 
 from .amountedit import AmountEdit, BTCAmountEdit
@@ -28,6 +28,9 @@ class ReceiveView(QWidget):
     Display a form for reservation of addresses for new expected payments, as well as a list of
     the existing expected payments.
     """
+
+    open_dialog_signal = pyqtSignal(int)
+
     def __init__(self, main_window: "ElectrumWindow", account_id: int) -> None:
         super().__init__(main_window)
 
@@ -36,8 +39,7 @@ class ReceiveView(QWidget):
         self._account = main_window._wallet.get_account(account_id)
         self._logger = logs.get_logger(f"receive-view[{self._account_id}]")
 
-        self._dialogs: weakref.WeakValueDictionary[int, ReceiveDialog] = \
-            weakref.WeakValueDictionary()
+        self._dialogs: Dict[int, ReceiveDialog] = {}
 
         self._request_list_toolbar_layout = TableTopButtonLayout()
         self._request_list_toolbar_layout.refresh_signal.connect(
@@ -55,17 +57,23 @@ class ReceiveView(QWidget):
         vbox.addWidget(request_container, 1)
         self.setLayout(vbox)
 
+        self.open_dialog_signal.connect(self.show_dialog)
+
         app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
         self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
         self._main_window.payment_requests_paid_signal.connect(self._on_payment_requests_paid)
 
     def clean_up(self) -> None:
         """
-        Called by the main window when it is closed.
+        Called by the main window when the main window is closed.
         """
         self._main_window.payment_requests_paid_signal.disconnect(self._on_payment_requests_paid)
         self._main_window.new_fx_quotes_signal.disconnect(self._on_ui_exchange_rate_quotes)
         app_state.app.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
+
+        for dialog in self._dialogs.values():
+            dialog.clean_up()
+        self._dialogs.clear()
 
     def _on_fiat_ccy_changed(self) -> None:
         """
@@ -184,16 +192,17 @@ class ReceiveView(QWidget):
         keyinstance_id = self._account.reserve_unassigned_key(RECEIVING_SUBPATH,
             KeyInstanceFlag.IS_PAYMENT_REQUEST | KeyInstanceFlag.ACTIVE)
 
-        def callback(future: concurrent.futures.Future) -> None:
+        def callback(future: concurrent.futures.Future[List[PaymentRequestRow]]) -> None:
             # Skip if the operation was cancelled.
             if future.cancelled():
                 return
             # Raise any exception if it errored or get the result if completed successfully.
-            future.result()
+            final_rows = future.result()
 
             # NOTE This callback will be happening in the database thread. No UI calls should
             #   be made, unless we emit a signal to do it.
             self._request_list.update_signal.emit()
+            self.open_dialog_signal.emit(final_rows[0].paymentrequest_id)
 
         # Update the payment request next.
         row = PaymentRequestRow(-1, keyinstance_id, PaymentFlag.UNPAID, amount, expiration, message,
@@ -209,21 +218,39 @@ class ReceiveView(QWidget):
         self._receive_amount_e.setAmount(None)
         self._expires_combo.setCurrentIndex(2)
 
-    # Only called from key list menu.
-    # TODO(no-merge) We should support receiving in designated keys and we need to flesh this out
-    # later and make sure it works right.
-    def receive_at_key(self, key_data: KeyDataTypes) -> None:
-        # TODO(no-merge) Ensure we are not already receiving at the given key? Popup the dialog
-        # if we are?
-        self._main_window.show_receive_tab()
+    def show_dialog(self, request_id: int) -> None:
+        """
+        Show the dialog for the given `request_id`.
+
+        We cache the instance until it is closed, so that we can bring it to front if it is already
+        open in the background and avoid having multiple copies open.
+        """
+        dialog = self.get_dialog(request_id)
+        if dialog is None:
+            dialog = self.create_edit_dialog(request_id)
+        dialog.show()
 
     def get_dialog(self, request_id: int) -> Optional[ReceiveDialog]:
+        """
+        Get any existing open dialog for the given `request_id`.
+        """
         return self._dialogs.get(request_id)
 
     def create_edit_dialog(self, request_id) -> ReceiveDialog:
-        dialog = ReceiveDialog(self._main_window.reference(), self._account_id, request_id)
+        dialog = ReceiveDialog(self._main_window.reference(), self, self._account_id, request_id)
         self._dialogs[request_id] = dialog
+        def dialog_finished(result: int) -> None:
+            self._on_dialog_closed(request_id)
+        dialog.finished.connect(dialog_finished)
         return dialog
+
+    def _on_dialog_closed(self, request_id: int) -> None:
+        if request_id in self._dialogs:
+            # print("DIALOG REMOVED")
+            del self._dialogs[request_id]
+
+    def update_request_list(self) -> None:
+        self._request_list.update()
 
     def _filter_request_list(self, text: str) -> None:
         self._request_list.filter(text)

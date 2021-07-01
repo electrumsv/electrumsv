@@ -2587,22 +2587,21 @@ class Wallet(TriggeredCallbacks):
     # Payment requests.
 
     def create_payment_requests(self, account_id: int, requests: List[PaymentRequestRow]) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[List[PaymentRequestRow]]:
         def callback(callback_future: concurrent.futures.Future) -> None:
-            nonlocal account_id, requests
             if callback_future.cancelled():
                 return
             callback_future.result()
-
             updated_keyinstance_ids = [ row.keyinstance_id for row in requests ]
             self.trigger_callback('keys_updated', account_id, updated_keyinstance_ids)
 
         request_id = self._storage.get("next_paymentrequest_id", 1)
-        rows = []
+        rows: List[PaymentRequestRow] = []
         for request in requests:
             rows.append(request._replace(paymentrequest_id=request_id))
             request_id += 1
         self._storage.put("next_paymentrequest_id", request_id)
+
         future = db_functions.create_payment_requests(self.get_db_context(), rows)
         future.add_done_callback(callback)
         return future

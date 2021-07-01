@@ -41,7 +41,7 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     TransactionSubscriptionRow, TxProof, TxProofResult,
     WalletBalance, WalletDataRow, WalletEventRow)
 from .util import (flag_clause, pack_proof, read_rows_by_id, read_rows_by_ids,
-    execute_sql_for_ids, update_rows_by_ids)
+    execute_sql_for_id, update_rows_by_ids)
 
 
 logger = logs.get_logger("db-functions")
@@ -126,8 +126,8 @@ def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyR
     return db_context.post_to_thread(_write)
 
 
-def create_payment_requests(db_context: DatabaseContext,
-        entries: Iterable[PaymentRequestRow]) -> concurrent.futures.Future:
+def create_payment_requests(db_context: DatabaseContext, entries: List[PaymentRequestRow]) \
+        -> concurrent.futures.Future[List[PaymentRequestRow]]:
     sql = (
         "INSERT INTO PaymentRequests "
         "(paymentrequest_id, keyinstance_id, state, value, expiration, description, date_created, "
@@ -135,9 +135,9 @@ def create_payment_requests(db_context: DatabaseContext,
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     timestamp = get_posix_timestamp()
     sql_values = [ (*t[:-1], timestamp, timestamp) for t in entries ]
-    def _write(db: sqlite3.Connection) -> None:
-        nonlocal sql, sql_values
+    def _write(db: sqlite3.Connection) -> List[PaymentRequestRow]:
         db.executemany(sql, sql_values)
+        return entries
     return db_context.post_to_thread(_write)
 
 
@@ -1361,7 +1361,7 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
                 "rows were located")
 
         # Sqlite is not guaranteed to set `rowcount` reliably. We have `new_rows` anyway.
-        rows_updated, new_rows = execute_sql_for_ids(db, sql_write, sql_write_values, key_ids,
+        rows_updated, new_rows = execute_sql_for_id(db, sql_write, sql_write_values, key_ids,
             return_type=KeyInstanceFlagRow)
         if len(new_rows) != len(key_ids):
             raise DatabaseUpdateError(f"Rollback as only {len(new_rows)} of {len(key_ids)} "
@@ -1424,8 +1424,7 @@ def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]
     sql_values = [ timestamp, TxFlags.STATE_CLEARED, ~TxFlags.STATE_SETTLED ]
 
     def _write(db: sqlite3.Connection) -> bool:
-        nonlocal sql, sql_values, tx_hashes
-        rows_updated = execute_sql_for_ids(db, sql, sql_values, tx_hashes)[0]
+        rows_updated = execute_sql_for_id(db, sql, sql_values, tx_hashes)[0]
         if rows_updated < len(tx_hashes):
             # Rollback the database transaction (nothing to rollback but upholding the convention).
             raise DatabaseUpdateError("Rollback as nothing updated")
@@ -1771,9 +1770,9 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
     return db_context.post_to_thread(_write)
 
 
-# TODO(no-merge) It is not expected that the number of closed payment requests
-#   will be larger than the amount of possible bindings, for an executed statement. This
-#   is why we should be calling `execute_sql_for_ids`
+# TODO It is not expected that the number of closed payment requests will be larger than the
+#   amount of possible bindings, for an executed statement. This is why we should be calling
+#   `execute_sql_for_id`
 def _close_paid_payment_requests(db: sqlite3.Connection) \
         -> Tuple[Set[int], List[Tuple[int, int, int]]]:
     timestamp = get_posix_timestamp()
@@ -1975,7 +1974,6 @@ class AsynchronousFunctions:
         Wrap the database operations required to import a transaction so the processing is
         offloaded to the SQLite writer thread while this task is blocked.
         """
-        logger.debug("IMPORT TX %s %d", hash_to_hex_str(tx_row.tx_hash), tx_row.block_height)
         return await self._db_context.run_in_thread_async(self._import_transaction, tx_row,
             txi_rows, txo_rows, link_state)
 

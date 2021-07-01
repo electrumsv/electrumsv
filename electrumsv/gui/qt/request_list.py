@@ -46,7 +46,7 @@ from ...web import create_URI
 
 from .constants import pr_icons, pr_tooltips
 from .qrtextedit import ShowQRTextEdit
-from .util import Buttons, CopyCloseButton, MyTreeWidget, read_QIcon, WindowModalDialog
+from .util import Buttons, CopyCloseButton, MessageBox, MyTreeWidget, read_QIcon, WindowModalDialog
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
@@ -132,11 +132,7 @@ class RequestList(MyTreeWidget):
         if not item.isSelected():
             return
         request_id = item.data(0, Qt.ItemDataRole.UserRole)
-
-        dialog = self._receive_view.get_dialog(request_id)
-        if dialog is None:
-            dialog = self._receive_view.create_edit_dialog(request_id)
-        dialog.show()
+        self._receive_view.show_dialog(request_id)
 
     def on_update(self) -> None:
         if self._account_id is None:
@@ -243,6 +239,9 @@ class RequestList(MyTreeWidget):
         wallet = self._account.get_wallet()
         row = wallet.read_payment_request(request_id=request_id)
         if row is None:
+            return
+
+        if not MessageBox.question(_("Are you sure you want to delete this payment request?")):
             return
 
         future = wallet.delete_payment_request(self._account_id, request_id, row.keyinstance_id)

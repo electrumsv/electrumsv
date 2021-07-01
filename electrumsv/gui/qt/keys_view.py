@@ -68,7 +68,7 @@ if TYPE_CHECKING:
 QT_SORT_ROLE = Qt.ItemDataRole.UserRole+1
 QT_FILTER_ROLE = Qt.ItemDataRole.UserRole+2
 
-COLUMN_NAMES = [ _("State"), _('Key'), _('Address'), _('Label'), _('Usages'),
+COLUMN_NAMES = [ _("State"), _('Key'), _('Address'), _('Description'), _('Usages'),
     _('Balance'), '' ]
 
 STATE_COLUMN = 0
@@ -911,20 +911,6 @@ class KeyView(QTableView):
                     column_title = self._headers[menu_column]
                     menu.addAction(_("Edit {}").format(column_title),
                         lambda: self.edit(selected_index))
-                # TODO(no-merge) This needs to be tested/thought out as to relevance. For instance
-                #   do we allow it, but not if there is currently a payment request for it.
-                menu.addAction(_("Request payment"),
-                    lambda: self._main_window._receive_view.receive_at_key(line))
-                if self._account.can_export():
-                    # NOTE(typing) typing is blind to the `show_private_key` password decorator.
-                    menu.addAction(_("Private key"),
-                        lambda: self._main_window.show_private_key(self._account, # type: ignore
-                            line, script_type))
-                if not is_multisig and not self._account.is_watching_only():
-                    menu.addAction(_("Sign/verify message"),
-                        lambda: self._main_window.sign_verify_message(self._account, line))
-                    menu.addAction(_("Encrypt/decrypt message"),
-                        lambda: self._main_window.encrypt_message(self._account, line))
 
                 addr_URL = script_URL = None
                 if script_type != ScriptType.NONE:
@@ -969,6 +955,20 @@ class KeyView(QTableView):
                                     line.keyinstance_id)
                         menu.addAction(_("Show on {}").format(
                             keystore.plugin.device), show_key) # type: ignore
+
+                if self._account.can_export():
+                    # NOTE(typing) typing is blind to the `show_private_key` password decorator.
+                    menu.addAction(_("Private key"),
+                        lambda: self._main_window.show_private_key(self._account, # type: ignore
+                            line, script_type))
+
+                menu.addSeparator()
+
+                if not is_multisig and not self._account.is_watching_only():
+                    menu.addAction(_("Sign/verify message"),
+                        lambda: self._main_window.sign_verify_message(self._account, line))
+                    menu.addAction(_("Encrypt/decrypt message"),
+                        lambda: self._main_window.encrypt_message(self._account, line))
 
             user_active_keyinstance_ids: Set[int] = set()
             non_user_active_keyinstance_ids: Set[int] = set()

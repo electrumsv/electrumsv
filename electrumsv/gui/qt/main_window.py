@@ -1107,37 +1107,38 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def format_fee_rate(self, fee_rate: int) -> str:
         return format_fee_satoshis(fee_rate/1000, app_state.num_zeros) + ' sat/B'
 
-    def connect_fields(self, btc_e: BTCAmountEdit, fiat_e: AmountEdit) -> None:
+    def connect_fields(self, btc_edit: BTCAmountEdit, fiat_edit: AmountEdit) -> None:
         def edit_changed(edit) -> None:
             if edit.in_event:
                 return
+
             edit.setStyleSheet(ColorScheme.DEFAULT.as_stylesheet())
-            fiat_e.is_last_edited = (edit == fiat_e)
+            fiat_edit.is_last_edited = (edit == fiat_edit)
             amount = edit.get_amount()
             rate = app_state.fx.exchange_rate() if app_state.fx else None
             if rate is None or amount is None:
-                if edit is fiat_e:
-                    btc_e.setText("")
+                if edit is fiat_edit:
+                    btc_edit.setText("")
                 else:
-                    fiat_e.setText("")
+                    fiat_edit.setText("")
             else:
-                if edit is fiat_e:
-                    btc_e.in_event = True
-                    btc_e.setAmount(int(amount / Decimal(rate) * COIN))
-                    btc_e.setStyleSheet(ColorScheme.BLUE.as_stylesheet())
-                    btc_e.in_event = False
+                if edit is fiat_edit:
+                    btc_edit.in_event = True
+                    btc_edit.setAmount(int(amount / Decimal(rate) * COIN))
+                    btc_edit.setStyleSheet(ColorScheme.BLUE.as_stylesheet())
+                    btc_edit.in_event = False
                 else:
-                    fiat_e.in_event = True
-                    fiat_e.setText(
+                    fiat_edit.in_event = True
+                    fiat_edit.setText(
                         app_state.fx.ccy_amount_str(amount * Decimal(rate) / COIN, False))
-                    fiat_e.setStyleSheet(ColorScheme.BLUE.as_stylesheet())
-                    fiat_e.in_event = False
+                    fiat_edit.setStyleSheet(ColorScheme.BLUE.as_stylesheet())
+                    fiat_edit.in_event = False
 
-        fiat_e.is_last_edited = False
-        fiat_e.in_event = False
-        fiat_e.textChanged.connect(partial(edit_changed, fiat_e))
-        btc_e.in_event = False
-        btc_e.textChanged.connect(partial(edit_changed, btc_e))
+        fiat_edit.is_last_edited = False
+        fiat_edit.in_event = False
+        fiat_edit.textChanged.connect(partial(edit_changed, fiat_edit))
+        btc_edit.in_event = False
+        btc_edit.textChanged.connect(partial(edit_changed, btc_edit))
 
     async def _monitor_wallet_network_status(self) -> None:
         while True:

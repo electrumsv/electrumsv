@@ -134,13 +134,19 @@ def read_rows_by_ids(return_type: Type[T], db: sqlite3.Connection, sql: str, sql
     return results
 
 
-# TODO(no-merge) This is an inconsistent naming with ids meaning a sequence of ids, not
-#   a sequence of grouped ids as in `update_rows_by_ids`.
-def execute_sql_for_ids(db: sqlite3.Connection, sql: str,
+# TODO(ideal) In an ideal world we would pass in a row factory and a return type, or use the typing
+#   stuff to use them. For instance, if fields in the return type are `IntFlag` structures they are
+#   not treated the same in their integer form as they would be if they were cast to the structure.
+def execute_sql_for_id(db: sqlite3.Connection, sql: str,
         sql_values: List[Any], ids: Sequence[T2], return_type: Optional[Type[T]]=None) \
             -> Tuple[int, List[T]]:
     """
     Update, delete or whatever rows in batches as constrained by database limitations.
+
+    If the update statement returns values via `RETURNING`, specify a return type. However, it has
+    been observed that sometimes rows will be updated and returned, where `rowcount` is set to
+    zero. So it is better to check the count of the updates returned values, than rely on the
+    `rowcount` field.
     """
     batch_size = SQLITE_MAX_VARS - len(sql_values)
     rows_updated = 0
@@ -164,6 +170,8 @@ def update_rows_by_ids(db: sqlite3.Connection, sql: str, sql_id_expression: str,
         sql_where_expression: Optional[str]=None) -> int:
     """
     Update rows in batches as constrained by database limitations.
+
+    This does not yet support `RETURNING`.
     """
     batch_size = min(SQLITE_MAX_VARS, SQLITE_EXPR_TREE_DEPTH) // 2 - len(sql_values)
     rows_updated = 0
