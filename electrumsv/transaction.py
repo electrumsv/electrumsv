@@ -705,7 +705,7 @@ class Transaction(Tx):
     def __str__(self):
         return self.serialize()
 
-    def update_script_offsets(self):
+    def update_script_offsets(self) -> None:
         """Amend inputs and outputs in-situ to include script_offset and script_length data"""
         assert self.is_complete(), "script_offset can only be calculated from a signed transaction"
         tx_with_offsets = Transaction.from_bytes(self.to_bytes())
