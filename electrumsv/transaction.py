@@ -315,6 +315,9 @@ class XTxInput(TxInput):
         script_sig = Script(script_sig_bytes)
         sequence = read_le_uint32(read)
 
+        assert script_sig_offset != 0
+        assert len(script_sig_bytes) != 0
+
         # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
         return cls(prev_hash, prev_idx, script_sig, sequence, # type: ignore
             script_offset=script_sig_offset, script_length=len(script_sig_bytes))
@@ -335,6 +338,9 @@ class XTxInput(TxInput):
             'script_offset': script_sig_offset,
             'script_length': len(script_sig_bytes),
         }
+        assert script_sig_offset != 0
+        assert len(script_sig_bytes) != 0
+
         if prev_hash != bytes(32):
             parse_script_sig(script_sig_bytes, kwargs)
             # NOTE(rt12) Why do we delete this?
@@ -399,7 +405,8 @@ class XTxInput(TxInput):
             f'script_sig="{self.script_sig}", sequence={self.sequence}), value={self.value}, '
             f'threshold={self.threshold}, '
             f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys}), '
-            f'key_data={self.key_data}'
+            f'key_data={self.key_data}, script_length={self.script_length}, '
+            f'script_offset={self.script_offset}'
         )
 
 
@@ -698,6 +705,18 @@ class Transaction(Tx):
     def __str__(self):
         return self.serialize()
 
+    def update_script_offsets(self) -> None:
+        """Amend inputs and outputs in-situ to include script_offset and script_length data"""
+        assert self.is_complete(), "script_offset can only be calculated from a signed transaction"
+        tx_with_offsets = Transaction.from_bytes(self.to_bytes())
+        for index, input in enumerate(tx_with_offsets.inputs):
+            self.inputs[index].script_offset = input.script_offset
+            self.inputs[index].script_length = input.script_length
+
+        for index, output in enumerate(tx_with_offsets.outputs):
+            self.outputs[index].script_offset = output.script_offset
+            self.outputs[index].script_length = output.script_length
+
     def is_complete(self):
         '''Return true if this input has all signatures present.'''
         return all(txin.is_complete() for txin in self.inputs)
@@ -845,6 +864,11 @@ class Transaction(Tx):
                     sec, compressed = keypairs[x_pubkey]
                     txin.signatures[j] = self._sign_txin(txin, sec)
         logger.debug("is_complete %s", self.is_complete())
+
+        # Multisig transactions may require further signatures and input script offsets cannot be
+        # calculated until the transaction is fully signed.
+        if self.is_complete():
+            self.update_script_offsets()
 
     def _sign_txin(self, txin: XTxInput, privkey_bytes: bytes) -> bytes:
         pre_hash = self.preimage_hash(txin)
