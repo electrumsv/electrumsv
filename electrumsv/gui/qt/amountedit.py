@@ -84,7 +84,8 @@ class AmountEdit(MyLineEdit):
             textRect.adjust(2, 0, -10, 0)
             painter = QPainter(self)
             painter.setPen(self.help_palette.brush(QPalette.Disabled, QPalette.Text).color())
-            painter.drawText(textRect, Qt.AlignRight | Qt.AlignVCenter, self.base_unit_func())
+            painter.drawText(textRect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            self.base_unit_func())
 
     def get_amount(self):
         try:

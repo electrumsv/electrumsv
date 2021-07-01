@@ -65,8 +65,10 @@ class ReceiveDialog(QDialog):
 
         self._layout_pending = True
         self.setLayout(self._create_form_layout())
+        self._connect_widgets()
         self._layout_pending = False
 
+        self._on_fiat_ccy_changed()
         self.update_destination()
         self._receive_amount_e.setAmount(self._request_row.value)
 
@@ -124,7 +126,6 @@ class ReceiveDialog(QDialog):
         msg = _('Bitcoin SV payment destination where the payment should be received. '
                 'Note that each payment request uses a different Bitcoin SV payment destination.')
         receive_address_label = HelpLabel(_('Payment destination'), msg)
-        self._receive_destination_e.textChanged.connect(self._update_receive_qr)
         self._receive_destination_e.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         grid.addWidget(receive_address_label, row, 0)
         grid.addWidget(self._receive_destination_e, row, 1, 1, -1)
@@ -133,7 +134,6 @@ class ReceiveDialog(QDialog):
         self._receive_message_e = QLineEdit()
         grid.addWidget(QLabel(_('Description')), row, 0)
         grid.addWidget(self._receive_message_e, row, 1, 1, -1)
-        self._receive_message_e.textChanged.connect(self._update_receive_qr)
         self._receive_message_e.setText("" if self._request_row.description is None
             else self._request_row.description)
 
@@ -141,10 +141,8 @@ class ReceiveDialog(QDialog):
         self._receive_amount_e = BTCAmountEdit()
         grid.addWidget(QLabel(_('Requested amount')), row, 0)
         grid.addWidget(self._receive_amount_e, row, 1)
-        self._receive_amount_e.textChanged.connect(self._update_receive_qr)
 
         self._fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
-        self._on_fiat_ccy_changed()
         grid.addWidget(self._fiat_receive_e, row, 2, Qt.AlignmentFlag.AlignLeft)
         self._main_window.connect_fields(self._receive_amount_e, self._fiat_receive_e)
 
@@ -181,7 +179,6 @@ class ReceiveDialog(QDialog):
         buttons.addWidget(self._update_button)
 
         self._receive_qr = QRCodeWidget(fixedSize=200)
-        self._receive_qr.mouse_release_signal.connect(self._toggle_qr_window)
 
         grid_vbox = QVBoxLayout()
         grid_vbox.addLayout(grid)
@@ -195,6 +192,12 @@ class ReceiveDialog(QDialog):
         vbox.addLayout(hbox)
         vbox.addLayout(buttons)
         return vbox
+
+    def _connect_widgets(self) -> None:
+        self._receive_destination_e.textChanged.connect(self._update_receive_qr)
+        self._receive_message_e.textChanged.connect(self._update_receive_qr)
+        self._receive_amount_e.textChanged.connect(self._update_receive_qr)
+        self._receive_qr.mouse_release_signal.connect(self._toggle_qr_window)
 
     def update_widgets(self) -> None:
         # This is currently unused, but is called in the generic `update_tabs` call in the
