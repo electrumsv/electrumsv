@@ -517,6 +517,10 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
         "idx_TransactionOutputs_unique ON TransactionOutputs(tx_hash, txo_index)")
 
+    for output in txo_inserts.values():
+        assert output.script_offset != 0
+        assert output.script_length != 0
+
     logger.debug("inserting %d TransactionOutputs rows", len(txo_inserts))
     conn.executemany("INSERT INTO TransactionOutputs (tx_hash, txo_index, value, "
         "keyinstance_id, flags, script_hash, script_type, script_offset, script_length, "
@@ -553,6 +557,10 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     ")")
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
         "idx_TransactionInputs_unique ON TransactionInputs(tx_hash, txi_index)")
+
+    for input in txi_inserts.values():
+        assert input.script_offset != 0
+        assert input.script_length != 0
 
     logger.debug("inserting %d initial TransactionInputs rows", len(txi_inserts))
     conn.executemany("INSERT INTO TransactionInputs (tx_hash, txi_index, spent_tx_hash, "
