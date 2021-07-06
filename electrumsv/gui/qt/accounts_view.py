@@ -85,6 +85,14 @@ class AccountsView(QSplitter):
             self._logger.debug("init_geometry.2 %r", sizes)
         self.setSizes(sizes)
 
+    def _select_account(self, account_id: int) -> bool:
+        if self._update_active_account(account_id):
+            account = self._main_window._wallet.get_account(account_id)
+            assert account is not None
+            self._update_window_account(account)
+            return True
+        return False
+
     def _on_account_created(self, new_account_id: int, new_account: AbstractAccount) -> None:
         # It should be made the active wallet account and followed up with the change event.
         self._add_account_to_list(new_account)
@@ -102,10 +110,7 @@ class AccountsView(QSplitter):
     def _on_current_item_changed(self, item: QListWidgetItem, last_item: QListWidgetItem) -> None:
         account_id = item.data(Qt.ItemDataRole.UserRole)
         # This should update the internal tracking, and also the active wallet account.
-        if self._update_active_account(account_id):
-            account = self._main_window._wallet.get_account(account_id)
-            assert account is not None
-            self._update_window_account(account)
+        self._select_account(account_id)
 
     def _update_active_account(self, account_id: int) -> bool:
         if account_id == self._current_account_id:
@@ -132,10 +137,7 @@ class AccountsView(QSplitter):
 
             currentItem = self._selection_list.currentItem()
             account_id = currentItem.data(Qt.ItemDataRole.UserRole)
-            if self._update_active_account(account_id):
-                account = self._main_window._wallet.get_account(account_id)
-                assert account is not None
-                self._update_window_account(account)
+            self._select_account(account_id)
 
     def _add_account_to_list(self, account: AbstractAccount) -> None:
         account_id = account.get_id()

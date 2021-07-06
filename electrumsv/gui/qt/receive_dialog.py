@@ -11,12 +11,12 @@ from ...app_state import app_state
 from ...bitcoin import script_template_to_string
 from ...i18n import _
 from ...logs import logs
+from ...networks import Net, TEST_NETWORK_NAMES
 from ...util import age
 from ... import web
 from ...wallet_database.types import KeyDataTypes, PaymentRequestUpdateRow
 
 from .amountedit import AmountEdit, BTCAmountEdit
-from .constants import EXPIRATION_VALUES
 from .qrcodewidget import QRCodeWidget
 from .qrwindow import QR_Window
 from .util import ButtonsLineEdit, EnterButton, HelpLabel
@@ -26,7 +26,24 @@ if TYPE_CHECKING:
     from .receive_view import ReceiveView
 
 
-# TODO(no-merge) Test that the update works correctly.
+EXPIRATION_VALUES = [
+    (_('1 hour'), 60*60),
+    (_('1 day'), 24*60*60),
+    (_('1 week'), 7*24*60*60),
+    (_('Never'), None)
+]
+
+if Net.NAME in TEST_NETWORK_NAMES:
+    EXPIRATION_VALUES = [
+        (_('1 minute'), 1*60),
+        (_('2 minutes'), 2*60),
+        (_('5 minutes'), 5*60),
+
+        *EXPIRATION_VALUES,
+    ]
+
+
+# TODO(no-merge) Show the received value for a payment request.
 # TODO(no-merge) Consider allowing modification of the expiry date.
 # TODO(no-merge) Polish the layout, move the fiat value down under the BSV value, maybe
 #     just disable it if fiat is not enabled but keep it visible. If this is done, then it might
@@ -70,7 +87,7 @@ class ReceiveDialog(QDialog):
 
         self._on_fiat_ccy_changed()
         self.update_destination()
-        self._receive_amount_e.setAmount(self._request_row.value)
+        self._receive_amount_e.setAmount(self._request_row.requested_value)
 
         app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
         self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)

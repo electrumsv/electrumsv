@@ -94,7 +94,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataType, KeyDataTypes,
     KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
-    NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult,
+    NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult, PaymentRequestReadRow,
     PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
     TransactionDeltaSumRow, TransactionExistsRow, TransactionLinkState, TransactionMetadata,
     TransactionSubscriptionRow,
@@ -2607,12 +2607,12 @@ class Wallet(TriggeredCallbacks):
         return future
 
     def read_payment_request(self, *, request_id: Optional[int]=None,
-            keyinstance_id: Optional[int]=None) -> Optional[PaymentRequestRow]:
+            keyinstance_id: Optional[int]=None) -> Optional[PaymentRequestReadRow]:
         return db_functions.read_payment_request(self.get_db_context(), request_id=request_id,
             keyinstance_id=keyinstance_id)
 
-    def read_payment_requests(self, account_id: Optional[int]=None, flags: Optional[int]=None,
-            mask: Optional[int]=None) -> List[PaymentRequestRow]:
+    def read_payment_requests(self, account_id: int, flags: Optional[int]=None,
+            mask: Optional[int]=None) -> List[PaymentRequestReadRow]:
         return db_functions.read_payment_requests(self.get_db_context(), account_id, flags,
             mask)
 

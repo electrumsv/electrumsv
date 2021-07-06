@@ -31,11 +31,11 @@ from functools import partial
 import gzip
 import json
 import math
-from typing import Any, Dict, NamedTuple, Optional, Set, TYPE_CHECKING
+from typing import Any, cast, Dict, NamedTuple, Optional, Set, TYPE_CHECKING
 import weakref
 import webbrowser
 
-from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtCore import pyqtBoundSignal, pyqtSignal, Qt
 from PyQt5.QtGui import QBrush, QCursor, QFont
 from PyQt5.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
     QToolTip, QTreeWidgetItem, QVBoxLayout, QWidget)
@@ -80,25 +80,26 @@ class TxInfo(NamedTuple):
     date_created: Optional[int]
 
 
-class InputColumns(enum.IntEnum):
+class InputColumn(enum.IntEnum):
     INDEX = 0
     ACCOUNT = 1
     SOURCE = 2
     AMOUNT = 3
 
 
-class OutputColumns(enum.IntEnum):
+class OutputColumn(enum.IntEnum):
     INDEX = 0
     ACCOUNT = 1
     DESTINATION = 2
     AMOUNT = 3
 
 
-class Roles(enum.IntEnum):
-    ACCOUNT_ID = Qt.UserRole
-    TX_HASH = Qt.UserRole + 1
-    IS_MINE = Qt.UserRole + 2
-    KEY_ID = Qt.UserRole + 3
+class Role(enum.IntEnum):
+    ACCOUNT_ID = Qt.ItemDataRole.UserRole
+    TX_HASH = Qt.ItemDataRole.UserRole + 1
+    IS_MINE = Qt.ItemDataRole.UserRole + 2
+    KEY_ID = Qt.ItemDataRole.UserRole + 3
+    PUT_INDEX = Qt.ItemDataRole.UserRole + 4
 
 
 class InvalidAction(Exception):
@@ -134,8 +135,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         Pass desc to give a description for txs not yet in the wallet.
         '''
         # We want to be a top-level window
-        QDialog.__init__(self, parent=None, flags=Qt.WindowType(Qt.WindowSystemMenuHint |
-            Qt.WindowTitleHint | Qt.WindowCloseButtonHint))
+        QDialog.__init__(self, parent=None, flags=Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
         self.copy_data_ready_signal.connect(self._copy_transaction_ready)
         self.save_data_ready_signal.connect(self._save_transaction_ready)
@@ -473,7 +474,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                     partial(self._save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
 
     def _obtain_transaction_data(self, format: TxSerialisationFormat,
-            completion_signal: Optional[pyqtSignal], done_signal: pyqtSignal,
+            completion_signal: Optional[pyqtBoundSignal], done_signal: pyqtBoundSignal,
             completion_text: str) -> None:
         tx_data = self.tx.to_format(format)
         if not isinstance(tx_data, dict):
@@ -613,6 +614,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             amount_text = ""
             is_receiving = is_change = is_broken = False
             broken_text = ""
+            keyinstance_id: Optional[int] = None
 
             if txin.is_coinbase():
                 source_text = "<coinbase>"
@@ -629,6 +631,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                         is_change = prev_txo.derivation_data2.startswith(CHANGE_SUBPATH_BYTES)
                     if prev_txo.account_id:
                         account = self._wallet.get_account(prev_txo.account_id)
+                    keyinstance_id = prev_txo.keyinstance_id
                     # Identify inconsistent state.
                     if not is_tx_known:
                         # The transaction is not in the database, any outputs it spends should
@@ -645,18 +648,23 @@ class TxDialog(QDialog, MessageBoxMixin):
                 amount_text = app_state.format_amount(value, whitespaces=True)
 
             item = QTreeWidgetItem([ str(tx_index), account_name, source_text, amount_text ])
-            item.setData(InputColumns.INDEX, Roles.TX_HASH, txin.prev_hash)
-            item.setData(InputColumns.INDEX, Roles.IS_MINE, is_change or is_receiving)
+            item.setData(InputColumn.INDEX, Role.TX_HASH, txin.prev_hash)
+            item.setData(OutputColumn.INDEX, Role.PUT_INDEX, tx_index)
+            item.setData(InputColumn.INDEX, Role.IS_MINE, is_change or is_receiving)
+            if keyinstance_id is not None and account is not None:
+                item.setData(InputColumn.INDEX, Role.ACCOUNT_ID, account.get_id())
+                item.setData(InputColumn.INDEX, Role.KEY_ID, keyinstance_id)
             if is_receiving:
-                item.setBackground(InputColumns.SOURCE, self._receiving_brush)
+                item.setBackground(InputColumn.SOURCE, self._receiving_brush)
             if is_change:
-                item.setBackground(InputColumns.SOURCE, self._change_brush)
+                item.setBackground(InputColumn.SOURCE, self._change_brush)
             if is_broken:
-                item.setBackground(InputColumns.SOURCE, self._broken_brush)
+                item.setBackground(InputColumn.SOURCE, self._broken_brush)
                 if broken_text:
-                    item.setToolTip(InputColumns.SOURCE, broken_text)
-            item.setTextAlignment(InputColumns.AMOUNT, Qt.AlignRight | Qt.AlignVCenter)
-            item.setFont(InputColumns.AMOUNT, self._monospace_font)
+                    item.setToolTip(InputColumn.SOURCE, broken_text)
+            item.setTextAlignment(InputColumn.AMOUNT, Qt.AlignmentFlag.AlignRight |
+                Qt.AlignmentFlag.AlignVCenter)
+            item.setFont(InputColumn.AMOUNT, self._monospace_font)
             i_table.addTopLevelItem(item)
 
         # Each output has a script within it.
@@ -691,16 +699,18 @@ class TxDialog(QDialog, MessageBoxMixin):
             amount_text = app_state.format_amount(tx_output.value, whitespaces=True)
 
             item = QTreeWidgetItem([ str(tx_index), account_name, text, amount_text ])
-            item.setData(OutputColumns.INDEX, Roles.IS_MINE, is_change or is_receiving)
+            item.setData(OutputColumn.INDEX, Role.IS_MINE, is_change or is_receiving)
+            item.setData(OutputColumn.INDEX, Role.PUT_INDEX, tx_index)
             if tx_output.key_data is not None:
-                item.setData(OutputColumns.INDEX, Roles.ACCOUNT_ID, tx_output.key_data.account_id)
-                item.setData(OutputColumns.INDEX, Roles.KEY_ID, tx_output.key_data.keyinstance_id)
+                item.setData(OutputColumn.INDEX, Role.ACCOUNT_ID, tx_output.key_data.account_id)
+                item.setData(OutputColumn.INDEX, Role.KEY_ID, tx_output.key_data.keyinstance_id)
             if is_receiving:
-                item.setBackground(OutputColumns.DESTINATION, self._receiving_brush)
+                item.setBackground(OutputColumn.DESTINATION, self._receiving_brush)
             if is_change:
-                item.setBackground(OutputColumns.DESTINATION, self._change_brush)
-            item.setTextAlignment(OutputColumns.AMOUNT, Qt.AlignRight | Qt.AlignVCenter)
-            item.setFont(OutputColumns.AMOUNT, self._monospace_font)
+                item.setBackground(OutputColumn.DESTINATION, self._change_brush)
+            item.setTextAlignment(OutputColumn.AMOUNT, Qt.AlignmentFlag.AlignRight |
+                Qt.AlignmentFlag.AlignVCenter)
+            item.setFont(OutputColumn.AMOUNT, self._monospace_font)
             o_table.addTopLevelItem(item)
 
         self._received_value_label.setText(_("Received output value") +": "+
@@ -796,17 +806,78 @@ class TxDialog(QDialog, MessageBoxMixin):
         return TxInfo(self._tx_hash, state, status, label, can_broadcast, amount, fee, height,
             conf, date_mined, date_created)
 
+    def select_keys_in_keys_tab(self, account_id: int, key_id: int) -> None:
+        # Any transaction can be viewed in a transaction dialog. There is no requirement that the
+        # transaction relate to the wallet at all, let alone to the currently selected account.
+        # This means that it is necessary to check and change the currently selected account if
+        # we want to select the key (likely keys in future) used in a given transaction input or
+        # output.
+        account = self._main_window._wallet.get_account(account_id)
+        assert account is not None
+
+        if account_id != self._main_window._account_id:
+            if not MessageBox.question(_("The key belongs to a different account than the one "
+                "currently selected, do you want to switch to the selected account?")):
+                return
+
+            self._main_window.set_active_account(account)
+
+        # NOTE It is not a given that we will always have one keyinstance used per transaction
+        #   input/output.
+        keyinstance_ids = { key_id }
+        selection_count = self._main_window.key_view.select_rows_by_keyinstance_id(keyinstance_ids)
+        if not selection_count:
+            MessageBox.show_warning(_("The used keys were not found in the keys tab."))
+            return
+
+        if len(keyinstance_ids) != selection_count:
+            MessageBox.show_warning(_("Only {} of the {} used keys were found in the keys tab."
+                ).format(selection_count, len(keyinstance_ids)))
+
+        self._main_window.bring_to_top()
+        self._main_window.toggle_tab(self._main_window.keys_tab, True, to_front=True)
+        self._main_window.key_view.setFocus()
+
+    def select_in_coins_tab(self, account_id: int, txo_keys: Set[TxoKeyType]) -> None:
+        # Any transaction can be viewed in a transaction dialog. There is no requirement that the
+        # transaction relate to the wallet at all, let alone to the currently selected account.
+        # This means that it is necessary to check and change the currently selected account if
+        # we want to select the key (likely keys in future) used in a given transaction input or
+        # output.
+        account = self._main_window._wallet.get_account(account_id)
+        assert account is not None
+
+        if account_id != self._main_window._account_id:
+            if not MessageBox.question(_("The coin belongs to a different account than the one "
+                "currently selected, do you want to switch to the selected account?")):
+                return
+
+            self._main_window.set_active_account(account)
+
+        selection_count = self._main_window.utxo_list.select_coins(txo_keys)
+        if not selection_count:
+            MessageBox.show_warning(_("The coins were not found in the coins tab."))
+            return
+
+        if len(txo_keys) != selection_count:
+            MessageBox.show_warning(_("Only {} of the {} coins were found in the keys tab."
+                ).format(selection_count, len(txo_keys)))
+
+        self._main_window.bring_to_top()
+        self._main_window.toggle_tab(self._main_window.utxo_tab, True, to_front=True)
+        self._main_window.utxo_list.setFocus()
+
 
 class InputTreeWidget(MyTreeWidget):
     def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
         MyTreeWidget.__init__(self, parent, main_window, self._create_menu,
-            [ _("Index"), _("Account"), _("Source"), _("Amount") ], InputColumns.SOURCE, [])
+            [ _("Index"), _("Account"), _("Source"), _("Amount") ], InputColumn.SOURCE, [])
 
     def on_doubleclick(self, item: QTreeWidgetItem, column: int) -> None:
         if self.permit_edit(item, column):
             super(InputTreeWidget, self).on_doubleclick(item, column)
         else:
-            tx_hash = item.data(InputColumns.INDEX, Roles.TX_HASH)
+            tx_hash = item.data(InputColumn.INDEX, Role.TX_HASH)
             self._show_other_transaction(tx_hash)
 
     def _create_menu(self, position) -> None:
@@ -814,12 +885,14 @@ class InputTreeWidget(MyTreeWidget):
         if not item:
             return
 
+        parent = cast(TxDialog, self.parent())
         column = self.currentColumn()
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
 
-        tx_hash = item.data(InputColumns.INDEX, Roles.TX_HASH)
-        have_tx = self.parent()._wallet.have_transaction(tx_hash)
+        keyinstance_id = cast(int, item.data(InputColumn.INDEX, Role.KEY_ID))
+        tx_hash = cast(bytes, item.data(InputColumn.INDEX, Role.TX_HASH))
+        have_tx = parent._wallet.have_transaction(tx_hash)
 
         tx_id = hash_to_hex_str(tx_hash)
         tx_URL = web.BE_URL(self._main_window.config, 'tx', tx_id)
@@ -832,6 +905,16 @@ class InputTreeWidget(MyTreeWidget):
         details_menu.setEnabled(have_tx)
         if tx_URL is not None:
             menu.addAction(_("View on block explorer"), partial(self._event_menu_open_url, tx_URL))
+        if keyinstance_id:
+            account_id = cast(int, item.data(InputColumn.INDEX, Role.ACCOUNT_ID))
+            menu.addAction(_("Select keys in Keys tab"),
+                partial(parent.select_keys_in_keys_tab, account_id, keyinstance_id))
+        if keyinstance_id:
+            txo_index = cast(int, item.data(OutputColumn.INDEX, Role.PUT_INDEX))
+            txo_keys = { TxoKeyType(tx_hash, txo_index) }
+            account_id = item.data(OutputColumn.INDEX, Role.ACCOUNT_ID)
+            menu.addAction(_("Select coins in Coins tab"),
+                partial(parent.select_in_coins_tab, account_id, txo_keys))
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _event_menu_open_url(self, url: str) -> None:
@@ -851,7 +934,7 @@ class OutputTreeWidget(MyTreeWidget):
     def __init__(self, parent: QWidget, main_window: 'ElectrumWindow') -> None:
         MyTreeWidget.__init__(self, parent, main_window, self._create_menu,
             [ _("Index"), _("Account"), _("Destination"), _("Amount") ],
-            OutputColumns.DESTINATION, [])
+            OutputColumn.DESTINATION, [])
 
     def on_doubleclick(self, item: QTreeWidgetItem, column: int) -> None:
         if self.permit_edit(item, column):
@@ -864,15 +947,28 @@ class OutputTreeWidget(MyTreeWidget):
         if not item:
             return
 
+        parent = cast(TxDialog, self.parent())
         column = self.currentColumn()
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
 
-        is_mine = item.data(OutputColumns.INDEX, Roles.IS_MINE)
+        is_mine = item.data(OutputColumn.INDEX, Role.IS_MINE)
 
         menu = QMenu()
         menu.addAction(_("Copy {}").format(column_title),
             lambda: self._main_window.app.clipboard().setText(column_data))
+        if is_mine:
+            account_id = item.data(OutputColumn.INDEX, Role.ACCOUNT_ID)
+            keyinstance_id = item.data(OutputColumn.INDEX, Role.KEY_ID)
+            menu.addAction(_("Select keys in Keys tab"),
+                partial(parent.select_keys_in_keys_tab, account_id, keyinstance_id))
+        if is_mine and parent.tx.is_complete():
+            tx_hash = parent._tx_hash
+            txo_index = item.data(OutputColumn.INDEX, Role.PUT_INDEX)
+            txo_keys = { TxoKeyType(tx_hash, txo_index) }
+            account_id = item.data(OutputColumn.INDEX, Role.ACCOUNT_ID)
+            menu.addAction(_("Select coins in Coins tab"),
+                partial(parent.select_in_coins_tab, account_id, txo_keys))
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _show_other_transaction(self, tx_hash: bytes) -> None:

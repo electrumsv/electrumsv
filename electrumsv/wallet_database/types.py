@@ -150,11 +150,22 @@ class PasswordUpdateResult(NamedTuple):
     masterkey_updates: List[Tuple[int, DerivationType, MasterKeyDataTypes]]
 
 
+class PaymentRequestReadRow(NamedTuple):
+    paymentrequest_id: int
+    keyinstance_id: int
+    state: PaymentFlag
+    requested_value: Optional[int]
+    received_value: Optional[int]
+    expiration: Optional[int]
+    description: Optional[str]
+    date_created: int = -1
+
+
 class PaymentRequestRow(NamedTuple):
     paymentrequest_id: int
     keyinstance_id: int
     state: PaymentFlag
-    value: Optional[int]
+    requested_value: Optional[int]
     expiration: Optional[int]
     description: Optional[str]
     date_created: int = -1

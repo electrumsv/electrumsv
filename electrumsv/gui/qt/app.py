@@ -332,7 +332,8 @@ class SVApplication(QApplication):
             w.pay_to_URI(uri)
 
         w.bring_to_top()
-        w.setWindowState(w.windowState() & ~QtCore.Qt.WindowMinimized | QtCore.Qt.WindowActive)
+        w.setWindowState((w.windowState() & ~QtCore.Qt.WindowState.WindowMinimized) |
+            QtCore.Qt.WindowState.WindowActive)
         # this will activate the window
         w.activateWindow()
 

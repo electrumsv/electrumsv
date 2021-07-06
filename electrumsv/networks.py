@@ -40,6 +40,15 @@ from .util import resource_path
 BLOCK_HEIGHT_OUT_OF_RANGE_ERROR = -8
 
 
+class NetworkName:
+    MAINNET = 'mainnet'
+    REGTEST = 'regtest'
+    TESTNET = 'testnet'
+    SCALING_TESTNET = 'scalingtestnet'
+
+TEST_NETWORK_NAMES = { NetworkName.REGTEST, NetworkName.TESTNET, NetworkName.SCALING_TESTNET }
+
+
 def read_json_dict(filename):
     path = resource_path(filename)
     with open(path, 'r') as f:
@@ -54,7 +63,7 @@ class SVMainnet(object):
     DEFAULT_SERVERS = read_json_dict('servers.json')
     DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers.json')
     GENESIS = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
-    NAME = 'mainnet'
+    NAME = NetworkName.MAINNET
     BITCOIN_URI_PREFIX = "bitcoin"
     PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0x80
@@ -115,7 +124,7 @@ class SVTestnet(object):
     DEFAULT_SERVERS = read_json_dict('servers_testnet.json')
     DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers_testnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
-    NAME = 'testnet'
+    NAME = NetworkName.MAINNET
     BITCOIN_URI_PREFIX = "bitcoin"
     PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0xef
@@ -177,7 +186,7 @@ class SVScalingTestnet(object):
     DEFAULT_SERVERS = read_json_dict('servers_scalingtestnet.json')
     DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers_scalingtestnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
-    NAME = 'scalingtestnet'
+    NAME = NetworkName.SCALING_TESTNET
     BITCOIN_URI_PREFIX = "bitcoin"
     PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0xef
@@ -270,7 +279,7 @@ class SVRegTestnet(object):
     DEFAULT_SERVERS = read_json_dict('servers_regtest.json')
     DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers_regtest.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
-    NAME = 'regtest'
+    NAME = NetworkName.REGTEST
     BITCOIN_URI_PREFIX = "bitcoin"
     PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0xef

@@ -65,8 +65,11 @@ if TYPE_CHECKING:
     from ...transaction import Transaction
 
 
-QT_SORT_ROLE = Qt.ItemDataRole.UserRole+1
-QT_FILTER_ROLE = Qt.ItemDataRole.UserRole+2
+class Roles(enum.IntEnum):
+    SORT = Qt.ItemDataRole.UserRole+1
+    FILTER = Qt.ItemDataRole.UserRole+2
+    ID = Qt.ItemDataRole.UserRole+3
+
 
 COLUMN_NAMES = [ _("State"), _('Key'), _('Address'), _('Description'), _('Usages'),
     _('Balance'), '' ]
@@ -213,11 +216,14 @@ class _ItemModel(QAbstractItemModel):
         if model_index.isValid():
             line = self._data[row]
 
+            if role == Roles.ID:
+                return line.keyinstance_id
+
             account = self._view._account
             default_script_type = account.get_default_script_type()
 
             # First check the custom sort role.
-            if role == QT_SORT_ROLE:
+            if role == Roles.SORT:
                 if column == STATE_COLUMN:
                     return line.flags
                 elif column == KEY_COLUMN:
@@ -241,7 +247,7 @@ class _ItemModel(QAbstractItemModel):
                             rate = fx.exchange_rate()
                             return fx.value_str(value, rate)
 
-            elif role == QT_FILTER_ROLE:
+            elif role == Roles.FILTER:
                 if column == KEY_COLUMN:
                     return line
 
@@ -414,8 +420,8 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
         # There is the chance that the data can be None which will not compare in problematic
         # situations, however the filter should check for it and prevent those rows from being
         # compared.
-        value_left = self.sourceModel().data(source_left, QT_SORT_ROLE)
-        value_right = self.sourceModel().data(source_right, QT_SORT_ROLE)
+        value_left = self.sourceModel().data(source_left, Roles.SORT)
+        value_right = self.sourceModel().data(source_right, Roles.SORT)
         return value_left < value_right
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
@@ -433,7 +439,7 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
                     return True
         elif self._filter_type == MatchType.ADDRESS and self._account is not None:
             column_index = source_model.index(source_row, KEY_COLUMN, source_parent)
-            line: KeyLine = source_model.data(column_index, QT_FILTER_ROLE)
+            line: KeyLine = source_model.data(column_index, Roles.FILTER)
             account = self._account
             for script_type in ACCOUNT_SCRIPT_TYPES[account.type()]:
                 template = account.get_script_template_for_key_data(line, script_type)
@@ -475,7 +481,7 @@ class KeyView(QTableView):
         # If the underlying model changes, observe it in the sort.
         self._proxy_model = proxy_model = _SortFilterProxyModel()
         proxy_model.setDynamicSortFilter(True)
-        proxy_model.setSortRole(QT_SORT_ROLE)
+        proxy_model.setSortRole(Roles.SORT)
         proxy_model.setSourceModel(model)
         self.setModel(proxy_model)
 
@@ -723,6 +729,21 @@ class KeyView(QTableView):
 
         for line in account.get_key_list(key_ids):
             self._base_model.add_line(line)
+
+    def select_rows_by_keyinstance_id(self, keyinstance_ids: Set[int]) -> int:
+        # Keep in mind that we have a sorting proxy model not the base model as the view's model,
+        # so we need to select rows based on their index in the sorting proxy not the source
+        # data in the base model. This means the easiest way to identify the rows we need to select
+        # is to operate on the sorting proxy model directly.
+        found = 0
+        model = self.model()
+        parent_index = self.rootIndex()
+        for row_idx in range(model.rowCount(parent_index)):
+            child_index = model.index(row_idx, 0, parent_index)
+            if model.data(child_index, Roles.ID) in keyinstance_ids:
+                self.selectRow(row_idx)
+                found += 1
+        return found
 
     def _update_keys(self, account: AbstractAccount, update_key_ids: List[int],
             _state: Dict[int, EventFlags]) -> None:

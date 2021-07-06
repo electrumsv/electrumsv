@@ -38,7 +38,7 @@ from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
 from .transaction import XTxOutput
 from .util import get_posix_timestamp
-from .wallet_database.types import PaymentRequestRow
+from .wallet_database.types import PaymentRequestReadRow
 
 
 if TYPE_CHECKING:
@@ -154,7 +154,7 @@ class PaymentRequest:
 
     @classmethod
     def from_wallet_entry(cls, account: 'AbstractAccount',
-            pr: PaymentRequestRow) -> 'PaymentRequest':
+            pr: PaymentRequestReadRow) -> 'PaymentRequest':
         wallet = account.get_wallet()
         keyinstance = wallet.read_keyinstance(keyinstance_id=pr.keyinstance_id)
         assert keyinstance is not None
@@ -163,7 +163,7 @@ class PaymentRequest:
         date_expiry = None
         if pr.expiration is not None:
             date_expiry = pr.date_created + pr.expiration
-        outputs = [ Output(script, pr.value) ]
+        outputs = [ Output(script, pr.requested_value) ]
         return cls(outputs, pr.date_created, date_expiry, pr.description)
 
     @classmethod

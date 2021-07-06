@@ -23,6 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from enum import IntEnum
 from functools import partial
 import math
 import time
@@ -53,13 +54,28 @@ if TYPE_CHECKING:
     from .receive_view import ReceiveView
 
 
+
+class RequestColumn(IntEnum):
+    DATE = 0
+    DESCRIPTION = 1
+    AMOUNT_REQUESTED = 2
+    AMOUNT_RECEIVED = 3
+    STATUS = 4
+
+
 # TODO(ScriptTypeAssumption) It is assumed that all active payment requests from the receive tab
 # are given out for the wallet's default script type. This isn't necessarily true but is close
 # enough for now. To fix it we'd have to extend the database table, and also display the
 # script type in the list or similarly allow the user to see it.
 
 class RequestList(MyTreeWidget):
-    filter_columns = [0, 1, 2, 3, 4]  # Date, Account, Destination, Description, Amount
+    filter_columns = [
+        RequestColumn.DATE,
+        RequestColumn.DESCRIPTION,
+        RequestColumn.AMOUNT_REQUESTED,
+        RequestColumn.AMOUNT_RECEIVED,
+        RequestColumn.STATUS,
+    ]
 
     update_signal = pyqtSignal()
 
@@ -73,12 +89,13 @@ class RequestList(MyTreeWidget):
         self._logger = logs.get_logger("request-list")
 
         MyTreeWidget.__init__(self, receive_view, main_window, self.create_menu, [
-            _('Date'), _('Destination'), '', _('Description'), _('Amount'), _('Status')], 3, [])
+            _('Date'), _('Description'), _('Requested Amount'), _('Received Amount'), _('Status')],
+            stretch_column=RequestColumn.DESCRIPTION,
+            editable_columns=[])
 
         self.itemDoubleClicked.connect(self._on_item_double_clicked)
         self.setSortingEnabled(True)
-        self.setColumnWidth(0, 180)
-        self.hideColumn(1)
+        self.setColumnWidth(RequestColumn.DATE, 180)
 
         self.update_signal.connect(self.update)
 
@@ -135,6 +152,7 @@ class RequestList(MyTreeWidget):
         self._receive_view.show_dialog(request_id)
 
     def on_update(self) -> None:
+        # This is currently triggered by events like 'transaction_added' from the main window.
         if self._account_id is None:
             return
 
@@ -150,15 +168,10 @@ class RequestList(MyTreeWidget):
         for row in rows:
             flags = row.state & PaymentFlag.MASK_STATE
             date = format_posix_timestamp(row.date_created, _("Unknown"))
-            amount_str = app_state.format_amount(row.value, whitespaces=True) if row.value else ""
-
-            # TODO(ScriptTypeAssumption) see above for context
-            # TODO: This is a per-row database lookup.
-            pr_keyinstance = wallet.read_keyinstance(keyinstance_id=row.keyinstance_id)
-            assert pr_keyinstance is not None
-            script_template = self._account.get_script_template_for_key_data(pr_keyinstance,
-                self._account.get_default_script_type())
-            address_text = script_template_to_string(script_template)
+            requested_amount_str = app_state.format_amount(row.requested_value, whitespaces=True) \
+                if row.requested_value else ""
+            received_amount_str = app_state.format_amount(row.received_value, whitespaces=True) \
+                if row.received_value else ""
 
             if row.expiration is not None:
                 date_expires = row.date_created + row.expiration
@@ -168,14 +181,20 @@ class RequestList(MyTreeWidget):
                     nearest_expiry_time = min(nearest_expiry_time, date_expires)
 
             state = flags & sum(pr_icons.keys())
-            item = QTreeWidgetItem([date, address_text, '', row.description or "",
-                amount_str, pr_tooltips.get(state,'')])
-            item.setData(0, Qt.ItemDataRole.UserRole, row.paymentrequest_id)
+            item = QTreeWidgetItem([
+                date,
+                row.description or "",
+                requested_amount_str,
+                received_amount_str,
+                pr_tooltips.get(state,'')
+            ])
+            item.setData(RequestColumn.DATE, Qt.ItemDataRole.UserRole, row.paymentrequest_id)
             if state != PaymentFlag.UNKNOWN:
                 icon_name = pr_icons.get(state)
                 if icon_name is not None:
-                    item.setIcon(6, read_QIcon(icon_name))
-            item.setFont(4, self._monospace_font)
+                    item.setIcon(RequestColumn.STATUS, read_QIcon(icon_name))
+            item.setFont(RequestColumn.AMOUNT_REQUESTED, self._monospace_font)
+            item.setFont(RequestColumn.AMOUNT_RECEIVED, self._monospace_font)
             self.addTopLevelItem(item)
 
         if nearest_expiry_time != float("inf"):
@@ -185,7 +204,7 @@ class RequestList(MyTreeWidget):
         item = self.itemAt(position)
         if not item:
             return
-        request_id = item.data(0, Qt.ItemDataRole.UserRole)
+        request_id = item.data(RequestColumn.DATE, Qt.ItemDataRole.UserRole)
         column = self.currentColumn()
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
@@ -214,7 +233,7 @@ class RequestList(MyTreeWidget):
             self._account.get_default_script_type())
         address_text = script_template_to_string(script_template)
 
-        URI = create_URI(address_text, req.value, message)
+        URI = create_URI(address_text, req.requested_value, message)
         URI += f"&time={req.date_created}"
         if req.expiration:
             URI += f"&exp={req.expiration}"

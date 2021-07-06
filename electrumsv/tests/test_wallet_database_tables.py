@@ -1,6 +1,6 @@
 import os
 import tempfile
-from typing import cast, List
+from typing import List
 import unittest.mock
 
 import bitcoinx
@@ -23,8 +23,8 @@ from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.sqlite_support import DatabaseContext, LeakedSQLiteConnectionError
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MasterKeyRow, NetworkServerRow, NetworkServerAccountRow,
-    PaymentRequestRow, PaymentRequestUpdateRow, TransactionRow, TransactionOutputShortRow,
-    TransactionOutputSpendableRow, TransactionOutputSpendableRow2, TxProof, WalletBalance,
+    PaymentRequestReadRow, PaymentRequestRow, PaymentRequestUpdateRow, TransactionRow,
+    TransactionOutputShortRow, TxProof, WalletBalance,
     WalletEventRow)
 from electrumsv.wallet_database.util import pack_proof, unpack_proof
 
@@ -844,9 +844,6 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
 
 @pytest.mark.asyncio
 async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
-    rows = db_functions.read_payment_requests(db_context)
-    assert len(rows) == 0
-
     TX_BYTES = os.urandom(10)
     TX_HASH = bitcoinx.double_sha256(TX_BYTES)
     TX_INDEX = 1
@@ -858,6 +855,9 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
 
     TX_BYTES2 = os.urandom(10)
     TX_HASH2 = bitcoinx.double_sha256(TX_BYTES2)
+
+    rows = db_functions.read_payment_requests(db_context, ACCOUNT_ID)
+    assert len(rows) == 0
 
     LINE_COUNT = 3
     line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None, None, "desc")
@@ -898,16 +898,16 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
         future = db_functions.create_payment_requests(db_context, [ line1 ])
         future.result()
 
-    def compare_paymentrequest_rows(row1: PaymentRequestRow, row2: PaymentRequestRow) -> None:
+    def compare_paymentrequest_rows(row1: PaymentRequestRow, row2: PaymentRequestReadRow) -> None:
         assert row1.keyinstance_id == row2.keyinstance_id
         assert row1.state == row2.state
-        assert row1.value == row2.value
+        assert row1.requested_value == row2.requested_value
         assert row1.expiration == row2.expiration
         assert row1.description == row2.description
         assert -1 != row2.date_created
 
     # Read all rows in the table.
-    db_lines = db_functions.read_payment_requests(db_context)
+    db_lines = db_functions.read_payment_requests(db_context, ACCOUNT_ID)
     assert 2 == len(db_lines)
     db_line1 = [ db_line for db_line in db_lines
         if db_line.paymentrequest_id == line1.paymentrequest_id ][0]
@@ -917,23 +917,23 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     compare_paymentrequest_rows(line2, db_line2)
 
     # Read all PAID rows in the table.
-    db_lines = db_functions.read_payment_requests(db_context, mask=PaymentFlag.PAID)
+    db_lines = db_functions.read_payment_requests(db_context, ACCOUNT_ID, mask=PaymentFlag.PAID)
     assert 1 == len(db_lines)
     assert 1 == db_lines[0].paymentrequest_id
     assert KEYINSTANCE_ID == db_lines[0].keyinstance_id
 
     # Read all UNPAID rows in the table.
-    db_lines = db_functions.read_payment_requests(db_context, mask=PaymentFlag.UNPAID)
+    db_lines = db_functions.read_payment_requests(db_context, ACCOUNT_ID, mask=PaymentFlag.UNPAID)
     assert 1 == len(db_lines)
     assert 2 == db_lines[0].paymentrequest_id
     assert KEYINSTANCE_ID+1 == db_lines[0].keyinstance_id
 
     # Require ARCHIVED flag.
-    db_lines = db_functions.read_payment_requests(db_context, mask=PaymentFlag.ARCHIVED)
+    db_lines = db_functions.read_payment_requests(db_context, ACCOUNT_ID, mask=PaymentFlag.ARCHIVED)
     assert 0 == len(db_lines)
 
     # Require no ARCHIVED flag.
-    db_lines = db_functions.read_payment_requests(db_context, flags=PaymentFlag.NONE,
+    db_lines = db_functions.read_payment_requests(db_context, ACCOUNT_ID, flags=PaymentFlag.NONE,
         mask=PaymentFlag.ARCHIVED)
     assert 2 == len(db_lines)
 
@@ -971,28 +971,28 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
         PaymentFlag.UNKNOWN, 20, 999, "newdesc", line2.paymentrequest_id) ])
     future.result()
 
-    db_lines = db_functions.read_payment_requests(db_context)
+    db_lines = db_functions.read_payment_requests(db_context, ACCOUNT_ID)
     assert 2 == len(db_lines)
     db_line2 = [ db_line for db_line in db_lines
         if db_line.paymentrequest_id == line2.paymentrequest_id ][0]
-    assert db_line2.value == 20
+    assert db_line2.requested_value == 20
     assert db_line2.state == PaymentFlag.UNKNOWN
     assert db_line2.description == "newdesc"
     assert db_line2.expiration == 999
 
     # Account does not exist.
-    db_lines = db_functions.read_payment_requests(db_context, account_id=1000)
+    db_lines = db_functions.read_payment_requests(db_context, 1000)
     assert 0 == len(db_lines)
 
     # This account is matched.
-    db_lines = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)
+    db_lines = db_functions.read_payment_requests(db_context, ACCOUNT_ID)
     assert 2 == len(db_lines)
 
     future = db_functions.delete_payment_request(db_context, line1.paymentrequest_id,
         line1.keyinstance_id)
     future.result()
 
-    db_lines = db_functions.read_payment_requests(db_context)
+    db_lines = db_functions.read_payment_requests(db_context, ACCOUNT_ID)
     assert 1 == len(db_lines)
     assert db_lines[0].paymentrequest_id == line2.paymentrequest_id
 

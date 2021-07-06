@@ -525,6 +525,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def bring_to_top(self) -> None:
         self.show()
         self.raise_()
+        self.activateWindow()
 
     def on_exception(self, exception: Exception) -> None:
         if not isinstance(exception, UserCancelled):
@@ -1601,9 +1602,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self.key_view.remove_keys([ keyinstance ])
             self.update_history_view()
             self._receive_view.update_contents()
-
-    def remove_transaction(self, tx_hash: str) -> None:
-        raise NotImplementedError()
 
     def spend_coins(self, coins: Iterable[TransactionOutputSpendableTypes]) -> None:
         self._send_view.set_pay_from(coins)

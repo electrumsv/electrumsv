@@ -14,13 +14,13 @@ from ...wallet_database.types import PaymentRequestRow
 from ...util import get_posix_timestamp
 
 from .amountedit import AmountEdit, BTCAmountEdit
-from .constants import EXPIRATION_VALUES
-if TYPE_CHECKING:
-    from .main_window import ElectrumWindow
-from .receive_dialog import ReceiveDialog
+from .receive_dialog import EXPIRATION_VALUES, ReceiveDialog
 from .request_list import RequestList
 from .table_widgets import TableTopButtonLayout
 from .util import EnterButton, HelpDialogButton, HelpLabel
+
+if TYPE_CHECKING:
+    from .main_window import ElectrumWindow
 
 
 class ReceiveView(QWidget):

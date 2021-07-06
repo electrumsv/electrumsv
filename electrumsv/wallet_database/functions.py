@@ -29,7 +29,7 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult,
-    PaymentRequestRow,
+    PaymentRequestReadRow, PaymentRequestRow,
     PaymentRequestUpdateRow, SpendConflictType, TransactionBlockRow,
     TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
     TransactionOutputAddRow, TransactionOutputSpendableRow,
@@ -753,43 +753,57 @@ def read_parent_transaction_outputs_spendable(db: sqlite3.Connection, tx_hash: b
 
 @replace_db_context_with_connection
 def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=None,
-        keyinstance_id: Optional[int]=None) -> Optional[PaymentRequestRow]:
-    sql = (
-        "SELECT paymentrequest_id, keyinstance_id, state, value, expiration, "
-            "description, date_created "
-        "FROM PaymentRequests")
+        keyinstance_id: Optional[int]=None) -> Optional[PaymentRequestReadRow]:
+    sql = """
+        WITH key_payments AS (
+            SELECT KI.keyinstance_id, TOTAL(TXO.value) AS total_value
+            FROM KeyInstances KI
+            LEFT JOIN TransactionOutputs TXO ON KI.keyinstance_id=TXO.keyinstance_id
+            GROUP BY KI.keyinstance_id
+        )
+
+        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value, KP.total_value,
+            PR.expiration, PR.description, PR.date_created
+        FROM PaymentRequests PR
+        INNER JOIN key_payments KP USING(keyinstance_id)
+    """
     if request_id is not None:
-        sql += f" WHERE paymentrequest_id=?"
+        sql += f" WHERE PR.paymentrequest_id=?"
         sql_values = [ request_id ]
     elif keyinstance_id is not None:
-        sql += f" WHERE keyinstance_id=?"
+        sql += f" WHERE PR.keyinstance_id=?"
         sql_values = [ keyinstance_id ]
     else:
         raise NotImplementedError("request_id and keyinstance_id not supported")
     t = db.execute(sql, sql_values).fetchone()
     if t is not None:
-        return PaymentRequestRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6])
+        return PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7])
     return None
 
 
 @replace_db_context_with_connection
-def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None,
-        flags: Optional[int]=None, mask: Optional[int]=None) -> List[PaymentRequestRow]:
-    sql = (
-        "SELECT P.paymentrequest_id, P.keyinstance_id, P.state, P.value, P.expiration, "
-            "P.description, P.date_created FROM PaymentRequests P")
-    sql_values: List[Any] = []
-    conjunction = "WHERE"
-    if account_id is not None:
-        sql = sql +" INNER JOIN KeyInstances K USING(keyinstance_id) WHERE K.account_id=?"
-        sql_values.append(account_id)
-        conjunction = "AND"
-    clause, extra_values = flag_clause("P.state", flags, mask)
+def read_payment_requests(db: sqlite3.Connection, account_id: int,
+        flags: Optional[PaymentFlag]=None, mask: Optional[PaymentFlag]=None) \
+            -> List[PaymentRequestReadRow]:
+    sql = """
+    WITH key_payments AS (
+        SELECT KI.keyinstance_id, TOTAL(TXO.value) AS total_value
+        FROM KeyInstances KI
+        LEFT JOIN TransactionOutputs TXO ON KI.keyinstance_id=TXO.keyinstance_id
+        WHERE KI.account_id=?
+        GROUP BY KI.keyinstance_id
+    )
+
+    SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value, KP.total_value,
+        PR.expiration, PR.description, PR.date_created FROM PaymentRequests PR
+    INNER JOIN key_payments KP USING(keyinstance_id)
+    """
+    sql_values: List[Any] = [ account_id ]
+    clause, extra_values = flag_clause("PR.state", flags, mask)
     if clause:
-        sql += f" {conjunction} {clause}"
+        sql += f" WHERE {clause}"
         sql_values.extend(extra_values)
-        conjunction = "AND"
-    return [ PaymentRequestRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6])
+    return [ PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7])
         for t in db.execute(sql, sql_values).fetchall() ]
 
 

@@ -1,7 +1,7 @@
 from enum import IntEnum
 
-from electrumsv.constants import PaymentFlag
-from electrumsv.i18n import _
+from ...constants import PaymentFlag
+from ...i18n import _
 
 
 ICON_NAME_INVOICE_PAYMENT = "seal"
@@ -20,13 +20,6 @@ pr_tooltips = {
     PaymentFlag.UNKNOWN:_('Unknown'),
     PaymentFlag.ARCHIVED:_('Archived'),
 }
-
-EXPIRATION_VALUES = [
-    (_('1 hour'), 60*60),
-    (_('1 day'), 24*60*60),
-    (_('1 week'), 7*24*60*60),
-    (_('Never'), None)
-]
 
 
 class UIBroadcastSource(IntEnum):
