@@ -60,8 +60,8 @@ from ... import bitcoin, commands, paymentrequest, qrscanner, util
 from ...app_state import app_state
 from ...bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
-from ...constants import (CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames, ScriptType,
-    TransactionImportFlag, TransactionOutputFlag, TxFlags, WalletSettings)
+from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
+    ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags, WalletSettings)
 from ...exceptions import UserCancelled
 from ...i18n import _
 from ...logs import logs
@@ -73,7 +73,7 @@ from ...types import TxoKeyType, WaitingUpdateCallback
 from ...util import (format_fee_satoshis, get_update_check_dates,
     get_identified_release_signers, get_wallet_name_from_path, profiler)
 from ...version import PACKAGE_VERSION
-from ...wallet import AbstractAccount, Wallet
+from ...wallet import AbstractAccount, AccountInstantiationFlags, Wallet
 from ...wallet_database.types import (InvoiceRow, KeyDataTypes, TransactionBlockRow,
     TransactionLinkState, TransactionOutputSpendableTypes)
 from ... import web
@@ -386,7 +386,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _on_payment_requests_paid(self, event_name: str) -> None:
         self.payment_requests_paid_signal.emit()
 
-    def _on_account_created(self, event_name: str, new_account_id: int) -> None:
+    def _on_account_created(self, event_name: str, new_account_id: int,
+            flags: AccountInstantiationFlags) -> None:
         account = self._wallet.get_account(new_account_id)
         assert account is not None
 
@@ -399,7 +400,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.account_created_signal.emit(new_account_id, account)
         self.set_active_account(account)
 
-        if account.is_deterministic():
+        if flags & AccountInstantiationFlags.NEW == 0 and account.is_deterministic():
             self.scan_active_account()
 
     def set_active_account(self, account: AbstractAccount) -> None:
@@ -420,7 +421,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.account_change_signal.emit(account_id, account)
         # - The receive tab.
         self._reset_receive_tab()
-        self._receive_view.update_contents()
+        if self.is_receive_view_active():
+            self._receive_view.update_contents()
 
         self._update_scan_active_account_button()
 
@@ -1253,7 +1255,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._account.can_spend())
 
     def is_receive_view_active(self) -> bool:
-        return bool(self._receive_view is not None and self._account_id is not None)
+        return bool(isinstance(self._receive_view, ReceiveView) and self._account_id is not None)
 
     def _reset_send_tab(self) -> None:
         self._send_view = self._reset_stacked_tab(self.send_tab, self.get_send_view)
@@ -1317,11 +1319,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def get_receive_view(self, account_id: Optional[int]) -> ReceiveViewTypes:
         view = None if account_id is None else self._receive_views.get(account_id)
         if view is None:
+            text: Optional[str] = None
             if account_id is not None:
-                view = ReceiveView(self, account_id)
+                account = self._wallet.get_account(account_id)
+                if account.type() in \
+                        { AccountType.IMPORTED_ADDRESS, AccountType.IMPORTED_PRIVATE_KEY }:
+                    text = _("This functionality is not available for this type of account.")
+                else:
+                    view = ReceiveView(self, account_id)
             if view is None:
                 view = QWidget()
-                view.setLayout(self._create_account_unavailable_layout())
+                view.setLayout(self._create_account_unavailable_layout(text))
             if account_id is not None:
                 self._receive_views[account_id] = view
         return view

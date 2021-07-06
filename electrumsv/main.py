@@ -35,20 +35,20 @@ from typing import Dict, Optional, Union
 
 import bitcoinx
 
-from electrumsv import daemon, web
-from electrumsv.app_state import app_state, AppStateProxy, DefaultApp
-from electrumsv.commands import Commands, config_variables, get_parser, known_commands
-from electrumsv.constants import KeystoreTextType
-from electrumsv.exceptions import IncompatibleWalletError, InvalidPassword
-from electrumsv.keystore import instantiate_keystore_from_text
-from electrumsv.logs import logs
-from electrumsv.networks import Net, SVTestnet, SVScalingTestnet, SVRegTestnet
-from electrumsv.platform import platform
-from electrumsv.simple_config import SimpleConfig
-from electrumsv import startup
-from electrumsv.storage import WalletStorage
-from electrumsv.util import json_encode, json_decode, setup_thread_excepthook
-from electrumsv.wallet import Wallet
+from . import daemon, web
+from .app_state import app_state, AppStateProxy, DefaultApp
+from .commands import Commands, config_variables, get_parser, known_commands
+from .constants import AccountCreationType, KeystoreTextType
+from .exceptions import IncompatibleWalletError, InvalidPassword
+from .keystore import instantiate_keystore_from_text
+from .logs import logs
+from .networks import Net, SVTestnet, SVScalingTestnet, SVRegTestnet
+from .platform import platform
+from .simple_config import SimpleConfig
+from . import startup
+from .storage import WalletStorage
+from .util import json_encode, json_decode, setup_thread_excepthook
+from .wallet import Wallet
 
 
 if sys.platform == "win32":
@@ -119,7 +119,7 @@ def run_non_RPC(config):
 
             keystore = instantiate_keystore_from_text(text_type, text_match, password,
                 derivation_text=None, passphrase="", watch_only=False)
-            parent_wallet.create_account_from_keystore(keystore)
+            parent_wallet.create_account_from_keystore(AccountCreationType.IMPORTED, keystore)
             print(f"New standard (bip32) account created for: '{wallet_path}'")
             sys.exit(0)
 

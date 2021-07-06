@@ -309,6 +309,15 @@ class AccountType(Enum):
     IMPORTED_PRIVATE_KEY = "impprvkey"
 
 
+class AccountCreationType(IntFlag):
+    UNKNOWN = 0
+
+    NEW = 1
+    MULTISIG = 2
+    IMPORTED = 3
+    HARDWARE = 4
+
+
 class WalletEventType(IntEnum):
     # Generate wallet-related events.
     # ... none ...

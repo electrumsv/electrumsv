@@ -82,9 +82,19 @@ class UTXOList(MyTreeWidget):
 
     def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
         self.clear()
-        old_account_id = self._account_id
         self._account_id = new_account_id
         self._account = new_account
+
+    def on_doubleclick(self, item: QTreeWidgetItem, column: int) -> None:
+        if self.permit_edit(item, column):
+            super().on_doubleclick(item, column)
+        else:
+            utxo = cast(TransactionOutputSpendableRow2, item.data(0, Role.DataUTXO))
+            assert utxo.account_id is not None
+            account = self._wallet.get_account(utxo.account_id)
+            tx = self._wallet.get_transaction(utxo.tx_hash)
+            assert tx is not None
+            self._main_window.show_transaction(account, tx)
 
     def update(self) -> None:
         self._on_update_utxo_list()

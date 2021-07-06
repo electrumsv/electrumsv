@@ -6,7 +6,8 @@ from typing import Union, Any
 import aiorpcx
 import bitcoinx
 from aiohttp import web
-from electrumsv.constants import CredentialPolicyFlag, RECEIVING_SUBPATH, KeystoreTextType
+from electrumsv.constants import AccountCreationType, CredentialPolicyFlag, RECEIVING_SUBPATH, \
+    KeystoreTextType
 from electrumsv.keystore import instantiate_keystore_from_text
 from electrumsv.storage import WalletStorage
 from electrumsv.networks import Net
@@ -129,7 +130,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
 
             keystore = instantiate_keystore_from_text(text_type, text_match, vars[VNAME.PASSWORD],
                 derivation_text=None, passphrase=None)
-            parent_wallet.create_account_from_keystore(keystore)
+            parent_wallet.create_account_from_keystore(AccountCreationType.IMPORTED, keystore)
             await self._load_wallet(vars[VNAME.WALLET_NAME], vars[VNAME.PASSWORD])
             response = {"new_wallet": create_filepath}
             return good_response(response)

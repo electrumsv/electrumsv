@@ -49,7 +49,8 @@ from bitcoinx import (Address, double_sha256, hash_to_hex_str, Header, hex_str_t
 from . import coinchooser
 from .app_state import app_state
 from .bitcoin import scripthash_bytes, ScriptTemplate
-from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, BlockHeight, CHANGE_SUBPATH,
+from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountType, BlockHeight,
+    CHANGE_SUBPATH,
     DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath, TransactionImportFlag,
     KeyInstanceFlag, KeystoreTextType,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerType,
@@ -117,6 +118,7 @@ class AccountInstantiationFlags(IntFlag):
     NONE = 0
     IMPORTED_PRIVATE_KEYS = 1 << 0
     IMPORTED_ADDRESSES = 1 << 1
+    NEW = 1 << 2
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2312,7 +2314,7 @@ class Wallet(TriggeredCallbacks):
         ])
         future.result()
 
-        self.trigger_callback("account_created", account_row.account_id)
+        self.trigger_callback("account_created", account_row.account_id, flags)
         if self._network is not None:
             account.start(self._network)
         return account
@@ -2345,7 +2347,8 @@ class Wallet(TriggeredCallbacks):
         future.result()
         return rows
 
-    def create_account_from_keystore(self, keystore) -> AbstractAccount:
+    def create_account_from_keystore(self, creation_type: AccountCreationType, keystore) \
+            -> AbstractAccount:
         masterkey_row = self.create_masterkey_from_keystore(keystore)
         if masterkey_row.derivation_type == DerivationType.ELECTRUM_OLD:
             account_name = "Outdated Electrum account"
@@ -2362,9 +2365,13 @@ class Wallet(TriggeredCallbacks):
         else:
             raise WalletLoadError(f"Unhandled derivation type {masterkey_row.derivation_type}")
 
+        creation_flags = AccountInstantiationFlags.NONE
+        if creation_type == AccountCreationType.NEW:
+            creation_flags |= AccountInstantiationFlags.NEW
+
         basic_row = AccountRow(-1, masterkey_row.masterkey_id, script_type, account_name)
         rows = self.add_accounts([ basic_row ])
-        return self._create_account_from_data(rows[0], AccountInstantiationFlags.NONE)
+        return self._create_account_from_data(rows[0], creation_flags)
 
     def create_account_from_text_entries(self, text_type: KeystoreTextType,
             script_type: ScriptType, entries: Set[str], password: str) -> AbstractAccount:
