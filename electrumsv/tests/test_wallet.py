@@ -341,7 +341,6 @@ class TestLegacyWalletCreation:
 
         wallet = Wallet(tmp_storage)
         account = wallet.create_account_from_text_entries(KeystoreTextType.PRIVATE_KEYS,
-            ScriptType.P2PKH,
             { "KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6" },
             "password")
 
@@ -359,7 +358,6 @@ class TestLegacyWalletCreation:
         """
         wallet = Wallet(tmp_storage)
         account = wallet.create_account_from_text_entries(KeystoreTextType.ADDRESSES,
-            ScriptType.NONE,
             { "15hETetDmcXm1mM4sEf7U2KXC9hDHFMSzz", "1GPHVTY8UD9my6jyP4tb2TYJwUbDetyNC6" },
             "password")
         check_legacy_parent_of_imported_address_wallet(wallet)

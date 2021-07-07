@@ -239,6 +239,16 @@ class Imported_KeyStore(Software_KeyStore):
     def can_import(self) -> bool:
         return True
 
+    def sign_message(self, public_key: PublicKey, message: bytes, password: str) -> bytes:
+        private_key_bytes, is_compressed = self.get_private_key(public_key, password)
+        private_key = PrivateKey(private_key_bytes, is_compressed)
+        return private_key.sign_message(message)
+
+    def decrypt_message(self, public_key: PublicKey, message: bytes, password: str) -> bytes:
+        private_key_bytes, is_compressed = self.get_private_key(public_key, password)
+        private_key = PrivateKey(private_key_bytes, is_compressed)
+        return private_key.decrypt_message(message)
+
     def remove_key(self, keyinstance_id: int) -> None:
         pubkey = self._public_keys.pop(keyinstance_id)
         self._keypairs.pop(pubkey)

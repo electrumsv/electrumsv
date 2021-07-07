@@ -42,7 +42,8 @@ from typing import (Any, cast, Dict, Iterable, List, Optional, Sequence, Set, Tu
 import weakref
 
 import aiorpcx
-from bitcoinx import (Address, double_sha256, hash_to_hex_str, Header, hex_str_to_hash,
+from bitcoinx import (Address, bip32_build_chain_string,
+    double_sha256, hash_to_hex_str, Header, hex_str_to_hash,
     MissingHeader, P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Ops, pack_byte, push_item,
     Script)
 
@@ -490,10 +491,9 @@ class AbstractAccount:
 
     def get_label_data(self) -> Dict[str, Any]:
         # Create exported data structure for account labels/descriptions.
-        # TODO(no-merge) Are key labels still supported?
-        # NOTE(typing) Ignore when `derivation_data2` is None.
         label_entries = [
-            (unpack_derivation_path(key.derivation_data2),  key.description) # type: ignore
+            (bip32_build_chain_string(unpack_derivation_path(cast(bytes, key.derivation_data2))),
+                key.description)
             for key in self.get_keyinstances() if key.description is not None
         ]
         rows = self._wallet.read_transaction_descriptions(self._id)
@@ -1328,16 +1328,10 @@ class AbstractAccount:
             # self.unarchive_keys(key_ids)
 
     def sign_message(self, key_data: KeyDataTypes, message, password: str):
-        assert key_data.derivation_data2 is not None
-        derivation_path = unpack_derivation_path(key_data.derivation_data2)
-        keystore = cast(SignableKeystoreTypes, self.get_keystore())
-        return keystore.sign_message(derivation_path, message, password)
+        raise NotImplementedError
 
     def decrypt_message(self, key_data: KeyDataTypes, message, password: str):
-        assert key_data.derivation_data2 is not None
-        derivation_path = unpack_derivation_path(key_data.derivation_data2)
-        keystore = cast(SignableKeystoreTypes, self.get_keystore())
-        return keystore.decrypt_message(derivation_path, message, password)
+        raise NotImplementedError
 
     def is_watching_only(self) -> bool:
         raise NotImplementedError
@@ -1353,6 +1347,9 @@ class AbstractAccount:
         # accounts.
         return True
 
+    def get_masterkey_id(self) -> Optional[int]:
+        raise NotImplementedError
+
 
 class SimpleAccount(AbstractAccount):
     # wallet with a single keystore
@@ -1365,6 +1362,9 @@ class SimpleAccount(AbstractAccount):
 
 
 class ImportedAccountBase(SimpleAccount):
+    def get_masterkey_id(self) -> Optional[int]:
+        return None
+
     def can_delete_key(self) -> bool:
         return True
 
@@ -1399,7 +1399,6 @@ class ImportedAddressAccount(ImportedAccountBase):
     def can_import_address(self) -> bool:
         return True
 
-    # TODO(nocheckin,test) verify this still works.
     def import_address(self, address: Address) -> bool:
         if isinstance(address, P2PKH_Address):
             derivation_type = DerivationType.PUBLIC_KEY_HASH
@@ -1408,10 +1407,9 @@ class ImportedAddressAccount(ImportedAccountBase):
         else:
             raise UnsupportedScriptTypeError()
 
-        # TODO(nocheckin,test) verify that this does indeed find any existing keys.
-        existing_key = self._wallet.read_keyinstance_for_derivation(self._id, derivation_type,
-            address.hash160())
-        if existing_key is None:
+        existing_keys = self._wallet.read_keyinstances_for_derivations(self._id, derivation_type,
+            [ address.hash160() ])
+        if len(existing_keys) == 0:
             return False
 
         def callback(future: concurrent.futures.Future) -> None:
@@ -1428,7 +1426,6 @@ class ImportedAddressAccount(ImportedAccountBase):
         keyinstance_future, scripthash_future, keyinstance_rows, scripthash_rows = \
             self.create_provided_keyinstances([ raw_keyinstance ])
         scripthash_future.add_done_callback(callback)
-
         return True
 
     def get_public_keys_for_key_data(self, _keydata: KeyDataTypes) -> List[PublicKey]:
@@ -1475,10 +1472,16 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         keystore = cast(Imported_KeyStore, self.get_keystore())
 
         # Prevent re-importing existing entries.
-        existing_key = self._wallet.read_keyinstance_for_derivation(self._id,
-            DerivationType.PRIVATE_KEY, public_key.to_bytes(compressed=True))
-        if existing_key is not None:
+        existing_keys = self._wallet.read_keyinstances_for_derivations(self._id,
+            DerivationType.PRIVATE_KEY, [ public_key.to_bytes(compressed=True) ])
+        if len(existing_keys) > 0:
             return private_key_text
+
+        def callback(future: concurrent.futures.Future) -> None:
+            if future.cancelled():
+                return
+            future.result()
+            self.register_for_keyinstance_events(keyinstance_rows)
 
         enc_private_key_text = pw_encode(private_key_text, password)
         derivation_data_dict: KeyInstanceDataPrivateKey = {
@@ -1488,10 +1491,12 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         derivation_data = json.dumps(derivation_data_dict).encode()
         derivation_data2 = create_derivation_data2(DerivationType.PRIVATE_KEY, derivation_data_dict)
         raw_keyinstance = KeyInstanceRow(-1, -1, None, DerivationType.PRIVATE_KEY, derivation_data,
-            derivation_data2, KeyInstanceFlag.ACTIVE, None)
-        _keyinstance_future, rows = self._wallet.create_keyinstances(self._id, [ raw_keyinstance ])
-        # TODO(no-merge) imported private keystores need the key instances.
-        keystore.import_private_key(rows[0].keyinstance_id, public_key, enc_private_key_text)
+            derivation_data2, KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None)
+        keyinstance_future, scripthash_future, keyinstance_rows, scripthash_rows = \
+            self.create_provided_keyinstances([ raw_keyinstance ])
+        scripthash_future.add_done_callback(callback)
+        keystore.import_private_key(keyinstance_rows[0].keyinstance_id, public_key,
+            enc_private_key_text)
         return private_key_text
 
     def export_private_key(self, keydata: KeyDataTypes, password: str) -> str:
@@ -1499,6 +1504,18 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         keystore = cast(Imported_KeyStore, self.get_keystore())
         public_key = PublicKey.from_bytes(keydata.derivation_data2)
         return keystore.export_private_key(public_key, password)
+
+    def sign_message(self, key_data: KeyDataTypes, message, password: str):
+        assert key_data.derivation_data2 is not None
+        public_key = PublicKey.from_bytes(key_data.derivation_data2)
+        keystore = cast(Imported_KeyStore, self.get_keystore())
+        return keystore.sign_message(public_key, message, password)
+
+    def decrypt_message(self, key_data: KeyDataTypes, message, password: str):
+        assert key_data.derivation_data2 is not None
+        public_key = PublicKey.from_bytes(key_data.derivation_data2)
+        keystore = cast(Imported_KeyStore, self.get_keystore())
+        return keystore.decrypt_message(public_key, message, password)
 
     def get_public_keys_for_key_data(self, keydata: DerivationTypes) -> List[PublicKey]:
         return [ PublicKey.from_bytes(keydata.derivation_data2) ]
@@ -1562,6 +1579,10 @@ class DeterministicAccount(AbstractAccount):
     def is_gap_limit_observer(self) -> bool:
         return True
 
+    def get_masterkey_id(self) -> Optional[int]:
+        keystore = cast(Deterministic_KeyStore, self.get_keystore())
+        return keystore.get_id()
+
     def has_seed(self) -> bool:
         return cast(Deterministic_KeyStore, self.get_keystore()).has_seed()
 
@@ -1583,6 +1604,18 @@ class DeterministicAccount(AbstractAccount):
             future = network.subscriptions.remove_owner(self._subscription_owner_for_gap_limit)
             if future is not None:
                 future.result()
+
+    def sign_message(self, key_data: KeyDataTypes, message, password: str):
+        assert key_data.derivation_data2 is not None
+        derivation_path = unpack_derivation_path(key_data.derivation_data2)
+        keystore = cast(SignableKeystoreTypes, self.get_keystore())
+        return keystore.sign_message(derivation_path, message, password)
+
+    def decrypt_message(self, key_data: KeyDataTypes, message, password: str):
+        assert key_data.derivation_data2 is not None
+        derivation_path = unpack_derivation_path(key_data.derivation_data2)
+        keystore = cast(SignableKeystoreTypes, self.get_keystore())
+        return keystore.decrypt_message(derivation_path, message, password)
 
     def notify_key_allocation_creation_or_something(self) -> None:
         # asyncio Event objects are not thread-safe. This is the recommended way of calling their
@@ -2374,7 +2407,7 @@ class Wallet(TriggeredCallbacks):
         return self._create_account_from_data(rows[0], creation_flags)
 
     def create_account_from_text_entries(self, text_type: KeystoreTextType,
-            script_type: ScriptType, entries: Set[str], password: str) -> AbstractAccount:
+            entries: Set[str], password: str) -> AbstractAccount:
         raw_keyinstance_rows: List[KeyInstanceRow] = []
 
         account_name: Optional[str] = None
@@ -2388,12 +2421,11 @@ class Wallet(TriggeredCallbacks):
         else:
             raise WalletLoadError(f"Unhandled text type {text_type}")
 
-        basic_account_row = AccountRow(-1, None, script_type, account_name)
-        account_row = self.add_accounts([ basic_account_row ])[0]
-        account = self._create_account_from_data(account_row, account_flags)
-
+        script_type = ScriptType.P2PKH
         if text_type == KeystoreTextType.ADDRESSES:
             # NOTE(P2SHNotImportable) see the account wizard for why this does not get P2SH ones.
+            #   If we do support it, which would require the ability to mint those transactions on
+            #   regtest, we would set the script_type here to `ScriptType.P2SH`.
             for address_string in entries:
                 derivation_data_hash: KeyInstanceDataHash = { "hash": address_string }
                 derivation_data = json.dumps(derivation_data_hash).encode()
@@ -2414,6 +2446,10 @@ class Wallet(TriggeredCallbacks):
                     None, DerivationType.PRIVATE_KEY, derivation_data,
                     create_derivation_data2(DerivationType.PRIVATE_KEY, derivation_data_dict),
                     KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None))
+
+        basic_account_row = AccountRow(-1, None, script_type, account_name)
+        account_row = self.add_accounts([ basic_account_row ])[0]
+        account = self._create_account_from_data(account_row, account_flags)
 
         def callback(future: concurrent.futures.Future) -> None:
             if future.cancelled():
@@ -2518,11 +2554,11 @@ class Wallet(TriggeredCallbacks):
         return db_functions.read_keys_for_transaction_subscriptions(self.get_db_context(),
             account_id, tx_hash)
 
-    def read_keyinstance_for_derivation(self, account_id: int,
-            derivation_type: DerivationType, derivation_data2: bytes,
-            masterkey_id: Optional[int]=None) -> Optional[KeyInstanceRow]:
-        return db_functions.read_keyinstance_for_derivation(self.get_db_context(), account_id,
-            derivation_type, derivation_data2, masterkey_id)
+    def read_keyinstances_for_derivations(self, account_id: int,
+            derivation_type: DerivationType, derivation_data2s: List[bytes],
+            masterkey_id: Optional[int]=None) -> List[KeyInstanceRow]:
+        return db_functions.read_keyinstances_for_derivations(self.get_db_context(), account_id,
+            derivation_type, derivation_data2s, masterkey_id)
 
     def read_keyinstance(self, *, account_id: Optional[int]=None, keyinstance_id: int) \
             -> Optional[KeyInstanceRow]:
@@ -2618,8 +2654,8 @@ class Wallet(TriggeredCallbacks):
         return db_functions.read_payment_request(self.get_db_context(), request_id=request_id,
             keyinstance_id=keyinstance_id)
 
-    def read_payment_requests(self, account_id: int, flags: Optional[int]=None,
-            mask: Optional[int]=None) -> List[PaymentRequestReadRow]:
+    def read_payment_requests(self, account_id: int, flags: Optional[PaymentFlag]=None,
+            mask: Optional[PaymentFlag]=None) -> List[PaymentRequestReadRow]:
         return db_functions.read_payment_requests(self.get_db_context(), account_id, flags,
             mask)
 

@@ -44,7 +44,7 @@ from PyQt5.QtWidgets import (
 
 from ...app_state import app_state
 from ...constants import (AccountCreationType, DEFAULT_COSIGNER_COUNT, DerivationType,
-    DerivationPath, KeystoreTextType, MAXIMUM_COSIGNER_COUNT, ScriptType, SEED_PREFIX)
+    DerivationPath, KeystoreTextType, MAXIMUM_COSIGNER_COUNT, SEED_PREFIX)
 from ...device import DeviceInfo
 from ...i18n import _
 from ...keystore import (bip44_derivation_cointype,
@@ -227,14 +227,13 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
             self._wallet.create_account_from_keystore(result_type, keystore)
 
     def set_text_entry_account_result(self, result_type: AccountCreationType,
-            text_type: KeystoreTextType, script_type: ScriptType, text_matches: KeystoreMatchType,
+            text_type: KeystoreTextType, text_matches: KeystoreMatchType,
             password: Optional[str]) -> None:
         self._keystore_type = result_type
 
         if self.flags & WizardFlags.ACCOUNT_RESULT:
             assert password is not None
-            self._wallet.create_account_from_text_entries(text_type, script_type,
-                cast(Set[str], text_matches),
+            self._wallet.create_account_from_text_entries(text_type, cast(Set[str], text_matches),
                 password)
         else:
             raise NotImplementedError("Invalid attempt to generate keyless keystore data")
@@ -762,10 +761,8 @@ class ImportWalletTextPage(QWizardPage):
         assert self._checked_match_type is not None
         entries = self._matches[self._checked_match_type]
         if self._checked_match_type in (KeystoreTextType.ADDRESSES, KeystoreTextType.PRIVATE_KEYS):
-            script_type = (ScriptType.P2PKH
-                if self._checked_match_type == KeystoreTextType.PRIVATE_KEYS else ScriptType.NONE)
             wizard.set_text_entry_account_result(AccountCreationType.IMPORTED,
-                self._checked_match_type, script_type, entries, password)
+                self._checked_match_type, entries, password)
         else:
             _keystore = instantiate_keystore_from_text(self._checked_match_type,
                 self._matches[self._checked_match_type], password)

@@ -44,7 +44,8 @@ from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 from ...i18n import _
 from ...app_state import app_state
 from ...bitcoin import scripthash_bytes, sha256
-from ...constants import (ACCOUNT_SCRIPT_TYPES, ADDRESSABLE_SCRIPT_TYPES, DerivationType, IntFlag,
+from ...constants import (ACCOUNT_SCRIPT_TYPES, AccountType, ADDRESSABLE_SCRIPT_TYPES,
+    DerivationType, IntFlag,
     KeyInstanceFlag, ScriptType, unpack_derivation_path)
 from ...keystore import Hardware_KeyStore
 from ...logs import logs
@@ -1026,7 +1027,9 @@ class KeyView(QTableView):
 
             coins = self._account.get_spendable_transaction_outputs(
                 keyinstance_ids=keyinstance_ids)
-            if coins:
+            # TODO We should allow construction of unsigned transactions in all watch only account
+            #   types.
+            if coins and self._account.type() != AccountType.IMPORTED_ADDRESS:
                 menu.addAction(_("Spend from"), partial(self._main_window.spend_coins, coins))
 
         menu.exec_(self.viewport().mapToGlobal(position))

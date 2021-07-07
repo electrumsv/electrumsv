@@ -678,27 +678,27 @@ def read_keyinstance_derivation_index_last(db: sqlite3.Connection, account_id: i
     return None
 
 
+# TODO(no-merge) Needs unit tests.
 @replace_db_context_with_connection
-def read_keyinstance_for_derivation(db: sqlite3.Connection, account_id: int,
-        derivation_type: DerivationType, derivation_data2: bytes,
-        masterkey_id: Optional[int]=None) -> Optional[KeyInstanceRow]:
+def read_keyinstances_for_derivations(db: sqlite3.Connection, account_id: int,
+        derivation_type: DerivationType, derivation_data2s: List[bytes],
+        masterkey_id: Optional[int]=None) -> List[KeyInstanceRow]:
     """
     Locate the keyinstance with the given `derivation_data2` field.
     """
     sql = ("SELECT KI.keyinstance_id, KI.account_id, KI.masterkey_id, KI.derivation_type, "
             "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description "
         "FROM KeyInstances AS KI "
-        "WHERE account_id=? and derivation_type=?")
+        "WHERE account_id=? AND derivation_type=?")
+    sql_values: List[Any] = [ account_id, derivation_type ]
     if masterkey_id is not None:
         sql += " AND masterkey_id=?"
-        cursor = db.execute(sql, (account_id, derivation_type, masterkey_id))
+        sql_values.append(masterkey_id)
     else:
         sql += " AND masterkey_id IS NULL"
-        cursor = db.execute(sql, (account_id, derivation_type))
-
-    row = cursor.fetchone()
-    cursor.close()
-    return KeyInstanceRow(*row) if row is not None else None
+    # This needs to be last as the batch read message appends the "id" values after the sql values.
+    sql += " AND derivation_data2 IN ({})"
+    return read_rows_by_id(KeyInstanceRow, db, sql, sql_values, derivation_data2s)
 
 
 @replace_db_context_with_connection

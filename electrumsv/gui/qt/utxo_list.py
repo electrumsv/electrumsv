@@ -24,7 +24,7 @@
 # SOFTWARE.
 
 from enum import IntEnum
-from typing import cast, Dict, List, Optional, Set, TYPE_CHECKING
+from typing import cast, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 import weakref
 
 from PyQt5.QtCore import QItemSelectionModel, Qt
@@ -53,6 +53,13 @@ if TYPE_CHECKING:
 logger = logs.get_logger("utxo-list")
 
 
+class Column(IntEnum):
+    OUTPOINT = 0
+    DESCRIPTION = 1
+    AMOUNT = 2
+    HEIGHT = 3
+
+
 class Role(IntEnum):
     DataUTXO = Qt.ItemDataRole.UserRole+2
 
@@ -62,7 +69,8 @@ class UTXOList(MyTreeWidget):
 
     def __init__(self, parent: QWidget, main_window: "ElectrumWindow") -> None:
         MyTreeWidget.__init__(self, parent, main_window, self.create_menu, [
-            _('Output point'), _('Transaction label'), _('Amount'), _('Height')], 1)
+            _('Output point'), _('Transaction label'), _('Amount'), _('Height')],
+            Column.DESCRIPTION)
 
         self._main_window = cast("ElectrumWindow", weakref.proxy(main_window))
         self._wallet = main_window._wallet
@@ -125,15 +133,30 @@ class UTXOList(MyTreeWidget):
                 [ prevout_str, label, amount, str(utxo.block_height) ])
             # set this here to avoid sorting based on Qt.UserRole+1
             utxo_item.DataRole = Qt.ItemDataRole.UserRole+100
-            for col in (0, 2):
+            for col in (Column.OUTPOINT, Column.AMOUNT):
                 utxo_item.setFont(col, self._monospace_font)
             utxo_item.setData(0, Role.DataUTXO, utxo)
             if utxo.flags & TransactionOutputFlag.FROZEN:
-                utxo_item.setBackground(0, ColorScheme.BLUE.as_color(True))
+                utxo_item.setBackground(Column.OUTPOINT, ColorScheme.BLUE.as_color(True))
             self.addChild(utxo_item)
             if utxo in prev_selection:
                 # NB: This needs to be here after the item is added to the widget. See #979.
                 utxo_item.setSelected(True) # restore previous selection
+
+    def update_tx_labels(self, update_entries: List[Tuple[Optional[str], int, bytes]]) -> None:
+        tx_descriptions: Dict[bytes, str] = {}
+        for text, account_id, tx_hash in update_entries:
+            if account_id == self._account_id:
+                tx_descriptions[tx_hash] = text or ""
+
+        for row_idx in range(self.topLevelItemCount()):
+            item = self.topLevelItem(row_idx)
+            utxo = cast(TransactionOutputSpendableRow2, item.data(0, Role.DataUTXO))
+            if utxo.tx_hash not in tx_descriptions:
+                continue
+            new_description = tx_descriptions[utxo.tx_hash]
+            if new_description != item.text(Column.DESCRIPTION):
+                item.setText(Column.DESCRIPTION, new_description)
 
     def get_selected(self) -> Set[TransactionOutputSpendableRow2]:
         return {item.data(0, Role.DataUTXO) for item in self.selectedItems()}
