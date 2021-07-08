@@ -1439,18 +1439,19 @@ class Network(TriggeredCallbacks):
     async def _maintain_wallet(self, wallet: "Wallet") -> None:
         '''Put all tasks for a single wallet in a group so they can be cancelled together.'''
         logger.info('maintaining wallet %s', wallet)
-        try:
-            while True:
-                try:
-                    async with TaskGroup() as group:
-                        await group.spawn(self._monitor_txs, wallet)
-                except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
-                    blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
-                    session = self.main_session()
-                    if session:
-                        await session.disconnect(str(error), blacklist=blacklist)
-        finally:
-            logger.info('stopped maintaining %s', wallet)
+        with suppress(CancelledError):
+            try:
+                while True:
+                    try:
+                        async with TaskGroup() as group:
+                            await group.spawn(self._monitor_txs, wallet)
+                    except (RPCError, BatchError, DisconnectSessionError, TaskTimeout) as error:
+                        blacklist = isinstance(error, DisconnectSessionError) and error.blacklist
+                        session = self.main_session()
+                        if session:
+                            await session.disconnect(str(error), blacklist=blacklist)
+            finally:
+                logger.info('stopped maintaining %s', wallet)
 
     async def _main_session(self) -> 'SVSession':
         while True:
