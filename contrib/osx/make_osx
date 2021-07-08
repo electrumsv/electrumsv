@@ -85,9 +85,8 @@ info "Installing hardware wallet requirements..."
 python3 -m pip install -Ir ./contrib/deterministic-build/requirements-hw.txt || \
 fail "Could not install hardware wallet requirements"
 
-info "Downloading libusb..."
-curl -L https://homebrew.bintray.com/bottles/libusb-1.0.21.el_capitan.bottle.tar.gz | \
-    tar xz --directory $BUILDDIR || fail "Could not download libusb"
+info "Extracting libusb..."
+tar xzf ./contrib/osx/binaries/libusb-1.0.21.el_capitan.bottle.tar.gz --directory=$BUILDDIR || fail "Could not extract libusb"
 verify_hash $BUILDDIR/libusb/1.0.21/lib/libusb-1.0.dylib d147e7382dfa676d93e8b17d160d50f68e4b01f58f3647c90a8899a7a0519ca3  # this exits on failure
 cp -fp $BUILDDIR/libusb/1.0.21/lib/libusb-1.0.dylib contrib/osx || fail "Could not copy libusb"
 
