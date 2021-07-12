@@ -25,9 +25,8 @@ from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.sqlite_support import DatabaseContext, LeakedSQLiteConnectionError
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MasterKeyRow, NetworkServerRow, NetworkServerAccountRow,
-    PaymentRequestReadRow, PaymentRequestRow, PaymentRequestUpdateRow, TransactionRow,
-    TransactionOutputShortRow, TxProof, WalletBalance,
-    WalletEventRow)
+    PaymentRequestReadRow, PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
+    TransactionRow, TransactionOutputShortRow, TxProof, WalletBalance, WalletEventRow)
 from electrumsv.wallet_database.util import pack_proof, unpack_proof
 
 logs.set_level("debug")
@@ -268,7 +267,6 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     # No tx are linked to this non-existent account.
     tx_hashes_3 = db_functions.read_transaction_hashes(db_context, -1)
     assert 0 == len(tx_hashes_3)
-
 
 
 def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
@@ -582,11 +580,11 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
     key_rows = [
         KeyInstanceRow(KEYINSTANCE_ID_1, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            DERIVATION_DATA1, None, KeyInstanceFlag.NONE, None),
+            DERIVATION_DATA1, DERIVATION_DATA1, KeyInstanceFlag.NONE, None),
         KeyInstanceRow(KEYINSTANCE_ID_2, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            DERIVATION_DATA2, None, KeyInstanceFlag.NONE, None),
+            DERIVATION_DATA2, DERIVATION_DATA2, KeyInstanceFlag.NONE, None),
         KeyInstanceRow(KEYINSTANCE_ID_3, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
-            DERIVATION_DATA3, None, KeyInstanceFlag.NONE, None),
+            DERIVATION_DATA3, DERIVATION_DATA3, KeyInstanceFlag.NONE, None),
     ]
     future = db_functions.create_keyinstances(db_context, key_rows)
     future.result(timeout=5)
@@ -775,6 +773,21 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX+1
 
+    # This is the best place to test this function.
+    derivation_keyinstances = db_functions.read_keyinstances_for_derivations(db_context,
+        ACCOUNT_ID, DerivationType.BIP32, [ DERIVATION_DATA1 ], MASTERKEY_ID)
+    assert len(derivation_keyinstances) == 1
+    assert derivation_keyinstances[0] == key_rows[0]
+
+    # This is the best place to test this function.
+    derivation_keyinstances = db_functions.read_keyinstances_for_derivations(db_context,
+        ACCOUNT_ID, DerivationType.BIP32, [ DERIVATION_DATA1, DERIVATION_DATA2 ], MASTERKEY_ID)
+    # Sqlite returns the rows in order, but we should not rely on that as it is not a guarantee.
+    derivation_keyinstances.sort(key=lambda r: r.keyinstance_id)
+    assert len(derivation_keyinstances) == 2
+    assert derivation_keyinstances[0] == key_rows[0]
+    assert derivation_keyinstances[1] == key_rows[1]
+
     # Remove a TXO flag. In this case the `FROZEN` flag from the first TXO.
     future = db_functions.update_transaction_output_flags(db_context,
         [TxoKeyType(TX_HASH, TX_INDEX)], TransactionOutputFlag.NONE,
@@ -799,11 +812,26 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     txo_keys = [ TxoKeyType(row3.tx_hash, row3.txo_index) ]
     future = db_functions.update_transaction_output_flags(db_context, txo_keys,
         TransactionOutputFlag.SPENT)
-    future.result()
+    future.result(5)
 
     db_rows = db_functions.read_transaction_outputs_explicit(db_context, txo_keys)
     assert len(db_rows) == 1
     assert db_rows[0].flags == TransactionOutputFlag.SPENT
+
+    future = db_functions.update_transaction_block_many(db_context,
+        [ TransactionBlockRow(21, b'111', TX_HASH) ])
+    update_count = future.result(5)
+    assert update_count == 1
+
+    # Edge case, we are looking at a block height less than the transaction height.
+    unverified_entries = db_functions.read_unverified_transactions(db_context, 20)
+    assert len(unverified_entries) == 0
+
+    # Edge case, we are looking at a block height less than the transaction height.
+    unverified_entries = db_functions.read_unverified_transactions(db_context, 21)
+    assert len(unverified_entries) == 1
+    assert unverified_entries[0][0] == TX_HASH
+    assert unverified_entries[0][1] == 21
 
 
 @pytest.mark.asyncio

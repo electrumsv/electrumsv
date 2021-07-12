@@ -1064,8 +1064,8 @@ class AbstractAccount:
                 #
                 # However we are not going to do that at this point. It will be a todo item and a
                 # second pass.
-                # TODO(no-merge) Catch malleated transactions by fetching and processing them as
-                #   described.
+                # TODO(tx-malleation) Catch malleated transactions by fetching and processing
+                #   them as described.
                 pass
 
             future = self._wallet.update_transaction_block_many(entries)

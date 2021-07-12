@@ -36,8 +36,8 @@ import webbrowser
 
 from bitcoinx import Address, bip32_build_chain_string, hash_to_hex_str
 
-from PyQt5.QtCore import (QAbstractItemModel, QModelIndex, QVariant, Qt, QSortFilterProxyModel,
-    QTimer)
+from PyQt5.QtCore import QAbstractItemModel, QModelIndex, QVariant, Qt, QPoint, \
+    QSortFilterProxyModel, QTimer
 from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QKeySequence
 from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 
@@ -885,7 +885,7 @@ class KeyView(QTableView):
             line: KeyListRow = self._data[base_index.row()]
             self._main_window.show_key(self._account, line, self._account.get_default_script_type())
 
-    def _event_create_menu(self, position):
+    def _event_create_menu(self, position: QPoint) -> None:
         menu = QMenu()
 
         # What the user clicked on.

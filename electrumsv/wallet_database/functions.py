@@ -672,7 +672,6 @@ def read_keyinstance_derivation_index_last(db: sqlite3.Connection, account_id: i
     return None
 
 
-# TODO(no-merge) Needs unit tests.
 @replace_db_context_with_connection
 def read_keyinstances_for_derivations(db: sqlite3.Connection, account_id: int,
         derivation_type: DerivationType, derivation_data2s: List[bytes],

@@ -757,3 +757,64 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
     finally:
         db_context.release_connection(db)
 
+
+@pytest.mark.asyncio
+@unittest.mock.patch('electrumsv.wallet.Wallet.get_local_height')
+@unittest.mock.patch('electrumsv.wallet.app_state')
+async def test_unverified_transactions(mock_app_state, get_local_height, tmp_storage) -> None:
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+
+    # Boilerplate setting up of a deterministic account. This is copied from above.
+    password = 'password'
+    seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
+    child_keystore = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+        KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
+
+    wallet = Wallet(tmp_storage)
+    masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
+
+    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    assert account_row.default_masterkey_id is not None
+    account = StandardAccount(wallet, account_row)
+    wallet.register_account(account.get_id(), account)
+
+    # Ensure that the keys used by the transaction are present to be linked to.
+    account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+
+    db_context = tmp_storage.get_db_context()
+    db = db_context.acquire_connection()
+    try:
+        BLOCK_HASH = b'CAFECAFE'
+        BLOCK_HEIGHT = 1000
+        BLOCK_POSITION = 3
+        FEE_VALUE = 12121
+
+        ## Add a transaction that is settled.
+        tx_1 = Transaction.from_hex(tx_hex_funding)
+        tx_hash_1 = tx_1.hash()
+        # Add the funding transaction to the database and link it to key usage.
+        wallet._missing_transactions[tx_hash_1] = MissingTransactionEntry(BLOCK_HASH,
+            BLOCK_HEIGHT, FEE_VALUE, TransactionImportFlag.UNSET)
+        link_state = TransactionLinkState()
+        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_CLEARED,
+            link_state=link_state)
+
+        test_block_height = BLOCK_HEIGHT
+        def height_func() -> int:
+            return test_block_height
+        get_local_height.side_effect = height_func
+
+        ret = await wallet.get_unverified_transactions_async()
+        assert ret == { tx_hash_1: BLOCK_HEIGHT }
+
+        # Edge case, the unverified transaction is for a later block.
+        # TODO There's a question whether this is something we should flag because if we have
+        #   reorged to a lower block, then the `block_height` on this matched transaction should
+        #   be wrong. The reorg test above should prove it does not happen.
+        test_block_height = BLOCK_HEIGHT-1
+        ret = await wallet.get_unverified_transactions_async()
+        assert ret == {}
+    finally:
+        db_context.release_connection(db)
+

@@ -1593,25 +1593,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.contact_list = l = ContactList(self._api, self)
         return self.create_list_tab(l)
 
-    # TODO(no-merge) Several bugs in this given changes to the way things work. Not just marked.
-    def remove_key(self, account_id: int, key_id: int) -> None:
-        account = self._wallet.get_account(account_id)
-
-        extra_text = ""
-        # TODO(no-merge) Function does not exist.
-        coin_count = len(account.get_key_utxos({ key_id }))
-        if coin_count > 0:
-            extra_text += " "+ _("It has {} known coins associated with it.").format(coin_count)
-
-        if self.question(_("Do you want to archive this key?") + extra_text):
-            keyinstance = self._wallet.read_keyinstance(keyinstance_id=key_id)
-            # This if successful will unload the key from the account (not delete).
-            self._wallet.archive_keys([ key_id ])
-            if self.key_view is not None:
-                self.key_view.remove_keys([ keyinstance ])
-            self.update_history_view()
-            self._receive_view.update_contents()
-
     def spend_coins(self, coins: Iterable[TransactionOutputSpendableTypes]) -> None:
         self._send_view.set_pay_from(coins)
         self.show_send_tab()
