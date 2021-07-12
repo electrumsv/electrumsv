@@ -21,8 +21,13 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from typing import Type, TYPE_CHECKING
 
-def plugin_class(gui_kind):
+if TYPE_CHECKING:
+    from .qt import Plugin
+
+
+def plugin_class(gui_kind: str) -> Type["Plugin"]:
     if gui_kind == 'qt':
         from .qt import Plugin
         return Plugin

@@ -25,6 +25,8 @@
 
 from collections import deque
 import logging
+from types import TracebackType
+from typing import Optional, Type
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
@@ -48,7 +50,9 @@ class SVLogHandler(logging.Handler):
     def __enter__(self):
         self.acquire()
 
-    def __exit__(self, *args):
+    def __exit__(self, exc_type: Optional[Type[BaseException]],
+            exc_value: Optional[BaseException], traceback: Optional[TracebackType]) \
+                -> None:
         self.release()
 
     def emit(self, record):

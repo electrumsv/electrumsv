@@ -28,24 +28,33 @@ from decimal import Decimal
 from functools import wraps
 import json
 import sys
-from typing import Dict
+from typing import Any, Callable, cast, Dict, List, TYPE_CHECKING, TypeVar, Optional
 
-from .bitcoin import COIN
 from .i18n import _
 from .logs import logs
 
+if TYPE_CHECKING:
+    from .simple_config import SimpleConfig
+    from .network import Network
+    from .wallet import Wallet
+
+D1 = TypeVar('D1', bound=Callable[..., Any])
+
+
 logger = logs.get_logger("commands")
+
+ArgTypeType = Callable[[str], Any]
 
 known_commands: Dict[str, 'Command'] = {}
 
 
-def satoshis(amount):
-    # satoshi conversion must not be performed by the parser
-    return int(COIN*Decimal(amount)) if amount not in ['!', None] else amount
+# def satoshis(amount: Union[int, Optional[str]]) -> int:
+#     # satoshi conversion must not be performed by the parser
+#     return int(COIN*Decimal(amount)) if amount not in ['!', None] else amount
 
 
 class Command:
-    def __init__(self, func, s: str) -> None:
+    def __init__(self, func: Callable[..., Any], s: str) -> None:
         self.name = func.__name__
         self.description = func.__doc__
         self.help = self.description.split('.')[0] if self.description else None
@@ -55,7 +64,9 @@ class Command:
         self.requires_password = 'p' in s
 
         varnames = func.__code__.co_varnames[1:func.__code__.co_argcount]
-        self.defaults = func.__defaults__
+        # NOTE(typing) The `Callable` type does not have this, but it has the other
+        #   function-related variables.
+        self.defaults = func.__defaults__ # type: ignore
         if self.defaults:
             n = len(self.defaults)
             self.params = list(varnames[:-n])
@@ -65,22 +76,22 @@ class Command:
             self.options = []
             self.defaults = []
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "<Command {}>".format(self)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return "{}({})".format(self.name, ", ".join(self.params +
             [ "{}={!r}".format(name, self.defaults[i]) for i, name in enumerate(self.options) ]))
 
 
-def command(s: str):
-    def decorator(func):
+def command(s: str) -> Callable[[D1], D1]:
+    def decorator(func: D1) -> D1:
         global known_commands
         name = func.__name__
         known_commands[name] = Command(func, s)
 
         @wraps(func)
-        def func_wrapper(*args, **kwargs):
+        def func_wrapper(*args: Any, **kwargs: Any) -> Any:
             c = known_commands[func.__name__]
             wallet = args[0]._wallet
             network = args[0]._network
@@ -92,21 +103,24 @@ def command(s: str):
             if (c.requires_password and password is None and not kwargs.get("unsigned")):
                 return {'error': 'Password required' }
             return func(*args, **kwargs)
-        return func_wrapper
+        return cast(D1, func_wrapper)
     return decorator
 
 
 class Commands:
-    def __init__(self, config, wallet, network, callback = None):
+    def __init__(self, config: "SimpleConfig", wallet: Optional["Wallet"],
+            network: Optional["Network"], callback: Optional[Callable[[], None]]=None) -> None:
         self.config = config
         self._wallet = wallet
         self._network = network
         self._callback = callback
 
-    def _run(self, method_name: str, *args, password_getter=None, **kwargs):
+    def _run(self, method_name: str, *args: Any,
+            password_getter: Optional[Callable[[], Optional[str]]]=None, **kwargs: Any) -> Any:
         # this wrapper is called from the python console
         cmd = known_commands[method_name]
         if cmd.requires_password:
+            assert password_getter is not None
             password = password_getter()
             if password is None:
                 return
@@ -134,17 +148,17 @@ class Commands:
         return PACKAGE_VERSION
 
     @command('')
-    def help(self):
+    def help(self) -> List[str]:
         # for the python console
         return sorted(known_commands.keys())
 
     @command('')
-    def create_wallet(self):
+    def create_wallet(self) -> None:
         """Create a new wallet"""
         raise Exception('Not a JSON-RPC command')
 
     @command('')
-    def create_account(self):
+    def create_account(self) -> None:
         """Create a new account"""
         raise Exception('Not a JSON-RPC command')
 
@@ -208,7 +222,7 @@ command_options = {
 # don't use floats because of rounding errors
 from .transaction import tx_dict_from_text
 json_loads = lambda x: json.loads(x, parse_float=lambda x: str(Decimal(x)))
-arg_types = {
+arg_types: Dict[str, ArgTypeType] = {
     'num': int,
     'nbits': int,
     'imax': int,
@@ -237,13 +251,15 @@ config_variables = {
     }
 }
 
-def set_default_subparser(self, name, args=None) -> None:
+def set_default_subparser(self: argparse.ArgumentParser, name: str,
+        args: Optional[List[str]]=None) -> None:
     """see http://stackoverflow.com/questions/5176691"""
     subparser_found = False
     for arg in sys.argv[1:]:
         if arg in ['-h', '--help']:  # global help if no subparser
             break
     else:
+        assert self._subparsers is not None
         for x in self._subparsers._actions:
             if not isinstance(x, argparse._SubParsersAction):
                 continue
@@ -265,7 +281,9 @@ argparse.ArgumentParser.set_default_subparser = set_default_subparser # type: ig
 # workaround https://bugs.python.org/issue23058
 # see https://github.com/nickstenning/honcho/pull/121
 
-def subparser_call(self, parser, namespace, values, option_string=None):
+def subparser_call(self: argparse._SubParsersAction, parser: argparse.ArgumentParser,
+        namespace: Optional[argparse.Namespace], values: List[str],
+        option_string: Optional[str]=None) -> None:
     from argparse import ArgumentError, SUPPRESS, _UNRECOGNIZED_ARGS_ATTR
     parser_name = values[0]
     arg_strings = values[1:]
@@ -291,7 +309,7 @@ def subparser_call(self, parser, namespace, values, option_string=None):
 argparse._SubParsersAction.__call__ = subparser_call # type: ignore
 
 
-def add_network_options(parser):
+def add_network_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("-1", "--oneserver", action="store_true", dest="oneserver",
                         default=False, help="connect to one server only")
     parser.add_argument("-s", "--server", dest="server", default=None,
@@ -301,7 +319,7 @@ def add_network_options(parser):
                         help="set proxy [type:]host[:port], where type is socks4 or socks5")
 
 
-def add_global_options(parser):
+def add_global_options(parser: argparse.ArgumentParser) -> None:
     group = parser.add_argument_group('global options')
     group.add_argument("-v", "--verbose", action="store", dest="verbose",
                        const='info', default='warning', nargs='?',
@@ -341,7 +359,7 @@ def add_global_options(parser):
                        default=False, help="Skip password confirmation step for wallet creation")
 
 
-def get_parser():
+def get_parser() -> argparse.ArgumentParser:
     global known_commands
 
     # create main parser
@@ -412,5 +430,6 @@ def get_parser():
                 group.add_argument(k, nargs='?', help=v)
 
     # 'gui' is the default command
-    parser.set_default_subparser('gui')
+    # NOTE(typing) No idea. Just no idea. It's some hack of some kind.
+    parser.set_default_subparser('gui') # type: ignore
     return parser

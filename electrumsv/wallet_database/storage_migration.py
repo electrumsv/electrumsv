@@ -6,18 +6,20 @@ from enum import IntFlag as _IntFlag
 import json
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
-    import pysqlite3 as sqlite3 # type: ignore
+    import pysqlite3
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
-    import sqlite3 # type: ignore
-from typing import Any, cast, Iterable, List, NamedTuple, Optional, Sequence, Tuple, TypedDict, \
-    Union
+    import sqlite3
+else:
+    sqlite3 = pysqlite3
+from typing import Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple, \
+    TypedDict, Union
 
 from bitcoinx import bip32_build_chain_string
 
 from ..constants import DerivationPath, DerivationType, KeyInstanceFlag, PaymentFlag, ScriptType
-from ..types import MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
+from ..types import MasterKeyDataBIP32, \
     MasterKeyDataHardware, MasterKeyDataMultiSignature, MultiSignatureMasterKeyDataTypes, \
     MasterKeyDataTypes
 from ..util import get_posix_timestamp
@@ -28,7 +30,7 @@ from .types import MasterKeyRow
 
 # https://bugs.python.org/issue41907
 class IntFlag(_IntFlag):
-    def __format__(self, spec):
+    def __format__(self, spec: str) -> str:
         return format(self.value, spec)
 
 
@@ -132,7 +134,7 @@ class TxData1(NamedTuple):
     date_added: Optional[int] = None
     date_updated: Optional[int] = None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return (f"TxData1(height={self.height},position={self.position},fee={self.fee},"
             f"date_added={self.date_added},date_updated={self.date_updated})")
 
@@ -236,69 +238,69 @@ ADDRESS_TYPES1 = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
 
 
 def create_accounts1(db_context: DatabaseContext, entries: Iterable[AccountRow1]) \
-        -> concurrent.futures.Future:
+        -> concurrent.futures.Future[None]:
     timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
         "account_name, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?)")
-    def _write(db: sqlite3.Connection):
+    def _write(db: sqlite3.Connection) -> None:
         nonlocal query, datas
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
 
 def create_keys1(db_context: DatabaseContext, entries: Iterable[KeyInstanceRow1]) \
-        -> concurrent.futures.Future:
+        -> concurrent.futures.Future[None]:
     timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries]
     query = ("INSERT INTO KeyInstances (keyinstance_id, account_id, masterkey_id, "
         "derivation_type, derivation_data, script_type, flags, description, date_created, "
         "date_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    def _write(db: sqlite3.Connection):
+    def _write(db: sqlite3.Connection) -> None:
         nonlocal query, datas
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
 
 def create_master_keys1(db_context: DatabaseContext, entries: Iterable[MasterKeyRow1]) \
-        -> concurrent.futures.Future:
+        -> concurrent.futures.Future[None]:
     timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
         "derivation_data, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?)")
-    def _write(db: sqlite3.Connection):
+    def _write(db: sqlite3.Connection) -> None:
         nonlocal query, datas
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
 
 def create_payment_requests1(db_context: DatabaseContext, entries: Iterable[PaymentRequestRow1]) \
-        -> concurrent.futures.Future:
+        -> concurrent.futures.Future[None]:
     # Duplicate the last column for date_updated = date_created
     query = ("INSERT INTO PaymentRequests "
         "(paymentrequest_id, keyinstance_id, state, value, expiration, description, date_created, "
         "date_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     datas = [ (*t, t[-1]) for t in entries ]
-    def _write(db: sqlite3.Connection):
+    def _write(db: sqlite3.Connection) -> None:
         nonlocal query, datas
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
 
 def create_transaction_outputs1(db_context: DatabaseContext,
-        entries: Iterable[TransactionOutputRow1]) -> concurrent.futures.Future:
+        entries: Iterable[TransactionOutputRow1]) -> concurrent.futures.Future[None]:
     timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, keyinstance_id, "
         "flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    def _write(db: sqlite3.Connection):
+    def _write(db: sqlite3.Connection) -> None:
         nonlocal query, datas
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
 
 def create_transactions1(db_context: DatabaseContext, entries: Iterable[TransactionRow1]) \
-        -> concurrent.futures.Future:
+        -> concurrent.futures.Future[None]:
     query = ("INSERT INTO Transactions (tx_hash, tx_data, flags, "
         "block_height, block_position, fee_value, description, version, locktime, "
         "date_created, date_updated) "
@@ -327,7 +329,7 @@ def create_transactions1(db_context: DatabaseContext, entries: Iterable[Transact
 
 
 def create_wallet_datas1(db_context: DatabaseContext, entries: Iterable[WalletDataRow1]) \
-        -> concurrent.futures.Future:
+        -> concurrent.futures.Future[None]:
     sql = ("INSERT INTO WalletData (key, value, date_created, date_updated) "
         "VALUES (?, ?, ?, ?)")
     timestamp = get_posix_timestamp()
@@ -352,7 +354,7 @@ def read_wallet_data1(db: sqlite3.Connection, key: str) -> Any:
 
 
 def update_wallet_datas1(db_context: DatabaseContext, entries: Iterable[WalletDataRow1]) \
-        -> concurrent.futures.Future:
+        -> concurrent.futures.Future[None]:
     sql = "UPDATE WalletData SET value=?, date_updated=? WHERE key=?"
     timestamp = get_posix_timestamp()
     rows = []
@@ -381,7 +383,7 @@ def update_wallet_datas1(db_context: DatabaseContext, entries: Iterable[WalletDa
 
 def convert_masterkey_derivation_data1(derivation_type: DerivationType,
         old_derivation_data: MasterKeyDataTypes1, is_multisig: bool=False) -> MasterKeyDataTypes:
-    data_dict = cast(dict, old_derivation_data)
+    data_dict = cast(Dict[str, Any], old_derivation_data)
     if derivation_type == DerivationType.BIP32:
         data_bip32_in = cast(MasterKeyDataBIP321, old_derivation_data)
         data_bip32_in.setdefault("label", None)
@@ -399,7 +401,7 @@ def convert_masterkey_derivation_data1(derivation_type: DerivationType,
         data_old_in.setdefault("seed", None)
         del data_dict["subpaths"]
         assert len(data_dict) == 2, data_dict
-        return cast(MasterKeyDataElectrumOld, data_old_in)
+        return data_old_in
     elif derivation_type == DerivationType.ELECTRUM_MULTISIG:
         assert "m" in data_dict
         assert "n" in data_dict

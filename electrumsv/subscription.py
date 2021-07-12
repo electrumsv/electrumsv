@@ -26,13 +26,14 @@ Transaction subscriptions:
 
 """
 
+import asyncio
 import concurrent.futures
 import threading
-from typing import cast, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from bitcoinx import hash_to_hex_str
 
-from .app_state import app_state, DefaultApp
+from .app_state import app_state
 from .constants import SubscriptionType
 from .exceptions import SubscriptionStale
 from .logs import logs
@@ -74,9 +75,10 @@ class SubscriptionManager:
             SubscriptionOwnerContextType] = {}
         self._owner_callbacks: Dict[SubscriptionOwner, ScriptHashResultCallback] = {}
 
-        async_ = cast("ASync", app_state.async_)
-        self._script_hash_notification_queue = async_.queue()
-        self._script_hash_notification_future = async_.spawn(self._process_scripthash_notifications)
+        self._script_hash_notification_queue: \
+            asyncio.Queue[Tuple[int, bytes, ElectrumXHistoryList]] = app_state.async_.queue()
+        self._script_hash_notification_future = app_state.async_.spawn(
+            self._process_scripthash_notifications)
 
     def stop(self) -> None:
         self._script_hash_notification_future.cancel()
@@ -85,8 +87,8 @@ class SubscriptionManager:
             -> None:
         self._owner_callbacks[owner] = callback
 
-    def remove_owner(self, owner: SubscriptionOwner) -> Optional[concurrent.futures.Future]:
-        future: Optional[concurrent.futures.Future] = None
+    def remove_owner(self, owner: SubscriptionOwner) -> Optional[concurrent.futures.Future[None]]:
+        future: Optional[concurrent.futures.Future[None]] = None
         with self._lock:
             if owner in self._owner_callbacks:
                 del self._owner_callbacks[owner]
@@ -158,10 +160,12 @@ class SubscriptionManager:
             return subscription_id
         return None
 
-    def create_entries(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) -> None:
+    def create_entries(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) \
+            -> Optional[concurrent.futures.Future[None]]:
         """
         Add subscriptions from the given owner.
         """
+        future: Optional[concurrent.futures.Future[None]] = None
         with self._lock:
             script_hash_entries: List[ScriptHashSubscriptionEntry] = []
             for entry in entries:
@@ -176,10 +180,13 @@ class SubscriptionManager:
                     # This should not block and will spawn a task to do the notification.
                     self.check_notify_script_hash_history(entry.key, owner)
             if self._script_hashes_added_callback is not None and len(script_hash_entries):
-                # NOTE(no-merge) This used to be spawn and wait but was changed to spawn to not
-                #   block the caller.
-                cast("DefaultApp", app_state.app).run_coro(self._script_hashes_added_callback,
-                    script_hash_entries)
+                # TODO This used to be spawn and wait but was changed to `spawn`/`run_coro` to not
+                #   block the caller. If the caller wishes to wait for any network subscription
+                #   to complete, or to see exceptions that may occur, they can use the returned
+                #   future to do so.
+                future = app_state.app.run_coro(
+                    self._script_hashes_added_callback, script_hash_entries)
+        return future
 
     def read_script_hashes(self) -> List[ScriptHashSubscriptionEntry]:
         """
@@ -195,11 +202,11 @@ class SubscriptionManager:
             return script_hash_entries
 
     def delete_entries(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) \
-            -> Optional[concurrent.futures.Future]:
+            -> Optional[concurrent.futures.Future[None]]:
         """
         Remove subscriptions from the given owner.
         """
-        future: Optional[concurrent.futures.Future] = None
+        future: Optional[concurrent.futures.Future[None]] = None
         with self._lock:
             script_hash_entries: List[ScriptHashSubscriptionEntry] = []
             for entry in entries:
@@ -215,7 +222,7 @@ class SubscriptionManager:
                 # TODO This used to be spawn and wait but was changed to `spawn`/`run_coro` to not
                 #   block the caller where the caller would sometimes be the network thread and
                 #   it would block it indefinitely.
-                future = cast(DefaultApp, app_state.app).run_coro(
+                future = app_state.app.run_coro(
                     self._script_hashes_removed_callback, script_hash_entries)
         return future
 
@@ -276,6 +283,6 @@ class SubscriptionManager:
         if callback is None:
             return
 
-        cast(DefaultApp, app_state.app).run_coro(self._notify_script_hash_history,
+        app_state.app.run_coro(self._notify_script_hash_history,
             subscription_key, owner, callback, result)
 

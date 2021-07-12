@@ -6,10 +6,11 @@ from typing import cast, Dict, Optional, List, Set
 import unittest
 import unittest.mock
 
+from bitcoinx import Header
 import pytest
 
-from electrumsv.constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, KeystoreTextType,
-    RECEIVING_SUBPATH, ScriptType, StorageKind, TxFlags,
+from electrumsv.constants import (BlockHeight, CHANGE_SUBPATH, DATABASE_EXT, DerivationType,
+    KeystoreTextType, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag, TxFlags,
     unpack_derivation_path)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
@@ -20,8 +21,8 @@ from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.storage import get_categorised_files, WalletStorage, WalletStorageInfo
 from electrumsv.transaction import Transaction
 from electrumsv.types import MasterKeyDataBIP32, TxoKeyType
-from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount, MultisigAccount,
-    Wallet, StandardAccount)
+from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount,
+    MissingTransactionEntry, MultisigAccount, Wallet, StandardAccount)
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, TransactionLinkState, \
@@ -77,6 +78,25 @@ class WalletTestCase(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.user_dir)
+
+
+# A funding transaction.
+tx_hex_funding = \
+    "01000000014e1653d27b6a00c174cb0e79b327cb2ac2268201533de8f5666e63101a6be46601000000" \
+    "6a473044022072c3ca2a6ab271142a70e109474108b11800818acecb192325465e970ad0cccb022011" \
+    "6c8c05fad2d5ab2be33ae3fc5362b7137db26d0b7ddd009ee8692daacd57914121037f37bb0d14dc72" \
+    "d67f0cfb49f6472163924ba86382fd2490d5c04261386b70b0ffffffff0291ee0f00000000001976a9" \
+    "14ea7804a2c266063572cc009a63dc25dcc0e9d9b588ac5883e516000000001976a914ad27edee3653" \
+    "50b63b5024a8f8168e7297bdd70b88ac216e1500"
+
+# A spending/depletion transaction for the funding transaction.
+tx_hex_spend = \
+    "01000000019960eee94aa89f4db93a4bc720dc9b7004127df7c115f121fee5ec7eea1e4ce200000000" \
+    "6b483045022100870754d5caf0483501f9ef6b886d42add34a693808310a1199c998e827dca7520220" \
+    "31d8a58435ac51fbdc94222d2781c08b2af779925f80ac5e05ed5953ae7d07a24121030b482838721a" \
+    "38d94847699fed8818b5c5f56500ef72f13489e365b65e5749cfffffffff01d1ed0f00000000001976" \
+    "a914ddec06c1086c07c4b1ddc4299730dacb3b25b24088ac536e1500"
+
 
 
 def check_legacy_parent_of_standard_wallet(wallet: Wallet,
@@ -254,6 +274,7 @@ def check_create_keys(wallet: Wallet, account_script_type: ScriptType) -> None:
 
         future3, new_keyinstances = account.derive_new_keys_until(
             RECEIVING_SUBPATH + (last_allocation_index,))
+        assert future3 is not None
         future3.result()
         assert count == len(new_keyinstances)
         check_rows(new_keyinstances, account_script_type)
@@ -533,27 +554,10 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
     # Ensure that the keys used by the transaction are present to be linked to.
     account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
 
-    # The funding transaction.
-    tx_hex_1 = \
-        "01000000014e1653d27b6a00c174cb0e79b327cb2ac2268201533de8f5666e63101a6be46601000000" \
-        "6a473044022072c3ca2a6ab271142a70e109474108b11800818acecb192325465e970ad0cccb022011" \
-        "6c8c05fad2d5ab2be33ae3fc5362b7137db26d0b7ddd009ee8692daacd57914121037f37bb0d14dc72" \
-        "d67f0cfb49f6472163924ba86382fd2490d5c04261386b70b0ffffffff0291ee0f00000000001976a9" \
-        "14ea7804a2c266063572cc009a63dc25dcc0e9d9b588ac5883e516000000001976a914ad27edee3653" \
-        "50b63b5024a8f8168e7297bdd70b88ac216e1500"
-
-    # The spending/depletion transaction.
-    tx_hex_2 = \
-        "01000000019960eee94aa89f4db93a4bc720dc9b7004127df7c115f121fee5ec7eea1e4ce200000000" \
-        "6b483045022100870754d5caf0483501f9ef6b886d42add34a693808310a1199c998e827dca7520220" \
-        "31d8a58435ac51fbdc94222d2781c08b2af779925f80ac5e05ed5953ae7d07a24121030b482838721a" \
-        "38d94847699fed8818b5c5f56500ef72f13489e365b65e5749cfffffffff01d1ed0f00000000001976" \
-        "a914ddec06c1086c07c4b1ddc4299730dacb3b25b24088ac536e1500"
-
     db_context = tmp_storage.get_db_context()
     db = db_context.acquire_connection()
     try:
-        tx_1 = Transaction.from_hex(tx_hex_1)
+        tx_1 = Transaction.from_hex(tx_hex_funding)
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
         link_state = TransactionLinkState()
@@ -572,7 +576,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         balance = db_functions.read_wallet_balance(db_context, 100)
         assert balance == WalletBalance(0, 0, 0, 1044113)
 
-        tx_2 = Transaction.from_hex(tx_hex_2)
+        tx_2 = Transaction.from_hex(tx_hex_spend)
         tx_hash_2 = tx_2.hash()
         # Add the spending transaction to the database and link it to key usage.
         link_state = TransactionLinkState()
@@ -645,3 +649,111 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         assert TxFlags(row2) == TxFlags.STATE_SIGNED | TxFlags.REMOVED
     finally:
         db_context.release_connection(db)
+
+
+@pytest.mark.asyncio
+@unittest.mock.patch('electrumsv.wallet.app_state')
+async def test_reorg(mock_app_state, tmp_storage) -> None:
+    """
+    This test is intended to show that the current subscription mechanism combined with the
+    undoing of verifications, should leave the transactions affected in state where their
+    remining gets detected and adequately processed.
+    """
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+
+    # Boilerplate setting up of a deterministic account. This is copied from above.
+    password = 'password'
+    seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
+    child_keystore = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+        KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
+
+    wallet = Wallet(tmp_storage)
+    masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
+
+    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    assert account_row.default_masterkey_id is not None
+    account = StandardAccount(wallet, account_row)
+    wallet.register_account(account.get_id(), account)
+
+    # Ensure that the keys used by the transaction are present to be linked to.
+    account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+
+    db_context = tmp_storage.get_db_context()
+    db = db_context.acquire_connection()
+    try:
+        BLOCK_HASH = b'CAFECAFE'
+        BLOCK_HEIGHT = 1000
+        BLOCK_POSITION = 3
+        FEE_VALUE = 12121
+
+        ## Add a transaction that is settled.
+        tx_1 = Transaction.from_hex(tx_hex_funding)
+        tx_hash_1 = tx_1.hash()
+        # Add the funding transaction to the database and link it to key usage.
+        wallet._missing_transactions[tx_hash_1] = MissingTransactionEntry(BLOCK_HASH,
+            BLOCK_HEIGHT, FEE_VALUE, TransactionImportFlag.UNSET)
+        link_state = TransactionLinkState()
+        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SETTLED,
+            link_state=link_state)
+
+        class FakeHeader:
+            timestamp: int
+
+        fake_header = cast(Header, FakeHeader())
+        fake_header.timestamp = 1
+
+        await wallet.add_transaction_proof(tx_hash_1, BLOCK_HEIGHT, fake_header, BLOCK_POSITION,
+            BLOCK_POSITION, [ b'FAFFFAFF' ] * 10)
+
+        tx_metadata_1 = wallet.get_transaction_metadata(tx_hash_1)
+        assert tx_metadata_1 is not None
+        assert tx_metadata_1.block_height == BLOCK_HEIGHT
+        assert tx_metadata_1.block_position == BLOCK_POSITION
+        assert tx_metadata_1.fee_value == FEE_VALUE
+
+        ## Verify that the transaction does not qualify for subscriptions.
+        sub_rows = wallet.read_keys_for_transaction_subscriptions(account_row.account_id, tx_hash_1)
+        assert not len(sub_rows)
+
+        ## NOP reorg.
+        # This is the height at which the blockchain was re-orged above. It should not affect the
+        # transaction.
+        wallet.undo_verifications(BLOCK_HEIGHT)
+
+        # Check the flags are the same as we set.
+        tx_flags1 = db_functions.read_transaction_flags(db_context, tx_hash_1)
+        assert tx_flags1 is not None
+        assert tx_flags1 == TxFlags.STATE_SETTLED
+
+        # Check the mined metadata is the same as we set.
+        tx_metadata_1 = wallet.get_transaction_metadata(tx_hash_1)
+        assert tx_metadata_1 is not None
+        assert tx_metadata_1.block_height == BLOCK_HEIGHT
+        assert tx_metadata_1.block_position == BLOCK_POSITION
+        assert tx_metadata_1.fee_value == FEE_VALUE
+
+        ## Real reorg.
+        wallet.undo_verifications(BLOCK_HEIGHT-1)
+
+        # Check that the expectation is that the nodes have for now moved it back into the mempool.
+        tx_flags1 = db_functions.read_transaction_flags(db_context, tx_hash_1)
+        assert tx_flags1 is not None
+        assert tx_flags1 == TxFlags.STATE_CLEARED
+
+        # Check that all the mined metadata is reset to mempool state.
+        tx_metadata_1 = wallet.get_transaction_metadata(tx_hash_1)
+        assert tx_metadata_1 is not None
+        assert tx_metadata_1.block_height == BlockHeight.MEMPOOL
+        assert tx_metadata_1.block_position is None
+        assert tx_metadata_1.fee_value is None
+
+        ## Verify that the transaction now qualify for subscriptions, which would mean that
+        ## we would listen for re-mining events.
+        sub_rows = wallet.read_keys_for_transaction_subscriptions(account_row.account_id, tx_hash_1)
+        assert len(sub_rows) == 1
+        assert sub_rows[0].tx_hash == tx_hash_1
+        assert sub_rows[0].put_type == 1 # Output
+    finally:
+        db_context.release_connection(db)
+

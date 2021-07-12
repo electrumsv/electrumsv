@@ -27,25 +27,26 @@
 from functools import partial
 from queue import Queue
 import threading
-from typing import Any, cast, Iterable, Optional
+from typing import Any, Callable, cast, Iterable, Optional, TYPE_CHECKING
 import weakref
 
 from PyQt5.QtCore import QObject, pyqtSignal, pyqtBoundSignal
-from PyQt5.QtWidgets import QAction, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout
+from PyQt5.QtWidgets import QAction, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, \
+    QWidget
 from PyQt5 import sip
 
-from electrumsv.app_state import app_state
-from electrumsv.exceptions import UserCancelled
-from electrumsv.keystore import Hardware_KeyStore
-from electrumsv.i18n import _
+from ...app_state import app_state
+from ...exceptions import UserCancelled
+from ...keystore import Hardware_KeyStore
+from ...i18n import _
 
-from electrumsv.gui.qt.main_window import ElectrumWindow
-from electrumsv.gui.qt.password_dialog import (ChangePasswordDialog, PasswordAction,
+from ...gui.qt.password_dialog import (ChangePasswordDialog, PasswordAction,
                                                PassphraseDialog)
-from electrumsv.gui.qt.util import WindowModalDialog, Buttons, CancelButton, read_QIcon
+from ...gui.qt.util import WindowModalDialog, Buttons, CancelButton, read_QIcon
 
-
-HandlerWindow = ElectrumWindow
+if TYPE_CHECKING:
+    from .plugin import HW_PluginBase
+    from ...gui.qt.main_window import ElectrumWindow
 
 
 # The trickiest thing about this handler was getting windows properly
@@ -73,7 +74,7 @@ class QtHandlerBase(QObject):
     icon_paired: str = ""
     icon_unpaired: str = ""
 
-    def __init__(self, win: HandlerWindow, device):
+    def __init__(self, win: "ElectrumWindow", device: str) -> None:
         super(QtHandlerBase, self).__init__()
         self.clear_signal.connect(self.clear_dialog)
         self.error_signal.connect(self.error_dialog)
@@ -88,7 +89,7 @@ class QtHandlerBase(QObject):
         self.device = device
         self.dialog: Optional[WindowModalDialog] = None
         self.done = threading.Event()
-        self.passphrase_queue: Queue = Queue()
+        self.passphrase_queue: Queue[Optional[str]] = Queue()
         self._on_device_passphrase_result: Optional[Any] = None
 
     def clean_up(self) -> None:
@@ -97,17 +98,18 @@ class QtHandlerBase(QObject):
         self._cleaned_up = True
         del self.win
 
-    def top_level_window(self):
+    def top_level_window(self) -> QWidget:
         return self.win.top_level_window()
 
     def set_on_device_passphrase_result(self, value: Optional[Any]) -> None:
         self._on_device_passphrase_result = value
 
-    def update_status(self, paired):
+    def update_status(self, paired: bool) -> None:
         self.status_signal.emit(paired)
 
-    def _update_status(self, paired):
+    def _update_status(self, paired: bool) -> None:
         icon = self.icon_paired if paired else self.icon_unpaired
+        assert self.action is not None
         self.action.setIcon(read_QIcon(icon))
 
     def query_choice(self, msg: str, labels: Iterable[str]) -> Optional[int]:
@@ -118,7 +120,7 @@ class QtHandlerBase(QObject):
             raise UserCancelled()
         return self._choice
 
-    def yes_no_question(self, msg) -> int:
+    def yes_no_question(self, msg: str) -> int:
         self.done.clear()
         self.yes_no_signal.emit(msg)
         self.done.wait()
@@ -126,7 +128,7 @@ class QtHandlerBase(QObject):
             raise UserCancelled()
         return self._ok
 
-    def show_message(self, msg, on_cancel=None):
+    def show_message(self, msg: str, on_cancel: Optional[Callable[[], None]]=None) -> None:
         self.message_signal.emit(msg, on_cancel)
 
     def show_error(self, msg: str, blocking: bool=False) -> None:
@@ -149,7 +151,7 @@ class QtHandlerBase(QObject):
         self.done.wait()
         return self.word
 
-    def get_passphrase(self, msg: str, confirm: bool) -> Optional[Any]:
+    def get_passphrase(self, msg: str, confirm: bool) -> Optional[str]:
         """
         Returns:
           str -> passphrase entered in ESV.
@@ -186,7 +188,7 @@ class QtHandlerBase(QObject):
         self.word = text.text()
         self.done.set()
 
-    def message_dialog(self, msg, on_cancel):
+    def message_dialog(self, msg: str, on_cancel: Optional[Callable[[], None]]=None) -> None:
         # Called more than once during signing, to confirm output and fee
         self.clear_dialog()
         title = _('Please check your {} device').format(self.device)
@@ -195,25 +197,25 @@ class QtHandlerBase(QObject):
         vbox = QVBoxLayout(dialog)
         vbox.addWidget(l)
         if on_cancel:
-            dialog.rejected.connect(on_cancel)
+            cast(pyqtBoundSignal, dialog.rejected).connect(on_cancel)
             vbox.addLayout(Buttons(CancelButton(dialog)))
         dialog.show()
 
-    def error_dialog(self, msg):
+    def error_dialog(self, msg: str) -> None:
         self.win.show_error(msg, parent=self.top_level_window())
         self.done.set()
 
-    def warning_dialog(self, msg):
+    def warning_dialog(self, msg: str) -> None:
         self.win.show_warning(msg, parent=self.top_level_window())
         self.done.set()
 
-    def clear_dialog(self):
+    def clear_dialog(self) -> None:
         if self.dialog is not None:
             if not sip.isdeleted(self.dialog):
                 self.dialog.accept()
             self.dialog = None
 
-    def win_query_choice(self, msg, labels) -> None:
+    def win_query_choice(self, msg: str, labels: Iterable[str]) -> None:
         self._choice = None
         if not self._cleaned_up:
             self._choice = self.win.query_choice(msg, labels)
@@ -232,13 +234,13 @@ class QtPluginBase(object):
     libraries_available_message: str
     name: str
 
-    def create_handler(self, window: HandlerWindow) -> QtHandlerBase:
+    def create_handler(self, window: "ElectrumWindow") -> QtHandlerBase:
         raise NotImplementedError
 
-    def replace_gui_handler(self, window: ElectrumWindow, keystore: Hardware_KeyStore):
+    def replace_gui_handler(self, window: "ElectrumWindow", keystore: Hardware_KeyStore) -> None:
         handler = self.create_handler(window)
-        keystore.handler = handler
-        keystore.plugin = self
+        keystore.handler_qt = handler
+        keystore.plugin = cast("HW_PluginBase", self)
 
         action_label = _('Unnamed')
         if keystore.label and keystore.label.strip():
@@ -260,26 +262,30 @@ class QtPluginBase(object):
         message += _("Make sure you install it with python3")
         return message
 
-    def choose_device(self, window, keystore):
+    def choose_device(self, window: "ElectrumWindow", keystore: Hardware_KeyStore) -> Optional[str]:
         '''This dialog box should be usable even if the user has
         forgotten their PIN or it is in bootloader mode.'''
+        assert keystore.xpub is not None
         device_id = app_state.device_manager.xpub_id(keystore.xpub)
         if not device_id:
+            hw_plugin = cast("HW_PluginBase", self)
+            assert keystore.handler_qt is not None
             try:
-                info = app_state.device_manager.select_device(self, keystore.handler, keystore)
+                info = app_state.device_manager.select_device(hw_plugin, keystore.handler_qt,
+                    keystore)
             except UserCancelled:
-                return
+                return None
             device_id = info.device.id_
         return device_id
 
-    def show_settings_dialog(self, window: ElectrumWindow, keystore: Hardware_KeyStore) -> None:
+    def show_settings_dialog(self, window: "ElectrumWindow", keystore: Hardware_KeyStore) -> None:
         raise NotImplementedError
 
-    def show_settings_wrapped(self, window: ElectrumWindow, keystore: Hardware_KeyStore) -> None:
+    def show_settings_wrapped(self, window: "ElectrumWindow", keystore: Hardware_KeyStore) -> None:
         if isinstance(window, weakref.ProxyType):
             window = window.reference()
         try:
             self.show_settings_dialog(window, keystore)
         except Exception as e:
-            assert keystore.handler is not None
-            keystore.handler.show_error(str(e))
+            assert keystore.handler_qt is not None
+            keystore.handler_qt.show_error(str(e))

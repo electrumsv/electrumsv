@@ -33,17 +33,17 @@ class ExcessiveFee(Exception):
     pass
 
 class InvalidPassword(Exception):
-    def __str__(self):
+    def __str__(self) -> str:
         return _("Incorrect password")
 
 
 class FileImportFailed(Exception):
-    def __str__(self):
+    def __str__(self) -> str:
         return _("Failed to import file.")
 
 
 class FileImportFailedEncrypted(FileImportFailed):
-    def __str__(self):
+    def __str__(self) -> str:
         return (_('Failed to import file.') + ' ' +
                 _('Perhaps it is encrypted...') + '\n' +
                 _('Importing encrypted files is not supported.'))

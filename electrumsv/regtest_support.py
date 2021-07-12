@@ -2,17 +2,20 @@ import json
 import logging
 import os
 import time
-from typing import List, Optional
+from typing import Any, cast, List, Optional, Tuple, TYPE_CHECKING
 
 import requests
-from bitcoinx import Headers, MissingHeader, CheckPoint, bits_to_work, P2PKH_Address, \
-    hash_to_hex_str
+from bitcoinx import Chain, Header, Headers, MissingHeader, CheckPoint, bits_to_work, \
+    P2PKH_Address, hash_to_hex_str
 from urllib3.exceptions import NewConnectionError
 
-from electrumsv.bitcoin import COINBASE_MATURITY
+from .bitcoin import COINBASE_MATURITY
+from .networks import Net, BLOCK_HEIGHT_OUT_OF_RANGE_ERROR
+from .logs import logs
 
-from electrumsv.networks import Net, BLOCK_HEIGHT_OUT_OF_RANGE_ERROR
-from electrumsv.logs import logs
+if TYPE_CHECKING:
+    from .app_state import AppStateProxy
+
 
 MAX_BITS = 0x1d00ffff
 
@@ -27,9 +30,10 @@ BITCOIN_NODE_URI = f"http://{BITCOIN_NODE_RPCUSER}:{BITCOIN_NODE_RPCPASSWORD}" \
                    f"@{BITCOIN_NODE_HOST}:{BITCOIN_NODE_PORT}"
 
 
-class HeadersRegTestMod(Headers):
+# NOTE(typing) The `Headers` class is untyped so we need to silence mypy telling us that.
+class HeadersRegTestMod(Headers): # type: ignore
 
-    def connect(self, raw_header):
+    def connect(self, raw_header: bytes) -> Tuple[Header, Chain]:
         """overwrite Headers method to skip checking of difficulty target"""
         header = self.coin.deserialized_header(raw_header, -1)
         prev_header, chain = self.lookup(header.prev_hash)
@@ -37,7 +41,7 @@ class HeadersRegTestMod(Headers):
         # If the chain tip is the prior header then this header is new.  Otherwise we must check.
         if chain.tip.hash != prev_header.hash:
             try:
-                return self.lookup(header.hash)
+                return cast(Tuple[Header, Chain], self.lookup(header.hash))
             except MissingHeader:
                 pass
         header_index = self._storage.append(raw_header)
@@ -45,12 +49,12 @@ class HeadersRegTestMod(Headers):
         return header, chain
 
 
-def delete_headers_file(path_to_headers):
+def delete_headers_file(path_to_headers: str) -> None:
     if os.path.exists(path_to_headers):
         os.remove(path_to_headers)
 
 
-def setup_regtest(app_state) -> HeadersRegTestMod:
+def setup_regtest(app_state: "AppStateProxy") -> HeadersRegTestMod:
     while True:
         try:
             regtest_import_privkey_to_node()
@@ -67,10 +71,11 @@ def setup_regtest(app_state) -> HeadersRegTestMod:
         except Exception:
             break
 
-    return HeadersRegTestMod.from_file(Net.COIN, app_state.headers_filename(), Net.CHECKPOINT)
+    return cast(HeadersRegTestMod,
+        HeadersRegTestMod.from_file(Net.COIN, app_state.headers_filename(), Net.CHECKPOINT))
 
 
-def node_rpc_call(method_name: str, *args):
+def node_rpc_call(method_name: str, *args: Any) -> Any:
     result = None
     try:
         if not args:
@@ -106,13 +111,13 @@ def regtest_topup_account(receive_address: P2PKH_Address, amount: int=25) -> Opt
     result = requests.post(BITCOIN_NODE_URI, data=payload)
     if result.status_code != 200:
         raise requests.exceptions.HTTPError(result.text)
-    txid = result.json()['result']
+    txid = cast(str, result.json()['result'])
     logger.info("topped up wallet with %s coins to receive address='%s'. txid=%s", amount,
         receive_address.to_string(), txid)
     return txid
 
 
-def regtest_import_privkey_to_node():
+def regtest_import_privkey_to_node() -> None:
     logger.info("importing hardcoded regtest private key '%s' to bitcoind wallet",
         Net.REGTEST_FUNDS_PRIVATE_KEY_WIF)
     payload = json.dumps(
@@ -122,7 +127,7 @@ def regtest_import_privkey_to_node():
     result.raise_for_status()
 
 
-def regtest_get_mined_balance():
+def regtest_get_mined_balance() -> int:
     # Calculate matured balance
     payload = json.dumps({"jsonrpc": "2.0", "method": "listunspent",
                           "params": [1, 1_000_000_000, [Net.REGTEST_P2PKH_ADDRESS]], "id": 0})
@@ -135,14 +140,14 @@ def regtest_get_mined_balance():
     return matured_balance
 
 
-def regtest_generate_nblocks(nblocks: int, address: str) -> List:
+def regtest_generate_nblocks(nblocks: int, address: str) -> List[str]:
     payload1 = json.dumps(
         {"jsonrpc": "2.0", "method": "generatetoaddress", "params": [nblocks, address],
          "id": 0})
     result = requests.post(BITCOIN_NODE_URI, data=payload1)
     result.raise_for_status()
     block_hashes = []
-    for block_hash in result.json()['result']:
+    for block_hash in cast(List[str], result.json()['result']):
         block_hashes.append(block_hash)
         logger.debug("newly mined blockhash: %s", block_hash)
     logger.debug("mined %s new blocks (funds to address=%s). use the "
@@ -150,24 +155,24 @@ def regtest_generate_nblocks(nblocks: int, address: str) -> List:
     return block_hashes
 
 
-def get_blockhash_by_height(height) -> str:
+def get_blockhash_by_height(height: int) -> str:
     payload = json.dumps(
         {"jsonrpc": "2.0", "method": "getblockbyheight", "params": [height], "id": height})
     result = requests.post(BITCOIN_NODE_URI, data=payload)
     result.raise_for_status()
-    hash_ = result.json()['result']['hash']
-    return hash_
+    hash_hex = result.json()['result']['hash']
+    return cast(str, hash_hex)
 
 
-def get_raw_block_header_by_hash(hash_: str) -> bytes:
+def get_raw_block_header_by_hash(hash_hex: str) -> bytes:
     payload = json.dumps(
-        {"jsonrpc": "2.0", "method": "getblockheader", "params": [hash_, False], "id": 1})
+        {"jsonrpc": "2.0", "method": "getblockheader", "params": [hash_hex, False], "id": 1})
     result = requests.post(BITCOIN_NODE_URI, data=payload)
     checkpoint_raw_header = bytes.fromhex(result.json()['result'])
     return checkpoint_raw_header
 
 
-def calculate_regtest_checkpoint(height):
+def calculate_regtest_checkpoint(height: int) -> Tuple[CheckPoint, Optional[str]]:
     logging.getLogger("urllib3").setLevel(logging.WARNING)  # suppress excessive logging
     try:
         hash_ = get_blockhash_by_height(height)
@@ -187,3 +192,4 @@ def calculate_regtest_checkpoint(height):
             regtest_generate_nblocks(200, address=Net.REGTEST_P2PKH_ADDRESS)
             # retry with more blocks
             return calculate_regtest_checkpoint(height)
+        raise e

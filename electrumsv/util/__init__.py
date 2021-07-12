@@ -24,7 +24,7 @@
 
 from collections import defaultdict
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timedelta, tzinfo
 import json
 import hmac
 import os
@@ -33,7 +33,8 @@ import sys
 import threading
 import time
 import types
-from typing import Any, cast, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple, \
+    TypedDict, TypeVar, Union
 
 from bitcoinx import PublicKey
 
@@ -42,8 +43,10 @@ from ..startup import package_dir
 from ..version import PACKAGE_DATE
 
 
+T1 = TypeVar("T1")
 
-def protocol_tuple(s):
+
+def protocol_tuple(s: str) -> Tuple[int, ...]:
     '''Converts a protocol version number, such as "1.0" to a tuple (1, 0).
 
     If the version number is bad, (0, ) indicating version 0 is returned.'''
@@ -53,7 +56,7 @@ def protocol_tuple(s):
         raise ValueError(f'invalid protocol version: {s}') from None
 
 
-def version_string(ptuple):
+def version_string(ptuple: Tuple[int, ...]) -> str:
     '''Convert a version tuple such as (1, 2) to "1.2".
     There is always at least one dot, so (1, ) becomes "1.0".'''
     while len(ptuple) < 2:
@@ -63,7 +66,7 @@ def version_string(ptuple):
 
 class MyEncoder(json.JSONEncoder):
     # https://github.com/PyCQA/pylint/issues/414
-    def default(self, o): # pylint: disable=method-hidden
+    def default(self, o: Any) -> Any: # pylint: disable=method-hidden
         from ..transaction import Transaction
         if isinstance(o, Transaction):
             return o.to_dict()
@@ -71,17 +74,16 @@ class MyEncoder(json.JSONEncoder):
 
 
 class JSON:
-
-    classes: Dict[Any, Any] = {}
+    classes: Dict[str, Any] = {}
 
     @classmethod
-    def register(cls, *classes):
+    def register(cls, *classes: Any) -> None:
         for klass in classes:
             cls.classes[klass.__name__] = klass
 
     @classmethod
-    def dumps(cls, obj, **kwargs):
-        def encode_obj(obj):
+    def dumps(cls, obj: Any, **kwargs: Any) -> str:
+        def encode_obj(obj: Any) -> Dict[str, Any]:
             class_name = obj.__class__.__name__
             if class_name not in cls.classes:
                 raise TypeError(f'object of type {class_name} is not JSON serializable')
@@ -91,8 +93,8 @@ class JSON:
         return json.dumps(obj, **kwargs)
 
     @classmethod
-    def loads(cls, s, **kwargs):
-        def decode_obj(obj):
+    def loads(cls, s: Union[str, bytes], **kwargs: Any) -> Any:
+        def decode_obj(obj: Dict[str, Any]) -> Any:
             if '_sv' in obj:
                 class_name, ser = obj['_sv']
                 obj = cls.classes[class_name].from_json(ser)
@@ -105,61 +107,39 @@ class JSON:
 class DaemonThread(threading.Thread):
     """ daemon thread that terminates cleanly """
 
-    def __init__(self, name):
+    def __init__(self, name: str) -> None:
         threading.Thread.__init__(self)
         self.name = name
         self.parent_thread = threading.currentThread()
         self.running = False
         self.running_lock = threading.Lock()
-        self.job_lock = threading.Lock()
-        self.jobs = []
         self.logger = logs.get_logger(f'{name} thread')
 
-    def add_jobs(self, jobs):
-        with self.job_lock:
-            self.jobs.extend(jobs)
-
-    def run_jobs(self):
-        # Don't let a throwing job disrupt the thread, future runs of
-        # itself, or other jobs.  This is useful protection against
-        # malformed or malicious server responses
-        with self.job_lock:
-            for job in self.jobs:
-                try:
-                    job.run()
-                except Exception as e:
-                    self.logger.exception("running job")
-
-    def remove_jobs(self, jobs):
-        with self.job_lock:
-            for job in jobs:
-                self.jobs.remove(job)
-
-    def start(self):
+    def start(self) -> None:
         with self.running_lock:
             self.running = True
-        return threading.Thread.start(self)
+        threading.Thread.start(self)
 
-    def is_running(self):
+    def is_running(self) -> bool:
         with self.running_lock:
             return self.running and self.parent_thread.is_alive()
 
-    def stop(self):
+    def stop(self) -> None:
         with self.running_lock:
             self.running = False
 
-    def on_stop(self):
+    def on_stop(self) -> None:
         self.logger.debug("stopped")
 
 
-def json_encode(obj):
+def json_encode(obj: Any) -> str:
     try:
         s = json.dumps(obj, sort_keys = True, indent = 4, cls=MyEncoder)
     except TypeError:
         s = repr(obj)
     return s
 
-def json_decode(x):
+def json_decode(x: Union[str, bytes]) -> Any:
     try:
         return json.loads(x, parse_float=Decimal)
     except Exception:
@@ -173,8 +153,8 @@ def constant_time_compare(val1: str, val2: str) -> bool:
 
 
 # decorator that prints execution time
-def profiler(func):
-    def do_profile(func, args, kw_args):
+def profiler(func: Callable[..., T1]) -> Callable[..., T1]:
+    def do_profile(func: Callable[..., T1], args: Tuple[Any, ...], kw_args: Dict[str, Any]) -> T1:
         n = func.__name__
         logger = logs.get_logger("profiler")
         t0 = time.time()
@@ -185,7 +165,7 @@ def profiler(func):
     return lambda *args, **kw_args: do_profile(func, args, kw_args)
 
 
-def assert_datadir_available(config_path):
+def assert_datadir_available(config_path: str) -> None:
     path = config_path
     if os.path.exists(path):
         return
@@ -194,16 +174,8 @@ def assert_datadir_available(config_path):
             'ElectrumSV datadir does not exist. Was it deleted while running?' + '\n' +
             'Should be at {}'.format(path))
 
-def assert_file_in_datadir_available(path, config_path):
-    if os.path.exists(path):
-        return
-    else:
-        assert_datadir_available(config_path)
-        raise FileNotFoundError(
-            'Cannot find file but datadir is there.' + '\n' +
-            'Should be at {}'.format(path))
 
-def assert_bytes(*args):
+def assert_bytes(*args: Any) -> None:
     """
     porting helper, assert args type
     """
@@ -215,7 +187,7 @@ def assert_bytes(*args):
         raise
 
 
-def make_dir(path):
+def make_dir(path: str) -> None:
     # Make directory if it does not yet exist.
     if not os.path.exists(path):
         if os.path.islink(path):
@@ -224,15 +196,16 @@ def make_dir(path):
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
 
 
-def format_satoshis_plain(x, decimal_point = 8):
+def format_satoshis_plain(x: int, decimal_point: int=8) -> str:
     """Display a satoshi amount scaled.  Always uses a '.' as a decimal
     point and has no thousands separator"""
     scale_factor = pow(10, decimal_point)
     return "{:.8f}".format(Decimal(x) / scale_factor).rstrip('0').rstrip('.')
 
 
-def format_satoshis(x: Optional[int], num_zeros=0, decimal_point=8, precision=None,
-                    is_diff=False, whitespaces=False) -> str:
+def format_satoshis(x: Optional[int], num_zeros: int=0, decimal_point: int=8,
+        precision: Optional[int]=None,
+        is_diff: bool=False, whitespaces: bool=False) -> str:
     from locale import localeconv
     if x is None:
         return 'unknown'
@@ -253,7 +226,8 @@ def format_satoshis(x: Optional[int], num_zeros=0, decimal_point=8, precision=No
         result = " " * (15 - len(result)) + result
     return result
 
-def format_fee_satoshis(fee, num_zeros=0):
+
+def format_fee_satoshis(fee: int, num_zeros: int=0) -> str:
     return format_satoshis(fee, num_zeros, 0, precision=num_zeros)
 
 
@@ -280,11 +254,12 @@ def format_posix_timestamp(timestamp: int, default_text: str) -> str:
 
 
 # Takes a timestamp and returns a string with the approximation of the age
-def age(from_date, since_date = None, target_tz=None, include_seconds=False):
-    if from_date is None:
+def age(from_timestamp: Optional[float], since_date: Optional[datetime]=None,
+        target_tz: Optional[tzinfo]=None, include_seconds: bool=False) -> str:
+    if from_timestamp is None:
         return "Unknown"
 
-    from_date = datetime.fromtimestamp(from_date)
+    from_date = datetime.fromtimestamp(from_timestamp)
     if since_date is None:
         since_date = datetime.now(target_tz)
 
@@ -292,7 +267,7 @@ def age(from_date, since_date = None, target_tz=None, include_seconds=False):
     return td + " ago" if from_date < since_date else "in " + td
 
 
-def time_difference(distance_in_time, include_seconds):
+def time_difference(distance_in_time: timedelta, include_seconds: bool) -> str:
     #distance_in_time = since_date - from_date
     distance_in_seconds = int(round(abs(distance_in_time.days * 86400 + distance_in_time.seconds)))
     distance_in_minutes = int(round(distance_in_seconds/60))
@@ -333,7 +308,7 @@ def time_difference(distance_in_time, include_seconds):
         return "over %d years" % (round(distance_in_minutes / 525600))
 
 
-def setup_thread_excepthook():
+def setup_thread_excepthook() -> None:
     """
     Workaround for `sys.excepthook` thread bug from:
     http://bugs.python.org/issue1230540
@@ -343,21 +318,21 @@ def setup_thread_excepthook():
 
     init_original = threading.Thread.__init__
 
-    def init(self, *args, **kwargs):
-
+    def init(self: threading.Thread, *args: Any, **kwargs: Any) -> None:
         init_original(self, *args, **kwargs)
         run_original = self.run
 
-        def run_with_except_hook(*args2, **kwargs2):
+        def run_with_except_hook() -> None:
             try:
-                run_original(*args2, **kwargs2)
+                run_original()
             except Exception:
-                # NOTE(typing) We know there is a value and we do not want it in the local scope.
-                sys.excepthook(*sys.exc_info()) # type:ignore
+                sys.excepthook(*sys.exc_info())
 
-        self.run = run_with_except_hook
+        # NOTE(typing) mypy tells us we cannot assign to a method, but we really can and do..
+        self.run = run_with_except_hook # type: ignore
 
-    threading.Thread.__init__ = init
+    # NOTE(typing) mypy tells us we cannot assign to a method, but we really can and do..
+    threading.Thread.__init__ = init # type: ignore
 
 
 def get_wallet_name_from_path(wallet_path: str) -> str:
@@ -389,7 +364,7 @@ def read_resource_text(*parts: Sequence[str]) -> str:
 
 
 
-def get_update_check_dates(new_date):
+def get_update_check_dates(new_date: str) -> Tuple[datetime, datetime]:
     from dateutil.parser import isoparse
     # This is the latest stable release date.
     release_date = isoparse(new_date).astimezone()
@@ -398,7 +373,18 @@ def get_update_check_dates(new_date):
     return release_date, current_date
 
 
-def get_identified_release_signers(entry):
+class ReleaseEntryType(TypedDict):
+    version: str
+    date: str
+    signatures: List[str]
+
+
+class ReleaseDocumentType(TypedDict, total=False):
+    stable: ReleaseEntryType
+    unstable: ReleaseEntryType
+
+
+def get_identified_release_signers(entry: ReleaseEntryType) -> Set[str]:
     signature_addresses = [
         ("rt121212121", "1Bu6ABvLAXn1ARFo1gjq6sogpajGbp6iK6"),
         ("kyuupichan", "1BH8E3TkuJMCcH5WGD11kVweKZuhh6vb7V"),
@@ -420,7 +406,7 @@ def get_identified_release_signers(entry):
     return signed_names
 
 
-def chunks(items, size):
+def chunks(items: List[T1], size: int) -> Iterable[List[T1]]:
     '''Break up items, an iterable, into chunks of length size.'''
     for i in range(0, len(items), size):
         yield items[i: i + size]
@@ -428,11 +414,11 @@ def chunks(items, size):
 
 class TriggeredCallbacks:
     def __init__(self) -> None:
-        self._callbacks: Dict[str, List[Any]] = defaultdict(list)
+        self._callbacks: Dict[str, List[Callable[..., None]]] = defaultdict(list)
         self._callback_lock = threading.Lock()
         self._callback_logger = logs.get_logger("callback-logger")
 
-    def register_callback(self, callback: Any, events: List[str]) -> None:
+    def register_callback(self, callback: Callable[..., None], events: List[str]) -> None:
         with self._callback_lock:
             for event in events:
                 if callback in self._callbacks[event]:
@@ -440,7 +426,7 @@ class TriggeredCallbacks:
                     continue
                 self._callbacks[event].append(callback)
 
-    def unregister_callback(self, callback) -> None:
+    def unregister_callback(self, callback: Callable[..., None]) -> None:
         with self._callback_lock:
             for callbacks in self._callbacks.values():
                 if callback in callbacks:
@@ -454,7 +440,7 @@ class TriggeredCallbacks:
                         if callback.__self__ is owner:
                             callbacks.remove(callback)
 
-    def trigger_callback(self, event: str, *args) -> None:
+    def trigger_callback(self, event: str, *args: Any) -> None:
         with self._callback_lock:
             callbacks = self._callbacks[event][:]
         [callback(event, *args) for callback in callbacks]

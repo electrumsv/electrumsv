@@ -7,7 +7,6 @@ import dateutil.parser
 
 from ..app_state import app_state
 from ..constants import NetworkServerType, ServerCapability, TOKEN_PASSWORD
-from ..credentials import CredentialCache
 from ..crypto import pw_decode
 from ..i18n import _
 from ..types import IndefiniteCredentialId, NetworkServerState, ServerAccountKey, \
@@ -17,7 +16,6 @@ from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator
 
 if TYPE_CHECKING:
     from ..network import SVServer
-    from ..simple_config import SimpleConfig
 
 
 __all__ = [ "NewServerAPIContext", "NewServerAccessState", "NewServer" ]
@@ -98,11 +96,12 @@ class NewServerAccessState:
 
 
 class NewServer:
-    def __init__(self, url: str, server_type: NetworkServerType, config: Optional[Dict]=None) \
-            -> None:
+    def __init__(self, url: str, server_type: NetworkServerType,
+            config: Optional[Dict[str, Any]]=None) -> None:
         self.url = url
         self.server_type = server_type
-        self.config: Optional[Dict] = config
+        # TODO(typing) `config` should be `TypedDict`.
+        self.config: Optional[Dict[str, Any]] = config
         self.config_credential_id: Optional[IndefiniteCredentialId] = None
 
         # These are the enabled clients and which/whether they use an API key.
@@ -117,9 +116,9 @@ class NewServer:
         # will not be an application config entry, is where the server is from an external wallet.
         if config is not None:
             if config.get("api_key"):
-                credentials = cast(CredentialCache, app_state.credentials)
                 decrypted_api_key = pw_decode(config["api_key"], TOKEN_PASSWORD)
-                self.config_credential_id = credentials.add_indefinite_credential(decrypted_api_key)
+                self.config_credential_id = \
+                    app_state.credentials.add_indefinite_credential(decrypted_api_key)
             if self.config_credential_id not in self.api_key_state:
                 self.api_key_state[self.config_credential_id] = NewServerAccessState()
 
@@ -182,16 +181,15 @@ class NewServer:
         againt it.
         """
         assert self.config is not None
-        credentials = cast(CredentialCache, app_state.credentials)
-
         if self.config_credential_id is not None:
-            credentials.remove_indefinite_credential(self.config_credential_id)
+            app_state.credentials.remove_indefinite_credential(self.config_credential_id)
             self.config_credential_id = None
 
         new_encrypted_api_key = config_update.get("api_key")
         if new_encrypted_api_key:
             decrypted_api_key = pw_decode(new_encrypted_api_key, TOKEN_PASSWORD)
-            self.config_credential_id = credentials.add_indefinite_credential(decrypted_api_key)
+            self.config_credential_id = \
+                app_state.credentials.add_indefinite_credential(decrypted_api_key)
             if self.config_credential_id not in self.api_key_state:
                 self.api_key_state[self.config_credential_id] = NewServerAccessState()
 
@@ -199,7 +197,8 @@ class NewServer:
         if len(self.client_api_keys) == 0:
             if self.config is None:
                 return True
-            return self.config["enabled_for_all_wallets"]
+            # TODO(typing) This `config` should be a TypedDict.
+            return cast(bool, self.config["enabled_for_all_wallets"])
         return False
 
     def is_unused(self) -> bool:
@@ -264,8 +263,7 @@ class NewServer:
             if authorization_header_override:
                 authorization_header = cast(str, authorization_header_override)
 
-        credentials = cast(CredentialCache, app_state.credentials)
-        decrypted_api_key = credentials.get_indefinite_credential(credential_id)
+        decrypted_api_key = app_state.credentials.get_indefinite_credential(credential_id)
         header_key, _separator, header_value = authorization_header.partition(": ")
         return { header_key: header_value.format(API_KEY=decrypted_api_key) }
 
@@ -318,7 +316,7 @@ def prioritise_broadcast_servers(estimated_tx_size: TransactionSize,
     Returns the ordered list of server candidates based on lowest to highest estimated fee for
       a transaction of the given size.
     """
-    electrumx_fee_estimator = cast("SimpleConfig", app_state.config).estimate_fee
+    electrumx_fee_estimator = app_state.config.estimate_fee
     candidates: List[BroadcastCandidate] = []
     fee_estimator: TransactionFeeEstimator
     for candidate in servers:

@@ -8,7 +8,7 @@ from bitcoinx import pack_be_uint32, unpack_be_uint32_from
 ## Hacks to deal with standard library bugs.
 # https://bugs.python.org/issue41907
 class IntFlag(_IntFlag):
-    def __format__(self, spec):
+    def __format__(self, spec: str) -> str:
         return format(self.value, spec)
 
 ## Local functions to avoid circular dependencies. This file should be independent
@@ -94,7 +94,7 @@ class TxFlags(IntFlag):
     MASK_UNLINKED = (REMOVED | CONFLICTING)
     MASK = 0xFFFFFFFF
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.to_repr(self.value)
 
     @staticmethod

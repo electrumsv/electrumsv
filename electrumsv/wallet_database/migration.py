@@ -7,7 +7,7 @@ except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore
-from typing import Optional
+from typing import cast, Optional
 
 from electrumsv.constants import DATABASE_EXT, MIGRATION_CURRENT, MIGRATION_FIRST
 from electrumsv.exceptions import DatabaseMigrationError
@@ -19,9 +19,9 @@ def _get_migration(db: sqlite3.Connection) -> int:
     row = cursor.fetchone()
     if row is None:
         raise DatabaseMigrationError("wallet database migration metadata not present")
-    return json.loads(row[0])
+    return cast(int, json.loads(row[0]))
 
-def _ensure_matching_migration(db: sqlite3.Connection, expected_migration: int):
+def _ensure_matching_migration(db: sqlite3.Connection, expected_migration: int) -> None:
     migration = _get_migration(db)
     if migration != expected_migration:
         raise DatabaseMigrationError("wallet database migration mismatch, expected "

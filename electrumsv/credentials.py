@@ -184,7 +184,8 @@ class CredentialCache:
         """
         with self._credential_lock:
             credential = self._indefinite_credentials[credential_id]
-            credential_bytes = self._private_key.decrypt_message(credential.encrypted_value)
+            credential_bytes = cast(bytes,
+                self._private_key.decrypt_message(credential.encrypted_value))
             return credential_bytes.decode('utf-8')
 
     def _check_credentials_thread_body(self) -> None:

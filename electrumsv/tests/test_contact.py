@@ -19,16 +19,16 @@ class TestContactExtras(unittest.TestCase):
             # We call 'astimezone' pre-emptively so that the comparison works.
             identity = contacts.ContactIdentity(os.urandom(32), system_id, "test",
                 datetime.datetime.now().astimezone())
-            data = identity.to_list()
-            new_identity = contacts.ContactIdentity.from_list(data)
+            data = identity.to_data()
+            new_identity = contacts.ContactIdentity.from_data(data)
             self.assertEqual(identity, new_identity, str(data))
 
     def test_contact_entry_persistence(self):
         entry = contacts.ContactEntry(1, "zzz", [
             contacts.ContactIdentity(os.urandom(32), contacts.IdentitySystem.OnChain, "...", None)
         ])
-        data = entry.to_list()
-        new_entry = contacts.ContactEntry.from_list(data)
+        data = entry.to_data()
+        new_entry = contacts.ContactEntry.from_data(data)
         self.assertEqual(entry, new_entry)
 
     def test_get_system_id(self):

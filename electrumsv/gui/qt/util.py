@@ -71,13 +71,13 @@ class KeyEventLineEdit(QLineEdit):
 
 
 class WWLabel(QLabel):
-    def __init__ (self, text="", parent=None):
+    def __init__ (self, text: str="", parent: Optional[QWidget]=None) -> None:
         QLabel.__init__(self, text, parent)
         self.setWordWrap(True)
 
 
 class HelpLabel(QLabel):
-    def __init__(self, text, help_text, parent: Optional[QWidget]=None):
+    def __init__(self, text, help_text, parent: Optional[QWidget]=None) -> None:
         super().__init__(text, parent)
         self.app = QCoreApplication.instance()
         self._font = QFont()
@@ -147,7 +147,7 @@ class Buttons(QHBoxLayout):
 
 
 class CloseButton(QPushButton):
-    def __init__(self, dialog):
+    def __init__(self, dialog: QDialog) -> None:
         QPushButton.__init__(self, _("Close"))
         self.clicked.connect(dialog.accept)
         self.setDefault(True)
@@ -159,20 +159,20 @@ class CopyButton(QPushButton):
         self.clicked.connect(lambda: app.clipboard().setText(text_getter()))
 
 class CopyCloseButton(QPushButton):
-    def __init__(self, text_getter, app, dialog):
+    def __init__(self, text_getter, app, dialog) -> None:
         QPushButton.__init__(self, _("Copy and Close"))
         self.clicked.connect(lambda: app.clipboard().setText(text_getter()))
         self.clicked.connect(dialog.close)
         self.setDefault(True)
 
 class OkButton(QPushButton):
-    def __init__(self, dialog, label=None):
+    def __init__(self, dialog: QDialog, label: Optional[str]=None) -> None:
         QPushButton.__init__(self, label or _("OK"))
         self.clicked.connect(dialog.accept)
         self.setDefault(True)
 
 class CancelButton(QPushButton):
-    def __init__(self, dialog, label=None):
+    def __init__(self, dialog: QDialog, label: Optional[str]=None) -> None:
         QPushButton.__init__(self, label or _("Cancel"))
         self.clicked.connect(dialog.reject)
 

@@ -1,12 +1,13 @@
 import json
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
-    # NOTE(typing) pylance complains about a missing import.
-    import pysqlite3 as sqlite3 # type: ignore
+    import pysqlite3
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
-    import sqlite3 # type: ignore
+    import sqlite3
+else:
+    sqlite3 = pysqlite3
 
 from ...i18n import _
 from ...util import get_posix_timestamp

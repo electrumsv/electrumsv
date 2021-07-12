@@ -37,8 +37,8 @@ import json
 import os
 import random
 import threading
-from typing import (Any, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple, TypeVar,
-    TYPE_CHECKING, Union)
+from typing import (Any, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple, TypedDict,
+    TypeVar, TYPE_CHECKING, Union)
 import weakref
 
 import aiorpcx
@@ -60,7 +60,6 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountType, 
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag, WalletEventType,
     WalletSettings)
 from .contacts import Contacts
-from .credentials import CredentialCache
 from .crypto import pw_decode, pw_encode
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
     SubscriptionStale, UnsupportedAccountTypeError, UnsupportedScriptTypeError, UserCancelled,
@@ -72,7 +71,6 @@ from .keystore import (BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore
     SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
 from .networks import Net
-from .simple_config import SimpleConfig
 from .storage import WalletStorage
 from .transaction import (Transaction, TransactionContext,
     TxSerialisationFormat, NO_SIGNATURE, tx_dict_from_text, XPublicKey, XPublicKeyType, XTxInput,
@@ -103,8 +101,8 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     TransactionOutputShortRow, TransactionOutputSpendableRow2, TransactionOutputSpendableRow,
     TransactionOutputSpendableTypes, TransactionValueRow,
     TransactionInputAddRow, TransactionOutputAddRow,
-    TransactionRow, WalletBalance, WalletEventRow)
-from .wallet_database.util import create_derivation_data2, TxProof
+    TransactionRow, TxProof, WalletBalance, WalletEventRow)
+from .wallet_database.util import create_derivation_data2
 
 if TYPE_CHECKING:
     from .network import Network
@@ -120,6 +118,17 @@ class AccountInstantiationFlags(IntFlag):
     IMPORTED_PRIVATE_KEYS = 1 << 0
     IMPORTED_ADDRESSES = 1 << 1
     NEW = 1 << 2
+
+
+class AccountExportEntry(TypedDict):
+    txid: str
+    height: int
+    timestamp: str
+    value: str
+    balance: str
+    label: str
+    fiat_value: Optional[str]
+    fiat_balance: Optional[str]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -150,7 +159,7 @@ class MissingTransactionEntry:
 ADDRESS_TYPES = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
 
 
-def dust_threshold(network):
+def dust_threshold(network: Optional["Network"]) -> int:
     return 546 # hard-coded Bitcoin SV dust threshold. Was changed to this as of Sept. 2018
 
 
@@ -187,7 +196,7 @@ class AbstractAccount:
         self.response_count = 0
         self.last_poll_time: Optional[float] = None
 
-        self._gap_limit_observer_event_async = cast("ASync", app_state.async_).event()
+        self._gap_limit_observer_event_async = app_state.async_.event()
 
         # locks: if you need to take several, acquire them in the order they are defined here!
         self.lock = threading.RLock()
@@ -221,19 +230,21 @@ class AbstractAccount:
             -> int:
         raise NotImplementedError
 
-    def derive_new_keys_until(self, derivation_path: DerivationPath) \
-            -> Tuple[Optional[concurrent.futures.Future], List[KeyInstanceRow]]:
+    def derive_new_keys_until(self, derivation_path: DerivationPath,
+            keyinstance_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) \
+                -> Tuple[Optional[concurrent.futures.Future[None]], List[KeyInstanceRow]]:
         raise NotImplementedError
 
     def allocate_and_create_keys(self, count: int, derivation_subpath: DerivationPath,
             keyinstance_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) \
-                -> Tuple[Optional[concurrent.futures.Future], Optional[concurrent.futures.Future],
+                -> Tuple[Optional[concurrent.futures.Future[None]],
+                        Optional[concurrent.futures.Future[None]],
                         List[KeyInstanceRow], List[KeyInstanceScriptHashRow]]:
         raise NotImplementedError
 
     def create_preallocated_keys(self, key_allocations: Sequence[KeyAllocation],
             keyinstance_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) \
-                -> Tuple[concurrent.futures.Future, concurrent.futures.Future,
+                -> Tuple[concurrent.futures.Future[None], concurrent.futures.Future[None],
                         List[KeyInstanceRow], List[KeyInstanceScriptHashRow]]:
         """
         Take a list of key allocations and create keyinstances and scripts in the database for them.
@@ -254,7 +265,7 @@ class AbstractAccount:
         return keyinstance_future, scripthash_future, keyinstance_rows, scripthash_rows
 
     def create_provided_keyinstances(self, keyinstance_rows: List[KeyInstanceRow]) -> \
-            Tuple[concurrent.futures.Future, concurrent.futures.Future,
+            Tuple[concurrent.futures.Future[None], concurrent.futures.Future[None],
                 List[KeyInstanceRow], List[KeyInstanceScriptHashRow]]:
         """
         Take a list of pre-created keyinstances and create them and their scripts in the database.
@@ -372,13 +383,13 @@ class AbstractAccount:
         return [
             (script_type,
                 self.get_script_template_for_key_data(keydata, script_type).to_script())
-            for script_type in script_types ] # type: ignore
+            for script_type in script_types ]
 
     def get_script_for_key_data(self, keydata: KeyDataTypes, script_type: ScriptType) \
             -> Script:
         script_template = self.get_script_template_for_key_data(keydata, script_type)
         # NOTE(typing) Pylance does not know how to deal with abstract methods.
-        return script_template.to_script() # type: ignore
+        return script_template.to_script()
 
     def is_synchronized(self) -> bool:
         # TODO(no-merge) Need to reimplement to deal with scanning/pending state?
@@ -413,12 +424,12 @@ class AbstractAccount:
         return None
 
     def set_transaction_label(self, tx_hash: bytes, text: Optional[str]) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[None]:
         return self.set_transaction_labels([ (tx_hash, text) ])
 
     def set_transaction_labels(self, entries: Iterable[Tuple[bytes, Optional[str]]]) \
-            -> concurrent.futures.Future:
-        def callback(future: concurrent.futures.Future) -> None:
+            -> concurrent.futures.Future[None]:
+        def callback(future: concurrent.futures.Future[None]) -> None:
             # Skip if the operation was cancelled.
             if future.cancelled():
                 return
@@ -428,7 +439,7 @@ class AbstractAccount:
             self._wallet.trigger_callback('transaction_labels_updated', update_entries)
 
             for tx_hash, text in entries:
-                app_state.app.on_transaction_label_change(self, tx_hash, text)
+                app_state.app_qt.on_transaction_label_change(self, tx_hash, text or "")
 
         update_entries: List[Tuple[Optional[str], int, bytes]] = []
         for tx_hash, description in entries:
@@ -517,14 +528,14 @@ class AbstractAccount:
         return keyinstance.description or ""
 
     def set_keyinstance_label(self, keyinstance_id: int, text: Optional[str]) \
-            -> Optional[concurrent.futures.Future]:
+            -> Optional[concurrent.futures.Future[None]]:
         text = None if text is None or text.strip() == "" else text.strip()
         keyinstance = self._wallet.read_keyinstance(keyinstance_id=keyinstance_id)
         assert keyinstance is not None
         if keyinstance.description == text:
             return None
         future = self._wallet.update_keyinstance_descriptions([ (text, keyinstance_id) ])
-        app_state.app.on_keyinstance_label_change(self, keyinstance_id, text)
+        app_state.app_qt.on_keyinstance_label_change(self, keyinstance_id, text or "")
         return future
 
     def get_dummy_script_template(self, script_type: Optional[ScriptType]=None) -> ScriptTemplate:
@@ -558,7 +569,7 @@ class AbstractAccount:
         assert keydata.derivation_data2 is not None
         derivation_path = unpack_derivation_path(keydata.derivation_data2)
         secret, compressed = keystore.get_private_key(derivation_path, password)
-        return PrivateKey(secret).to_WIF(compressed=compressed, coin=Net.COIN)
+        return cast(str, PrivateKey(secret).to_WIF(compressed=compressed, coin=Net.COIN))
 
     def get_frozen_balance(self) -> WalletBalance:
         return self._wallet.read_account_balance(self._id, self._wallet.get_local_height(),
@@ -621,9 +632,9 @@ class AbstractAccount:
         # NOTE(typing) The first four arguments for `TxInput` cause mypy to choke because `attrs`..
         return XTxInput(
             prev_hash          = row.tx_hash, # type: ignore
-            prev_idx           = row.txo_index, # type: ignore
-            script_sig         = Script(), # type: ignore
-            sequence           = 0xffffffff, # type: ignore
+            prev_idx           = row.txo_index,
+            script_sig         = Script(),
+            sequence           = 0xffffffff,
             threshold          = self.get_threshold(),
             script_type        = row.script_type,
             signatures         = [NO_SIGNATURE] * len(x_pubkeys),
@@ -665,52 +676,56 @@ class AbstractAccount:
         history_raw.reverse()
         return history_raw
 
-    def export_history(self, from_timestamp=None, to_timestamp=None,
-                       show_addresses=False):
-        h = self.get_history()
+    def export_history(self, from_datetime: Optional[datetime]=None,
+            to_datetime: Optional[datetime]=None) -> List[AccountExportEntry]:
+        # TODO If the history is exported and we do not have headers for entries, we try and
+        #   populate the header for a given line as we go. However, if we are offline then there
+        #   will be no network and no way to backfill a header.
         fx = app_state.fx
-        out = []
-
-        # TODO(no-merge) This should work in offline mode, where `self._network is None`.
+        assert app_state.headers is not None
         chain = app_state.headers.longest_chain()
-        backfill_headers = self._network.backfill_headers_at_heights
         header_at_height = app_state.headers.header_at_height
         server_height = self._network.get_server_height() if self._network else 0
-        for entry in h:
-            _sort_key, history_line, balance = entry.sort_key, entry.row, entry.balance
+
+        out: List[AccountExportEntry] = []
+        for entry in self.get_history():
+            history_line = entry.row
             assert history_line.block_height is not None
             try:
                 timestamp = posix_timestamp_to_datetime(header_at_height(chain,
                                 history_line.block_height).timestamp)
             except MissingHeader:
                 if history_line.block_height > BlockHeight.MEMPOOL:
+                    assert self._network is not None, "missing headers and offline"
                     self._logger.debug("fetching missing headers at height: %s",
                                        history_line.block_height)
                     assert history_line.block_height <= server_height, \
                         "inconsistent blockchain data"
-                    backfill_headers([history_line.block_height])
+                    self._network.backfill_headers_at_heights([ history_line.block_height ])
                     timestamp = posix_timestamp_to_datetime(header_at_height(chain,
                                     history_line.block_height).timestamp)
                 else:
                     timestamp = datetime.now()
-            if from_timestamp and timestamp < from_timestamp:
+            assert timestamp is not None
+            if from_datetime and timestamp < from_datetime:
                 continue
-            if to_timestamp and timestamp >= to_timestamp:
+            if to_datetime and timestamp >= to_datetime:
                 continue
-            item = {
-                'txid': hash_to_hex_str(history_line.tx_hash),
-                'height': history_line.block_height,
-                'timestamp': timestamp.isoformat(),
-                'value': format_satoshis(history_line.value_delta,
-                            is_diff=True) if history_line.value_delta is not None else '--',
-                'balance': format_satoshis(balance),
-                'label': history_line.description or "",
-            }
+            export_entry = AccountExportEntry(
+                txid=hash_to_hex_str(history_line.tx_hash),
+                height=history_line.block_height,
+                timestamp=timestamp.isoformat(),
+                value=format_satoshis(history_line.value_delta,
+                    is_diff=True) if history_line.value_delta is not None else '--',
+                balance=format_satoshis(entry.balance),
+                label=history_line.description or "",
+                fiat_value=None,
+                fiat_balance=None)
             if fx:
                 date = timestamp
-                item['fiat_value'] = fx.historical_value_str(history_line.value_delta, date)
-                item['fiat_balance'] = fx.historical_value_str(balance, date)
-            out.append(item)
+                export_entry['fiat_value'] = fx.historical_value_str(history_line.value_delta, date)
+                export_entry['fiat_balance'] = fx.historical_value_str(entry.balance, date)
+            out.append(export_entry)
         return out
 
     def create_extra_outputs(self, coins: List[TransactionOutputSpendableTypes],
@@ -738,7 +753,7 @@ class AbstractAccount:
 
         return []
 
-    def dust_threshold(self):
+    def dust_threshold(self) -> int:
         return dust_threshold(self._network)
 
     def make_unsigned_transaction(self, unspent_outputs: List[TransactionOutputSpendableTypes],
@@ -762,7 +777,7 @@ class AbstractAccount:
         #   is an ElectrumX server, or a MAPI server. If it is a MAPI server, then we need to
         #   use a per-server fee quote. Really, we might change `estimate_fee` to instead return
         #   a fee quote.
-        fee_estimator = cast(SimpleConfig, app_state.config).estimate_fee
+        fee_estimator = app_state.config.estimate_fee
 
         inputs = [ self.get_extended_input_for_spendable_output(utxo) for utxo in unspent_outputs ]
         if all_index is None:
@@ -780,15 +795,15 @@ class AbstractAccount:
                     # NOTE(typing) `attrs` and `mypy` are not compatible, `TxOutput` vars unseen.
                     change_outs.append(XTxOutput(
                         value         = 0, # type: ignore
-                        script_pubkey = self.get_script_for_key_data(keyinstance, # type: ignore
+                        script_pubkey = self.get_script_for_key_data(keyinstance,
                             script_type),
                         script_type   = script_type,
                         x_pubkeys     = self.get_xpubkeys_for_key_data(keyinstance)))
             else:
                 # NOTE(typing) `attrs` and `mypy` are not compatible, `TxOutput` vars unseen.
                 change_outs = [ XTxOutput( # type: ignore
-                    value         = 0, # type: ignore
-                    script_pubkey = self.get_script_for_key_data(unspent_outputs[0], # type: ignore
+                    value         = 0,
+                    script_pubkey = self.get_script_for_key_data(unspent_outputs[0],
                                         unspent_outputs[0].script_type),
                     script_type   = inputs[0].script_type,
                     x_pubkeys     = inputs[0].x_pubkeys) ]
@@ -800,7 +815,7 @@ class AbstractAccount:
             sendable = cast(int, sum(txin.value for txin in inputs))
             outputs[all_index].value = 0
             tx = Transaction.from_io(inputs, outputs)
-            fee = cast(int, fee_estimator(tx.estimated_size()))
+            fee = fee_estimator(tx.estimated_size())
             outputs[all_index].value = max(0, sendable - tx.output_value() - fee)
             tx = Transaction.from_io(inputs, outputs)
 
@@ -975,8 +990,8 @@ class AbstractAccount:
             await self._wallet.maybe_obtain_transactions_async(tx_hashes,
                 tx_heights, tx_fee_hints)
 
-    # TODO(no-merge) unit test malleation replacement of a transaction
-    # TODO(no-merge) unit test spam transaction presence
+    # TODO unit test malleation replacement of a transaction
+    # TODO unit test spam transaction presence
     async def _on_network_transaction_script_hash_result(self, subscription_key: SubscriptionKey,
             context: SubscriptionTransactionScriptHashOwnerContext,
             history: ElectrumXHistoryList) -> None:
@@ -1075,7 +1090,7 @@ class AbstractAccount:
             return False
         keystore = self.get_keystore()
         if keystore is not None:
-            return cast(KeyStore, keystore).can_export()
+            return keystore.can_export()
         return False
 
     def cpfp(self, tx: Transaction, fee: int) -> Optional[Transaction]:
@@ -1102,7 +1117,7 @@ class AbstractAccount:
             XTxOutput(
                 # TxOutput
                 output.value - fee, # type:ignore
-                self.get_script_for_key_data(output, output.script_type), # type:ignore
+                self.get_script_for_key_data(output, output.script_type),
                 # XTxOutput
                 output.script_type, # type:ignore
                 self.get_xpubkeys_for_key_data(output)) # type:ignore
@@ -1125,7 +1140,7 @@ class AbstractAccount:
     def get_master_public_key(self) -> Optional[str]:
         raise NotImplementedError
 
-    def get_master_public_keys(self):
+    def get_master_public_keys(self) -> List[str]:
         raise NotImplementedError
 
     def get_public_keys_for_key_data(self, keydata: KeyDataTypes) -> List[PublicKey]:
@@ -1244,18 +1259,22 @@ class AbstractAccount:
         # the hw keystore at the time of signing does not have access to either the threshold
         # or the larger set of xpubs it's own mpk is included in. So we collect these in the
         # wallet at this point before proceeding to sign.
-        info = []
+        x_public_key: XPublicKey
+        info: List[Dict[bytes, Tuple[DerivationPath, Tuple[str], int]]] = []
         xpubs = self.get_master_public_keys()
-        for tx_output in tx.outputs:
+        for tx_output in cast(List[XTxOutput], tx.outputs):
             output_items = {}
             # NOTE(rt12) this will need to exclude all script types hardware wallets dont use
             if tx_output.script_type != ScriptType.MULTISIG_BARE:
+                assert tx_output.key_data is not None
                 for x_public_key in tx_output.x_pubkeys:
                     candidate_keystores = [ k for k in self.get_keystores()
                         if k.is_signature_candidate(x_public_key) ]
                     if len(candidate_keystores) == 0:
                         continue
-                    pubkeys = self.get_public_keys_for_key_data(tx_output)
+                    # TODO(no-merge) This is all being calculated with the same result for each
+                    #   candidate keystore as far as I can tell. -- rt12
+                    pubkeys = self.get_public_keys_for_key_data(tx_output.key_data)
                     pubkeys_hex = [pubkey.to_hex() for pubkey in pubkeys]
                     sorted_pubkeys, sorted_xpubs = zip(*sorted(zip(pubkeys_hex, xpubs)))
                     item = (x_public_key.derivation_path(), sorted_xpubs, self.get_threshold())
@@ -1305,32 +1324,19 @@ class AbstractAccount:
     def get_fingerprint(self) -> bytes:
         raise NotImplementedError()
 
-    def can_import_privkey(self):
+    def can_import_privkey(self) -> bool:
         return False
 
-    def can_import_address(self):
+    def can_import_address(self) -> bool:
         return False
 
-    def can_delete_key(self):
+    def can_delete_key(self) -> bool:
         return False
 
-    def reactivate_reorged_keys(self, reorged_tx_hashes: List[bytes]) -> None:
-        """re-activate all of the reorged keys and allow deactivation to occur via the usual
-        mechanisms."""
-        pass
-        # with self.lock:
-        #     key_ids: List[int] = []
-            # TODO(no-merge) needs to be unatchive keys for the reorged transactions?
-            # Need to work out the larger model.
-            # for tx_hash in reorged_tx_hashes:
-            #     tx_key_ids.append((tx_hash, self._sync_state.get_transaction_key_ids(
-            #         hash_to_hex_str(tx_hash))))
-            # self.unarchive_keys(key_ids)
-
-    def sign_message(self, key_data: KeyDataTypes, message, password: str):
+    def sign_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
         raise NotImplementedError
 
-    def decrypt_message(self, key_data: KeyDataTypes, message, password: str):
+    def decrypt_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
         raise NotImplementedError
 
     def is_watching_only(self) -> bool:
@@ -1390,7 +1396,7 @@ class ImportedAddressAccount(ImportedAccountBase):
     def can_spend(self) -> bool:
         return False
 
-    def can_import_privkey(self):
+    def can_import_privkey(self) -> bool:
         return False
 
     def can_change_password(self) -> bool:
@@ -1412,7 +1418,7 @@ class ImportedAddressAccount(ImportedAccountBase):
         if len(existing_keys) == 0:
             return False
 
-        def callback(future: concurrent.futures.Future) -> None:
+        def callback(future: concurrent.futures.Future[None]) -> None:
             if future.cancelled():
                 return
             future.result()
@@ -1454,7 +1460,7 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
     def is_watching_only(self) -> bool:
         return False
 
-    def can_import_privkey(self):
+    def can_import_privkey(self) -> bool:
         return True
 
     def can_change_password(self) -> bool:
@@ -1477,7 +1483,7 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         if len(existing_keys) > 0:
             return private_key_text
 
-        def callback(future: concurrent.futures.Future) -> None:
+        def callback(future: concurrent.futures.Future[None]) -> None:
             if future.cancelled():
                 return
             future.result()
@@ -1505,13 +1511,13 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         public_key = PublicKey.from_bytes(keydata.derivation_data2)
         return keystore.export_private_key(public_key, password)
 
-    def sign_message(self, key_data: KeyDataTypes, message, password: str):
+    def sign_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
         assert key_data.derivation_data2 is not None
         public_key = PublicKey.from_bytes(key_data.derivation_data2)
         keystore = cast(Imported_KeyStore, self.get_keystore())
         return keystore.sign_message(public_key, message, password)
 
-    def decrypt_message(self, key_data: KeyDataTypes, message, password: str):
+    def decrypt_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
         assert key_data.derivation_data2 is not None
         public_key = PublicKey.from_bytes(key_data.derivation_data2)
         keystore = cast(Imported_KeyStore, self.get_keystore())
@@ -1542,7 +1548,7 @@ class DeterministicAccount(AbstractAccount):
         #   This might be a column on the account row, not sure yet. If we decide not to go with
         #   the gap limit observer, then all this code should be removed.
         self._gap_limit_observer_enabled = False
-        self._gap_limit_observer_future: Optional[concurrent.futures.Future] = None
+        self._gap_limit_observer_future: Optional[concurrent.futures.Future[None]] = None
 
         # We do not just keep the last used derivation index for each derived path for gap limit
         # observation, we also keep them in order to make extending a sequence less race conditiony
@@ -1591,7 +1597,7 @@ class DeterministicAccount(AbstractAccount):
         if self._network is not None and self._gap_limit_observer_enabled:
             self._subscription_owner_for_gap_limit = SubscriptionOwner(self._wallet._id, self._id,
                 SubscriptionOwnerPurpose.GAP_LIMIT_OBSERVER)
-            self._gap_limit_observer_future = cast("ASync", app_state.async_).spawn(
+            self._gap_limit_observer_future = app_state.async_.spawn(
                 self._bip32_gap_limit_observer_async)
 
     def stop(self) -> None:
@@ -1605,23 +1611,22 @@ class DeterministicAccount(AbstractAccount):
             if future is not None:
                 future.result()
 
-    def sign_message(self, key_data: KeyDataTypes, message, password: str):
+    def sign_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
         assert key_data.derivation_data2 is not None
         derivation_path = unpack_derivation_path(key_data.derivation_data2)
         keystore = cast(SignableKeystoreTypes, self.get_keystore())
         return keystore.sign_message(derivation_path, message, password)
 
-    def decrypt_message(self, key_data: KeyDataTypes, message, password: str):
+    def decrypt_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
         assert key_data.derivation_data2 is not None
         derivation_path = unpack_derivation_path(key_data.derivation_data2)
-        keystore = cast(SignableKeystoreTypes, self.get_keystore())
+        keystore = cast(BIP32_KeyStore, self.get_keystore())
         return keystore.decrypt_message(derivation_path, message, password)
 
     def notify_key_allocation_creation_or_something(self) -> None:
         # asyncio Event objects are not thread-safe. This is the recommended way of calling their
         # methods in a thread-safe way.
-        cast("ASync", app_state.async_).loop.call_soon_threadsafe(
-            self._gap_limit_observer_event_async.set)
+        app_state.async_.loop.call_soon_threadsafe(self._gap_limit_observer_event_async.set)
 
     async def _bip32_gap_limit_observer_async(self) -> None:
         """
@@ -1796,8 +1801,8 @@ class DeterministicAccount(AbstractAccount):
 
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         masterkey_id = keystore.get_id()
-        future: Optional[concurrent.futures.Future] = self._wallet.reserve_keyinstance(
-            self._id, masterkey_id, derivation_subpath, flags)
+        future: Optional[concurrent.futures.Future[Tuple[int, KeyInstanceFlag]]] \
+            = self._wallet.reserve_keyinstance(self._id, masterkey_id, derivation_subpath, flags)
         assert future is not None
         try:
             keyinstance_id, final_flags = future.result()
@@ -1821,7 +1826,7 @@ class DeterministicAccount(AbstractAccount):
 
     def derive_new_keys_until(self, derivation_path: DerivationPath,
             keyinstance_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) \
-                -> Tuple[Optional[concurrent.futures.Future], List[KeyInstanceRow]]:
+                -> Tuple[Optional[concurrent.futures.Future[None]], List[KeyInstanceRow]]:
         """
         Ensure that keys are created up to and including the given derivation path.
 
@@ -1854,7 +1859,8 @@ class DeterministicAccount(AbstractAccount):
 
     def allocate_and_create_keys(self, count: int, derivation_subpath: DerivationPath,
             keyinstance_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) \
-                -> Tuple[Optional[concurrent.futures.Future], Optional[concurrent.futures.Future],
+                -> Tuple[Optional[concurrent.futures.Future[None]],
+                        Optional[concurrent.futures.Future[None]],
                         List[KeyInstanceRow], List[KeyInstanceScriptHashRow]]:
         self._value_locks.acquire_lock(derivation_subpath)
         try:
@@ -1975,12 +1981,10 @@ class MultisigAccount(DeterministicAccount):
             -> List[Tuple[ScriptType, Script]]:
         public_keys = self.get_public_keys_for_key_data(keydata)
         public_keys_hex = [ public_key.to_hex() for public_key in public_keys ]
-        # NOTE(typing) `get_script_template` is an abstract method that raises a not implemented
-        # error and not all type checkers can handle abstract methods.
         return [
             (script_type, self.get_script_template(public_keys_hex, script_type).to_script())
             for script_type in ACCOUNT_SCRIPT_TYPES[AccountType.MULTISIG]
-        ] # type: ignore
+        ]
 
     def get_script_template_for_key_data(self, keydata: DerivationTypes,
             script_type: ScriptType) -> ScriptTemplate:
@@ -2107,20 +2111,21 @@ class Wallet(TriggeredCallbacks):
 
         # Cache the stuff that is needed unencrypted but is encrypted.
         self._registered_api_keys: Dict[ServerAccountKey, IndefiniteCredentialId] = {}
-        credentials = cast(CredentialCache, app_state.credentials)
         server_rows, server_account_rows = self.read_network_servers()
         for server_row in server_rows:
             if server_row.encrypted_api_key is not None:
                 server_key = ServerAccountKey(server_row.url, server_row.server_type, -1)
-                self._registered_api_keys[server_key] = credentials.add_indefinite_credential(
-                    pw_decode(server_row.encrypted_api_key, password))
+                self._registered_api_keys[server_key] = \
+                    app_state.credentials.add_indefinite_credential(
+                        pw_decode(server_row.encrypted_api_key, password))
 
         for account_row in server_account_rows:
             if account_row.encrypted_api_key is not None:
                 server_key = ServerAccountKey(account_row.url, account_row.server_type,
                     account_row.account_id)
-                self._registered_api_keys[server_key] = credentials.add_indefinite_credential(
-                    pw_decode(account_row.encrypted_api_key, password))
+                self._registered_api_keys[server_key] = \
+                    app_state.credentials.add_indefinite_credential(
+                        pw_decode(account_row.encrypted_api_key, password))
 
     def __str__(self) -> str:
         return f"wallet(path='{self._storage.get_path()}')"
@@ -2202,7 +2207,7 @@ class Wallet(TriggeredCallbacks):
         self._storage.check_password(password)
 
     def update_password(self, old_password: str, new_password: str) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[PasswordUpdateResult]:
         """
         Update the wallet password and use it to re-encrypt all the values encrypted with the old.
 
@@ -2217,10 +2222,11 @@ class Wallet(TriggeredCallbacks):
         assert old_password, "wallet migration should have added a password"
         assert new_password, "calling code must provide the new password"
 
-        def update_cached_values(callback_future: concurrent.futures.Future) -> None:
+        def update_cached_values(callback_future: concurrent.futures.Future[PasswordUpdateResult]) \
+                -> None:
             if callback_future.cancelled():
                 return
-            result = cast(PasswordUpdateResult, callback_future.result())
+            result = callback_future.result()
             # Update the cached wallet setting without doing the usual db write.
             self._storage.put("password-token", result.password_token, already_persisted=True)
 
@@ -2243,16 +2249,16 @@ class Wallet(TriggeredCallbacks):
                     bip32_data = cast(MasterKeyDataBIP32, derivation_data)
                     bip32_keystore = cast(BIP32_KeyStore, keystore)
                     if bip32_data["seed"] is not None:
-                        bip32_keystore.set_encrypted_seed(cast(str, bip32_data["seed"]))
+                        bip32_keystore.set_encrypted_seed(bip32_data["seed"])
                     if bip32_data["passphrase"] is not None:
-                        bip32_keystore.set_encrypted_passphrase(cast(str, bip32_data["passphrase"]))
+                        bip32_keystore.set_encrypted_passphrase(bip32_data["passphrase"])
                     if bip32_data["xprv"] is not None:
-                        bip32_keystore.set_encrypted_xprv(cast(str, bip32_data["xprv"]))
+                        bip32_keystore.set_encrypted_xprv(bip32_data["xprv"])
                 elif derivation_type == DerivationType.ELECTRUM_OLD:
                     old_data = cast(MasterKeyDataElectrumOld, derivation_data)
                     old_keystore = cast(Old_KeyStore, keystore)
                     if old_data["seed"] is not None:
-                        old_keystore.set_encrypted_seed(cast(str, old_data["seed"]))
+                        old_keystore.set_encrypted_seed(old_data["seed"])
 
             for masterkey_id, derivation_type, derivation_data in result.masterkey_updates:
                 keystore = keystore_by_masterkey_id[masterkey_id]
@@ -2380,7 +2386,7 @@ class Wallet(TriggeredCallbacks):
         future.result()
         return rows
 
-    def create_account_from_keystore(self, creation_type: AccountCreationType, keystore) \
+    def create_account_from_keystore(self, creation_type: AccountCreationType, keystore: KeyStore) \
             -> AbstractAccount:
         masterkey_row = self.create_masterkey_from_keystore(keystore)
         if masterkey_row.derivation_type == DerivationType.ELECTRUM_OLD:
@@ -2451,7 +2457,7 @@ class Wallet(TriggeredCallbacks):
         account_row = self.add_accounts([ basic_account_row ])[0]
         account = self._create_account_from_data(account_row, account_flags)
 
-        def callback(future: concurrent.futures.Future) -> None:
+        def callback(future: concurrent.futures.Future[None]) -> None:
             if future.cancelled():
                 return
             future.result()
@@ -2473,11 +2479,12 @@ class Wallet(TriggeredCallbacks):
         return db_functions.read_account_balance(self.get_db_context(),
             account_id, local_height, txo_flags, txo_mask)
 
-    def update_account_names(self, entries: Iterable[Tuple[str, int]]) -> concurrent.futures.Future:
+    def update_account_names(self, entries: Iterable[Tuple[str, int]]) \
+            -> concurrent.futures.Future[None]:
         return db_functions.update_account_names(self.get_db_context(), entries)
 
     def update_account_script_types(self, entries: Iterable[Tuple[ScriptType, int]]) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[None]:
         return db_functions.update_account_script_types(self.get_db_context(), entries)
 
     # Account transactions.
@@ -2488,13 +2495,13 @@ class Wallet(TriggeredCallbacks):
             account_id, tx_hashes)
 
     def update_account_transaction_descriptions(self,
-            entries: Iterable[Tuple[Optional[str], int, bytes]]) -> concurrent.futures.Future:
+            entries: Iterable[Tuple[Optional[str], int, bytes]]) -> concurrent.futures.Future[None]:
         return db_functions.update_account_transaction_descriptions(self.get_db_context(),
             entries)
 
     # Invoices.
 
-    def create_invoices(self, entries: Iterable[InvoiceRow]) -> concurrent.futures.Future:
+    def create_invoices(self, entries: Iterable[InvoiceRow]) -> concurrent.futures.Future[None]:
         return db_functions.create_invoices(self.get_db_context(), entries)
 
     def read_invoice(self, *, invoice_id: Optional[int]=None, tx_hash: Optional[bytes]=None,
@@ -2511,24 +2518,24 @@ class Wallet(TriggeredCallbacks):
             mask)
 
     def update_invoice_transactions(self, entries: Iterable[Tuple[Optional[bytes], int]]) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[None]:
         return db_functions.update_invoice_transactions(self.get_db_context(), entries)
 
     def update_invoice_descriptions(self, entries: Iterable[Tuple[Optional[str], int]]) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[None]:
         return db_functions.update_invoice_descriptions(self.get_db_context(), entries)
 
     def update_invoice_flags(self, entries: Iterable[Tuple[PaymentFlag, PaymentFlag, int]]) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[None]:
         return db_functions.update_invoice_flags(self.get_db_context(), entries)
 
-    def delete_invoices(self, entries: Iterable[Tuple[int]]) -> concurrent.futures.Future:
+    def delete_invoices(self, entries: Iterable[Tuple[int]]) -> concurrent.futures.Future[None]:
         return db_functions.delete_invoices(self.get_db_context(), entries)
 
     # Key instances.
 
     def create_keyinstances(self, account_id: int, entries: List[KeyInstanceRow]) \
-            -> Tuple[concurrent.futures.Future, List[KeyInstanceRow]]:
+            -> Tuple[concurrent.futures.Future[None], List[KeyInstanceRow]]:
         keyinstance_id = self._storage.get("next_keyinstance_id", 1)
         rows = entries[:]
         for i, row in enumerate(rows):
@@ -2536,7 +2543,7 @@ class Wallet(TriggeredCallbacks):
             keyinstance_id += 1
         self._storage.put("next_keyinstance_id", keyinstance_id)
         future = db_functions.create_keyinstances(self.get_db_context(), rows)
-        def callback(callback_future: concurrent.futures.Future) -> None:
+        def callback(callback_future: concurrent.futures.Future[None]) -> None:
             if callback_future.cancelled():
                 return
             callback_future.result()
@@ -2573,7 +2580,8 @@ class Wallet(TriggeredCallbacks):
 
     def reserve_keyinstance(self, account_id: int, masterkey_id: int,
             derivation_path: DerivationPath,
-            allocation_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) -> concurrent.futures.Future:
+            allocation_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) \
+                -> concurrent.futures.Future[Tuple[int, KeyInstanceFlag]]:
         """
         Allocate one keyinstance for the caller's usage.
 
@@ -2592,7 +2600,7 @@ class Wallet(TriggeredCallbacks):
                 -> concurrent.futures.Future[List[KeyInstanceFlagChangeRow]]:
         return db_functions.set_keyinstance_flags(self.get_db_context(), key_ids, flags, mask)
 
-    def get_next_derivation_index(self, account_id, masterkey_id: int,
+    def get_next_derivation_index(self, account_id: int, masterkey_id: int,
             derivation_subpath: DerivationPath) -> int:
         last_index = db_functions.read_keyinstance_derivation_index_last(
             self.get_db_context(), account_id, masterkey_id, derivation_subpath)
@@ -2601,7 +2609,7 @@ class Wallet(TriggeredCallbacks):
         return last_index + 1
 
     def update_keyinstance_descriptions(self, entries: Iterable[Tuple[Optional[str], int]]) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[None]:
         return db_functions.update_keyinstance_descriptions(self.get_db_context(), entries)
 
     # Master keys.
@@ -2631,7 +2639,7 @@ class Wallet(TriggeredCallbacks):
 
     def create_payment_requests(self, account_id: int, requests: List[PaymentRequestRow]) \
             -> concurrent.futures.Future[List[PaymentRequestRow]]:
-        def callback(callback_future: concurrent.futures.Future) -> None:
+        def callback(callback_future: concurrent.futures.Future[List[PaymentRequestRow]]) -> None:
             if callback_future.cancelled():
                 return
             callback_future.result()
@@ -2660,18 +2668,18 @@ class Wallet(TriggeredCallbacks):
             mask)
 
     def update_payment_requests(self, entries: Iterable[PaymentRequestUpdateRow]) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[None]:
         return db_functions.update_payment_requests(self.get_db_context(), entries)
 
     def delete_payment_request(self, account_id: int, request_id: int, keyinstance_id: int) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[KeyInstanceFlag]:
         """
         Deletes a payment request and clears any flags on the key as appropriate.
 
         Returns the `KeyInstanceFlag` values that are cleared from the key that was allocated for
         the payment request.
         """
-        def callback(callback_future: concurrent.futures.Future) -> None:
+        def callback(callback_future: concurrent.futures.Future[KeyInstanceFlag]) -> None:
             if callback_future.cancelled():
                 return
             cleared_flags = callback_future.result()
@@ -2691,7 +2699,7 @@ class Wallet(TriggeredCallbacks):
     # Script hashes.
 
     def create_keyinstance_scripts(self, entries: Iterable[KeyInstanceScriptHashRow]) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[None]:
         return db_functions.create_keyinstance_scripts(self.get_db_context(), entries)
 
     def read_keyinstance_scripts(self, keyinstance_ids: List[int]) \
@@ -2740,13 +2748,14 @@ class Wallet(TriggeredCallbacks):
 
     def update_transaction_output_flags(self, txo_keys: List[TxoKeyType],
             flags: TransactionOutputFlag, mask: Optional[TransactionOutputFlag]=None) \
-                -> concurrent.futures.Future:
+                -> concurrent.futures.Future[bool]:
         return db_functions.update_transaction_output_flags(self.get_db_context(),
             txo_keys, flags, mask)
 
     # Wallet events.
 
-    def create_wallet_events(self,  entries: List[WalletEventRow]) -> concurrent.futures.Future:
+    def create_wallet_events(self,  entries: List[WalletEventRow]) \
+            -> concurrent.futures.Future[None]:
         next_id = self._storage.get("next_wallet_event_id", 1)
         rows = []
         for entry in entries:
@@ -2763,7 +2772,7 @@ class Wallet(TriggeredCallbacks):
             mask=mask)
 
     def update_wallet_event_flags(self,
-            entries: Iterable[Tuple[WalletEventFlag, int]]) -> concurrent.futures.Future:
+            entries: Iterable[Tuple[WalletEventFlag, int]]) -> concurrent.futures.Future[None]:
         return db_functions.update_wallet_event_flags(self.get_db_context(), entries)
 
     # Transactions.
@@ -2776,7 +2785,7 @@ class Wallet(TriggeredCallbacks):
         return db_functions.read_transaction_flags(self.get_db_context(), tx_hash)
 
     def set_transaction_state(self, tx_hash: bytes, flag: TxFlags,
-            ignore_mask: Optional[TxFlags]=None) -> concurrent.futures.Future:
+            ignore_mask: Optional[TxFlags]=None) -> concurrent.futures.Future[bool]:
         return db_functions.set_transaction_state(self.get_db_context(), tx_hash, flag,
             ignore_mask)
 
@@ -2812,7 +2821,7 @@ class Wallet(TriggeredCallbacks):
         return db_functions.read_transactions_exist(self.get_db_context(), tx_hashes, account_id)
 
     def update_transaction_block_many(self, entries: Iterable[TransactionBlockRow]) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[int]:
         return db_functions.update_transaction_block_many(self.get_db_context(), entries)
 
     # Data acquisition.
@@ -2912,7 +2921,8 @@ class Wallet(TriggeredCallbacks):
             deleted_server_keys: List[ServerAccountKey],
             deleted_server_account_keys: List[ServerAccountKey],
             updated_api_keys: Dict[ServerAccountKey,
-                Tuple[Optional[str], Optional[Tuple[str, str]]]]) -> concurrent.futures.Future:
+                Tuple[Optional[str], Optional[Tuple[str, str]]]]) \
+                    -> concurrent.futures.Future[None]:
         """
         Update the database, wallet and network for the given set of network server changes.
 
@@ -2921,7 +2931,7 @@ class Wallet(TriggeredCallbacks):
         on a successful database update. If the database update fails, then no changes should
         be applied.
         """
-        def update_cached_values(future: concurrent.futures.Future) -> None:
+        def update_cached_values(future: concurrent.futures.Future[None]) -> None:
             # Skip if the operation was cancelled.
             if future.cancelled():
                 return
@@ -2930,21 +2940,21 @@ class Wallet(TriggeredCallbacks):
 
             # Need to delete, add and update cached credentials. This should happen regardless of
             # whether the network is activated.
-            credentials = cast(CredentialCache, app_state.credentials)
             for server_key, (encrypted_api_key, new_key_state) in updated_api_keys.items():
                 if encrypted_api_key is not None:
                     credential_id = self._registered_api_keys[server_key]
                     if new_key_state is None:
-                        credentials.remove_indefinite_credential(credential_id)
+                        app_state.credentials.remove_indefinite_credential(credential_id)
                         del self._registered_api_keys[server_key]
                     else:
                         unencrypted_value, _encrypted_value = new_key_state
-                        credentials.update_indefinite_credential(credential_id, unencrypted_value)
+                        app_state.credentials.update_indefinite_credential(
+                            credential_id, unencrypted_value)
                 else:
                     assert new_key_state is not None
                     unencrypted_value, _encrypted_value = new_key_state
-                    self._registered_api_keys[server_key] = credentials.add_indefinite_credential(
-                        unencrypted_value)
+                    self._registered_api_keys[server_key] = \
+                        app_state.credentials.add_indefinite_credential(unencrypted_value)
 
             if self._network is not None:
                 added_keys: List[NetworkServerState] = []
@@ -2988,7 +2998,7 @@ class Wallet(TriggeredCallbacks):
         return future
 
     def update_network_server_states(self, updated_states: List[NetworkServerState]) \
-            -> concurrent.futures.Future:
+            -> concurrent.futures.Future[None]:
         """
         Update this wallet's network servers for the latest state changes.
 
@@ -3012,6 +3022,7 @@ class Wallet(TriggeredCallbacks):
         return future
 
     def _get_header_hash_for_height(self, height: int) -> Optional[bytes]:
+        assert app_state.headers is not None
         chain = app_state.headers.longest_chain()
         try:
             header_bytes = app_state.headers.raw_header_at_height(chain, height)
@@ -3020,7 +3031,7 @@ class Wallet(TriggeredCallbacks):
             # get the header. Does it happen? Probably not. We can remove this case later.
             return None
         else:
-            return double_sha256(header_bytes)
+            return cast(bytes, double_sha256(header_bytes))
 
     # TODO(no-merge) unit test
     def _acquire_transaction_lock(self, tx_hash: bytes) -> threading.RLock:
@@ -3440,7 +3451,7 @@ class Wallet(TriggeredCallbacks):
         # NOTE It is kind of arbitrary that this returns a future, let alone the one for closed
         #   payment requests. In the future, perhaps this will return a grouped set of futures
         #   for all the related dependent updates?
-        cast("ASync", app_state.async_).spawn(self._close_paid_payment_requests_async)
+        app_state.async_.spawn(self._close_paid_payment_requests_async)
 
     async def link_transaction_async(self, tx_hash: bytes, link_state: TransactionLinkState) \
             -> None:
@@ -3505,7 +3516,7 @@ class Wallet(TriggeredCallbacks):
         self.trigger_callback('transaction_verified', tx_hash, block_height, block_position,
             confirmations, header.timestamp)
 
-    def remove_transaction(self, tx_hash: bytes) -> concurrent.futures.Future:
+    def remove_transaction(self, tx_hash: bytes) -> concurrent.futures.Future[bool]:
         """
         Unlink the transaction from accounts and their associated data.
 
@@ -3516,7 +3527,7 @@ class Wallet(TriggeredCallbacks):
         tx_id = hash_to_hex_str(tx_hash)
         self._logger.debug("removing tx from history %s", tx_id)
 
-        def on_db_call_done(future: concurrent.futures.Future) -> None:
+        def on_db_call_done(future: concurrent.futures.Future[bool]) -> None:
             # Skip if the operation was cancelled.
             if future.cancelled():
                 return
@@ -3587,11 +3598,6 @@ class Wallet(TriggeredCallbacks):
         future = db_functions.set_transactions_reorged(self.get_db_context(), tx_hashes)
         future.result()
 
-        if self._storage.get('deactivate_used_keys', False):
-            for account in self._accounts.values():
-                # TODO(no-merge) Verify this does what it should.
-                account.reactivate_reorged_keys(tx_hashes)
-
     def have_transaction(self, tx_hash: bytes) -> bool:
         return self.get_transaction_flags(tx_hash) is not None
 
@@ -3618,15 +3624,6 @@ class Wallet(TriggeredCallbacks):
         """
         return db_functions.read_transaction_bytes(self.get_db_context(), tx_hash)
 
-    # def set_deactivate_used_keys(self, enabled: bool) -> None:
-    #     current_setting = self._storage.get('deactivate_used_keys', None)
-    #     if not enabled and current_setting is True:
-    #         # ensure all keys are re-activated
-    #         for account in self.get_accounts():
-    #             account.update_key_activation_state(list(account._keyinstances.values()), True)
-
-    #     return self._storage.put('deactivate_used_keys', enabled)
-
     def get_boolean_setting(self, setting_name: str, default_value: bool=False) -> bool:
         """
         Get the value of a wallet-global config variable that is known to be boolean type.
@@ -3636,7 +3633,7 @@ class Wallet(TriggeredCallbacks):
           WalletSettings.USE_CHANGE: True
           WalletSettings.MULTIPLE_CHANGE: True
         """
-        return self._storage.get(str(setting_name), default_value)
+        return self._storage.get_explicit_type(bool, str(setting_name), default_value)
 
     def is_synchronized(self) -> bool:
         "If all the accounts are synchronized"
@@ -3651,7 +3648,8 @@ class Wallet(TriggeredCallbacks):
         This returns the number of megabytes of cache. The caller should convert it to bytes for
         the cache.
         """
-        return self._storage.get('tx_bytedata_cache_size', DEFAULT_TXDATA_CACHE_SIZE_MB)
+        return self._storage.get_explicit_type(int, 'tx_bytedata_cache_size',
+            DEFAULT_TXDATA_CACHE_SIZE_MB)
 
     def set_cache_size_for_tx_bytedata(self, maximum_size: int, force_resize: bool=False) -> None:
         assert MINIMUM_TXDATA_CACHE_SIZE_MB <= maximum_size <= MAXIMUM_TXDATA_CACHE_SIZE_MB, \
@@ -3663,7 +3661,7 @@ class Wallet(TriggeredCallbacks):
     def get_local_height(self) -> int:
         """ return last known height if we are offline """
         return (self._network.get_local_height() if self._network else
-            self._storage.get('stored_height', 0))
+            self._storage.get_explicit_type(int, 'stored_height', 0))
 
     def get_request_response_counts(self) -> Tuple[int, int]:
         request_count = self.request_count
@@ -3689,16 +3687,17 @@ class Wallet(TriggeredCallbacks):
         assert not self._stopped
         local_height = self._last_load_height
         chain_tip_hash = self._last_load_hash
-        if self._network is not None and self._network.chain():
-            chain_tip = self._network.chain().tip
-            local_height = chain_tip.height
-            chain_tip_hash = chain_tip.hash
+        if self._network is not None:
+            chain = self._network.chain()
+            if chain is not None:
+                chain_tip = chain.tip
+                local_height = chain_tip.height
+                chain_tip_hash = chain_tip.hash
         self._storage.put('stored_height', local_height)
         self._storage.put('last_tip_hash', chain_tip_hash.hex() if chain_tip_hash else None)
 
-        credentials = cast(CredentialCache, app_state.credentials)
         for credential_id in self._registered_api_keys.values():
-            credentials.remove_indefinite_credential(credential_id)
+            app_state.credentials.remove_indefinite_credential(credential_id)
 
         for account in self.get_accounts():
             account.stop()

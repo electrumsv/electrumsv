@@ -59,7 +59,7 @@ class WalletAPI(QObject):
     def remove_contacts(self, contact_ids: Iterable[int]) -> None:
         self.wallet_window.contacts.remove_contacts(contact_ids)
 
-    def remove_identity(self, contact_id: int, identity_id: int) -> None:
+    def remove_identity(self, contact_id: int, identity_id: bytes) -> None:
         self.wallet_window.contacts.remove_identity(contact_id, identity_id)
 
     def set_label(self, contact_id: int, label: str) -> None:

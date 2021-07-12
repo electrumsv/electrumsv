@@ -401,13 +401,13 @@ class WalletBalance(NamedTuple):
     unmatured: int = 0
     allocated: int = 0
 
-    def __add__(self, other) -> "WalletBalance":
+    def __add__(self, other: object) -> "WalletBalance":
         if not isinstance(other, WalletBalance):
             raise NotImplementedError
         return WalletBalance(self.confirmed + other.confirmed, self.unconfirmed + other.unconfirmed,
             self.unmatured + other.unmatured, self.allocated + other.allocated)
 
-    def __radd__(self, other) -> "WalletBalance":
+    def __radd__(self, other: object) -> "WalletBalance":
         if not isinstance(other, WalletBalance):
             raise NotImplementedError
         return WalletBalance(self.confirmed + other.confirmed, self.unconfirmed + other.unconfirmed,

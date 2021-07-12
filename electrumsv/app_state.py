@@ -35,7 +35,7 @@ etc.
 import concurrent.futures
 import os
 import time
-from typing import Optional, Tuple, Union
+from typing import Any, Callable, cast, Coroutine, Optional, Tuple, TYPE_CHECKING, TypeVar, Union
 
 from bitcoinx import Headers
 
@@ -48,61 +48,86 @@ from .simple_config import SimpleConfig
 from .regtest_support import HeadersRegTestMod, setup_regtest
 from .util import format_satoshis
 
+if TYPE_CHECKING:
+    from .daemon import Daemon
+    from .exchange_rate import FxTask
+    from .gui.qt.app import SVApplication
+    from .gui.qt.app_state import QtAppStateProxy
+
+
+T1 = TypeVar("T1")
+
 logger = logs.get_logger("app_state")
 
 
 class DefaultApp(object):
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
-    def run_app(self):
+    def run_app(self) -> None:
         global app_state
         while app_state.daemon.is_running():
             time.sleep(0.5)
 
-    def setup_app(self):
+    def setup_app(self) -> None:
         # app_state.daemon's __init__ is called after app_state.app's.
         # Initialise things dependent upon app_state.daemon here."""
         return
 
-    def on_new_wallet_event(self, wallet_path, row) -> None:
-        # hack - an expected api when resetting / creating a new wallet...
-        pass
+    def new_window(self, path: Optional[str], uri: Optional[str]=None) -> None:
+        raise NotImplementedError
 
-    def run_coro(self, coro, *args, on_done=None) -> concurrent.futures.Future:
+    def run_coro(self, coro: Callable[..., Coroutine[Any, Any, T1]], *args: Any,
+            on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
+                -> concurrent.futures.Future[T1]:
         global app_state
         return app_state.async_.spawn(coro, *args, on_done=on_done)
 
 
 class AppStateProxy(object):
-    app = None
+    app: DefaultApp
     base_units = ['BSV', 'mBSV', 'bits', 'sats']    # large to small
     decimal_points = [8, 5, 2, 0]
 
+    daemon: "Daemon"
+    fx: Optional["FxTask"] = None
+
     # Avoid wider dependencies by not using a reference to the config type.
     def __init__(self, config: SimpleConfig, gui_kind: str) -> None:
-        from electrumsv.device import DeviceMgr
+        from .device import DeviceMgr
         self.config = config
         self.gui_kind = gui_kind
         # Call this now so any code, such as DeviceMgr's constructor, can use us
         AppState.set_proxy(self)
         self.device_manager = DeviceMgr()
         self.credentials = CredentialCache()
-        self.fx = None
         self.headers: Optional[Union[Headers, HeadersRegTestMod]] = None
         # Not entirely sure these are worth caching, but preserving existing method for now
-        self.decimal_point = config.get('decimal_point', 8)
-        self.num_zeros = config.get('num_zeros', 0)
+        self.decimal_point = config.get_explicit_type(int, 'decimal_point', 8)
+        self.num_zeros = config.get_explicit_type(int, 'num_zeros', 0)
         self.async_ = ASync()
 
     def shutdown(self) -> None:
         self.credentials.close()
 
-    def has_app(self):
+    def has_app(self) -> bool:
         return self.app is not None
 
-    def set_app(self, app) -> None:
+    # NOTE(app-metaclass-typing) This should be more an abstract base class that both `DefaultApp`
+    #   or `SVApplication` derive from. However, that likely forces down the unholy path of
+    #   multiple inheritance so maybe just pretending that `DefaultApp` is the base class is
+    #   good enough for now.
+    def set_app(self, app: DefaultApp) -> None:
         self.app = app
+
+    @property
+    def app_qt(self) -> "SVApplication":
+        # NOTE(app-metaclass-typing)
+        # We do not have anything more than the nebulous type checking reference to the QT
+        # application type. We shouldn't either, so we just for now resolve this whole metaclassed
+        # app problem by ensuring it's not the default headless app.
+        assert type(self.app) is not DefaultApp
+        return cast("SVApplication", self.app)
 
     def headers_filename(self) -> str:
         return os.path.join(self.config.path, 'headers')
@@ -112,7 +137,7 @@ class AppStateProxy(object):
             self.headers = setup_regtest(self)
         else:
             self.headers = Headers.from_file(Net.COIN, self.headers_filename(), Net.CHECKPOINT)
-        for n, chain in enumerate(self.headers.chains(), start=1):  # type: ignore
+        for n, chain in enumerate(self.headers.chains(), start=1):
             logger.info(f'chain #{n}: {chain.desc()}')
 
     def base_unit(self) -> str:
@@ -149,7 +174,8 @@ class AppStateProxy(object):
 
     def electrumx_message_size_limit(self) -> int:
         return max(0,
-            self.config.get('electrumx_message_size_limit', MAX_INCOMING_ELECTRUMX_MESSAGE_MB))
+            self.config.get_explicit_type(int, 'electrumx_message_size_limit',
+                MAX_INCOMING_ELECTRUMX_MESSAGE_MB))
 
     def set_electrumx_message_size_limit(self, maximum_size: int) -> None:
         assert maximum_size >= 0, f"invalid cache size {maximum_size}"
@@ -159,22 +185,33 @@ class AppStateProxy(object):
 
 class _AppStateMeta(type):
 
-    def __getattr__(cls, attr):
+    def __getattr__(cls, attr: str) -> Any:
         return getattr(cls._proxy, attr)
 
-    def __setattr__(cls, attr, value):
+    def __setattr__(cls, attr: str, value: Any) -> None:
         if attr == '_proxy':
             super().__setattr__(attr, value)
         return setattr(cls._proxy, attr, value)
 
 
 class AppState(metaclass=_AppStateMeta):
-
-    _proxy = None
+    _proxy: Optional[AppStateProxy] = None
 
     @classmethod
-    def set_proxy(cls, proxy):
+    def set_proxy(cls, proxy: AppStateProxy) -> None:
         cls._proxy = proxy
 
 
-app_state = AppState
+# NOTE(app-metaclass-typing) The `app` and `app_state` objects can either be the default headless
+#   versions present here or at least the current other option of the extended version from the GUI.
+#   The typing support does not work for both metaclasses and inheritance, so the best I (rt12) can
+#   come up with at this time is to have two different copies of each metaclass proxied variable
+#   using the type that we want it as.
+#
+#   It is not possible to have module-level properties, so fetching the
+
+app_state = cast(AppStateProxy, AppState)
+def get_app_state_qt() -> "QtAppStateProxy":
+    assert type(app_state) is not AppStateProxy
+    return cast("QtAppStateProxy", app_state)
+

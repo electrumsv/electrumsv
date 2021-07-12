@@ -24,7 +24,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Any, Optional, TYPE_CHECKING
+from typing import Any, Optional, Tuple, TYPE_CHECKING
 
 from PyQt5.QtCore import Qt, QSortFilterProxyModel, QObject, QSize
 from PyQt5.QtGui import QPainter, QPixmap
@@ -156,7 +156,6 @@ class ContactCards(QWidget):
         self._list.setItemWidget(list_item, test_card)
 
     def _remove_identity(self, contact: ContactEntry, identity: ContactIdentity) -> None:
-        removal_entries = []
         for i in range(self._list.count()-1, -1, -1):
             item = self._list.item(i)
             widget = self._list.itemWidget(item)
@@ -286,7 +285,7 @@ class ContactCard(QWidget):
 
 
 # TODO: Refactor this into a class.
-def edit_contact_dialog(wallet_api, contact_key=None):
+def edit_contact_dialog(wallet_api, contact_key: Optional[Tuple[int, bytes]]=None):
     editing = contact_key is not None
     if editing:
         title = _("Edit Contact")

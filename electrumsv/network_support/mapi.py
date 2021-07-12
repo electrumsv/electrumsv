@@ -1,5 +1,6 @@
 import concurrent.futures
-from typing import cast, List, Optional, TYPE_CHECKING, Tuple, TypedDict
+import json
+from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING, Tuple, TypedDict
 
 import aiohttp
 from bitcoinx import PublicKey
@@ -9,7 +10,6 @@ from aiorpcx import SOCKSError, TaskGroup
 from ..app_state import app_state
 from ..logs import logs
 from ..types import TransactionSize
-from ..util.misc import decode_response_body
 
 
 if TYPE_CHECKING:
@@ -81,6 +81,13 @@ class JSONEnvelope(TypedDict):
     mimetype: str
 
 
+async def decode_response_body(response: aiohttp.ClientResponse) -> Dict[Any, Any]:
+    body = await response.read()
+    if body == b"" or body == b"{}":
+        return {}
+    return cast(Dict[Any, Any], json.loads(body.decode()))
+
+
 # self.mapi_client: Optional[aiohttp.ClientSession] = None
 #
 # async def _get_mapi_client(self):
@@ -102,7 +109,7 @@ class JSONEnvelope(TypedDict):
 
 
 def poll_servers(network: "Network", account: "AbstractAccount") \
-        -> Optional[concurrent.futures.Future]:
+        -> Optional[concurrent.futures.Future[None]]:
     """
     Work out if any servers lack fee quotes and poll them.
 
@@ -116,7 +123,7 @@ def poll_servers(network: "Network", account: "AbstractAccount") \
 
     if not len(server_entries):
         return None
-    return cast("ASync", app_state.async_).spawn(_poll_servers_async, server_entries)
+    return app_state.async_.spawn(_poll_servers_async, server_entries)
 
 
 async def _poll_servers_async(

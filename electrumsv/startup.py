@@ -26,9 +26,12 @@
 # libraries.  Also, this file MUST NOT use f-strings.
 import os.path as path
 import sys
+from typing import Iterable, Callable
 
 MINIMUM_PYTHON_VERSION = (3, 9, 5)
 MINIMUM_SQLITE_VERSION = (3, 35, 4)
+
+fv: Callable[[Iterable[int]], str]
 
 vtuple = sys.version_info[:3]
 if vtuple < MINIMUM_PYTHON_VERSION:

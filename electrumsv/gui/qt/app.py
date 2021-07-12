@@ -30,7 +30,7 @@ from functools import partial
 import signal
 import sys
 import threading
-from typing import Callable, cast, Iterable, Optional, TYPE_CHECKING
+from typing import Any, Callable, cast, Coroutine, Iterable, Optional, TYPE_CHECKING, TypeVar
 
 from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
@@ -40,7 +40,7 @@ from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QDial
 
 from electrumsv.app_state import app_state
 from electrumsv.contacts import ContactEntry, ContactIdentity
-from electrumsv.i18n import _, set_language
+from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.wallet import AbstractAccount, Wallet
 
@@ -58,6 +58,8 @@ if TYPE_CHECKING:
     from ...async_ import ASync
     from ...daemon import Daemon
 
+
+T1 = TypeVar("T1")
 
 logger = logs.get_logger('app')
 
@@ -78,7 +80,7 @@ class OpenFileEventFilter(QObject):
 class SVApplication(QApplication):
 
     # Signals need to be on a QObject
-    create_new_window_signal = pyqtSignal(str, object)
+    create_new_window_signal = pyqtSignal(object, object, bool)
     cosigner_received_signal = pyqtSignal(object, object)
     labels_changed_signal = pyqtSignal(object, object, object)
     window_opened_signal = pyqtSignal(object)
@@ -129,7 +131,7 @@ class SVApplication(QApplication):
         self.tray.show()
 
         # FIXME Fix what.. what needs to be fixed here?
-        set_language(app_state.config.get('language', get_default_language()))
+        app_state.config.get('language', get_default_language())
 
         logs.add_handler(self.log_handler)
         self._start()
@@ -215,7 +217,7 @@ class SVApplication(QApplication):
 
     def new_window(self, path: Optional[str], uri: Optional[str]=None) -> None:
         # Use a signal as can be called from daemon thread
-        self.create_new_window_signal.emit(path, uri)
+        self.create_new_window_signal.emit(path, uri, bool)
 
     def show_network_dialog(self, parent) -> None:
         if not cast("Daemon", app_state.daemon).network:
@@ -405,20 +407,22 @@ class SVApplication(QApplication):
         self.sendEvent(self.clipboard(), event)
         self.tray.hide()
 
-    def run_coro(self, coro, *args, on_done=None) -> concurrent.futures.Future:
+    def run_coro(self, coro: Callable[..., Coroutine[Any, Any, T1]], *args: Any,
+            on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
+                -> concurrent.futures.Future[T1]:
         '''Run a coroutine.  on_done, if given, is passed the future containing the reuslt or
         exception, and is guaranteed to be called in the context of the GUI thread.
         '''
-        def task_done(future):
+        def task_done(future: concurrent.futures.Future[T1]) -> None:
             self.async_tasks_done.emit()
 
-        future = cast("ASync", app_state.async_).spawn(coro, *args, on_done=on_done)
+        future = app_state.async_.spawn(coro, *args, on_done=on_done)
         future.add_done_callback(task_done)
         return future
 
-    def run_in_thread(self, func, *args,
-            on_done: Optional[Callable[[concurrent.futures.Future], None]]=None) \
-                -> concurrent.futures.Future:
+    def run_in_thread(self, func: Callable[..., T1], *args: Any,
+            on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
+                -> concurrent.futures.Future[T1]:
         '''Run func(*args) in a thread.  on_done, if given, is passed the future containing the
         reuslt or exception, and is guaranteed to be called in the context of the GUI
         thread.

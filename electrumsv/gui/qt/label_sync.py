@@ -68,10 +68,10 @@ class LabelSync(object):
     def __init__(self):
         self.target_host = 'labels.electrum.org'
         self._accounts = {}
-        app_state.app.window_opened_signal.connect(self.window_opened)
-        app_state.app.window_closed_signal.connect(self.window_closed)
+        app_state.app_qt.window_opened_signal.connect(self.window_opened)
+        app_state.app_qt.window_closed_signal.connect(self.window_closed)
 
-    def encode(self, account: AbstractAccount, msg):
+    def encode(self, account: AbstractAccount, msg: str) -> str:
         password, iv, account_id = self._accounts[account]
         encrypted = aes_encrypt_with_iv(password, iv, msg.encode('utf8'))
         return base64.b64encode(encrypted).decode()

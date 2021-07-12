@@ -145,9 +145,5 @@ def hash_160(x: bytes) -> bytes:
     return md.digest()
 
 
-def hmac_oneshot(key: bytes, msg: bytes, digest) -> bytes:
-    if hasattr(hmac, 'digest'):
-        # requires python 3.7+; faster
-        return hmac.digest(key, msg, digest)
-    else:
-        return hmac.new(key, msg, digest).digest()
+def hmac_oneshot(key: bytes, msg: bytes, digest: str) -> bytes:
+    return hmac.digest(key, msg, digest)

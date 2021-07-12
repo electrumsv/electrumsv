@@ -28,33 +28,34 @@ from contextlib import suppress
 import datetime
 from enum import IntEnum
 from functools import partial
+from ipaddress import IPv4Address, IPv6Address
+import logging
 import random
 import re
 import ssl
 import time
-from typing import Any, Callable, cast, Dict, Iterable, List, NamedTuple, Optional, TYPE_CHECKING, \
-    Tuple, Union
+from typing import Any, Callable, cast, Coroutine, Dict, Iterable, List, NamedTuple, Optional, \
+    TYPE_CHECKING, TypedDict, Tuple, Union
 
 from aiorpcx import (
     connect_rs, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
-    TaskTimeout, TaskGroup, handler_invocation, sleep, ignore_after, timeout_after,
-    SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth, NewlineFramer
+    TaskTimeout, TaskGroup, handler_invocation, Request, sleep, ignore_after, timeout_after,
+    SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth, NetAddress, NewlineFramer
 )
-from bitcoinx import BitcoinRegtest, double_sha256, IncorrectBits, InsufficientPoW, \
-    MissingHeader, hash_to_hex_str, hex_str_to_hash, sha256
+from bitcoinx import BitcoinRegtest, Chain, CheckPoint, Coin, double_sha256, Header, Headers, \
+    IncorrectBits, InsufficientPoW, MissingHeader, hash_to_hex_str, hex_str_to_hash, sha256
 import certifi
 
 from .app_state import app_state
 from .constants import NetworkServerType, TransactionImportFlag, TxFlags
-from .credentials import IndefiniteCredentialId
 from .i18n import _
 from .logs import logs
 from .network_support.api_server import NewServer, NewServerAPIContext
 from .networks import Net
 from .subscription import SubscriptionManager
 from .transaction import Transaction
-from .types import ElectrumXHistoryList, NetworkServerState, ScriptHashSubscriptionEntry, \
-    ServerAccountKey
+from .types import ElectrumXHistoryList, IndefiniteCredentialId, NetworkServerState, \
+    ScriptHashSubscriptionEntry, ServerAccountKey
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
 
@@ -94,7 +95,7 @@ BROADCAST_TX_MSG_LIST = (
 )
 
 
-def broadcast_failure_reason(exception):
+def broadcast_failure_reason(exception: Exception) -> str:
     if isinstance(exception, RPCError):
         msg = exception.message
         for in_msgs, out_msg in BROADCAST_TX_MSG_LIST:
@@ -112,17 +113,42 @@ class SwitchReason(IntEnum):
     user_set = 2
 
 
-def _require_list(obj):
+def _require_list(obj: Any) -> Union[Tuple[Any, ...], List[Any]]:
     assert isinstance(obj, (tuple, list))
     return obj
 
 
-def _require_string(obj):
+def _require_string(obj: Any) -> str:
     assert isinstance(obj, str)
     return obj
 
 
-def _root_from_proof(hash, branch, index):
+class HeadersResponse(TypedDict):
+    count: int
+    hex: str
+    max: int
+    root: str
+    branch: List[str]
+
+
+class HeaderProofResponse(TypedDict):
+    branch: List[str]
+    header: str
+    root: str
+
+
+class MerkleResponse(TypedDict):
+    block_height: int
+    merkle: List[str]
+    pos: int
+
+
+class HeaderResponse(TypedDict):
+    hex: str
+    height: int
+
+
+def _root_from_proof(hash: bytes, branch: List[bytes], index: int) -> bytes:
     '''From ElectrumX.'''
     for elt in branch:
         if index & 1:
@@ -137,7 +163,7 @@ def _root_from_proof(hash, branch, index):
 
 class DisconnectSessionError(Exception):
 
-    def __init__(self, reason, *, blacklist=False):
+    def __init__(self, reason: str, *, blacklist: bool=False) -> None:
         super().__init__(reason)
         self.blacklist = False
 
@@ -145,7 +171,7 @@ class DisconnectSessionError(Exception):
 class SVServerState:
     '''The run-time state of an SVServer.'''
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.banner = ''
         self.donation_address = ''
         self.last_try = 0.
@@ -153,15 +179,16 @@ class SVServerState:
         self.last_blacklisted = 0.
         self.retry_delay = 0
         self.is_disabled = False
+        self.peers: List["SVServer"] = []
 
-    def can_retry(self, now):
+    def can_retry(self, now: float) -> bool:
         return not self.is_disabled and not self.is_blacklisted(now) and \
             self.last_try + self.retry_delay < now
 
-    def is_blacklisted(self, now):
+    def is_blacklisted(self, now: float) -> bool:
         return self.last_blacklisted > now - ONE_DAY
 
-    def to_json(self):
+    def to_json(self) -> Dict[str, int]:
         return {
             'last_try': int(self.last_try),
             'last_good': int(self.last_good),
@@ -169,13 +196,13 @@ class SVServerState:
         }
 
     @classmethod
-    def from_json(cls, dct):
+    def from_json(cls, dct: Dict[str, int]) -> "SVServerState":
         result = cls()
         for attr, value in dct.items():
             setattr(result, attr, value)
         return result
 
-    def __str__(self):
+    def __str__(self) -> str:
         return str(self.to_json())
 
 
@@ -207,7 +234,7 @@ class SVServer:
     # entries are instantiated and in doing so they add themselves to the `all_servers` list.
 
     all_servers: Dict[SVServerKey, 'SVServer'] = {}
-    _connection_task: Optional[asyncio.Task] = None
+    _connection_task: Optional[asyncio.Task[None]] = None
 
     def __init__(self, host: str, port: int, protocol: str) -> None:
         if not isinstance(host, str) or not host:
@@ -262,14 +289,15 @@ class SVServer:
         # FIXME: implement certificate pinning like Electrum?
         return ssl.SSLContext(ssl.PROTOCOL_TLS)
 
-    def _connector(self, session_factory, proxy):
+    def _connector(self, session_factory: partial["SVSession"], proxy: Optional["SVProxy"]) \
+            -> connect_rs:
         return connect_rs(self.host, self.port, proxy=proxy, session_factory=session_factory,
                           ssl=self._sslc())
 
     def disconnected(self) -> bool:
         return self._connection_task is None or self._connection_task.done()
 
-    def add_disconnection_callback(self, callback: Callable[[asyncio.Future], None]) -> bool:
+    def add_disconnection_callback(self, callback: Callable[[asyncio.Future[None]], None]) -> bool:
         if self._connection_task is not None and not self._connection_task.done():
             self._connection_task.add_done_callback(callback)
             return True
@@ -280,11 +308,11 @@ class SVServer:
             self._connection_task.cancel()
             self._connection_task = None
 
-    def _logger(self, n):
+    def _logger(self, n: str) -> logging.Logger:
         logger_name = f'[{self.host}:{self.port} {self.protocol_text()} #{n}]'
         return logs.get_logger(logger_name)
 
-    def to_json(self):
+    def to_json(self) -> Tuple[str, int, str, SVServerState]:
         return (self.host, self.port, self.protocol, self.state)
 
     @classmethod
@@ -347,19 +375,24 @@ class SVServer:
         return str(self.to_json()[:3])
 
 
-class SVUserAuth(SOCKSUserAuth):
-    def __repr__(self):
+# NOTE(typing) No typing for this base class, so ignore..
+class SVUserAuth(SOCKSUserAuth): # type: ignore
+    def __repr__(self) -> str:
         # So its safe in logs, etc.  Also used in proxy comparisons.
         hash_str = sha256(str((self.username, self.password)).encode())[:8].hex()
         return f'{self.__class__.__name__}({hash_str})'
 
 
-class SVProxy(SOCKSProxy):
+# NOTE(typing) No typing for this base class, so ignore..
+class SVProxy(SOCKSProxy): # type: ignore
     '''Encapsulates a SOCKS proxy.'''
 
     kinds = {'SOCKS4' : SOCKS4a, 'SOCKS5': SOCKS5}
 
-    def __init__(self, address, kind, auth):
+    auth: SOCKSUserAuth
+
+    def __init__(self, address: Union[NetAddress, str, Tuple[str, str]], kind: str,
+            auth: Optional[Union[SOCKSUserAuth, List[str]]]=None) -> None:
         protocol = self.kinds.get(kind.upper())
         if not protocol:
             raise ValueError(f'invalid proxy kind: {kind}')
@@ -369,15 +402,15 @@ class SVProxy(SOCKSProxy):
             auth = SVUserAuth(*auth)
         super().__init__(address, protocol, auth)
 
-    def to_json(self):
-        return (str(self.address), self.kind(), self.auth)
+    def to_json(self) -> Tuple[str, str, List[str]]:
+        return (str(self.address), self.kind(), list(self.auth))
 
     @classmethod
-    def from_json(cls, obj):
+    def from_json(cls, obj: Tuple[str, str, List[str]]) -> "SVProxy":
         return cls(*obj)
 
     @classmethod
-    def from_string(cls, obj):
+    def from_string(cls, obj: str) -> Optional["SVProxy"]:
         # Backwards compatibility
         try:
             kind, host, port, username, password = obj.split(':', 5)
@@ -385,26 +418,27 @@ class SVProxy(SOCKSProxy):
         except Exception:
             return None
 
-    def kind(self):
+    def kind(self) -> str:
         return 'SOCKS4' if self.protocol is SOCKS4a else 'SOCKS5'
 
-    def host(self):
-        return self.address.host
+    def host(self) -> Union[IPv4Address, IPv6Address]:
+        return cast(Union[IPv4Address, IPv6Address], self.address.host)
 
-    def port(self):
-        return self.address.port
+    def port(self) -> int:
+        return cast(int, self.address.port)
 
-    def username(self):
-        return self.auth.username if self.auth else ''
+    def username(self) -> str:
+        return cast(str, self.auth.username) if self.auth else ''
 
-    def password(self):
-        return self.auth.password if self.auth else ''
+    def password(self) -> str:
+        return cast(str, self.auth.password) if self.auth else ''
 
-    def __str__(self):
+    def __str__(self) -> str:
         return ', '.join((repr(self.address), self.kind(), repr(self.auth)))
 
 
-class SVSession(RPCSession):
+# NOTE(typing) base class lacks typing.
+class SVSession(RPCSession): # type: ignore
 
     ca_path = certifi.where()
     _connecting_tips: Dict[bytes, asyncio.Event] = {}
@@ -412,17 +446,18 @@ class SVSession(RPCSession):
     _script_hash_ids: Dict[bytes, int] = {}
     _have_made_initial_script_hash_subscriptions = False
 
-    def __init__(self, network, server, logger, *args, **kwargs):
+    def __init__(self, network: "Network", server: SVServer, logger: logging.Logger,
+            *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._handlers = {}
+        self._handlers: Dict[str, Callable[..., Coroutine[Any, Any, None]]] = {}
         self._network = network
         self._closed_event = app_state.async_.event()
         # These attributes are intended to part of the external API
-        self.chain = None
+        self.chain: Optional[Chain] = None
         self.logger = logger
         self.server = server
-        self.tip = None
-        self.ptuple = (0, )
+        self.tip: Optional[Header] = None
+        self.ptuple: Tuple[int, ...] = (0, )
 
     def set_throttled(self, flag: bool) -> None:
         if flag:
@@ -431,21 +466,21 @@ class SVSession(RPCSession):
             RPCSession.recalibrate_count = 10000000000
 
     def get_current_outgoing_concurrency_target(self) -> int:
-        return self._outgoing_concurrency.max_concurrent
+        return cast(int, self._outgoing_concurrency.max_concurrent)
 
     def default_framer(self) -> NewlineFramer:
         max_size = app_state.electrumx_message_size_limit()*1024*1024
         return NewlineFramer(max_size=max_size)
 
     @classmethod
-    def _required_checkpoint_headers(cls):
+    def _required_checkpoint_headers(cls) -> Tuple[int, int]:
         '''Returns (start_height, count).  The range of headers needed for the DAA so that all
         post-checkpoint headers can have their difficulty verified.
         '''
         if cls._need_checkpoint_headers:
-            headers_obj = app_state.headers
+            headers_obj = cast(Headers, app_state.headers)
             chain = headers_obj.longest_chain()
-            cp_height = headers_obj.checkpoint.height
+            cp_height = cast(CheckPoint, headers_obj.checkpoint).height
             if cp_height == 0:
                 cls._need_checkpoint_headers = False
             else:
@@ -454,17 +489,16 @@ class SVSession(RPCSession):
                         headers_obj.header_at_height(chain, height)
                     cls._need_checkpoint_headers = False
                 except MissingHeader:
-                    # NOTE(typing) The try scope provides the `height` value.
-                    return height, cp_height - height # type: ignore
+                    return height, cp_height - height
         return 0, 0
 
     @classmethod
-    def _connect_header(cls, height, raw_header):
+    def _connect_header(cls, height: int, raw_header: bytes) -> Tuple[Header, Chain]:
         '''It is assumed that if height is <= the checkpoint height then the header has
         been checked for validity.
         '''
-        headers_obj = app_state.headers
-        checkpoint = headers_obj.checkpoint
+        headers_obj = cast(Headers, app_state.headers)
+        checkpoint = cast(CheckPoint, headers_obj.checkpoint)
 
         if height <= checkpoint.height:
             headers_obj.set_one(height, raw_header)
@@ -472,23 +506,23 @@ class SVSession(RPCSession):
             header = Net.COIN.deserialized_header(raw_header, height)
             return header, headers_obj.longest_chain()
         else:
-            return app_state.headers.connect(raw_header)
+            return cast(Tuple[Header, Chain], headers_obj.connect(raw_header))
 
     @classmethod
-    def _connect_chunk(cls, start_height, raw_chunk):
+    def _connect_chunk(cls, start_height: int, raw_chunk: bytes) -> Chain:
         '''It is assumed that if the last header of the raw chunk is before the checkpoint height
         then it has been checked for validity.
         '''
-        headers_obj = app_state.headers
-        checkpoint = headers_obj.checkpoint
-        coin = headers_obj.coin
+        headers_obj = cast(Headers, app_state.headers)
+        checkpoint = cast(CheckPoint, headers_obj.checkpoint)
+        coin = cast(Coin, headers_obj.coin)
         end_height = start_height + len(raw_chunk) // HEADER_SIZE
 
-        def extract_header(height):
+        def extract_header(height: int) -> bytes:
             start = (height - start_height) * HEADER_SIZE
             return raw_chunk[start: start + HEADER_SIZE]
 
-        def verify_chunk_contiguous_and_set(next_raw_header, to_height):
+        def verify_chunk_contiguous_and_set(next_raw_header: bytes, to_height: int) -> None:
             # Set headers backwards from a proven header, verifying the prev_hash links.
             for height in reversed(range(start_height, to_height)):
                 raw_header = extract_header(height)
@@ -519,7 +553,7 @@ class SVSession(RPCSession):
         finally:
             headers_obj.flush()
 
-    async def _negotiate_protocol(self):
+    async def _negotiate_protocol(self) -> None:
         '''Raises: RPCError, TaskTimeout'''
         method = 'server.version'
         args = (PACKAGE_VERSION, [ version_string(PROTOCOL_MIN), version_string(PROTOCOL_MAX) ])
@@ -532,7 +566,7 @@ class SVSession(RPCSession):
         except (AssertionError, ValueError) as e:
             raise DisconnectSessionError(f'{method} failed: {e}', blacklist=True)
 
-    async def _get_checkpoint_headers(self):
+    async def _get_checkpoint_headers(self) -> None:
         '''Raises: RPCError, TaskTimeout'''
         while True:
             start_height, header_count = self._required_checkpoint_headers()
@@ -541,19 +575,21 @@ class SVSession(RPCSession):
             logger.info("%d checkpoint headers needed", header_count)
             await self._request_chunk(start_height, header_count)
 
-    async def _request_chunk(self, start_height, header_count):
+    async def _request_chunk(self, start_height: int, header_count: int) -> int:
         '''Returns the greatest height successfully connected (might be lower than expected
         because of a small server response).
 
         Raises: RPCError, TaskTimeout, DisconnectSessionError'''
         self.logger.info("requesting %d headers from height %d", header_count, start_height)
         method = 'blockchain.block.headers'
-        cp_height = app_state.headers.checkpoint.height
+        assert app_state.headers is not None
+        cp_height = cast(int, app_state.headers.checkpoint.height)
         if start_height + header_count >= cp_height:
             cp_height = 0
 
         try:
-            result = await self.send_request(method, (start_height, header_count, cp_height))
+            result = cast(HeadersResponse,
+                await self.send_request(method, (start_height, header_count, cp_height)))
 
             received_count = result['count']
             last_height = start_height + received_count - 1
@@ -575,16 +611,19 @@ class SVSession(RPCSession):
         self.logger.info("connected %d headers up to height %d", received_count, last_height)
         return last_height
 
-    async def _subscribe_headers(self):
+    async def _subscribe_headers(self) -> None:
         '''Raises: RPCError, TaskTimeout, DisconnectSessionError'''
         self._handlers[HEADERS_SUBSCRIBE] = self._on_new_tip
-        tip = await self.send_request(HEADERS_SUBSCRIBE)
+        tip = cast(HeaderResponse, await self.send_request(HEADERS_SUBSCRIBE))
         await self._on_new_tip(tip)
 
-    def _secs_to_next_ping(self):
-        return self.last_send + 300 - time.time()
+    # NOTE(typing) Override the default aiorpcx typing for this variable.
+    last_send: float
 
-    async def _ping_loop(self):
+    def _secs_to_next_ping(self) -> float:
+        return self.last_send + 300.0 - time.time()
+
+    async def _ping_loop(self) -> None:
         '''Raises: RPCError, TaskTimeout'''
         method = 'server.ping'
         while True:
@@ -593,7 +632,8 @@ class SVSession(RPCSession):
                 self.logger.debug("sending %s", method)
                 await self.send_request(method)
 
-    def _check_header_proof(self, hex_root, branch, raw_header, header_height):
+    def _check_header_proof(self, hex_root: str, branch: List[bytes], raw_header: bytes,
+            header_height: int) -> None:
         '''Raises: DisconnectSessionError'''
         expected_root = Net.VERIFICATION_BLOCK_MERKLE_ROOT
         if hex_root != expected_root:
@@ -606,7 +646,7 @@ class SVSession(RPCSession):
                                          f'{expected_root}', blacklist=True)
         self.logger.debug("good header proof for height %d", header_height)
 
-    async def _on_new_tip(self, json_tip):
+    async def _on_new_tip(self, json_tip: HeaderResponse) -> None:
         '''Raises: RPCError, TaskTimeout, DisconnectSessionError'''
         try:
             raw_header = bytes.fromhex(json_tip['hex'])
@@ -636,7 +676,7 @@ class SVSession(RPCSession):
             # Try to connect and then re-check.  Note self.tip might have changed.
             await self._catch_up_to_tip_throttled(tip)
 
-    async def _catch_up_to_tip_throttled(self, tip):
+    async def _catch_up_to_tip_throttled(self, tip: Header) -> None:
         '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
         # Avoid thundering herd effect by having one session catch up per tip
         done_event = SVSession._connecting_tips.get(tip.raw)
@@ -651,10 +691,10 @@ class SVSession(RPCSession):
             finally:
                 SVSession._connecting_tips.pop(tip.raw).set()
 
-    async def _catch_up_to_tip(self, tip):
+    async def _catch_up_to_tip(self, tip: Header) -> None:
         '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
-        headers_obj = app_state.headers
-        cp_height = headers_obj.checkpoint.height
+        headers_obj = cast(Headers, app_state.headers)
+        cp_height = cast(int, headers_obj.checkpoint.height)
         max_height = max(chain.height for chain in headers_obj.chains())
         heights = [cp_height + 1]
         step = 1
@@ -678,11 +718,11 @@ class SVSession(RPCSession):
 
         Raises: RPCError, TaskTimeout
         """
-        status = await self.send_request(SCRIPTHASH_SUBSCRIBE, [script_hash_hex])
+        status = cast(str, await self.send_request(SCRIPTHASH_SUBSCRIBE, [script_hash_hex]))
         await self._on_queue_status_changed(script_hash_hex, status)
 
     async def _unsubscribe_from_script_hash(self, script_hash: str) -> bool:
-        return await self.send_request(SCRIPTHASH_UNSUBSCRIBE, [script_hash])
+        return cast(bool, await self.send_request(SCRIPTHASH_UNSUBSCRIBE, [script_hash]))
 
     async def _on_script_hash_status_changed(self, script_hash: str, status: Optional[str]) -> None:
         script_hash_bytes = hex_str_to_hash(script_hash)
@@ -703,27 +743,27 @@ class SVSession(RPCSession):
         await self._network.subscriptions.on_script_hash_history(subscription_id,
             script_hash_bytes, result)
 
-    async def _main_server_batch(self):
+    async def _main_server_batch(self) -> None:
         '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
-        # NOTE(typing) We know `timeout_after` will be returning a context manager.
-        async with timeout_after(10): # type: ignore
+        async with timeout_after(10):
             async with self.send_batch(raise_errors=True) as batch:
                 batch.add_request('server.banner')
                 batch.add_request('server.donation_address')
                 batch.add_request('server.peers.subscribe')
+        batch_results = cast(Tuple[Any, Any, Any], batch.results)
         server = self.server
         try:
-            server.state.banner = _require_string(batch.results[0])
-            server.state.donation_address = _require_string(batch.results[1])
-            server.state.peers = self._parse_peers_subscribe(batch.results[2])
+            server.state.banner = _require_string(batch_results[0])
+            server.state.donation_address = _require_string(batch_results[1])
+            server.state.peers = self._parse_peers_subscribe(batch_results[2])
             self._network.trigger_callback('banner')
         except AssertionError as e:
             raise DisconnectSessionError(f'main server requests bad batch response: {e}')
 
-    def _parse_peers_subscribe(self, result):
-        peers = []
+    def _parse_peers_subscribe(self, result: Any) -> List[SVServer]:
+        peers: List[SVServer] = []
         for host_details in _require_list(result):
-            host_details = _require_list(host_details)
+            host_details = cast(Tuple[Any, str, List[str]], _require_list(host_details))
             host = _require_string(host_details[1])
             for v in host_details[2]:
                 if re.match(r"[st]\d*", _require_string(v)):
@@ -735,47 +775,47 @@ class SVSession(RPCSession):
         self.logger.info("%d servers returned from server.peers.subscribe", len(peers))
         return peers
 
-    async def _request_headers_at_heights(self, heights):
+    async def _request_headers_at_heights(self, heights: List[int]) -> int:
         '''Requests the headers as a batch and connects them, lowest height first.
 
         Return the greatest connected height (-1 if none connected).
         Raises: DisconnectSessionError, BatchError, TaskTimeout
         '''
-        async def _request_header_batch(batch_heights):
+        good_height = -1
+        async def _request_header_batch(batch_heights: List[int]) -> None:
             nonlocal good_height
 
             self.logger.debug("requesting %d headers at heights %s", len(batch_heights),
                 batch_heights)
-            # NOTE(typing) We know `timeout_after` will be returning a context manager.
-            async with timeout_after(10): # type: ignore
+            async with timeout_after(10):
                 async with self.send_batch(raise_errors=True) as batch:
                     for height in batch_heights:
                         batch.add_request(method,
                                           (height, cp_height if height <= cp_height else 0))
 
+            batch_results = cast(Union[str, HeaderProofResponse], batch.results)
             try:
-                for result, height in zip(batch.results, batch_heights):
+                for result, height in zip(batch_results, batch_heights):
                     if height <= cp_height:
-                        hex_root = result['root']
-                        branch = [hex_str_to_hash(item) for item in result['branch']]
-                        raw_header = bytes.fromhex(result['header'])
+                        cp_result = cast(HeaderProofResponse, result)
+                        hex_root = cp_result['root']
+                        branch = [hex_str_to_hash(item) for item in cp_result['branch']]
+                        raw_header = bytes.fromhex(cp_result['header'])
                         self._check_header_proof(hex_root, branch, raw_header, height)
                     else:
                         raw_header = bytes.fromhex(result)
                     _header, self.chain = self._connect_header(height, raw_header)
                     good_height = height
             except MissingHeader:
-                # NOTE(typing) The try scope provides `raw_header` and `height` values.
-                hex_str = hash_to_hex_str(Net.COIN.header_hash(raw_header)) # type: ignore
+                hex_str = hash_to_hex_str(Net.COIN.header_hash(raw_header))
                 self.logger.info("failed to connect at height %d, hash %s last good %d",
-                    height, hex_str, good_height) # type: ignore
+                    height, hex_str, good_height)
             except (AssertionError, KeyError, TypeError, ValueError) as e:
                 raise DisconnectSessionError(f'bad {method} response: {e}')
 
         heights = sorted(set(heights))
         cp_height = Net.CHECKPOINT.height
         method = 'blockchain.block.header'
-        good_height = -1
         min_good_height = max((height for height in heights if height <= cp_height), default=-1)
         for chunk in chunks(heights, 100):
             await _request_header_batch(chunk)
@@ -783,15 +823,16 @@ class SVSession(RPCSession):
             raise DisconnectSessionError(f'cannot connect to checkpoint', blacklist=True)
         return good_height
 
-    async def handle_request(self, request):
+    # What gets passed here?
+    async def handle_request(self, request: Union[Request, Notification]) -> None:
         if isinstance(request, Notification):
             handler = self._handlers.get(request.method)
         else:
             handler = None
         coro = handler_invocation(handler, request)()
-        return await coro
+        await coro
 
-    async def connection_lost(self):
+    async def connection_lost(self) -> None:
         await super().connection_lost()
         self._closed_event.set()
 
@@ -799,7 +840,7 @@ class SVSession(RPCSession):
     # API exposed to the rest of this file
     #
 
-    async def disconnect(self, reason, *, blacklist=False):
+    async def disconnect(self, reason: str, *, blacklist: bool=False) -> None:
         if blacklist:
             self.server.state.last_blacklisted = time.time()
             self.logger.error("disconnecting and blacklisting: %s", reason)
@@ -807,7 +848,7 @@ class SVSession(RPCSession):
             self.logger.error("disconnecting: %s", reason)
         await self.close()
 
-    async def run(self):
+    async def run(self) -> None:
         '''Called when a connection is established to manage the connection.
 
         Raises: RPCError, BatchError, TaskTimeout, DisconnectSessionError
@@ -836,11 +877,11 @@ class SVSession(RPCSession):
         finally:
             await self._network.session_closed(self)
 
-    async def headers_at_heights(self, heights):
+    async def headers_at_heights(self, heights: Iterable[int]) -> Dict[int, Header]:
         '''Raises: MissingHeader, DisconnectSessionError, BatchError, TaskTimeout'''
         result = {}
         missing = []
-        header_at_height = app_state.headers.header_at_height
+        header_at_height = cast(Headers, app_state.headers).header_at_height
         for height in set(heights):
             try:
                 result[height] = header_at_height(self.chain, height)
@@ -852,17 +893,19 @@ class SVSession(RPCSession):
                 result[height] = header_at_height(self.chain, height)
         return result
 
-    async def request_tx(self, tx_id: str):
+    async def request_tx(self, tx_id: str) -> str:
         '''Raises: RPCError, TaskTimeout'''
-        return await self.send_request('blockchain.transaction.get', [tx_id])
+        return cast(str, await self.send_request('blockchain.transaction.get', [tx_id]))
 
-    async def request_proof(self, *args):
+    async def request_proof(self, tx_id: str, tx_height: int) -> MerkleResponse:
         '''Raises: RPCError, TaskTimeout'''
-        return await self.send_request(REQUEST_MERKLE_PROOF, args)
+        return cast(MerkleResponse, await self.send_request(REQUEST_MERKLE_PROOF,
+            (tx_id, tx_height)))
 
     async def request_history(self, script_hash_hex: str) -> ElectrumXHistoryList:
         '''Raises: RPCError, TaskTimeout'''
-        return await self.send_request(SCRIPTHASH_HISTORY, [script_hash_hex])
+        return cast(ElectrumXHistoryList,
+            await self.send_request(SCRIPTHASH_HISTORY, [script_hash_hex]))
 
     async def _on_queue_status_changed(self, script_hash_hex: str, status: str) -> None:
         item = (script_hash_hex, status)
@@ -916,7 +959,7 @@ class Network(TriggeredCallbacks):
     asynchronous.
     '''
 
-    def __init__(self):
+    def __init__(self) -> None:
         TriggeredCallbacks.__init__(self)
 
         app_state.read_headers()
@@ -926,8 +969,8 @@ class Network(TriggeredCallbacks):
         # Sessions
         self.sessions: List[SVSession] = []
         self._chosen_servers: set[SVServer] = set()
-        self.main_server = None
-        self.proxy = None
+        self.main_server: Optional[SVServer] = None
+        self.proxy: Optional[SVProxy] = None
 
         # The usable set of MAPI servers for the application and per-wallet/account.
         self._mapi_servers: Dict[ServerAccountKey, NewServer] = {}
@@ -936,18 +979,19 @@ class Network(TriggeredCallbacks):
         self._read_config_mapi()
 
         # Events
-        self.sessions_changed_event = app_state.async_.event()
-        self.check_main_chain_event = app_state.async_.event()
-        self.stop_network_event = app_state.async_.event()
-        self.shutdown_complete_event = app_state.async_.event()
+        async_ = app_state.async_
+        self.sessions_changed_event = async_.event()
+        self.check_main_chain_event = async_.event()
+        self.stop_network_event = async_.event()
+        self.shutdown_complete_event = async_.event()
 
         # Add an wallet, remove an wallet, or redo all wallet verifications
-        self._wallet_jobs = app_state.async_.queue()
+        self._wallet_jobs = async_.queue()
 
         # Feed pub-sub notifications to currently active SVSession for processing
-        self._on_status_queue = app_state.async_.queue()
+        self._on_status_queue = async_.queue()
 
-        self.future = app_state.async_.spawn(self._main_task)
+        self.future = async_.spawn(self._main_task)
 
         self.subscriptions.set_script_hash_callbacks(
             self._on_subscribe_script_hashes, self._on_unsubscribe_script_hashes)
@@ -1041,6 +1085,7 @@ class Network(TriggeredCallbacks):
             if server is self.main_server:
                 self.trigger_callback('status')
             else:
+                assert self.main_server is not None
                 server = await self._random_server(self.main_server.protocol)
             assert server is not None
 
@@ -1080,8 +1125,7 @@ class Network(TriggeredCallbacks):
         If the main server is lagging switch the main server if auto_connect.
         '''
         while True:
-            # NOTE(typing) We know `timeout_after` will be returning a context manager.
-            async with ignore_after(20): # type: ignore
+            async with ignore_after(20):
                 await self.sessions_changed_event.wait()
             await self._maybe_switch_main_server(SwitchReason.lagging)
 
@@ -1172,7 +1216,7 @@ class Network(TriggeredCallbacks):
         # subscriptions.
         if old_main_session:
             if reason == SwitchReason.user_set:
-                old_main_session.server.retry_delay = 0
+                old_main_session.server.state.retry_delay = 0
             await old_main_session.close()
         self.trigger_callback('status')
 
@@ -1217,9 +1261,9 @@ class Network(TriggeredCallbacks):
         callback_pending = False
         try:
             if not server.disconnected():
-                def disconnection_callback(_future: asyncio.Future) -> None:
-                    # NOTE(typing) False positive of None | SVServer, where outer scope is SVServer.
-                    server.state.is_disabled = was_disabled # type: ignore
+                def disconnection_callback(_future: asyncio.Future[None]) -> None:
+                    assert server is not None
+                    server.state.is_disabled = was_disabled
                 callback_pending = server.add_disconnection_callback(disconnection_callback)
                 server.disconnect()
 
@@ -1239,9 +1283,9 @@ class Network(TriggeredCallbacks):
         if server is None:
             raise KeyError("server does not exist")
 
-        def on_disconnection_completed(*_) -> None:
-            # NOTE(typing) False positive of None | SVServer, where outer scope is SVServer.
-            server.remove() # type: ignore
+        def on_disconnection_completed(*_: Any) -> None:
+            assert server is not None
+            server.remove()
             if callback is not None:
                 callback()
 
@@ -1257,9 +1301,10 @@ class Network(TriggeredCallbacks):
             callback: Optional[Callable[[], None]]=None) -> None:
         app_state.async_.spawn(self.delete_electrumx_server_async, existing_key, callback)
 
-    def _read_config_electrumx(self):
+    def _read_config_electrumx(self) -> Tuple[SVServer, Optional[SVProxy]]:
         # Remove obsolete key
-        app_state.config.set_key('server_blacklist', None)
+        config = app_state.config
+        config.set_key('server_blacklist', None)
         # The way SVServers are populated from config file is confusing. JSON.register() is called
         # for SVServer and when the config is deserialized, the specially serialised SVServer
         # entries are instantiated and in doing so they add themselves to the `all_servers` list.
@@ -1271,10 +1316,10 @@ class Network(TriggeredCallbacks):
                 if protocol in data:
                     SVServer.unique(host, data[protocol], protocol)
 
-        main_server = app_state.config.get('server', None)
+        main_server = config.get('server', None)
         if isinstance(main_server, str):
             main_server = SVServer.from_string(main_server)
-            app_state.config.set_key('server', main_server, True)
+            config.set_key('server', main_server, True)
         if not isinstance(main_server, SVServer):
             logger.info('choosing an SSL server randomly; none in config')
             # TODO We need a better server selection mechanism where if we choose the secure
@@ -1286,7 +1331,7 @@ class Network(TriggeredCallbacks):
             if not main_server:
                 raise RuntimeError('no servers available')
 
-        proxy = app_state.config.get('proxy', None)
+        proxy = config.get('proxy', None)
         if isinstance(proxy, str):
             proxy = SVProxy.from_string(proxy)
 
@@ -1307,6 +1352,7 @@ class Network(TriggeredCallbacks):
 
             while tasks:
                 task = await group.next_done()
+                assert task is not None
                 wallet.response_count += 1
                 wallet.progress_event.set()
                 tx_hash = tasks.pop(task)
@@ -1324,17 +1370,17 @@ class Network(TriggeredCallbacks):
                         import_flags=TransactionImportFlag.EXTERNAL)
         return had_timeout
 
-    def _available_servers(self, protocol):
+    def _available_servers(self, protocol: str) -> List[SVServer]:
         now = time.time()
         unchosen = set(SVServer.all_servers.values()).difference(self._chosen_servers)
         return [server for server in unchosen
                 if server.protocol == protocol and server.state.can_retry(now)]
 
-    def _random_server_nowait(self, protocol):
+    def _random_server_nowait(self, protocol: str) -> Optional[SVServer]:
         servers = self._available_servers(protocol)
         return random.choice(servers) if servers else None
 
-    async def _random_server(self, protocol):
+    async def _random_server(self, protocol: str) -> SVServer:
         while True:
             server = self._random_server_nowait(protocol)
             if server:
@@ -1346,7 +1392,7 @@ class Network(TriggeredCallbacks):
         session = await self._main_session()
         session.logger.debug("requesting %d proofs", len(wanted_map))
         async with TaskGroup() as group:
-            tasks = {}
+            tasks: Dict[asyncio.Task[MerkleResponse], Tuple[bytes, str]] = {}
             for tx_hash, tx_height in wanted_map.items():
                 tx_id = hash_to_hex_str(tx_hash)
                 tasks[await group.spawn(session.request_proof(tx_id, tx_height))] = (tx_hash,
@@ -1355,10 +1401,11 @@ class Network(TriggeredCallbacks):
 
             while tasks:
                 task = await group.next_done()
+                assert task is not None
                 tx_hash, tx_id = tasks.pop(task)
                 block_height = wanted_map[tx_hash]
                 try:
-                    result = task.result()
+                    result = cast(MerkleResponse, task.result())
                     branch = [hex_str_to_hash(item) for item in result['merkle']]
                     tx_pos = result['pos']
                     proven_root = _root_from_proof(tx_hash, branch, tx_pos)
@@ -1453,7 +1500,7 @@ class Network(TriggeredCallbacks):
             finally:
                 logger.info('stopped maintaining %s', wallet)
 
-    async def _main_session(self) -> 'SVSession':
+    async def _main_session(self) -> SVSession:
         while True:
             session = self.main_session()
             if session:
@@ -1470,7 +1517,7 @@ class Network(TriggeredCallbacks):
     # API exposed to SVSession
     #
 
-    async def session_established(self, session) -> bool:
+    async def session_established(self, session: SVSession) -> bool:
         self.sessions.append(session)
         self.sessions_changed_event.set()
         self.sessions_changed_event.clear()
@@ -1480,7 +1527,7 @@ class Network(TriggeredCallbacks):
             return True
         return False
 
-    async def session_closed(self, session) -> None:
+    async def session_closed(self, session: SVSession) -> None:
         self.sessions.remove(session)
         self.sessions_changed_event.set()
         self.sessions_changed_event.clear()
@@ -1500,7 +1547,7 @@ class Network(TriggeredCallbacks):
         logger.warning('stopped')
 
     def auto_connect(self) -> bool:
-        return app_state.config.get('auto_connect', True)
+        return app_state.config.get_explicit_type(bool, 'auto_connect', True)
 
     def is_connected(self) -> bool:
         return self.main_session() is not None
@@ -1669,21 +1716,21 @@ class Network(TriggeredCallbacks):
         app_state.async_.spawn(self._wallet_jobs.put, ('remove', wallet))
         return updated_states
 
-    def chain(self):
+    def chain(self) -> Optional[Chain]:
         main_session = self.main_session()
         if main_session:
             return main_session.chain
-        return app_state.headers.longest_chain()
+        return cast(Headers, app_state.headers).longest_chain()
 
     def get_local_height(self) -> int:
         chain = self.chain()
         # This can be called from network_dialog.py when there is no chain
-        return chain.height if chain else 0
+        return cast(int, chain.height) if chain else 0
 
     def get_server_height(self) -> int:
         main_session = self.main_session()
         if main_session and main_session.tip:
-            return main_session.tip.height
+            return cast(int, main_session.tip.height)
         return 0
 
     def backfill_headers_at_heights(self, heights: List[int]) -> None:
@@ -1695,13 +1742,15 @@ class Network(TriggeredCallbacks):
             await main_session._request_headers_at_heights(heights)
             self.trigger_callback('on_header_backfill')
 
-    def set_server(self, server, auto_connect) -> None:
-        app_state.config.set_key('server', server, True)
-        if app_state.config.get('server') is server:
-            app_state.config.set_key('auto_connect', auto_connect, False)
-            app_state.async_.spawn(self._set_main_server, server, SwitchReason.user_set)
+    def set_server(self, server: SVServer, auto_connect: bool) -> None:
+        config = app_state.config
+        config.set_key('server', server, True)
+        if config.get('server') is server:
+            config.set_key('auto_connect', auto_connect, False)
+            app_state.async_.spawn(self._set_main_server, server,
+                SwitchReason.user_set)
 
-    def set_proxy(self, proxy) -> None:
+    def set_proxy(self, proxy: Optional[SVProxy]) -> None:
         if str(proxy) == str(self.proxy):
             return
         app_state.config.set_key("proxy", proxy, False)
@@ -1711,9 +1760,9 @@ class Network(TriggeredCallbacks):
             logger.info("Set proxy to %s", proxy)
             app_state.async_.spawn(self._restart_network)
 
-    def sessions_by_chain(self):
+    def sessions_by_chain(self) -> Dict[Chain, List[SVSession]]:
         '''Return a map {chain: sessions} for each chain being followed by any session.'''
-        result = defaultdict(list)
+        result: Dict[Chain, List[SVSession]] = defaultdict(list)
         for session in self.sessions:
             if session.chain:
                 result[session.chain].append(session)
@@ -1730,27 +1779,28 @@ class Network(TriggeredCallbacks):
         }
 
     # FIXME: this should be removed; its callers need to be fixed
-    def request_and_wait(self, method, args):
-        async def send_request():
+    def request_and_wait(self, method: str, args: Any) -> Any:
+        async def send_request() -> Any:
             # We'll give 10 seconds for the wallet to reconnect..
-            # NOTE(typing) We know `timeout_after` will be returning a context manager.
-            async with timeout_after(10): # type: ignore
+            async with timeout_after(10):
                 session = await self._main_session()
             return await session.send_request(method, args)
 
         return app_state.async_.spawn_and_wait(send_request)
 
     def broadcast_transaction_and_wait(self, transaction: Transaction) -> str:
-        return self.request_and_wait('blockchain.transaction.broadcast', [str(transaction)])
+        return cast(str,
+            self.request_and_wait('blockchain.transaction.broadcast', [str(transaction)]))
 
     def create_checkpoint(self, height: Optional[int]=None) -> None:
         '''Handy utility to dump a checkpoint for networks.py when preparing a new release.'''
-        headers_obj = app_state.headers
+        headers_obj = cast(Headers, app_state.headers)
         chain = headers_obj.longest_chain()
         if height is None:
             height = max(0, chain.height - 6)
         prev_work = headers_obj.chainwork_to_height(chain, height - 1)
-        header_info = self.request_and_wait('blockchain.block.header', [height, height])
+        header_info = cast(HeaderProofResponse,
+            self.request_and_wait('blockchain.block.header', [height, height]))
         header_hex = header_info['header']
         merkle_root = header_info['root']
 

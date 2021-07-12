@@ -11,10 +11,10 @@ class Node:
     previous: 'Node'
     next: 'Node'
     key: bytes
-    value: Transaction
+    value: Optional[Transaction]
 
     def __init__(self, previous: Optional['Node']=None, next: Optional['Node']=None,
-            key: bytes=b'', value=None,  value_size: int=0) -> None:
+            key: bytes=b'', value: Optional[Transaction]=None,  value_size: int=0) -> None:
         """
         The only node which can have an empty key or value is the root node. None of the added
         nodes will have empty links, keys or values.
@@ -80,6 +80,7 @@ class LRUCache:
                 # to be the most recent by removing and readding it (meaning it will get flushed
                 # from the cache after less recent transactions if space is needed).
                 previous_node, next_node, old_value = node.previous, node.next, node.value
+                assert old_value is not None
                 previous_node.next = next_node
                 next_node.previous = previous_node
                 self.current_size -= node.value_size
@@ -121,6 +122,7 @@ class LRUCache:
             node = self._root.next
             previous_node, next_node, discard_key, discard_value = \
                 node.previous, node.next, node.key, node.value
+            assert discard_value is not None
             previous_node.next = next_node
             next_node.previous = previous_node
             self.current_size -= node.value_size

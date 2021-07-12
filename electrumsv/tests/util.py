@@ -47,6 +47,9 @@ class MockStorage:
     def get(self, attr_name, default=None):
         return self._data.get(attr_name, default)
 
+    def get_explicit_type(self, discard, attr_name, default=None):
+        return self._data.get(attr_name, default)
+
     def put(self, attr_name, value):
         self._data[attr_name] = value
 

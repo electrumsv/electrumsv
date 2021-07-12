@@ -66,11 +66,14 @@ from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import WalletDataRow
 
 
+T1 = TypeVar("T1")
+T2 = TypeVar("T2")
+
 logger = logs.get_logger("storage")
 
 
 
-def multisig_type(wallet_type) -> Optional[Tuple[int, int]]:
+def multisig_type(wallet_type: str) -> Optional[Tuple[int, int]]:
     '''If wallet_type is mofn multi-sig, return [m, n],
     otherwise return None.'''
     if wallet_type:
@@ -216,6 +219,15 @@ class AbstractStore:
                 v = copy.deepcopy(v)
         return v
 
+    def get_explicit_type(self, return_type: Type[T1], key: str, default: T1) -> T1:
+        with self._lock:
+            v = self._data.get(key)
+            if v is None:
+                return default
+            ret = cast(T1, copy.deepcopy(v))
+        assert isinstance(ret, return_type)
+        return ret
+
     def put(self, key: str, value: Any, already_persisted: bool=False) -> None:
         # Both key and value should be JSON serialisable.
         json.dumps([ key, value ])
@@ -337,7 +349,7 @@ class DatabaseStore(AbstractStore):
         return False
 
     def requires_upgrade(self) -> bool:
-        return self.get("migration") < MIGRATION_CURRENT
+        return self.get_explicit_type(int, "migration", 0) < MIGRATION_CURRENT
 
     def upgrade(self: 'DatabaseStore', has_password: bool, new_password: str,
             callbacks: Optional[ProgressCallbacks]=None) -> Optional['DatabaseStore']:
@@ -553,7 +565,7 @@ class TextStore(AbstractStore):
 
         return DatabaseStore.from_text_store(self)
 
-    def _is_upgrade_method_needed(self, min_version, max_version):
+    def _is_upgrade_method_needed(self, min_version: int, max_version: int) -> bool:
         cur_version = self._get_version()
         if cur_version > max_version:
             return False
@@ -597,7 +609,7 @@ class TextStore(AbstractStore):
         if not self._is_upgrade_method_needed(0, 13):
             return
 
-        wallet_type = self.get('wallet_type')
+        wallet_type = self.get_explicit_type(str, 'wallet_type', "")
         if wallet_type == 'btchip': wallet_type = 'ledger'
         if self.get('keystore') or self.get('x1/') or wallet_type=='imported':
             return # False
@@ -749,14 +761,14 @@ class TextStore(AbstractStore):
         if not self._is_upgrade_method_needed(15, 15):
             return
 
-        def remove_address(addr):
-            def remove_from_dict(dict_name):
+        def remove_address(addr: str) -> None:
+            def remove_from_dict(dict_name: str) -> None:
                 d = self.get(dict_name, None)
                 if d is not None:
                     d.pop(addr, None)
                     self.put(dict_name, d)
 
-            def remove_from_list(list_name):
+            def remove_from_list(list_name: str) -> None:
                 lst = self.get(list_name, None)
                 if lst is not None:
                     s = set(lst)
@@ -836,8 +848,8 @@ class TextStore(AbstractStore):
                 bytedata: bytes
                 verified: bool
                 height: int
-                known_addresses: set
-                encountered_addresses: set
+                known_addresses: Set[str]
+                encountered_addresses: Set[str]
 
             class _TxOutputState(NamedTuple):
                 value: int
@@ -1241,7 +1253,7 @@ class TextStore(AbstractStore):
         self.put('seed_version', MIGRATION_FIRST)
 
     def _get_version(self) -> int:
-        seed_version = self.get('seed_version')
+        seed_version = self.get_explicit_type(int, 'seed_version', 0)
         if not seed_version:
             seed_version = (self.OLD_SEED_VERSION if len(self.get('master_public_key','')) == 128
                 else self.NEW_SEED_VERSION)
@@ -1360,6 +1372,7 @@ class WalletStorage:
 
         del self.check_password
         del self.get
+        del self.get_explicit_type
         del self.put
         del self.write
         del self.requires_split
@@ -1393,6 +1406,7 @@ class WalletStorage:
 
         self.check_password = store.check_password
         self.get = store.get
+        self.get_explicit_type = store.get_explicit_type
         self.put = store.put
         self.write = store.write
         self.requires_split = store.requires_split

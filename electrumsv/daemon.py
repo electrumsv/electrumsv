@@ -36,7 +36,6 @@ from .restapi import AiohttpServer
 from .app_state import app_state
 from .commands import known_commands, Commands
 from .constants import CredentialPolicyFlag, DATABASE_EXT, StorageKind
-from .credentials import CredentialCache
 from .exchange_rate import FxTask
 from .logs import logs
 from .network import Network
@@ -101,11 +100,11 @@ def remote_daemon_request(config: SimpleConfig, url: str, json_value: Any=None) 
     return response.json()
 
 
-def get_rpc_credentials(config: SimpleConfig, is_restapi=False) -> Tuple[str, str]:
+def get_rpc_credentials(config: SimpleConfig, is_restapi: bool=False) -> Tuple[str, str]:
     global logger
     def random_integer(nbits: int) -> int:
         nbytes = (nbits + 7) // 8
-        return be_bytes_to_int(os.urandom(nbytes)) % (1 << nbits)
+        return cast(int, be_bytes_to_int(os.urandom(nbytes)) % (1 << nbits))
 
     rpc_user = cast(Optional[str], config.get('rpcuser', None))
     rpc_password = cast(Optional[str], config.get('rpcpassword', None))
@@ -156,10 +155,10 @@ class Daemon(DaemonThread):
         self._init_restapi_server(config, fd)
 
     def _init_restapi_server(self, config: SimpleConfig, fd: int) -> None:
-        host = cast(str, config.get("rpchost", '127.0.0.1'))
+        host = config.get_explicit_type(str, "rpchost", '127.0.0.1')
         if os.environ.get('RESTAPI_HOST'):
             host = cast(str, os.environ.get('RESTAPI_HOST'))
-        port = int(config.get('restapi_port', 9999))
+        port = int(cast(Union[str, int], config.get('restapi_port', 9999)))
         if os.environ.get('RESTAPI_PORT'):
             port = int(cast(str, os.environ.get('RESTAPI_PORT')))
 
@@ -182,7 +181,7 @@ class Daemon(DaemonThread):
         import sys
         import traceback
 
-        def _watcher():
+        def _watcher() -> None:
             while True:
                 for th in threading.enumerate():
                     th_text = str(th)
@@ -201,7 +200,7 @@ class Daemon(DaemonThread):
     def ping(self) -> bool:
         return True
 
-    async def run_daemon(self, config_options: dict) -> Union[bool, str, Dict[str, Any]]:
+    async def run_daemon(self, config_options: Dict[str, Any]) -> Union[bool, str, Dict[str, Any]]:
         config = SimpleConfig(config_options)
         sub = config.get('subcommand')
         assert sub in [None, 'start', 'stop', 'status', 'load_wallet', 'close_wallet']
@@ -214,7 +213,7 @@ class Daemon(DaemonThread):
             wallet_path = WalletStorage.canonical_path(cmdline_wallet_filepath)
             wallet_password = config_options.get('password')
             assert wallet_password is not None
-            cast(CredentialCache, app_state.credentials).set_wallet_password(
+            app_state.credentials.set_wallet_password(
                 wallet_path, wallet_password, CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
             wallet = self.load_wallet(wallet_path)
             if wallet is None:
@@ -248,7 +247,9 @@ class Daemon(DaemonThread):
             response = False
         return response
 
-    async def run_gui(self, config_options: dict) -> str:
+    async def run_gui(self, config_options: Dict[str, Any]) -> str:
+        assert app_state.app is not None
+
         config = SimpleConfig(config_options)
         if hasattr(app_state, 'windows'):
             path = config.get_cmdline_wallet_filepath()
@@ -277,7 +278,7 @@ class Daemon(DaemonThread):
             logger.debug("Wallet '%s' requires an upgrade", wallet_filepath)
             return None
 
-        wallet_password = cast(CredentialCache, app_state.credentials).get_wallet_password(
+        wallet_password = app_state.credentials.get_wallet_password(
             wallet_filepath)
         if wallet_password is None:
             logger.debug("Wallet '%s' password is not cached", wallet_filepath)
@@ -307,11 +308,11 @@ class Daemon(DaemonThread):
             wallet = self.wallets.pop(wallet_filepath)
             wallet.stop()
 
-    def stop_wallets(self):
+    def stop_wallets(self) -> None:
         for path in list(self.wallets):
             self.stop_wallet_at_path(path)
 
-    async def run_cmdline(self, config_options: dict) -> Any:
+    async def run_cmdline(self, config_options: Dict[str, Any]) -> Any:
         config = SimpleConfig(config_options)
         cmdname = cast(str, config.get('cmd'))
         cmd = known_commands[cmdname]
@@ -327,7 +328,7 @@ class Daemon(DaemonThread):
             wallet = None
 
         # arguments passed to function
-        args = [config.get(x) for x in cmd.params]
+        args = [cast(str, config.get(x)) for x in cmd.params]
         # decode json arguments
         args = [json_decode(i) for i in args]
         # options
@@ -342,12 +343,13 @@ class Daemon(DaemonThread):
         result = await func(*args, **kwargs)
         return result
 
-    def on_stop(self):
+    def on_stop(self) -> None:
         if self.rest_server and self.rest_server.is_alive:
             app_state.async_.spawn_and_wait(self.rest_server.stop)
         self.logger.debug("stopped.")
 
-    def launch_restapi(self):
+    def launch_restapi(self) -> None:
+        assert self.rest_server is not None
         if not self.rest_server.is_alive:
             self._restapi_future = app_state.async_.spawn(self.rest_server.launcher)
             self.rest_server.is_alive = True

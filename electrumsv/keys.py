@@ -1,5 +1,5 @@
 import json
-from typing import List, Optional
+from typing import cast, List, Optional, TYPE_CHECKING
 
 from bitcoinx import hash160, P2MultiSig_Output, P2PK_Output, P2SH_Address, PublicKey
 
@@ -11,9 +11,13 @@ from .script import AccumulatorMultiSigOutput
 from .wallet_database.types import KeyInstanceRow
 
 
+if TYPE_CHECKING:
+    from .types import KeyInstanceDataHash
+
+
 def extract_public_key_hash(row: KeyInstanceRow) -> str:
-    derivation_data = json.loads(row.derivation_data)
     assert row.derivation_type == DerivationType.PUBLIC_KEY_HASH
+    derivation_data = cast(KeyInstanceDataHash, json.loads(row.derivation_data))
     return derivation_data['hash']
 
 

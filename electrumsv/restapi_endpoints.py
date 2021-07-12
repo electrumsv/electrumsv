@@ -23,10 +23,6 @@ class VARNAMES:
 ARGTYPES: Dict[str, type] = {}
 
 
-def __init__(self):
-    pass
-
-
 class HandlerUtils:
     pass
 
@@ -37,7 +33,7 @@ class DefaultEndpoints(HandlerUtils):
 
     routes: List[web.RouteDef] = []
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.logger = logs.get_logger("restapi-default-endpoints")
         self.app_state = app_state  # easier to monkeypatch for testing

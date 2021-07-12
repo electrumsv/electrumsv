@@ -1,5 +1,6 @@
 from distutils.version import StrictVersion
 import requests
+from typing import Any
 
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QDialogButtonBox, QLabel, QProgressBar, QVBoxLayout, QWidget
@@ -7,7 +8,8 @@ from PyQt5.QtWidgets import QDialogButtonBox, QLabel, QProgressBar, QVBoxLayout,
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.util import get_update_check_dates, get_identified_release_signers
+from electrumsv.util import get_update_check_dates, get_identified_release_signers, \
+    ReleaseDocumentType
 from electrumsv.version import PACKAGE_VERSION
 
 from .main_window import ElectrumWindow
@@ -110,25 +112,26 @@ class UpdateCheckDialog(WindowModalDialog):
     def _set_title(self, text):
         self._title_label.setText(text)
 
-    def _set_message(self, text):
+    def _set_message(self, text: str) -> None:
         # rt12 -- If the trailing breaks are not added, the QLabel depending on random
         # circumstances may clip and not display text from the end of the message.
         self._message_label.setText(text+"<br/><br/>")
 
-    def _on_update_result(self, success, result):
+    def _on_update_result(self, success, result: ReleaseDocumentType) -> None:
         if success:
             self._on_update_success(result)
         else:
             self._on_update_error(result)
 
-    def _on_update_success(self, result):
+    def _on_update_success(self, result: Any) -> None:
         self._stop_updates()
 
         # Indicate success by filling in the progress bar.
         self._set_progress(1.0)
 
         # Handle the case where data was fetched and it is incorrect or lacking.
-        if type(result) is not dict or 'stable' not in result or 'unstable' not in result:
+        if not isinstance(result, ReleaseDocumentType) or 'stable' not in result \
+                or 'unstable' not in result:
             self._set_message(_("The information about the latest version is broken."))
             return
 

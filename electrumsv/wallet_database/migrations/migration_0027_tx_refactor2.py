@@ -2,17 +2,18 @@ from collections import defaultdict
 import json
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
-    # NOTE(typing) pylance complains about a missing import.
-    import pysqlite3 as sqlite3 # type: ignore
+    import pysqlite3
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
-    import sqlite3 # type: ignore
+    import sqlite3
+else:
+    sqlite3 = pysqlite3
 from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple
 
-from bitcoinx import hash_to_hex_str, P2PKH_Address, P2SH_Address, PublicKey
+from bitcoinx import hash_to_hex_str, P2PKH_Address, P2SH_Address, PublicKey, sha256
 
-from ...bitcoin import scripthash_bytes, sha256
+from ...bitcoin import scripthash_bytes
 from ...constants import AccountTxFlags, BlockHeight, CHANGE_SUBPATH, DerivationType, \
     DerivationPath, KeyInstanceFlag, KeystoreType, RECEIVING_SUBPATH, ScriptType, \
     TransactionInputFlag, TransactionOutputFlag
@@ -623,7 +624,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             updated_masterkey_derivation_data)
 
     # TABLE: KeyInstances
-    assert KeyInstanceFlag1.IS_ACTIVE == KeyInstanceFlag.ACTIVE
+    assert int(KeyInstanceFlag1.IS_ACTIVE) == int(KeyInstanceFlag.ACTIVE)
     # Mark any keyinstance as reserved that has a script type (is in use in an output).
     # This is introducing an post-migration flag `KeyInstanceFlag.USED` into pre-migration flags.
     conn.execute(f"UPDATE KeyInstances SET flags=flags|{KeyInstanceFlag.USED} "

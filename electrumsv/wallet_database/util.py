@@ -1,11 +1,14 @@
 from io import BytesIO
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
-    import pysqlite3 as sqlite3 # type: ignore
+    import pysqlite3
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
-    import sqlite3 # type: ignore
+    import sqlite3
+else:
+    sqlite3 = pysqlite3
+
 from typing import Any, cast, Collection, List, Optional, Sequence, Tuple, Type, TypeVar
 
 import bitcoinx
@@ -38,7 +41,7 @@ def create_derivation_data2(derivation_type: DerivationType,
         # We manually extract this rather than using the `bitcoinx.Address` class as we do
         # not care about the coin as that is implicit in the wallet.
         derivation_data_hash = cast(KeyInstanceDataHash, derivation_data)
-        raw = base58_decode_check(derivation_data_hash['hash'])
+        raw = cast(bytes, base58_decode_check(derivation_data_hash['hash']))
         if len(raw) != 21:
             raise ValueError(f'invalid address: {derivation_data_hash["hash"]}')
         return raw[1:]
@@ -72,7 +75,7 @@ def pack_proof(proof: TxProof) -> bytes:
     raw += bitcoinx.pack_varint(len(proof.branch))
     for hash in proof.branch:
         raw += bitcoinx.pack_varbytes(hash)
-    return raw
+    return cast(bytes, raw)
 
 
 def unpack_proof(raw: bytes) -> TxProof:

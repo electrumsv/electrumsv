@@ -9,6 +9,7 @@ Further work
   incorrect state. Better to focus on presumably unavoidably correct state for a start.
 """
 
+import concurrent.futures
 from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Callable, cast, Dict, List, NamedTuple, Optional, Sequence, TYPE_CHECKING
@@ -23,8 +24,8 @@ from .exceptions import SubscriptionStale, UnsupportedAccountTypeError
 from .logs import logs
 from .keys import get_single_signer_script_template, get_multi_signer_script_template
 from .networks import Net
-from .types import (ElectrumXHistoryList, SubscriptionEntry, SubscriptionKey,
-    SubscriptionScannerScriptHashOwnerContext, SubscriptionOwner)
+from .types import (ElectrumXHistoryList, SubscriptionEntry, ScriptHashResultCallback,
+    SubscriptionKey, SubscriptionScannerScriptHashOwnerContext, SubscriptionOwner)
 from .wallet import AbstractAccount
 
 
@@ -54,7 +55,7 @@ DEFAULT_GAP_LIMITS = {
 class AdvancedSettings:
     gap_limits: Dict[DerivationPath, int] = field(default_factory=dict)
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # Ensure that the default gap limits are in place if necessary.
         self.gap_limits = DEFAULT_GAP_LIMITS | self.gap_limits
 
@@ -146,7 +147,7 @@ class Scanner:
         self._subscription_owner = SubscriptionOwner(wallet_id, account_id,
             SubscriptionOwnerPurpose.SCANNER)
         self._network.subscriptions.set_owner_callback(self._subscription_owner,
-            self._on_script_hash_result)
+            cast(ScriptHashResultCallback, self._on_script_hash_result))
 
     def shutdown(self) -> None:
         """
@@ -175,7 +176,8 @@ class Scanner:
 
         if account.is_deterministic():
             threshold = account.get_threshold()
-            master_public_keys = cast(List[BIP32PublicKey], [ bip32_key_from_string(mpk)
+            master_public_keys = cast(List[BIP32PublicKey], [ # type: ignore
+                bip32_key_from_string(mpk)
                 for mpk in account.get_master_public_keys() ])
             for subpath in (CHANGE_SUBPATH, RECEIVING_SUBPATH):
                 scanner.add_bip32_subpath(subpath, master_public_keys, threshold, script_types)
@@ -219,8 +221,10 @@ class Scanner:
         self._pending_scripts.append(ScriptEntry(ScriptEntryKind.EXPLICIT,
             keyinstance_id, script_type, script_hash))
 
-    def start_scanning_for_usage(self, on_done=None) -> None:
+    def start_scanning_for_usage(self,
+            on_done: Optional[Callable[[concurrent.futures.Future[None]], None]]=None) -> None:
         logger.debug("Starting blockchain scan process")
+        assert app_state.app is not None
         self._future = app_state.app.run_coro(self.scan_for_usage, on_done=on_done)
 
     async def scan_for_usage(self) -> None:

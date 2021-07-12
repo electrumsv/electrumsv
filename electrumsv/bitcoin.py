@@ -23,7 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Union
+from typing import cast, Union
 
 from bitcoinx import (hash_to_hex_str, sha256, Address, classify_output_script,
     OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_Address, P2SH_Address,
@@ -44,7 +44,7 @@ __b43chars = b'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ$*+-./:'
 assert len(__b43chars) == 43
 
 
-def base_encode(v, base: int) -> str:
+def base_encode(v: bytes, base: int) -> str:
     """ encode v, which is a string of bytes, to base58."""
     assert_bytes(v)
     assert base == 43
@@ -71,7 +71,7 @@ def base_encode(v, base: int) -> str:
     return result.decode('ascii')
 
 
-def base_decode(value: str, base: int):
+def base_decode(value: str, base: int) -> bytes:
     """ decode v into a string of len bytes."""
     v = value.encode('ascii')
     assert base == 43
@@ -103,7 +103,7 @@ ScriptTemplate = Union[OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_A
 
 def script_template_to_string(template: ScriptTemplate, bip276: bool=False) -> str:
     if not bip276 and isinstance(template, Address):
-        return template.to_string()
+        return cast(str, template.to_string())
     assert not isinstance(template, Unknown_Output)
     return bip276_encode(PREFIX_BIP276_SCRIPT, template.to_script_bytes(), Net.BIP276_VERSION)
 
@@ -123,16 +123,15 @@ def string_to_bip276_script(text: str) -> Script:
     raise ValueError("string is not bip276")
 
 def scripthash_bytes(script: Union[bytes, Script]) -> bytes:
-    # NOTE(typing) Ignore passing a bytes object into the `bytes` builtin, as it is valid.
-    return sha256(bytes(script)) # type: ignore
+    return cast(bytes, sha256(bytes(script)))
 
 def scripthash_hex(item: Union[bytes, Script]) -> str:
-    return hash_to_hex_str(scripthash_bytes(item))
+    return cast(str, hash_to_hex_str(scripthash_bytes(item)))
 
-def address_from_string(address) -> Address:
+def address_from_string(address: str) -> Address:
     return Address.from_string(address, Net.COIN)
 
-def is_address_valid(address) -> bool:
+def is_address_valid(address: str) -> bool:
     try:
         address_from_string(address)
         return True

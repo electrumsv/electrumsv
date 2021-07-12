@@ -115,7 +115,7 @@ class CosignerPool:
         self.on_enabled_changed()
 
     # Externally invoked when the extension is enabled or disabled.
-    def on_enabled_changed(self):
+    def on_enabled_changed(self) -> None:
         if cosigner_pool.is_enabled():
             if self._listener is None:
                 logger.debug("starting listener")

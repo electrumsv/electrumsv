@@ -54,10 +54,6 @@ class RESTAPIApplication:
         for client in self.aiohttp_web_app['ws_clients'].values():
             app_state.async_.spawn(client.websocket.close())
 
-    def on_new_wallet_event(self, wallet_path, row) -> None:
-        # an expected api when resetting / creating a new wallet...
-        pass
-
     def on_triggered_event(self, *event_data: Iterable[Any]):
         self.app_state.async_.spawn(self.async_on_triggered_event(*event_data))
 

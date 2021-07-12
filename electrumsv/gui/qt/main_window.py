@@ -71,7 +71,7 @@ from ...storage import WalletStorage
 from ...transaction import Transaction, TransactionContext
 from ...types import TxoKeyType, WaitingUpdateCallback
 from ...util import (format_fee_satoshis, get_update_check_dates,
-    get_identified_release_signers, get_wallet_name_from_path, profiler)
+    get_identified_release_signers, get_wallet_name_from_path, profiler, ReleaseDocumentType)
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, AccountInstantiationFlags, Wallet
 from ...wallet_database.types import (InvoiceRow, KeyDataTypes, TransactionBlockRow,
@@ -103,6 +103,7 @@ logger = logs.get_logger("mainwindow")
 SendViewTypes = Union[SendView, QWidget]
 ReceiveViewTypes = Union[ReceiveView, QWidget]
 T = TypeVar('T')
+T1 = TypeVar("T1")
 
 
 class ElectrumWindow(QMainWindow, MessageBoxMixin):
@@ -146,7 +147,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.network = app_state.daemon.network
         self.contacts = wallet.contacts
-        self.app = app_state.app
+        self.app = app_state.app_qt
         self.cleaned_up = False
         self.tx_notifications: List[Transaction] = []
         self.tx_notify_timer = None
@@ -510,7 +511,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def pop_top_level_window(self, window) -> None:
         self.tl_windows.remove(window)
 
-    def top_level_window(self):
+    def top_level_window(self) -> QWidget:
         '''Do the right thing in the presence of tx dialog windows'''
         override = self.tl_windows[-1] if self.tl_windows else self
         return top_level_window_recurse(override)
@@ -866,7 +867,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _update_check_toolbar_update(self):
         update_check_state = "default"
-        check_result = self.config.get('last_update_check')
+        check_result: Optional[ReleaseDocumentType] = self.config.get('last_update_check')
         stable_version = "?"
         release_date: Optional[datetime.datetime] = None
         if check_result is not None:
@@ -924,7 +925,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _on_check_for_updates(self, checked: bool=False) -> None:
         self.show_update_check()
 
-    def on_update_check(self, success, result):
+    def on_update_check(self, success: bool, result: ReleaseDocumentType) -> None:
         if success:
             stable_result = result["stable"]
             stable_signers = get_identified_release_signers(stable_result)
@@ -1850,8 +1851,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.run_in_thread(account.sign_message, key_data, message_text, password,
             on_success=show_signed_message)
 
-    def run_in_thread(self, func, *args, on_success=None):
-        def _on_done(future: concurrent.futures.Future) -> None:
+    def run_in_thread(self, func: Callable[..., T1], *args: Any,
+            on_success: Optional[Callable[[T1], None]]=None) \
+                -> concurrent.futures.Future[T1]:
+        def _on_done(future: concurrent.futures.Future[T1]) -> None:
             try:
                 result = future.result()
             except Exception as exc:

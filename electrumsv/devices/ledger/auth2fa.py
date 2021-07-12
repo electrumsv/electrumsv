@@ -1,16 +1,21 @@
 import copy
-from typing import Any, cast, Dict
+from typing import Any, cast, Dict, TYPE_CHECKING, Union
 
 from PyQt5.QtCore import pyqtBoundSignal
 from PyQt5.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QLabel
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QComboBox
 from btchip.btchip import BTChipException
+from btchip.btchipComm import HIDDongleHIDAPI
 
 from electrumsv.gui.qt.password_dialog import PasswordLineEdit
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 
 from .ledger import Ledger_KeyStore
+
+
+if TYPE_CHECKING:
+    from ..hw_wallet.qt import QtHandlerBase
 
 
 logger = logs.get_logger("plugin.ledger.auth2fa")
@@ -28,18 +33,20 @@ helpTxt = [
 ]
 
 class LedgerAuthDialog(QDialog):
-    def __init__(self, handler, keystore: Ledger_KeyStore, data: Dict[str, Any]):
+    def __init__(self, handler: "QtHandlerBase", keystore: Ledger_KeyStore, data: Dict[str, Any]) \
+            -> None:
         '''Ask user for 2nd factor authentication. Support text and security card methods.
         Use last method from settings, but support downgrade.
         '''
         QDialog.__init__(self, handler.top_level_window())
         self.handler = handler
         self.txdata = data
-        self.idxs = self.txdata['keycardData'] if self.txdata['confirmationType'] > 1 else ''
+        self.idxs = cast(bytearray, self.txdata['keycardData']) \
+            if self.txdata['confirmationType'] > 1 else bytearray()
         self.setMinimumWidth(600)
         self.setWindowTitle(_("Ledger Wallet Authentication"))
         self.cfg = copy.deepcopy(keystore.cfg)
-        self.dongle = keystore.get_client().dongle
+        self.dongle: HIDDongleHIDAPI = keystore.get_client().dongle
         self.pin = ''
 
         self.devmode = self.getDevice2FAMode()
@@ -49,12 +56,12 @@ class LedgerAuthDialog(QDialog):
         vbox = QVBoxLayout()
         self.setLayout(vbox)
 
-        def on_change_mode(idx):
+        def on_change_mode(idx: int) -> None:
             self.cfg['mode'] = 0 if self.devmode == 0x11 else idx if idx > 0 else 1
             if self.cfg['mode'] > 0:
                 keystore.cfg = self.cfg
             self.update_dlg()
-        def return_pin():
+        def return_pin() -> None:
             self.pin = (self.pintxt.text() if self.txdata['confirmationType'] == 1
                         else self.cardtxt.text())
             self.pintxt.setText('')
@@ -104,10 +111,10 @@ class LedgerAuthDialog(QDialog):
         self.addrtext.setMaximumHeight(120)
         card.addWidget(self.addrtext)
 
-        def pin_changed(s):
+        def pin_changed(s: str) -> None:
             if len(s) < len(self.idxs):
                 i = self.idxs[len(s)]
-                addr = self.txdata['address']
+                addr = cast(str, self.txdata['address'])
                 addr = addr[:i] + '<u><b>' + addr[i:i+1] + '</u></b>' + addr[i+1:]
                 self.addrtext.setHtml(str(addr))
             else:
@@ -129,7 +136,7 @@ class LedgerAuthDialog(QDialog):
 
         self.update_dlg()
 
-    def populate_modes(self):
+    def populate_modes(self) -> None:
         self.modes.blockSignals(True)
         self.modes.clear()
         self.modes.addItem(_("Summary Text PIN (requires dongle replugging)")
@@ -139,7 +146,7 @@ class LedgerAuthDialog(QDialog):
             self.modes.addItem(_("Security Card Challenge"))
         self.modes.blockSignals(False)
 
-    def update_dlg(self):
+    def update_dlg(self) -> None:
         self.modes.setCurrentIndex(self.cfg['mode'])
         self.modebox.setVisible(True)
         self.helpmsg.setText(helpTxt[self.cfg['mode']])
@@ -150,11 +157,13 @@ class LedgerAuthDialog(QDialog):
         self.pintxt.setFocus() if self.cfg['mode'] == 0 else self.cardtxt.setFocus()
         self.setMaximumHeight(200)
 
-    def getDevice2FAMode(self):
+    def getDevice2FAMode(self) -> Union[int, bytearray]:
         apdu = [0xe0, 0x24, 0x01, 0x00, 0x00, 0x01] # get 2fa mode
         try:
             mode = self.dongle.exchange( bytearray(apdu) )
-            return mode
+            # Not sure how this ever compares to anything useful.. maybe it's that it does not
+            # compare to the default return value as everything compares to 0x11 -- rt12
+            return cast(bytearray, mode)
         except BTChipException as e:
             logger.debug('Device getMode Failed')
         return 0x11

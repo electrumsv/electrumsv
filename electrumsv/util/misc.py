@@ -1,8 +1,7 @@
-import json
 from collections import deque
 from itertools import chain
 from sys import getsizeof
-from typing import Dict, Any
+from typing import Any, Generator
 
 from bitcoinx import Script
 
@@ -10,7 +9,7 @@ from electrumsv.constants import ScriptType
 from electrumsv.transaction import Transaction, XTxInput, XTxOutput, XPublicKey
 
 
-def obj_size(o):
+def obj_size(o: Any) -> int:
     """This is a modified version of: https://code.activestate.com/recipes/577504/
     to suit our bitcoin-specific needs
 
@@ -29,7 +28,7 @@ def obj_size(o):
     """
     dict_handler = lambda d: chain.from_iterable(d.items())
 
-    def attrs_object_iterator(obj):
+    def attrs_object_iterator(obj: Any) -> Generator[Any, None, None]:
         """This is for iterating over attributes on classes produced via the 3rd
         party library "attrs"""
         return (getattr(obj, field.name) for field in obj.__attrs_attrs__)
@@ -47,8 +46,7 @@ def obj_size(o):
     seen = set()  # track which object id's have already been seen
     default_size = getsizeof(0)  # estimate sizeof object without __sizeof__
 
-    def sizeof(o):
-
+    def sizeof(o: Any) -> int:
         if id(o) in seen:  # do not double count the same object
             return 0
         seen.add(id(o))
@@ -82,9 +80,3 @@ class ProgressCallbacks:
 
     def progress(self, progress: int, message: str) -> None:
         pass
-
-async def decode_response_body(response) -> Dict[Any, Any]:
-    body = await response.read()
-    if body == b"" or body == b"{}":
-        return {}
-    return json.loads(body.decode())

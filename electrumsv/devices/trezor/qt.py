@@ -1,23 +1,29 @@
 from functools import partial
-from typing import cast
+from typing import Any, cast, Optional, Tuple, TYPE_CHECKING
 
 from PyQt5.QtCore import Qt, QEventLoop, pyqtBoundSignal, pyqtSignal
+from PyQt5.QtGui import QKeyEvent
 from PyQt5.QtWidgets import QGridLayout, QPushButton, \
     QVBoxLayout, QLabel, QCheckBox, QDialog, QLineEdit, QHBoxLayout, \
     QGroupBox, QButtonGroup, QRadioButton, QFileDialog, QMessageBox, \
-    QWidget, QSlider, QTabWidget
+    QSlider, QTabWidget, QWidget
 
-from electrumsv.app_state import app_state
-from electrumsv.i18n import _
-from electrumsv.keystore import Hardware_KeyStore
+from ...app_state import app_state
+from ...i18n import _
 
-from electrumsv.gui.qt.main_window import ElectrumWindow
-from electrumsv.gui.qt.util import (
+from ...gui.qt.util import (
     WindowModalDialog, WWLabel, Buttons, CancelButton, OkButton, CloseButton,
 )
-from ..hw_wallet.qt import QtHandlerBase, QtPluginBase, HandlerWindow
+from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 from .trezor import (TrezorPlugin, RECOVERY_TYPE_SCRAMBLED_WORDS,
     RECOVERY_TYPE_MATRIX, TIM_RECOVER)
+
+
+if TYPE_CHECKING:
+    from ...keystore import Hardware_KeyStore
+    from ...gui.qt.account_wizard import AccountWizard
+    from ...gui.qt.main_window import ElectrumWindow
+    from .client import TrezorClientFeatures, TrezorClientSV
 
 
 PASSPHRASE_HELP_SHORT =_(
@@ -42,8 +48,9 @@ MATRIX_RECOVERY = _(
 
 
 class MatrixDialog(WindowModalDialog):
+    data: Optional[str] = None
 
-    def __init__(self, parent):
+    def __init__(self, parent: QWidget) -> None:
         super(MatrixDialog, self).__init__(parent)
         self.setWindowTitle(_("Trezor Matrix Recovery"))
         self.num = 9
@@ -58,29 +65,32 @@ class MatrixDialog(WindowModalDialog):
         for y in range(3):
             for x in range(3):
                 button = QPushButton('?')
-                button.clicked.connect(partial(self.process_key, ord('1') + y * 3 + x))
+                cast(pyqtBoundSignal, button.clicked).connect(
+                    partial(self.process_key, ord('1') + y * 3 + x))
                 grid.addWidget(button, 3 - y, x)
                 self.char_buttons.append(button)
         vbox.addLayout(grid)
 
         self.backspace_button = QPushButton("<=")
-        self.backspace_button.clicked.connect(partial(self.process_key, Qt.Key.Key_Backspace))
+        cast(pyqtBoundSignal, self.backspace_button.clicked).connect(
+            partial(self.process_key, Qt.Key.Key_Backspace))
         self.cancel_button = QPushButton(_("Cancel"))
-        self.cancel_button.clicked.connect(partial(self.process_key, Qt.Key.Key_Escape))
+        cast(pyqtBoundSignal, self.cancel_button.clicked).connect(
+            partial(self.process_key, Qt.Key.Key_Escape))
         buttons = Buttons(self.backspace_button, self.cancel_button)
         vbox.addSpacing(40)
         vbox.addLayout(buttons)
         self.refresh()
         self.show()
 
-    def refresh(self):
+    def refresh(self) -> None:
         for y in range(3):
             self.char_buttons[3 * y + 1].setEnabled(self.num == 9)
 
-    def is_valid(self, key):
+    def is_valid(self, key: int) -> bool:
         return key >= ord('1') and key <= ord('9')
 
-    def process_key(self, key):
+    def process_key(self, key: int) -> None:
         self.data = None
         if key == Qt.Key.Key_Backspace:
             self.data = '\010'
@@ -92,12 +102,12 @@ class MatrixDialog(WindowModalDialog):
         if self.data:
             self.loop.exit(0)
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         self.process_key(event.key())
         if not self.data:
             QDialog.keyPressEvent(self, event)
 
-    def get_matrix(self, num):
+    def get_matrix(self, num: int) -> None:
         self.num = num
         self.refresh()
         self.loop.exec_()
@@ -109,20 +119,25 @@ class QtHandler(QtHandlerBase):
     matrix_signal = pyqtSignal(object)
     close_matrix_dialog_signal = pyqtSignal()
 
-    def __init__(self, win: HandlerWindow, device):
+    response: str
+    data: Optional[str]
+
+    def __init__(self, win: "ElectrumWindow", device: str) -> None:
         super(QtHandler, self).__init__(win, device)
+
         self.pin_signal.connect(self.pin_dialog)
         self.matrix_signal.connect(self.matrix_recovery_dialog)
         self.close_matrix_dialog_signal.connect(self._close_matrix_dialog)
-        self.matrix_dialog = None
+        self.matrix_dialog: Optional[MatrixDialog] = None
 
-    def get_pin(self, msg):
+    def get_pin(self, msg: str) -> str:
         self.done.clear()
         self.pin_signal.emit(msg)
         self.done.wait()
         return self.response
 
-    def get_matrix(self, msg):
+    def get_matrix(self, msg: int) -> Optional[str]:
+        assert self.matrix_dialog is not None
         self.done.clear()
         self.matrix_signal.emit(msg)
         self.done.wait()
@@ -131,15 +146,15 @@ class QtHandler(QtHandlerBase):
             self.close_matrix_dialog()
         return data
 
-    def _close_matrix_dialog(self):
+    def _close_matrix_dialog(self) -> None:
         if self.matrix_dialog:
             self.matrix_dialog.accept()
             self.matrix_dialog = None
 
-    def close_matrix_dialog(self):
+    def close_matrix_dialog(self) -> None:
         self.close_matrix_dialog_signal.emit()
 
-    def pin_dialog(self, msg):
+    def pin_dialog(self, msg: str) -> None:
         # Needed e.g. when resetting a device
         self.clear_dialog()
         dialog = WindowModalDialog(self.top_level_window(), _("Enter PIN"))
@@ -154,10 +169,10 @@ class QtHandler(QtHandlerBase):
         self.response = str(matrix.get_value())
         self.done.set()
 
-    def matrix_recovery_dialog(self, msg):
-        if not self.matrix_dialog:
+    def matrix_recovery_dialog(self, num: int) -> None:
+        if self.matrix_dialog is None:
             self.matrix_dialog = MatrixDialog(self.top_level_window())
-        self.matrix_dialog.get_matrix(msg)
+        self.matrix_dialog.get_matrix(num)
         self.done.set()
 
 
@@ -167,15 +182,16 @@ class QtPlugin(QtPluginBase):
     #   device
     device: str
 
-    def create_handler(self, window: HandlerWindow) -> QtHandlerBase:
+    def create_handler(self, window: "ElectrumWindow") -> QtHandlerBase:
         return QtHandler(window, self.device)
 
-    def show_settings_dialog(self, window: ElectrumWindow, keystore: Hardware_KeyStore) -> None:
+    def show_settings_dialog(self, window: "ElectrumWindow", keystore: "Hardware_KeyStore") -> None:
         device_id = self.choose_device(window, keystore)
         if device_id:
-            SettingsDialog(window, self, keystore, device_id).exec_()
+            SettingsDialog(window, cast(Plugin, self), keystore, device_id).exec_()
 
-    def request_trezor_init_settings(self, wizard, method, model):
+    def request_trezor_init_settings(self, wizard: "AccountWizard", method: int, model: str) \
+            -> Tuple[int, str, bool, bool, Optional[int]]:
         vbox = QVBoxLayout()
         next_enabled = True
         label = QLabel(_("Enter a label to name your device:"))
@@ -185,10 +201,6 @@ class QtPlugin(QtPluginBase):
         hl.addWidget(name)
         hl.addStretch(1)
         vbox.addLayout(hl)
-
-        def clean_text(widget):
-            text = widget.toPlainText().strip()
-            return ' '.join(text.split())
 
         gb = QGroupBox()
         hbox1 = QHBoxLayout()
@@ -219,6 +231,7 @@ class QtPlugin(QtPluginBase):
         vbox.addWidget(cb_phrase)
 
         # ask for recovery type (random word order OR matrix)
+        bg_rectype: Optional[QButtonGroup]
         if method == TIM_RECOVER and not model == 'T':
             gb_rectype = QGroupBox()
             hbox_rectype = QHBoxLayout()
@@ -255,7 +268,7 @@ class Plugin(TrezorPlugin, QtPlugin):
     icon_paired = "icons8-usb-connected-80.png"
     icon_unpaired = "icons8-usb-disconnected-80.png"
 
-    def create_handler(self, window: HandlerWindow) -> QtHandlerBase:
+    def create_handler(self, window: "ElectrumWindow") -> QtHandlerBase:
         return QtPlugin.create_handler(self, window)
 
 
@@ -264,21 +277,21 @@ class SettingsDialog(WindowModalDialog):
     We want users to be able to wipe a device even if they've forgotten
     their PIN.'''
 
-    def __init__(self, window: ElectrumWindow, plugin, keystore: Hardware_KeyStore,
-            device_id) -> None:
+    def __init__(self, window: "ElectrumWindow", plugin: Plugin, keystore: "Hardware_KeyStore",
+            device_id: str) -> None:
         title = _("{} Settings").format(plugin.device)
         super(SettingsDialog, self).__init__(window, title)
         self.setMaximumWidth(540)
 
         config = app_state.config
-        handler = keystore.handler
+        handler = cast(QtHandler, keystore.handler_qt)
         hs_rows, hs_cols = (64, 128)
 
-        def invoke_client(method, *args, **kw_args):
+        def invoke_client(method: Optional[str], *args: Any, **kw_args: Any) -> Any:
             unpair_after = kw_args.pop('unpair_after', False)
 
-            def task():
-                client = app_state.device_manager.client_by_id(device_id)
+            def task() -> "TrezorClientFeatures":
+                client = cast("TrezorClientSV", app_state.device_manager.client_by_id(device_id))
                 if not client:
                     raise RuntimeError("Device not connected")
                 if method:
@@ -289,7 +302,7 @@ class SettingsDialog(WindowModalDialog):
 
             window.run_in_thread(task, on_success=update)
 
-        def update(features):
+        def update(features: "TrezorClientFeatures") -> None:
             self.features = features
             set_label_enabled()
             if features.bootloader_hash:
@@ -321,13 +334,13 @@ class SettingsDialog(WindowModalDialog):
             passphrase_button.setText(endis[features.passphrase_protection])
             language_label.setText(features.language)
 
-        def set_label_enabled():
+        def set_label_enabled() -> None:
             label_apply.setEnabled(label_edit.text() != self.features.label)
 
-        def rename():
+        def rename() -> None:
             invoke_client('change_label', label_edit.text())
 
-        def toggle_passphrase():
+        def toggle_passphrase() -> None:
             title = _("Confirm Toggle Passphrase Protection")
             currently_enabled = self.features.passphrase_protection
             if currently_enabled:
@@ -347,7 +360,7 @@ class SettingsDialog(WindowModalDialog):
                 return
             invoke_client('toggle_passphrase', unpair_after=currently_enabled)
 
-        def change_homescreen():
+        def change_homescreen() -> None:
             dialog = QFileDialog(self, _("Choose Homescreen"))
             filename, __ = dialog.getOpenFileName()
             if not filename:
@@ -375,16 +388,16 @@ class SettingsDialog(WindowModalDialog):
                 img = bytes(img)
             invoke_client('change_homescreen', img)
 
-        def clear_homescreen():
+        def clear_homescreen() -> None:
             invoke_client('change_homescreen', b'\x00')
 
-        def set_pin():
+        def set_pin() -> None:
             invoke_client('set_pin', remove=False)
 
-        def clear_pin():
+        def clear_pin() -> None:
             invoke_client('set_pin', remove=True)
 
-        def wipe_device():
+        def wipe_device() -> None:
             accounts = window._wallet.get_accounts_for_keystore(keystore)
             if sum(sum(account.get_balance()) for account in accounts):
                 title = _("Confirm Device Wipe")
@@ -394,11 +407,11 @@ class SettingsDialog(WindowModalDialog):
                     return
             invoke_client('wipe_device', unpair_after=True)
 
-        def slider_moved():
+        def slider_moved() -> None:
             mins = timeout_slider.sliderPosition()
             timeout_minutes.setText(_("%2d minutes") % mins)
 
-        def slider_released():
+        def slider_released() -> None:
             config.set_session_timeout(timeout_slider.sliderPosition() * 60)
 
         # Information tab
@@ -472,7 +485,7 @@ class SettingsDialog(WindowModalDialog):
         homescreen_clear_button = QPushButton(_("Reset"))
         cast(pyqtBoundSignal, homescreen_change_button.clicked).connect(change_homescreen)
         try:
-            import PIL # type: ignore
+            import PIL
         except ImportError:
             homescreen_change_button.setDisabled(True)
             homescreen_change_button.setToolTip(

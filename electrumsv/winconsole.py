@@ -29,6 +29,7 @@ built for the Windows subsystem and therefore do not automatically allocate a co
 import ctypes
 import os
 import sys
+from typing import Optional
 
 assert sys.platform == 'win32'
 
@@ -43,8 +44,8 @@ def _parent_process_pids() -> Generator[int, None, None]:
     """
     Returns all parent process PIDs, starting with the closest parent
     """
+    import psutil
     try:
-        import psutil
         pid = os.getpid()
         while pid > 0:
             pid = psutil.Process(pid).ppid()
@@ -54,9 +55,8 @@ def _parent_process_pids() -> Generator[int, None, None]:
         pass
 
 
-def _create_or_attach_console(attach: bool=True,
-                              create: bool=False,
-                              title: str=None) -> Union[bool, None]:
+def _create_or_attach_console(attach: bool=True, create: bool=False, title: Optional[str]=None) \
+        -> Union[bool, None]:
     """
     First this checks if output is redirected to a file and does nothing if it is. Then it tries
     to attach to the console of any parent process and if not successful it optionally creates a
@@ -100,7 +100,7 @@ def _create_or_attach_console(attach: bool=True,
     return True
 
 
-def setup_windows_console():
+def setup_windows_console() -> None:
     # On windows, allocate a console if needed. Detect and avoid mingw/msys and cygwin.
     if not sys.platform.startswith('win') or "MSYSTEM" in os.environ or "CYGWIN" in os.environ:
         return

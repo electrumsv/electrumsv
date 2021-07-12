@@ -398,7 +398,7 @@ class PassphraseDialog(WindowModalDialog):
         self.accept()
 
     @classmethod
-    def run(cls, parent: QWidget, msg: str, on_device_result: Optional[Any]=None) -> Optional[Any]:
+    def run(cls, parent: QWidget, msg: str, on_device_result: Optional[Any]=None) -> Optional[str]:
         d = cls(parent, on_device_result)
         pw = PasswordLineEdit()
         pw.setMinimumWidth(200)

@@ -160,15 +160,15 @@ class Software_KeyStore(KeyStore):
     def type(self) -> KeystoreType:
         return KeystoreType.SOFTWARE
 
-    def sign_message(self, derivation_path: DerivationPath, message: bytes, password: str):
+    def sign_message(self, derivation_path: DerivationPath, message: bytes, password: str) -> bytes:
         privkey, compressed = self.get_private_key(derivation_path, password)
         key = PrivateKey(privkey, compressed)
-        return key.sign_message(message)
+        return cast(bytes, key.sign_message(message))
 
-    def decrypt_message(self, sequence, message, password: str):
+    def decrypt_message(self, sequence: DerivationPath, message: bytes, password: str) -> bytes:
         privkey, compressed = self.get_private_key(sequence, password)
         key = PrivateKey(privkey)
-        return key.decrypt_message(message)
+        return cast(bytes, key.decrypt_message(message))
 
     def check_password(self, password: Optional[str]) -> None:
         raise NotImplementedError
@@ -242,12 +242,12 @@ class Imported_KeyStore(Software_KeyStore):
     def sign_message(self, public_key: PublicKey, message: bytes, password: str) -> bytes:
         private_key_bytes, is_compressed = self.get_private_key(public_key, password)
         private_key = PrivateKey(private_key_bytes, is_compressed)
-        return private_key.sign_message(message)
+        return cast(bytes, private_key.sign_message(message))
 
     def decrypt_message(self, public_key: PublicKey, message: bytes, password: str) -> bytes:
         private_key_bytes, is_compressed = self.get_private_key(public_key, password)
         private_key = PrivateKey(private_key_bytes, is_compressed)
-        return private_key.decrypt_message(message)
+        return cast(bytes, private_key.decrypt_message(message))
 
     def remove_key(self, keyinstance_id: int) -> None:
         pubkey = self._public_keys.pop(keyinstance_id)
@@ -312,7 +312,7 @@ class Deterministic_KeyStore(Software_KeyStore):
     def can_change_password(self) -> bool:
         return not self.is_watching_only()
 
-    def get_seed(self, password) -> str:
+    def get_seed(self, password: str) -> str:
         """
         Get the source private key data for this keystore.
 
@@ -321,7 +321,7 @@ class Deterministic_KeyStore(Software_KeyStore):
         assert isinstance(self.seed, str)
         return pw_decode(self.seed, password)
 
-    def get_passphrase(self, password):
+    def get_passphrase(self, password: str) -> str:
         if self.passphrase:
             return pw_decode(self.passphrase, password)
         return ''
@@ -337,7 +337,7 @@ class Xpub:
         return self.xpub
 
     def get_fingerprint(self) -> bytes:
-        return bip32_key_from_string(self.xpub).fingerprint()
+        return cast(bytes, bip32_key_from_string(self.xpub).fingerprint())
 
     def derive_pubkey(self, derivation_path: DerivationPath) -> PublicKey:
         parent_path = derivation_path[:-1]
@@ -408,7 +408,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
     def get_master_public_key(self) -> Optional[str]:
         return Xpub.get_master_public_key(self)
 
-    def get_master_private_key(self, password: Optional[str]):
+    def get_master_private_key(self, password: Optional[str]) -> str:
         assert self.xprv is not None
         return pw_decode(self.xprv, password)
 
@@ -473,7 +473,7 @@ class Old_KeyStore(Deterministic_KeyStore):
     def type(self) -> KeystoreType:
         return KeystoreType.OLD
 
-    def _get_hex_seed_bytes(self, password) -> bytes:
+    def _get_hex_seed_bytes(self, password: Optional[str]) -> bytes:
         assert self.seed is not None
         return pw_decode(self.seed, password).encode('utf8')
 
@@ -481,7 +481,7 @@ class Old_KeyStore(Deterministic_KeyStore):
     def _mpk_from_hex_seed(cls, hex_seed: str) -> str:
         secexp = cls.stretch_key(hex_seed.encode())
         master_private_key = PrivateKey(int_to_be_bytes(secexp, 32))
-        return master_private_key.public_key.to_hex(compressed=False)[2:]
+        return cast(str, master_private_key.public_key.to_hex(compressed=False)[2:])
 
     @classmethod
     def _mpk_to_PublicKey(cls, mpk: str) -> PublicKey:
@@ -508,20 +508,20 @@ class Old_KeyStore(Deterministic_KeyStore):
         Raises ValueError if the hex seed is not either of 16 or 32 bytes.
         """
         s = self._get_hex_seed_bytes(password)
-        return ElectrumMnemonic.hex_seed_to_old(s)
+        return cast(str, ElectrumMnemonic.hex_seed_to_old(s))
 
     @classmethod
-    def stretch_key(cls, seed):
+    def stretch_key(cls, seed: bytes) -> int:
         x = seed
         for i in range(100000):
             x = hashlib.sha256(x + seed).digest()
-        return be_bytes_to_int(x)
+        return cast(int, be_bytes_to_int(x))
 
     @classmethod
     def get_sequence(cls, mpk: str, derivation_path: DerivationPath) -> int:
         old_sequence = derivation_path[1], derivation_path[0]
-        return be_bytes_to_int(sha256d(("%d:%d:"% old_sequence).encode('ascii') +
-            bytes.fromhex(mpk)))
+        return cast(int, be_bytes_to_int(sha256d(("%d:%d:"% old_sequence).encode('ascii') +
+            bytes.fromhex(mpk))))
 
     @classmethod
     def get_pubkey_from_mpk(cls, mpk: str, derivation_path: DerivationPath) -> PublicKey:
@@ -537,10 +537,10 @@ class Old_KeyStore(Deterministic_KeyStore):
         return self.get_pubkey_from_mpk(self.mpk, derivation_path)
 
     def get_private_key_from_stretched_exponent(self, derivation_path: DerivationPath,
-            secexp) -> bytes:
+            secexp: int) -> bytes:
         assert len(derivation_path) == 2
         secexp = (secexp + self.get_sequence(self.mpk, derivation_path)) % CURVE_ORDER
-        return int_to_be_bytes(secexp, 32)
+        return cast(bytes, int_to_be_bytes(secexp, 32))
 
     def can_export(self) -> bool:
         return True
@@ -558,7 +558,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         assert self.mpk == mpk.hex()
         return self.get_private_key(path, password)
 
-    def check_seed(self, seed) -> None:
+    def check_seed(self, seed: bytes) -> None:
         secexp = self.stretch_key(seed)
         master_private_key = PrivateKey(int_to_be_bytes(secexp, 32))
         master_public_key = master_private_key.public_key.to_bytes(compressed=False)[1:]
@@ -572,7 +572,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         self.check_seed(seed)
 
     def get_fingerprint(self) -> bytes:
-        return hash160(bytes.fromhex(self.mpk))[:4]
+        return cast(bytes, hash160(bytes.fromhex(self.mpk))[:4])
 
     def get_master_public_key(self) -> Optional[str]:
         return self.mpk
@@ -603,8 +603,8 @@ class Hardware_KeyStore(Xpub, KeyStore):
     #   - wallet_type
     hw_type: str
     device: str
-    plugin: Optional[Union["HW_PluginBase", "QtPluginBase"]] = None
-    handler: Optional["QtHandlerBase"] = None
+    plugin: Optional["HW_PluginBase"] = None
+    handler_qt: Optional["QtHandlerBase"] = None
 
     def __init__(self, data: MasterKeyDataHardware, row: Optional[MasterKeyRow]=None) -> None:
         Xpub.__init__(self)
@@ -615,6 +615,7 @@ class Hardware_KeyStore(Xpub, KeyStore):
         # device reconnects
         self.xpub = data['xpub']
         self.derivation = data['derivation']
+        # TODO(database-migration) Move this into a migration.
         # New hardware account bug stored the derivation as a decomposed list not a string.
         if isinstance(self.derivation, list):
             self.derivation = bip32_build_chain_string(self.derivation)
@@ -622,15 +623,21 @@ class Hardware_KeyStore(Xpub, KeyStore):
         self.label = data.get('label')
 
     def clean_up(self) -> None:
+        assert self.xpub is not None
         app_state.device_manager.unpair_xpub(self.xpub)
-        if self.handler is not None:
-            self.handler.clean_up()
+        if self.handler_qt is not None:
+            self.handler_qt.clean_up()
 
     def type(self) -> KeystoreType:
         return KeystoreType.HARDWARE
 
     def subtype(self) -> Optional[str]:
         return self.hw_type
+
+    @property
+    def plugin_qt(self) -> "QtPluginBase":
+        assert self.plugin is not None
+        return cast("QtPluginBase", self.plugin)
 
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
         KeyStore.set_row(self, row)
@@ -652,12 +659,12 @@ class Hardware_KeyStore(Xpub, KeyStore):
         derivation_lump = json.dumps(self.to_derivation_data()).encode()
         return MasterKeyRow(-1, None, DerivationType.HARDWARE, derivation_lump)
 
-    def unpaired(self):
+    def unpaired(self) -> None:
         '''A device paired with the wallet was diconnected.  This can be
         called in any thread context.'''
         logger.debug("unpaired")
 
-    def paired(self):
+    def paired(self) -> None:
         '''A device paired with the wallet was (re-)connected.  This can be
         called in any thread context.'''
         logger.debug("paired")
@@ -674,10 +681,10 @@ class Hardware_KeyStore(Xpub, KeyStore):
     def can_export(self) -> bool:
         return False
 
-    def sign_message(self, derivation_path: DerivationPath, message: bytes, password: str):
+    def sign_message(self, derivation_path: DerivationPath, message: bytes, password: str) -> bytes:
         raise NotImplementedError
 
-    def decrypt_message(self, sequence, message, password: str):
+    def decrypt_message(self, sequence: DerivationPath, message: bytes, password: str) -> bytes:
         raise NotImplementedError
 
 
@@ -786,7 +793,7 @@ def bip32_master_key_data_from_seed(seed_phrase: str, passphrase: str, bip32_see
     }
 
 
-def _public_key_from_private_key_text(text):
+def _public_key_from_private_key_text(text: str) -> PublicKey:
     return PrivateKey.from_text(text).public_key
 
 
@@ -798,7 +805,7 @@ def instantiate_keystore(derivation_type: DerivationType, data: MasterKeyDataTyp
         keystore = BIP32_KeyStore(cast(MasterKeyDataBIP32, data),
             row, parent_keystore)
     elif derivation_type == DerivationType.HARDWARE:
-        assert parent_keystore is None
+        assert parent_keystore is None and row is not None
         keystore = app_state.device_manager.create_keystore(cast(MasterKeyDataHardware, data), row)
     elif derivation_type == DerivationType.ELECTRUM_MULTISIG:
         assert parent_keystore is None

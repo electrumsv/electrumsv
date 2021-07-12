@@ -87,7 +87,7 @@ class AmountEdit(MyLineEdit):
             painter.drawText(textRect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
             self.base_unit_func())
 
-    def get_amount(self):
+    def get_amount(self) -> Optional[Decimal]:
         try:
             return Decimal(str(self.text()))
         except Exception:
@@ -128,7 +128,7 @@ class BTCSatsByteEdit(AmountEdit):
     def base_unit(self):
         return 'sats/B'
 
-    def get_amount(self):
+    def get_amount(self) -> Optional[float]:
         try:
             x = float(Decimal(str(self.text())))
         except Exception:

@@ -22,7 +22,13 @@
 # SOFTWARE.
 
 
-def plugin_class(gui_kind):
+from typing import Type, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .qt import Plugin
+
+
+def plugin_class(gui_kind: str) -> Type["Plugin"]:
     if gui_kind == 'qt':
         from .qt import Plugin
         return Plugin

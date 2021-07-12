@@ -27,32 +27,30 @@ from electrumsv.i18n import _
 
 class Extension(object):
 
-    def __init__(self, setting, name, description):
+    def __init__(self, setting: str, name: str, description: str) -> None:
         self.setting = setting
         self.name = name
         self.description = description
 
-    def is_enabled(self):
-        return app_state.config.get('use_' + self.setting, False)
+    def is_enabled(self) -> bool:
+        return app_state.config.get_explicit_type(bool, 'use_' + self.setting, False)
 
-    def set_enabled(self, enabled):
-        return app_state.config.set_key('use_' + self.setting, bool(enabled))
+    def set_enabled(self, enabled: bool) -> None:
+        app_state.config.set_key('use_' + self.setting, bool(enabled))
 
 
 class CosignerPoolExtension(Extension):
-
-    def set_enabled(self, enabled):
-        result = super().set_enabled(enabled)
-        app_state.app.cosigner_pool.on_enabled_changed()
-        return result
+    def set_enabled(self, enabled: bool) -> None:
+        super().set_enabled(enabled)
+        assert app_state.app is not None
+        app_state.app_qt.cosigner_pool.on_enabled_changed()
 
 
 class LabelSyncExtension(Extension):
-
-    def set_enabled(self, enabled):
-        result = super().set_enabled(enabled)
-        app_state.app.label_sync.on_enabled_changed()
-        return result
+    def set_enabled(self, enabled: bool) -> None:
+        super().set_enabled(enabled)
+        assert app_state.app is not None
+        app_state.app_qt.label_sync.on_enabled_changed()
 
 
 cosigner_pool = CosignerPoolExtension(

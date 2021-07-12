@@ -24,7 +24,7 @@
 # SOFTWARE.
 
 import json
-from typing import Any, List, Optional, Dict, TYPE_CHECKING, Union
+from typing import Any, cast, List, Optional, Dict, TYPE_CHECKING, Union
 import urllib.parse
 
 from bitcoinx import Script
@@ -86,7 +86,7 @@ class Output:
         return XTxOutput(self.amount, self.script) # type: ignore
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'Output':
+    def from_dict(cls, data: Dict[str, Any]) -> 'Output':
         if 'script' not in data:
             raise Bip270Exception("Missing required 'script' field")
         script_hex = data['script']
@@ -128,9 +128,9 @@ class PaymentRequest:
 
     error: Optional[str] = None
 
-    def __init__(self, outputs, creation_timestamp: Optional[int]=None,
+    def __init__(self, outputs: List[Output], creation_timestamp: Optional[int]=None,
             expiration_timestamp: Optional[int]=None, memo: Optional[str]=None,
-            payment_url: Optional[str]=None, merchant_data=None):
+            payment_url: Optional[str]=None, merchant_data: Optional[str]=None) -> None:
         # This is only used if there is a requestor identity (old openalias, needs rewrite).
         self._id: Optional[int] = None
         self.tx = None
@@ -220,9 +220,9 @@ class PaymentRequest:
 
     def to_json(self) -> str:
         # TODO: This should be a TypedDict.
-        d: Dict = {}
+        d: Dict[str, Any] = {}
         d['network'] = self.network
-        d['outputs'] = [output.to_dict() for output in self.outputs]  # type: ignore
+        d['outputs'] = [output.to_dict() for output in self.outputs]
         d['creationTimestamp'] = self.creation_timestamp
         if self.expiration_timestamp is not None:
             d['expirationTimestamp'] = self.expiration_timestamp
@@ -244,7 +244,7 @@ class PaymentRequest:
         return self.expiration_timestamp
 
     def get_amount(self) -> int:
-        return sum(x.amount for x in self.outputs)
+        return sum(cast(int, x.amount) for x in self.outputs)
 
     def get_address(self) -> str:
         if Net._net is SVMainnet:
@@ -317,7 +317,7 @@ class PaymentRequest:
         return True
 
     # The following function and classes is abstracted to allow unit testing.
-    def _make_request(self, url, message):
+    def _make_request(self, url: str, message: str) -> "_RequestsResponseWrapper":
         r = requests.post(url, data=message, headers=ACK_HEADERS, verify=ca_path)
         return self._RequestsResponseWrapper(r)
 
@@ -344,7 +344,7 @@ class Payment:
         self.memo = memo
 
     @classmethod
-    def from_dict(cls, data: dict, ack: bool=False) -> 'Payment':
+    def from_dict(cls, data: Dict[str, Any], ack: bool=False) -> 'Payment':
         merchant_data: Any
         if 'merchantData' in data:
             merchant_data = data['merchantData']
@@ -366,7 +366,7 @@ class Payment:
 
         return cls(merchant_data, transaction_hex, memo)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         data = {
             'merchantData': self.merchant_data,
             'transaction': self.transaction_hex,

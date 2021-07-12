@@ -7,11 +7,13 @@ import bitcoinx
 import pytest
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
-    import pysqlite3 as sqlite3 # type: ignore
+    import pysqlite3
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
-    import sqlite3 # type: ignore
+    import sqlite3
+else:
+    sqlite3 = pysqlite3
 
 from electrumsv.constants import (AccountTxFlags, DerivationType, KeyInstanceFlag,
     NetworkServerFlag, NetworkServerType,
@@ -517,44 +519,6 @@ class TestTransactionTable:
         proof = rows[0].unpack_proof()
         assert proof.position == position1
         assert proof.branch == merkle_branch1
-
-
-    # TODO(no-merge) descriptions have moved to AccountTransactions
-    # def test_labels(self):
-    #     bytedata_1 = os.urandom(10)
-    #     tx_hash_1 = bitcoinx.double_sha256(bytedata_1)
-    #     tx_row_1 = TransactionRow(tx_hash=tx_hash_1, tx_bytes=bytedata_1, flags=TxFlags.UNSET,
-    #         block_height=1, block_position=None, fee_value=2, description=None,
-    #         version=None, locktime=None, date_created=1, date_updated=1)
-
-    #     bytedata_2 = os.urandom(10)
-    #     tx_hash_2 = bitcoinx.double_sha256(bytedata_2)
-    #     tx_row_2 = TransactionRow(tx_hash=tx_hash_2, tx_bytes=bytedata_2, flags=TxFlags.UNSET,
-    #         block_height=1, block_position=None, fee_value=2, description=None,
-    #         version=None, locktime=None, date_created=1, date_updated=1)
-
-    #     future = db_functions.create_transactions(self.db_context, [ tx_row_1, tx_row_2 ])
-    #     future.result(timeout=5)
-
-    #     future = db_functions.update_transaction_descriptions(self.db_context,
-    #         [ ("tx 1", tx_hash_1) ])
-    #     future.result()
-
-    #     rows = self.store.read_descriptions()
-    #     assert len(rows) == 1
-    #     assert len([r[1] == "tx 1" for r in rows if r[0] == tx_hash_1]) == 1
-
-    #     future = db_functions.update_transaction_descriptions(self.db_context,
-    #         [ (None, tx_hash_1), ("tx 2", tx_hash_2) ])
-    #     future.result()
-
-    #     rows = self.store.read_descriptions([ tx_hash_2 ])
-    #     assert len(rows) == 1
-    #     assert rows[0][0] == tx_hash_2 and rows[0][1] == "tx 2"
-
-    #     # Reading entries for a non-existent ...
-    #     rows = self.store.read_descriptions([ self.tx_hash ])
-    #     assert len(rows) == 0
 
 
 def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:

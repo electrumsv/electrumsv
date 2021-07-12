@@ -4,18 +4,26 @@ from enum import Enum
 import queue
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
-    import pysqlite3 as sqlite3
+    import pysqlite3
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
-    import sqlite3 # type: ignore
+    import sqlite3
+else:
+    sqlite3 = pysqlite3
 import threading
 import time
-from typing import Any, Set
+from typing import Any, cast, Dict, Callable, Protocol, Set, Tuple, TypeVar
 
 from ..constants import DATABASE_EXT
 from ..logs import logs
 
+
+class DatabaseFunction(Protocol):
+    def __call__(self, db: sqlite3.Connection, *args: Any, **kwargs: Any) -> Any: ...
+
+
+T1 = TypeVar("T1")
 
 class LeakedSQLiteConnectionError(Exception):
     pass
@@ -27,7 +35,7 @@ class LeakedSQLiteConnectionError(Exception):
 #     was exacerbated on the Azure Pipelines CI, and had errors there it didn't when running
 #     the unit tests locally (the unit tests exercise the in-memory storage).
 
-def max_sql_variables():
+def max_sql_variables() -> int:
     """Get the maximum number of arguments allowed in a query by the current
     sqlite3 implementation.
 
@@ -93,7 +101,7 @@ class SqliteWriteDispatcher:
         self._db_context = db_context
         self._logger = logs.get_logger("sqlite-writer")
 
-        self._writer_queue: "queue.Queue[ExecutorItem]" = queue.Queue()
+        self._writer_queue: queue.Queue["ExecutorItem"] = queue.Queue()
         self._writer_thread = threading.Thread(target=self._writer_thread_main, daemon=True)
         self._writer_loop_event = threading.Event()
 
@@ -167,8 +175,8 @@ class DatabaseContext:
         if not self.is_special_path(wallet_path) and not wallet_path.endswith(DATABASE_EXT):
             wallet_path += DATABASE_EXT
         self._db_path = wallet_path
-        self._connection_pool: queue.Queue = queue.Queue()
-        self._active_connections: Set = set()
+        self._connection_pool: queue.Queue[sqlite3.Connection] = queue.Queue()
+        self._active_connections: Set[sqlite3.Connection] = set()
 
         self._logger = logs.get_logger("sqlite-context")
         self._lock = threading.Lock()
@@ -280,14 +288,15 @@ class DatabaseContext:
             return True
         return False
 
-    def post_to_thread(self, func, *args, **kwargs) -> concurrent.futures.Future:
+    def post_to_thread(self, func: Callable[..., T1], *args: Any, **kwargs: Any) \
+            -> concurrent.futures.Future[T1]:
         return self._executor.submit(func, *args, **kwargs)
 
-    def run_in_thread(self, func, *args, **kwargs) -> Any:
+    def run_in_thread(self, func: Callable[..., T1], *args: Any, **kwargs: Any) -> T1:
         future = self._executor.submit(func, *args, **kwargs)
-        return future.result()
+        return cast(T1, future.result())
 
-    async def run_in_thread_async(self, func, *args) -> Any:
+    async def run_in_thread_async(self, func: Callable[..., T1], *args: Any) -> T1:
         """
         Yield the current task until the function has executed in the SQLite write thread.
 
@@ -319,9 +328,10 @@ class DatabaseContext:
 # Based on `concurrent.futures.thread._ExecutorItem`.
 # Relabels `run` to `__call__` and
 class ExecutorItem(object):
-    def __init__(self, future: concurrent.futures.Future, fn, args, kwargs) -> None:
+    def __init__(self, future: concurrent.futures.Future[Any], fn: DatabaseFunction,
+            args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> None:
         self._future = future
-        self._fn = fn
+        self._fn: DatabaseFunction = fn
         self._args = args
         self._kwargs = kwargs
 
@@ -362,7 +372,7 @@ class SqliteExecutor(concurrent.futures.Executor):
             if self._shutdown:
                 raise RuntimeError('cannot schedule new futures after shutdown')
             self._active_items += 1
-            future: concurrent.futures.Future = concurrent.futures.Future()
+            future: concurrent.futures.Future[Any] = concurrent.futures.Future()
             # Used to implement the wait on shutdown.
             future.add_done_callback(self._on_future_done)
             self._dispatcher.put(ExecutorItem(future, fn, args, kwargs))
@@ -375,15 +385,16 @@ class SqliteExecutor(concurrent.futures.Executor):
         if wait:
             self._shutdown_event.wait()
 
-    def _on_future_done(self, _future: concurrent.futures.Future) -> None:
+    def _on_future_done(self, _future: concurrent.futures.Future[Any]) -> None:
         with self._shutdown_lock:
             self._active_items -= 1
             if self._active_items == 0:
                 self._shutdown_event.set()
 
 
-def replace_db_context_with_connection(func):
-    def wrapped_call(db_context: DatabaseContext, *args, **kwargs):
+def replace_db_context_with_connection(func: Callable[..., T1]) \
+        -> Callable[..., T1]:
+    def wrapped_call(db_context: DatabaseContext, *args: Any, **kwargs: Any) -> T1:
         db = db_context.acquire_connection()
         try:
             return func(db, *args, **kwargs)

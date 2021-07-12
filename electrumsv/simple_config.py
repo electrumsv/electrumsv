@@ -2,7 +2,9 @@ from copy import deepcopy
 import os
 import stat
 import threading
-from typing import cast, Optional
+from typing import Any, Callable, cast, Dict, Optional, Type, TypeVar
+
+from mypy_extensions import DefaultArg
 
 from . import util
 from .constants import DEFAULT_FEE
@@ -17,6 +19,8 @@ logger = logs.get_logger("config")
 
 FINAL_CONFIG_VERSION = 2
 
+T = TypeVar('T')
+
 
 class SimpleConfig:
     """
@@ -29,8 +33,10 @@ class SimpleConfig:
     They are taken in order (1. overrides config options set in 2.)
     """
 
-    def __init__(self, options=None, read_user_config_function=None,
-                 read_user_dir_function=None):
+    def __init__(self, options: Optional[Dict[str, Any]]=None,
+            read_user_config_function: Optional[Callable[[str], Dict[str, Any]]]=None,
+            read_user_dir_function:
+                Optional[Callable[[DefaultArg(bool, 'prefer_local')], str]]=None) -> None:
 
         if options is None:
             options = {}
@@ -95,12 +101,13 @@ class SimpleConfig:
         logger.debug("electrum-sv directory '%s'", path)
         return path
 
-    def file_path(self, file_name):
+    def file_path(self, file_name: str) -> Optional[str]:
         if self.path:
             return os.path.join(self.path, file_name)
         return None
 
-    def rename_config_keys(self, config, keypairs, deprecation_warning=False):
+    def rename_config_keys(self, config: Dict[str, Any], keypairs: Dict[str, str],
+            deprecation_warning: bool=False) -> bool:
         """Migrate old key names to new ones"""
         updated = False
         for old_key, new_key in keypairs.items():
@@ -114,13 +121,13 @@ class SimpleConfig:
                 updated = True
         return updated
 
-    def set_key(self, key, value, save=True):
+    def set_key(self, key: str, value: Any, save: bool=True) -> None:
         if not self.is_modifiable(key):
             logger.warning("not changing config key '%s' set on the command line", key)
             return
         self._set_key_in_user_config(key, value, save)
 
-    def _set_key_in_user_config(self, key, value, save=True):
+    def _set_key_in_user_config(self, key: str, value: Any, save: bool=True) -> None:
         with self.lock:
             if value is not None:
                 self.user_config[key] = value
@@ -129,17 +136,34 @@ class SimpleConfig:
             if save:
                 self.save_user_config()
 
-    def get(self, key, default=None):
+    def get(self, key: str, default: Any=None) -> Optional[Any]:
         with self.lock:
             out = self.cmdline_options.get(key)
             if out is None:
                 out = self.user_config.get(key, default)
         return out
 
-    def requires_upgrade(self):
+    def get_optional_type(self, return_type: Type[T], key: str, default: Optional[T]=None) \
+            -> Optional[T]:
+        with self.lock:
+            value = self.cmdline_options.get(key)
+            if value is None:
+                value = self.user_config.get(key, default)
+        assert value == default or isinstance(value, return_type)
+        return cast(T, value)
+
+    def get_explicit_type(self, return_type: Type[T], key: str, default: T) -> T:
+        with self.lock:
+            value: Optional[T] = self.cmdline_options.get(key)
+            if value is None:
+                value = cast(T, self.user_config.get(key, default))
+        assert isinstance(value, return_type)
+        return value
+
+    def requires_upgrade(self) -> bool:
         return self.get_config_version() < FINAL_CONFIG_VERSION
 
-    def upgrade(self):
+    def upgrade(self) -> None:
         with self.lock:
             logger.debug('upgrading config')
 
@@ -147,7 +171,7 @@ class SimpleConfig:
 
             self.set_key('config_version', FINAL_CONFIG_VERSION, save=True)
 
-    def convert_version_2(self):
+    def convert_version_2(self) -> None:
         if not self._is_upgrade_method_needed(1, 1):
             return
 
@@ -166,7 +190,7 @@ class SimpleConfig:
 
         self.set_key('config_version', 2)
 
-    def _is_upgrade_method_needed(self, min_version, max_version):
+    def _is_upgrade_method_needed(self, min_version: int, max_version: int) -> bool:
         cur_version = self.get_config_version()
         if cur_version > max_version:
             return False
@@ -177,17 +201,17 @@ class SimpleConfig:
         else:
             return True
 
-    def get_config_version(self):
-        config_version = self.get('config_version', 1)
+    def get_config_version(self) -> int:
+        config_version = self.get_explicit_type(int, 'config_version', 1)
         if config_version > FINAL_CONFIG_VERSION:
             logger.warning('WARNING: config version (%s) is higher than ours (%s)',
                              config_version, FINAL_CONFIG_VERSION)
         return config_version
 
-    def is_modifiable(self, key):
+    def is_modifiable(self, key: str) -> bool:
         return key not in self.cmdline_options
 
-    def save_user_config(self):
+    def save_user_config(self) -> None:
         if not self.path:
             return
         path = os.path.join(self.path, "config")
@@ -213,26 +237,15 @@ class SimpleConfig:
             return os.path.join(cast(str, self.get('cwd')), cast(str, self.get('wallet_path')))
         return None
 
-    def set_session_timeout(self, seconds):
+    def set_session_timeout(self, seconds: int) -> None:
         logger.debug("session timeout -> %d seconds", seconds)
         self.set_key('session_timeout', seconds)
 
-    def get_session_timeout(self):
-        return self.get('session_timeout', 300)
-
-    def open_last_wallet(self):
-        if self.get('wallet_path') is None:
-            last_wallet = cast(Optional[str], self.get('gui_last_wallet'))
-            if last_wallet is not None and os.path.exists(last_wallet):
-                self.cmdline_options['default_wallet_path'] = last_wallet
-
-    def save_last_wallet(self, wallet):
-        if self.get('wallet_path') is None:
-            path = wallet.get_storage_path()
-            self.set_key('gui_last_wallet', path)
+    def get_session_timeout(self) -> int:
+        return self.get_explicit_type(int, 'session_timeout', 300)
 
     def custom_fee_rate(self) -> Optional[int]:
-        return self.get('customfee')
+        return self.get_optional_type(int, 'customfee')
 
     def fee_per_kb(self) -> int:
         retval = cast(Optional[int], self.get('customfee'))
@@ -247,14 +260,14 @@ class SimpleConfig:
         # The configured fee rate does not differentiate between standard and data sizes.
         return self.fee_per_kb() * sum(size) // 1000
 
-    def get_video_device(self):
-        device = self.get("video_device", "default")
+    def get_video_device(self) -> str:
+        device = self.get_explicit_type(str, "video_device", "default")
         if device == 'default':
             device = ''
         return device
 
 
-def read_user_config(path):
+def read_user_config(path: str) -> Dict[str, Any]:
     """Parse and return the user config settings as a dictionary."""
     if not path:
         return {}

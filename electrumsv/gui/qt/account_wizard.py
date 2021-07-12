@@ -28,7 +28,7 @@
 
 import concurrent.futures
 import enum
-from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
     bip32_key_from_string, PrivateKey, P2SH_Address, bip32_build_chain_string,
@@ -60,6 +60,9 @@ from .main_window import ElectrumWindow
 from .util import (ChoicesLayout, icon_path, MessageBox, MessageBoxMixin, protected, query_choice,
     read_QIcon)
 from .wizard_common import BaseWizard, DEFAULT_WIZARD_FLAGS, WizardFlags, WizardFormSection
+
+if TYPE_CHECKING:
+    from ...devices.hw_wallet.plugin import HW_PluginBase
 
 
 logger = logs.get_logger('wizard-account')
@@ -1111,7 +1114,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
 
 
 class SetupHardwareWalletAccountPage(QWizardPage):
-    _plugin: Any
+    _plugin: Optional["HW_PluginBase"]
     _plugin_debug_message: Optional[str]
     _derivation_default: DerivationPath = tuple(bip32_decompose_chain_string(
         bip44_derivation_cointype(0, 0)))

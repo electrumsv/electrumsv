@@ -23,17 +23,18 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 import gettext
+from typing import Optional
 
 from .util import resource_path
 
 LOCALE_DIR = resource_path('locale')
 language = gettext.translation('electrumsv', LOCALE_DIR, fallback = True)
 
-def _(x):
+def _(x: str) -> str:
     global language
     return language.gettext(x)
 
-def set_language(x):
+def set_language(x: Optional[str]) -> None:
     global language
     if x:
         language = gettext.translation('electrumsv', LOCALE_DIR, fallback=True, languages=[x])

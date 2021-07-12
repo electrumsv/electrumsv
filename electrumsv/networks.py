@@ -30,7 +30,7 @@
 # being used by dark coins like Bitcoin Cash.
 
 import json
-from typing import Dict, Tuple
+from typing import Any, Dict, Optional, Tuple, Type, Union
 
 from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet, \
     BitcoinRegtest, PrivateKey, PublicKey
@@ -49,7 +49,7 @@ class NetworkName:
 TEST_NETWORK_NAMES = { NetworkName.REGTEST, NetworkName.TESTNET, NetworkName.SCALING_TESTNET }
 
 
-def read_json_dict(filename):
+def read_json_dict(filename: str) -> Any:
     path = resource_path(filename)
     with open(path, 'r') as f:
         return json.loads(f.read())
@@ -83,7 +83,7 @@ class SVMainnet(object):
         'f133959c98fadfced5b83f388b8aaee167772dc850425edcb5ac916e7862285fdf6203181438585e'
     ), height=646575, prev_work=0x1149bb71861599709fe849c)
 
-    VERIFICATION_BLOCK_MERKLE_ROOT = (
+    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = (
         '3fccaf735987c5a6bcf5ee24022a989d311b18e0fa20f67c4565137fb888317b'
     )
 
@@ -109,8 +109,8 @@ class SVMainnet(object):
     }
 
     FAUCET_URL = "https://faucet.satoshisvision.network"
-    KEEPKEY_DISPLAY_COIN_NAME = 'Bitcoin'
-    TREZOR_COIN_NAME = 'Bcash'
+    KEEPKEY_DISPLAY_COIN_NAME: str = 'Bitcoin'
+    TREZOR_COIN_NAME: str = 'Bcash'
     # Really we want to put the difficulty logic in this file
     TWENTY_MINUTE_RULE = False
 
@@ -144,7 +144,7 @@ class SVTestnet(object):
         '767dc2e6fdb63e82d570461da2daa2f4fd9fe375ebce93f5b180a6f5ae7e285faef5021a7f406d4d'
     ), height=1377549, prev_work=0xade538ee77b27b019d)
 
-    VERIFICATION_BLOCK_MERKLE_ROOT = (
+    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = (
         'c2ca8aef7a20779fc9b7cc00af6b9b65f7ff99ae68fe22132c448d15de0d5943'
     )
 
@@ -172,7 +172,7 @@ class SVTestnet(object):
     FAUCET_URL = "https://testnet.satoshisvision.network"
     KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'
     # Note: testnet allegedly supported only by unofficial firmware
-    TREZOR_COIN_NAME = 'Bcash Testnet'
+    TREZOR_COIN_NAME: str = 'Bcash Testnet'
     # Really we want to put the difficulty logic in this file
     TWENTY_MINUTE_RULE = True
 
@@ -206,7 +206,7 @@ class SVScalingTestnet(object):
     #     '0a4ff9d2499db4524ca1663b82736211390885bd5d813ef2d4612c798e7e285f99d91d1cb33ad085'
     # ), height=15789, prev_work=0x12c8202e00871)
 
-    # VERIFICATION_BLOCK_MERKLE_ROOT = (
+    # VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = (
     #     '3c6449749d6376dd341f4e1b2192ec658b68c241beaaf665e5615ae01c35b853'
     # )
 
@@ -215,7 +215,7 @@ class SVScalingTestnet(object):
         '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
         '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
     ), height=0, prev_work=0)
-    VERIFICATION_BLOCK_MERKLE_ROOT = None
+    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = None
 
     BIP44_COIN_TYPE = 1
 
@@ -241,7 +241,7 @@ class SVScalingTestnet(object):
     FAUCET_URL = "https://faucet.bitcoinscaling.io"
     KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'
     # Note: testnet allegedly supported only by unofficial firmware
-    TREZOR_COIN_NAME = 'Bcash Testnet'
+    TREZOR_COIN_NAME: str = 'Bcash Testnet'
     # Really we want to put the difficulty logic in this file
     TWENTY_MINUTE_RULE = True
 
@@ -291,7 +291,7 @@ class SVRegTestnet(object):
         '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
         '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
     ), height=0, prev_work=0)
-    VERIFICATION_BLOCK_MERKLE_ROOT = None
+    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = None
 
     BIP44_COIN_TYPE = 1
 
@@ -300,13 +300,16 @@ class SVRegTestnet(object):
     FAUCET_URL = ""
     KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'
     # Note: testnet allegedly supported only by unofficial firmware
-    TREZOR_COIN_NAME = 'Bcash Testnet'
+    TREZOR_COIN_NAME: str = 'Bcash Testnet'
     TWENTY_MINUTE_RULE = True
+
+
+NetworkTypes = Union[SVMainnet, SVTestnet, SVScalingTestnet, SVRegTestnet]
 
 
 class _CurrentNetMeta(type):
 
-    def __getattr__(cls, attr):
+    def __getattr__(cls, attr: str) -> Any:
         return getattr(cls._net, attr)
 
 
@@ -319,8 +322,8 @@ class Net(metaclass=_CurrentNetMeta):
         Net.set_to(SVTestnet)
     '''
 
-    _net = SVMainnet
+    _net: Type[NetworkTypes] = SVMainnet
 
     @classmethod
-    def set_to(cls, net_class):
+    def set_to(cls, net_class: Type[NetworkTypes]) -> None:
         cls._net = net_class

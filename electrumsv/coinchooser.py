@@ -25,7 +25,8 @@
 
 from collections import defaultdict
 from math import floor, log10
-from typing import Callable, cast, List, NamedTuple, Sequence, Set, Tuple, TYPE_CHECKING
+from typing import Any, Callable, cast, List, NamedTuple, Sequence, Set, Tuple, \
+    TYPE_CHECKING, TypeVar
 
 from bitcoinx import sha256
 
@@ -38,6 +39,7 @@ from .exceptions import NotEnoughFunds
 if TYPE_CHECKING:
     from .wallet_database.types import KeyDataType
 
+T = TypeVar("T")
 
 
 logger = logs.get_logger("coinchooser")
@@ -61,18 +63,18 @@ BucketPenaltyFunction = Callable[[List[Bucket]], float]
 # to spend.  This prevents attacks on users by malicious or stale
 # servers.
 class PRNG:
-    def __init__(self, seed):
+    def __init__(self, seed: bytes) -> None:
         self.sha = sha256(seed)
         self.pool = bytearray()
 
-    def get_bytes(self, n):
+    def get_bytes(self, n: int) -> bytes:
         while len(self.pool) < n:
             self.pool.extend(self.sha)
             self.sha = sha256(self.sha)
         result, self.pool = self.pool[:n], self.pool[n:]
         return result
 
-    def randint(self, start, end):
+    def randint(self, start: int, end: int) -> int:
         # Returns random integer in [start, end)
         n = end - start
         r = 0
@@ -82,16 +84,16 @@ class PRNG:
             p = p << 8
         return start + (r % n)
 
-    def choice(self, seq):
+    def choice(self, seq: Sequence[T]) -> T:
         return seq[self.randint(0, len(seq))]
 
-    def shuffle(self, x):
+    def shuffle(self, x: List[Any]) -> None:
         for i in reversed(range(1, len(x))):
             # pick an element in x[:i+1] with which to exchange x[i]
             j = self.randint(0, i+1)
             x[i], x[j] = x[j], x[i]
 
-    def pluck(self, seq: List):
+    def pluck(self, seq: List[T]) -> T:
         return seq.pop(self.randint(0, len(seq)))
 
 
@@ -108,7 +110,7 @@ class CoinChooserBase:
     def keys(self, coins: List[XTxInput]) -> List[int]:
         raise NotImplementedError
 
-    def bucketize_coins(self, coins) -> List[Bucket]:
+    def bucketize_coins(self, coins: List[XTxInput]) -> List[Bucket]:
         keys = self.keys(coins)
         buckets = defaultdict(list)
         for key, coin in zip(keys, coins):
@@ -122,8 +124,8 @@ class CoinChooserBase:
         return [make_Bucket(key, value) for key, value in buckets.items()]
 
     def create_penalty_function(self, _tx: Transaction) -> BucketPenaltyFunction:
-        def penalty(_candidate):
-            return 0
+        def penalty(_candidates: List[Bucket]) -> float:
+            return 0.0
         return penalty
 
     def change_amounts(self, tx: Transaction, maximum_change_count: int,
@@ -196,7 +198,7 @@ class CoinChooserBase:
 
     def make_tx(self, coins: List[XTxInput], outputs: List[XTxOutput],
             change_outs: List[XTxOutput], fee_estimator: TransactionFeeEstimator,
-            dust_threshold) -> Transaction:
+            dust_threshold: int) -> Transaction:
         '''Select unspent coins to spend to pay outputs.  If the change is
         greater than dust_threshold (after adding the change output to
         the transaction) it is kept, otherwise none is sent and it is
