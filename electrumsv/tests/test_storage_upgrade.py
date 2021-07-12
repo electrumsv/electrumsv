@@ -2,6 +2,7 @@ import os
 import shutil
 import tempfile
 import unittest
+import unittest.mock
 
 from electrumsv.constants import DATABASE_EXT
 from electrumsv.storage import WalletStorage, categorise_file

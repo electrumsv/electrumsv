@@ -3,10 +3,6 @@ A wallet may share a need for information from the indexer, or for that matter a
 it uses. This code manages the subscriptions and handles dispatching responses to any incoming
 information.
 
-TODO At this time the subscriptions state is shared for all wallets using the network singleton.
-But this is the wrong model for the future. If each account may have different credentials for
-using a service, then these will all need to use that service independently.
-
 Key subscriptions:
 
   These are used to detect usage of keys on the indexer. Presence of unknown transactions for
@@ -24,12 +20,19 @@ Transaction subscriptions:
   - Detect if a transaction has entered the mempool. Perhaps it was dispatched to another
     party, or received from them, and intended to be held until an unknown time.
 
+TODO At this time the subscriptions state is shared for all wallets using the network singleton.
+  But this is the wrong model for the future. If each account may have different credentials for
+  using a service, then these will all need to use that service independently.
+
+TODO Entries in `_subscription_results` need to be purged using some heuristic. This might be
+  possible after all active subscriptions for the given hashes are known to be deleted.
+
 """
 
 import asyncio
 import concurrent.futures
 import threading
-from typing import Dict, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import Dict, List, Optional, Set, Tuple
 
 from bitcoinx import hash_to_hex_str
 
@@ -41,15 +44,10 @@ from .types import (ElectrumXHistoryList, SubscriptionEntry, SubscriptionKey,
     ScriptHashSubscriptionCallback, ScriptHashSubscriptionEntry, ScriptHashResultCallback,
     SubscriptionOwner, SubscriptionOwnerContextType)
 
-if TYPE_CHECKING:
-    from .async_ import ASync
-
 
 logger = logs.get_logger("subscriptions")
 
 
-# TODO(no-merge) Need to unit test this class after it's been hooked into the different use
-#     cases and proven to suit the needs.
 class SubscriptionManager:
     _script_hashes_added_callback: Optional[ScriptHashSubscriptionCallback] = None
     _script_hashes_removed_callback: Optional[ScriptHashSubscriptionCallback] = None
@@ -78,7 +76,7 @@ class SubscriptionManager:
         self._script_hash_notification_queue: \
             asyncio.Queue[Tuple[int, bytes, ElectrumXHistoryList]] = app_state.async_.queue()
         self._script_hash_notification_future = app_state.async_.spawn(
-            self._process_scripthash_notifications)
+            self._process_scripthash_notifications_loop)
 
     def stop(self) -> None:
         self._script_hash_notification_future.cancel()
@@ -177,13 +175,11 @@ class SubscriptionManager:
                     else:
                         raise NotImplementedError(f"{entry.key.value_type} not supported")
                 elif self._script_hashes_added_callback is not None:
-                    # This should not block and will spawn a task to do the notification.
+                    # If we are already subscribed, we cannot rely on a response to the initial
+                    # subscription to the indexer producing a result for the subscriber. Instead
+                    # we want to pass on any existing cached results to the additional subscriber.
                     self.check_notify_script_hash_history(entry.key, owner)
             if self._script_hashes_added_callback is not None and len(script_hash_entries):
-                # TODO This used to be spawn and wait but was changed to `spawn`/`run_coro` to not
-                #   block the caller. If the caller wishes to wait for any network subscription
-                #   to complete, or to see exceptions that may occur, they can use the returned
-                #   future to do so.
                 future = app_state.app.run_coro(
                     self._script_hashes_added_callback, script_hash_entries)
         return future
@@ -236,28 +232,30 @@ class SubscriptionManager:
         # the network processing ASAP.
         self._script_hash_notification_queue.put_nowait((subscription_id, script_hash, result))
 
+    async def _process_scripthash_notifications_loop(self) -> None:
+        while True:
+            await self._process_scripthash_notifications()
+
     async def _process_scripthash_notifications(self) -> None:
         subscription_id: int
         script_hash: bytes
         result: ElectrumXHistoryList
-        while True:
-            subscription_id, script_hash, result = await self._script_hash_notification_queue.get()
-            subscription_key = SubscriptionKey(SubscriptionType.SCRIPT_HASH, script_hash)
-            existing_subscription_id = self._subscription_ids.get(subscription_key)
-            if existing_subscription_id != subscription_id:
-                logger.error("Mismatched subscription for %s, expected %d got %s",
-                    hash_to_hex_str(script_hash), subscription_id, existing_subscription_id)
-                return
+        subscription_id, script_hash, result = await self._script_hash_notification_queue.get()
+        subscription_key = SubscriptionKey(SubscriptionType.SCRIPT_HASH, script_hash)
+        existing_subscription_id = self._subscription_ids.get(subscription_key)
+        if existing_subscription_id != subscription_id:
+            logger.error("Mismatched subscription for %s, expected %d got %s",
+                hash_to_hex_str(script_hash), subscription_id, existing_subscription_id)
+            return
 
-            self._subscription_results[subscription_key] = result
+        self._subscription_results[subscription_key] = result
 
-            for owner, callback in list(self._owner_callbacks.items()):
-                await self._notify_script_hash_history(subscription_key, owner, callback, result)
+        for owner, callback in list(self._owner_callbacks.items()):
+            await self._notify_script_hash_history(subscription_key, owner, callback, result)
 
     async def _notify_script_hash_history(self, subscription_key: SubscriptionKey,
             owner: SubscriptionOwner, callback: ScriptHashResultCallback,
             result: ElectrumXHistoryList) -> None:
-            #
         if subscription_key in self._subscriptions and \
                 owner in self._subscriptions[subscription_key]:
             # This may modify the contents of the owner context for this subscription.

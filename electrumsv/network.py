@@ -1454,6 +1454,8 @@ class Network(TriggeredCallbacks):
         while True:
             session = await self._main_session()
             script_hash, status = await self._on_status_queue.get()
+            # TODO(no-merge) Is there a reason why we spawn these? We're already decoupled from
+            #   the aiorpcx queue and the subscription manager also queues.
             await group.spawn(session._on_script_hash_status_changed, script_hash, status)
 
     async def _monitor_txs(self, wallet: "Wallet") -> None:
