@@ -72,9 +72,8 @@ from .keystore import (BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore
 from .logs import logs
 from .networks import Net
 from .storage import WalletStorage
-from .transaction import (Transaction, TransactionContext,
-    TxSerialisationFormat, NO_SIGNATURE, tx_dict_from_text, XPublicKey, XPublicKeyType, XTxInput,
-    XTxOutput)
+from .transaction import (Transaction, TransactionContext, TxSerialisationFormat, NO_SIGNATURE,
+    tx_dict_from_text, XPublicKey, XTxInput, XTxOutput)
 from .types import (DerivationTypeData, ElectrumXHistoryList, IndefiniteCredentialId,
     KeyInstanceDataBIP32SubPath,
     KeyInstanceDataHash, KeyInstanceDataPrivateKey, MasterKeyDataTypes,
@@ -3063,137 +3062,20 @@ class Wallet(TriggeredCallbacks):
                 assert reference_count > 1
                 self._transaction_locks[tx_hash] = (lock, reference_count - 1)
 
-    # TODO(no-merge) unused
-    # def _extend_transaction_output(self, output: XTxOutput, key_data: KeyDataTypes) -> None:
-    #     output.account_id = key_data.account_id
-    #     output.keyinstance_id = key_data.keyinstance_id
-    #     output.masterkey_id = key_data.masterkey_id
-    #     output.derivation_type = key_data.derivation_type
-    #     output.derivation_data2 = key_data.derivation_data2
-
-    # def _extend_database_transaction(self, tx: Transaction, force: bool=False) -> None:
-    #     """
-    #     Add external extended data to a transaction object.
-
-    #     A transaction is composed of extended inputs and outputs that can contain additional
-    #     information, and most of that can be populated from an extended serialisation
-    #     format that contains more data than standard transactions do.
-
-    #     This method aims to populate the extended data of a transaction object, and if there
-    #     is already information present there, to validate that it is correct. If there is an
-    #     inconsistency, an `InvalidTransactionError` exception will be raised. The caller can
-    #     opt to ignore all inconsistencies and just overwrite the values using the `force`
-    #     argument (NOT DONE).
-    #     """
-    #     tx_id = hash_to_hex_str(tx.hash())
-
-    #     input_map: Dict[TxoKeyType, Tuple[int, XTxInput]] = {}
-    #     for txi_index, tx_input in enumerate(tx.inputs):
-    #         outpoint = TxoKeyType(tx_input.prev_hash, tx_input.prev_idx)
-    #         input_map[outpoint] = txi_index, tx_input
-    #     # TODO(no-merge) require_spends=True?
-    #     previous_outputs = self.get_transaction_outputs_spendable_explicit(
-    #          txo_keys=list(input_map))
-
-    #     for db_output in previous_outputs:
-    #         outpoint = TxoKeyType(db_output.tx_hash, db_output.txo_index)
-    #         txi_index, tx_input = input_map[outpoint]
-
-    #         if tx_input.value is not None and tx_input.value != db_output.value:
-    #             # TODO(no-merge) this should report back to the caller
-    #             logger.error("extend_transaction: input %s:%d got value %d, expected %d",
-    #                 tx_id, txi_index, tx_input.value, db_output.value)
-    #         tx_input.value = db_output.value
-
-    #         tx_input.script_type = db_output.script_type
-    #         assert db_output.keyinstance_id is not None
-    #         assert db_output.account_id is not None
-    #         assert db_output.derivation_type is not None
-    #         tx_input.key_data = KeyDataType(db_output.keyinstance_id, db_output.account_id,
-    #             db_output.masterkey_id, db_output.derivation_type, db_output.derivation_data2)
-    #     # TODO(no-merge) unfinished
-
-    def _extend_ephemeral_transaction(self, tx_hash: bytes, tx: Transaction) -> None:
-        """
-        Add extended data to this transaction based on it not being in the database.
-
-        As the wallet should know about all transactions associated with any of it's accounts and
-        the keys they use, this is expected to be a transaction not directly related to the
-        wallet.
-
-        It is also possible that the user constructed this transaction locally, exported it without
-        sharing it externally, and is reloading it into the wallet. At this point it may or may not
-        clash with other wallet contents. However, as we are loading it ephemerally we need to
-        detect that ourselves. In this case, the transaction should be marked up exactly like a
-        transaction that was in the database and was fully processed would be.
-        """
-        assert tx.is_complete()
-
-        spend_keys = [ TxoKeyType(txin.prev_hash, txin.prev_idx) for txin in tx.inputs ]
-        spent_output_map = {
-            TxoKeyType(txo.tx_hash, txo.txo_index):
-                txo for txo in self.get_transaction_outputs_spendable_explicit(txo_keys=spend_keys)
-        }
-
-        for txi_index, tx_input in enumerate(tx.inputs):
-            spent_output = spent_output_map.get(spend_keys[txi_index])
-            if spent_output is None:
-                continue
-
-            # Provide output-related values.
-            tx_input.value = spent_output.value
-            tx_input.script_type = spent_output.script_type
-
-            # Provide key data values.
-            assert spent_output.keyinstance_id is not None
-            assert spent_output.account_id is not None
-            assert spent_output.derivation_type is not None
-            key_data = KeyDataType(spent_output.keyinstance_id, spent_output.account_id,
-                spent_output.masterkey_id, spent_output.derivation_type,
-                spent_output.derivation_data2)
-            tx_input.key_data = key_data
-            # NOTE we do not populate the x_pubkeys as the transaction is fully signed.
-            # There is some overlap with the key data values, and this can be worked out
-            # later anyway.
-
-        receive_output_map = {
-            TxoKeyType(txo.tx_hash, txo.txo_index):
-                txo for txo in self.get_transaction_outputs_spendable_explicit(tx_hash=tx_hash)
-        }
-        # TODO(no-merge) need to work out what we actually want to store here. Good idea would
-        # be to look at transaction dialog.
-
+    # TODO(no-merge) unit test
     def extend_transaction(self, tx: Transaction) -> None:
         """
-        Add all the extended metadata to the transaction to aid wallet logic.
+        Extended the transaction with key-usage metadata.
 
         All loaded transactions should be extended, as this will add signing/key metadata that
         relates to inputs and outputs, and allow logic to operate on the transaction without
         having to do trivial database lookups.
-
-        Edge cases (this text might be better placed somewhere else):
-        * We support loading conflicting transactions, flagging them and setting them aside.
-          * A user may have constructed a local transaction, saved a copy, removed it from the
-            wallet and then spent coins in another transaction. Then loaded the previously removed
-            local transaction which also spends those coins.
-          * A user may be using their seed words in different wallets, and have used coins in
-            a local transaction in one wallet and also used them in a dispatched transaction
-            in the other wallet.
         """
         assert not tx.is_extended
 
         tx_hash = tx.hash()
-        is_complete = tx.is_complete()
-
-        # First gather up what the database knows about this transaction.
-        # - The inputs are spends of existing coins. They implicitly must be from complete
-        #   transactions at this time. And if they conflict, the transaction is not integrated.
-        # - The outputs are usage of keys, or potential usage of keys.
-        # - The outputs may also already be spent in the case of out of order transactions, which
-        #   are imported either via indexer results or manually.
 
         db_output_map: Dict[TxoKeyType, TransactionOutputSpendableRow] = {}
-        # TODO(no-merge) Either . . .
         db_output_map.update({
             TxoKeyType(row.tx_hash, row.txo_index): row
             for row in db_functions.read_parent_transaction_outputs_spendable(
@@ -3205,6 +3087,7 @@ class Wallet(TriggeredCallbacks):
                 self.get_db_context(), tx_hash=tx_hash)
         })
 
+        tx_input: XTxInput
         for txi_index, tx_input in enumerate(tx.inputs):
             db_output_key = TxoKeyType(tx_input.prev_hash, tx_input.prev_idx)
             db_output = db_output_map.get(db_output_key)
@@ -3217,49 +3100,11 @@ class Wallet(TriggeredCallbacks):
             tx_input.key_data = KeyDataType(db_output.keyinstance_id, db_output.account_id,
                 db_output.masterkey_id, db_output.derivation_type, db_output.derivation_data2)
 
-        # TODO read the spends
-        # TODO read the key usage of the receipts
-        # TODO read the known spends of the receipts
-        #   what does this give us? is it more useful for the add to database step?
-
-        spent_values: Dict[TxoKeyType, int] = {}
-        # An imported transaction may optionally come with parent transactions. This is used by
-        # Trezor (as far as it can be given their incompatibility with Bitcoin SV) for analysing
-        # spent outputs of the transaction being signed, and also as SPV proofs for the signer.
-        for parent_tx_hash, parent_tx in tx.context.prev_txs.items():
-            for txo_index, tx_output in parent_tx.outputs:
-                # NOTE parent transactions are not extended and if they are it is an accident.
-                spent_values[TxoKeyType(parent_tx_hash, txo_index)] = tx_output.value
-        # TODO(no-merge) do we have any other use for the information in the parent transactions
-        #    at this time?
-
-        # Do all the input information gathering.
-        signer_key_data: Dict[XPublicKeyType, Tuple[List[int], List[bytes]]] = {
-            XPublicKeyType.BIP32:       ([], []),
-            XPublicKeyType.PRIVATE_KEY: ([], []),
-            XPublicKeyType.OLD:         ([], []),
-        }
-        for txi_index, tx_input in enumerate(tx.inputs):
-            # Extended public keys are only present for incomplete transactions and represent the
-            # remaining potential signers of this unsigned input.
-            if tx_input.x_pubkeys:
-                for x_public_key in tx_input.x_pubkeys:
-                    xpk_kind = x_public_key.kind()
-                    signer_key_entry = signer_key_data[xpk_kind]
-                    signer_key_entry[0].append(txi_index)
-                    if xpk_kind == XPublicKeyType.PRIVATE_KEY:
-                        signer_key_entry[1].append(x_public_key.to_public_key_bytes())
-                    elif xpk_kind in (XPublicKeyType.BIP32, XPublicKeyType.OLD):
-                        # TODO(no-merge) Find the masterkey for the mpk/oldkey and include it in
-                        # the lookup data.
-                        derivation_path_bytes = pack_derivation_path(x_public_key.derivation_path())
-                        signer_key_entry[1].append(derivation_path_bytes)
-
-        # Do all the output information gathering.
-        for output_index, tx_output in enumerate(tx.outputs):
+        tx_output: XTxOutput
+        for txo_index, tx_output in enumerate(tx.outputs):
             # Extended public keys are only present for incomplete transactions and are expected
             # to only represent the change transactions in this payment.
-            db_output_key = TxoKeyType(tx_hash, output_index)
+            db_output_key = TxoKeyType(tx_hash, txo_index)
             db_output = db_output_map.get(db_output_key)
             if db_output is None:
                 continue
@@ -3268,17 +3113,6 @@ class Wallet(TriggeredCallbacks):
             assert db_output.account_id is not None and db_output.derivation_type is not None
             tx_output.key_data = KeyDataType(db_output.keyinstance_id, db_output.account_id,
                 db_output.masterkey_id, db_output.derivation_type, db_output.derivation_data2)
-
-
-        # TODO(no-merge) all cases should add spent output values to transaction inputs.
-        # - What all cases?
-        # TODO(no-merge) there may be parent data that is in memory that we do not have in the
-        #     database. This should also be processed.
-        # TODO(no-merge) incomplete transactions may have extended public key data that maps
-        #     to key usage we do not know about. They may also be partially signed and have
-        #     removed public key data for those signed inputs, so we also need to scan here.
-        # TODO(no-merge) complete transactions may have key usage we do not know about also,
-        #     so we need to scan here.
 
         tx.is_extended = True
 
@@ -3300,6 +3134,20 @@ class Wallet(TriggeredCallbacks):
         txdict = tx_dict_from_text(text)
         tx = Transaction.from_dict(txdict)
         self.extend_transaction(tx)
+
+        # Incomplete transactions should not be cached.
+        if not tx.is_complete():
+            return tx
+
+        tx_hash = tx.hash()
+        # Update the cached transaction for the given hash.
+        lock = self._acquire_transaction_lock(tx_hash)
+        with lock:
+            try:
+                self._transaction_cache2.set(tx_hash, tx)
+            finally:
+                self._release_transaction_lock(tx_hash)
+
         return tx
 
     def load_transaction_from_bytes(self, data: bytes) -> Transaction:
@@ -3321,17 +3169,12 @@ class Wallet(TriggeredCallbacks):
 
                 # Parse the transaction data.
                 tx = Transaction.from_bytes(data)
-                self._extend_ephemeral_transaction(tx_hash, tx)
+                self.extend_transaction(tx)
                 self._transaction_cache2.set(tx_hash, tx)
             finally:
                 self._release_transaction_lock(tx_hash)
 
         return tx
-
-        # Otherwise:
-        #   Load the transaction.
-        #   Amend it with signing metadata.
-        #   Put it in the cache.
 
     async def add_local_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags) -> None:
         """

@@ -31,8 +31,8 @@ TEST_WALLET_PATH = os.path.join(TEST_DATA_PATH, "wallets")
 
 class MockStorage:
     def __init__(self) -> None:
-        unique_name = os.urandom(8).hex()
-        self.path = DatabaseContext.shared_memory_uri(unique_name)
+        self.unique_name = os.urandom(8).hex()
+        self.path = DatabaseContext.shared_memory_uri(self.unique_name)
         self.db_context = DatabaseContext(self.path)
         # We hold onto an open connection to ensure that the database persists for the
         # lifetime of the tests.

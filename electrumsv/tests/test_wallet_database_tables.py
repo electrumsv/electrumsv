@@ -399,8 +399,8 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
 class TestTransactionTable:
     @classmethod
     def setup_class(cls):
-        cls.db_context = _db_context()
-        cls.db = cls.db_context.acquire_connection()
+        cls.db_context: DatabaseContext = _db_context()
+        cls.db: sqlite3.Connection = cls.db_context.acquire_connection()
         cls.tx_hash = os.urandom(32)
 
     @classmethod
@@ -408,7 +408,7 @@ class TestTransactionTable:
         cls.db_context.release_connection(cls.db)
         cls.db = None
         cls.db_context.close()
-        cls.db_context = None
+        del cls.db_context
 
     def setup_method(self):
         db = self.db
@@ -426,8 +426,7 @@ class TestTransactionTable:
         assert proof1.position == proof2.position
         assert proof1.branch == proof2.branch
 
-
-    def test_create_read_various(self):
+    def test_create_read_various(self) -> None:
         assert self.db_context is not None
 
         tx_bytes_1 = os.urandom(10)
@@ -474,7 +473,7 @@ class TestTransactionTable:
         added_tx_hashes = set(t[0] for t in to_add)
         assert added_tx_hashes == existing_tx_hashes
 
-    def test_get_all_pending(self):
+    def test_get_all_pending(self) -> None:
         assert self.db_context is not None
 
         get_tx_hashes = set()
@@ -491,7 +490,7 @@ class TestTransactionTable:
         result_tx_hashes = set(self._get_store_hashes())
         assert get_tx_hashes == result_tx_hashes
 
-    def test_proof(self):
+    def test_proof(self) -> None:
         assert self.db_context is not None
 
         tx_bytes = os.urandom(10)

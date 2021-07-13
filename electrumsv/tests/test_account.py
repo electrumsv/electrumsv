@@ -10,6 +10,7 @@ from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text
 from electrumsv.wallet import StandardAccount, Wallet
 from electrumsv.wallet_database.exceptions import KeyInstanceNotFoundError
 from electrumsv.wallet_database.types import AccountRow
+from electrumsv.storage import WalletStorage
 
 from .util import MockStorage, setup_async, tear_down_async
 
@@ -22,14 +23,10 @@ def tearDownModule():
     tear_down_async()
 
 
-@pytest.fixture()
-def tmp_storage(tmpdir):
-    return MockStorage()
-
-
 @pytest.mark.asyncio
 @unittest.mock.patch('electrumsv.wallet.app_state')
-async def test_key_creation(mock_app_state, tmp_storage) -> None:
+async def test_key_creation(mock_app_state) -> None:
+    tmp_storage = cast(WalletStorage, MockStorage())
     # Boilerplate setting up of a deterministic account. This is copied from above.
     password = 'password'
     seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
@@ -49,6 +46,7 @@ async def test_key_creation(mock_app_state, tmp_storage) -> None:
 
     # Create two keys via `derive_new_keys_until`.
     scripthash_future, keyinstance_rows = account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+    assert scripthash_future is not None
     scripthash_future.result(5)
 
     assert account.get_next_derivation_index(RECEIVING_SUBPATH) == 3
@@ -87,10 +85,11 @@ async def test_key_creation(mock_app_state, tmp_storage) -> None:
 
 @pytest.mark.asyncio
 @unittest.mock.patch('electrumsv.wallet.app_state')
-async def test_key_reservation(mock_app_state, tmp_storage) -> None:
+async def test_key_reservation(mock_app_state) -> None:
     """
     Verify that the allocate a key on demand database function works as expected for an account.
     """
+    tmp_storage = cast(WalletStorage, MockStorage())
     # Boilerplate setting up of a deterministic account. This is copied from above.
     password = 'password'
     seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
