@@ -1,17 +1,18 @@
 import dataclasses
-from typing import Any, Callable, Coroutine, Dict, List, NamedTuple, Optional, Tuple, \
+from typing import Any, Callable, cast, Coroutine, Dict, List, NamedTuple, Optional, Tuple, \
     TYPE_CHECKING, TypedDict, Union
 import uuid
 
 from bitcoinx import hash_to_hex_str
 from mypy_extensions import Arg, DefaultArg
 
-from .constants import DerivationType, DerivationPath, NetworkServerType, ScriptType, \
-    SubscriptionOwnerPurpose, SubscriptionType
+from .constants import DatabaseKeyDerivationType, DerivationType, DerivationPath, \
+    NetworkServerType, ScriptType, SubscriptionOwnerPurpose, SubscriptionType, \
+    unpack_derivation_path
 
 
 if TYPE_CHECKING:
-    from .wallet_database.types import NetworkServerRow, NetworkServerAccountRow, \
+    from .wallet_database.types import KeyDataTypes, NetworkServerRow, NetworkServerAccountRow, \
         TransactionSubscriptionRow
 
 
@@ -20,10 +21,31 @@ ElectrumXHistoryList = List[ElectrumXHistoryEntry]
 
 
 @dataclasses.dataclass(frozen=True)
-class DerivationTypeData:
+class SubscriptionDerivationData:
     masterkey_id: Optional[int]
     derivation_type: DerivationType
     derivation_data2: Optional[bytes]
+
+
+@dataclasses.dataclass(frozen=True)
+class DatabaseKeyDerivationData:
+    derivation_path: Optional[DerivationPath]
+    account_id: Optional[int] = dataclasses.field(default_factory=int)
+    masterkey_id: Optional[int] = dataclasses.field(default_factory=int)
+    keyinstance_id: Optional[int] = dataclasses.field(default_factory=int)
+    source: DatabaseKeyDerivationType = dataclasses.field(default=DatabaseKeyDerivationType.UNKNOWN)
+
+    @classmethod
+    def from_key_data(cls, row: "KeyDataTypes",
+            source: DatabaseKeyDerivationType=DatabaseKeyDerivationType.UNKNOWN) \
+                -> "DatabaseKeyDerivationData":
+        derivation_path: Optional[DerivationPath] = None
+        if row.derivation_type == DerivationType.BIP32_SUBPATH:
+            assert isinstance(row.derivation_data2, bytes)
+            derivation_path = unpack_derivation_path(row.derivation_data2)
+        return DatabaseKeyDerivationData(derivation_path=derivation_path,
+            account_id=row.account_id, masterkey_id=row.masterkey_id,
+            keyinstance_id=row.keyinstance_id, source=source)
 
 
 class SubscriptionOwner(NamedTuple):
@@ -41,18 +63,41 @@ class SubscriptionKeyScriptHashOwnerContext(NamedTuple):
     keyinstance_id: int
     script_type: ScriptType
 
+    def merge(self, other_object: object) -> None:
+        assert type(self) is type(other_object)
+        raise NotImplementedError
+
 
 class SubscriptionTransactionScriptHashOwnerContext(NamedTuple):
     tx_rows: List["TransactionSubscriptionRow"]
+
+    def merge(self, other_object: object) -> None:
+        """
+        This will happen for reused keys, where there are multiple transactions using those keys
+        for the same scripts.
+        """
+        assert type(self) is type(other_object)
+        other = cast(SubscriptionTransactionScriptHashOwnerContext, other_object)
+        for tx_row in other.tx_rows:
+            if tx_row not in self.tx_rows:
+                self.tx_rows.append(tx_row)
 
 
 class SubscriptionScannerScriptHashOwnerContext(NamedTuple):
     value: Any
 
+    def merge(self, other_object: object) -> None:
+        assert type(self) is type(other_object)
+        raise NotImplementedError
+
 
 class SubscriptionDerivationScriptHashOwnerContext(NamedTuple):
-    derivation_type_data: DerivationTypeData
+    derivation_type_data: SubscriptionDerivationData
     script_type: ScriptType
+
+    def merge(self, other_object: object) -> None:
+        assert type(self) is type(other_object)
+        raise NotImplementedError
 
 
 SubscriptionOwnerContextType = Union[
@@ -78,12 +123,12 @@ ScriptHashResultCallback = Callable[[SubscriptionKey, SubscriptionOwnerContextTy
     ElectrumXHistoryList], Coroutine[Any, Any, None]]
 
 
-class TxoKeyType(NamedTuple):
+class Outpoint(NamedTuple):
     tx_hash: bytes
     txo_index: int
 
     def __repr__(self) -> str:
-        return f'TxoKeyType("{hash_to_hex_str(self.tx_hash)}",{self.txo_index})'
+        return f'Outpoint("{hash_to_hex_str(self.tx_hash)}",{self.txo_index})'
 
 
 WaitingUpdateCallback = Callable[[Arg(bool, "advance"), DefaultArg(Optional[str], "message")], None]

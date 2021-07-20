@@ -163,8 +163,9 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             account = self._get_account(wallet_name, account_id)
 
             receive_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-            receive_address = account.get_script_template_for_key_data(receive_key,
-                account.get_default_script_type())
+            receive_address = account.get_script_template_for_derivation(
+                account.get_default_script_type(),
+                receive_key.derivation_type, receive_key.derivation_data2)
             txid = regtest_topup_account(receive_address, amount)
             response = {"txid": txid}
             return good_response(response)
@@ -208,7 +209,7 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             mature = vars.get(VNAME.MATURE, True)
 
             account = self._get_account(wallet_name, account_id)
-            utxos = account.get_spendable_transaction_outputs(exclude_frozen=exclude_frozen,
+            utxos = account.get_transaction_outputs_with_key_data(exclude_frozen=exclude_frozen,
                                       confirmed_only=confirmed_only, mature=mature)
             result = self._utxo_dto(utxos)
             response = {"utxos": result}
@@ -393,8 +394,10 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             if not attempted_split:
                 fault = Fault(Errors.SPLIT_FAILED_CODE, Errors.SPLIT_FAILED_MESSAGE)
                 return fault_to_http_response(fault)
-            tx = account.make_unsigned_transaction(utxos, outputs)
-            account.sign_transaction(tx, password)
+            tx, tx_context = account.make_unsigned_transaction(utxos, outputs)
+            future = account.sign_transaction(tx, password, tx_context)
+            if future is not None:
+                future.result()
             self.raise_for_duplicate_tx(tx)
 
             # broadcast

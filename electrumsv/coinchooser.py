@@ -25,7 +25,7 @@
 
 from collections import defaultdict
 from math import floor, log10
-from typing import Any, Callable, cast, List, NamedTuple, Sequence, Set, Tuple, \
+from typing import Any, Callable, cast, Dict, List, NamedTuple, Sequence, Set, Tuple, \
     TYPE_CHECKING, TypeVar
 
 from bitcoinx import sha256
@@ -97,7 +97,8 @@ class PRNG:
         return seq.pop(self.randint(0, len(seq)))
 
 
-def strip_unneeded(bkts: List[Bucket], sufficient_funds: SufficientFundsCheck) -> List[Bucket]:
+def strip_unneeded_coins(bkts: List[Bucket], sufficient_funds: SufficientFundsCheck) \
+        -> List[Bucket]:
     '''Remove buckets that are unnecessary in achieving the spend amount'''
     bkts = sorted(bkts, key = lambda bkt: bkt.value)
     for i in range(len(bkts)):
@@ -106,15 +107,20 @@ def strip_unneeded(bkts: List[Bucket], sufficient_funds: SufficientFundsCheck) -
     # Shouldn't get here
     return bkts
 
+
 class CoinChooserBase:
     def keys(self, coins: List[XTxInput]) -> List[int]:
-        raise NotImplementedError
+        # We do not care about privacy if people reuse keys. So the key for a bucket of coins is
+        # the database `keyinstance_id`.
+        coin_keyinstance_ids = [ c.x_pubkeys[0].derivation_data.keyinstance_id for c in coins ]
+        assert all(isinstance(coin_keyinstance_id, int)
+            for coin_keyinstance_id in coin_keyinstance_ids)
+        return cast(List[int], coin_keyinstance_ids)
 
     def bucketize_coins(self, coins: List[XTxInput]) -> List[Bucket]:
-        keys = self.keys(coins)
-        buckets = defaultdict(list)
-        for key, coin in zip(keys, coins):
-            buckets[key].append(coin)
+        buckets: Dict[int, List[XTxInput]] = defaultdict(list)
+        for keyinstance_id, coin in zip(self.keys(coins), coins):
+            buckets[keyinstance_id].append(coin)
 
         def make_Bucket(desc: int, coins: List[XTxInput]) -> Bucket:
             size = sum(coin.estimated_size() for coin in coins)
@@ -247,13 +253,13 @@ class CoinChooserBase:
 class CoinChooserRandom(CoinChooserBase):
 
     def create_bucket_groupings(self, buckets: List[Bucket],
-            sufficient_funds: SufficientFundsCheck) -> List[List[Bucket]]:
+            sufficient_funds_check: SufficientFundsCheck) -> List[List[Bucket]]:
         '''Returns a list of bucket sets.'''
         valid_bucket_combinations: Set[Sequence[int]] = set()
 
         # Add all singletons
         for n, bucket in enumerate(buckets):
-            if sufficient_funds([bucket]):
+            if sufficient_funds_check([bucket]):
                 valid_bucket_combinations.add((n, ))
 
         # And now some random ones
@@ -266,14 +272,14 @@ class CoinChooserRandom(CoinChooserBase):
             bkts = []
             for count, index in enumerate(permutation):
                 bkts.append(buckets[index])
-                if sufficient_funds(bkts):
+                if sufficient_funds_check(bkts):
                     valid_bucket_combinations.add(tuple(sorted(permutation[:count + 1])))
                     break
             else:
                 raise NotEnoughFunds()
 
-        valid_bucket_groupings = [[buckets[n] for n in c] for c in valid_bucket_combinations]
-        return [strip_unneeded(c, sufficient_funds) for c in valid_bucket_groupings]
+        valid_bucket_groupings = [ [ buckets[n] for n in c ] for c in valid_bucket_combinations ]
+        return [ strip_unneeded_coins(c, sufficient_funds_check) for c in valid_bucket_groupings ]
 
     def choose_buckets(self, buckets: List[Bucket], sufficient_funds: SufficientFundsCheck,
             penalty_func: BucketPenaltyFunction) -> List[Bucket]:
@@ -293,9 +299,6 @@ class CoinChooserPrivacy(CoinChooserRandom):
     Second, it penalizes change that is quite different to the sent amount.  Third, it
     penalizes change that is too big.
     '''
-
-    def keys(self, coins: List[XTxInput]) -> List[int]:
-        return [cast("KeyDataType", coin.key_data).keyinstance_id for coin in coins]
 
     def create_penalty_function(self, tx: Transaction) -> BucketPenaltyFunction:
         out_values = [output.value for output in tx.outputs]

@@ -116,7 +116,10 @@ class SubscriptionManager:
         if key.value_type == SubscriptionType.SCRIPT_HASH:
             assert type(key.value) is bytes, "subscribed script hashes must be bytes"
         assert entry.owner_context is not None
-        self._owner_subscription_context[(owner, key)] = entry.owner_context
+        if (owner, key) in self._owner_subscription_context:
+            self._owner_subscription_context[(owner, key)].merge(entry.owner_context)
+        else:
+            self._owner_subscription_context[(owner, key)] = entry.owner_context
         owner_subscriptions = self._owner_subscriptions.setdefault(owner, set())
         if key in self._subscription_ids:
             # This is an existing subscription, it should already be subscribed.

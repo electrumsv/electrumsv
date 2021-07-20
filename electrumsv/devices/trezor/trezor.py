@@ -11,7 +11,8 @@ from ...i18n import _
 from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
-from ...transaction import classify_tx_output, XTxInput, XTxOutput, Transaction, TransactionContext
+from ...transaction import classify_tx_output, HardwareSigningMetadata, Transaction, \
+    TransactionContext, XTxInput, XTxOutput
 from ...wallet import MultisigAccount, StandardAccount
 from ...wallet_database.types import KeyListRow
 
@@ -81,11 +82,11 @@ class TrezorKeyStore(Hardware_KeyStore):
         return True
 
     def sign_transaction(self, tx: Transaction, password: str,
-            tx_context: TransactionContext) -> None:
+            context: TransactionContext) -> None:
         if tx.is_complete():
             return
 
-        assert len(tx_context.prev_txs), "This keystore requires all input transactions"
+        assert len(context.parent_transactions), "This keystore requires all input transactions"
         # path of the xpubs that are involved
         xpub_path: Dict[str, str] = {}
         for txin in tx.inputs:
@@ -97,7 +98,8 @@ class TrezorKeyStore(Hardware_KeyStore):
                     xpub_path[xpub] = self.get_derivation()
 
         assert self.plugin is not None
-        cast(TrezorPlugin, self.plugin).sign_transaction(self, tx, xpub_path, tx_context)
+        cast(TrezorPlugin, self.plugin).sign_transaction(self, tx, xpub_path,
+            context.hardware_signing_metadata, context.parent_transactions)
 
 
 class TrezorPlugin(HW_PluginBase):
@@ -291,9 +293,10 @@ class TrezorPlugin(HW_PluginBase):
             return cast(int, InputScriptType.SPENDADDRESS)
 
     def sign_transaction(self, keystore: TrezorKeyStore, tx: Transaction,
-            xpub_path: Dict[str, str], tx_context: TransactionContext) -> None:
+            xpub_path: Dict[str, str], signing_metadata: List[HardwareSigningMetadata],
+            previous_transactions: Dict[bytes, Transaction]) -> None:
         prev_txtypes: Dict[bytes, TransactionType] = {}
-        for prev_tx_hash, prev_tx in tx_context.prev_txs.items():
+        for prev_tx_hash, prev_tx in previous_transactions.items():
             txtype = TransactionType()
             txtype.version = prev_tx.version
             txtype.lock_time = prev_tx.locktime
@@ -309,7 +312,7 @@ class TrezorPlugin(HW_PluginBase):
         client = self.get_client(keystore)
         assert client is not None
         inputs = self.tx_inputs(tx, xpub_path)
-        outputs = self.tx_outputs(keystore, keystore.get_derivation(), tx)
+        outputs = self.tx_outputs(keystore, keystore.get_derivation(), tx, signing_metadata)
         details = SignTx(lock_time=tx.locktime)
         signatures, _ = client.sign_tx(self.get_coin_name(), inputs, outputs, details=details,
             prev_txes=prev_txtypes)
@@ -330,7 +333,8 @@ class TrezorPlugin(HW_PluginBase):
         if len(xpubs) > 1:
             account = cast(MultisigAccount, account)
             pubkeys = [pubkey.to_hex() for pubkey in
-                account.get_public_keys_for_key_data(keydata)]
+                account.get_public_keys_for_derivation(keydata.derivation_type,
+                    keydata.derivation_data2)]
             # sort xpubs using the order of pubkeys
             sorted_pairs = sorted(zip(pubkeys, xpubs))
             multisig = self._make_multisig(
@@ -389,8 +393,8 @@ class TrezorPlugin(HW_PluginBase):
             signatures=signatures,
             m=m)
 
-    def tx_outputs(self, keystore: TrezorKeyStore, derivation: str, tx: Transaction) \
-            -> List["TxOutputType"]:
+    def tx_outputs(self, keystore: TrezorKeyStore, derivation: str, tx: Transaction,
+            signing_metadata: List[HardwareSigningMetadata]) -> List["TxOutputType"]:
         account_derivation: DerivationPath = tuple(bip32_decompose_chain_string(derivation))
         keystore_fingerprint = keystore.get_fingerprint()
 
@@ -419,8 +423,8 @@ class TrezorPlugin(HW_PluginBase):
 
         outputs = []
         for i, tx_output in enumerate(tx.outputs):
-            if tx.output_info is not None and keystore_fingerprint in tx.output_info[i]:
-                output_info = tx.output_info[i][keystore_fingerprint]
+            if len(signing_metadata) and keystore_fingerprint in signing_metadata[i]:
+                output_info = signing_metadata[i][keystore_fingerprint]
                 txoutputtype = create_output_by_derivation(*output_info)
             else:
                 txoutputtype = create_output_by_address(tx_output)

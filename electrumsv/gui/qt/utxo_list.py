@@ -38,7 +38,7 @@ from ...constants import TransactionOutputFlag
 from ...i18n import _
 from ...logs import logs
 from ...platform import platform
-from ...types import TxoKeyType
+from ...types import Outpoint
 from ...util import profiler
 from ...wallet import AbstractAccount
 from ...wallet_database.types import TransactionOutputSpendableRow2
@@ -109,13 +109,13 @@ class UTXOList(MyTreeWidget):
 
     @profiler
     def _on_update_utxo_list(self):
-        if self._account_id is None:
+        if self._account is None:
             return
 
         prev_selection = self.get_selected() # cache previous selection, if any
         self.clear()
 
-        utxo_rows = self._account.get_spendable_transaction_outputs_extended(
+        utxo_rows = self._account.get_transaction_outputs_with_key_and_tx_data(
             confirmed_only=False, mature=False, exclude_frozen=False)
         tx_hashes = set(utxo_row.tx_hash for utxo_row in utxo_rows)
         tx_labels: Dict[bytes, str] = {}
@@ -165,7 +165,7 @@ class UTXOList(MyTreeWidget):
         coins = self.get_selected()
         if not coins:
             return
-        txo_keys = [ TxoKeyType(coin.tx_hash, coin.txo_index) for coin in coins ]
+        txo_keys = [ Outpoint(coin.tx_hash, coin.txo_index) for coin in coins ]
 
         menu = QMenu()
         menu.addAction(_("Spend"), lambda: self._main_window.spend_coins(coins))
@@ -209,11 +209,11 @@ class UTXOList(MyTreeWidget):
         # disable editing fields in this tab (labels)
         return False
 
-    def _freeze_coins(self, txo_keys: List[TxoKeyType], freeze: bool) -> None:
+    def _freeze_coins(self, txo_keys: List[Outpoint], freeze: bool) -> None:
         assert self._account is not None
         self._main_window.set_frozen_coin_state(self._account, txo_keys, freeze)
 
-    def select_coins(self, txo_keys: Set[TxoKeyType]) -> int:
+    def select_coins(self, txo_keys: Set[Outpoint]) -> int:
         self.clearSelection()
         found = 0
         selection_model = self.selectionModel()
@@ -221,7 +221,7 @@ class UTXOList(MyTreeWidget):
         for row_idx in range(self.topLevelItemCount()):
             item = self.topLevelItem(row_idx)
             utxo = cast(TransactionOutputSpendableRow2, item.data(0, Role.DataUTXO))
-            txo_key = TxoKeyType(utxo.tx_hash, utxo.txo_index)
+            txo_key = Outpoint(utxo.tx_hash, utxo.txo_index)
             if txo_key not in txo_keys:
                 continue
             items.append(item)

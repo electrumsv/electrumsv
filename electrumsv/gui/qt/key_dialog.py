@@ -23,13 +23,14 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Optional, Sequence
+from typing import cast, Optional, Sequence
 
 from PyQt5.QtWidgets import QComboBox, QLabel, QVBoxLayout
 
 from ...bitcoin import script_template_to_string
 from ...constants import ACCOUNT_SCRIPT_TYPES, ScriptType
 from ...i18n import _
+from ...types import DerivationType
 from ...wallet_database.types import KeyDataTypes
 
 from .main_window import ElectrumWindow
@@ -84,7 +85,9 @@ class KeyDialog(WindowModalDialog):
         self._key_edit.setReadOnly(True)
         vbox.addWidget(self._key_edit)
 
-        pubkeys = self._account.get_public_keys_for_key_data(key_data)
+        pubkeys = self._account.get_public_keys_for_derivation(
+            cast(DerivationType, key_data.derivation_type),
+            key_data.derivation_data2)
         if pubkeys:
             vbox.addWidget(QLabel(_("Public keys") + ':'))
             for pubkey in pubkeys:
@@ -136,17 +139,17 @@ class KeyDialog(WindowModalDialog):
             timestamp)
 
     def _update_address(self) -> None:
-        script_template = self._account.get_script_template_for_key_data(self._key_data,
-            self._script_type)
+        script_template = self._account.get_script_template_for_derivation(self._script_type,
+            cast(DerivationType, self._key_data.derivation_type), self._key_data.derivation_data2)
         text = ""
         if script_template is not None:
             text = script_template_to_string(script_template)
         self._key_edit.setText(text)
 
     def _update_script(self) -> None:
-        payment_template = self._account.get_script_template_for_key_data(self._key_data,
-            self._script_type)
-        self._script_edit.setText(payment_template.to_script_bytes().hex())
+        script_template = self._account.get_script_template_for_derivation(self._script_type,
+            cast(DerivationType, self._key_data.derivation_type), self._key_data.derivation_data2)
+        self._script_edit.setText(script_template.to_script_bytes().hex())
 
     def get_domain(self) -> Optional[Sequence[int]]:
         """
@@ -156,8 +159,8 @@ class KeyDialog(WindowModalDialog):
         return [ self._key_data.keyinstance_id ]
 
     def show_qr(self) -> None:
-        script_template = self._account.get_script_template_for_key_data(self._key_data,
-            self._script_type)
+        script_template = self._account.get_script_template_for_derivation(self._script_type,
+            cast(DerivationType, self._key_data.derivation_type), self._key_data.derivation_data2)
         if script_template is not None:
             text = script_template_to_string(script_template)
             try:

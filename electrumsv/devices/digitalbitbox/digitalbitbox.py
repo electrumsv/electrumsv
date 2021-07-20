@@ -504,7 +504,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
         except Exception as e:
             self.give_error(str(e))
 
-    def sign_transaction(self, tx: Transaction, password: str, tx_context: TransactionContext) \
+    def sign_transaction(self, tx: Transaction, password: str, context: TransactionContext) \
             -> None:
         if tx.is_complete():
             return
@@ -539,7 +539,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 if txout.x_pubkeys:
                     for xpubkey in [ xpk for xpk in txout.x_pubkeys
                             if self.is_signature_candidate(xpk) ]:
-                        key_path_text = bip32_build_chain_string(xpubkey.derivation_path())[1:]
+                        key_path_text = bip32_build_chain_string(xpubkey.derivation_path)[1:]
                         changePath = self.get_derivation() + key_path_text # "/1/0", no "m"
                         pubkeyarray.append({
                             'pubkey': xpubkey.to_public_key().to_hex(),

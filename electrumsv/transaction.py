@@ -22,11 +22,13 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import dataclasses
 import enum
 from io import BytesIO
 import struct
 from struct import error as struct_error
-from typing import Any, Callable, cast, Dict, Generator, List, Optional, Tuple, TypeVar, Union
+from typing import Any, Callable, cast, Dict, Generator, List, Optional, Tuple, \
+    TypedDict, TypeVar, Union
 
 import attr
 from bitcoinx import (
@@ -38,12 +40,12 @@ from bitcoinx import (
 )
 
 from .bitcoin import ScriptTemplate
-from .constants import DerivationPath, ScriptType
+from .constants import DatabaseKeyDerivationType, DerivationPath, ScriptType
 from .logs import logs
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
-from .types import TransactionSize
-from .wallet_database.types import KeyDataType
+from .types import DatabaseKeyDerivationData, TransactionSize, Outpoint
+
 
 NO_SIGNATURE = b'\xff'
 dummy_public_key = PublicKey.from_bytes(bytes(range(3, 36)))
@@ -111,14 +113,31 @@ def tx_output_to_display_text(tx_output: TxOutput) -> Tuple[str, ScriptTemplate]
     return text, kind
 
 
-@attr.s(slots=True, repr=True)
+HardwareSigningMetadata = Dict[bytes, Tuple[DerivationPath, Tuple[str], int]]
+
+@dataclasses.dataclass
 class TransactionContext:
-    invoice_id: Optional[int] = attr.ib(default=None)
-    description: Optional[str] = attr.ib(default=None)
-    prev_txs: Dict[bytes, 'Transaction'] = attr.ib(default=attr.Factory(dict))
+    invoice_id: Optional[int] = dataclasses.field(default=None)
+    description: Optional[str] = dataclasses.field(default=None)
+    parent_transactions: Dict[bytes, 'Transaction'] = dataclasses.field(default_factory=dict)
+    hardware_signing_metadata: List[HardwareSigningMetadata] \
+        = dataclasses.field(default_factory=list)
+    spent_outpoint_values: Dict[Outpoint, int] = dataclasses.field(default_factory=dict)
+    key_datas_by_spent_outpoint: Dict[Outpoint, DatabaseKeyDerivationData] \
+        = dataclasses.field(default_factory=dict)
+    key_datas_by_txo_index: Dict[int, DatabaseKeyDerivationData] \
+        = dataclasses.field(default_factory=dict)
 
 
-class XPublicKeyType(enum.IntEnum):
+class SerialisedXPublicKeyDict(TypedDict, total=False):
+    pubkey_bytes: Optional[str]
+    bip32_xpub: Optional[str]
+    old_mpk: Optional[str]
+    derivation_path: Optional[DerivationPath]
+
+
+
+class XPublicKeyKind(enum.IntEnum):
     UNKNOWN = 0
     OLD = 1
     BIP32 = 2
@@ -128,78 +147,115 @@ class XPublicKeyType(enum.IntEnum):
 class XPublicKey:
     """
     This is responsible for keeping the abstracted form of the public key, where relevant
-    so that anything signing can reconcile where the public key comes from. It applies to
-    three types of keystore, imported private keys, BIP32 and the old style.
+    so that signing can reconcile where the public key comes from. It applies to three types of
+    keystore, imported private keys, BIP32 and the old style.
+
+    The derivation data fields for `masterkey_id`, `keyinstance_id` and `account_id` are only
+    present when the associated transaction inputs and outputs are present in an incomplete
+    transaction. In any other context, this metadata is not there. The exception is the
+    derivation path, which is not directly coupled to the database unlike the id fields.
     """
 
     _old_mpk: Optional[bytes] = None
     _bip32_xpub: Optional[str] = None
-    _derivation_path: Optional[DerivationPath] = None
     _pubkey_bytes: Optional[bytes] = None
+    # Logic should know when this field has populated id fields and when it does not. This is
+    # addressed in the class docstring above. If the public key is a master public key, then this
+    # field will have a value and only `derivation_path` will be provided externally.
+    _derivation_data: Optional[DatabaseKeyDerivationData] = None
 
-    def __init__(self, **kwargs: Any) -> None:
-        if "pubkey_bytes" in kwargs:
-            assert isinstance(kwargs["pubkey_bytes"], bytes)
-            self._pubkey_bytes = kwargs["pubkey_bytes"]
-        elif "bip32_xpub" in kwargs:
-            assert isinstance(kwargs["bip32_xpub"], str)
-            self._bip32_xpub = kwargs["bip32_xpub"]
-            self._derivation_path = tuple(kwargs["derivation_path"])
-        elif "old_mpk" in kwargs:
-            assert isinstance(kwargs["old_mpk"], bytes)
-            self._old_mpk = kwargs["old_mpk"]
-            self._derivation_path = tuple(kwargs["derivation_path"])
+    def __init__(self, pubkey_bytes: Optional[bytes]=None, bip32_xpub: Optional[str]=None,
+            old_mpk: Optional[bytes]=None,
+            derivation_data: Optional[DatabaseKeyDerivationData]=None) -> None:
+        if pubkey_bytes is not None:
+            assert isinstance(pubkey_bytes, bytes)
+            self._pubkey_bytes = pubkey_bytes
+        elif bip32_xpub is not None:
+            assert isinstance(bip32_xpub, str)
+            self._bip32_xpub = bip32_xpub
+            assert isinstance(derivation_data, DatabaseKeyDerivationData)
+            self._derivation_data = derivation_data
+        elif old_mpk is not None:
+            assert isinstance(old_mpk, bytes)
+            self._old_mpk = old_mpk
+            assert isinstance(derivation_data, DatabaseKeyDerivationData)
+            self._derivation_data = derivation_data
         else:
-            raise ValueError(f'invalid XPublicKey: {kwargs!r}')
+            raise NotImplementedError
+        # Verify that the public key data is valid.
         self.to_public_key()
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'XPublicKey':
-        kwargs = data.copy()
-        if "pubkey_bytes" in kwargs:
-            kwargs["pubkey_bytes"] = bytes.fromhex(kwargs["pubkey_bytes"])
-        if "old_mpk" in kwargs:
-            kwargs["old_mpk"] = bytes.fromhex(kwargs["old_mpk"])
-        return cls(**kwargs)
+    def from_dict(cls, data: SerialisedXPublicKeyDict) -> 'XPublicKey':
+        bip32_xpub: Optional[str] = data.get("bip32_xpub")
+        pubkey_bytes: Optional[bytes] = None
+        pubkey_bytes_hex: Optional[str] = data.get("pubkey_bytes", None)
+        if pubkey_bytes_hex:
+            pubkey_bytes = bytes.fromhex(pubkey_bytes_hex)
+        old_mpk: Optional[bytes] = None
+        old_mpk_hex: Optional[str] = data.get("old_mpk", None)
+        if old_mpk_hex is not None:
+            old_mpk = bytes.fromhex(old_mpk_hex)
+        derivation_data: Optional[DatabaseKeyDerivationData] = None
+        derivation_path: Optional[DerivationPath] = data.get("derivation_path")
+        if derivation_path is not None:
+            derivation_data = DatabaseKeyDerivationData(derivation_path=tuple(derivation_path),
+                source=DatabaseKeyDerivationType.IMPORTED)
+        return cls(pubkey_bytes=pubkey_bytes, bip32_xpub=bip32_xpub, old_mpk=old_mpk,
+            derivation_data=derivation_data)
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> 'XPublicKey':
         """ In addition to importing public keys, we also support the legacy Electrum
         serialisation, except for the case of addresses. """
-        kwargs: Dict[str, Any] = {}
+        bip32_xpub: Optional[str] = None
+        pubkey_bytes: Optional[bytes] = None
+        old_mpk: Optional[bytes] = None
+        derivation_data: Optional[DatabaseKeyDerivationData] = None
         kind = raw[0]
         if kind in {0x02, 0x03, 0x04}:
-            kwargs['pubkey_bytes'] = raw
+            pubkey_bytes = raw
         elif kind == 0xff:
             # 83 is 79 + 2 + 2.
             assert len(raw) == 83, f"got {len(raw)}"
-            kwargs["bip32_xpub"] = base58_encode_check(raw[1:79])
-            kwargs["derivation_path"] = tuple(unpack_le_uint16(raw[n: n+2])[0]
-                for n in (79, 81))
+            bip32_xpub = base58_encode_check(raw[1:79])
+            derivation_data = DatabaseKeyDerivationData(
+                derivation_path=tuple(unpack_le_uint16(raw[n: n+2])[0] for n in (79, 81)),
+                source=DatabaseKeyDerivationType.IMPORTED)
         elif kind == 0xfe:
             assert len(raw) == 69
-            kwargs["old_mpk"] = raw[1:65]  # The public key bytes without the 0x04 prefix
-            kwargs["derivation_path"] = tuple(unpack_le_uint16(raw[n: n+2])[0] for n in (65, 67))
+            old_mpk = raw[1:65]  # The public key bytes without the 0x04 prefix
+            derivation_data = DatabaseKeyDerivationData(
+                derivation_path=tuple(unpack_le_uint16(raw[n: n+2])[0] for n in (65, 67)),
+                source=DatabaseKeyDerivationType.IMPORTED)
         else:
-            kwargs["extended_kind"] = hex(raw[0])
-        return cls(**kwargs)
+            # NOTE(rt12) We do not appear to handle this? Was this ever a thing?
+            # kwargs["extended_kind"] = hex(raw[0])
+            raise NotImplementedError
+        return cls(pubkey_bytes=pubkey_bytes, bip32_xpub=bip32_xpub, old_mpk=old_mpk,
+            derivation_data=derivation_data)
 
     @classmethod
     def from_hex(cls, text: str) -> 'XPublicKey':
         raw = bytes.fromhex(text)
         return cls.from_bytes(raw)
 
-    def to_dict(self) -> Dict[str, Any]:
-        d: Dict[str, Any] = {}
+    def to_dict(self) -> SerialisedXPublicKeyDict:
+        d: SerialisedXPublicKeyDict = {}
         if self._pubkey_bytes is not None:
             d["pubkey_bytes"] = self._pubkey_bytes.hex()
+            return d
+        assert self._derivation_data is not None and \
+            self._derivation_data.derivation_path is not None
         if self._old_mpk is not None:
             d["old_mpk"] = self._old_mpk.hex()
-            d["derivation_path"] = self._derivation_path
+            d["derivation_path"] = self._derivation_data.derivation_path
+            return d
         if self._bip32_xpub is not None:
             d["bip32_xpub"] = self._bip32_xpub
-            d["derivation_path"] = self._derivation_path
-        return d
+            d["derivation_path"] = self._derivation_data.derivation_path
+            return d
+        raise NotImplementedError
 
     def to_bytes(self) -> bytes:
         return cast(bytes, self.to_public_key().to_bytes())
@@ -207,24 +263,38 @@ class XPublicKey:
     def __eq__(self, other: object) -> bool:
         return (isinstance(other, XPublicKey) and self._pubkey_bytes == other._pubkey_bytes and
             self._old_mpk == other._old_mpk and self._bip32_xpub == other._bip32_xpub and
-            self._derivation_path == other._derivation_path)
+            ((self._derivation_data is None and other._derivation_data is None) or
+                (self._derivation_data is not None and other._derivation_data is not None and \
+                    self._derivation_data.derivation_path == \
+                        other._derivation_data.derivation_path)))
 
     def __hash__(self) -> int:
         # This just needs to be unique for dictionary indexing.
-        return hash((self._pubkey_bytes, self._old_mpk, self._bip32_xpub, self._derivation_path))
+        return hash((self._pubkey_bytes, self._old_mpk, self._bip32_xpub,
+            None if self._derivation_data is None else self._derivation_data.derivation_path))
 
-    def kind(self) -> XPublicKeyType:
+    def kind(self) -> XPublicKeyKind:
         if self._bip32_xpub is not None:
-            return XPublicKeyType.BIP32
+            return XPublicKeyKind.BIP32
         elif self._old_mpk is not None:
-            return XPublicKeyType.OLD
+            return XPublicKeyKind.OLD
         elif self._pubkey_bytes is not None:
-            return XPublicKeyType.PRIVATE_KEY
-        return XPublicKeyType.UNKNOWN
+            return XPublicKeyKind.PRIVATE_KEY
+        return XPublicKeyKind.UNKNOWN
 
+    def get_derivation_data(self) -> Optional[DatabaseKeyDerivationData]:
+        return self._derivation_data
+
+    @property
+    def derivation_data(self) -> DatabaseKeyDerivationData:
+        assert self._derivation_data is not None
+        return self._derivation_data
+
+    @property
     def derivation_path(self) -> DerivationPath:
-        assert self._derivation_path is not None
-        return self._derivation_path
+        assert self._derivation_data is not None
+        assert self._derivation_data.derivation_path is not None
+        return self._derivation_data.derivation_path
 
     def is_bip32_key(self) -> bool:
         return self._bip32_xpub is not None
@@ -234,31 +304,38 @@ class XPublicKey:
         return self._bip32_xpub
 
     def bip32_path(self) -> DerivationPath:
-        assert self._bip32_xpub is not None and self._derivation_path is not None
-        return self._derivation_path
+        assert self._bip32_xpub is not None
+        assert self._derivation_data is not None
+        assert self._derivation_data.derivation_path is not None
+        return self._derivation_data.derivation_path
 
     def bip32_extended_key_and_path(self) -> Tuple[str, DerivationPath]:
-        assert self._bip32_xpub is not None and self._derivation_path is not None
-        return self._bip32_xpub, self._derivation_path
+        assert self._bip32_xpub is not None
+        assert self._derivation_data is not None
+        assert self._derivation_data.derivation_path is not None
+        return self._bip32_xpub, self._derivation_data.derivation_path
 
     def old_keystore_mpk_and_path(self) -> Tuple[bytes, DerivationPath]:
-        assert self._old_mpk is not None and self._derivation_path is not None
-        return self._old_mpk, self._derivation_path
+        assert self._old_mpk is not None
+        assert self._derivation_data is not None
+        assert self._derivation_data.derivation_path is not None
+        return self._old_mpk, self._derivation_data.derivation_path
 
     def to_public_key(self) -> Union[BIP32PublicKey, PublicKey]:
-        '''Returns a PublicKey instance or an Address instance.'''
-        kind = self.kind()
+        '''Returns either a bitcoinx BIP32PublicKey or PublicKey instance.'''
         if self._pubkey_bytes is not None:
             return PublicKey.from_bytes(self._pubkey_bytes)
         elif self._bip32_xpub is not None:
-            assert self._derivation_path is not None
-            result = bip32_key_from_string(self._bip32_xpub)
-            for n in self._derivation_path:
+            assert self._derivation_data is not None
+            assert self._derivation_data.derivation_path is not None
+            result = cast(BIP32PublicKey, bip32_key_from_string(self._bip32_xpub))
+            for n in self._derivation_data.derivation_path:
                 result = result.child(n)
             return result
         elif self._old_mpk is not None:
-            assert self._derivation_path is not None
-            path = self._derivation_path
+            assert self._derivation_data is not None
+            assert self._derivation_data.derivation_path is not None
+            path = self._derivation_data.derivation_path
             pubkey = PublicKey.from_bytes(pack_byte(4) + self._old_mpk)
             # pylint: disable=unsubscriptable-object
             delta = double_sha256(f'{path[1]}:{path[0]}:'.encode() + self._old_mpk)
@@ -282,7 +359,7 @@ class XPublicKey:
 
     def __repr__(self) -> str:
         return (f"XPublicKey(xpub={self._bip32_xpub!r}, old_mpk={self._old_mpk!r}), "
-            f"path={self._derivation_path!r}, "
+            f"derivation_data={self._derivation_data!r}, "
             f"pubkey={self._pubkey_bytes.hex() if self._pubkey_bytes is not None else None!r}")
 
 
@@ -297,9 +374,6 @@ class XTxInput(TxInput): # type: ignore
     threshold: int = attr.ib(default=0)
     signatures: List[bytes] = attr.ib(default=attr.Factory(list))
     script_type: ScriptType = attr.ib(default=ScriptType.NONE)
-
-    # Key data.
-    key_data: Optional[KeyDataType] = attr.ib(default=None)
 
     # Parsing metadata that we store in the database for easy script access.
     # TODO(script-offset-length) work out if this can be obtained without storing it on the class.
@@ -406,8 +480,7 @@ class XTxInput(TxInput): # type: ignore
             f'script_sig="{self.script_sig}", sequence={self.sequence}), value={self.value}, '
             f'threshold={self.threshold}, '
             f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys}), '
-            f'key_data={self.key_data}, script_length={self.script_length}, '
-            f'script_offset={self.script_offset}'
+            f'script_length={self.script_length}, script_offset={self.script_offset}'
         )
 
 
@@ -425,9 +498,6 @@ class XTxOutput(TxOutput): # type: ignore
     # Exchanged in incomplete transactions as useful metadata.
     script_type: ScriptType = attr.ib(default=ScriptType.NONE)
     x_pubkeys: List[XPublicKey] = attr.ib(default=attr.Factory(list))
-
-    # Key data.
-    key_data: Optional[KeyDataType] = attr.ib(default=None)
 
     # Parsing metadata that we store in the database for easy script access.
     # TODO(script-offset-length) work out if this can be obtained without storing it on the class.
@@ -461,7 +531,7 @@ class XTxOutput(TxOutput): # type: ignore
         return (
             f'XTxOutput(value={self.value}, script_pubkey="{self.script_pubkey}", '
             f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys}, '
-            f'script_offset={self.script_offset}, script_length={self.script_length})'
+            f'script_length={self.script_length} script_offset={self.script_offset})'
         )
 
 
@@ -599,9 +669,9 @@ def parse_script_sig(script: bytes, kwargs: Dict[str, Any]) -> None:
     match = [ Ops.OP_PUSHDATA4, Ops.OP_PUSHDATA4 ]
     if _match_decoded(decoded, match):
         sig = decoded[0][1]
-        bytes_ = decoded[1][1]
-        assert bytes_ is not None
-        x_pubkey = XPublicKey.from_bytes(bytes_)
+        xpubkey_bytes = decoded[1][1]
+        assert xpubkey_bytes is not None
+        x_pubkey = XPublicKey.from_bytes(xpubkey_bytes)
         kwargs['signatures'] = [sig]
         kwargs['threshold'] = 1
         kwargs['x_pubkeys'] = [x_pubkey]
@@ -663,11 +733,6 @@ DATA_PREFIX2 = bytes.fromhex("006a")
 # NOTE(typing) The bitcoinx base class does not have typing information, so we need to ignore that.
 @attr.s(slots=True)
 class Transaction(Tx): # type: ignore
-    output_info: Optional[List[Dict[bytes, Tuple[DerivationPath, Tuple[str], int]]]] \
-        = attr.ib(default=None)
-    context: TransactionContext = attr.ib(default=attr.Factory(TransactionContext))
-    is_extended: bool = attr.ib(default=False)
-
     SIGHASH_FORKID = 0x40
 
     @classmethod
@@ -683,8 +748,8 @@ class Transaction(Tx): # type: ignore
         # NOTE(typing) workaround for mypy not recognising the base class init arguments.
         return cls( # type: ignore
             read_le_int32(read),
-            xread_list(read, tell, XTxInput.read), # type: ignore
-            xread_list(read, tell, XTxOutput.read), # type: ignore
+            xread_list(read, tell, XTxInput.read),
+            xread_list(read, tell, XTxOutput.read),
             read_le_uint32(read),
         )
 
@@ -694,8 +759,8 @@ class Transaction(Tx): # type: ignore
         # NOTE(typing) workaround for mypy not recognising the base class init arguments.
         return cls( # type: ignore
             read_le_int32(read),
-            xread_list(read, tell, XTxInput.read_extended), # type: ignore
-            xread_list(read, tell, XTxOutput.read), # type: ignore
+            xread_list(read, tell, XTxInput.read_extended),
+            xread_list(read, tell, XTxOutput.read),
             read_le_uint32(read),
         )
 
@@ -895,9 +960,10 @@ class Transaction(Tx): # type: ignore
         return sig + cast(bytes, pack_byte(self.nHashType()))
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Transaction':
+    def from_dict(cls, data: Dict[str, Any]) -> Tuple['Transaction', TransactionContext]:
         version = data.get('version', 0)
-        tx = cast('Transaction', cls.from_hex(data['hex']))
+        tx = cls.from_hex(data['hex'])
+        context = TransactionContext()
         if version == 1:
             input_data: Optional[List[Dict[str, Any]]] = data.get('inputs')
             if input_data is not None:
@@ -916,36 +982,39 @@ class Transaction(Tx): # type: ignore
                     txout.x_pubkeys = [ XPublicKey.from_dict(v)
                         for v in output_data[i]['x_pubkeys']]
             if 'description' in data:
-                tx.context.description = str(data['description'])
+                context.description = str(data['description'])
             if 'prev_txs' in data:
                 for tx_hex in data["prev_txs"]:
                     ptx = cls.from_hex(tx_hex)
-                    tx.context.prev_txs[ptx.hash()] = ptx
+                    context.parent_transactions[ptx.hash()] = ptx
             assert tx.is_complete() == data["complete"], "transaction completeness mismatch"
         elif version == 0:
             assert tx.is_complete(), "raw transactions must be complete"
-        return tx
+        return tx, context
 
-    def to_dict(self, force_signing_metadata: bool=False) -> Dict[str, Any]:
+    def to_dict(self, context: TransactionContext, force_signing_metadata: bool=False) \
+            -> Dict[str, Any]:
         out: Dict[str, Any] = {
             'version': 1,
             'hex': self.to_hex(),
             'complete': self.is_complete(),
         }
-        if self.context.description:
-            out['description'] = self.context.description
+        if context.description:
+            out['description'] = context.description
         if force_signing_metadata or not out['complete']:
+            input: XTxInput
+            output: XTxOutput
             out['inputs'] = []
-            for txin in self.inputs:
+            for input in self.inputs:
                 input_entry: Dict[str, Any] = {}
-                input_entry['script_type'] = txin.script_type
-                input_entry['threshold'] = txin.threshold
-                input_entry['value'] = txin.value
-                input_entry['signatures'] = [ sig.hex() for sig in txin.signatures ]
-                input_entry['x_pubkeys'] = [ xpk.to_dict() for xpk in txin.x_pubkeys ]
+                input_entry['script_type'] = input.script_type
+                input_entry['threshold'] = input.threshold
+                input_entry['value'] = input.value
+                input_entry['signatures'] = [ sig.hex() for sig in input.signatures ]
+                input_entry['x_pubkeys'] = [ xpk.to_dict() for xpk in input.x_pubkeys ]
                 out['inputs'].append(input_entry)
             output_data = []
-            if any(len(o.x_pubkeys) for o in self.outputs):
+            if any(len(output.x_pubkeys) for output in self.outputs):
                 for txout in self.outputs:
                     output_entry: Dict[str, Any] = {}
                     output_entry['script_type'] = txout.script_type
@@ -955,7 +1024,8 @@ class Transaction(Tx): # type: ignore
                 out['outputs'] = output_data
         return out
 
-    def to_format(self, format: TxSerialisationFormat) -> TxSerialisedType:
+    def to_format(self, format: TxSerialisationFormat, context: TransactionContext) \
+            -> TxSerialisedType:
         # Will raise `NotImplementedError` on incomplete implementation of new formats.
         if format == TxSerialisationFormat.RAW:
             return self.to_bytes()
@@ -964,6 +1034,6 @@ class Transaction(Tx): # type: ignore
         elif format in (TxSerialisationFormat.JSON, TxSerialisationFormat.JSON_WITH_PROOFS):
             # It is expected the caller may wish to extend this and they will take care of the
             # final serialisation step.
-            return self.to_dict()
+            return self.to_dict(context)
         raise NotImplementedError(f"unhanded format {format}")
 

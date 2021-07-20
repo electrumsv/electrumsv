@@ -19,7 +19,7 @@ from electrumsv.constants import (AccountTxFlags, DerivationType, KeyInstanceFla
     NetworkServerFlag, NetworkServerType,
     PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
-from electrumsv.types import ServerAccountKey, TxoKeyType
+from electrumsv.types import ServerAccountKey, Outpoint
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.sqlite_support import DatabaseContext, LeakedSQLiteConnectionError
@@ -597,14 +597,51 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
         future = db_functions.create_transaction_outputs(db_context, [ row2 ])
         future.result(timeout=5)
 
+    ## Test `read_transaction_outputs_with_key_data` for the `derivation_data2` path.
+    # Test invalid values.
+    output_rows = db_functions.read_transaction_outputs_with_key_data(db_context,
+        derivation_data2s=[ b'22323232323' ])
+    assert len(output_rows) == 0
+
+    # Test valid values with unfiltered search.
+    for txo_index, txo_row in enumerate([ row1, row2, row3 ]):
+        key_row = key_rows[txo_index]
+        output_rows = db_functions.read_transaction_outputs_with_key_data(db_context,
+            derivation_data2s=[ key_row.derivation_data2 ])
+        assert len(output_rows) == 1
+        assert output_rows[0].tx_hash == txo_row.tx_hash
+        assert output_rows[0].txo_index == txo_row.txo_index
+        assert output_rows[0].keyinstance_id == key_row.keyinstance_id
+
+    # Test an existing match with valid tx_hash filtering.
+    output_rows = db_functions.read_transaction_outputs_with_key_data(db_context,
+        tx_hash=row1.tx_hash, derivation_data2s=[ key_rows[0].derivation_data2 ])
+    assert len(output_rows) == 1
+
+    # Test an existing match with invalid tx_hash filtering.
+    output_rows = db_functions.read_transaction_outputs_with_key_data(db_context,
+        tx_hash=b'32323232', derivation_data2s=[ key_rows[0].derivation_data2 ])
+    assert len(output_rows) == 0
+
+    # Test an existing match with valid `account_id` filtering.
+    output_rows = db_functions.read_transaction_outputs_with_key_data(db_context,
+        account_id=ACCOUNT_ID, derivation_data2s=[ key_rows[0].derivation_data2 ])
+    assert len(output_rows) == 1
+
+    # Test an existing match with invalid `account_id` filtering.
+    output_rows = db_functions.read_transaction_outputs_with_key_data(db_context,
+        account_id=ACCOUNT_ID+1, derivation_data2s=[ key_rows[0].derivation_data2 ])
+    assert len(output_rows) == 0
+
+    ## Test `read_account_transaction_outputs_with_key_data`.
     # Verify that the `mature_height` parameter works for this method.
-    txos_rows = db_functions.read_account_transaction_outputs_spendable(db_context, ACCOUNT_ID,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
         mature_height=119)
     assert len(txos_rows) == 2
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
     assert txos_rows[0].tx_hash == TX_HASH and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX+1
-    txos_rows = db_functions.read_account_transaction_outputs_spendable(db_context, ACCOUNT_ID,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
         mature_height=120)
     assert len(txos_rows) == 3
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
@@ -612,13 +649,13 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
 
     # Verify that the `mature_height` parameter works for this method.
-    txos_rows = db_functions.read_account_transaction_outputs_spendable_extended(db_context,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
         ACCOUNT_ID, mature_height=119)
     assert len(txos_rows) == 2
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
     assert txos_rows[0].tx_hash == TX_HASH and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX+1
-    txos_rows = db_functions.read_account_transaction_outputs_spendable_extended(db_context,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
         ACCOUNT_ID, mature_height=120)
     assert len(txos_rows) == 3
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
@@ -626,27 +663,27 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
 
     # Verify that the `confirmed_only` parameter works for this method.
-    txos_rows = db_functions.read_account_transaction_outputs_spendable(db_context, ACCOUNT_ID,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
         confirmed_only=False)
     assert len(txos_rows) == 3
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
-    txos_rows = db_functions.read_account_transaction_outputs_spendable(db_context, ACCOUNT_ID,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
         confirmed_only=True)
     assert len(txos_rows) == 1
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
 
     # Verify that the `confirmed_only` parameter works for this method.
-    txos_rows = db_functions.read_account_transaction_outputs_spendable_extended(db_context,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
         ACCOUNT_ID, confirmed_only=False)
     assert len(txos_rows) == 3
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
-    txos_rows = db_functions.read_account_transaction_outputs_spendable_extended(db_context,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
         ACCOUNT_ID, confirmed_only=True)
     assert len(txos_rows) == 1
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
@@ -691,8 +728,8 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     balance = db_functions.read_wallet_balance(db_context, 1000, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row3.value, 0, 0)
 
-    # `read_account_transaction_outputs_spendable`. Spendable TXOs based on `FROZEN` flag.
-    txos_rows = db_functions.read_account_transaction_outputs_spendable(db_context, ACCOUNT_ID,
+    # `read_account_transaction_outputs_with_key_data`. Spendable TXOs based on `FROZEN` flag.
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
         exclude_frozen=False)
     assert len(txos_rows) == 3
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
@@ -700,14 +737,15 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
 
-    txos_rows = db_functions.read_account_transaction_outputs_spendable(db_context, ACCOUNT_ID,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
         exclude_frozen=True)
     assert len(txos_rows) == 2
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX+1
 
-    # `read_account_transaction_outputs_spendable_extended`. Spendable TXOs based on `FROZEN` flag.
-    txos_rows = db_functions.read_account_transaction_outputs_spendable_extended(db_context,
+    # `read_account_transaction_outputs_with_key_and_tx_data`.
+    # Spendable TXOs based on `FROZEN` flag.
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
         ACCOUNT_ID, exclude_frozen=False)
     assert len(txos_rows) == 3
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
@@ -715,7 +753,7 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
 
-    txos_rows = db_functions.read_account_transaction_outputs_spendable(db_context, ACCOUNT_ID,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
         exclude_frozen=True)
     assert len(txos_rows) == 2
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
@@ -728,7 +766,7 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
 
     # Add a TXO flag. In this case `FROZEN` to the first TXO.
     future = db_functions.update_transaction_output_flags(db_context,
-        [TxoKeyType(TX_HASH, TX_INDEX)], TransactionOutputFlag.FROZEN)
+        [Outpoint(TX_HASH, TX_INDEX)], TransactionOutputFlag.FROZEN)
     future.result(timeout=5)
 
     # Balances with a frozen TXO present.
@@ -742,8 +780,8 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     balance = db_functions.read_wallet_balance(db_context, 1000, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row3.value, 0, 0)
 
-    # `read_account_transaction_outputs_spendable`. Spendable TXOs based on `FROZEN` flag.
-    txos_rows = db_functions.read_account_transaction_outputs_spendable(db_context, ACCOUNT_ID,
+    # `read_account_transaction_outputs_with_key_data`. Spendable TXOs based on `FROZEN` flag.
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
         exclude_frozen=False)
     assert len(txos_rows) == 3
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
@@ -751,14 +789,15 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
 
-    txos_rows = db_functions.read_account_transaction_outputs_spendable(db_context, ACCOUNT_ID,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
         exclude_frozen=True)
     assert len(txos_rows) == 2
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX+1
 
-    # `read_account_transaction_outputs_spendable_extended`. Spendable TXOs based on `FROZEN` flag.
-    txos_rows = db_functions.read_account_transaction_outputs_spendable_extended(db_context,
+    # `read_account_transaction_outputs_with_key_and_tx_data`.
+    # Spendable TXOs based on `FROZEN` flag.
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
         ACCOUNT_ID, exclude_frozen=False)
     assert len(txos_rows) == 3
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
@@ -766,7 +805,7 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
 
-    txos_rows = db_functions.read_account_transaction_outputs_spendable(db_context, ACCOUNT_ID,
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
         exclude_frozen=True)
     assert len(txos_rows) == 2
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
@@ -789,15 +828,15 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
 
     # Remove a TXO flag. In this case the `FROZEN` flag from the first TXO.
     future = db_functions.update_transaction_output_flags(db_context,
-        [TxoKeyType(TX_HASH, TX_INDEX)], TransactionOutputFlag.NONE,
+        [Outpoint(TX_HASH, TX_INDEX)], TransactionOutputFlag.NONE,
         TransactionOutputFlag(~TransactionOutputFlag.FROZEN))
     future.result(timeout=5)
 
     # Verify that the outputs are present and restored to their original state. If the `FROZEN`
     # flag is not removed, then this will fail.
     txo_keys = [
-        TxoKeyType(row2.tx_hash, row2.txo_index),
-        TxoKeyType(row3.tx_hash, row3.txo_index),
+        Outpoint(row2.tx_hash, row2.txo_index),
+        Outpoint(row3.tx_hash, row3.txo_index),
     ]
     db_rows = db_functions.read_transaction_outputs_explicit(db_context, txo_keys)
     assert 2 == len(db_rows)
@@ -808,7 +847,7 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     db_row2 = [ db_line for db_line in db_rows if db_line == row3 ][0]
     assert row3 == db_row2
 
-    txo_keys = [ TxoKeyType(row3.tx_hash, row3.txo_index) ]
+    txo_keys = [ Outpoint(row3.tx_hash, row3.txo_index) ]
     future = db_functions.update_transaction_output_flags(db_context, txo_keys,
         TransactionOutputFlag.SPENT)
     future.result(5)

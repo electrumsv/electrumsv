@@ -25,7 +25,7 @@
 '''ElectrumSV Preferences dialog.'''
 
 from functools import partial
-from typing import cast, Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 import weakref
 
 from PyQt5.QtCore import Qt
@@ -35,12 +35,11 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv import qrscanner
-from electrumsv.app_state import app_state
-from electrumsv.constants import (MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
-    WalletSettings)
+from electrumsv.app_state import get_app_state_qt
+from electrumsv.constants import (DEFAULT_FEE, MAXIMUM_TXDATA_CACHE_SIZE_MB,
+    MINIMUM_TXDATA_CACHE_SIZE_MB, WalletSettings)
 from electrumsv.extensions import extensions, label_sync
 from electrumsv.i18n import _, languages
-from electrumsv.simple_config import SimpleConfig
 import electrumsv.web as web
 from electrumsv.wallet import AbstractAccount, Wallet
 
@@ -60,15 +59,16 @@ class PreferencesDialog(QDialog):
         self.setWindowTitle(_('Preferences'))
         self._main_window = weakref.proxy(main_window)
         self.lay_out(wallet, account)
-        self.initial_language = app_state.config.get('language', None)
+        self.initial_language = get_app_state_qt().config.get('language', None)
 
     def accept(self) -> None:
-        if app_state.fx:
-            app_state.fx.trigger_history_refresh()
+        app_state_qt = get_app_state_qt()
+        if app_state_qt.fx is not None:
+            app_state_qt.fx.trigger_history_refresh()
         # Qt on Mac has a bug with "modalSession has been exited prematurely" That means
         # you cannot create a modal dialog when exiting a model dialog, such as in the
         # finished signal.  So we do this in the accept() function instead.
-        if self.initial_language != app_state.config.get('language', None):
+        if self.initial_language != get_app_state_qt().config.get('language', None):
             MessageBox.show_warning(
                 _('Restart ElectrumSV to activate your updated language setting'),
                 title=_('Success'), parent=self)
@@ -99,23 +99,26 @@ class PreferencesDialog(QDialog):
         self.setLayout(vbox)
 
     def tx_widgets(self, tab: QWidget) -> None:
+        app_state_qt = get_app_state_qt()
         def on_customfee(_text: str) -> None:
             amt = customfee_e.get_amount()
             m = int(amt * 1000.0) if amt is not None else None
-            app_state.config.set_key('customfee', m)
+            app_state_qt.config.set_key('customfee', m)
             # NOTE Nothing currently listens to this.
-            app_state.app.custom_fee_changed.emit()
+            app_state_qt.app_qt.custom_fee_changed.emit()
 
-        custom_fee_rate = cast(SimpleConfig, app_state.config).custom_fee_rate()
+        custom_fee_rate = app_state_qt.config.custom_fee_rate()
         customfee_e = BTCSatsByteEdit()
+        # This display scaling is the same as how `BTCSatsByteEdit` scales for `setAmount`.
+        customfee_e.setPlaceholderText(str(round((DEFAULT_FEE/1000.0)*100.0)/100.0))
         customfee_e.setAmount(custom_fee_rate / 1000.0 if custom_fee_rate is not None else None)
         customfee_e.textChanged.connect(on_customfee)
 
         unconf_cb = QCheckBox(_('Spend only confirmed coins'))
         unconf_cb.setToolTip(_('Spend only confirmed inputs.'))
-        unconf_cb.setChecked(app_state.config.get('confirmed_only', False))
+        unconf_cb.setChecked(app_state_qt.config.get_explicit_type(bool, 'confirmed_only', False))
         def on_unconf(state):
-            app_state.config.set_key('confirmed_only', state != Qt.CheckState.Unchecked)
+            app_state_qt.config.set_key('confirmed_only', state != Qt.CheckState.Unchecked)
         unconf_cb.stateChanged.connect(on_unconf)
 
         options_box = QGroupBox()
@@ -133,8 +136,10 @@ class PreferencesDialog(QDialog):
         tab.setLayout(vbox)
 
     def general_widgets(self, tab: QWidget) -> None:
+        app_state_qt = get_app_state_qt()
+
         # language
-        lang_modifiable = app_state.config.is_modifiable('language')
+        lang_modifiable = app_state_qt.config.is_modifiable('language')
         lang_pairs = sorted((code, language) for language, code in languages.items())
         language_names, language_keys = zip(*lang_pairs)
 
@@ -146,32 +151,32 @@ class PreferencesDialog(QDialog):
         lang_combo.setEnabled(lang_modifiable)
         lang_combo.addItems(language_names)
         try:
-            index = language_keys.index(app_state.config.get("language", ''))
+            index = language_keys.index(app_state_qt.config.get_explicit_type(str, "language", ''))
         except ValueError:
             index = 0
         lang_combo.setCurrentIndex(index)
         def on_lang(index):
             lang_request = language_keys[index]
-            if lang_request != app_state.config.get('language'):
-                app_state.config.set_key("language", lang_request, True)
+            if lang_request != app_state_qt.config.get('language'):
+                app_state_qt.config.set_key("language", lang_request, True)
         lang_combo.currentIndexChanged.connect(on_lang)
 
-        nz_modifiable = app_state.config.is_modifiable('num_zeros')
+        nz_modifiable = app_state_qt.config.is_modifiable('num_zeros')
         # nz_label = HelpLabel(_('Zeros after decimal point') + ':',
         #                      _('Number of zeros displayed after the decimal point.  '
         #                        'For example, if set to 2, "1." will be displayed as "1.00"'))
         # nz_label.setEnabled(nz_modifiable)
         nz = QSpinBox()
         nz.setMinimum(0)
-        nz.setMaximum(app_state.decimal_point)
-        nz.setValue(app_state.num_zeros)
+        nz.setMaximum(app_state_qt.decimal_point)
+        nz.setValue(app_state_qt.num_zeros)
         nz.setEnabled(nz_modifiable)
         def on_nz():
             value = nz.value()
-            if app_state.num_zeros != value:
-                app_state.num_zeros = value
-                app_state.config.set_key('num_zeros', value, True)
-                app_state.app.num_zeros_changed.emit()
+            if app_state_qt.num_zeros != value:
+                app_state_qt.num_zeros = value
+                app_state_qt.config.set_key('num_zeros', value, True)
+                app_state_qt.app_qt.num_zeros_changed.emit()
         nz.valueChanged.connect(on_nz)
 
         # unit_label = HelpLabel(_('Base unit') + ':', '\n'.join((
@@ -179,22 +184,22 @@ class PreferencesDialog(QDialog):
         #     '1 BSV = 1,000 mBSV = 1,000,000 bits.',
         # )))
         unit_combo = QComboBox()
-        unit_combo.addItems(app_state.base_units)
-        unit_combo.setCurrentIndex(app_state.base_units.index(app_state.base_unit()))
+        unit_combo.addItems(app_state_qt.base_units)
+        unit_combo.setCurrentIndex(app_state_qt.base_units.index(app_state_qt.base_unit()))
         def on_unit(index):
-            app_state.set_base_unit(app_state.base_units[index])
-            nz.setMaximum(app_state.decimal_point)
+            app_state_qt.set_base_unit(app_state_qt.base_units[index])
+            nz.setMaximum(app_state_qt.decimal_point)
         unit_combo.currentIndexChanged.connect(on_unit)
 
         msg = _('Choose which online block explorer to use for functions that open a web browser')
         # block_ex_label = HelpLabel(_('Online Block Explorer') + ':', msg)
-        block_explorers = web.BE_sorted_list()
+        block_explorers = list(web.BE_sorted_list())
         block_ex_combo = QComboBox()
         block_ex_combo.addItems(block_explorers)
         block_ex_combo.setCurrentIndex(block_ex_combo.findText(
-            web.BE_from_config(app_state.config)))
+            web.BE_from_config(app_state_qt.config)))
         def on_be(index):
-            app_state.config.set_key('block_explorer', block_explorers[index], True)
+            app_state_qt.config.set_key('block_explorer', block_explorers[index], True)
         block_ex_combo.currentIndexChanged.connect(on_be)
 
         # qr_label = HelpLabel(_('Video Device') + ':',
@@ -204,10 +209,10 @@ class PreferencesDialog(QDialog):
         system_cameras = qrscanner.find_system_cameras()
         for camera, device in system_cameras.items():
             qr_combo.addItem(camera, device)
-        qr_combo.setCurrentIndex(qr_combo.findData(app_state.config.get("video_device")))
+        qr_combo.setCurrentIndex(qr_combo.findData(app_state_qt.config.get("video_device")))
         qr_combo.setEnabled(qrscanner.libzbar is not None)
         def on_video_device(index):
-            app_state.config.set_key("video_device", qr_combo.itemData(index), True)
+            app_state_qt.config.set_key("video_device", qr_combo.itemData(index), True)
         qr_combo.currentIndexChanged.connect(on_video_device)
 
         updatecheck_box = QGroupBox()
@@ -215,17 +220,18 @@ class PreferencesDialog(QDialog):
         updatecheck_box.setLayout(updatecheck_vbox)
         # The main checkbox, which turns update checking on or off completely.
         updatecheck_cb = QCheckBox(_("Automatically check for software updates"))
-        updatecheck_cb.setChecked(app_state.config.get('check_updates', True))
+        updatecheck_cb.setChecked(
+            app_state_qt.config.get_explicit_type(bool, 'check_updates', True))
         def on_set_updatecheck(v):
-            app_state.config.set_key('check_updates', v == Qt.CheckState.Checked, save=True)
+            app_state_qt.config.set_key('check_updates', v == Qt.CheckState.Checked, save=True)
         updatecheck_cb.stateChanged.connect(on_set_updatecheck)
         updatecheck_vbox.addWidget(updatecheck_cb)
         # The secondary checkbox, which determines if unstable releases result in notifications.
         updatecheck_unstable_cb = QCheckBox(_("Ignore unstable releases"))
         updatecheck_unstable_cb.setChecked(
-            app_state.config.get('check_updates_ignore_unstable', True))
+            app_state_qt.config.get_explicit_type(bool, 'check_updates_ignore_unstable', True))
         def on_set_updatecheck_unstable(v):
-            app_state.config.set_key('check_updates_ignore_unstable', v == Qt.CheckState.Checked,
+            app_state_qt.config.set_key('check_updates_ignore_unstable', v == Qt.CheckState.Checked,
                 save=True)
         updatecheck_unstable_cb.stateChanged.connect(on_set_updatecheck_unstable)
         updatecheck_vbox.addWidget(updatecheck_unstable_cb)
@@ -244,6 +250,7 @@ class PreferencesDialog(QDialog):
         tab.setLayout(vbox)
 
     def fiat_widgets(self, tab: QWidget) -> None:
+        app_state_qt = get_app_state_qt()
         # Fiat Currency
         hist_checkbox = QCheckBox(_('Show historical rates'))
         fiat_balance_checkbox = QCheckBox(_('Show Fiat balance for addresses'))
@@ -253,8 +260,8 @@ class PreferencesDialog(QDialog):
         # FIXME: note main window tabs are not correctly hooked up to FX rate changes
         # to refresh when an update comes in from twiddling here
 
-        def update_currencies():
-            fx = app_state.fx
+        def update_currencies() -> None:
+            fx = app_state_qt.fx
             if fx:
                 currencies = sorted(fx.get_currencies())
                 ccy_combo.clear()
@@ -262,19 +269,19 @@ class PreferencesDialog(QDialog):
                 if fx.is_enabled():
                     ccy_combo.setCurrentIndex(ccy_combo.findText(fx.get_currency()))
 
-        def update_history_cb():
-            fx = app_state.fx
+        def update_history_cb() -> None:
+            fx = app_state_qt.fx
             if fx:
                 hist_checkbox.setChecked(fx.get_history_config())
                 hist_checkbox.setEnabled(fx.is_enabled())
 
-        def update_fiat_balance_cb():
-            fx = app_state.fx
+        def update_fiat_balance_cb() -> None:
+            fx = app_state_qt.fx
             if fx:
                 fiat_balance_checkbox.setChecked(fx.get_fiat_address_config())
 
-        def update_exchanges():
-            fx = app_state.fx
+        def update_exchanges() -> None:
+            fx = app_state_qt.fx
             if fx:
                 b = fx.is_enabled()
                 ex_combo.setEnabled(b)
@@ -288,8 +295,8 @@ class PreferencesDialog(QDialog):
                 ex_combo.addItems(sorted(exchanges))
                 ex_combo.setCurrentIndex(ex_combo.findText(fx.config_exchange()))
 
-        def on_currency(index):
-            fx = app_state.fx
+        def on_currency(index: int) -> None:
+            fx = app_state_qt.fx
             if fx:
                 enabled = index != 0
                 fx.set_enabled(enabled)
@@ -297,26 +304,26 @@ class PreferencesDialog(QDialog):
                     fx.set_currency(ccy_combo.currentText())
                 update_history_cb()
                 update_exchanges()
-                app_state.app.fiat_ccy_changed.emit()
+                app_state_qt.app_qt.fiat_ccy_changed.emit()
 
-        def on_exchange(_index):
+        def on_exchange(_index: int):
             exchange = str(ex_combo.currentText())
-            fx = app_state.fx
+            fx = app_state_qt.fx
             if fx and fx.is_enabled() and exchange and exchange != fx.exchange.name():
                 fx.set_exchange(exchange)
 
-        def on_history(state):
-            fx = app_state.fx
+        def on_history(state: int) -> None:
+            fx = app_state_qt.fx
             if fx:
                 fx.set_history_config(state == Qt.CheckState.Checked)
                 update_exchanges()
-                app_state.app.fiat_history_changed.emit()
+                app_state_qt.app_qt.fiat_history_changed.emit()
 
-        def on_fiat_balance(state):
-            fx = app_state.fx
+        def on_fiat_balance(state) -> None:
+            fx = app_state_qt.fx
             if fx:
                 fx.set_fiat_address_config(state == Qt.CheckState.Checked)
-                app_state.app.fiat_balance_changed.emit()
+                app_state_qt.app_qt.fiat_balance_changed.emit()
 
         update_currencies()
         update_history_cb()
@@ -345,6 +352,8 @@ class PreferencesDialog(QDialog):
         tab.setLayout(vbox)
 
     def extensions_widgets(self, account: Optional[AbstractAccount], tab: QWidget) -> None:
+        app_state_qt = get_app_state_qt()
+
         def cb_clicked(extension, settings_widget, checked):
             extension.set_enabled(checked)
             if settings_widget:
@@ -360,7 +369,7 @@ class PreferencesDialog(QDialog):
             field_layout.addWidget(cb)
             field_layout.addStretch(1)
             if extension is label_sync and account:
-                settings_widget = app_state.app.label_sync.settings_widget(self, account)
+                settings_widget = app_state_qt.app_qt.label_sync.settings_widget(self, account)
                 settings_widget.setEnabled(extension.is_enabled())
                 field_layout.addWidget(settings_widget)
                 cb.clicked.connect(partial(cb_clicked, extension, settings_widget))
@@ -374,11 +383,13 @@ class PreferencesDialog(QDialog):
         tab.setLayout(vbox)
 
     def _wallet_widgets(self, wallet: Wallet, tab: QWidget) -> None:
+        app_state_qt = get_app_state_qt()
+
         use_change_addresses_cb = QCheckBox(_('Use change addresses'))
         use_change_addresses_cb.setChecked(
             wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True))
         use_change_addresses_cb.setEnabled(
-            app_state.config.is_modifiable(WalletSettings.USE_CHANGE))
+            app_state_qt.config.is_modifiable(WalletSettings.USE_CHANGE))
         use_change_addresses_cb.setToolTip(
             _('Using a different change key each time improves your privacy by '
               'making it more difficult for others to analyze your transactions.')
@@ -408,7 +419,7 @@ class PreferencesDialog(QDialog):
         coinsplitting_option_cb = QCheckBox(_('Show coin-splitting option on the Send tab'))
         coinsplitting_option_cb.setChecked(wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT))
         coinsplitting_option_cb.setEnabled(
-            app_state.config.is_modifiable(WalletSettings.ADD_SV_OUTPUT))
+            app_state_qt.config.is_modifiable(WalletSettings.ADD_SV_OUTPUT))
         coinsplitting_option_cb.setToolTip(
             _('Whether to feature the the option to add Bitcoin SV only data to the transaction '
               'on the Send tab. Will only be shown for compatible account types.')
@@ -452,14 +463,14 @@ class PreferencesDialog(QDialog):
         #     _("This allows setting a per-wallet limit on the amount of transaction data cached "
         #     "in memory. A value of 0 will disable the cache, and setting low values can cause "
         #     "wallet slowness due to continual fetching of transaction data from the database."))
-        nz_modifiable = app_state.config.is_modifiable('tx_bytedata_cache_size')
+        nz_modifiable = app_state_qt.config.is_modifiable('tx_bytedata_cache_size')
         nz = QSpinBox()
         nz.setAlignment(Qt.AlignmentFlag.AlignRight)
         nz.setMinimum(MINIMUM_TXDATA_CACHE_SIZE_MB)
         nz.setMaximum(MAXIMUM_TXDATA_CACHE_SIZE_MB)
         nz.setValue(transaction_cache_size)
         nz.setEnabled(nz_modifiable)
-        def on_nz():
+        def on_nz() -> None:
             value = nz.value()
             # This will not resize the cache, as we do not want to be doing it with every
             # change and some changes may be bad to actually put in place.
@@ -482,7 +493,8 @@ class PreferencesDialog(QDialog):
         tab.setLayout(vbox)
 
     def network_widgets(self, tab: QWidget) -> None:
-        size_limit = app_state.electrumx_message_size_limit()
+        app_state_qt = get_app_state_qt()
+        size_limit = app_state_qt.electrumx_message_size_limit()
         nz_label = HelpLabel(_('Message size limit') + ':',
             _("This provides a denial of service limit for incoming messages. Messages that "
             "exceed this limit will be dropped. At this time our service connections work with "
@@ -490,18 +502,18 @@ class PreferencesDialog(QDialog):
             "least twice the size. Make this at least double the size of the largest transaction "
             "you expect to receive.\n\nChanges only apply to new connections, not existing ones. "
             "For now you must restart ElectrumSV to be sure that any changes are applied."))
-        nz_modifiable = app_state.config.is_modifiable('electrumx_message_size_limit')
+        nz_modifiable = app_state_qt.config.is_modifiable('electrumx_message_size_limit')
         nz = QSpinBox()
         nz.setAlignment(Qt.AlignmentFlag.AlignRight)
         nz.setMinimum(0)
         nz.setMaximum(MAXIMUM_TXDATA_CACHE_SIZE_MB) # This is a UI hard limit, not txdata..
         nz.setValue(size_limit)
         nz.setEnabled(nz_modifiable)
-        def on_nz():
+        def on_nz() -> None:
             value = nz.value()
             # This will not resize the cache, as we do not want to be doing it with every
             # change and some changes may be bad to actually put in place.
-            app_state.set_electrumx_message_size_limit(value)
+            app_state_qt.set_electrumx_message_size_limit(value)
         nz.valueChanged.connect(on_nz)
 
         tx_cache_layout = QHBoxLayout()
@@ -519,15 +531,18 @@ class PreferencesDialog(QDialog):
         tab.setLayout(vbox)
 
     def ui_widgets(self, tab: QWidget) -> None:
+        app_state_qt = get_app_state_qt()
         modal_cb = QCheckBox(_('Disable MacOS sheets.'))
         modal_cb.setToolTip(_("The Qt5 framework used for the user interface has bugs on MacOS\n"
             "One of these is that in some rare occasions a blank drop down box may be left in\n"
             "place and there is no way for ElectrumSV to know about it or to remove it. If you\n"
             "set this option ElectrumSV will try and avoid using the drop down sheets, preventing\n"
             "you from experiencing these problems."))
-        modal_cb.setChecked(app_state.config.get('ui_disable_modal_dialogs', False))
+        modal_cb.setChecked(
+            app_state_qt.config.get_explicit_type(bool, 'ui_disable_modal_dialogs', False))
         def on_unconf(state):
-            app_state.config.set_key('ui_disable_modal_dialogs', state != Qt.CheckState.Unchecked)
+            app_state_qt.config.set_key('ui_disable_modal_dialogs',
+                state != Qt.CheckState.Unchecked)
         modal_cb.stateChanged.connect(on_unconf)
 
         options_box = QGroupBox()

@@ -86,7 +86,8 @@ class LabelImport:
             script_type = ScriptType.MULTISIG_P2SH
         result: Dict[ScriptTemplate, KeyInstanceRow] = {}
         for keyinstance in account.get_keyinstances():
-            template = account.get_script_template_for_key_data(keyinstance, script_type)
+            template = account.get_script_template_for_derivation(script_type,
+                keyinstance.derivation_type, keyinstance.derivation_data2)
             result[template] = keyinstance
         return result
 

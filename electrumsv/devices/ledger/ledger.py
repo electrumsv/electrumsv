@@ -333,8 +333,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
         return bytes([27 + 4 + (signature[0] & 0x01)]) + r + s
 
     @set_and_unset_signing
-    def sign_transaction(self, tx: Transaction, password: str,
-            tx_context: TransactionContext) -> None:
+    def sign_transaction(self, tx: Transaction, password: str, context: TransactionContext) -> None:
         if tx.is_complete():
             return
 
@@ -382,8 +381,8 @@ class Ledger_KeyStore(Hardware_KeyStore):
         # Recognize outputs - only one output and one change is authorized
         if not foundP2SHSpend:
             keystore_fingerprint = self.get_fingerprint()
-            assert tx.output_info is not None
-            for tx_output, output_metadatas in zip(tx.outputs, tx.output_info):
+            assert len(tx.outputs) == len(context.hardware_signing_metadata)
+            for tx_output, output_metadatas in zip(tx.outputs, context.hardware_signing_metadata):
                 info = output_metadatas.get(keystore_fingerprint)
                 if (info is not None) and len(tx.outputs) != 1:
                     key_derivation, xpubs, m = info

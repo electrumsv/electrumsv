@@ -45,7 +45,7 @@ from ...i18n import _
 from ...logs import logs
 from ...network_support import mapi
 from ...paymentrequest import has_expired, PaymentRequest
-from ...transaction import Transaction, XTxOutput
+from ...transaction import Transaction, TransactionContext, XTxOutput
 from ...util import format_satoshis_plain
 from ...wallet import AbstractAccount
 from ...wallet_database.types import InvoiceRow, TransactionOutputSpendableTypes
@@ -106,7 +106,7 @@ class SendView(QWidget):
         self.payment_request_deleted_signal.connect(self._payment_request_deleted)
 
         self._main_window.wallet_setting_changed_signal.connect(self._on_wallet_setting_changed)
-        app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
+        app_state.app_qt.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
         self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
         self._main_window.keys_updated_signal.connect(self._on_keys_updated)
 
@@ -116,7 +116,7 @@ class SendView(QWidget):
 
         self._main_window.keys_updated_signal.disconnect(self._on_keys_updated)
         self._main_window.new_fx_quotes_signal.disconnect(self._on_ui_exchange_rate_quotes)
-        app_state.app.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
+        app_state.app_qt.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
 
     def _on_wallet_setting_changed(self, setting_name: str, setting_value: Any) -> None:
         if setting_name == WalletSettings.ADD_SV_OUTPUT:
@@ -140,6 +140,7 @@ class SendView(QWidget):
 
     def create_send_layout(self) -> QVBoxLayout:
         """ Re-render the layout and it's child widgets of this view. """
+        assert self._account is not None
         # A 4-column grid layout.  All the stretch is in the last column.
         # The exchange rate plugin adds a fiat widget in column 2
         self._send_grid = grid = QGridLayout()
@@ -290,11 +291,12 @@ class SendView(QWidget):
         return vbox
 
     def _show_splitting_option(self) -> bool:
+        assert self._account is not None
         return self._account._wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT)
 
     def on_tab_activated(self) -> None:
         # Do nothing if we were already doing something.
-        if self._mapi_future is not None:
+        if self._main_window.network is None or self._mapi_future is not None:
             return
 
         assert self._account is not None
@@ -312,6 +314,7 @@ class SendView(QWidget):
         self._invoice_list.filter(text)
 
     def _on_entry_changed(self) -> None:
+        assert self._account is not None
         text = ""
         if self._not_enough_funds:
             amt_color = ColorScheme.RED
@@ -416,6 +419,7 @@ class SendView(QWidget):
         '''Recalculate the fee.  If the fee was manually input, retain it, but
         still build the TX to see if there are enough funds.
         '''
+        assert self._account is not None
         amount = all if self._is_max else self.amount_e.get_amount()
         if amount is None:
             self._not_enough_funds = False
@@ -432,7 +436,7 @@ class SendView(QWidget):
             coins = self._get_coins()
             outputs.extend(self._account.create_extra_outputs(coins, outputs))
             try:
-                tx = self._account.make_unsigned_transaction(coins, outputs)
+                tx, tx_context = self._account.make_unsigned_transaction(coins, outputs)
                 self._not_enough_funds = False
             except NotEnoughFunds:
                 self._logger.debug("Not enough funds")
@@ -451,6 +455,7 @@ class SendView(QWidget):
         self._do_send(preview=True)
 
     def _do_send(self, preview: bool=False) -> None:
+        assert self._account is not None
         dialogs.show_named('think-before-sending')
 
         if self._payment_request is not None:
@@ -471,7 +476,7 @@ class SendView(QWidget):
         outputs, tx_desc, coins = r
         outputs.extend(self._account.create_extra_outputs(coins, outputs))
         try:
-            tx = self._account.make_unsigned_transaction(coins, outputs)
+            tx, tx_context = self._account.make_unsigned_transaction(coins, outputs)
         except NotEnoughFunds:
             self._main_window.show_message(_("Insufficient funds"))
             return
@@ -483,12 +488,13 @@ class SendView(QWidget):
             self._main_window.show_message(str(e))
             return
 
-        tx.context.description = tx_desc
+        tx_context.description = tx_desc
         if preview:
-            self._main_window.show_transaction(self._account, tx, pr=self._payment_request)
+            self._main_window.show_transaction(self._account, tx, tx_context,
+                pr=self._payment_request)
         else:
             amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
-            self._sign_tx_and_broadcast_if_complete(amount, tx)
+            self._sign_tx_and_broadcast_if_complete(amount, tx, tx_context)
 
     def _read(self) -> Optional[Tuple[List[XTxOutput], str, List[TransactionOutputSpendableTypes]]]:
         if self._payment_request and self._payment_request.has_expired():
@@ -523,9 +529,11 @@ class SendView(QWidget):
     def _get_coins(self) -> List[TransactionOutputSpendableTypes]:
         if self.pay_from:
             return self.pay_from
-        return self._account.get_spendable_transaction_outputs()
+        assert self._account is not None
+        return self._account.get_transaction_outputs_with_key_data()
 
-    def _sign_tx_and_broadcast_if_complete(self, amount: int, tx: Transaction) -> None:
+    def _sign_tx_and_broadcast_if_complete(self, amount: int, tx: Transaction,
+            tx_context: TransactionContext) -> None:
         # confirmation dialog
         fee = tx.get_fee()
 
@@ -544,25 +552,28 @@ class SendView(QWidget):
             return
 
         if self._payment_request is not None:
-            tx.context.invoice_id = self._payment_request.get_id()
+            tx_context.invoice_id = self._payment_request.get_id()
 
         def sign_done(success: bool) -> None:
             if success:
                 if not tx.is_complete():
-                    self._main_window.show_transaction(self._account, tx, pr=self._payment_request)
+                    self._main_window.show_transaction(self._account, tx, tx_context,
+                        pr=self._payment_request)
                     self.clear()
                     return
 
-                self._main_window.broadcast_transaction(self._account, tx)
+                self._main_window.broadcast_transaction(self._account, tx, tx_context)
 
-        self._main_window.sign_tx_with_password(tx, sign_done, password, tx_context=tx.context)
+        self._main_window.sign_tx_with_password(tx, sign_done, password, context=tx_context)
 
     def is_invoice_payment(self) -> bool:
         return self._payment_request is not None
 
     def get_transaction_for_invoice(self) -> Optional[Transaction]:
+        assert self._account is not None and self._payment_request is not None
         invoice_row = self._account._wallet.read_invoice(
             invoice_id=self._payment_request.get_id())
+        assert invoice_row is not None
         if invoice_row.tx_hash is not None:
             return self._main_window._wallet.get_transaction(invoice_row.tx_hash)
         return None
@@ -581,6 +592,7 @@ class SendView(QWidget):
             # been confirmed by the appropriate calling logic. Like `confirm_broadcast_transaction`
             # in the main window logic.
             invoice_row = self._account._wallet.read_invoice(invoice_id=invoice_id)
+            assert invoice_row is not None
             if tx_hash != invoice_row.tx_hash:
                 # Calling logic should have detected this and warned/confirmed with the user.
                 return True
@@ -652,9 +664,11 @@ class SendView(QWidget):
             self.amount_e.textEdited.emit("")
 
     def payment_request_ok(self) -> None:
-        pr = self._payment_request
+        pr_optional = self._payment_request
         account = self._account
-        wallet = self._account._wallet
+        assert account is not None and pr_optional is not None
+        pr = pr_optional
+        wallet = account._wallet
 
         if pr.get_id() is None:
             def callback(future: concurrent.futures.Future) -> None:
@@ -668,6 +682,7 @@ class SendView(QWidget):
                 # NOTE This callback will be happening in the database thread. No UI calls should
                 #   be made, unless we emit a signal to do it.
                 row = wallet.read_invoice(payment_uri=pr.get_payment_uri())
+                assert row is not None
                 pr.set_id(row.invoice_id)
                 self.payment_request_imported_signal.emit(row)
 
@@ -682,7 +697,7 @@ class SendView(QWidget):
                 # We're waiting for the callback.
                 return
         else:
-            row = self._account._wallet.read_invoice(invoice_id=pr.get_id())
+            row = account._wallet.read_invoice(invoice_id=pr.get_id())
             assert row is not None
 
         # The invoice is already present. Populate it unless it's paid.
@@ -721,6 +736,7 @@ class SendView(QWidget):
         self.update_widgets()
 
     def payment_request_error(self, invoice_id: int, tx_hash: bytes) -> None:
+        assert self._payment_request is not None
         # The transaction is still signed and associated with the invoice. This should be
         # indicated to the user in the UI, and they can deal with it.
 

@@ -59,7 +59,7 @@ class AccountDialog(QDialog):
         script_type_combo = QComboBox()
 
         def update_script_types() -> None:
-            nonlocal account, script_type_combo
+            assert account is not None
             default_script_type = account.get_default_script_type()
             combo_items = [ v.name for v in ACCOUNT_SCRIPT_TYPES[account.type()] ]
 
@@ -68,7 +68,7 @@ class AccountDialog(QDialog):
             script_type_combo.setCurrentIndex(script_type_combo.findText(default_script_type.name))
 
         def on_script_type_change(_index: int) -> None:
-            nonlocal account, script_type_combo
+            assert account is not None
             script_type_name = script_type_combo.currentText()
             new_script_type = getattr(ScriptType, script_type_name)
             current_script_type = account.get_default_script_type()

@@ -365,12 +365,13 @@ class HistoryList(MyTreeWidget):
 
         account = self._wallet.get_account(account_id)
         assert account is not None
+        assert self._account is not None
 
         tx_id = hash_to_hex_str(tx_hash)
         tx_URL = web.BE_URL(self.config, 'tx', tx_id)
-        height = self._wallet.get_transaction_height(tx_hash)
-        tx = account.get_transaction(tx_hash)
-        if not tx: return # this happens sometimes on account synch when first starting up.
+        tx_with_context = account.get_transaction(tx_hash)
+        assert tx_with_context is not None
+        tx, tx_context = tx_with_context
 
         menu = QMenu()
         menu.addAction(_("Copy {}").format(column_title),
@@ -381,7 +382,8 @@ class HistoryList(MyTreeWidget):
             # NOTE(typing) The PYQT_SLOT argument should take the lambda as a callable, but doesn't.
             menu.addAction(_("Edit {}").format(column_title), # type: ignore
                 lambda: self.currentItem() and self.editItem(self.currentItem(), column))
-        menu.addAction(_("Details"), lambda: self._main_window.show_transaction(account, tx))
+        menu.addAction(_("Details"), lambda: self._main_window.show_transaction(account, tx,
+            tx_context))
 
         flags = self._wallet.get_transaction_flags(tx_hash)
         if flags is not None and flags & TxFlags.PAYS_INVOICE:
@@ -400,6 +402,7 @@ class HistoryList(MyTreeWidget):
         menu.addSeparator()
 
         if flags is not None and flags & TxFlags.STATE_CLEARED:
+            # TODO(no-merge) Confirm this does not allocate a change address that gets discarded.
             child_tx = account.cpfp(tx, 0)
             if child_tx:
                 menu.addAction(_("Child pays for parent"),

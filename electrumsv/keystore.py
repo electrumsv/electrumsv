@@ -39,9 +39,9 @@ from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword, OverloadedMultisigKeystore, IncompatibleWalletError
 from .logs import logs
 from .networks import Net
-from .transaction import Transaction, TransactionContext, XPublicKey, XPublicKeyType
+from .transaction import Transaction, TransactionContext, XPublicKey, XPublicKeyKind
 from .types import MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataHardware, \
-    MasterKeyDataMultiSignature, MasterKeyDataTypes
+    MasterKeyDataMultiSignature, MasterKeyDataTypes, DatabaseKeyDerivationData
 from .wallet_database.types import KeyInstanceRow, MasterKeyRow
 
 
@@ -149,7 +149,7 @@ class KeyStore:
         return False
 
     def sign_transaction(self, tx: Transaction, password: str,
-            tx_context: TransactionContext) -> None:
+            context: TransactionContext) -> None:
         raise NotImplementedError
 
 
@@ -174,7 +174,7 @@ class Software_KeyStore(KeyStore):
         raise NotImplementedError
 
     def sign_transaction(self, tx: Transaction, password: str,
-            tx_context: TransactionContext) -> None:
+            context: TransactionContext) -> None:
         if self.is_watching_only():
             return
         # Raise if password is not correct.
@@ -286,7 +286,7 @@ class Imported_KeyStore(Software_KeyStore):
         return self.get_private_key(public_key, password)
 
     def is_signature_candidate(self, x_public_key: XPublicKey) -> bool:
-        if x_public_key.kind() == XPublicKeyType.PRIVATE_KEY:
+        if x_public_key.kind() == XPublicKeyKind.PRIVATE_KEY:
             return x_public_key.to_public_key() in self._keypairs
         return False
 
@@ -358,11 +358,11 @@ class Xpub:
             pubkey = pubkey.child_safe(n)
         return pubkey
 
-    def get_xpubkey(self, derivation_path: DerivationPath) -> XPublicKey:
-        return XPublicKey(bip32_xpub=self.xpub, derivation_path=derivation_path)
+    def get_xpubkey(self, data: DatabaseKeyDerivationData) -> XPublicKey:
+        return XPublicKey(bip32_xpub=self.xpub, derivation_data=data)
 
     def is_signature_candidate(self, x_pubkey: XPublicKey) -> bool:
-        if x_pubkey.kind() == XPublicKeyType.BIP32:
+        if x_pubkey.kind() == XPublicKeyKind.BIP32:
             return self.xpub == x_pubkey.bip32_extended_key()
         return False
 
@@ -441,8 +441,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
 
     def get_private_key_from_xpubkey(self, x_pubkey: XPublicKey,
             password: str) -> Tuple[bytes, bool]:
-        derivation_path = x_pubkey.derivation_path()
-        return self.get_private_key(derivation_path, password)
+        return self.get_private_key(x_pubkey.derivation_path, password)
 
     # If we do not do this it falls through to the the base KeyStore method, not Xpub.
     def is_signature_candidate(self, x_pubkey: XPublicKey) -> bool:
@@ -577,15 +576,15 @@ class Old_KeyStore(Deterministic_KeyStore):
     def get_master_public_key(self) -> Optional[str]:
         return self.mpk
 
-    def get_xpubkey(self, derivation_path: DerivationPath) -> XPublicKey:
-        assert len(derivation_path) == 2
-        return XPublicKey(old_mpk=bytes.fromhex(self.mpk), derivation_path=derivation_path)
+    def get_xpubkey(self, data: DatabaseKeyDerivationData) -> XPublicKey:
+        assert data.derivation_path is not None and len(data.derivation_path) == 2
+        return XPublicKey(old_mpk=bytes.fromhex(self.mpk), derivation_data=data)
 
     def is_signature_candidate(self, x_pubkey: XPublicKey) -> bool:
         """
         Check whether this keystore can sign for the given extended public key.
         """
-        if x_pubkey.kind() == XPublicKeyType.OLD:
+        if x_pubkey.kind() == XPublicKeyKind.OLD:
             mpk, path = x_pubkey.old_keystore_mpk_and_path()
             return self.mpk == mpk.hex()
         return False

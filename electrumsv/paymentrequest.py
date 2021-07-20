@@ -159,7 +159,8 @@ class PaymentRequest:
         keyinstance = wallet.read_keyinstance(keyinstance_id=pr.keyinstance_id)
         assert keyinstance is not None
         script_type = account.get_default_script_type()
-        script = account.get_script_for_key_data(keyinstance, script_type)
+        script = account.get_script_for_derivation(script_type, keyinstance.derivation_type,
+            keyinstance.derivation_data2)
         date_expiry = None
         if pr.expiration is not None:
             date_expiry = pr.date_created + pr.expiration

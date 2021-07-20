@@ -140,7 +140,7 @@ def read_rows_by_ids(return_type: Type[T], db: sqlite3.Connection, sql: str, sql
 # TODO(ideal) In an ideal world we would pass in a row factory and a return type, or use the typing
 #   stuff to use them. For instance, if fields in the return type are `IntFlag` structures they are
 #   not treated the same in their integer form as they would be if they were cast to the structure.
-def execute_sql_for_id(db: sqlite3.Connection, sql: str,
+def execute_sql_by_id(db: sqlite3.Connection, sql: str,
         sql_values: List[Any], ids: Sequence[T2], return_type: Optional[Type[T]]=None) \
             -> Tuple[int, List[T]]:
     """

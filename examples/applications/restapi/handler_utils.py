@@ -22,7 +22,7 @@ from electrumsv.app_state import app_state
 from electrumsv.restapi import decode_request_body, Fault, get_network_type
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.storage import WalletStorage
-from electrumsv.types import TransactionSize, TxoKeyType
+from electrumsv.types import TransactionSize, Outpoint
 from electrumsv.wallet_database.types import (TransactionOutputSpendableRow)
 from examples.applications.restapi.constants import WalletEventNames
 
@@ -216,9 +216,9 @@ class ExtendedHandlerUtils(HandlerUtils):
                                                         script_pubkey=spk))
         return outputs_from_dicts
 
-    def utxokeys_from_list(self, entries: List[Tuple[str, int]]) -> List[TxoKeyType]:
+    def utxokeys_from_list(self, entries: List[Tuple[str, int]]) -> List[Outpoint]:
         return [
-            TxoKeyType(bitcoinx.hex_str_to_hash(tx_id), txo_index)
+            Outpoint(bitcoinx.hex_str_to_hash(tx_id), txo_index)
             for (tx_id, txo_index) in entries
         ]
 
@@ -415,7 +415,7 @@ class ExtendedHandlerUtils(HandlerUtils):
         return accounts
 
     def _coin_state_dto(self, account) -> Union[Fault, Dict[str, Any]]:
-        all_coins = account.get_spendable_transaction_outputs_extended(confirmed_only=False,
+        all_coins = account.get_transaction_outputs_with_key_and_tx_data(confirmed_only=False,
             mature=False)
         unmatured_coins = []
         cleared_coins = []
@@ -458,16 +458,18 @@ class ExtendedHandlerUtils(HandlerUtils):
                 exclude_frozen = vars.get(VNAME.EXCLUDE_FROZEN, False)
                 confirmed_only = vars.get(VNAME.CONFIRMED_ONLY, False)
                 mature = vars.get(VNAME.MATURE, True)
-                utxos = account.get_spendable_transaction_outputs(exclude_frozen=exclude_frozen,
+                utxos = account.get_transaction_outputs_with_key_data(exclude_frozen=exclude_frozen,
                     confirmed_only=confirmed_only, mature=mature)
 
             if utxo_preselection:  # Defaults to True
                 utxos = self.preselect_utxos(utxos, outputs)
 
             # Todo - loop.run_in_executor
-            tx = account.make_unsigned_transaction(utxos, outputs)
+            tx, tx_context = account.make_unsigned_transaction(utxos, outputs)
             self.raise_for_duplicate_tx(tx)
-            account.sign_transaction(tx, password)
+            future = account.sign_transaction(tx, password, tx_context)
+            if future is not None:
+                future.result()
             return tx, account, password
         except NotEnoughFunds:
             raise Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE)
@@ -501,7 +503,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
         INPUT_COST = config.estimate_fee(TransactionSize(INPUT_SIZE, 0))
         OUTPUT_COST = config.estimate_fee(TransactionSize(OUTPUT_SIZE, 0))
-        all_coins = account.get_spendable_transaction_outputs(exclude_frozen=True, mature=True)
+        all_coins = account.get_transaction_outputs_with_key_data(exclude_frozen=True, mature=True)
 
         # adds extra inputs as required to meet the desired utxo_count.
         # Ignore coins that are too expensive to send, or not confirmed.

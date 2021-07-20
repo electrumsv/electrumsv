@@ -155,6 +155,7 @@ class RequestList(MyTreeWidget):
         # This is currently triggered by events like 'transaction_added' from the main window.
         if self._account_id is None:
             return
+        assert self._account is not None
 
         current_time = get_posix_timestamp()
         nearest_expiry_time = float('inf')
@@ -173,7 +174,7 @@ class RequestList(MyTreeWidget):
             received_amount_str = app_state.format_amount(row.received_value, whitespaces=True) \
                 if row.received_value else ""
 
-            if row.expiration is not None:
+            if flags == PaymentFlag.UNPAID and row.expiration is not None:
                 date_expires = row.date_created + row.expiration
                 if date_expires < current_time + 5:
                     flags = (flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
@@ -211,7 +212,7 @@ class RequestList(MyTreeWidget):
         menu = QMenu(self)
         menu.addAction(_("Details"), lambda: self._receive_view.show_dialog(request_id))
         menu.addAction(_("Copy {}").format(column_title),
-            lambda: app_state.app.clipboard().setText(column_data))
+            lambda: app_state.app_qt.clipboard().setText(column_data))
         menu.addAction(_("Copy URI"),
             lambda: self._view_and_paste('URI', '', self._get_request_URI(request_id)))
         action = menu.addAction(_("Save as BIP270 file"),
@@ -223,14 +224,17 @@ class RequestList(MyTreeWidget):
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _get_request_URI(self, pr_id: int) -> str:
+        assert self._account is not None
         wallet = self._account.get_wallet()
         req = self._account._wallet.read_payment_request(request_id=pr_id)
+        assert req is not None
         message = self._account.get_keyinstance_label(req.keyinstance_id)
         # TODO(ScriptTypeAssumption) see above for context
         keyinstance = wallet.read_keyinstance(keyinstance_id=req.keyinstance_id)
         assert keyinstance is not None
-        script_template = self._account.get_script_template_for_key_data(keyinstance,
-            self._account.get_default_script_type())
+        script_template = self._account.get_script_template_for_derivation(
+            self._account.get_default_script_type(),
+            keyinstance.derivation_type, keyinstance.derivation_data2)
         address_text = script_template_to_string(script_template)
 
         URI = create_URI(address_text, req.requested_value, message)
@@ -253,7 +257,7 @@ class RequestList(MyTreeWidget):
             self.show_message(_("Request saved successfully"))
 
     def _delete_payment_request(self, request_id: int) -> None:
-        assert self._account_id is not None
+        assert self._account_id is not None and self._account is not None
 
         # Blocking deletion call.
         wallet = self._account.get_wallet()

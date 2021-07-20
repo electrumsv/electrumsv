@@ -164,6 +164,23 @@ class ScriptType(IntEnum):
 ADDRESSABLE_SCRIPT_TYPES = (ScriptType.P2PKH, ScriptType.MULTISIG_P2SH)
 
 
+class DatabaseKeyDerivationType(IntEnum):
+    # NOTE: We do checks like >= EXTENSION_LINKED in code, use this to determine if the entry
+    #   has been sanity checked and is considered authoritative.
+    UNKNOWN = 0
+    # The user has just created an unpersisted unsigned transaction.
+    SIGNING = 1
+    # Used for imported incomplete transactions (complete transactions do not embed signing
+    # metadata at this time).
+    IMPORTED = 2
+    # The transaction output using this key exists in the database.
+    EXTENSION_LINKED = 3
+    # The key usage was found in the database for the input outpoint.
+    EXTENSION_UNLINKED = 4
+    # Exploration of the derivation paths found this match.
+    EXTENSION_EXPLORATION = 5
+
+
 class DerivationType(IntEnum):
     NONE = 0
     ELECTRUM_OLD = 1

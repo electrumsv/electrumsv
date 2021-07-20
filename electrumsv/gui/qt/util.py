@@ -5,7 +5,8 @@ import os
 import sys
 import time
 import traceback
-from typing import Any, Callable, cast, Iterable, List, Optional, Set, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Iterable, List, Optional, Set, TYPE_CHECKING, TypeVar, \
+    Union
 import weakref
 
 from aiorpcx import RPCError
@@ -33,6 +34,8 @@ if TYPE_CHECKING:
     from ...credentials import CredentialCache
     from .app import SVApplication
     from .main_window import ElectrumWindow
+
+D1 = TypeVar('D1', bound=Callable[..., Any])
 
 
 logger = logs.get_logger("qt-util")
@@ -1003,12 +1006,12 @@ def update_fixed_tree_height(tree: QTreeWidget, maximum_height=None):
     tree.setFixedHeight(table_height)
 
 
-def protected(func):
+def protected(func: D1) -> D1:
     '''Password request wrapper.  The password is passed to the function
     as the 'password' named argument.  "None" indicates either an
     unencrypted wallet, or the user cancelled the password request.
     An empty input is passed as the empty string.'''
-    def request_password(self, *args, **kwargs):
+    def request_password(self, *args: Any, **kwargs: Any) -> Any:
         main_window = self
         if 'main_window' in kwargs:
             main_window = kwargs['main_window']
@@ -1031,7 +1034,7 @@ def protected(func):
 
         kwargs['password'] = password
         return func(self, *args, **kwargs)
-    return request_password
+    return cast(D1, request_password)
 
 
 def icon_path(icon_basename):

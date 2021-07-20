@@ -1,9 +1,11 @@
 from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple, Union
 
+from bitcoinx import hash_to_hex_str
+
 from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag, NetworkServerFlag,
     NetworkServerType, PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
     WalletEventType)
-from ..types import DerivationTypeData, MasterKeyDataTypes
+from ..types import MasterKeyDataTypes
 
 
 class AccountRow(NamedTuple):
@@ -324,13 +326,8 @@ class TransactionOutputSpendableRow2(NamedTuple):
 KeyDataTypes = Union[
     KeyDataType,
     KeyInstanceRow,
-    KeyListRow,                         # Missing `account_id` so does not quite fit
     TransactionOutputSpendableRow,
     TransactionOutputSpendableRow2]
-
-# Types which have the common derivation-related fields.
-#   masterkey_id, derivation_type, derivation_data2
-DerivationTypes = Union[KeyDataTypes, DerivationTypeData]
 
 # Types which have the common output fields.
 TransactionOutputTypes = Union[
@@ -369,6 +366,11 @@ class TransactionSubscriptionRow(NamedTuple):
     keyinstance_id: int
     # TODO Document why this is present.
     script_hash: bytes
+
+    def __repr__(self) -> str:
+        return f"TransactionSubscriptionRow(tx_hash='{hash_to_hex_str(self.tx_hash)}' " \
+            f"put_type={self.put_type} keyinstance_id={self.keyinstance_id} " \
+            f"script_hash='{hash_to_hex_str(self.script_hash)}')"
 
 
 class TransactionValueRow(NamedTuple):

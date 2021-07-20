@@ -22,7 +22,7 @@ from ..crypto import pw_decode, pw_encode
 from ..i18n import _
 from ..logs import logs
 from ..types import KeyInstanceDataPrivateKey, MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
-    MasterKeyDataMultiSignature, MasterKeyDataTypes, ServerAccountKey, TxoKeyType
+    MasterKeyDataMultiSignature, MasterKeyDataTypes, ServerAccountKey, Outpoint
 from ..util import get_posix_timestamp
 
 from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
@@ -42,7 +42,7 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     TransactionSubscriptionRow, TxProof, TxProofResult,
     WalletBalance, WalletDataRow, WalletEventRow)
 from .util import (flag_clause, pack_proof, read_rows_by_id, read_rows_by_ids,
-    execute_sql_for_id, update_rows_by_ids)
+    execute_sql_by_id, update_rows_by_ids)
 
 
 logger = logs.get_logger("db-functions")
@@ -282,7 +282,7 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
 
 
 @replace_db_context_with_connection
-def read_account_transaction_outputs_spendable(db: sqlite3.Connection, account_id: int,
+def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, account_id: int,
         confirmed_only: bool=False, mature_height: Optional[int]=None, exclude_frozen: bool=False,
         keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow]:
     """
@@ -330,7 +330,7 @@ def read_account_transaction_outputs_spendable(db: sqlite3.Connection, account_i
 
 
 @replace_db_context_with_connection
-def read_account_transaction_outputs_spendable_extended(db: sqlite3.Connection, account_id: int,
+def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection, account_id: int,
         confirmed_only: bool=False, mature_height: Optional[int]=None, exclude_frozen: bool=False,
         keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow2]:
     """
@@ -570,13 +570,23 @@ def read_key_list(db: sqlite3.Connection, account_id: int,
 
 
 @replace_db_context_with_connection
-def read_keyinstance_scripts(db: sqlite3.Connection, keyinstance_ids: Sequence[int]) \
+def read_keyinstance_scripts_by_id(db: sqlite3.Connection, keyinstance_ids: Sequence[int]) \
         -> List[KeyInstanceScriptHashRow]:
     sql = (
         "SELECT keyinstance_id, script_type, script_hash "
         "FROM KeyInstanceScripts "
         "WHERE keyinstance_id IN ({})")
     return read_rows_by_id(KeyInstanceScriptHashRow, db, sql, [], keyinstance_ids)
+
+
+@replace_db_context_with_connection
+def read_keyinstance_scripts_by_hash(db: sqlite3.Connection, script_hashes: Sequence[bytes]) \
+        -> List[KeyInstanceScriptHashRow]:
+    sql = (
+        "SELECT keyinstance_id, script_type, script_hash "
+        "FROM KeyInstanceScripts "
+        "WHERE script_hash IN ({})")
+    return read_rows_by_id(KeyInstanceScriptHashRow, db, sql, [], script_hashes)
 
 
 @replace_db_context_with_connection
@@ -702,28 +712,28 @@ def read_masterkeys(db: sqlite3.Connection) -> List[MasterKeyRow]:
     return [ MasterKeyRow(*row) for row in db.execute(sql).fetchall() ]
 
 
-@replace_db_context_with_connection
-def read_parent_transaction_outputs(db: sqlite3.Connection, tx_hash: bytes) \
-        -> List[TransactionOutputShortRow]:
-    """
-    When we have the spending transaction in the database, we can look up the outputs using
-    the database and do not have to provide the spent output keys.
-    """
-    sql_values = (tx_hash,)
-    sql = (
-        "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.flags, "
-            "TXO.script_type, TXO.script_hash "
-        "FROM TransactionInputs TXI "
-        "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash "
-        "WHERE TXI.tx_hash=?")
-    cursor = db.execute(sql, sql_values)
-    rows = [ TransactionOutputShortRow(*row) for row in cursor.fetchall() ]
-    cursor.close()
-    return rows
+# @replace_db_context_with_connection
+# def read_parent_transaction_outputs(db: sqlite3.Connection, tx_hash: bytes) \
+#         -> List[TransactionOutputShortRow]:
+#     """
+#     When we have the spending transaction in the database, we can look up the outputs using
+#     the database and do not have to provide the spent output keys.
+#     """
+#     sql_values = (tx_hash,)
+#     sql = (
+#         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.flags, "
+#             "TXO.script_type, TXO.script_hash "
+#         "FROM TransactionInputs TXI "
+#         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash "
+#         "WHERE TXI.tx_hash=?")
+#     cursor = db.execute(sql, sql_values)
+#     rows = [ TransactionOutputShortRow(*row) for row in cursor.fetchall() ]
+#     cursor.close()
+#     return rows
 
 
 @replace_db_context_with_connection
-def read_parent_transaction_outputs_spendable(db: sqlite3.Connection, tx_hash: bytes) \
+def read_parent_transaction_outputs_with_key_data(db: sqlite3.Connection, tx_hash: bytes) \
         -> List[TransactionOutputSpendableRow]:
     """
     When we have the spending transaction in the database, we can look up the outputs using
@@ -736,6 +746,7 @@ def read_parent_transaction_outputs_spendable(db: sqlite3.Connection, tx_hash: b
             "KI.derivation_data2 "
         "FROM TransactionInputs TXI "
         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash "
+            "AND TXO.txo_index=TXI.spent_txo_index "
         "LEFT JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
         "WHERE TXI.tx_hash=?")
     cursor = db.execute(sql, sql_values)
@@ -907,7 +918,7 @@ def read_transaction_metadata(db: sqlite3.Connection, tx_hash: bytes) \
 
 
 @replace_db_context_with_connection
-def read_transaction_outputs_explicit(db: sqlite3.Connection, output_ids: List[TxoKeyType]) \
+def read_transaction_outputs_explicit(db: sqlite3.Connection, output_ids: List[Outpoint]) \
         -> List[TransactionOutputShortRow]:
     """
     Read all the transaction outputs for the given outpoints if they exist.
@@ -921,7 +932,7 @@ def read_transaction_outputs_explicit(db: sqlite3.Connection, output_ids: List[T
 
 @replace_db_context_with_connection
 def read_transaction_outputs_full(db: sqlite3.Connection,
-        output_ids: Optional[List[TxoKeyType]]=None) -> List[TransactionOutputFullRow]:
+        output_ids: Optional[List[Outpoint]]=None) -> List[TransactionOutputFullRow]:
     """
     Read all the transaction outputs for the given outpoints if they exist.
     """
@@ -940,17 +951,36 @@ def read_transaction_outputs_full(db: sqlite3.Connection,
 
 
 @replace_db_context_with_connection
-def read_transaction_outputs_spendable_explicit(db: sqlite3.Connection, *,
+def read_transaction_outputs_with_key_data(db: sqlite3.Connection, *,
         account_id: Optional[int]=None,
         tx_hash: Optional[bytes]=None,
-        txo_keys: Optional[List[TxoKeyType]]=None,
-        require_spends: bool=False) -> List[TransactionOutputSpendableRow]:
+        txo_keys: Optional[List[Outpoint]]=None,
+        derivation_data2s: Optional[List[bytes]]=None,
+        require_keys: bool=False) -> List[TransactionOutputSpendableRow]:
     """
     Read all the transaction outputs with spend information for the given outpoints if they exist.
     """
-    join_term = "INNER" if require_spends else "LEFT"
-    if tx_hash:
+    sql_values: List[Any] = []
+    if derivation_data2s:
+        sql = (
+            "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
+                "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, "
+                "KI.derivation_data2 "
+            "FROM TransactionOutputs TXO "
+            "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id ")
+        if account_id is not None:
+            sql += " AND KI.account_id=?"
+            sql_values.append(account_id)
+        if tx_hash:
+            sql += " WHERE TXO.tx_hash=? AND KI.derivation_data2 IN ({})"
+            sql_values.append(tx_hash)
+        else:
+            sql += " WHERE KI.derivation_data2 IN ({})"
+        return read_rows_by_id(TransactionOutputSpendableRow, db, sql, sql_values,
+            derivation_data2s)
+    elif tx_hash:
         assert txo_keys is None
+        join_term = "INNER" if require_keys else "LEFT"
         sql = (
             "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
                 "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, "
@@ -968,6 +998,7 @@ def read_transaction_outputs_spendable_explicit(db: sqlite3.Connection, *,
         return [ TransactionOutputSpendableRow(*row) for row in rows ]
     elif txo_keys:
         assert tx_hash is None
+        join_term = "INNER" if require_keys else "LEFT"
         # The left join is necessary here because we are looking for just the output information if
         # an output is not ours, but also the key data fields if the output is ours. An example of
         # this is that we always want to know the value of an output being spent. Remember that
@@ -978,8 +1009,12 @@ def read_transaction_outputs_spendable_explicit(db: sqlite3.Connection, *,
                 "KI.derivation_data2 "
             "FROM TransactionOutputs TXO "
             f"{join_term} JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id")
+        if account_id is not None:
+            sql += " AND KI.account_id=?"
+            sql_values.append(account_id)
         sql_condition = "TXO.tx_hash=? AND TXO.txo_index=?"
-        return read_rows_by_ids(TransactionOutputSpendableRow, db, sql, sql_condition, [], txo_keys)
+        return read_rows_by_ids(TransactionOutputSpendableRow, db, sql, sql_condition,
+            sql_values, txo_keys)
     else:
         raise NotImplementedError()
 
@@ -1366,7 +1401,7 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
                 "rows were located")
 
         # Sqlite is not guaranteed to set `rowcount` reliably. We have `new_rows` anyway.
-        rows_updated, new_rows = execute_sql_for_id(db, sql_write, sql_write_values, key_ids,
+        rows_updated, new_rows = execute_sql_by_id(db, sql_write, sql_write_values, key_ids,
             return_type=KeyInstanceFlagRow)
         if len(new_rows) != len(key_ids):
             raise DatabaseUpdateError(f"Rollback as only {len(new_rows)} of {len(key_ids)} "
@@ -1431,7 +1466,7 @@ def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]
     sql_values = [ timestamp, ~TxFlags.STATE_SETTLED, TxFlags.STATE_CLEARED, BlockHeight.MEMPOOL ]
 
     def _write(db: sqlite3.Connection) -> bool:
-        rows_updated = execute_sql_for_id(db, sql, sql_values, tx_hashes)[0]
+        rows_updated = execute_sql_by_id(db, sql, sql_values, tx_hashes)[0]
         if rows_updated < len(tx_hashes):
             # Rollback the database transaction (nothing to rollback but upholding the convention).
             raise DatabaseUpdateError("Rollback as nothing updated")
@@ -1439,7 +1474,7 @@ def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]
     return db_context.post_to_thread(_write)
 
 
-def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[TxoKeyType],
+def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[Outpoint],
         flags: TransactionOutputFlag, mask: Optional[TransactionOutputFlag]=None) \
             -> concurrent.futures.Future[bool]:
     if mask is None:
@@ -1757,7 +1792,7 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
 
 # TODO It is not expected that the number of closed payment requests will be larger than the
 #   amount of possible bindings, for an executed statement. This is why we should be calling
-#   `execute_sql_for_id`
+#   `execute_sql_by_id`
 def _close_paid_payment_requests(db: sqlite3.Connection) \
         -> Tuple[Set[int], List[Tuple[int, int, int]]]:
     timestamp = get_posix_timestamp()

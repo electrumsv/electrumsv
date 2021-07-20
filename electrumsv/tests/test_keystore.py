@@ -10,6 +10,7 @@ from electrumsv.keystore import BIP32_KeyStore, Imported_KeyStore, \
     instantiate_keystore_from_text, Old_KeyStore, private_key_from_bip32_seed
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.transaction import XPublicKey
+from electrumsv.types import DatabaseKeyDerivationData
 
 
 class TestOld_KeyStore:
@@ -81,11 +82,13 @@ class TestOld_KeyStore:
         assert keystore.get_master_public_key() == mpk_hex
         assert keystore.to_derivation_data() == { 'mpk': mpk_hex, "seed": None }
         assert keystore.is_watching_only()
-        assert keystore.get_xpubkey((0, 4)) == XPublicKey.from_hex(
+        data = DatabaseKeyDerivationData(derivation_path=(0, 4))
+        assert keystore.get_xpubkey(data) == XPublicKey.from_hex(
             'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68'
             '863b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d000000400'
         )
-        assert keystore.get_xpubkey((1, 259)) == XPublicKey.from_hex(
+        data = DatabaseKeyDerivationData(derivation_path=(1, 259))
+        assert keystore.get_xpubkey(data) == XPublicKey.from_hex(
             'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68863b37d'
             'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
         )
@@ -223,11 +226,11 @@ class TestImported_KeyStore:
         assert not imported_keystore.is_signature_candidate(XPublicKey.from_hex(
             '02c113be5c752294f8b0be2727bbf7f1bf71e6bba5c9e9141f611610707bbce4db'
         ))
-        with pytest.raises(ValueError):
+        with pytest.raises(NotImplementedError):
             imported_keystore.is_signature_candidate(XPublicKey.from_hex(
                 'fd76a914d9351dcbad5b8f3b8bfa2f2cdc85c28118ca932688ac'
             ))
-        with pytest.raises(ValueError):
+        with pytest.raises(NotImplementedError):
             imported_keystore.is_signature_candidate(XPublicKey.from_hex(
                 'fd76a914753e5cd1dd15a7028daa03fe5e47389297ac227a88ac'
             ))

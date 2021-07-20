@@ -26,11 +26,11 @@
 from collections import deque
 import logging
 from types import TracebackType
-from typing import Optional, Type
+from typing import Optional, Set, Type
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
-    QDialog, QPlainTextEdit, QHBoxLayout, QVBoxLayout, QLabel, QComboBox,
+    QDialog, QPlainTextEdit, QHBoxLayout, QVBoxLayout, QLabel, QComboBox, QWidget
 )
 
 from electrumsv.app_state import app_state
@@ -40,14 +40,14 @@ from electrumsv.i18n import _
 
 class SVLogHandler(logging.Handler):
 
-    def __init__(self, max_records=5_000, level=logging.NOTSET):
+    def __init__(self, max_records: int=5_000, level: int=logging.NOTSET) -> None:
         super().__init__(level)
         self.max_records = max_records
         self.deque = deque()
         self.createLock()
-        self.categories = set()
+        self.categories: Set[str] = set()
 
-    def __enter__(self):
+    def __enter__(self) -> None:
         self.acquire()
 
     def __exit__(self, exc_type: Optional[Type[BaseException]],
@@ -55,29 +55,30 @@ class SVLogHandler(logging.Handler):
                 -> None:
         self.release()
 
-    def emit(self, record):
+    def emit(self, record) -> None:
         deque = self.deque
         with self:
             if record.name not in self.categories:
                 self.categories.add(record.name)
-                app_state.app.new_category.emit(record.name)
+                app_state.app_qt.new_category.emit(record.name)
             deque.append(record)
             if len(deque) > self.max_records:
                 deque.popleft()
-        app_state.app.new_log.emit(record)
+        app_state.app_qt.new_log.emit(record)
 
-    def emit_all(self):
+    def emit_all(self) -> None:
         with self:
             records = self.deque.copy()
         for record in records:
-            app_state.app.new_log.emit(record)
+            app_state.app_qt.new_log.emit(record)
 
 
 class SVLogWindow(QDialog):
 
-    def __init__(self, parent, log_handler):
-        super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+    def __init__(self, parent: Optional[QWidget], log_handler: SVLogHandler) -> None:
+        super().__init__(parent, Qt.WindowFlags.WindowSystemMenuHint |
+            Qt.WindowFlags.WindowTitleHint |
+            Qt.WindowFlags.WindowCloseButtonHint)
         self.setModal(False)
         self.setWindowTitle('ElectrumSV Log Viewer')
         self.log_handler = log_handler
@@ -89,22 +90,22 @@ class SVLogWindow(QDialog):
             logging.ERROR: 'error'
         }
         self.layout()
-        app_state.app.new_log.connect(self.new_log)
-        app_state.app.new_category.connect(self.new_category)
+        app_state.app_qt.new_log.connect(self.new_log)
+        app_state.app_qt.new_category.connect(self.new_category)
         self.log_handler.emit_all()
 
-    def reject(self):
+    def reject(self) -> None:
         self.hide()
 
-    def new_category(self, name):
+    def new_category(self, name) -> None:
         self.category_cb.addItem(name)
 
-    def new_log(self, record):
+    def new_log(self, record) -> None:
         if record.name == self.category or self.category == 'all':
             msg = self.log_handler.format(record)
             self.log_view.appendPlainText(msg)
 
-    def layout(self):
+    def layout(self) -> None:
         self.category_cb = QComboBox()
         self.category_cb.addItem('all')
         for category in sorted(self.log_handler.categories):

@@ -20,7 +20,7 @@ from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
 from electrumsv.networks import Net, SVMainnet, SVTestnet
 from electrumsv.storage import get_categorised_files, WalletStorage, WalletStorageInfo
 from electrumsv.transaction import Transaction
-from electrumsv.types import MasterKeyDataBIP32, TxoKeyType
+from electrumsv.types import MasterKeyDataBIP32, Outpoint
 from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount,
     MissingTransactionEntry, MultisigAccount, Wallet, StandardAccount)
 from electrumsv.wallet_database import functions as db_functions
@@ -629,7 +629,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
 
         # Verify that the transaction outputs are still linked to key usage (harmless).
         txo_rows = db_functions.read_transaction_outputs_explicit(db_context,
-            [ TxoKeyType(tx_hash_1, 0) ])
+            [ Outpoint(tx_hash_1, 0) ])
         assert len(txo_rows) == 1
         # This value is not cleared. It's not a link to anything that can clash.
         assert txo_rows[0].keyinstance_id == 1

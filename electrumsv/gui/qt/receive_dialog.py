@@ -43,12 +43,6 @@ if Net.NAME in TEST_NETWORK_NAMES:
     ]
 
 
-# TODO(no-merge) Show the received value for a payment request.
-# TODO(no-merge) Consider allowing modification of the expiry date.
-# TODO(no-merge) Polish the layout, move the fiat value down under the BSV value, maybe
-#     just disable it if fiat is not enabled but keep it visible. If this is done, then it might
-#     be worth considering doing the same for the send tab/view.
-
 class ReceiveDialog(QDialog):
     """
     Display a popup window with a form containing the details of an existing expected payment.
@@ -228,10 +222,11 @@ class ReceiveDialog(QDialog):
         This is called both locally, and from the account information dialog when the script type
         is changed.
         """
-        assert self._key_data is not None
+        assert self._key_data is not None and self._account is not None
         text = ""
-        script_template = self._account.get_script_template_for_key_data(self._key_data,
-            self._account.get_default_script_type())
+        script_template = self._account.get_script_template_for_derivation(
+            self._account.get_default_script_type(),
+            self._key_data.derivation_type, self._key_data.derivation_data2)
         if script_template is not None:
             text = script_template_to_string(script_template)
         self._receive_destination_e.setText(text)
@@ -241,14 +236,15 @@ class ReceiveDialog(QDialog):
         if self._layout_pending:
             return
 
-        assert self._key_data is not None
+        assert self._key_data is not None and self._account is not None
 
         amount = self._receive_amount_e.get_amount()
         message = self._receive_message_e.text()
         self._update_button.setEnabled((amount is not None) or (message != ""))
 
-        script_template = self._account.get_script_template_for_key_data(self._key_data,
-            self._account.get_default_script_type())
+        script_template = self._account.get_script_template_for_derivation(
+            self._account.get_default_script_type(),
+            self._key_data.derivation_type, self._key_data.derivation_data2)
         address_text = script_template_to_string(script_template)
 
         uri = web.create_URI(address_text, amount, message)

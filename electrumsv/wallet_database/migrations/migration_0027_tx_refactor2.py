@@ -25,7 +25,7 @@ from ...keystore import (Imported_KeyStore, instantiate_keystore, KeyStore,
 from ...logs import logs
 from ...networks import Net
 from ...transaction import Transaction
-from ...types import TxoKeyType
+from ...types import Outpoint
 from ...util import get_posix_timestamp
 from ...util.misc import ProgressCallbacks
 
@@ -59,7 +59,7 @@ class PossibleScript(NamedTuple):
     script_hash: bytes
 
 class TXOData(NamedTuple):
-    key: TxoKeyType
+    key: Outpoint
     value: int
     flags: TransactionOutputFlag
     exists: bool
@@ -205,9 +205,9 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # 3. We want to add all the outputs that we do not know link to key usage but should.
     # 4. We want to make sure all outputs have their scripthash field populated.
     tx_updates: List[Tuple[int, int, int, bytes]] = []
-    txi_inserts: Dict[TxoKeyType, TXIInsertRow] = {}
-    txo_updates: Dict[TxoKeyType, TXOUpdateRow] = {}
-    txo_inserts: Dict[TxoKeyType, TXOInsertRow] = {}
+    txi_inserts: Dict[Outpoint, TXIInsertRow] = {}
+    txo_updates: Dict[Outpoint, TXOUpdateRow] = {}
+    txo_inserts: Dict[Outpoint, TXOInsertRow] = {}
     txo_script_hashes: Dict[bytes, List[TXOData]] = {}
     for tx_hash, tx_data, date_created in conn.execute("SELECT tx_hash, tx_data, date_created "
             "FROM Transactions"):
@@ -231,7 +231,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
 
         # Create the inputs for the transaction.
         for txi_index, txi in enumerate(tx.inputs):
-            txi_inserts[TxoKeyType(txi.prev_hash, txi.prev_idx)] = TXIInsertRow(tx_hash, txi_index,
+            txi_inserts[Outpoint(txi.prev_hash, txi.prev_idx)] = TXIInsertRow(tx_hash, txi_index,
                 txi.prev_hash, txi.prev_idx, txi.sequence, TransactionInputFlag.NONE,
                 txi.script_offset, txi.script_length, date_created, date_created)
 
@@ -244,18 +244,18 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                 # This flag has been removed.
                 txo_flags = TransactionOutputFlag(
                     txo_entry.flags & ~TransactionOutputFlag1.USER_SET_FROZEN)
-                txo_updates[TxoKeyType(tx_hash, txo_index)] = TXOUpdateRow(txo_entry.keyinstance_id,
+                txo_updates[Outpoint(tx_hash, txo_index)] = TXOUpdateRow(txo_entry.keyinstance_id,
                     txo_flags, script_hash, ScriptType.NONE, txo.script_offset, txo.script_length,
                     None, None, date_updated, tx_hash, txo_index)
             else:
                 txo_flags = base_txo_flags
-                txo_inserts[TxoKeyType(tx_hash, txo_index)] = TXOInsertRow(tx_hash, txo_index,
+                txo_inserts[Outpoint(tx_hash, txo_index)] = TXOInsertRow(tx_hash, txo_index,
                     txo.value, None, txo_flags, script_hash, ScriptType.NONE, txo.script_offset,
                     txo.script_length, None, None, date_updated, date_updated)
 
             # Remember the same locking script can be used in multiple transactions.
             shl = txo_script_hashes.setdefault(script_hash, [])
-            shl.append(TXOData(TxoKeyType(tx_hash, txo_index), txo.value, txo_flags,
+            shl.append(TXOData(Outpoint(tx_hash, txo_index), txo.value, txo_flags,
                 txo_entry is not None))
 
     callbacks.progress(46, _("Processing script hashes"))

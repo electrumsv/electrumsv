@@ -165,7 +165,7 @@ class MockAccount(AbstractAccount):
     def dumps(self):
         return None
 
-    def get_spendable_transaction_outputs(self, exclude_frozen: bool=True, mature: bool=True,
+    def get_transaction_outputs_with_key_data(self, exclude_frozen: bool=True, mature: bool=True,
             confirmed_only: Optional[bool]=None, keyinstance_ids: Optional[List[int]]=None) \
                 -> List[TransactionOutputSpendableRow]:
         return SPENDABLE_UTXOS
@@ -289,7 +289,7 @@ class MockDefaultEndpoints(ExtensionEndpoints):
 
 
 def _fake_get_account_succeeded(wallet_name, index) -> Union[Fault, AbstractAccount]:
-    return MockAccount()  # which in-turn patches get_spendable_transaction_outputs()
+    return MockAccount()  # which in-turn patches get_transaction_outputs_with_key_data()
 
 
 class TestDefaultEndpoints:

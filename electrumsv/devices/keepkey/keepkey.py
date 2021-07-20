@@ -36,8 +36,8 @@ from ...i18n import _
 from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
-from ...transaction import classify_tx_output, Transaction, TransactionContext, XPublicKey, \
-    XTxInput
+from ...transaction import classify_tx_output, HardwareSigningMetadata, Transaction, \
+    TransactionContext, XPublicKey, XTxInput
 from ...wallet import AbstractAccount
 from ...wallet_database.types import KeyListRow
 
@@ -97,11 +97,12 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         return cast(bytes, msg_sig.signature)
 
     def sign_transaction(self, tx: Transaction, password: str,
-            tx_context: TransactionContext) -> None:
+            context: TransactionContext) -> None:
         if tx.is_complete():
             return
 
-        assert not len(tx_context.prev_txs), "This keystore does not require input transactions"
+        assert not len(context.parent_transactions), \
+            "This keystore does not require input transactions"
         # path of the xpubs that are involved
         xpub_path: Dict[str, str] = {}
         for txin in tx.inputs:
@@ -113,7 +114,8 @@ class KeepKey_KeyStore(Hardware_KeyStore):
                     xpub_path[xpub] = self.get_derivation()
 
         assert self.plugin is not None
-        cast(KeepKeyPlugin, self.plugin).sign_transaction(self, tx, xpub_path)
+        cast(KeepKeyPlugin, self.plugin).sign_transaction(self, tx,
+            context.hardware_signing_metadata, xpub_path)
 
 
 class KeepKeyPlugin(HW_PluginBase):
@@ -175,7 +177,10 @@ class KeepKeyPlugin(HW_PluginBase):
                     return WebUsbTransport(d)
         else:
             for d in self._enumerate_hid():
-                # TODO(no-merge) Is this bytes or string in d[0]??
+                # TODO(no-merge) This needs to be resolved in hardware wallet testing.
+                #   Is this bytes or string in d[0]?? Really, hid returns bytes but
+                #   things use it as string, and converting it to a string makes it "b'...'" which
+                #   just does not make sense.
                 if str(d[0]) == device.path:
                     from keepkeylib.transport_hid import HidTransport
                     return HidTransport(d)
@@ -340,11 +345,11 @@ class KeepKeyPlugin(HW_PluginBase):
         return client.get_master_public_key(derivation)
 
     def sign_transaction(self, keystore: KeepKey_KeyStore, tx: Transaction,
-            xpub_path: Dict[str, str]) -> None:
+            signing_metadata: List[HardwareSigningMetadata], xpub_path: Dict[str, str]) -> None:
         client = self.get_client(keystore)
         assert client is not None
         inputs = self.tx_inputs(tx, xpub_path)
-        outputs = self.tx_outputs(keystore, keystore.get_derivation(), tx)
+        outputs = self.tx_outputs(keystore, keystore.get_derivation(), tx, signing_metadata)
         signatures, _ = cast(Tuple[List[bytes], bytes],
             client.sign_tx(self.get_coin_name(client), inputs, outputs, lock_time=tx.locktime))
         tx.update_signatures(signatures)
@@ -419,15 +424,15 @@ class KeepKeyPlugin(HW_PluginBase):
 
         return inputs
 
-    def tx_outputs(self, keystore: KeepKey_KeyStore, derivation: str, tx: Transaction) \
-            -> List[types.TxOutputType]:
+    def tx_outputs(self, keystore: KeepKey_KeyStore, derivation: str, tx: Transaction,
+            signing_metadata: List[HardwareSigningMetadata]) -> List[types.TxOutputType]:
         has_change = False
         account_derivation = tuple(bip32_decompose_chain_string(derivation))
         keystore_fingerprint = keystore.get_fingerprint()
 
         outputs: List[types.TxOutputType] = []
-        assert tx.output_info is not None
-        for tx_output, output_metadatas in zip(tx.outputs, tx.output_info):
+        assert len(tx.outputs) == len(signing_metadata)
+        for tx_output, output_metadatas in zip(tx.outputs, signing_metadata):
             info = output_metadatas.get(keystore_fingerprint)
             if info is not None and not has_change:
                 has_change = True # no more than one change address

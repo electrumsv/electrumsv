@@ -30,11 +30,11 @@ from functools import partial
 import signal
 import sys
 import threading
-from typing import Any, Callable, cast, Coroutine, Iterable, Optional, TYPE_CHECKING, TypeVar
+from typing import Any, Callable, cast, Coroutine, Iterable, List, Optional, TypeVar
 
 from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
-from PyQt5.QtCore import pyqtSignal, QObject, QTimer
+from PyQt5.QtCore import pyqtBoundSignal, pyqtSignal, QObject, QTimer
 from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QDialog
 
@@ -53,10 +53,6 @@ from .log_window import SVLogWindow, SVLogHandler
 from .util import ColorScheme, get_default_language, MessageBox, read_QIcon
 from .wallet_wizard import WalletWizard
 
-
-if TYPE_CHECKING:
-    from ...async_ import ASync
-    from ...daemon import Daemon
 
 
 T1 = TypeVar("T1")
@@ -113,7 +109,7 @@ class SVApplication(QApplication):
         if hasattr(QGuiApplication, 'setDesktopFileName'):
             QGuiApplication.setDesktopFileName('electrum-sv.desktop')
         super().__init__(argv)
-        self.windows = []
+        self.windows: List[ElectrumWindow] = []
         self.log_handler = SVLogHandler()
         self.log_window = None
         self.net_dialog = None
@@ -140,7 +136,7 @@ class SVApplication(QApplication):
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.installEventFilter(OpenFileEventFilter(self.windows))
         self.create_new_window_signal.connect(self.start_new_window)
-        self.async_tasks_done.connect(cast("ASync", app_state.async_).run_pending_callbacks)
+        self.async_tasks_done.connect(app_state.async_.run_pending_callbacks)
         self.num_zeros_changed.connect(partial(self._signal_all, 'on_num_zeros_changed'))
         self.fiat_ccy_changed.connect(partial(self._signal_all, 'on_fiat_ccy_changed'))
         self.base_unit_changed.connect(partial(self._signal_all, 'on_base_unit_changed'))
@@ -167,7 +163,7 @@ class SVApplication(QApplication):
 
     def _close_window(self, window):
         logger.debug(f"app.close_window.executing {window!r}")
-        cast("Daemon", app_state.daemon).stop_wallet_at_path(window._wallet.get_storage_path())
+        app_state.daemon.stop_wallet_at_path(window._wallet.get_storage_path())
         self.windows.remove(window)
         self.window_closed_signal.emit(window)
         self._build_tray_menu()
@@ -217,10 +213,10 @@ class SVApplication(QApplication):
 
     def new_window(self, path: Optional[str], uri: Optional[str]=None) -> None:
         # Use a signal as can be called from daemon thread
-        self.create_new_window_signal.emit(path, uri, bool)
+        self.create_new_window_signal.emit(path, uri, False)
 
     def show_network_dialog(self, parent) -> None:
-        if not cast("Daemon", app_state.daemon).network:
+        if not app_state.daemon.network:
             parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
                                   'ElectrumSV if you want to get connected'), title=_('Offline'))
             return
@@ -231,8 +227,7 @@ class SVApplication(QApplication):
             return
         # from importlib import reload
         # reload(network_dialog)
-        daemon = cast("Daemon", app_state.daemon)
-        network = daemon.network
+        network = app_state.daemon.network
         assert network is not None
         self.net_dialog = network_dialog.NetworkDialog(network)
         self.net_dialog.show()
@@ -287,12 +282,14 @@ class SVApplication(QApplication):
         for w in self.windows:
             if w._wallet.get_storage_path() == path:
                 return w
+        return None
 
     def get_wallet_window_by_id(self, account_id: int) -> Optional[ElectrumWindow]:
         for w in self.windows:
             for account in w._wallet.get_accounts():
                 if account.get_id() == account_id:
                     return w
+        return None
 
     def start_new_window(self, wallet_path: Optional[str], uri: Optional[str]=None,
             is_startup: bool=False) -> Optional[ElectrumWindow]:
@@ -327,7 +324,7 @@ class SVApplication(QApplication):
                     return None
             # All paths leading to this obtain a password and put it in the credential cache.
             assert wallet_path is not None
-            wallet = cast("Daemon", app_state.daemon).load_wallet(wallet_path)
+            wallet = app_state.daemon.load_wallet(wallet_path)
             assert wallet is not None
             w = self._create_window_for_wallet(wallet)
         if uri:
@@ -393,7 +390,7 @@ class SVApplication(QApplication):
         threading.current_thread().setName('GUI')
         self.timer.setSingleShot(False)
         self.timer.setInterval(500)  # msec
-        self.timer.timeout.connect(app_state.device_manager.timeout_clients)
+        cast(pyqtBoundSignal, self.timer.timeout).connect(app_state.device_manager.timeout_clients)
 
         QTimer.singleShot(0, self.event_loop_started)
         self.exec_()

@@ -67,9 +67,9 @@ def version_string(ptuple: Tuple[int, ...]) -> str:
 class MyEncoder(json.JSONEncoder):
     # https://github.com/PyCQA/pylint/issues/414
     def default(self, o: Any) -> Any: # pylint: disable=method-hidden
-        from ..transaction import Transaction
+        from ..transaction import Transaction, TransactionContext
         if isinstance(o, Transaction):
-            return o.to_dict()
+            return o.to_dict(TransactionContext())
         return super(MyEncoder, self).default(o)
 
 

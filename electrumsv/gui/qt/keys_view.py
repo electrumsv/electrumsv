@@ -51,7 +51,7 @@ from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
 from ...platform import platform
-from ...types import TxoKeyType
+from ...types import Outpoint
 from ...util import profiler
 from ...wallet import MultisigAccount, AbstractAccount, StandardAccount
 from ...wallet_database.types import KeyInstanceRow, KeyListRow
@@ -221,6 +221,7 @@ class _ItemModel(QAbstractItemModel):
                 return line.keyinstance_id
 
             account = self._view._account
+            assert account is not None
             default_script_type = account.get_default_script_type()
 
             # First check the custom sort role.
@@ -231,8 +232,8 @@ class _ItemModel(QAbstractItemModel):
                     return get_key_text(line)
                 elif column == ADDRESS_COLUMN:
                     if default_script_type in ADDRESSABLE_SCRIPT_TYPES:
-                        template = account.get_script_template_for_key_data(line,
-                            default_script_type)
+                        template = account.get_script_template_for_derivation(default_script_type,
+                            line.derivation_type, line.derivation_data2)
                         return template.to_string() # type: ignore
                 elif column == LABEL_COLUMN:
                     return line.description
@@ -280,8 +281,8 @@ class _ItemModel(QAbstractItemModel):
                     return get_key_text(line)
                 elif column == ADDRESS_COLUMN:
                     if default_script_type in ADDRESSABLE_SCRIPT_TYPES:
-                        template = account.get_script_template_for_key_data(line,
-                            default_script_type)
+                        template = account.get_script_template_for_derivation(default_script_type,
+                            line.derivation_type, line.derivation_data2)
                         return template.to_string() # type: ignore
                 elif column == LABEL_COLUMN:
                     return line.description
@@ -443,7 +444,8 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
             line: KeyLine = source_model.data(column_index, Roles.FILTER)
             account = self._account
             for script_type in ACCOUNT_SCRIPT_TYPES[account.type()]:
-                template = account.get_script_template_for_key_data(line, script_type)
+                template = account.get_script_template_for_derivation(script_type,
+                    line.derivation_type, line.derivation_data2)
                 if match == template:
                     return True
         return False
@@ -804,7 +806,7 @@ class KeyView(QTableView):
                 self._pending_state[key.keyinstance_id] = flags | EventFlags.KEY_REMOVED
 
    # Called by the wallet window.
-    def update_frozen_transaction_outputs(self, txo_keys: List[TxoKeyType], freeze: bool) -> None:
+    def update_frozen_transaction_outputs(self, txo_keys: List[Outpoint], freeze: bool) -> None:
         # NOTE We get the full row, but only use one column.
         keyinstance_ids = [
             txo.keyinstance_id
@@ -937,8 +939,8 @@ class KeyView(QTableView):
                 addr_URL = script_URL = None
                 if script_type != ScriptType.NONE:
                     assert script_type is not None
-                    script_template = self._account.get_script_template_for_key_data(line,
-                        script_type)
+                    script_template = self._account.get_script_template_for_derivation(script_type,
+                        line.derivation_type, line.derivation_data2)
                     if isinstance(script_template, Address):
                         addr_URL = web.BE_URL(self._main_window.config, 'addr', script_template)
 
@@ -958,7 +960,8 @@ class KeyView(QTableView):
                 if not script_URL:
                     script_action.setEnabled(False)
 
-                for script_type, script in self._account.get_possible_scripts_for_key_data(line):
+                for script_type, script in self._account.get_possible_scripts_for_derivation(
+                        line.derivation_type, line.derivation_data2):
                     scripthash_hex = hash_to_hex_str(scripthash_bytes(script))
                     script_URL = web.BE_URL(self._main_window.config, 'script', scripthash_hex)
                     if script_URL:
@@ -1025,7 +1028,7 @@ class KeyView(QTableView):
             keyinstance_ids = [ line.keyinstance_id
                 for (_row, _column, line, _selected_index, _base_index) in selected ]
 
-            coins = self._account.get_spendable_transaction_outputs(
+            coins = self._account.get_transaction_outputs_with_key_data(
                 keyinstance_ids=keyinstance_ids)
             # TODO We should allow construction of unsigned transactions in all watch only account
             #   types.

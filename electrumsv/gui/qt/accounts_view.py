@@ -389,7 +389,8 @@ class AccountsView(QSplitter):
                     break
                 assert password is not None
                 privkey = account.export_private_key(keyinstance, password)
-                script_template = account.get_script_template_for_key_data(keyinstance, script_type)
+                script_template = account.get_script_template_for_derivation(script_type,
+                    keyinstance.derivation_type, keyinstance.derivation_data2)
                 script_text = script_template_to_string(script_template)
                 private_keys[script_text] = privkey
                 self.computing_privkeys_signal.emit()
