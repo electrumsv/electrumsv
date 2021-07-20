@@ -931,6 +931,22 @@ def read_transaction_outputs_explicit(db: sqlite3.Connection, output_ids: List[O
 
 
 @replace_db_context_with_connection
+def read_transaction_inputs_full(db: sqlite3.Connection) -> List[TransactionInputAddRow]:
+    """
+    Read all the transaction outputs for the given outpoints if they exist.
+    """
+    sql = (
+        "SELECT tx_hash, txi_index, spent_tx_hash, spent_txo_index, sequence, flags, "
+            "script_offset, script_length, date_created, date_updated "
+        "FROM TransactionInputs")
+
+    cursor = db.execute(sql)
+    rows = cursor.fetchall()
+    cursor.close()
+    return [ TransactionInputAddRow(*row) for row in rows ]
+
+
+@replace_db_context_with_connection
 def read_transaction_outputs_full(db: sqlite3.Connection,
         output_ids: Optional[List[Outpoint]]=None) -> List[TransactionOutputFullRow]:
     """

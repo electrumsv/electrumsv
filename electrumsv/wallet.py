@@ -1575,7 +1575,7 @@ class DeterministicAccount(AbstractAccount):
     def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
         AbstractAccount.__init__(self, wallet, row)
 
-        # TODO(no-merge) This should check if the gap limit observer functionality is active.
+        # TODO This should check if the gap limit observer functionality is active.
         #   This might be a column on the account row, not sure yet. If we decide not to go with
         #   the gap limit observer, then all this code should be removed.
         self._gap_limit_observer_enabled = False
@@ -3059,8 +3059,7 @@ class Wallet(TriggeredCallbacks):
         else:
             return cast(bytes, double_sha256(header_bytes))
 
-    # TODO(no-merge) unit test
-    def _acquire_transaction_lock(self, tx_hash: bytes) -> threading.RLock:
+    def _obtain_transaction_lock(self, tx_hash: bytes) -> threading.RLock:
         """
         Acquire a lock for working with a given transaction.
 
@@ -3076,7 +3075,7 @@ class Wallet(TriggeredCallbacks):
                 self._transaction_locks[tx_hash] = (lock, reference_count + 1)
         return lock
 
-    def _release_transaction_lock(self, tx_hash: bytes) -> None:
+    def _relinquish_transaction_lock(self, tx_hash: bytes) -> None:
         """
         Release a lock acquired for working with a given transaction.
         """
@@ -3302,7 +3301,6 @@ class Wallet(TriggeredCallbacks):
                         if not script_hashes:
                             return
 
-    # TODO(no-merge) Manually test this.
     def load_transaction_from_text(self, text: str) \
             -> Tuple[Optional[Transaction], Optional[TransactionContext]]:
         """
@@ -3327,12 +3325,12 @@ class Wallet(TriggeredCallbacks):
 
         tx_hash = tx.hash()
         # Update the cached transaction for the given hash.
-        lock = self._acquire_transaction_lock(tx_hash)
+        lock = self._obtain_transaction_lock(tx_hash)
         with lock:
             try:
                 self._transaction_cache2.set(tx_hash, tx)
             finally:
-                self._release_transaction_lock(tx_hash)
+                self._relinquish_transaction_lock(tx_hash)
 
         return tx, context
 
@@ -3345,7 +3343,7 @@ class Wallet(TriggeredCallbacks):
         Otherwise the transaction data will be parsed, loaded in extended form and cached.
         """
         tx_hash = double_sha256(data)
-        lock = self._acquire_transaction_lock(tx_hash)
+        lock = self._obtain_transaction_lock(tx_hash)
         with lock:
             try:
                 # Get it if cached in memory / load from database if present.
@@ -3357,7 +3355,7 @@ class Wallet(TriggeredCallbacks):
                 tx = Transaction.from_bytes(data)
                 self._transaction_cache2.set(tx_hash, tx)
             finally:
-                self._release_transaction_lock(tx_hash)
+                self._relinquish_transaction_lock(tx_hash)
 
         return tx
 
@@ -3625,12 +3623,12 @@ class Wallet(TriggeredCallbacks):
         return self.get_transaction_flags(tx_hash) is not None
 
     def get_transaction(self, tx_hash: bytes) -> Optional[Transaction]:
-        lock = self._acquire_transaction_lock(tx_hash)
+        lock = self._obtain_transaction_lock(tx_hash)
         with lock:
             try:
                 return self._get_cached_transaction(tx_hash)
             finally:
-                self._release_transaction_lock(tx_hash)
+                self._relinquish_transaction_lock(tx_hash)
 
     def _get_cached_transaction(self, tx_hash: bytes) -> Optional[Transaction]:
         tx = self._transaction_cache2.get(tx_hash)

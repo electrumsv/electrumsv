@@ -6,7 +6,7 @@ from typing import cast, Dict, Optional, List, Set
 import unittest
 import unittest.mock
 
-from bitcoinx import Header
+from bitcoinx import Header, hex_str_to_hash, Ops, Script
 import pytest
 
 from electrumsv.constants import (BlockHeight, CHANGE_SUBPATH, DATABASE_EXT, DerivationType,
@@ -448,7 +448,7 @@ def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) 
         Net.set_to(SVTestnet)
 
     if storage_info.kind == StorageKind.HYBRID:
-        pytest.xfail("old development database wallets not supported yet")
+        pytest.fail("old development database not supported yet")
 
     has_password = True
     storage = WalletStorage(wallet_path)
@@ -529,6 +529,78 @@ def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) 
 #         public_key = privkey.public_key
 #         address = public_key.to_address(coin=coin).to_string()
 #         assert account.pubkeys_to_a_ddress(public_key) == address_from_string(address)
+
+
+@pytest.mark.asyncio
+@unittest.mock.patch('electrumsv.wallet.app_state')
+async def test_transaction_script_offsets_and_lengths(mock_app_state, tmp_storage) -> None:
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+
+    # Boilerplate setting up of a deterministic account. This is copied from above.
+    password = 'password'
+    seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
+    child_keystore = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+        KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
+
+    wallet = Wallet(tmp_storage)
+    masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
+
+    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    assert account_row.default_masterkey_id is not None
+    account = StandardAccount(wallet, account_row)
+    wallet.register_account(account.get_id(), account)
+
+    # Ensure that the keys used by the transaction are present to be linked to.
+    account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+
+    db_context = tmp_storage.get_db_context()
+    db = db_context.acquire_connection()
+    try:
+        tx_1 = Transaction.from_hex(tx_hex_funding)
+        tx_hash_1 = tx_1.hash()
+        # Add the funding transaction to the database and link it to key usage.
+        link_state = TransactionLinkState()
+        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED,
+            link_state=link_state)
+
+        # Verify all the transaction outputs are present and are linked to spending inputs.
+        txo_rows = db_functions.read_transaction_outputs_full(db_context)
+        assert len(txo_rows) == 2
+
+        tx_data = db_functions.read_transaction_bytes(db_context, tx_hash_1)
+        assert tx_data is not None
+
+        assert txo_rows[0].txo_index == 0
+        assert txo_rows[0].script_offset == 162
+        assert txo_rows[0].script_length == 25
+        script = Script(tx_data[txo_rows[0].script_offset:txo_rows[0].script_offset +
+            txo_rows[0].script_length])
+        assert list(script.ops()) == [Ops.OP_DUP, Ops.OP_HASH160,
+            b'\xeax\x04\xa2\xc2f\x065r\xcc\x00\x9ac\xdc%\xdc\xc0\xe9\xd9\xb5',
+            Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG]
+
+        assert txo_rows[1].txo_index == 1
+        assert txo_rows[1].script_offset == 196
+        assert txo_rows[1].script_length == 25
+        script = Script(tx_data[txo_rows[1].script_offset:txo_rows[1].script_offset +
+            txo_rows[1].script_length])
+        assert list(script.ops()) == [Ops.OP_DUP, Ops.OP_HASH160,
+            b"\xad'\xed\xee6SP\xb6;P$\xa8\xf8\x16\x8er\x97\xbd\xd7\x0b",
+            Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG]
+
+        txi_rows = db_functions.read_transaction_inputs_full(db_context)
+        assert len(txi_rows) == 1
+
+        assert txi_rows[0].txi_index == 0
+        assert txi_rows[0].script_offset == 42
+        assert txi_rows[0].script_length == 106
+        script = Script(tx_data[txi_rows[0].script_offset:txi_rows[0].script_offset +
+            txi_rows[0].script_length])
+        # [ Signature, PublicKey ]
+        assert list(script.ops()) == [b'0D\x02 r\xc3\xca*j\xb2q\x14*p\xe1\tGA\x08\xb1\x18\x00\x81\x8a\xce\xcb\x19#%F^\x97\n\xd0\xcc\xcb\x02 \x11l\x8c\x05\xfa\xd2\xd5\xab+\xe3:\xe3\xfcSb\xb7\x13}\xb2m\x0b}\xdd\x00\x9e\xe8i-\xaa\xcdW\x91A', b'\x03\x7f7\xbb\r\x14\xdcr\xd6\x7f\x0c\xfbI\xf6G!c\x92K\xa8c\x82\xfd$\x90\xd5\xc0Ba8kp\xb0']
+    finally:
+        db_context.release_connection(db)
 
 
 @pytest.mark.asyncio
@@ -818,3 +890,93 @@ async def test_unverified_transactions(mock_app_state, get_local_height, tmp_sto
     finally:
         db_context.release_connection(db)
 
+
+@unittest.mock.patch('electrumsv.wallet.app_state')
+def test_transaction_locks(mock_app_state, tmp_storage) -> None:
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+
+    tx_hash_1 = b'123'
+    tx_hash_2 = b'321'
+
+    wallet = Wallet(tmp_storage)
+
+    # Acquire and lock the first transaction.
+    lock1a = wallet._obtain_transaction_lock(tx_hash_1)
+    assert lock1a is not None
+    assert lock1a.acquire(blocking=False)
+
+    # Acquire and lock the second transaction.
+    lock2 = wallet._obtain_transaction_lock(tx_hash_2)
+    assert lock2 is not None
+    assert lock2.acquire(blocking=False)
+
+    # Acquire and try to lock the first transaction again but expect to fail.
+    lock1b = wallet._obtain_transaction_lock(tx_hash_1)
+    assert lock1b is not None
+    assert lock1b is lock1a
+
+    # NOTE There is no point in acquiring a lock twice to prove it blocks as the lock is an
+    #   RLock and we can acquire it as many times as we want in this thread.
+
+    lock1a.release()
+    lock2.release()
+
+    assert wallet._transaction_locks == { tx_hash_1: (lock1b, 2), tx_hash_2: (lock2, 1) }
+    wallet._relinquish_transaction_lock(tx_hash_2)
+    assert wallet._transaction_locks == { tx_hash_1: (lock1b, 2) }
+    wallet._relinquish_transaction_lock(tx_hash_1) # lock1b
+    assert wallet._transaction_locks == { tx_hash_1: (lock1a, 1) }
+    wallet._relinquish_transaction_lock(tx_hash_1) # lock1a
+    assert len(wallet._transaction_locks) == 0
+
+
+@unittest.mock.patch('electrumsv.wallet.app_state')
+def test_wallet_migration_database_records(mock_app_state) -> None:
+    password = initial_password = "123456"
+    mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
+
+    wallet_filename = "17_testnet_imported_address_2"
+    temp_dir = tempfile.mkdtemp()
+    source_wallet_path = os.path.join(TEST_WALLET_PATH, wallet_filename)
+    wallet_path = os.path.join(temp_dir, wallet_filename)
+    shutil.copyfile(source_wallet_path, wallet_path)
+
+    has_password = False
+    Net.set_to(SVTestnet)
+    try:
+        storage = WalletStorage(wallet_path)
+        storage.upgrade(has_password, initial_password)
+
+        wallet = Wallet(storage)
+        try:
+            db_context = wallet.get_db_context()
+
+            tx_hash = hex_str_to_hash(
+                "2d04beb35232461d9eb27cd7bf2375e86a1e8e396ce6842a09549ed58ceddc93")
+            tx_data = db_functions.read_transaction_bytes(db_context, tx_hash)
+            assert tx_data is not None
+
+            txi_rows = db_functions.read_transaction_inputs_full(db_context)
+            assert len(txi_rows) == 10
+            assert txi_rows[0].txi_index == 0
+            assert txi_rows[0].script_offset == 42
+            assert txi_rows[0].script_length == 106
+            script = Script(tx_data[txi_rows[0].script_offset:txi_rows[0].script_offset +
+                txi_rows[0].script_length])
+            assert list(script.ops()) == [b"0D\x02 ?\x8e^ht\xdd\xd7\xd1s^\x0f)\x18\x0b,\x7fB\x1f\xe7i(\\\xc7\x8f>\x1c\x8eHM\x94\x080\x02 \x07`\x82\xfb\xaf\xdf\xa9\x00'\xb9\xd89RY\xa7\xad\x9f\xcb\x83\xf2\xbe\xabC\x0e\xe7G|\x99*'\x11tA", b'\x02\x1f\x03\xb5\xa2\xf6T+\xaca\x9a\xa3\x82n\xdb\x90\x04k\xb2\x8c\xc8ot\xd3\xf5{\xa9ie\x81\xb5\x95"']
+
+            txo_rows = db_functions.read_transaction_outputs_full(db_context)
+            assert len(txo_rows) == 1
+
+            assert txo_rows[0].txo_index == 0
+            assert txo_rows[0].script_offset == 1489
+            assert txo_rows[0].script_length == 25
+            script = Script(tx_data[txo_rows[0].script_offset:txo_rows[0].script_offset +
+                txo_rows[0].script_length])
+            assert list(script.ops()) == [Ops.OP_DUP, Ops.OP_HASH160,
+                b'\xe0\xc1\x90\x14\xa3j\x8f\x94\x91\xcf=\xf2\x14+\xa3b2\xc4\n!',
+                Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG]
+        finally:
+            wallet.stop()
+    finally:
+        Net.set_to(SVMainnet)

@@ -27,6 +27,7 @@
 import ast
 import base64
 import binascii
+import concurrent.futures
 import copy
 import hashlib
 import json
@@ -907,7 +908,7 @@ class TextStore(AbstractStore):
                 tx_metadata = TxData1(height=height, fee=fee, position=position,
                     date_added=date_added, date_updated=date_added)
                 transaction_rows.append(TransactionRow1(tx_hash, tx_metadata, tx_bytedata, flags,
-                    description, -1, -1))
+                    description))
 
             # Index all the address usage via the ElectrumX server scripthash state.
             for address_string, usage_list in address_usage.items():
@@ -1186,18 +1187,19 @@ class TextStore(AbstractStore):
             # Commit all the changes to the database. This is ordered to respect FK constraints.
             # Note that database write calls are done sequentially. By waiting for the final one
             # to complete we know the others have already completed.
+            futures: List[concurrent.futures.Future[None]] = []
             if len(transaction_rows):
-                create_transactions1(db_context, transaction_rows)
+                futures.append(create_transactions1(db_context, transaction_rows))
             if len(masterkey_rows):
-                create_master_keys1(db_context, masterkey_rows)
+                futures.append(create_master_keys1(db_context, masterkey_rows))
             if len(account_rows):
-                create_accounts1(db_context, account_rows)
+                futures.append(create_accounts1(db_context, account_rows))
             if len(keyinstance_rows):
-                create_keys1(db_context, keyinstance_rows)
+                futures.append(create_keys1(db_context, keyinstance_rows))
             if len(txoutput_rows):
-                create_transaction_outputs1(db_context, txoutput_rows)
+                futures.append(create_transaction_outputs1(db_context, txoutput_rows))
             if len(paymentrequest_rows):
-                create_payment_requests1(db_context, paymentrequest_rows)
+                futures.append(create_payment_requests1(db_context, paymentrequest_rows))
 
             # The database creation should create these rows.
             creation_rows = []
@@ -1214,7 +1216,7 @@ class TextStore(AbstractStore):
                 value = self.get(key)
                 if value is not None:
                     creation_rows.append(WalletDataRow1(key, value))
-            create_wallet_datas1(db_context, creation_rows)
+            futures.append(create_wallet_datas1(db_context, creation_rows))
 
             # These are inserted when the table is created, so we know the update will have an
             # existing row to effect and won't be a NOP.
@@ -1224,8 +1226,10 @@ class TextStore(AbstractStore):
                 WalletDataRow1("next_keyinstance_id", next_keyinstance_id),
                 WalletDataRow1("next_paymentrequest_id", next_paymentrequest_id),
             ]
-            future = update_wallet_datas1(db_context, update_rows)
-            future.result()
+            futures.append(update_wallet_datas1(db_context, update_rows))
+
+            for future in futures:
+                future.result()
         finally:
             db_context.close()
 

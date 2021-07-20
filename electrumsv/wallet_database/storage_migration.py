@@ -156,8 +156,6 @@ class TransactionRow1(NamedTuple):
     tx_bytes: Optional[bytes]
     flags: TxFlags1
     description: Optional[str]
-    version: Optional[int]
-    locktime: Optional[int]
 
 
 class WalletDataRow1(NamedTuple):
@@ -302,12 +300,12 @@ def create_transaction_outputs1(db_context: DatabaseContext,
 def create_transactions1(db_context: DatabaseContext, entries: Iterable[TransactionRow1]) \
         -> concurrent.futures.Future[None]:
     query = ("INSERT INTO Transactions (tx_hash, tx_data, flags, "
-        "block_height, block_position, fee_value, description, version, locktime, "
+        "block_height, block_position, fee_value, description, "
         "date_created, date_updated) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+        "VALUES (?,?,?,?,?,?,?,?,?)")
 
     datas = []
-    for tx_hash, metadata, bytedata, flags, description, version, locktime in entries:
+    for tx_hash, metadata, bytedata, flags, description in entries:
         assert type(tx_hash) is bytes and bytedata is not None
         assert (flags & TxFlags1.HasByteData) == 0, "this flag is not applicable"
         flags &= ~TxFlags1.METADATA_FIELD_MASK
@@ -319,11 +317,10 @@ def create_transactions1(db_context: DatabaseContext, entries: Iterable[Transact
             flags |= TxFlags1.HasPosition
         assert metadata.date_added is not None and metadata.date_updated is not None
         datas.append((tx_hash, bytedata, flags, metadata.height, metadata.position,
-            metadata.fee, description, version, locktime, metadata.date_added,
+            metadata.fee, description, metadata.date_added,
             metadata.date_updated))
 
     def _write(db: sqlite3.Connection) -> None:
-        nonlocal query, datas
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
