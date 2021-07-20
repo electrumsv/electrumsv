@@ -48,11 +48,11 @@ def test_get_categorised_files(mock_listdir, pathlist, results) -> None:
     assert get_categorised_files("...") == results
 
 
-@pytest.mark.parametrize("kind",
-    (StorageKind.FILE, StorageKind.HYBRID, StorageKind.DATABASE))
-def test_backup_wallet_json_file(tmp_path, kind) -> None:
-    filename = "18_mainnet_hardware_trezormodelt"
-
+@pytest.mark.parametrize("wallet_filename,kind", (
+    ("17_testnet_imported_privkey", StorageKind.FILE),
+    ("22_testnet_blank", StorageKind.DATABASE),
+))
+def test_backup_wallet_json_file(wallet_filename, kind, tmp_path) -> None:
     # A wallet is identified by a primary file, which is the json file if it is present,
     # otherwise it is the database for lack of any other file. The first file/extension is
     # what gets passed to the backup call, it should result in any second file being
@@ -60,10 +60,10 @@ def test_backup_wallet_json_file(tmp_path, kind) -> None:
     filenames = []
     extensions = []
     if kind == StorageKind.FILE:
-        filenames.append(filename)
+        filenames.append(wallet_filename)
         extensions.append("")
-    if kind == StorageKind.HYBRID or kind == StorageKind.DATABASE:
-        filenames.append(filename)
+    elif kind == StorageKind.DATABASE:
+        filenames.append(wallet_filename)
         extensions.append(DATABASE_EXT)
 
     for i in range(len(filenames)):

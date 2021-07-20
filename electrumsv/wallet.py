@@ -3421,8 +3421,6 @@ class Wallet(TriggeredCallbacks):
         tx_row = TransactionRow(tx_hash, tx.to_bytes(), flags, block_hash, int(block_height),
             block_position, fee_hint, None, tx.version, tx.locktime, timestamp, timestamp)
 
-        # TODO(no-merge) Unit test that the input/output script offset and lengths are correct.
-        #     Also do it for migrated wallets in the unit tests.
         txi_rows: List[TransactionInputAddRow] = []
         for txi_index, input in enumerate(tx.inputs):
             txi_row = TransactionInputAddRow(tx_hash, txi_index,

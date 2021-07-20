@@ -402,7 +402,6 @@ class HistoryList(MyTreeWidget):
         menu.addSeparator()
 
         if flags is not None and flags & TxFlags.STATE_CLEARED:
-            # TODO(no-merge) Confirm this does not allocate a change address that gets discarded.
             child_tx = account.cpfp(tx, 0)
             if child_tx:
                 menu.addAction(_("Child pays for parent"),

@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import json
 import logging
 import tempfile
@@ -14,7 +15,7 @@ from concurrent.futures.thread import ThreadPoolExecutor
 from electrumsv.constants import ScriptType, TransactionOutputFlag, TxFlags
 from electrumsv.restapi import Fault, good_response
 from electrumsv.wallet import AbstractAccount, Wallet
-from electrumsv.transaction import Transaction
+from electrumsv.transaction import Transaction, TransactionContext
 from electrumsv.types import TransactionSize
 from electrumsv.wallet_database.types import TransactionOutputSpendableRow
 from ..errors import Errors
@@ -152,6 +153,15 @@ async def _fake_broadcast_tx(rawtx: str, tx_hash: bytes, account: AbstractAccoun
 def _fake_spawn(fn, *args):
     return '<throwaway _future>'
 
+
+class FakeFuture:
+    def __init__(self, result) -> None:
+        self._result = result
+
+    def result(self) -> Any:
+        return self._result
+
+
 class MockAccount(AbstractAccount):
 
     def __init__(self, wallet=None):
@@ -171,10 +181,12 @@ class MockAccount(AbstractAccount):
         return SPENDABLE_UTXOS
 
     def make_unsigned_transaction(self, utxos=None, outputs=None):
-        return Transaction.from_hex(rawtx)
+        return Transaction.from_hex(rawtx), TransactionContext()
 
-    def sign_transaction(self, tx=None, password=None):
-        return Transaction.from_hex(rawtx)
+    def sign_transaction(self, tx: Transaction, password: str,
+            context: Optional[TransactionContext]=None) \
+                -> Optional[FakeFuture]:
+        return FakeFuture(Transaction.from_hex(rawtx))
 
 
 class MockWallet(Wallet):

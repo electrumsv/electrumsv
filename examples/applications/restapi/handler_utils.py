@@ -199,12 +199,10 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     def utxo_as_dict(self, utxo: TransactionOutputSpendableRow):
         return {"value": utxo.value,
-                # "script_pubkey": utxo.script_pubkey.to_hex(), # TODO(no-merge) not in struct
                 "script_type": utxo.script_type,
                 "tx_hash": hash_to_hex_str(utxo.tx_hash),
                 "out_index": utxo.txo_index,
                 "keyinstance_id": utxo.keyinstance_id,
-                # "address": utxo.address.to_string(), # TODO(no-merge) not in struct
                 "is_coinbase": utxo.flags & TransactionOutputFlag.COINBASE != 0,
                 "flags": utxo.flags}  # TransactionOutputFlag(s) only
 
@@ -437,7 +435,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     # ----- Helpers ----- #
 
-    async def _create_tx_helper(self, request) -> Union[Tuple, Fault]:
+    async def _create_tx_helper(self, request) -> Tuple[Transaction, AbstractAccount, str]:
         try:
             vars = await self.argparser(request)
             self.raise_for_var_missing(vars, required_vars=[VNAME.WALLET_NAME, VNAME.ACCOUNT_ID,
@@ -451,6 +449,7 @@ class ExtendedHandlerUtils(HandlerUtils):
             utxos = cast(Optional[List[TransactionOutputSpendableRow]], vars.get(VNAME.UTXOS, None))
             utxo_preselection = vars.get(VNAME.UTXO_PRESELECTION, True)
             password = vars.get(VNAME.PASSWORD, None)
+            assert password is not None
 
             account = self._get_account(wallet_name, index)
 
