@@ -165,7 +165,7 @@ class CosignerCard(FormSectionWidget):
 
         password = None
         keystore = instantiate_keystore_from_text(KeystoreTextType.EXTENDED_PUBLIC_KEY,
-            text, password)
+            text, password, watch_only=True)
         self._update_keystore(keystore)
 
     def _update_keystore(self, keystore: Optional[KeyStore]) -> None:

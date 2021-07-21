@@ -3128,13 +3128,16 @@ class Wallet(TriggeredCallbacks):
             data2: DatabaseKeyDerivationData) -> None:
         if data1 is not None:
             if data1.derivation_path is not None:
-                assert data1.derivation_path == data2.derivation_path
+                assert data1.derivation_path == data2.derivation_path, (data1.derivation_path,
+                    data2.derivation_path)
             if data1.account_id is not None:
-                assert data1.account_id == data2.account_id
+                assert data1.account_id == data2.account_id, (data1.account_id, data2.account_id)
             if data1.masterkey_id is not None:
-                assert data1.masterkey_id == data2.masterkey_id
+                assert data1.masterkey_id == data2.masterkey_id, (data1.masterkey_id,
+                    data2.masterkey_id)
             if data1.keyinstance_id is not None:
-                assert data1.keyinstance_id == data2.keyinstance_id
+                assert data1.keyinstance_id == data2.keyinstance_id, (data1.keyinstance_id,
+                    data2.keyinstance_id)
 
     def populate_transaction_context_key_data_from_database(self, tx: Transaction,
             tx_context: TransactionContext) -> None:
@@ -3558,7 +3561,6 @@ class Wallet(TriggeredCallbacks):
         future.add_done_callback(on_db_call_done)
         return future
 
-    # TODO(no-merge) Manually test with a multi-signature account/transaction.
     def ensure_incomplete_transaction_keys_exist(self, tx: Transaction) -> None:
         """
         Ensure that the keys the incomplete transaction uses exist.

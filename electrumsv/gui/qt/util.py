@@ -554,7 +554,9 @@ def line_dialog(parent: QWidget, title: str, label: str, ok_label: str,
     if dialog.exec_():
         return txt.text().strip()
 
-def text_dialog(parent, title, label, ok_label, default=None, allow_multi=False):
+
+def text_dialog(parent: QWidget, title: str, label: str, ok_label: str, default: Optional[str]=None,
+        allow_multi: bool=False) -> Optional[str]:
     from .qrtextedit import ScanQRTextEdit
     dialog = WindowModalDialog(parent, title)
     dialog.setMinimumWidth(500)
@@ -568,6 +570,8 @@ def text_dialog(parent, title, label, ok_label, default=None, allow_multi=False)
     l.addLayout(Buttons(CancelButton(dialog), OkButton(dialog, ok_label)))
     if dialog.exec_():
         return txt.toPlainText()
+    return None
+
 
 class ChoicesLayout(object):
     def __init__(self, msg: str, choices, on_clicked=None, checked_index=0):

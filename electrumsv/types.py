@@ -30,9 +30,9 @@ class SubscriptionDerivationData:
 @dataclasses.dataclass(frozen=True)
 class DatabaseKeyDerivationData:
     derivation_path: Optional[DerivationPath]
-    account_id: Optional[int] = dataclasses.field(default_factory=int)
-    masterkey_id: Optional[int] = dataclasses.field(default_factory=int)
-    keyinstance_id: Optional[int] = dataclasses.field(default_factory=int)
+    account_id: Optional[int] = dataclasses.field(default=None)
+    masterkey_id: Optional[int] = dataclasses.field(default=None)
+    keyinstance_id: Optional[int] = dataclasses.field(default=None)
     source: DatabaseKeyDerivationType = dataclasses.field(default=DatabaseKeyDerivationType.UNKNOWN)
 
     @classmethod

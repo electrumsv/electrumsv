@@ -17,7 +17,7 @@ from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
     Imported_KeyStore, instantiate_keystore_from_text, Old_KeyStore,
     Multisig_KeyStore)
-from electrumsv.networks import Net, SVMainnet, SVTestnet
+from electrumsv.networks import Net, SVMainnet, SVRegTestnet, SVTestnet
 from electrumsv.storage import get_categorised_files, WalletStorage, WalletStorageInfo
 from electrumsv.transaction import Transaction
 from electrumsv.types import MasterKeyDataBIP32, Outpoint
@@ -446,6 +446,8 @@ def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) 
 
     if "testnet" == expected_network:
         Net.set_to(SVTestnet)
+    elif "regtest" == expected_network:
+        Net.set_to(SVRegTestnet)
 
     if storage_info.kind == StorageKind.HYBRID:
         pytest.fail("old development database not supported yet")
@@ -514,7 +516,7 @@ def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) 
     else:
         raise Exception(f"unrecognised wallet file {wallet_filename}")
 
-    if "testnet" == expected_network:
+    if expected_network in { "testnet", "regtest" }:
         Net.set_to(SVMainnet)
 
 
