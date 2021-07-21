@@ -442,10 +442,10 @@ class ExtendedHandlerUtils(HandlerUtils):
                                                             VNAME.OUTPUTS, VNAME.PASSWORD])
             wallet_name = vars[VNAME.WALLET_NAME]
             index = vars[VNAME.ACCOUNT_ID]
-            # TODO(no-merge) this should pass in ids and lookup values
+            # TODO(REST-API-FINALISATION) this should pass in ids and lookup values
             outputs = vars[VNAME.OUTPUTS]
 
-            # TODO(no-merge) this should pass in ids and lookup values
+            # TODO(REST-API-FINALISATION) this should pass in ids and lookup values
             utxos = cast(Optional[List[TransactionOutputSpendableRow]], vars.get(VNAME.UTXOS, None))
             utxo_preselection = vars.get(VNAME.UTXO_PRESELECTION, True)
             password = vars.get(VNAME.PASSWORD, None)
