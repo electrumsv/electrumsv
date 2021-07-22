@@ -816,11 +816,6 @@ class AbstractAccount:
 
         # Sort the inputs and outputs deterministically
         tx.BIP_LI01_sort()
-        # Timelock tx to current height.
-        locktime = self._wallet.get_local_height()
-        if locktime == -1: # We have no local height data (no headers synced).
-            locktime = 0
-        tx.locktime = locktime
         return tx, tx_context
 
     def start(self, network: Optional["Network"]) -> None:
@@ -1122,9 +1117,8 @@ class AbstractAccount:
                 output.script_type,
                 self.get_xpubkeys_for_key_data(output)) # type:ignore
         ]
-        locktime = self._wallet.get_local_height()
         # note: no need to call tx.BIP_LI01_sort() here - single input/output
-        return Transaction.from_io(inputs, outputs, locktime=locktime)
+        return Transaction.from_io(inputs, outputs)
 
     def can_sign(self, tx: Transaction) -> bool:
         if tx.is_complete():
