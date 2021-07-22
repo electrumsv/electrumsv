@@ -3087,7 +3087,6 @@ class Wallet(TriggeredCallbacks):
                 assert reference_count > 1
                 self._transaction_locks[tx_hash] = (lock, reference_count - 1)
 
-    # # TODO(no-merge) unit test
     def extend_transaction(self, tx: Transaction, tx_context: TransactionContext) -> None:
         """
         If this information is kept long term, there is the possibility it might become stale:
@@ -3561,7 +3560,8 @@ class Wallet(TriggeredCallbacks):
         future.add_done_callback(on_db_call_done)
         return future
 
-    def ensure_incomplete_transaction_keys_exist(self, tx: Transaction) -> None:
+    def ensure_incomplete_transaction_keys_exist(self, tx: Transaction) \
+            -> Tuple[Optional[concurrent.futures.Future[None]], List[KeyInstanceRow]]:
         """
         Ensure that the keys the incomplete transaction uses exist.
 
@@ -3571,17 +3571,21 @@ class Wallet(TriggeredCallbacks):
         probably haven't as we're likely a recipient).
         """
         if tx.is_complete():
-            return
+            return None, []
 
         self._logger.debug("ensure_incomplete_transaction_keys_exist")
 
+        last_future: Optional[concurrent.futures.Future[None]] = None
+        keyinstance_rows: List[KeyInstanceRow] = []
         # Make sure we have created the keys that the transaction inputs use.
         for txin in tx.inputs:
             # These will be present for the signers who have not yet signed.
             for extended_public_key in txin.unused_x_pubkeys():
                 account = self.find_account_for_extended_public_key(extended_public_key)
                 if account is not None:
-                    account.derive_new_keys_until(extended_public_key.derivation_path)
+                    last_future, new_keyinstance_rows = account.derive_new_keys_until(
+                        extended_public_key.derivation_path)
+                    keyinstance_rows.extend(new_keyinstance_rows)
 
         # Make sure we have created the keys that the transaction outputs use.
         # - At the time of writing, this is change addresses.
@@ -3593,7 +3597,11 @@ class Wallet(TriggeredCallbacks):
             for extended_public_key in txout.x_pubkeys:
                 account = self.find_account_for_extended_public_key(extended_public_key)
                 if account is not None:
-                    account.derive_new_keys_until(extended_public_key.derivation_path)
+                    last_future, new_keyinstance_rows = account.derive_new_keys_until(
+                        extended_public_key.derivation_path)
+                    keyinstance_rows.extend(new_keyinstance_rows)
+
+        return last_future, keyinstance_rows
 
     def find_account_for_extended_public_key(self, extended_public_key: XPublicKey) \
             -> Optional[AbstractAccount]:

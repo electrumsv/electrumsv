@@ -10,8 +10,9 @@ from bitcoinx import Header, hex_str_to_hash, Ops, Script
 import pytest
 
 from electrumsv.constants import (BlockHeight, CHANGE_SUBPATH, DATABASE_EXT, DerivationType,
-    KeystoreTextType, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag, TxFlags,
-    unpack_derivation_path)
+    DatabaseKeyDerivationType,
+    KeystoreTextType, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
+    TxFlags, unpack_derivation_path)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
@@ -19,8 +20,8 @@ from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
     Multisig_KeyStore)
 from electrumsv.networks import Net, SVMainnet, SVRegTestnet, SVTestnet
 from electrumsv.storage import get_categorised_files, WalletStorage, WalletStorageInfo
-from electrumsv.transaction import Transaction
-from electrumsv.types import MasterKeyDataBIP32, Outpoint
+from electrumsv.transaction import Transaction, TransactionContext
+from electrumsv.types import DatabaseKeyDerivationData, MasterKeyDataBIP32, Outpoint
 from electrumsv.wallet import (ImportedPrivkeyAccount, ImportedAddressAccount,
     MissingTransactionEntry, MultisigAccount, Wallet, StandardAccount)
 from electrumsv.wallet_database import functions as db_functions
@@ -933,7 +934,7 @@ def test_transaction_locks(mock_app_state, tmp_storage) -> None:
 
 
 @unittest.mock.patch('electrumsv.wallet.app_state')
-def test_wallet_migration_database_records(mock_app_state) -> None:
+def test_wallet_migration_database_script_metadata(mock_app_state) -> None:
     password = initial_password = "123456"
     mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
@@ -982,3 +983,245 @@ def test_wallet_migration_database_records(mock_app_state) -> None:
             wallet.stop()
     finally:
         Net.set_to(SVMainnet)
+
+
+def test_extend_transaction_complete_hex() -> None:
+    tx = Transaction.from_hex(tx_hex_funding)
+    tx_context = TransactionContext()
+
+    mock_storage = cast(WalletStorage, MockStorage())
+    with unittest.mock.patch("electrumsv.wallet.app_state") as mock_app_state:
+        mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+        wallet = Wallet(mock_storage)
+
+    wallet.extend_transaction(tx, tx_context)
+
+    assert tx_context.invoice_id is None
+    assert tx_context.description is None
+    assert len(tx_context.parent_transactions) == 0
+    assert tx_context.spent_outpoint_values == {}
+    assert tx_context.key_datas_by_spent_outpoint == {}
+    assert tx_context.key_datas_by_txo_index == {}
+
+
+INCOMPLETE_TX_MULTISIG_DICT = {"version": 1, "hex": "01000000018e3efc1708cc072b9ad09ebb32bf0bd7b4681c4db8a15162d3cd8f44e68cd800000000004b00473044022056df5ab9b9294011a11e85b85af87994d386397ee44cd118957fd6e37b513b78022048f6d1fbe705cb10740f45416637915b8726949d2b5bd2fe049645db1b8c84b74101ffffffffff0b40420f00000000001976a914def53ee6c8a15961eea0b07dea23e5404e38a71188ac40ea70000000000047522102e99c5ef6e873396a9f4495dce12457d6fc9307c10b802d0592a43e96ae45cac92103e5a30131ca630fe80d4c1ee435949be822ebae51be7283738d6194c3a0979a6152ae00127a000000000047522102407c4480ce6538af7e6de0117a72699706d08770fb59ada5b626eb2fe16079af2103494d1db5d12adf43a3b97257d18422c164140a3d4db493835ea96dc390c86d4052ae405489000000000047522103797b05207c23dad3c51a4bf48deb25b555f6a17af8abec4a58faffff523b157c2103b7da30209d59445531f6e141837db7bdb27726c503bf34a5ebf1219337f3430252ae08f390000000000047522102103f54f834961d5cb994cc2201751a10672978ab4f9f665ff491323007a94cf0210259def56764098f5a6fea9640035494ac9c604435ec3ff57647be928d4e62080752aea0029400000000004752210258a41c688b97b426130c75093ce590a2581d7837ae11963776af762b1624a7582103d14b8d7005598c1b1944d013957f7db20ea7a1c1e07d1887bef6df5af5dc08f652ae8096980000000000475221023c7b0b01c47b8afcaa0688faf7b2068ef2f0f27c9c24be9eea297f0380b82d212102b55319c1d7aa64f424889df6ed6f42b578d2786d4d6a5aa77a4cef9758c08df752ae809698000000000047522102c67f0584c61f29ee8bd9e851072fb852c5c53c137b13ea661e3de502db74eb2f2103289f9baafdca77a06fb2d1b960e906017d52356416d8766ba31666784ec2fbae52ae00b19e00000000004752210360245a9124311eecb8f0e70904c580040f86e3dea0ada1b442ca78d8af7be57921036052fa7851930559571b4950c872399a03792fe2814319e9b35e56a0b57f2acc52aec0d8a70000000000475221030f71df9dbc747c2b5f6b3df3941bca4f8b390eef3b3768c1c2ace757cedf3237210369b68d182c8892dd8d8e2605fd97c3934ebba9497f61786949363a4227139ea352ae809fd500000000004752210289257e1bca327225f75549a1c3dabe0d854acd74bda4512bbfccb38f3fe8746c2102fe240aa6a9f06b8c15c652ea1f91ec1d0b8d3438f3582e9b96b203cd7c10750052ae71000000", "complete": False, "description": "Pay someone", "inputs": [{"script_type": 5, "threshold": 2, "value": 100000000, "signatures": ["3044022056df5ab9b9294011a11e85b85af87994d386397ee44cd118957fd6e37b513b78022048f6d1fbe705cb10740f45416637915b8726949d2b5bd2fe049645db1b8c84b741", "ff"], "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [0, 0]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [0, 0]}]}], "outputs": [{"script_type": 0, "x_pubkeys": []}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 5]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 5]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 6]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 6]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 1]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 1]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 9]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 9]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 2]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 2]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 7]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 7]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 3]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 3]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 0]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 0]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 4]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 4]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 8]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 8]}]}]}
+
+def test_extend_transaction_incomplete_non_database() -> None:
+    tx, tx_context = Transaction.from_dict(INCOMPLETE_TX_MULTISIG_DICT)
+
+    mock_storage = cast(WalletStorage, MockStorage())
+    with unittest.mock.patch("electrumsv.wallet.app_state") as mock_app_state:
+        mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+        wallet = Wallet(mock_storage)
+
+    wallet.extend_transaction(tx, tx_context)
+
+    expected_spent_output_key_data = {
+        Outpoint(
+            hex_str_to_hash("00d88ce6448fcdd36251a1b84d1c68b4d70bbf32bb9ed09a2b07cc0817fc3e8e"),0):
+                DatabaseKeyDerivationData(derivation_path=(0, 0), account_id=None,
+                    masterkey_id=None, keyinstance_id=None,
+                    source=DatabaseKeyDerivationType.IMPORTED)
+    }
+    assert tx_context.invoice_id is None
+    assert tx_context.description == "Pay someone"
+    assert len(tx_context.parent_transactions) == 0
+    assert len(tx_context.spent_outpoint_values) == 0
+    assert tx_context.key_datas_by_spent_outpoint == expected_spent_output_key_data
+
+    # Ten change addresses.
+    # - There are no database ids, as there are not keys or transactions or anything in the database.
+    # - The metadata is classified as being from an imported source, because it is.
+    expected_txo_key_datas = {
+        1: DatabaseKeyDerivationData(derivation_path=(1, 5), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
+        2: DatabaseKeyDerivationData(derivation_path=(1, 6), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
+        3: DatabaseKeyDerivationData(derivation_path=(1, 1), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
+        4: DatabaseKeyDerivationData(derivation_path=(1, 9), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
+        5: DatabaseKeyDerivationData(derivation_path=(1, 2), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
+        6: DatabaseKeyDerivationData(derivation_path=(1, 7), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
+        7: DatabaseKeyDerivationData(derivation_path=(1, 3), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
+        8: DatabaseKeyDerivationData(derivation_path=(1, 0), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
+        9: DatabaseKeyDerivationData(derivation_path=(1, 4), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED),
+        10: DatabaseKeyDerivationData(derivation_path=(1, 8), account_id=None, masterkey_id=None, keyinstance_id=None, source=DatabaseKeyDerivationType.IMPORTED)
+    }
+    assert tx_context.key_datas_by_txo_index == expected_txo_key_datas
+
+
+SEQUENCE_TX_1_HEX = "01000000018e3efc1708cc072b9ad09ebb32bf0bd7b4681c4db8a15162d3cd8f44e68cd800010000006a47304402202bcbbf0c2f530dc6365397d2788b479b6801a4fefd0c3c445f9527cb156ea12902205f05803062aa550f662e484d1691949c933e7b212b22e848e1022e8d95ba58f64121032a29bd9fb50181164dae4c098e0cd5ed5c1fca0a998628415827c0612708090dffffffff0300e1f505000000001976a914da661cf35fc34999f571319d3e6f425d8783886688ac000e2707000000001976a9141211f3ad5d77afab5513cc72f0a12443294d5b5288ac8ca2bf07000000001976a91453a56c1b8a0da350b08bf06849f359dda8f69ea588ac72000000"
+SEQUENCE_TX_2_HEX = "0100000001fe6e0df8db19d66ff62d26ef08acfae3498a80484eb47717ba6e15da84a17098000000006a47304402204503da5da92d0c96b271b2ece053473790e29ccf047332ddcda3c7cd47ea1b06022011a3e94494f95eded70779916ea035c53bcd5e80ba84ff34b3f0c1f74a6ec83d412102a02ccedd7475255197165b0f6825782276697b0bcb392c60ae9b3ae461200ae1ffffffff0b40420f00000000001976a914e20641e8c54f3be047a32b6da573a992d87d164988acc0cf6a00000000001976a914594c73f64e977d209e630e43851d344e5805618488ac00127a00000000001976a914d2368c3efb8d47582d66e780ea82acb7924d793f88ac40548900000000001976a914eada92ab2e26c52d82fd3672d164ce3ce48b527a88ac80618c00000000001976a914655e0716d7de554c0d5e3df0c46be9898ee626d788ac80969800000000001976a9142e7f8a6d66f7e1ff1beacf10dbb41da151f6be7488ac80969800000000001976a9144694d226a87d0921b0f7d615f5475eada6845a6088ac80969800000000001976a91447ddddc2d6ea1a0587117f790dd52a501addf5aa88ac00b19e00000000001976a9144f7ca1a81762c2b177ae359065e1b90b00f26b2988acc0d8a700000000001976a9147d6d128f145fd73be02129e9e800412303c5bd3488acd4b8db00000000001976a914d850f5e18bbe3bd9222321f8502407ea73f1904f88ac73000000"
+
+
+@pytest.mark.asyncio
+async def test_extend_transaction_sequence() -> None:
+    # Boilerplate setting up of a deterministic account. This is copied from above.
+    password = 'password'
+    seed_words = "supply return potato wait seek lamp secret amateur broom club track warrior"
+    child_keystore = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+        KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
+
+    mock_storage = cast(WalletStorage, MockStorage())
+    with unittest.mock.patch("electrumsv.wallet.app_state") as mock_app_state:
+        mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
+        wallet = Wallet(mock_storage)
+
+    masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
+
+    raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+    account_row = wallet.add_accounts([ raw_account_row ])[0]
+    assert account_row.default_masterkey_id is not None
+    account = StandardAccount(wallet, account_row)
+    wallet.register_account(account.get_id(), account)
+
+    db_context = mock_storage.get_db_context()
+    assert db_context is not None
+    db = db_context.acquire_connection()
+    try:
+        tx_1 = Transaction.from_hex(SEQUENCE_TX_1_HEX)
+        # We know these are the used keys, and we approximate them being active.
+        future, keyinstance_rows = account.derive_new_keys_until((0, 0))
+        if future is not None:
+            future.result()
+        assert len(keyinstance_rows) == 1
+        keyinstance_row = keyinstance_rows[0]
+        assert keyinstance_row.account_id == account_row.account_id
+        assert keyinstance_row.masterkey_id == masterkey_row.masterkey_id
+        assert keyinstance_row.keyinstance_id == 1
+
+        tx_hash_1 = tx_1.hash()
+        # Add the funding transaction to the database and link it to key usage.
+        link_state = TransactionLinkState()
+        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED,
+            link_state=link_state)
+
+        tx_1_context = TransactionContext()
+        wallet.extend_transaction(tx_1, tx_1_context)
+
+        assert tx_1_context.invoice_id is None
+        assert tx_1_context.description is None
+        assert len(tx_1_context.parent_transactions) == 0
+        assert tx_1_context.spent_outpoint_values == {}
+        assert tx_1_context.key_datas_by_spent_outpoint == {}
+
+        assert len(tx_1_context.key_datas_by_txo_index) == 1
+        assert 0 in tx_1_context.key_datas_by_txo_index
+        txo_key_data = tx_1_context.key_datas_by_txo_index[0]
+        assert txo_key_data.derivation_path == (0, 0)
+        assert txo_key_data.account_id == account_row.account_id
+        assert txo_key_data.masterkey_id == masterkey_row.masterkey_id
+        assert txo_key_data.keyinstance_id == 1
+        assert txo_key_data.source == DatabaseKeyDerivationType.EXTENSION_LINKED
+
+        tx_2 = Transaction.from_hex(SEQUENCE_TX_2_HEX)
+
+        tx_2_context_a = TransactionContext()
+        wallet.extend_transaction(tx_2, tx_2_context_a)
+        assert tx_2_context_a.invoice_id is None
+        assert tx_2_context_a.description is None
+        assert len(tx_2_context_a.parent_transactions) == 0
+        spent_output_values = {
+            Outpoint(tx_1.hash(), 0): 100000000
+        }
+        assert tx_2_context_a.spent_outpoint_values == spent_output_values
+        assert len(tx_2_context_a.key_datas_by_spent_outpoint) == 1
+        assert Outpoint(tx_1.hash(), 0) in tx_2_context_a.key_datas_by_spent_outpoint
+        txi_key_data = tx_2_context_a.key_datas_by_spent_outpoint[Outpoint(tx_1.hash(), 0)]
+        assert txi_key_data.derivation_path == (0, 0)
+        assert txi_key_data.account_id == account_row.account_id
+        assert txi_key_data.masterkey_id == masterkey_row.masterkey_id
+        assert txi_key_data.keyinstance_id == 1
+        assert txi_key_data.source == DatabaseKeyDerivationType.EXTENSION_UNLINKED
+
+        assert len(tx_2_context_a.key_datas_by_txo_index) == 10
+        expected_derivation_paths = { (1, i) for i in range(10) }
+        for txo_index in range(10):
+            # We start at output 1 for change. Output 0 is external payment.
+            assert txo_index+1 in tx_2_context_a.key_datas_by_txo_index
+            txo_key_data = tx_2_context_a.key_datas_by_txo_index[txo_index+1]
+            assert txo_key_data.derivation_path in expected_derivation_paths
+            assert txo_key_data.account_id == account_row.account_id
+            assert txo_key_data.masterkey_id is None
+            assert txo_key_data.keyinstance_id is None
+            assert txo_key_data.source == DatabaseKeyDerivationType.EXTENSION_EXPLORATION
+            expected_derivation_paths.remove(txo_key_data.derivation_path)
+        assert len(expected_derivation_paths) == 0
+
+        ## Try again with the transaction not in the database, but change keys created.
+        # We know these are the used change keys, and we approximate them being active.
+        future, keyinstance_rows = account.derive_new_keys_until((1, 9))
+        if future is not None:
+            future.result()
+        assert len(keyinstance_rows) == 10
+
+        tx_2_context_b = TransactionContext()
+        wallet.extend_transaction(tx_2, tx_2_context_b)
+        assert tx_2_context_b.invoice_id is None
+        assert tx_2_context_b.description is None
+        assert len(tx_2_context_b.parent_transactions) == 0
+        spent_output_values = {
+            Outpoint(tx_1.hash(), 0): 100000000
+        }
+        assert tx_2_context_b.spent_outpoint_values == spent_output_values
+        assert len(tx_2_context_b.key_datas_by_spent_outpoint) == 1
+        assert Outpoint(tx_1.hash(), 0) in tx_2_context_b.key_datas_by_spent_outpoint
+        txi_key_data = tx_2_context_b.key_datas_by_spent_outpoint[Outpoint(tx_1.hash(), 0)]
+        assert txi_key_data.derivation_path == (0, 0)
+        assert txi_key_data.account_id == account_row.account_id
+        assert txi_key_data.masterkey_id == masterkey_row.masterkey_id
+        assert txi_key_data.keyinstance_id == 1
+        assert txi_key_data.source == DatabaseKeyDerivationType.EXTENSION_UNLINKED
+
+        assert len(tx_2_context_b.key_datas_by_txo_index) == 10
+        expected_derivation_paths = { (1, i) for i in range(10) }
+        for txo_index in range(10):
+            # We start at output 1 for change. Output 0 is external payment.
+            assert txo_index+1 in tx_2_context_b.key_datas_by_txo_index
+            txo_key_data = tx_2_context_b.key_datas_by_txo_index[txo_index+1]
+            assert txo_key_data.derivation_path in expected_derivation_paths
+            assert txo_key_data.account_id == account_row.account_id
+            assert txo_key_data.masterkey_id == masterkey_row.masterkey_id
+            assert txo_key_data.keyinstance_id is not None
+            assert txo_key_data.source == DatabaseKeyDerivationType.EXTENSION_UNLINKED
+            expected_derivation_paths.remove(txo_key_data.derivation_path)
+        assert len(expected_derivation_paths) == 0
+
+        ## Try again with the transaction in the database.
+        tx_hash_2 = tx_2.hash()
+        # Add the funding transaction to the database and link it to key usage.
+        link_state = TransactionLinkState()
+        await wallet.import_transaction_async(tx_hash_2, tx_2, TxFlags.STATE_SIGNED,
+            link_state=link_state)
+
+        tx_2_context_b = TransactionContext()
+        wallet.extend_transaction(tx_2, tx_2_context_b)
+        assert tx_2_context_b.invoice_id is None
+        assert tx_2_context_b.description is None
+        assert len(tx_2_context_b.parent_transactions) == 0
+        spent_output_values = {
+            Outpoint(tx_1.hash(), 0): 100000000
+        }
+        assert tx_2_context_b.spent_outpoint_values == spent_output_values
+        assert len(tx_2_context_b.key_datas_by_spent_outpoint) == 1
+        assert Outpoint(tx_1.hash(), 0) in tx_2_context_b.key_datas_by_spent_outpoint
+        txi_key_data = tx_2_context_b.key_datas_by_spent_outpoint[Outpoint(tx_1.hash(), 0)]
+        assert txi_key_data.derivation_path == (0, 0)
+        assert txi_key_data.account_id == account_row.account_id
+        assert txi_key_data.masterkey_id == masterkey_row.masterkey_id
+        assert txi_key_data.keyinstance_id == 1
+        assert txi_key_data.source == DatabaseKeyDerivationType.EXTENSION_LINKED
+
+        assert len(tx_2_context_b.key_datas_by_txo_index) == 10
+        expected_derivation_paths = { (1, i) for i in range(10) }
+        for txo_index in range(10):
+            # We start at output 1 for change. Output 0 is external payment.
+            assert txo_index+1 in tx_2_context_b.key_datas_by_txo_index
+            txo_key_data = tx_2_context_b.key_datas_by_txo_index[txo_index+1]
+            assert txo_key_data.derivation_path in expected_derivation_paths
+            assert txo_key_data.account_id == account_row.account_id
+            assert txo_key_data.masterkey_id == masterkey_row.masterkey_id
+            assert txo_key_data.keyinstance_id is not None
+            assert txo_key_data.source == DatabaseKeyDerivationType.EXTENSION_LINKED
+            expected_derivation_paths.remove(txo_key_data.derivation_path)
+        assert len(expected_derivation_paths) == 0
+    finally:
+        db_context.release_connection(db)
+
