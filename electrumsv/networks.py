@@ -327,3 +327,19 @@ class Net(metaclass=_CurrentNetMeta):
     @classmethod
     def set_to(cls, net_class: Type[NetworkTypes]) -> None:
         cls._net = net_class
+
+    @classmethod
+    def is_mainnet(cls) -> bool:
+        return cls._net is SVMainnet
+
+    @classmethod
+    def is_testnet(cls) -> bool:
+        return cls._net is SVTestnet
+
+    @classmethod
+    def is_scaling_testnet(cls) -> bool:
+        return cls._net is SVScalingTestnet
+
+    @classmethod
+    def is_regtest(cls) -> bool:
+        return cls._net is SVRegTestnet

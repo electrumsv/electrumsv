@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import QComboBox, QDialog, QLabel, QLineEdit, QSizePolicy, 
 from ...constants import ACCOUNT_SCRIPT_TYPES, DerivationType, KeystoreType, ScriptType
 from ...i18n import _
 from ...keystore import Hardware_KeyStore, Multisig_KeyStore, SinglesigKeyStoreTypes
+from ...networks import Net
 from ...wallet import Wallet
 
 from .cosigners_view import CosignerState, CosignerList
@@ -29,6 +30,7 @@ class AccountDialog(QDialog):
         self._wallet = wallet
 
         self._account = account = self._wallet.get_account(account_id)
+        assert account is not None
         keystore = account.get_keystore()
 
         self.setWindowTitle(_("Account Information"))
@@ -76,7 +78,7 @@ class AccountDialog(QDialog):
                 account.set_default_script_type(new_script_type)
 
                 view = self._main_window.get_receive_view(account.get_id())
-                view.update_destination()
+                view.update_script_type(new_script_type)
 
         update_script_types()
         script_type_combo.currentIndexChanged.connect(on_script_type_change)
@@ -85,7 +87,7 @@ class AccountDialog(QDialog):
         # experimental option and requires some form of testing. This is the reason we do not
         # allow changing the script type at this time. If it is enabled for some reason,
         # accumulator multi-signature should be excluded UNLESS it has been tested sufficiently.
-        script_type_combo.setEnabled(False)
+        script_type_combo.setEnabled(not Net.is_mainnet())
         form.add_row(_("Script type"), script_type_combo, True)
 
         vbox.addWidget(form)

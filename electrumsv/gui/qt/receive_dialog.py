@@ -1,5 +1,5 @@
 import concurrent.futures
-from typing import Any, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, cast, List, Optional, Tuple, TYPE_CHECKING
 import weakref
 
 from PyQt5.QtCore import Qt
@@ -9,12 +9,13 @@ from PyQt5.QtWidgets import (QComboBox, QDialog, QGridLayout, QHBoxLayout, QLabe
 
 from ...app_state import app_state
 from ...bitcoin import script_template_to_string
+from ...constants import ScriptType
 from ...i18n import _
 from ...logs import logs
 from ...networks import Net, TEST_NETWORK_NAMES
 from ...util import age
 from ... import web
-from ...wallet_database.types import KeyDataTypes, PaymentRequestUpdateRow
+from ...wallet_database.types import PaymentRequestUpdateRow
 
 from .amountedit import AmountEdit, BTCAmountEdit
 from .qrcodewidget import QRCodeWidget
@@ -24,6 +25,8 @@ from .util import ButtonsLineEdit, EnterButton, HelpLabel
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
     from .receive_view import ReceiveView
+    from ...wallet import AbstractAccount
+    from ...wallet_database.types import KeyInstanceRow, PaymentRequestReadRow
 
 
 EXPIRATION_VALUES = [
@@ -63,16 +66,16 @@ class ReceiveDialog(QDialog):
         self._view = view
         self._main_window = weakref.proxy(main_window)
         self._account_id = account_id
-        self._account = main_window._wallet.get_account(account_id)
+        self._account = cast("AbstractAccount", main_window._wallet.get_account(account_id))
         self._request_id = request_id
 
         self._logger = logs.get_logger(f"receive-dialog[{self._account_id},{self._request_id}]")
 
         wallet = self._account.get_wallet()
-        self._request_row = wallet.read_payment_request(request_id=self._request_id)
-        assert self._request_row is not None
-        self._key_data = wallet.read_keyinstance(keyinstance_id=self._request_row.keyinstance_id)
-        self._receive_key_data: Optional[KeyDataTypes] = None
+        self._request_row = cast("PaymentRequestReadRow",
+            wallet.read_payment_request(request_id=self._request_id))
+        self._key_data = cast("KeyInstanceRow",
+            wallet.read_keyinstance(keyinstance_id=self._request_row.keyinstance_id))
 
         self._layout_pending = True
         self.setLayout(self._create_form_layout())
@@ -83,7 +86,7 @@ class ReceiveDialog(QDialog):
         self.update_destination()
         self._receive_amount_e.setAmount(self._request_row.requested_value)
 
-        app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
+        app_state.app_qt.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
         self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -92,7 +95,7 @@ class ReceiveDialog(QDialog):
             self._qr_window.close()
             self._qr_window = None
         self._main_window.new_fx_quotes_signal.disconnect(self._on_ui_exchange_rate_quotes)
-        app_state.app.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
+        app_state.app_qt.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
         super().closeEvent(event)
 
     def clean_up(self) -> None:
@@ -216,16 +219,19 @@ class ReceiveDialog(QDialog):
         pass
 
     def update_destination(self) -> None:
+        script_type = self._account.get_default_script_type()
+        self.update_script_type(script_type)
+
+    def update_script_type(self, script_type: ScriptType) -> None:
         """
         Update the payment destination field.
 
         This is called both locally, and from the account information dialog when the script type
         is changed.
         """
-        assert self._key_data is not None and self._account is not None
         text = ""
         script_template = self._account.get_script_template_for_derivation(
-            self._account.get_default_script_type(),
+            script_type,
             self._key_data.derivation_type, self._key_data.derivation_data2)
         if script_template is not None:
             text = script_template_to_string(script_template)
@@ -235,8 +241,6 @@ class ReceiveDialog(QDialog):
     def _update_receive_qr(self) -> None:
         if self._layout_pending:
             return
-
-        assert self._key_data is not None and self._account is not None
 
         amount = self._receive_amount_e.get_amount()
         message = self._receive_message_e.text()
@@ -298,6 +302,7 @@ class ReceiveDialog(QDialog):
             # NOTE This callback will be happening in the database thread. No UI calls should
             #   be made, unless we emit a signal to do it.
             def ui_callback(args: Tuple[Any, ...]) -> None:
+                assert self._view is not None
                 self._view.update_request_list()
                 self.close()
             self._main_window.ui_callback_signal.emit(ui_callback, ())

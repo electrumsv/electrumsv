@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLa
     QVBoxLayout, QWidget)
 
 from ...app_state import app_state
-from ...constants import KeyInstanceFlag, PaymentFlag, RECEIVING_SUBPATH
+from ...constants import KeyInstanceFlag, PaymentFlag, RECEIVING_SUBPATH, ScriptType
 from ...i18n import _
 from ...logs import logs
 from ...wallet_database.types import PaymentRequestRow
@@ -59,7 +59,7 @@ class ReceiveView(QWidget):
 
         self.open_dialog_signal.connect(self.show_dialog)
 
-        app_state.app.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
+        app_state.app_qt.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
         self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
         self._main_window.payment_requests_paid_signal.connect(self._on_payment_requests_paid)
 
@@ -69,7 +69,7 @@ class ReceiveView(QWidget):
         """
         self._main_window.payment_requests_paid_signal.disconnect(self._on_payment_requests_paid)
         self._main_window.new_fx_quotes_signal.disconnect(self._on_ui_exchange_rate_quotes)
-        app_state.app.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
+        app_state.app_qt.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
 
         for dialog in self._dialogs.values():
             dialog.clean_up()
@@ -175,6 +175,8 @@ class ReceiveView(QWidget):
         return [ self._receive_amount_e ]
 
     def _on_create_button_clicked(self) -> None:
+        assert self._account is not None
+
         # These are the same constraints imposed in the receive view.
         message = self._receive_message_e.text()
         if not message:
@@ -243,6 +245,10 @@ class ReceiveView(QWidget):
             self._on_dialog_closed(request_id)
         dialog.finished.connect(dialog_finished)
         return dialog
+
+    def update_script_type(self, script_type: ScriptType) -> None:
+        for dialog in self._dialogs.values():
+            dialog.update_script_type(script_type)
 
     def _on_dialog_closed(self, request_id: int) -> None:
         if request_id in self._dialogs:
