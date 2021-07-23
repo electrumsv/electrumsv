@@ -190,8 +190,6 @@ class AbstractAccount:
         self._logger = logs.get_logger("account[{}]".format(self.name()))
         self._network: Optional["Network"] = None
 
-        self.request_count = 0
-        self.response_count = 0
         self.last_poll_time: Optional[float] = None
 
         self._gap_limit_observer_event_async = app_state.async_.event()
@@ -372,10 +370,6 @@ class AbstractAccount:
         self._network.subscriptions.delete_entries(
             self._get_subscription_entries_for_keyinstance_ids(
                 keyinstance_ids), self._subscription_owner_for_keys)
-
-    def is_synchronized(self) -> bool:
-        # TODO(no-merge) Need to reimplement to deal with scanning/pending state?
-        return True
 
     def get_keystore(self) -> Optional[KeyStore]:
         if self._row.default_masterkey_id is not None:
@@ -3660,7 +3654,7 @@ class Wallet(TriggeredCallbacks):
 
     def is_synchronized(self) -> bool:
         "If all the accounts are synchronized"
-        return all(w.is_synchronized() for w in self.get_accounts())
+        return not (self._network and self._missing_transactions)
 
     def set_boolean_setting(self, setting_name: str, enabled: bool) -> None:
         self._storage.put(setting_name, enabled)
@@ -3687,16 +3681,10 @@ class Wallet(TriggeredCallbacks):
             self._storage.get_explicit_type(int, 'stored_height', 0))
 
     def get_request_response_counts(self) -> Tuple[int, int]:
-        request_count = self.request_count
-        response_count = self.response_count
-        for account in self.get_accounts():
-            if account.request_count > account.response_count:
-                request_count += account.request_count
-                response_count += account.response_count
-            else:
-                account.request_count = 0
-                account.response_count = 0
-        return request_count, response_count
+        if self.request_count <= self.response_count:
+            self.request_count = 0
+            self.response_count = 0
+        return self.request_count, self.response_count
 
     def start(self, network: Optional['Network']) -> None:
         self._network = network

@@ -401,9 +401,11 @@ class ExtendedHandlerUtils(HandlerUtils):
         """child wallet data transfer object"""
         script_type = account._row.default_script_type
 
+        # TODO Strictly speaking `is_wallet_ready` really only applies to the whole wallet and
+        #   not this
         return {account._id: {"wallet_type": account._row.account_name,
                              "default_script_type": self.script_type_repr(script_type),
-                             "is_wallet_ready": account.is_synchronized()}}
+                             "is_wallet_ready": account._wallet.is_synchronized()}}
 
     def _accounts_dto(self, wallet: Wallet):
         """child wallets data transfer object"""
