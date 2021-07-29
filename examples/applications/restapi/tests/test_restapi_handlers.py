@@ -200,6 +200,9 @@ class MockWallet(Wallet):
     def _fake_get_account(self, account_id):
         return self._accounts[account_id]
 
+    def get_id(self) -> int:
+        return 32323232
+
 
 class MockApp:
     def __init__(self):
@@ -404,9 +407,11 @@ class TestDefaultEndpoints:
             json= { "password": password })
 
         # check
-        expected_json = {"parent_wallet": wallet_name,
-                         "accounts": {'1': {"wallet_type": "StandardWallet",
-                                            "is_wallet_ready": True}}}
+        expected_json = {
+            "parent_wallet": wallet_name,
+            "wallet_id": 32323232,
+            "accounts": {'1': {"wallet_type": "StandardWallet",
+                "is_wallet_ready": True}}}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
