@@ -53,6 +53,7 @@ class RESTAPIApplication:
     def _teardown_app(self) -> None:
         for client in self.aiohttp_web_app['ws_clients'].values():
             app_state.async_.spawn(client.websocket.close())
+        self.restapi.cleanup()
 
     def on_triggered_event(self, *event_data: Iterable[Any]):
         self.app_state.async_.spawn(self.async_on_triggered_event(*event_data))

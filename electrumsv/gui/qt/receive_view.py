@@ -7,11 +7,10 @@ from PyQt5.QtWidgets import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLa
     QVBoxLayout, QWidget)
 
 from ...app_state import app_state
-from ...constants import KeyInstanceFlag, PaymentFlag, RECEIVING_SUBPATH, ScriptType
+from ...constants import ScriptType
 from ...i18n import _
 from ...logs import logs
 from ...wallet_database.types import PaymentRequestRow
-from ...util import get_posix_timestamp
 
 from .amountedit import AmountEdit, BTCAmountEdit
 from .receive_dialog import EXPIRATION_VALUES, ReceiveDialog
@@ -188,12 +187,6 @@ class ReceiveView(QWidget):
         i = self._expires_combo.currentIndex()
         expiration = [ x[1] for x in EXPIRATION_VALUES ][i]
 
-        # Note that we are allowed to set `ACTIVE` here because we clear it when we delete
-        # the payment request, and we need to know about payments made to the given script or
-        # address on the blockchain.
-        keyinstance_id = self._account.reserve_unassigned_key(RECEIVING_SUBPATH,
-            KeyInstanceFlag.IS_PAYMENT_REQUEST | KeyInstanceFlag.ACTIVE)
-
         def callback(future: concurrent.futures.Future[List[PaymentRequestRow]]) -> None:
             # Skip if the operation was cancelled.
             if future.cancelled():
@@ -206,11 +199,7 @@ class ReceiveView(QWidget):
             self._request_list.update_signal.emit()
             self.open_dialog_signal.emit(final_rows[0].paymentrequest_id)
 
-        # Update the payment request next.
-        row = PaymentRequestRow(-1, keyinstance_id, PaymentFlag.UNPAID, amount, expiration, message,
-            get_posix_timestamp())
-        wallet = self._account.get_wallet()
-        future = wallet.create_payment_requests(self._account.get_id(), [ row ])
+        future, key_data = self._account.create_payment_request(message, amount, expiration)
         future.add_done_callback(callback)
 
         self._clear_form()

@@ -295,6 +295,12 @@ class Daemon(DaemonThread):
         wallet_filepath = WalletStorage.canonical_path(path)
         return self.wallets.get(wallet_filepath)
 
+    def get_wallet_by_id(self, wallet_id: int) -> Optional[Wallet]:
+        for wallet in self.wallets.values():
+            if wallet.get_id() == wallet_id:
+                return wallet
+        return None
+
     def start_wallet(self, wallet: Wallet) -> None:
         # We expect the storage path to be exact, including the database extension. So it should
         # match the canonical path used elsewhere.

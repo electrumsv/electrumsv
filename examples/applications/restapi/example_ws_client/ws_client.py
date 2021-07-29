@@ -3,7 +3,7 @@ import asyncio
 import json
 import logging
 import requests
-from typing import List, Iterable
+from typing import cast, Iterable, List, Optional
 
 from electrumsv.constants import TxFlags
 
@@ -12,8 +12,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 class TxStateWSClient:
 
-    def __init__(self, host="127.0.0.1", port=9999, wallet_name="worker1.sqlite",
-            wallet_password="test", account=1):
+    def __init__(self, host: str="127.0.0.1", port: int=9999, wallet_name: str="worker1.sqlite",
+            wallet_password: str="test", account: int=1) -> None:
         self.host = host
         self.port = port
         self.url = f'http://{self.host}:{self.port}/v1/regtest/dapp/' \
@@ -22,7 +22,7 @@ class TxStateWSClient:
         self.wallet_password = wallet_password
         self.account = account
         self.session = aiohttp.ClientSession()
-        self._ws = None
+        self._ws: Optional[aiohttp.client.ClientWebSocketResponse] = None
         self.msg_queue = asyncio.Queue()
         self.logger = logging.getLogger("tx-state-ws-client")
 
@@ -34,15 +34,15 @@ class TxStateWSClient:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self._ws.close()
+        await cast(aiohttp.client.ClientWebSocketResponse, self._ws).close()
         await self.session.close()
 
     async def send_str(self, msg: str):
-        await self._ws.send_str(msg)
+        await cast(aiohttp.client.ClientWebSocketResponse, self._ws).send_str(msg)
 
     async def _receive_msgs(self):
         try:
-            async for msg in self._ws:
+            async for msg in cast(aiohttp.client.ClientWebSocketResponse, self._ws):
                 if json.loads(msg.data).get('code'):
                     self.logger.debug(f'Error message received from server: {msg.data}')
                     continue
@@ -55,7 +55,7 @@ class TxStateWSClient:
         finally:
             self.msg_queue.put_nowait(None)  # poison pill
 
-    async def block_until_mempool(self, txids: Iterable[str]):
+    async def block_until_mempool(self, txids: Iterable[str]) -> None:
         self._receive_msg_task = asyncio.create_task(self._receive_msgs())
         subs = json.dumps({
             "txids": list(txids)
@@ -73,14 +73,14 @@ class TxStateWSClient:
                 continue
             tx_flags = msg.get("tx_flags")
             if msg.get("txid") in txids_set and \
-                    (tx_flags & TxFlags.StateCleared) == TxFlags.StateCleared or \
-                    (tx_flags & TxFlags.StateSettled) == TxFlags.StateSettled:
+                    (tx_flags & TxFlags.STATE_CLEARED) == TxFlags.STATE_CLEARED or \
+                    (tx_flags & TxFlags.STATE_SETTLED) == TxFlags.STATE_SETTLED:
                 txids_set.remove(txid)
 
             if len(txids_set) == 0:
                 break
 
-    async def block_until_confirmed(self, txids: List[str]):
+    async def block_until_confirmed(self, txids: List[str]) -> None:
         self._receive_msg_task = asyncio.create_task(self._receive_msgs())
         subs = json.dumps({
             "txids": list(txids)
@@ -98,7 +98,8 @@ class TxStateWSClient:
             if not txid:
                 continue
             tx_flags = msg.get("tx_flags")
-            if msg.get("txid") in txids_set and (tx_flags & TxFlags.StateSettled == TxFlags.StateSettled):
+            if msg.get("txid") in txids_set and \
+                    (tx_flags & TxFlags.STATE_SETTLED == TxFlags.STATE_SETTLED):
                 txids_set.remove(txid)
 
             if len(txids_set) == 0:

@@ -111,7 +111,7 @@ async def test_key_reservation(mock_app_state) -> None:
 
     future = wallet.reserve_keyinstance(account.get_id(), masterkey_row.masterkey_id,
         RECEIVING_SUBPATH)
-    keyinstance_id, flags = future.result()
+    keyinstance_id, derivation_type, derivation_data2, flags = future.result()
     assert keyinstance_id == 1
     # The flags it thinks were updated as part of this operation.
     assert flags == KeyInstanceFlag.USED
@@ -119,11 +119,11 @@ async def test_key_reservation(mock_app_state) -> None:
     future = wallet.reserve_keyinstance(account.get_id(), masterkey_row.masterkey_id,
         RECEIVING_SUBPATH)
     with pytest.raises(KeyInstanceNotFoundError):
-        _keyinstance_id, _flags = future.result()
+        _keyinstance_id, derivation_type, derivation_data2, _flags = future.result()
 
     future = wallet.reserve_keyinstance(account.get_id(), masterkey_row.masterkey_id,
         CHANGE_SUBPATH, KeyInstanceFlag.ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST)
-    keyinstance_id, flags = future.result()
+    keyinstance_id, derivation_type, derivation_data2, flags = future.result()
     assert keyinstance_id == 2
     # The flags it thinks were updated as part of this operation.
     assert flags == (KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USED

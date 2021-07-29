@@ -131,7 +131,7 @@ async def _fake_load_wallet_succeeds(wallet_name: str, password: str) -> Wallet:
     return MockWallet()
 
 
-def _fake_coin_state_dto(wallet) -> Union[Fault, Dict[str, Any]]:
+def _fake_coin_state_dto(wallet) -> Dict[str, Any]:
     results = {"cleared_coins": 50,
                "settled_coins": 2000,
                "unmatured": 100}
@@ -300,7 +300,7 @@ class MockDefaultEndpoints(ExtensionEndpoints):
         return Transaction.from_hex(rawtx).txid()
 
 
-def _fake_get_account_succeeded(wallet_name, index) -> Union[Fault, AbstractAccount]:
+def _fake_get_account_succeeded(wallet_name, index) -> AbstractAccount:
     return MockAccount()  # which in-turn patches get_transaction_outputs_with_key_data()
 
 

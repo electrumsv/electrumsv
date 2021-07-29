@@ -448,31 +448,6 @@ Regtest only endpoints
 If you try to access these endpoints when not in RegTest mode you will get back a 404 error because the endpoint will
 not be available.
 
-topup_account
-***************************
-Tops up the RegTest wallet from the RegTest node wallet (new blocks may be generated to facilitate this process).
-
-:Method: POST
-:Content-Type: application/json
-:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/topup_account``
-:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/topup_account``
-
-**Sample Request Payload**
-
-.. code-block::
-
-    {
-        "amount": 10
-    }
-
-**Sample Response**
-
-.. code-block::
-
-    {
-        "txid": "8f3dfe9b9e84c1d0b6d6ead8700be4114bb2d3ca1f97e1e84c64ea944415c723"
-    }
-
 generate_blocks
 ***************************
 Tops up the RegTest wallet from the RegTest node wallet (new blocks may be generated to facilitate this process).

@@ -33,7 +33,7 @@ import json
 from typing import Any, Dict, Optional, Tuple, Type, Union
 
 from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet, \
-    BitcoinRegtest, PrivateKey, PublicKey
+    BitcoinRegtest
 
 from .util import resource_path
 
@@ -79,13 +79,10 @@ class SVMainnet(object):
 
     # A post-split SV checkpoint.
     CHECKPOINT = CheckPoint(bytes.fromhex(
-        '00004020001c43664879f5c89384f39f0c71a48197b2f1bfdbbe83010000000000000000e3d8f953'
-        'f133959c98fadfced5b83f388b8aaee167772dc850425edcb5ac916e7862285fdf6203181438585e'
-    ), height=646575, prev_work=0x1149bb71861599709fe849c)
-
-    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = (
-        '3fccaf735987c5a6bcf5ee24022a989d311b18e0fa20f67c4565137fb888317b'
-    )
+        '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
+        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c'
+    ), height=0, prev_work=0)
+    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = None
 
     BIP44_COIN_TYPE = 0
 
@@ -247,30 +244,6 @@ class SVScalingTestnet(object):
 
 
 class SVRegTestnet(object):
-    """The checkpoint cannot be made until the bitcoin node has at least generated 146 blocks (to
-    calculate the DAA). Blocks are therefore generated until there are at least 200. A new
-    checkpoint at height = 200 is then calculated before allowing anything further to proceed.
-
-    Note: RegTest overflows the max nBits field, presumably due to a very short time interval
-    between generated blocks. To modify this field would be to change the hash of the header so
-    as a workaround, bitcoinx is monkeypatched to skip the checking of the difficulty target
-    (see HeadersRegtestMod)."""
-
-    # hardcoded
-    # - WIF private_key:    cT3G2vJGRNbpmoCVXYPYv2JbngzwtznLvioPPJXu39jfQeLpDuX5
-    # - Pubkey hash:        mfs8Y8gAwC2vJHCeSXkHs6LF5nu5PA7nxc
-    REGTEST_FUNDS_PRIVATE_KEY: PrivateKey = PrivateKey(
-        bytes.fromhex('a2d9803c912ab380c1491d3bd1aaab34ca06742d7885a224ec8d386182d26ed2'),
-        coin=BitcoinRegtest)
-    REGTEST_FUNDS_PRIVATE_KEY_WIF = REGTEST_FUNDS_PRIVATE_KEY.to_WIF()
-    REGTEST_FUNDS_PUBLIC_KEY: PublicKey = REGTEST_FUNDS_PRIVATE_KEY.public_key
-    REGTEST_P2PKH_ADDRESS: str = REGTEST_FUNDS_PUBLIC_KEY.to_address().to_string()
-
-    # For CI/CD use (restapi will by default reset everything back to empty wallet with this seed)
-    # First receive address: mwv1WZTsrtKf3S9mRQABEeMaNefLbQbKpg
-    REGTEST_DEFAULT_ACCOUNT_SEED = 'tprv8ZgxMBicQKsPd4wsdaJ11eH84eq4hHLX1K6Mx8EQQhJzq8jr25WH1m8hg' \
-        'GkCqnksJDCZPZbDoMbQ6QtroyCyn5ZckCmsLeiHDb1MAxhNUHN'
-
     MIN_CHECKPOINT_HEIGHT = 0
     ADDRTYPE_P2PKH = 111
     ADDRTYPE_P2SH = 196
@@ -289,7 +262,7 @@ class SVRegTestnet(object):
     # Use the following for a chain reset.
     CHECKPOINT = CheckPoint(bytes.fromhex(
         '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
-        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
+        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff7f2002000000'
     ), height=0, prev_work=0)
     VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = None
 

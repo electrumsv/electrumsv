@@ -112,7 +112,7 @@ def good_response(response: Union[Dict[Any, Any], List[Any]]) -> web.Response:
     return web.Response(text=json.dumps(response, indent=2), content_type="application/json")
 
 
-async def decode_request_body(request: web.Request) -> Union[Dict[Any, Any], Fault]:
+async def decode_request_body(request: web.Request) -> Dict[Any, Any]:
     body = await request.read()
     if body == b"" or body == b"{}":
         return {}

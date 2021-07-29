@@ -7,30 +7,32 @@ electrumsv-sdk start --new electrumsv
 
 """
 import asyncio
+import enum
 import json
 import logging
 import os
-import time
 from pathlib import Path
+from typing import Any, Dict, List
 
 import aiohttp
 import pytest
 import requests
 from async_timeout import timeout
 
-from electrumsv_sdk import commands
-
-from electrumsv_sdk import commands
-
 from electrumsv.constants import TxFlags
 from electrumsv.networks import SVRegTestnet, Net
 from electrumsv.restapi import Fault
+
 from ..websocket_client import TxStateWSClient
+from .util import BITCOIN_NODE_URI, REGTEST_FUNDS_PRIVATE_KEY_WIF
+
 
 MODULE_DIR = os.path.dirname(os.path.abspath(__file__))
 ELECTRUMSV_TOP_LEVEL_DIRECTORY = Path(MODULE_DIR).parent.parent.parent
 logger = logging.getLogger("test-restapi")
 
+
+P2PKH_SCRIPT_HEX = "76a914a18ddde6812ea971e6404b633ac403b0cf43f61088ac"
 
 def with_timeout(t):
     def wrapper(corofunc):
@@ -44,7 +46,7 @@ def with_timeout(t):
     return wrapper
 
 
-async def wait_for_mempool(txids):
+async def wait_for_mempool(txids: List[str]) -> None:
     async with TxStateWSClient() as ws_client:
         await ws_client.block_until_mempool(txids)
 
@@ -53,11 +55,61 @@ async def wait_for_confirmation(txids):
     async with TxStateWSClient() as ws_client:
         await ws_client.block_until_confirmed(txids)
 
+class WalletInstanceKind(enum.IntEnum):
+    TEST_MINING = 1
+    TEST_PAYMENT = 2
 
 class TestRestAPI:
+    mining_wallet: Dict[str, Any]
 
-    def setup_class(cls):
+    TEST_WALLET_NAME = "worker1.sqlite"
+
+    @classmethod
+    def setup_class(cls) -> None:
         cls.TEST_WALLET_NAME = "worker1.sqlite"
+
+        # Assume the node has started. Import the private key.
+        payload = json.dumps(
+            {"jsonrpc": "2.0", "method": "importprivkey",
+            "params": [REGTEST_FUNDS_PRIVATE_KEY_WIF], "id": 0})
+        result = requests.post(BITCOIN_NODE_URI, data=payload)
+        result.raise_for_status()
+
+        # TODO(REST-API-Refactoring) Re-enable and replace node wallet usage.
+        # cls.mining_wallet = cls._load_wallet(WalletInstanceKind.TEST_MINING)
+        # cls.payment_wallet = cls._load_wallet(WalletInstanceKind.TEST_PAYMENT)
+
+        # mining_wallet_id = cls.mining_wallet["wallet_id"]
+        # for i in range(3):
+        #     request = cls._create_payment_request(mining_wallet_id)
+        #     regtest_generate_nblocks(1, request["destination"])
+
+        # request = cls._create_payment_request(mining_wallet_id)
+        # regtest_generate_nblocks(100, request["destination"])
+
+    @classmethod
+    def teardown_class(cls) -> None:
+        pass
+
+    # TODO(REST-API-Refactoring) Re-enable and replace node wallet usage.
+    # @classmethod
+    # def topup_payment_account(cls) -> None:
+    #     payment_wallet_id = cls.payment_wallet["wallet_id"]
+    #     request = cls._create_payment_request(payment_wallet_id)
+    #     destination = request["destination"]
+
+    # @classmethod
+    # def _load_wallet(cls, instance_kind: WalletInstanceKind) -> Dict[str, Any]:
+    #     payload = {
+    #         "password": "123456",
+    #         "wallet_instance_id": instance_kind,
+    #     }
+    #     result = requests.post(
+    #         f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/load_instanced',
+    #         json=payload)
+    #     if result.status_code != 200:
+    #         raise requests.exceptions.HTTPError(result.text)
+    #     return result.json()
 
     def _load_wallet(self):
         payload = {
@@ -75,6 +127,19 @@ class TestRestAPI:
         if result2.status_code != 200:
             raise requests.exceptions.HTTPError(result2.text)
         return result2
+
+    # TODO(REST-API-Refactoring) Re-enable and replace node wallet usage.
+    # @classmethod
+    # def _create_payment_request(cls, wallet_id: int) -> Dict[str, Any]:
+    #     payload = {
+    #         "message": "Mining destination",
+    #     }
+    #     result = requests.post(
+    #         f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/{wallet_id}/1/payment_request',
+    #         json=payload)
+    #     if result.status_code != 200:
+    #         raise requests.exceptions.HTTPError(result.text)
+    #     return result.json()
 
     def _fetch_transaction(self, txid: str):
         url = f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/fetch'
@@ -138,7 +203,7 @@ class TestRestAPI:
             raise requests.exceptions.HTTPError(result.text)
         return result
 
-    def test_create_new_wallet(self):
+    def test_create_new_wallet(self) -> None:
         payload = {"password": "test"}
         result = requests.post(
             f"http://127.0.0.1:9999/v1/regtest/dapp/wallets/{self.TEST_WALLET_NAME}/create_new_wallet",
@@ -146,7 +211,8 @@ class TestRestAPI:
         )
         if result.status_code != 200:
             if result.json()['code'] == 40008:
-                return pytest.skip("wallet already created")
+                pytest.skip("wallet already created")
+                return
             raise requests.exceptions.HTTPError(result.text)
 
         result = requests.get(f"http://127.0.0.1:9999/v1/regtest/dapp/wallets/{self.TEST_WALLET_NAME}")
@@ -157,7 +223,7 @@ class TestRestAPI:
         assert result.json()['accounts']['1']['default_script_type'] == 'P2PKH'
         assert result.json()['accounts']['1']['wallet_type'] == 'Standard account'
 
-    def test_get_all_wallets(self):
+    def test_get_all_wallets(self) -> None:
         expected_json = {
                 "wallets": [
                     "worker1.sqlite",
@@ -185,7 +251,7 @@ class TestRestAPI:
         await wait_for_mempool(txids)
         for txid in txids:
             result2 = self._fetch_transaction(txid)
-            assert result2.json()['tx_flags'] & TxFlags.StateCleared == TxFlags.StateCleared
+            assert result2.json()['tx_flags'] & TxFlags.STATE_CLEARED == TxFlags.STATE_CLEARED
 
     @pytest.mark.asyncio
     @with_timeout(10)
@@ -198,7 +264,7 @@ class TestRestAPI:
         await wait_for_confirmation(txids)
         for txid in txids:
             result2 = self._fetch_transaction(txid)
-            assert result2.json()['tx_flags'] & TxFlags.StateSettled == TxFlags.StateSettled
+            assert result2.json()['tx_flags'] & TxFlags.STATE_SETTLED == TxFlags.STATE_SETTLED
 
     @pytest.mark.asyncio
     async def test_get_parent_wallet(self):
@@ -283,9 +349,8 @@ class TestRestAPI:
 
         # 2) test concurrent transaction creation + broadcast
         Net.set_to(SVRegTestnet)
-        p2pkh_object = SVRegTestnet.REGTEST_FUNDS_PUBLIC_KEY.to_address()
         P2PKH_OUTPUT = {"value": 10000,
-                        "script_pubkey": p2pkh_object.to_script().to_hex()}
+                        "script_pubkey": P2PKH_SCRIPT_HEX}
         payload2 = {
             "outputs": [P2PKH_OUTPUT],
             "password": "test"
@@ -310,7 +375,6 @@ class TestRestAPI:
     @with_timeout(10)
     async def test_create_and_broadcast_exception_handling(self):
         Net.set_to(SVRegTestnet)
-        p2pkh_object = SVRegTestnet.REGTEST_FUNDS_PUBLIC_KEY.to_address()
 
         async with aiohttp.ClientSession() as session:
             self._load_wallet()
@@ -325,7 +389,7 @@ class TestRestAPI:
 
             # Prepare for two txs that use the same utxo
             P2PKH_OUTPUT = {"value": 100,
-                            "script_pubkey": p2pkh_object.to_script().to_hex()}
+                            "script_pubkey": P2PKH_SCRIPT_HEX}
             # base tx
             payload1 = {
                 "outputs": [P2PKH_OUTPUT],
@@ -357,7 +421,7 @@ class TestRestAPI:
 
             # trigger insufficient coins
             P2PKH_OUTPUT = {"value": 1_000 * 100_000_000,
-                            "script_pubkey": p2pkh_object.to_script().to_hex()}
+                            "script_pubkey": P2PKH_SCRIPT_HEX}
             payload2 = {
                 "outputs": [P2PKH_OUTPUT],
                 "password": "test"

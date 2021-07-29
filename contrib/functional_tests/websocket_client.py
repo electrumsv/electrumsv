@@ -1,9 +1,11 @@
-import aiohttp
 import asyncio
 import json
 import logging
+from types import TracebackType
+from typing import cast, Iterable, List, Optional, Type
+
+import aiohttp
 import requests
-from typing import List, Iterable
 
 from electrumsv.constants import TxFlags
 
@@ -12,8 +14,8 @@ logging.basicConfig(level=logging.DEBUG)
 
 class TxStateWSClient:
 
-    def __init__(self, host="127.0.0.1", port=9999, wallet_name="worker1.sqlite",
-            wallet_password="test", account=1) -> None:
+    def __init__(self, host: str="127.0.0.1", port: int=9999, wallet_name: str="worker1.sqlite",
+            wallet_password: str="test", account: int=1) -> None:
         self.host = host
         self.port = port
         self.url = f'http://{self.host}:{self.port}/v1/regtest/dapp/' \
@@ -22,39 +24,41 @@ class TxStateWSClient:
         self.wallet_password = wallet_password
         self.account = account
         self.session = aiohttp.ClientSession()
-        self._ws = None
+        self._ws: Optional[aiohttp.client.ClientWebSocketResponse] = None
         self.msg_queue = asyncio.Queue()
         self.logger = logging.getLogger("tx-state-ws-client")
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "TxStateWSClient":
         # Normally the RESTAPI pulls the password out of the body, but `ws_connect` cannot be
         # passed a data/json parameter even if it's method is changed to POST.
         self._ws = await self.session.ws_connect(self.url,
             headers={ "X-Wallet-Password": self.wallet_password })
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self._ws.close()
+    async def __aexit__(self, exc_type: Optional[Type[BaseException]],
+            exc_value: Optional[BaseException], traceback: Optional[TracebackType]) \
+                -> None:
+        await cast(aiohttp.client.ClientWebSocketResponse, self._ws).close()
         await self.session.close()
 
-    async def send_str(self, msg: str):
-        await self._ws.send_str(msg)
+    async def send_str(self, msg: str) -> None:
+        await cast(aiohttp.client.ClientWebSocketResponse, self._ws).send_str(msg)
 
-    async def _receive_msgs(self):
+    async def _receive_msgs(self) -> None:
         try:
-            async for msg in self._ws:
+            async for msg in cast(aiohttp.client.ClientWebSocketResponse, self._ws):
                 if json.loads(msg.data).get('code'):
                     self.logger.debug(f'Error message received from server: {msg.data}')
                     continue
                 self.logger.debug(f'Message received from server: {msg.data}')
                 self.msg_queue.put_nowait(msg.data)
                 if msg.type in (aiohttp.WSMsgType.CLOSED,
-                aiohttp.WSMsgType.ERROR):
+                        aiohttp.WSMsgType.ERROR):
                     break
         finally:
             self.msg_queue.put_nowait(None)  # poison pill
 
-    async def block_until_mempool(self, txids: Iterable[str]):
+    async def block_until_mempool(self, txids: Iterable[str]) -> None:
         self._receive_msg_task = asyncio.create_task(self._receive_msgs())
         subs = json.dumps({
             "txids": list(txids)
@@ -72,14 +76,14 @@ class TxStateWSClient:
                 continue
             tx_flags = msg.get("tx_flags")
             if msg.get("txid") in txids_set and \
-                    (tx_flags & TxFlags.StateCleared) == TxFlags.StateCleared or \
-                    (tx_flags & TxFlags.StateSettled) == TxFlags.StateSettled:
+                    (tx_flags & TxFlags.STATE_CLEARED) == TxFlags.STATE_CLEARED or \
+                    (tx_flags & TxFlags.STATE_SETTLED) == TxFlags.STATE_SETTLED:
                 txids_set.remove(txid)
 
             if len(txids_set) == 0:
                 break
 
-    async def block_until_confirmed(self, txids: List[str]):
+    async def block_until_confirmed(self, txids: List[str]) -> None:
         self._receive_msg_task = asyncio.create_task(self._receive_msgs())
         subs = json.dumps({
             "txids": list(txids)
@@ -97,7 +101,8 @@ class TxStateWSClient:
             if not txid:
                 continue
             tx_flags = msg.get("tx_flags")
-            if msg.get("txid") in txids_set and (tx_flags & TxFlags.StateSettled == TxFlags.StateSettled):
+            if msg.get("txid") in txids_set and \
+                    (tx_flags & TxFlags.STATE_SETTLED == TxFlags.STATE_SETTLED):
                 txids_set.remove(txid)
 
             self.logger.debug(f"count txid_set = {len(txids_set)}")
@@ -105,7 +110,7 @@ class TxStateWSClient:
                 break
 
     async def block_until_confirmed_and_height_updated(self, reorg_txids: List[str],
-            reorg_height: int):
+            reorg_height: int) -> None:
         """For waiting on a reorged transaction to have its height updated"""
         self._receive_msg_task = asyncio.create_task(self._receive_msgs())
         subs = json.dumps({
@@ -124,48 +129,7 @@ class TxStateWSClient:
                 continue
             tx_flags = msg.get("tx_flags")
             if msg.get("txid") in txids_set and \
-                    (tx_flags & TxFlags.StateSettled == TxFlags.StateSettled):
-                url = "http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/history"
-                payload = {"tx_flags": 2097152}
-                result = requests.get(url, data=json.dumps(payload))
-                result.raise_for_status()
-                for tx in result.json()['history']:
-                    if tx['txid'] in txids_set:
-                        reorg_tx = tx
-                        break
-                else:
-                    continue  # to wait on queue ^^
-
-                if reorg_tx['height'] == reorg_height:
-                    txids_set.remove(txid)
-                else:  # keep waiting for the reorg notification...
-                    self.logger.info(f"got notification for the stale tx: {tx['txid']} at height: "
-                        f"{reorg_tx['height']}")
-
-            if len(txids_set) == 0:
-                break
-
-    async def block_until_confirmed_and_height_updated(self, reorg_txids: List[str],
-            reorg_height: int):
-        """For waiting on a reorged transaction to have its height updated"""
-        self._receive_msg_task = asyncio.create_task(self._receive_msgs())
-        subs = json.dumps({
-            "txids": list(reorg_txids)
-        })
-        txids_set = set(reorg_txids)
-        await self.send_str(subs)
-
-        while True:
-            msg = await self.msg_queue.get()
-            if not msg:  # poison pill
-                break
-            msg = json.loads(msg)
-            txid = msg.get("txid")
-            if not txid:
-                continue
-            tx_flags = msg.get("tx_flags")
-            if msg.get("txid") in txids_set and \
-                    (tx_flags & TxFlags.StateSettled == TxFlags.StateSettled):
+                    (tx_flags & TxFlags.STATE_SETTLED == TxFlags.STATE_SETTLED):
                 url = "http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/history"
                 payload = {"tx_flags": 2097152}
                 result = requests.get(url, data=json.dumps(payload))

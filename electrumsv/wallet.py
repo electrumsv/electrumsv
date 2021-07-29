@@ -91,7 +91,8 @@ from .wallet_database.exceptions import KeyInstanceNotFoundError
 from .wallet_database import functions as db_functions
 from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
-    HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataTypes, KeyInstanceFlagChangeRow,
+    HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataType, KeyDataTypes,
+    KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult, PaymentRequestReadRow,
     PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
@@ -223,7 +224,7 @@ class AbstractAccount:
         raise NotImplementedError
 
     def reserve_unassigned_key(self, derivation_parent: DerivationPath, flags: KeyInstanceFlag) \
-            -> int:
+            -> KeyDataType:
         raise NotImplementedError
 
     def derive_new_keys_until(self, derivation_path: DerivationPath,
@@ -1377,6 +1378,19 @@ class AbstractAccount:
     def get_masterkey_id(self) -> Optional[int]:
         raise NotImplementedError
 
+    def create_payment_request(self, message: str, amount: Optional[int]=None,
+            expiration_seconds: Optional[int]=None) \
+                -> Tuple[concurrent.futures.Future[List[PaymentRequestRow]], KeyDataType]:
+        # Note that we are allowed to set `ACTIVE` here because we clear it when we delete
+        # the payment request, and we need to know about payments made to the given script or
+        # address on the blockchain.
+        key_data = self.reserve_unassigned_key(RECEIVING_SUBPATH,
+            KeyInstanceFlag.IS_PAYMENT_REQUEST | KeyInstanceFlag.ACTIVE)
+        row = PaymentRequestRow(-1, key_data.keyinstance_id, PaymentFlag.UNPAID, amount,
+            expiration_seconds, message, get_posix_timestamp())
+        future = self._wallet.create_payment_requests(self._id, [ row ])
+        return future, key_data
+
 
 class SimpleAccount(AbstractAccount):
     # wallet with a single keystore
@@ -1803,7 +1817,7 @@ class DeterministicAccount(AbstractAccount):
             tuple(derivation_subpath) + (i,)) for i in range(next_index, next_index + count))
 
     def reserve_unassigned_key(self, derivation_subpath: DerivationPath, flags: KeyInstanceFlag) \
-            -> int:
+            -> KeyDataType:
         """
         Reserve the first available unused key from the given derivation path.
 
@@ -1821,16 +1835,19 @@ class DeterministicAccount(AbstractAccount):
 
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         masterkey_id = keystore.get_id()
-        future: Optional[concurrent.futures.Future[Tuple[int, KeyInstanceFlag]]] \
-            = self._wallet.reserve_keyinstance(self._id, masterkey_id, derivation_subpath, flags)
+        future: Optional[concurrent.futures.Future[Tuple[int, DerivationType, bytes,
+            KeyInstanceFlag]]] = self._wallet.reserve_keyinstance(self._id, masterkey_id,
+            derivation_subpath, flags)
         assert future is not None
         try:
-            keyinstance_id, final_flags = future.result()
+            keyinstance_id, derivation_type, derivation_data2, final_flags = future.result()
         except KeyInstanceNotFoundError:
             keyinstance_future, scripthash_future, keyinstance_rows, scripthash_rows = \
                 self.allocate_and_create_keys(1, derivation_subpath, flags | KeyInstanceFlag.USED)
             assert scripthash_future is not None
             keyinstance_id = keyinstance_rows[0].keyinstance_id
+            derivation_type = keyinstance_rows[0].derivation_type
+            derivation_data2 = cast(bytes, keyinstance_rows[0].derivation_data2)
             final_flags = keyinstance_rows[0].flags
             scripthash_future.result()
 
@@ -1842,7 +1859,8 @@ class DeterministicAccount(AbstractAccount):
             self._network.subscriptions.create_entries(
                 self._get_subscription_entries_for_keyinstance_ids([ keyinstance_id ]),
                     self._subscription_owner_for_keys)
-        return keyinstance_id
+        return KeyDataType(keyinstance_id, self._id, masterkey_id, derivation_type,
+            derivation_data2)
 
     def derive_new_keys_until(self, derivation_path: DerivationPath,
             keyinstance_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) \
@@ -2597,7 +2615,7 @@ class Wallet(TriggeredCallbacks):
     def reserve_keyinstance(self, account_id: int, masterkey_id: int,
             derivation_path: DerivationPath,
             allocation_flags: KeyInstanceFlag=KeyInstanceFlag.NONE) \
-                -> concurrent.futures.Future[Tuple[int, KeyInstanceFlag]]:
+                -> concurrent.futures.Future[Tuple[int, DerivationType, bytes, KeyInstanceFlag]]:
         """
         Allocate one keyinstance for the caller's usage.
 

@@ -152,6 +152,8 @@ class BlockHeight(IntEnum):
 
 
 class ScriptType(IntEnum):
+    # These names are used as text identifiers in REST results. Consider that if you plan on
+    # renaming them.
     NONE = 0
     COINBASE = 1
     P2PKH = 2

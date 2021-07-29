@@ -1,9 +1,10 @@
+import enum
 import json
 import os
 import logging
 from concurrent.futures.thread import ThreadPoolExecutor
 from json import JSONDecodeError
-from typing import Any, cast, Dict, List, Optional, Tuple, Union
+from typing import Any, cast, Dict, List, Optional, Sequence, Tuple, Union
 
 import bitcoinx
 from bitcoinx import hash_to_hex_str, hex_str_to_hash, TxOutput
@@ -23,7 +24,7 @@ from electrumsv.restapi import decode_request_body, Fault, get_network_type
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.storage import WalletStorage
 from electrumsv.types import TransactionSize, Outpoint
-from electrumsv.wallet_database.types import (TransactionOutputSpendableRow)
+from electrumsv.wallet_database.types import TransactionMetadata, TransactionOutputSpendableRow
 from examples.applications.restapi.constants import WalletEventNames
 
 from .errors import Errors
@@ -44,6 +45,8 @@ class VNAME(VARNAMES):
     AMOUNT = 'amount'
     NETWORK = 'network'
     ACCOUNT_ID = 'account_id'
+    WALLET_INSTANCE_ID = 'wallet_instance_id'
+    WALLET_ID = 'wallet_id'
     WALLET_NAME = 'wallet_name'
     PASSWORD = 'password'
     RAWTX = 'rawtx'
@@ -61,12 +64,15 @@ class VNAME(VARNAMES):
     SPLIT_VALUE = 'split_value'
     NBLOCKS = 'nblocks'
     TX_FLAGS = 'tx_flags'
+    MESSAGE = 'message'
 
 # Request types
 ADDITIONAL_ARGTYPES: Dict[str, type] = {
     VNAME.NETWORK: str,
     VNAME.ACCOUNT_ID: str,
+    VNAME.WALLET_INSTANCE_ID: int,
     VNAME.WALLET_NAME: str,
+    VNAME.WALLET_ID: str,
     VNAME.PASSWORD: str,
     VNAME.RAWTX: str,
     VNAME.TXIDS: list,
@@ -84,15 +90,29 @@ ADDITIONAL_ARGTYPES: Dict[str, type] = {
     VNAME.SPLIT_VALUE: int,
     VNAME.NBLOCKS: int,
     VNAME.TX_FLAGS: int,  # enum
+    VNAME.MESSAGE: str,
 }
 
 ARGTYPES.update(ADDITIONAL_ARGTYPES)
 
-HEADER_VARS = [VNAME.NETWORK, VNAME.ACCOUNT_ID, VNAME.WALLET_NAME]
+HEADER_VARS = [VNAME.NETWORK, VNAME.ACCOUNT_ID, VNAME.WALLET_NAME, VNAME.WALLET_ID]
 BODY_VARS = [VNAME.PASSWORD, VNAME.RAWTX, VNAME.TXIDS, VNAME.UTXOS, VNAME.OUTPUTS,
              VNAME.UTXO_PRESELECTION, VNAME.REQUIRE_CONFIRMED, VNAME.EXCLUDE_FROZEN,
              VNAME.CONFIRMED_ONLY, VNAME.MATURE, VNAME.AMOUNT, VNAME.SPLIT_COUNT,
-             VNAME.DESIRED_UTXO_COUNT, VNAME.SPLIT_VALUE, VNAME.NBLOCKS, VNAME.TX_FLAGS]
+             VNAME.DESIRED_UTXO_COUNT, VNAME.SPLIT_VALUE, VNAME.NBLOCKS, VNAME.TX_FLAGS,
+             VNAME.MESSAGE]
+
+
+class WalletInstanceKind(enum.IntEnum):
+    TEST_MINING = 1
+    TEST_PAYMENT = 2
+
+WalletInstancePaths: Dict[Union[int, WalletInstanceKind], str] = {
+    WalletInstanceKind.TEST_MINING:
+        os.path.join("contrib", "functional_tests", "data", "wallet_mining.sqlite"),
+    WalletInstanceKind.TEST_PAYMENT:
+        os.path.join("contrib", "functional_tests", "data", "wallet_payment.sqlite"),
+}
 
 
 class ExtendedHandlerUtils(HandlerUtils):
@@ -112,12 +132,12 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     # ---- Parse Header and Body variables ----- #
 
-    def raise_for_rawtx_size(self, rawtx):
+    def raise_for_rawtx_size(self, rawtx) -> None:
         if (len(rawtx) / 2) > 99000:
             fault = Fault(Errors.DATA_TOO_BIG_CODE, Errors.DATA_TOO_BIG_MESSAGE)
             raise fault
 
-    def raise_for_var_missing(self, vars, required_vars: List[str]):
+    def raise_for_var_missing(self, vars, required_vars: List[str]) -> None:
         for varname in required_vars:
             if vars.get(varname) is None:
                 if varname in HEADER_VARS:
@@ -127,48 +147,52 @@ class ExtendedHandlerUtils(HandlerUtils):
                     raise Fault(Errors.GENERIC_BAD_REQUEST_CODE,
                                 Errors.BODY_VAR_NOT_PROVIDED_MESSAGE.format(varname))
 
-    def raise_for_type_okay(self, vars):
+    def raise_for_type_okay(self, vars) -> None:
         for vname in vars:
-            if vars.get(vname, None):
-                if not ARGTYPES.get(vname):
-                    message = f"'{vname}' is not a supported type"
-                    raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, message)
-                if not isinstance(vars.get(vname), ARGTYPES.get(vname)):
-                    message = f"{vars.get(vname)} must be of type: '{ARGTYPES.get(vname)}'"
-                    raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, message)
+            value = vars[vname]
+            if not value:
+                continue
+            if vname not in ARGTYPES:
+                message = f"'{vname}' is not a supported type"
+                raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, message)
+            if not isinstance(value, ARGTYPES[vname]):
+                message = f"{value} must be of type: '{ARGTYPES[vname]}'"
+                raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, message)
 
-    def account_id_if_isdigit(self, index: str) -> Union[int, Fault]:
+    def account_id_if_isdigit(self, index: str) -> int:
         if not index.isdigit():
             message = "child wallet index in url must be an integer. You tried " \
                       "index='%s'." % index
             raise Fault(code=Errors.GENERIC_BAD_REQUEST_CODE, message=message)
         return int(index)
 
-    def raise_for_wallet_availability(self, wallet_name: str) -> Union[str, Fault]:
+    def raise_for_wallet_availability(self, wallet_name: str) -> str:
         if not self._wallet_name_available(wallet_name):
             raise Fault(code=Errors.WALLET_NOT_FOUND_CODE,
                          message=Errors.WALLET_NOT_FOUND_MESSAGE.format(wallet_name))
         return wallet_name
 
-    def get_header_vars(self, request) -> Dict:
-        header_vars = {}
+    def get_route_vars(self, request: web.Request) -> Dict[str, Any]:
+        # This gets the variables embedded implicitly in the path for any given handler.
+        header_vars: Dict[str, Any] = {}
         for varname in HEADER_VARS:
             header_vars.update({varname: request.match_info.get(varname)})
         return header_vars
 
-    async def get_body_vars(self, request) -> Dict:
+    async def get_body_vars(self, request: web.Request) -> Dict[str, Any]:
+        # This gets the variables from the body.
         try:
-            return await decode_request_body(request)
+            return cast(Dict[str, Any], await decode_request_body(request))
         except JSONDecodeError as e:
             message = "JSONDecodeError " + str(e)
             raise Fault(Errors.JSON_DECODE_ERROR_CODE, message)
 
-    async def argparser(self, request: web.Request, required_vars: List=None,
-            check_wallet_availability=True) -> Dict[str, Any]:
+    async def argparser(self, request: web.Request, required_vars: Optional[List]=None,
+            check_wallet_availability: bool=True) -> Dict[str, Any]:
         """Extracts and checks all standardized header and body variables from the request object
         as a dictionary to feed to the handlers."""
         vars: Dict = {}
-        header_vars = self.get_header_vars(request)
+        header_vars = self.get_route_vars(request)
         body_vars = await self.get_body_vars(request)
         vars.update(header_vars)
         vars.update(body_vars)
@@ -177,6 +201,10 @@ class ExtendedHandlerUtils(HandlerUtils):
         wallet_name = vars.get(VNAME.WALLET_NAME)
         if wallet_name and check_wallet_availability:
             self.raise_for_wallet_availability(wallet_name)
+
+        wallet_id = vars.get(VNAME.WALLET_ID)
+        if wallet_id:
+            vars[VNAME.WALLET_ID] = self.account_id_if_isdigit(wallet_id)
 
         account_id = vars.get(VNAME.ACCOUNT_ID)
         if account_id:
@@ -197,7 +225,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     # ----- Support functions ----- #
 
-    def utxo_as_dict(self, utxo: TransactionOutputSpendableRow):
+    def utxo_as_dict(self, utxo: TransactionOutputSpendableRow) -> Dict[str, Any]:
         return {"value": utxo.value,
                 "script_type": utxo.script_type,
                 "tx_hash": hash_to_hex_str(utxo.tx_hash),
@@ -206,11 +234,11 @@ class ExtendedHandlerUtils(HandlerUtils):
                 "is_coinbase": utxo.flags & TransactionOutputFlag.COINBASE != 0,
                 "flags": utxo.flags}  # TransactionOutputFlag(s) only
 
-    def outputs_from_dicts(self, outputs: Optional[List[Dict[str, Any]]]) -> List[TxOutput]:
+    def outputs_from_dicts(self, outputs: List[Dict[str, Any]]) -> List[TxOutput]:
         outputs_from_dicts = []
         for output in outputs:
-            spk = bitcoinx.Script.from_hex(output.get('script_pubkey'))
-            outputs_from_dicts.append(bitcoinx.TxOutput(value=output.get('value'),
+            spk = bitcoinx.Script.from_hex(output['script_pubkey'])
+            outputs_from_dicts.append(bitcoinx.TxOutput(value=output['value'],
                                                         script_pubkey=spk))
         return outputs_from_dicts
 
@@ -220,27 +248,30 @@ class ExtendedHandlerUtils(HandlerUtils):
             for (tx_id, txo_index) in entries
         ]
 
-    def raise_for_duplicate_tx(self, tx):
+    def raise_for_duplicate_tx(self, tx: Transaction) -> None:
         """because the network can be very slow to give this important feedback and instead will
         return the txid as an http 200 response."""
         if tx.txid() == self.prev_transaction:
             message = "You've already sent this transaction: {}".format(tx.txid())
             fault = Fault(Errors.ALREADY_SENT_TRANSACTION_CODE, message)
             raise fault
-        return
 
-    def _get_wallet_path(self, wallet_name: str) -> str:
+    def _get_wallet_path(self, wallet_name: str, is_relative: bool=True) -> str:
         """returns parent wallet path. The wallet_name must include .sqlite extension"""
-        wallet_path = os.path.join(self.wallets_path, wallet_name)
-        wallet_path = os.path.normpath(wallet_path)
-        if wallet_name != os.path.basename(wallet_path):
-            raise Fault(Errors.BAD_WALLET_NAME_CODE, Errors.BAD_WALLET_NAME_MESSAGE)
+        if is_relative:
+            wallet_path = os.path.join(self.wallets_path, wallet_name)
+            wallet_path = os.path.normpath(wallet_path)
+            if wallet_name != os.path.basename(wallet_path):
+                raise Fault(Errors.BAD_WALLET_NAME_CODE, Errors.BAD_WALLET_NAME_MESSAGE)
+        else:
+            if not os.path.isabs(wallet_name):
+                raise Fault(Errors.WALLET_NOT_FOUND_CODE, Errors.WALLET_NOT_FOUND_MESSAGE)
+            wallet_path = wallet_name
         if os.path.exists(wallet_path):
             return wallet_path
-        else:
-            raise Fault(Errors.WALLET_NOT_FOUND_CODE, Errors.WALLET_NOT_FOUND_MESSAGE)
+        raise Fault(Errors.WALLET_NOT_FOUND_CODE, Errors.WALLET_NOT_FOUND_MESSAGE)
 
-    def _get_all_wallets(self, wallets_path) -> List[str]:
+    def _get_all_wallets(self, wallets_path: str) -> List[str]:
         """returns all parent wallet paths"""
         all_parent_wallets = []
         for item in os.listdir(wallets_path):
@@ -260,6 +291,15 @@ class ExtendedHandlerUtils(HandlerUtils):
             raise Fault(code=Errors.LOAD_BEFORE_GET_CODE, message=message)
         return parent_wallet
 
+    def _get_wallet_by_id(self, wallet_id: int) -> Wallet:
+        """returns the wallet object"""
+        parent_wallet = self.app_state.daemon.get_wallet_by_id(wallet_id)
+        if parent_wallet is None:
+            message = Errors.LOAD_BEFORE_GET_MESSAGE.format(get_network_type(),
+                                                            'wallet_name.sqlite')
+            raise Fault(code=Errors.LOAD_BEFORE_GET_CODE, message=message)
+        return parent_wallet
+
     def _get_account(self, wallet_name: str, account_id: int=1) -> AbstractAccount:
         parent_wallet = self._get_parent_wallet(wallet_name=wallet_name)
         child_wallet = parent_wallet.get_account(account_id)
@@ -268,15 +308,23 @@ class ExtendedHandlerUtils(HandlerUtils):
             raise Fault(Errors.WALLET_NOT_FOUND_CODE, message)
         return child_wallet
 
-    def _is_wallet_ready(self, wallet_name: Optional[str]=None) -> bool:
+    def _get_account_from_wallet(self, wallet: Wallet, account_id: int=1) -> AbstractAccount:
+        account = wallet.get_account(account_id)
+        if account is None:
+            message = f"There is no account at account_id: {account_id}."
+            raise Fault(Errors.WALLET_NOT_FOUND_CODE, message)
+        return account
+
+    def _is_wallet_ready(self, wallet_name: str) -> bool:
         wallet = self._get_parent_wallet(wallet_name)
         return wallet.is_synchronized()
 
-    async def _load_wallet(self, wallet_name: str, wallet_password: str) -> Wallet:
+    async def _load_wallet(self, wallet_name: str, wallet_password: str,
+            enforce_wallet_directory: bool=True) -> Wallet:
         """Loads one parent wallet into the daemon and begins synchronization"""
         wallet_name = WalletStorage.canonical_path(wallet_name)
 
-        path_result = self._get_wallet_path(wallet_name)
+        path_result = self._get_wallet_path(wallet_name, is_relative=enforce_wallet_directory)
         wallet = self.app_state.daemon.get_wallet(path_result)
         # If wallet is not already loaded - register for websocket events and allow gap limit
         # adjustments for faster synchronization with high tx throughput. However, gap limit
@@ -300,7 +348,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
         return wallet
 
-    def _fetch_transaction_dto(self, account: AbstractAccount, tx_id) -> Optional[Dict]:
+    def _fetch_transaction_dto(self, account: AbstractAccount, tx_id) -> Dict[str, Any]:
         tx_hash = hex_str_to_hash(tx_id)
         tx_bytes = account._wallet.get_transaction_bytes(tx_hash)
         if tx_bytes is None:
@@ -313,7 +361,7 @@ class ExtendedHandlerUtils(HandlerUtils):
             return True
         return False
 
-    def script_type_repr(self, int):
+    def script_type_repr(self, int) -> str:
         mappings = {
             0: 'NONE',
             1: 'COINBASE',
@@ -325,7 +373,8 @@ class ExtendedHandlerUtils(HandlerUtils):
         }
         return mappings[int]
 
-    async def send_request(self, method, args):
+    async def send_request(self, method: str, args: Sequence[Any]) -> Any:
+        assert self.app_state.daemon.network is not None
         session = await self.app_state.daemon.network._main_session()
         return await session.send_request(method, args)
 
@@ -354,7 +403,8 @@ class ExtendedHandlerUtils(HandlerUtils):
             INPUT_SIZE = 148
             CHANGE_SAFE_MARGIN = 34 * 1000  # enough for 1000 change outputs
             total_input = sum(utxo.value for utxo in selected_utxos)
-            total_size = sum(INPUT_SIZE for utxo in selected_utxos) + base_size + CHANGE_SAFE_MARGIN
+            total_size = TransactionSize(
+                sum(INPUT_SIZE for utxo in selected_utxos) + base_size + CHANGE_SAFE_MARGIN, 0)
             return total_input >= spent_amount + fee_estimator(total_size)
 
         # add batches of 10 utxos before sufficient_funds() check
@@ -373,7 +423,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     # ----- Data transfer objects ----- #
 
-    def _balance_dto(self, wallet: AbstractAccount) -> Dict[Any, Any]:
+    def _balance_dto(self, wallet: AbstractAccount) -> Dict[str, Any]:
         wallet_balance = wallet.get_balance()
         return {"confirmed_balance": wallet_balance.confirmed,
                 "unconfirmed_balance": wallet_balance.unconfirmed,
@@ -387,8 +437,8 @@ class ExtendedHandlerUtils(HandlerUtils):
         return utxos_as_dicts
 
     def _history_dto(self, account: AbstractAccount, tx_flags: Optional[TxFlags]=None) \
-            -> List[Dict[Any, Any]]:
-        result = []
+            -> List[Dict[str, Any]]:
+        result: List[Dict[str, Any]] = []
         entries = account.get_transaction_value_entries(mask=tx_flags)
         for entry in entries:
             result.append({"txid": hash_to_hex_str(entry.tx_hash),
@@ -397,7 +447,7 @@ class ExtendedHandlerUtils(HandlerUtils):
                            "value": entry.value})
         return result
 
-    def _account_dto(self, account) -> Dict[Any, Any]:
+    def _account_dto(self, account) -> Dict[int, Dict[str, Any]]:
         """child wallet data transfer object"""
         script_type = account._row.default_script_type
 
@@ -407,14 +457,14 @@ class ExtendedHandlerUtils(HandlerUtils):
                              "default_script_type": self.script_type_repr(script_type),
                              "is_wallet_ready": account._wallet.is_synchronized()}}
 
-    def _accounts_dto(self, wallet: Wallet):
+    def _accounts_dto(self, wallet: Wallet) -> Dict[int, Dict[str, Any]]:
         """child wallets data transfer object"""
-        accounts = {}
+        accounts: Dict[int, Dict[str, Any]] = {}
         for account in wallet.get_accounts():
             accounts.update(self._account_dto(account))
         return accounts
 
-    def _coin_state_dto(self, account) -> Union[Fault, Dict[str, Any]]:
+    def _coin_state_dto(self, account) -> Dict[str, Any]:
         all_coins = account.get_transaction_outputs_with_key_and_tx_data(confirmed_only=False,
             mature=False)
         unmatured_coins = []
@@ -486,6 +536,7 @@ class ExtendedHandlerUtils(HandlerUtils):
         # removal of txs that are not in the STATE_SIGNED tx state is disabled for now as it may
         # cause issues with expunging utxos inadvertently.
         tx_flags = account._wallet.get_transaction_flags(tx_hash)
+        assert tx_flags is not None
         is_signed_state = (tx_flags & TxFlags.STATE_SIGNED) == TxFlags.STATE_SIGNED
         # Todo - perhaps remove restriction to STATE_SIGNED only later (if safe for utxos state)
         if not is_signed_state:
@@ -500,7 +551,7 @@ class ExtendedHandlerUtils(HandlerUtils):
             desired_utxo_count: int = 2000,
             max_utxo_margin: int = 200,
             require_confirmed: bool = True,
-            ) -> Union[Tuple[List[TransactionOutputSpendableRow], List[TxOutput], bool], Fault]:
+            ) -> Tuple[List[TransactionOutputSpendableRow], List[TxOutput], bool]:
 
         INPUT_COST = config.estimate_fee(TransactionSize(INPUT_SIZE, 0))
         OUTPUT_COST = config.estimate_fee(TransactionSize(OUTPUT_SIZE, 0))
@@ -510,10 +561,10 @@ class ExtendedHandlerUtils(HandlerUtils):
         # Ignore coins that are too expensive to send, or not confirmed.
         # Todo - this is inefficient to iterate over all coins (need better handling of dust utxos)
         if require_confirmed:
-            get_metadata = account.get_transaction_metadata
+            get_metadata = account._wallet.get_transaction_metadata
             spendable_coins = [coin for coin in all_coins
                 if coin.value > (INPUT_COST + OUTPUT_COST)
-                and get_metadata(coin.tx_hash).height > 0]
+                and cast(TransactionMetadata, get_metadata(coin.tx_hash)).block_height > 0]
         else:
             spendable_coins = [coin for coin in all_coins if
                                 coin.value > (INPUT_COST + OUTPUT_COST)]
@@ -544,6 +595,7 @@ class ExtendedHandlerUtils(HandlerUtils):
                 # We ensure that we do not use conflicting addresses for the split outputs by
                 # explicitly generating the addresses we are splitting to.
                 for key in account.get_fresh_keys(CHANGE_SUBPATH, count=split_count):
+                    assert key.derivation_data2 is not None
                     derivation_path = unpack_derivation_path(key.derivation_data2)
                     pubkey = account.derive_pubkeys(derivation_path)
                     outputs.append(TxOutput(split_value, pubkey.P2PKH_script()))
@@ -561,17 +613,17 @@ class ExtendedHandlerUtils(HandlerUtils):
 
         return inputs, outputs, attempted_split
 
-    def cleanup_tx(self, tx, account):
+    def cleanup_tx(self, tx: Transaction, account: AbstractAccount) -> None:
         """Use of the frozen utxo mechanic may be phased out because signing a tx allocates the
         utxos thus making freezing redundant."""
         self.remove_transaction(tx.hash(), account)
 
-    def batch_response(self, response: Dict) -> web.Response:
+    def batch_response(self, response: Dict[str, Any]) -> web.Response:
         # follows this spec https://opensource.zalando.com/restful-api-guidelines/#152
         return web.Response(text=json.dumps(response, indent=2), content_type="application/json",
                             status=207)
 
-    def check_if_wallet_exists(self, file_path):
+    def check_if_wallet_exists(self, file_path: str) -> None:
         if os.path.exists(file_path):
             raise Fault(code=Errors.BAD_WALLET_NAME_CODE,
                         message=f"'{file_path + DATABASE_EXT}' already exists")

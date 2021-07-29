@@ -155,7 +155,7 @@ class TestRestAPI:
 
         return True, None
 
-    def test_concurrent_tx_creation_and_broadcast(self, event_loop):
+    def test_concurrent_tx_creation_and_broadcast(self, event_loop) -> None:
 
         logging.basicConfig(level=logging.DEBUG)
 

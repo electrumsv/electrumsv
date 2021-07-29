@@ -34,8 +34,9 @@ etc.
 '''
 import concurrent.futures
 import os
+import shutil
 import time
-from typing import Any, Callable, cast, Coroutine, Optional, Tuple, TYPE_CHECKING, TypeVar, Union
+from typing import Any, Callable, cast, Coroutine, Optional, Tuple, TYPE_CHECKING, TypeVar
 
 from bitcoinx import Headers
 
@@ -45,7 +46,7 @@ from .credentials import CredentialCache
 from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
-from .regtest_support import HeadersRegTestMod, setup_regtest
+from .startup import package_dir
 from .util import format_satoshis
 
 if TYPE_CHECKING:
@@ -101,11 +102,30 @@ class AppStateProxy(object):
         AppState.set_proxy(self)
         self.device_manager = DeviceMgr()
         self.credentials = CredentialCache()
-        self.headers: Optional[Union[Headers, HeadersRegTestMod]] = None
+        self.headers: Optional[Headers] = None
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get_explicit_type(int, 'decimal_point', 8)
         self.num_zeros = config.get_explicit_type(int, 'num_zeros', 0)
         self.async_ = ASync()
+
+        self._migrate()
+
+    def _migrate(self) -> None:
+        # Remove the old headers file that used checkpointing in 1.3.13 and earlier, and had gaps
+        # that needed to be filled before the checkpoint. It is easier to just delete it and
+        # replace it.
+        checkpointed_headers_filepath = os.path.join(self.config.path, "headers")
+        if os.path.exists(checkpointed_headers_filepath):
+            os.remove(checkpointed_headers_filepath)
+
+        # NOTE(rt12) It takes me 50 minutes and gets me continually disconnected from every
+        #   server for excessive resource usage, to download the 697505 headers in the initial
+        #   version of this file. From 1.4.0 and beyond, we provide and facilitate keeping
+        #   a copy of all headers in the wallet.
+        headers2_filepath = os.path.join(self.config.path, "headers2")
+        if Net.is_mainnet() and not os.path.exists(headers2_filepath):
+            base_headers2_filepath = os.path.join(package_dir, "data", "headers_mainnet")
+            shutil.copyfile(base_headers2_filepath, headers2_filepath)
 
     def shutdown(self) -> None:
         self.credentials.close()
@@ -130,13 +150,11 @@ class AppStateProxy(object):
         return cast("SVApplication", self.app)
 
     def headers_filename(self) -> str:
-        return os.path.join(self.config.path, 'headers')
+        # 1.3.13 and earlier was "headers", renamed due to stopping checkpointing.
+        return os.path.join(self.config.path, 'headers2')
 
     def read_headers(self) -> None:
-        if self.config.get('regtest'):
-            self.headers = setup_regtest(self)
-        else:
-            self.headers = Headers.from_file(Net.COIN, self.headers_filename(), Net.CHECKPOINT)
+        self.headers = Headers.from_file(Net.COIN, self.headers_filename(), Net.CHECKPOINT)
         for n, chain in enumerate(self.headers.chains(), start=1):
             logger.info(f'chain #{n}: {chain.desc()}')
 

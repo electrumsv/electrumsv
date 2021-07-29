@@ -1329,7 +1329,7 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) \
 
 def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_id: int,
         derivation_path: DerivationPath, allocation_flags: KeyInstanceFlag) \
-            -> concurrent.futures.Future[Tuple[int, KeyInstanceFlag]]:
+            -> concurrent.futures.Future[Tuple[int, DerivationType, bytes, KeyInstanceFlag]]:
     """
     Allocate one keyinstance for the caller's usage.
 
@@ -1345,7 +1345,7 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
     allocation_flags |= KeyInstanceFlag.USED
     # We need to do this in two steps to get the id of the keyinstance we allocated.
     sql_read = (
-        "SELECT keyinstance_id "
+        "SELECT keyinstance_id, derivation_type, derivation_data2 "
         "FROM KeyInstances "
         "WHERE account_id=? AND masterkey_id=? AND (flags&?)=0 AND length(derivation_data2)=? AND "
             "substr(derivation_data2,1,?)=? "
@@ -1358,7 +1358,7 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
         prefix_bytes ]                  # The packed parent path bytes.
     sql_write = "UPDATE KeyInstances SET flags=flags|? WHERE keyinstance_id=? AND flags&?=0"
 
-    def _write(db: sqlite3.Connection) -> Tuple[int, KeyInstanceFlag]:
+    def _write(db: sqlite3.Connection) -> Tuple[int, DerivationType, bytes, KeyInstanceFlag]:
         keyinstance_row = db.execute(sql_read, sql_read_values).fetchone()
         if keyinstance_row is None:
             raise KeyInstanceNotFoundError()
@@ -1369,7 +1369,8 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
             # The key was allocated by something else between the read and the write.
             raise DatabaseUpdateError()
 
-        return cast(int, keyinstance_row[0]), allocation_flags
+        return cast(int, keyinstance_row[0]), DerivationType(keyinstance_row[1]), \
+            keyinstance_row[2], allocation_flags
 
     return db_context.post_to_thread(_write)
 
