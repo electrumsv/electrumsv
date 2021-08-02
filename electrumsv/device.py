@@ -246,7 +246,7 @@ class DeviceMgr:
             logger.debug("loaded %s", device_kind)
         return self.plugins[device_kind]
 
-    def create_keystore(self, data: "MasterKeyDataHardware", row: 'MasterKeyRow') \
+    def create_keystore(self, data: "MasterKeyDataHardware", row: Optional['MasterKeyRow']) \
             -> 'Hardware_KeyStore':
         plugin = self.get_plugin(data['hw_type'])
         return plugin.create_keystore(data, row)

@@ -735,6 +735,9 @@ DATA_PREFIX2 = bytes.fromhex("006a")
 class Transaction(Tx): # type: ignore
     SIGHASH_FORKID = 0x40
 
+    inputs: List[XTxInput]
+    outputs: List[XTxOutput]
+
     @classmethod
     def from_io(cls, inputs: List[XTxInput], outputs: List[XTxOutput], locktime: int=0) \
             -> "Transaction":
@@ -862,7 +865,7 @@ class Transaction(Tx): # type: ignore
 
     def BIP_LI01_sort(self) -> None:
         # See https://github.com/kristovatlas/rfc/blob/master/bips/bip-li01.mediawiki
-        self.inputs.sort(key = lambda txin: txin.prevout_bytes())
+        self.inputs.sort(key = lambda txin: cast(bytes, txin.prevout_bytes()))
         self.outputs.sort(key = lambda output: (output.value, output.script_pubkey.to_bytes()))
 
     @classmethod
@@ -889,8 +892,9 @@ class Transaction(Tx): # type: ignore
         return None
 
     def input_value(self) -> int:
-        # This will raise if a value is None, which is expected.
-        return sum(txin.value for txin in self.inputs)
+        # NOTE(typing) We assume that this is int, not None. It will raise if a value is None,
+        # which is desirable if it is incorrectly present.
+        return sum(txin.value for txin in self.inputs) # type: ignore
 
     def output_value(self) -> int:
         return sum(output.value for output in self.outputs)
@@ -918,12 +922,12 @@ class Transaction(Tx): # type: ignore
         standard_size = 4 + varint_len(len(self.inputs)) + varint_len(len(self.outputs)) + 4
         data_size = 0
         estimated_total_size = TransactionSize(standard_size, data_size)
-        for input in cast(List[XTxInput], self.inputs):
+        for input in self.inputs:
             if is_complete:
                 estimated_total_size += TransactionSize(input.size(), 0)
             else:
                 estimated_total_size += input.estimated_size()
-        for output in cast(List[XTxOutput], self.outputs):
+        for output in self.outputs:
             estimated_total_size += output.estimated_size()
         return estimated_total_size
 
@@ -947,11 +951,6 @@ class Transaction(Tx): # type: ignore
                     sec, compressed = keypairs[x_pubkey]
                     txin.signatures[j] = self._sign_txin(txin, sec)
         logger.debug("is_complete %s", self.is_complete())
-
-        # Multisig transactions may require further signatures and input script offsets cannot be
-        # calculated until the transaction is fully signed.
-        if self.is_complete():
-            self.update_script_offsets()
 
     def _sign_txin(self, txin: XTxInput, privkey_bytes: bytes) -> bytes:
         pre_hash = self.preimage_hash(txin)

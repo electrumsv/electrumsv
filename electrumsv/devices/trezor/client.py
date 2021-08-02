@@ -65,7 +65,7 @@ class TrezorClientFeatures:
 
 
 class TrezorClientSV:
-    handler: QtHandler
+    handler: "QtHandler"
     plugin: "TrezorPlugin"
 
     def __init__(self, transport: Transport, handler: "QtHandlerBase", plugin: "TrezorPlugin") \

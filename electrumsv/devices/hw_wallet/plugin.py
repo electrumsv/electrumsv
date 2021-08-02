@@ -25,7 +25,7 @@
 # SOFTWARE.
 
 import threading
-from typing import Any, List, Tuple, Type, TYPE_CHECKING
+from typing import Any, List, Optional, Tuple, Type, TYPE_CHECKING
 
 from bitcoinx import BIP32PublicKey
 
@@ -56,7 +56,7 @@ class HW_PluginBase(object):
         self.name = device_kind
         self.logger = logs.get_logger(device_kind)
 
-    def create_keystore(self, data: MasterKeyDataHardware, row: 'MasterKeyRow') \
+    def create_keystore(self, data: MasterKeyDataHardware, row: Optional['MasterKeyRow']) \
             -> 'Hardware_KeyStore':
         keystore = self.keystore_class(data, row)
         keystore.plugin = self

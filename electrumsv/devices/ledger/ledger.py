@@ -4,7 +4,7 @@ from typing import Any, Callable, cast, List, NamedTuple, NoReturn, Optional, Tu
     TYPE_CHECKING, TypeVar, Union
 
 from bitcoinx import (bip32_build_chain_string, BIP32Derivation, BIP32PublicKey, PublicKey,
-    pack_be_uint32, pack_list, pack_le_int64, pack_le_int32)
+    pack_be_uint32, pack_list, pack_le_int64, pack_le_uint32)
 
 from ...app_state import app_state
 from ...bitcoin import ScriptTemplate
@@ -23,6 +23,7 @@ from ...wallet_database.types import KeyListRow
 from ..hw_wallet.plugin import HW_PluginBase
 
 if TYPE_CHECKING:
+    from ...transaction import XTxInput
     from ...wallet_database.types import MasterKeyRow
     from ...gui.qt.account_wizard import AccountWizard
     from ..hw_wallet.qt import QtHandlerBase
@@ -122,7 +123,7 @@ class Ledger_Client():
         # it manually from the previous node
         # This only happens once so it's bearable
         #self.get_client() # prompt for the PIN before displaying the dialog if necessary
-        #self.handler.show_message("Computing master public key")
+        #self.handler_qt.show_message("Computing master public key")
         splitPath = bip32_path.split('/')
         if splitPath[0] == 'm':
             splitPath = splitPath[1:]
@@ -239,10 +240,10 @@ class Ledger_Client():
 class Ledger_KeyStore(Hardware_KeyStore):
     hw_type = 'ledger'
     device = 'Ledger'
-    handler: Optional['Ledger_Handler']
+    handler_qt: Optional['Ledger_Handler']
     plugin: Optional["Plugin"]
 
-    def __init__(self, data: MasterKeyDataHardware, row: 'MasterKeyRow') -> None:
+    def __init__(self, data: MasterKeyDataHardware, row: Optional['MasterKeyRow']) -> None:
         Hardware_KeyStore.__init__(self, data, row)
         # Errors and other user interaction is done through the wallet's
         # handler.  The handler is per-window and preserved across
@@ -272,8 +273,8 @@ class Ledger_KeyStore(Hardware_KeyStore):
     def give_error(self, message: str, clear_client: bool = False) -> NoReturn:
         logger.error(message)
         if not self.signing:
-            assert self.handler is not None
-            self.handler.show_error(message)
+            assert self.handler_qt is not None
+            self.handler_qt.show_error(message)
         else:
             self.signing = False
         if clear_client:
@@ -287,18 +288,18 @@ class Ledger_KeyStore(Hardware_KeyStore):
     @set_and_unset_signing
     def sign_message(self, sequence: DerivationPath, message: bytes, password: str) -> bytes:
         signature: bytes
-        assert self.handler is not None
+        assert self.handler_qt is not None
         message_hash = hashlib.sha256(message).hexdigest().upper()
         # prompt for the PIN before displaying the dialog if necessary
         client = self.get_client()
         address_path = self.get_derivation()[2:] + "/{:d}/{:d}".format(*sequence)
-        self.handler.show_message("Signing message ...\r\nMessage hash: "+message_hash)
+        self.handler_qt.show_message("Signing message ...\r\nMessage hash: "+message_hash)
         try:
             info = self.get_client().signMessagePrepare(address_path, message)
             pin: Union[str, bytes] = ""
             if info['confirmationNeeded']:
                 # does the authenticate dialog and returns pin
-                pin = self.handler.get_auth(self, info) or ""
+                pin = self.handler_qt.get_auth(self, info) or ""
                 if not pin:
                     raise UserWarning(_('Cancelled by user'))
                 pin = str(pin).encode()
@@ -314,12 +315,12 @@ class Ledger_KeyStore(Hardware_KeyStore):
             else:
                 self.give_error(str(e), True)
         except UserWarning:
-            self.handler.show_error(_('Cancelled by user'))
+            self.handler_qt.show_error(_('Cancelled by user'))
             return b''
         except Exception as e:
             self.give_error(str(e), True)
         finally:
-            self.handler.finished()
+            self.handler_qt.finished()
         # Parse the ASN.1 signature
         rLength = signature[3]
         r = signature[4 : 4 + rLength]
@@ -337,19 +338,16 @@ class Ledger_KeyStore(Hardware_KeyStore):
         if tx.is_complete():
             return
 
-        assert self.handler is not None
-        client = self.get_client()
+        assert self.handler_qt is not None
         inputs: List[YInput] = []
         inputsPaths = []
         chipInputs = []
         redeemScripts = []
         signatures = []
         changePath = ""
-        changeAmount = None
         output = None
-        outputAmount = None
         pin = ""
-        self.get_client() # prompt for the PIN before displaying the dialog if necessary
+        ledger_client = self.get_client() # prompt for the PIN before displaying dialog if necessary
 
 
         # Fetch inputs of the transaction to sign
@@ -362,7 +360,8 @@ class Ledger_KeyStore(Hardware_KeyStore):
             for i, x_pubkey in enumerate(txin.x_pubkeys):
                 if self.is_signature_candidate(x_pubkey):
                     txin_xpub_idx = i
-                    inputPath = "%s/%d/%d" % (self.get_derivation()[2:], *x_pubkey.bip32_path())
+                    inputPath = self.get_derivation()[2:] +"/"+ \
+                        "/".join(str(pv) for pv in x_pubkey.bip32_path())
                     break
             else:
                 self.give_error("No matching x_key for sign_transaction") # should never happen
@@ -388,51 +387,49 @@ class Ledger_KeyStore(Hardware_KeyStore):
                     key_derivation, xpubs, m = info
                     key_subpath = bip32_build_chain_string(key_derivation)[1:]
                     changePath = self.get_derivation()[2:] + key_subpath
-                    changeAmount = tx_output.value
                 else:
                     output = classify_tx_output(tx_output)
-                    outputAmount = tx_output.value
 
-        self.handler.show_message(_("Confirm Transaction on your Ledger device..."))
+        self.handler_qt.show_message(_("Confirm Transaction on your Ledger device..."))
         try:
-            for i, utxo in enumerate(inputs):
+            tx_bytes = tx.to_bytes()
+
+            for i, yinput in enumerate(inputs):
                 txin = tx.inputs[i]
-                sequence = pack_le_int32(utxo.sequence).hex()
+                sequence = pack_le_uint32(yinput.sequence).hex()
                 prevout_bytes = txin.prevout_bytes()
-                value_bytes = prevout_bytes + pack_le_int64(utxo.value)
+                value_bytes = prevout_bytes + pack_le_int64(yinput.value)
                 chipInputs.append({'value' : value_bytes, 'witness' : True, 'sequence' : sequence})
-                redeemScripts.append(utxo.script_sig)
+                redeemScripts.append(yinput.script_sig)
 
             # Sign all inputs
             inputIndex = 0
-            rawTx = tx.serialize()
-            self.get_client().enableAlternate2fa(False)
-            self.get_client().startUntrustedTransaction(True, inputIndex, chipInputs,
+            ledger_client.enableAlternate2fa(False)
+            ledger_client.startUntrustedTransaction(True, inputIndex, chipInputs,
                 redeemScripts[inputIndex])
-            outputData = self.get_client().finalizeInputFull(txOutput)
+            outputData = ledger_client.finalizeInput(b'', 0, 0, changePath, tx_bytes)
             outputData['outputData'] = txOutput
-            transactionOutput = outputData['outputData']
             if outputData['confirmationNeeded']:
                 outputData['address'] = cast(ScriptTemplate, output).to_string()
-                self.handler.finished()
+                self.handler_qt.finished()
                 # the authenticate dialog and returns pin
-                auth_pin = self.handler.get_auth(self, outputData)
+                auth_pin = self.handler_qt.get_auth(self, outputData)
                 if not auth_pin:
                     raise UserWarning()
                 pin = auth_pin
-                self.handler.show_message(_("Confirmed. Signing Transaction..."))
+                self.handler_qt.show_message(_("Confirmed. Signing Transaction..."))
             while inputIndex < len(inputs):
                 singleInput = [ chipInputs[inputIndex] ]
-                self.get_client().startUntrustedTransaction(
+                ledger_client.startUntrustedTransaction(
                     False, 0, singleInput, redeemScripts[inputIndex])
-                inputSignature = self.get_client().untrustedHashSign(inputsPaths[inputIndex],
+                inputSignature = ledger_client.untrustedHashSign(inputsPaths[inputIndex],
                                                                      pin, lockTime=tx.locktime,
                                                                      sighashType=tx.nHashType())
                 inputSignature[0] = 0x30 # force for 1.4.9+
                 signatures.append(inputSignature)
                 inputIndex = inputIndex + 1
         except UserWarning:
-            self.handler.show_error(_('Cancelled by user'))
+            self.handler_qt.show_error(_('Cancelled by user'))
             return
         except BTChipException as e:
             if e.sw == 0x6985:  # cancelled by user
@@ -444,7 +441,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
             logger.exception("")
             self.give_error(str(e), True)
         finally:
-            self.handler.finished()
+            self.handler_qt.finished()
 
         for txin, input, signature in zip(tx.inputs, inputs, signatures):
             txin.signatures[input.txin_xpub_idx] = signature
@@ -454,14 +451,14 @@ class Ledger_KeyStore(Hardware_KeyStore):
         client = self.get_client()
         # prompt for the PIN before displaying the dialog if necessary
         address_path = self.get_derivation()[2:] +"/"+ derivation_subpath
-        assert self.handler is not None
-        self.handler.show_message(_("Showing address ..."))
+        assert self.handler_qt is not None
+        self.handler_qt.show_message(_("Showing address ..."))
         try:
             client.getWalletPublicKey(address_path, showOnScreen=True)
         except Exception:
             pass
         finally:
-            self.handler.finished()
+            self.handler_qt.finished()
 
 
 class LedgerPlugin(HW_PluginBase):

@@ -804,7 +804,7 @@ def instantiate_keystore(derivation_type: DerivationType, data: MasterKeyDataTyp
         keystore = BIP32_KeyStore(cast(MasterKeyDataBIP32, data),
             row, parent_keystore)
     elif derivation_type == DerivationType.HARDWARE:
-        assert parent_keystore is None and row is not None
+        assert parent_keystore is None
         keystore = app_state.device_manager.create_keystore(cast(MasterKeyDataHardware, data), row)
     elif derivation_type == DerivationType.ELECTRUM_MULTISIG:
         assert parent_keystore is None

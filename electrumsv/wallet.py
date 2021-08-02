@@ -157,7 +157,6 @@ class MissingTransactionEntry:
 
 ADDRESS_TYPES = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
 
-
 def dust_threshold(network: Optional["Network"]) -> int:
     return 546 # hard-coded Bitcoin SV dust threshold. Was changed to this as of Sept. 2018
 
@@ -173,7 +172,8 @@ class AbstractAccount:
     _default_keystore: Optional[KeyStore] = None
     _stopped: bool = False
 
-    max_change_outputs = 10
+    MAX_SOFTWARE_CHANGE_OUTPUTS = 10
+    MAX_HARDWARE_CHANGE_OUTPUTS = 1
 
     def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
         # Prevent circular reference keeping parent and accounts alive.
@@ -736,6 +736,15 @@ class AbstractAccount:
     def dust_threshold(self) -> int:
         return dust_threshold(self._network)
 
+    def get_max_change_outputs(self) -> int:
+        # The full set of software change outputs is too much for hardware wallet users. This
+        # currently defaults hardware wallets to using one change output because generally that
+        # is all the hardware wallets can handle identifying as belonging to the wallet.
+        # - Ledger source code claims only one change output.
+        if self.involves_hardware_wallet() and self.type() != AccountType.MULTISIG:
+            return self.MAX_HARDWARE_CHANGE_OUTPUTS
+        return self.MAX_SOFTWARE_CHANGE_OUTPUTS
+
     def make_unsigned_transaction(self, unspent_outputs: List[TransactionOutputSpendableTypes],
             outputs: List[XTxOutput]) -> Tuple[Transaction, TransactionContext]:
         # check outputs
@@ -763,9 +772,7 @@ class AbstractAccount:
         inputs = [ self.get_extended_input_for_spendable_output(utxo) for utxo in unspent_outputs ]
         if all_index is None:
             # Let the coin chooser select the coins to spend
-            # TODO(rt12) BACKLOG Hardware wallets should use 1 change at most. Make sure the
-            # corner case of the active multisig cosigning wallet being hardware is covered.
-            max_change = self.max_change_outputs \
+            max_change = self.get_max_change_outputs() \
                 if self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True) else 1
             if self._wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True) and \
                     self.is_deterministic():
@@ -1208,6 +1215,8 @@ class AbstractAccount:
         # required signature threshold. We do not currently store these until they are fully signed.
         if not tx.is_complete():
             return None
+
+        tx.update_script_offsets()
 
         tx_hash = tx.hash()
         tx_flags = TxFlags.STATE_SIGNED
@@ -3183,8 +3192,7 @@ class Wallet(TriggeredCallbacks):
             # from. In the post-SPV world, we should have them as part of the merkle proof data
             # if they are not our spends. But keep in mind that this is used for arbitrary
             # transactions, not just SPV-related transactions.
-            all_outpoints = [ Outpoint(input.prev_hash, input.prev_idx)
-                for input in cast(List[XTxInput], tx.inputs) ]
+            all_outpoints = [ Outpoint(input.prev_hash, input.prev_idx) for input in tx.inputs ]
             for txo_row in db_functions.read_transaction_outputs_with_key_data(
                     self.get_db_context(), txo_keys=all_outpoints):
                 database_data = DatabaseKeyDerivationData.from_key_data(txo_row,
@@ -3439,8 +3447,7 @@ class Wallet(TriggeredCallbacks):
             txi_rows.append(txi_row)
 
         txo_rows: List[TransactionOutputAddRow] = []
-        for txo_index, raw_txo in enumerate(tx.outputs):
-            txo = cast(XTxOutput, raw_txo)
+        for txo_index, txo in enumerate(tx.outputs):
             txo_row = TransactionOutputAddRow(tx_hash, txo_index, txo.value,
                 None,                           # Raw transaction means no idea of key usage.
                 ScriptType.NONE,                # Raw transaction means no idea of script type.

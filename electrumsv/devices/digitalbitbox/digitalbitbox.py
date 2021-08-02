@@ -524,7 +524,8 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                     if self.is_signature_candidate(x_pubkey):
                         key_derivation = x_pubkey.bip32_path()
                         assert len(key_derivation) == 2
-                        inputPath = "%s/%d/%d" % (self.get_derivation(), *key_derivation)
+                        inputPath = self.get_derivation() +"/"+ \
+                            "/".join(str(pv) for pv in key_derivation)
                         inputHash = tx.preimage_hash(txin)
                         hasharray_i = {'hash': inputHash.hex(), 'keypath': inputPath}
                         hasharray.append(hasharray_i)
