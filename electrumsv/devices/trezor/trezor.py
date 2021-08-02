@@ -408,7 +408,7 @@ class TrezorPlugin(HW_PluginBase):
             return TxOutputType(
                 multisig=multisig,
                 amount=tx_output.value,
-                address_n=list(*account_derivation, *key_derivation),
+                address_n=[ *account_derivation, *key_derivation ],
                 script_type=script_type
             )
 

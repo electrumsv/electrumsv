@@ -350,6 +350,8 @@ class KeepKeyPlugin(HW_PluginBase):
         assert client is not None
         inputs = self.tx_inputs(tx, xpub_path)
         outputs = self.tx_outputs(keystore, keystore.get_derivation(), tx, signing_metadata)
+        # NOTE(rt12) This will error on regtest, with "Failed to compile output". Chances are that
+        #   that something like the xpub prefix are not supported.
         signatures, _ = cast(Tuple[List[bytes], bytes],
             client.sign_tx(self.get_coin_name(client), inputs, outputs, lock_time=tx.locktime))
         tx.update_signatures(signatures)

@@ -338,7 +338,7 @@ class SettingsDialog(WindowModalDialog):
             unpair_after = cast(bool, kw_args.pop('unpair_after', False))
 
             def task() -> "KeepKeyFeatures":
-                client = cast(Optional[KeepKeyClient],
+                client = cast(Optional["KeepKeyClient"],
                     app_state.device_manager.client_by_id(device_id))
                 if not client:
                     raise RuntimeError("Device not connected")
