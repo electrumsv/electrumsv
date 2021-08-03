@@ -79,7 +79,7 @@ class KeyDialog(WindowModalDialog):
 
         vbox.addWidget(QLabel(_("Address:")))
         self._key_edit = ButtonsLineEdit()
-        self._key_edit.addCopyButton(self._app)
+        self._key_edit.addCopyButton()
         icon = "qrcode_white.png" if ColorScheme.dark_scheme else "qrcode.png"
         self._key_edit.addButton(icon, self.show_qr, _("Show QR Code"))
         self._key_edit.setReadOnly(True)
@@ -92,12 +92,12 @@ class KeyDialog(WindowModalDialog):
             vbox.addWidget(QLabel(_("Public keys") + ':'))
             for pubkey in pubkeys:
                 pubkey_e = ButtonsLineEdit(pubkey.to_hex())
-                pubkey_e.addCopyButton(self._app)
+                pubkey_e.addCopyButton()
                 vbox.addWidget(pubkey_e)
 
         vbox.addWidget(QLabel(_("Payment script") + ':'))
         self._script_edit = ShowQRTextEdit()
-        self._script_edit.addCopyButton(self._app)
+        self._script_edit.addCopyButton()
         vbox.addWidget(self._script_edit)
 
         self._update_script_type(script_type)

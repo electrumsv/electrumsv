@@ -9,7 +9,37 @@ from electrumsv.i18n import _
 from .util import KeyEventLineEdit, read_QIcon
 
 
-class TableTopButtonLayout(QHBoxLayout):
+class ButtonLayout(QHBoxLayout):
+    def __init__(self, parent: Optional[QWidget]=None) -> None:
+        # NOTE(typing) The checker does not have signatures for the parent being an explicit None.
+        super().__init__(parent) # type: ignore
+
+        # The offset to insert the next button at.
+        self._button_index = 0
+
+        self.setSpacing(2)
+        self.setContentsMargins(0, 2, 0, 2)
+
+    def _create_button(self, icon_name: str, on_click: Callable[[], None], tooltip: str) \
+            -> QToolButton:
+        button = QToolButton()
+        button.setIcon(read_QIcon(icon_name))
+        button.setToolTip(tooltip)
+        button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        button.clicked.connect(on_click)
+        return button
+
+    def add_button(self, icon_name: str, on_click: Callable[[], None], tooltip: str,
+            position: Optional[int]=None) -> QToolButton:
+        button = self._create_button(icon_name, on_click, tooltip)
+        if position is None:
+            position = self._button_index
+            self._button_index += 1
+        self.insertWidget(position, button)
+        return button
+
+
+class TableTopButtonLayout(ButtonLayout):
     add_signal = pyqtSignal()
     refresh_signal = pyqtSignal()
     filter_signal = pyqtSignal(str)
@@ -46,24 +76,6 @@ class TableTopButtonLayout(QHBoxLayout):
         # expanding.
         self._stretch_item = self.takeAt(self.count()-1)
         self.addItem(self._stretch_item)
-
-    def _create_button(self, icon_name: str, on_click: Callable[[], None], tooltip: str) \
-            -> QToolButton:
-        button = QToolButton()
-        button.setIcon(read_QIcon(icon_name))
-        button.setToolTip(tooltip)
-        button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        button.clicked.connect(on_click)
-        return button
-
-    def add_button(self, icon_name: str, on_click: Callable[[], None], tooltip: str,
-            position: Optional[int]=None) -> QToolButton:
-        button = self._create_button(icon_name, on_click, tooltip)
-        if position is None:
-            position = self._button_index
-            self._button_index += 1
-        self.insertWidget(position, button)
-        return button
 
     def add_create_button(self, tooltip: Optional[str]=None) -> QToolButton:
         if tooltip is None:

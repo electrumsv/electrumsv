@@ -97,7 +97,7 @@ class CosignerCard(FormSectionWidget):
         key_edit.setTabChangesFocus(True)
         key_edit.textChanged.connect(self._event_text_changed)
         self._show_qr_button = key_edit.qr_button
-        self._key_copy_button = key_edit.addCopyButton(self._main_window.app)
+        self._key_copy_button = key_edit.addCopyButton()
         self._cosigner_key_button = key_edit.addButton(
             'icons8-key.svg',
             self._event_click_set_cosigner_key, _("Specify key data"))

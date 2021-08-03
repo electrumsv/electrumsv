@@ -1719,13 +1719,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         name_edit.setReadOnly(True)
         name_edit.addButton("icons8-opened-folder-windows.svg",
             partial(open_file_explorer, wallet_filepath), _("View file in filesystem"))
-        name_edit.addCopyButton(self.app)
+        name_edit.addCopyButton()
 
         path_edit = ButtonsLineEdit(wallet_dirpath)
         path_edit.setReadOnly(True)
         path_edit.addButton("icons8-opened-folder-windows.svg",
             partial(open_file_explorer, wallet_dirpath), _("View location in filesystem"))
-        path_edit.addCopyButton(self.app)
+        path_edit.addCopyButton()
 
         file_form = FormSectionWidget()
         file_form.add_row(_("File name"), name_edit, True)
@@ -1781,7 +1781,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     #     self.update_recently_visited(wallet_path) # this ensures it's deleted from the menu
     #     self.show_error("Wallet removed:" + basename)
 
-    def show_qrcode(self, data, title = _("QR code"), parent=None) -> None:
+    def show_qrcode(self, data: str, title = _("QR code"), parent=None) -> None:
         if not data:
             return
         d = QRDialog(data, parent or self, title)
@@ -1806,11 +1806,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         vbox = QVBoxLayout()
         vbox.addWidget(QLabel(_("Private key") + ':'))
         keys_e = ShowQRTextEdit(text=privkey_text)
-        keys_e.addCopyButton(self.app)
+        keys_e.addCopyButton()
         vbox.addWidget(keys_e)
         vbox.addWidget(QLabel(_("Payment script") + ':'))
         rds_e = ShowQRTextEdit(text=script_template_to_string(script_template))
-        rds_e.addCopyButton(self.app)
+        rds_e.addCopyButton()
         vbox.addWidget(rds_e)
         vbox.addLayout(Buttons(CloseButton(d)))
         d.setLayout(vbox)

@@ -1,4 +1,5 @@
 import os
+from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal, QEvent, Qt
 from PyQt5.QtGui import QColor, QCursor, QMouseEvent, QPainter
@@ -7,7 +8,7 @@ from PyQt5.QtWidgets import (
 import qrcode
 
 from electrumsv.i18n import _
-from electrumsv.app_state import app_state
+from electrumsv.app_state import app_state, get_app_state_qt
 
 from .util import WindowModalDialog
 
@@ -15,30 +16,31 @@ from .util import WindowModalDialog
 class QRCodeWidget(QWidget):
     mouse_release_signal = pyqtSignal()
 
-    def __init__(self, data = None, fixedSize=False):
+    def __init__(self, data: Optional[str]=None, fixedSize: int=0) -> None:
         QWidget.__init__(self)
-        self.data = None
-        self.qr = None
+        self.data: Optional[str] = None
+        self.qr: Optional[qrcode.QRCode] = None
         self.fixedSize=fixedSize
         if fixedSize:
             self.setFixedSize(fixedSize, fixedSize)
         self.setData(data)
 
     def enterEvent(self, event: QEvent) -> None:
-        app_state.app.setOverrideCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        get_app_state_qt().app_qt.setOverrideCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         super().enterEvent(event)
 
     def leaveEvent(self, event: QEvent) -> None:
-        app_state.app.setOverrideCursor(QCursor(Qt.CursorShape.ArrowCursor))
+        get_app_state_qt().app_qt.setOverrideCursor(QCursor(Qt.CursorShape.ArrowCursor))
         super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         self.mouse_release_signal.emit()
         super().mouseReleaseEvent(event)
 
-    def setData(self, data) -> None:
+    def setData(self, data: Optional[str]) -> None:
         if self.data != data:
             self.data = data
+
         if self.data:
             self.qr = qrcode.QRCode()
             self.qr.add_data(self.data)
@@ -97,7 +99,7 @@ class QRCodeWidget(QWidget):
 
 class QRDialog(WindowModalDialog):
 
-    def __init__(self, data, parent=None, title = "", show_text=False):
+    def __init__(self, data: str, parent=None, title = "", show_text=False):
         WindowModalDialog.__init__(self, parent, title)
 
         vbox = QVBoxLayout()

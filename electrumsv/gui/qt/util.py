@@ -22,7 +22,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.uic import loadUi
 
-from electrumsv.app_state import app_state
+from electrumsv.app_state import app_state, get_app_state_qt
 from electrumsv.constants import CredentialPolicyFlag, DATABASE_EXT
 from electrumsv.exceptions import WaitingTaskCancelled
 from electrumsv.i18n import _, languages
@@ -131,6 +131,12 @@ class Buttons(QHBoxLayout):
     # buttons edit widgets.
     STYLESHEET = """
         QAbstractButton {
+            padding-top: 4px;
+            padding-bottom: 4px;
+            padding-left: 20px;
+            padding-right: 20px;
+        }
+        QToolButton {
             padding-top: 4px;
             padding-bottom: 4px;
             padding-left: 20px;
@@ -807,13 +813,14 @@ class ButtonsMode(IntEnum):
 
 class ButtonsWidget(QWidget):
     buttons_mode = ButtonsMode.INTERNAL
+    qt_css_class = "ButtonsWidget"
     qt_css_extra = ""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.buttons: List[QAbstractButton] = []
 
-    def resizeButtons(self):
+    def resizeButtons(self) -> None:
         frame_width = self.style().pixelMetric(QStyle.PixelMetric.PM_DefaultFrameWidth)
         if self.buttons_mode == ButtonsMode.INTERNAL:
             x = self.rect().right() - frame_width
@@ -872,15 +879,14 @@ class ButtonsWidget(QWidget):
                 self.qt_css_extra)
         return button
 
-    def addCopyButton(self, app, tooltipText: Optional[str]=None) -> QAbstractButton:
+    def addCopyButton(self, tooltipText: Optional[str]=None) -> QAbstractButton:
         if tooltipText is None:
             tooltipText = _("Copy to clipboard")
-        self.app = app
         return self.addButton("icons8-copy-to-clipboard-32.png", self._on_copy,
             tooltipText)
 
     def _on_copy(self) -> None:
-        self.app.clipboard().setText(self.text())
+        get_app_state_qt().app_qt.clipboard().setText(self.text())
         QToolTip.showText(QCursor.pos(), _("Text copied to clipboard"), self)
 
 

@@ -90,7 +90,7 @@ class SecuredDataDialog(QDialog):
 
             seed_edit = ShowQRTextEdit(self)
             seed_edit.setFixedHeight(80)
-            seed_edit.addCopyButton(self._main_window.app)
+            seed_edit.addCopyButton()
             seed_edit.setText(seed_text)
             form.add_row(_("Seed phrase"), seed_edit, True)
             self._seed_edit = seed_edit
@@ -102,7 +102,7 @@ class SecuredDataDialog(QDialog):
 
             passphrase_edit = ShowQRTextEdit(self)
             passphrase_edit.setFixedHeight(80)
-            passphrase_edit.addCopyButton(self._main_window.app)
+            passphrase_edit.addCopyButton()
             passphrase_edit.setText(passphrase_text)
             passphrase_widget = passphrase_edit
         else:
@@ -116,7 +116,7 @@ class SecuredDataDialog(QDialog):
 
                 xprv_edit = ShowQRTextEdit(self)
                 xprv_edit.setFixedHeight(80)
-                xprv_edit.addCopyButton(self._main_window.app)
+                xprv_edit.addCopyButton()
                 xprv_edit.setText(private_key.to_extended_key_string())
                 form.add_row(_("Master private key"), xprv_edit, True)
 

@@ -113,7 +113,7 @@ class AccountDialog(QDialog):
                 mpk_list = account.get_master_public_keys()
                 mpk_text = ShowQRTextEdit()
                 mpk_text.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
-                mpk_text.addCopyButton(self._main_window.app)
+                mpk_text.addCopyButton()
                 mpk_text.setText(mpk_list[0])
                 mpk_text.repaint()   # macOS hack for Electrum #4777
                 form.add_row(_("Master public key"), mpk_text, True)

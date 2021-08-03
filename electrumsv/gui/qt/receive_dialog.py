@@ -3,11 +3,11 @@ from typing import Any, cast, List, Optional, Tuple, TYPE_CHECKING
 import weakref
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QCloseEvent, QFontMetrics
-from PyQt5.QtWidgets import (QComboBox, QDialog, QGridLayout, QHBoxLayout, QLabel,
-    QLineEdit, QVBoxLayout)
+from PyQt5.QtGui import QCloseEvent, QCursor, QFontMetrics
+from PyQt5.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLineEdit, QToolTip, \
+    QVBoxLayout
 
-from ...app_state import app_state
+from ...app_state import app_state, get_app_state_qt
 from ...bitcoin import script_template_to_string
 from ...constants import ScriptType
 from ...i18n import _
@@ -20,7 +20,8 @@ from ...wallet_database.types import PaymentRequestUpdateRow
 from .amountedit import AmountEdit, BTCAmountEdit
 from .qrcodewidget import QRCodeWidget
 from .qrwindow import QR_Window
-from .util import ButtonsLineEdit, EnterButton, HelpLabel
+from .util import Buttons, ButtonsLineEdit, EnterButton, FormSectionWidget, FormSeparatorLine, \
+    HelpDialogButton
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
@@ -114,17 +115,9 @@ class ReceiveDialog(QDialog):
         edit.textEdited.emit(edit.text())
 
     def _create_form_layout(self) -> QVBoxLayout:
-        # A 4-column grid layout.  All the stretch is in the last column.
-        # The exchange rate plugin adds a fiat widget in column 2
-        grid = QGridLayout()
-        grid.setSpacing(8)
-        grid.setColumnStretch(3, 1)
+        self._form = form = FormSectionWidget()
 
-        row = 0
-        account_label = QLabel(_("Account"))
-        account_name_widget = QLabel(self._account.get_name())
-        grid.addWidget(account_label, row, 0)
-        grid.addWidget(account_name_widget, row, 1)
+        form.add_row(_("Account"), QLabel(self._account.get_name()))
 
         # Really we want to display a whole standard address.
         token_address = "mqrJ2AAzrR6U3L4Nzt9zDNxuLXGEsnWP47"
@@ -132,35 +125,28 @@ class ReceiveDialog(QDialog):
         def fw(s: str) -> int:
             return defaultFontMetrics.boundingRect(s).width() + 40
 
-        row += 1
         self._receive_destination_e = ButtonsLineEdit()
         self._receive_destination_e.setMinimumWidth(fw(token_address))
-        self._receive_destination_e.addCopyButton(app_state.app)
+        self._receive_destination_e.addCopyButton()
         self._receive_destination_e.setReadOnly(True)
-        msg = _('Bitcoin SV payment destination where the payment should be received. '
-                'Note that each payment request uses a different Bitcoin SV payment destination.')
-        receive_address_label = HelpLabel(_('Payment destination'), msg)
         self._receive_destination_e.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        grid.addWidget(receive_address_label, row, 0)
-        grid.addWidget(self._receive_destination_e, row, 1, 1, -1)
+        form.add_row(_('Payment destination'), self._receive_destination_e, stretch_field=True)
 
-        row += 1
         self._receive_message_e = QLineEdit()
-        grid.addWidget(QLabel(_('Description')), row, 0)
-        grid.addWidget(self._receive_message_e, row, 1, 1, -1)
+        form.add_row(_('Description'), self._receive_message_e, stretch_field=True)
         self._receive_message_e.setText("" if self._request_row.description is None
             else self._request_row.description)
 
-        row += 1
         self._receive_amount_e = BTCAmountEdit()
-        grid.addWidget(QLabel(_('Requested amount')), row, 0)
-        grid.addWidget(self._receive_amount_e, row, 1)
-
         self._fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
-        grid.addWidget(self._fiat_receive_e, row, 2, Qt.AlignmentFlag.AlignLeft)
         self._main_window.connect_fields(self._receive_amount_e, self._fiat_receive_e)
 
-        row += 1
+        amount_widget_layout = QHBoxLayout()
+        amount_widget_layout.addWidget(self._receive_amount_e)
+        amount_widget_layout.addSpacing(10)
+        amount_widget_layout.addWidget(self._fiat_receive_e)
+        form.add_row(_('Requested amount'), amount_widget_layout)
+
         self._expires_combo = QComboBox()
         self._expires_combo.addItems([i[0] for i in EXPIRATION_VALUES])
         # Default the current index to one hour or the last entry if that cannot be found for some
@@ -171,45 +157,42 @@ class ReceiveDialog(QDialog):
                 break
         self._expires_combo.setCurrentIndex(current_index)
         self._expires_combo.setFixedWidth(self._receive_amount_e.width())
-        msg = ' '.join([
-            _('Expiration date of your request.'),
-            _('This information is seen by the recipient if you send them '
-              'a signed payment request.'),
-            _('Expired requests have to be deleted manually from your list, '
-              'in order to free the corresponding Bitcoin SV addresses.'),
-            _('The Bitcoin SV address never expires and will always be part '
-              'of this ElectrumSV wallet.'),
-        ])
-        grid.addWidget(HelpLabel(_('Request expires'), msg), row, 0)
         self._expires_combo.hide()
-        grid.addWidget(self._expires_combo, row, 1)
         expires_text = age(self._request_row.date_created +
             self._request_row.expiration).capitalize() \
                 if self._request_row.expiration else _('Never')
         self._expires_label = QLabel(expires_text)
-        grid.addWidget(self._expires_label, row, 1)
+        expires_widget_layout = QHBoxLayout()
+        expires_widget_layout.addWidget(self._expires_combo)
+        expires_widget_layout.addWidget(self._expires_label)
+        form.add_row(_('Request expires'), expires_widget_layout)
 
-        row += 1
-        self._close_button = EnterButton(_('Close'), self._on_click_button_close)
+        self._copy_link_button = EnterButton(_('Copy payment link'), self._copy_qr_data)
+        self._help_button = HelpDialogButton(self, "misc", "receive-dialog", _("Help"))
         self._update_button = EnterButton(_('Update'), self._on_update_button_clicked)
+        self._close_button = EnterButton(_('Close'), self._on_click_button_close)
 
-        buttons = QHBoxLayout()
-        buttons.addStretch(1)
-        buttons.addWidget(self._close_button)
-        buttons.addWidget(self._update_button)
+        buttons = Buttons(self._update_button, self._close_button)
+        buttons.add_left_button(self._help_button)
 
         self._receive_qr = QRCodeWidget(fixedSize=200)
+        self._receive_qr_layout = QVBoxLayout()
+        self._receive_qr_layout.addWidget(self._receive_qr)
+        self._receive_qr_layout.addWidget(self._copy_link_button)
 
-        grid_vbox = QVBoxLayout()
-        grid_vbox.addLayout(grid)
-        grid_vbox.addStretch(1)
+        form_vbox = QVBoxLayout()
+        form_vbox.addWidget(form)
+        form_vbox.addStretch(1)
 
         hbox = QHBoxLayout()
-        hbox.addLayout(grid_vbox)
-        hbox.addWidget(self._receive_qr)
+        hbox.addLayout(form_vbox)
+        hbox.addLayout(self._receive_qr_layout)
+
+        buttons_line = FormSeparatorLine()
 
         vbox = QVBoxLayout()
         vbox.addLayout(hbox)
+        vbox.addWidget(buttons_line)
         vbox.addLayout(buttons)
         return vbox
 
@@ -218,6 +201,15 @@ class ReceiveDialog(QDialog):
         self._receive_message_e.textChanged.connect(self._update_receive_qr)
         self._receive_amount_e.textChanged.connect(self._update_receive_qr)
         self._receive_qr.mouse_release_signal.connect(self._toggle_qr_window)
+
+    def _copy_qr_data(self) -> None:
+        text = self._receive_qr.data
+        if text:
+            get_app_state_qt().app_qt.clipboard().setText(text)
+            tooltip_text = _("Text copied to clipboard")
+        else:
+            tooltip_text = _("Nothing to copy")
+        QToolTip.showText(QCursor.pos(), tooltip_text, self._copy_link_button)
 
     def update_widgets(self) -> None:
         # This is currently unused, but is called in the generic `update_tabs` call in the
