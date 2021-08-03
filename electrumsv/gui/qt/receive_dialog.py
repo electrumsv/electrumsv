@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from ...wallet_database.types import KeyInstanceRow, PaymentRequestReadRow
 
 
-EXPIRATION_VALUES = [
+EXPIRATION_VALUES: List[Tuple[str, Optional[int]]] = [
     (_('1 hour'), 60*60),
     (_('1 day'), 24*60*60),
     (_('1 week'), 7*24*60*60),
@@ -163,7 +163,13 @@ class ReceiveDialog(QDialog):
         row += 1
         self._expires_combo = QComboBox()
         self._expires_combo.addItems([i[0] for i in EXPIRATION_VALUES])
-        self._expires_combo.setCurrentIndex(3)
+        # Default the current index to one hour or the last entry if that cannot be found for some
+        # reason.
+        current_index = 0
+        for current_index, expiration_entry in enumerate(EXPIRATION_VALUES):
+            if expiration_entry[1] == 60*60:
+                break
+        self._expires_combo.setCurrentIndex(current_index)
         self._expires_combo.setFixedWidth(self._receive_amount_e.width())
         msg = ' '.join([
             _('Expiration date of your request.'),
