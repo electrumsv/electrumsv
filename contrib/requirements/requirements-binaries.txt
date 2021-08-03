@@ -1,5 +1,5 @@
 electrumsv-secp256k1>=0.9.1
-bitcoinX==0.4.1
+bitcoinX==0.4.3
 PyQt5>=5.15.4
 pycryptodomex
 websocket-client
