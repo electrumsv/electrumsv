@@ -26,22 +26,24 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import concurrent
+import concurrent.futures
 from enum import IntEnum
 import os
-from typing import Dict, Optional, TYPE_CHECKING
+from typing import cast, Dict, Optional, Tuple, TYPE_CHECKING
 
-from bitcoinx import hash_to_hex_str
+from bitcoinx import bip32_build_chain_string, hash_to_hex_str
 
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtWidgets import QDialog, QHBoxLayout, QLabel, QTableWidget, QVBoxLayout
 
-from electrumsv.app_state import app_state
-from electrumsv.i18n import _
-from electrumsv.logs import logs
-from electrumsv.util.importers import (identify_label_import_format, LabelImport, LabelImportFormat,
+from ...app_state import app_state
+from ...constants import DerivationType, pack_derivation_path
+from ...i18n import _
+from ...logs import logs
+from ...types import DerivationPath
+from ...util.importers import (identify_label_import_format, LabelImport, LabelImportFormat,
     LabelImportResult)
-from electrumsv.wallet import Wallet
+from ...wallet import Wallet
 
 from .util import Buttons, CancelButton, FormSectionWidget, MessageBox, OkButton
 
@@ -64,10 +66,10 @@ class LabelImporter(QDialog):
     labels_updated = pyqtSignal(int, object, object)
 
     def __init__(self, main_window: 'ElectrumWindow', wallet: Wallet, account_id: int) -> None:
-        super().__init__(main_window, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+        super().__init__(main_window, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
-        self.setWindowModality(Qt.WindowModal)
+        self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setWindowTitle(_("Label Importer"))
         self.setMinimumWidth(600)
         self.setStyleSheet("""
@@ -83,7 +85,7 @@ class LabelImporter(QDialog):
 
         self._path: Optional[str] = None
         self._tx_state: Dict[bytes, LabelState] = {}
-        self._key_state: Dict[int, LabelState] = {}
+        self._key_state: Dict[DerivationPath, Tuple[LabelState, int]] = {}
         self._import_result: Optional[LabelImportResult] = None
         self._problem_count = 0
         self._change_count = 0
@@ -142,56 +144,67 @@ class LabelImporter(QDialog):
 
         self.setLayout(vbox)
 
-    def run(self) -> int:
+    def run(self) -> Optional[int]:
         import_path = self._main_window.getOpenFileName(_("Open labels file"), "*.json")
         if not import_path:
-            return
+            return None
 
         try:
             with open(import_path, 'r') as f:
                 text = f.read()
         except (IOError, os.error) as reason:
             MessageBox.show_error(_("Unable to import the selected file.") +"\n"+ str(reason))
-            return
+            return None
 
         matched_format = identify_label_import_format(text)
         if matched_format == LabelImportFormat.UNKNOWN:
             MessageBox.show_error(_("Unable to import the selected file.") +"\n"+
                 _("The selected file is not recognized as any of the supported label export "
                 "formats."))
-            return
+            return None
 
         self._path = import_path
 
+        # Start the importing logic in a worker thread. This does not block and the user can
+        # in theory cancel it by dismissing this dialog.
         app_state.app.run_in_thread(self._threaded_import_thread, matched_format, text,
             on_done=self._threaded_import_complete)
 
         result = self.exec()
-        if result == QDialog.Accepted:
-            self._apply_import()
+        if result == QDialog.DialogCode.Accepted:
+            self._on_import_button_clicked()
         return result
 
-    def _apply_import(self) -> None:
+    def _on_import_button_clicked(self) -> None:
+        """
+        Handle the 'Import' button being clicked and apply the imports.
+        """
         account = self._wallet.get_account(self._account_id)
+        account.set_transaction_labels(self._import_result.transaction_labels.items())
 
-        # TODO This should be done in bulk rather than a per-description write.
-        for tx_hash, description_text in self._import_result.transaction_labels.items():
-            self._wallet.set_transaction_label(tx_hash, description_text)
-
-        for keyinstance_id, description_text in self._import_result.key_labels.items():
+        # TODO This should be a bulk set operation, not per key.
+        for derivation_path, description_text in self._import_result.key_labels.items():
+            keyinstance_id = self._key_state[derivation_path][1]
             account.set_keyinstance_label(keyinstance_id, description_text)
 
         self.labels_updated.emit(self._account_id, set(self._import_result.key_labels),
             set(self._import_result.transaction_labels))
 
     def _threaded_import_thread(self, matched_format: LabelImportFormat, text: str) -> None:
+        """
+        The worker thread that does the import processing.
+        """
         try:
             self._threaded_import(matched_format, text)
         except Exception:
             logger.exception("unexpected exception in processing thread")
 
     def _threaded_import(self, matched_format: LabelImportFormat, text: str) -> None:
+        """
+        The worker logic that does the import processing.
+        """
         account = self._wallet.get_account(self._account_id)
+        assert account is not None
 
         if matched_format == LabelImportFormat.ACCOUNT:
             result = LabelImport.parse_label_export_json(account, text)
@@ -200,13 +213,14 @@ class LabelImporter(QDialog):
         else:
             return
 
-        # We do not actually know what transactions belong to an account, transactions are
-        # currently cached on a larger entire wallet basis.
+        account_tx_hashes = { r.tx_hash
+            for r in self._wallet.read_transaction_descriptions(self._account_id) }
+
         for tx_hash, tx_description in result.transaction_labels.items():
-            if not self._wallet._transaction_cache.is_cached(tx_hash):
+            if tx_hash not in account_tx_hashes:
                 self._tx_state[tx_hash] = LabelState.UNKNOWN
             else:
-                existing_description = self._wallet.get_transaction_label(tx_hash)
+                existing_description = account.get_transaction_label(tx_hash)
                 if existing_description == "":
                     self._tx_state[tx_hash] = LabelState.ADD
                 elif existing_description == tx_description:
@@ -214,18 +228,30 @@ class LabelImporter(QDialog):
                 else:
                     self._tx_state[tx_hash] = LabelState.REPLACE
 
-        for keyinstance_id, key_description in result.key_labels.items():
-            existing_description = account.get_keyinstance_label(keyinstance_id)
-            if existing_description == "":
-                self._key_state[keyinstance_id] = LabelState.ADD
-            elif existing_description == key_description:
-                self._key_state[keyinstance_id] = LabelState.EXISTS
+        derivation_path_by_data2 = { pack_derivation_path(label_path): label_path
+            for label_path in result.key_labels }
+        existing_keys = self._wallet.read_keyinstances_for_derivations(account.get_id(),
+            DerivationType.BIP32_SUBPATH, list(derivation_path_by_data2),
+            account.get_masterkey_id())
+        keyinstances_by_derivation_path = {
+            derivation_path_by_data2[cast(bytes, keyinstance_row.derivation_data2)]: keyinstance_row
+            for keyinstance_row in existing_keys }
+        for derivation_path, key_description in result.key_labels.items():
+            keyinstance_row = keyinstances_by_derivation_path[derivation_path]
+            keyinstance_id = keyinstance_row.keyinstance_id
+            if not keyinstance_row.description:
+                self._key_state[derivation_path] = LabelState.ADD, keyinstance_id
+            elif keyinstance_row.description == key_description:
+                self._key_state[derivation_path] = LabelState.EXISTS, keyinstance_id
             else:
-                self._key_state[keyinstance_id] = LabelState.REPLACE
+                self._key_state[derivation_path] = LabelState.REPLACE, keyinstance_id
 
         self._import_result = result
 
     def _threaded_import_complete(self, future: concurrent.futures.Future) -> None:
+        """
+        GUI thread callback indicating the import logic completed.
+        """
         if self._import_result is None:
             MessageBox.show_error(_("The selected file is unrecognised."))
             self.reject()
@@ -281,7 +307,7 @@ class LabelImporter(QDialog):
         key_replace_count = 0
         key_skip_count = 0
 
-        for keyinstance_id, label_state in self._key_state.items():
+        for derivation_path, (label_state, keyinstance_id) in self._key_state.items():
             if label_state == LabelState.ADD:
                 key_add_count += 1
                 continue
@@ -294,14 +320,14 @@ class LabelImporter(QDialog):
                 key_replace_count += 1
                 problem_text = _("Replacement (for key)")
             else:
-                raise NotImplementedError(f"Unrecognized tx label state {label_state}")
+                raise NotImplementedError(f"Unrecognized key label state {label_state}")
 
-            description_text = self._import_result.key_labels[keyinstance_id]
+            description_text = self._import_result.key_labels[derivation_path]
 
             self._detected_problems_table.insertRow(row_index)
             self._detected_problems_table.setCellWidget(row_index, 0, QLabel(problem_text))
-            key_name = account.get_derivation_path_text(keyinstance_id)
-            self._detected_problems_table.setCellWidget(row_index, 1, QLabel(key_name))
+            derivation_text = bip32_build_chain_string(derivation_path)
+            self._detected_problems_table.setCellWidget(row_index, 1, QLabel(derivation_text))
             self._detected_problems_table.setCellWidget(row_index, 2, QLabel(_(description_text)))
             row_index += 1
 

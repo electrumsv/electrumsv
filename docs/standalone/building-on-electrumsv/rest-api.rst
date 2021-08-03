@@ -182,7 +182,7 @@ Get account balance (confirmed, unconfirmed, unmatured) in satoshis.
 
 remove
 **********
-Removes transactions (currently restricted to 'StateSigned' transactions.)
+Removes transactions (currently restricted to 'STATE_SIGNED' transactions.)
 
 Deleting transactions in the 'Dispatched', 'Cleared', 'Settled' states
 could cause issues with the utxo set and so is not supported at this
@@ -236,23 +236,23 @@ a bitmask for filtering transactions.
 
 **The main `TxFlags` are:**
 
-:StateCleared: 1 << 20  (received over p2p network and is unconfirmed and in the mempool)
-:StateSettled: 1 << 21 (received over the p2p network and is confirmed in a block)
-:StateReceived: 1 << 22 (received from another party and is unknown to the p2p network)
-:StateSigned: 1 << 23 (not sent or given to anyone else, but are with-holding and consider the inputs it uses allocated)
-:StateDispatched: 1 << 24 (a transaction you have given to someone else, and are considering the inputs it uses allocated)
+:STATE_CLEARED: 1 << 20  (received over p2p network and is unconfirmed and in the mempool)
+:STATE_SETTLED: 1 << 21 (received over the p2p network and is confirmed in a block)
+:STATE_RECEIVED: 1 << 22 (received from another party and is unknown to the p2p network)
+:STATE_SIGNED: 1 << 23 (not sent or given to anyone else, but are with-holding and consider the inputs it uses allocated)
+:STATE_DISPATCHED: 1 << 24 (a transaction you have given to someone else, and are considering the inputs it uses allocated)
 
 However, there are other flags that can be set. See ``electrumsv/constants.py:TxFlags`` for details.
 
 In the example below, (1 << 23 | 1 << 21) yields 9437184
-(to filter for only StateSigned and StateCleared transactions)
+(to filter for only STATE_SIGNED and STATE_CLEARED transactions)
 
 An empty request body will return all transaction history for this account.
 Pagination is not yet implemented.
 
 **Request**
 
-:Method: POST
+:Method: GET
 :Content-Type: application/json
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/history``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/history``
@@ -291,7 +291,7 @@ fetch_transaction
 ***************************
 Get the raw transaction for a given hex txid (as a hex string) - must be a transaction in the wallet's history.
 
-:Method: POST
+:Method: GET
 :Content-Type: application/json
 :Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/txs/fetch``
 :Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/fetch``
@@ -448,31 +448,6 @@ Regtest only endpoints
 If you try to access these endpoints when not in RegTest mode you will get back a 404 error because the endpoint will
 not be available.
 
-topup_account
-***************************
-Tops up the RegTest wallet from the RegTest node wallet (new blocks may be generated to facilitate this process).
-
-:Method: POST
-:Content-Type: application/json
-:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/topup_account``
-:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/topup_account``
-
-**Sample Request Payload**
-
-.. code-block::
-
-    {
-        "amount": 10
-    }
-
-**Sample Response**
-
-.. code-block::
-
-    {
-        "txid": "8f3dfe9b9e84c1d0b6d6ead8700be4114bb2d3ca1f97e1e84c64ea944415c723"
-    }
-
 generate_blocks
 ***************************
 Tops up the RegTest wallet from the RegTest node wallet (new blocks may be generated to facilitate this process).
@@ -503,12 +478,7 @@ Tops up the RegTest wallet from the RegTest node wallet (new blocks may be gener
 
 create_new_wallet
 ***************************
-This will create a new wallet - in this example "worker1.sqlite". This example was produced via the electrumsv-sdk_ which
-allows a convienient method for running a RegTest node, electrumX instance (pre-configured to connect) and an
-ElectrumSV instance with data-dir=G:\\electrumsv_official\\electrumsv1.
-
-
-.. _electrumsv-sdk: https://github.com/electrumsv/electrumsv-sdk
+This will create a new wallet - in this example "worker1.sqlite".
 
 :Method: POST
 :Content-Type: application/json
@@ -529,4 +499,53 @@ ElectrumSV instance with data-dir=G:\\electrumsv_official\\electrumsv1.
 
     {
         "new_wallet": "G:\\electrumsv_official\\electrumsv1\\regtest\\wallets\\worker1.sqlite"
+    }
+
+transaction state websocket
+***************************
+This websocket is for tracking transaction state changes. One main use case might be to wait
+on the websocket pending transaction confirmation (i.e. 'StateSettled'). But it is not limited
+to this transaction state.
+
+Supported States:
+
+:StateCleared: 1 << 20  (received over p2p network and is unconfirmed and in the mempool)
+:StateSettled: 1 << 21 (received over the p2p network and is confirmed in a block)
+
+May be supported later:
+
+:StateReceived: 1 << 22 (received from another party and is unknown to the p2p network)
+
+**Request**
+
+:Method: GET
+:Content-Type: application/json
+:Endpoint: ``http://127.0.0.1:9999/v1/{network}/dapp/wallets/{wallet_name}/{account_id}/websocket/text-events``
+:Regtest example: ``http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/websocket/text-events``
+
+
+**Sample Websocket message**
+
+.. code-block::
+
+    {
+        "txids": ["3c26c76acebffdd614d6a829bc014114803ba650710652d67837718e467a94ab"]
+    }
+
+**Sample Response**
+
+.. code-block::
+
+    {
+        "txid": "3c26c76acebffdd614d6a829bc014114803ba650710652d67837718e467a94ab",
+        "tx_flags": 2109552
+    }
+
+**Sample Error Response**
+
+.. code-block::
+
+    {
+        'code': 40000,
+        'message': "some error message goes here"
     }

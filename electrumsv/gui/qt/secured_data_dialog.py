@@ -26,15 +26,14 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from bitcoinx import bip32_key_from_string
+from bitcoinx import bip32_key_from_string, BIP39Mnemonic, ElectrumMnemonic, Wordlists
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
 
-from electrumsv.bitcoin import is_new_seed
-from electrumsv.constants import DerivationType
-from electrumsv.i18n import _
-from electrumsv.keystore import bip39_is_checksum_valid, KeyStore
+from ...constants import DerivationType, SEED_PREFIX
+from ...i18n import _
+from ...keystore import KeyStore
 
 from .main_window import ElectrumWindow
 from .qrtextedit import ShowQRTextEdit
@@ -44,8 +43,8 @@ from .util import Buttons, CloseButton, FormSectionWidget
 class SecuredDataDialog(QDialog):
     def __init__(self, main_window: ElectrumWindow, parent: QWidget, keystore: KeyStore,
             password: str) -> None:
-        super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+        super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
         self._main_window = main_window
 
@@ -63,18 +62,35 @@ class SecuredDataDialog(QDialog):
 
             seed_type_text = _("Unknown")
             if keystore.derivation_type == DerivationType.BIP32:
-                if is_new_seed(seed_text):
-                    seed_type_text = _("Electrum")
-                is_checksum_valid, is_wordlist_valid = bip39_is_checksum_valid(seed_text)
-                if is_checksum_valid and is_wordlist_valid:
-                    seed_type_text = _("BIP39")
+                seed_type_text = _("BIP32")
+
+                possible_seed_types = []
+                if ElectrumMnemonic.is_valid_new(seed_text, SEED_PREFIX):
+                    possible_seed_types.append(_("Electrum"))
+
+                is_bip39_valid = False
+                try:
+                    is_bip39_valid = BIP39Mnemonic.is_valid(seed_text,
+                        Wordlists.bip39_wordlist("english.txt"))
+                except (ValueError, BIP39Mnemonic.BadWords):
+                    import traceback
+                    traceback.print_exc()
+                    pass
+                else:
+                    if is_bip39_valid:
+                        possible_seed_types.append(_("BIP39"))
+
+                if len(possible_seed_types) == 1:
+                    seed_type_text += f" ({possible_seed_types[0]})"
+                else:
+                    seed_type_text += f" (either {' or '.join(possible_seed_types)})"
             elif keystore.derivation_type == DerivationType.ELECTRUM_OLD:
-                seed_type_text = _("Old-style Electrum")
+                seed_type_text = _("BIP32 (Old-style Electrum)")
             form.add_row(_("Seed type"), QLabel(seed_type_text))
 
             seed_edit = ShowQRTextEdit(self)
             seed_edit.setFixedHeight(80)
-            seed_edit.addCopyButton(self._main_window.app)
+            seed_edit.addCopyButton()
             seed_edit.setText(seed_text)
             form.add_row(_("Seed phrase"), seed_edit, True)
             self._seed_edit = seed_edit
@@ -86,7 +102,7 @@ class SecuredDataDialog(QDialog):
 
             passphrase_edit = ShowQRTextEdit(self)
             passphrase_edit.setFixedHeight(80)
-            passphrase_edit.addCopyButton(self._main_window.app)
+            passphrase_edit.addCopyButton()
             passphrase_edit.setText(passphrase_text)
             passphrase_widget = passphrase_edit
         else:
@@ -100,7 +116,7 @@ class SecuredDataDialog(QDialog):
 
                 xprv_edit = ShowQRTextEdit(self)
                 xprv_edit.setFixedHeight(80)
-                xprv_edit.addCopyButton(self._main_window.app)
+                xprv_edit.addCopyButton()
                 xprv_edit.setText(private_key.to_extended_key_string())
                 form.add_row(_("Master private key"), xprv_edit, True)
 

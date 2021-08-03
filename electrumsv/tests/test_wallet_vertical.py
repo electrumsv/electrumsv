@@ -1,16 +1,19 @@
-import pytest
 import tempfile
+from typing import cast
 import unittest
+import unittest.mock
 
+from bitcoinx import BIP39Mnemonic, ElectrumMnemonic, Wordlists
 
-from electrumsv.bitcoin import seed_type, address_from_string
-from electrumsv.constants import ScriptType
+from electrumsv.bitcoin import address_from_string
+from electrumsv.constants import KeystoreTextType, ScriptType, SEED_PREFIX
 from electrumsv import keystore
-from electrumsv.keystore import Multisig_KeyStore
+from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text, Multisig_KeyStore,\
+    Old_KeyStore
 from electrumsv.networks import Net, SVMainnet
-from electrumsv import wallet_database
 from electrumsv.wallet import MultisigAccount, StandardAccount, Wallet
-from electrumsv.wallet_database.tables import AccountRow
+from electrumsv.wallet_database.sqlite_support import DatabaseContext
+from electrumsv.wallet_database.types import AccountRow
 
 from .util import setup_async, tear_down_async
 
@@ -40,6 +43,9 @@ class MockStorage:
     def get(self, attr_name, default=None):
         return self._data.get(attr_name, default)
 
+    def get_explicit_type(self, discard, attr_name, default=None):
+        return self._data.get(attr_name, default)
+
     def put(self, attr_name, value) -> None:
         self._data[attr_name] = value
 
@@ -47,17 +53,17 @@ class MockStorage:
         return self.path
 
     def get_db_context(self):
-        return wallet_database.DatabaseContext(self.path)
+        return DatabaseContext(self.path)
 
 
 class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
-    gap_limit = 1  # make tests run faster
-
     def setUp(self) -> None:
         Net.set_to(SVMainnet)
 
         self.storage = MockStorage()
-        self.wallet = _Wallet(self.storage)
+        with unittest.mock.patch("electrumsv.wallet.app_state") as mock_app_state:
+            mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+            self.wallet = _Wallet(self.storage) # type: ignore
 
     def _check_seeded_keystore_sanity(self, ks):
         self.assertTrue (ks.is_deterministic())
@@ -73,9 +79,9 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
 
     def _create_standard_wallet(self, ks: keystore.KeyStore) -> StandardAccount:
         masterkey_row = self.wallet.create_masterkey_from_keystore(ks)
-        account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
-        account = StandardAccount(self.wallet, account_row, [], [])
-        account.synchronize()
+        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+        account_row = self.wallet.add_accounts([ account_row ])[0]
+        account = StandardAccount(self.wallet, account_row)
         return account
 
     def _create_multisig_wallet(self, ks1, ks2):
@@ -83,19 +89,19 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         keystore.add_cosigner_keystore(ks1)
         keystore.add_cosigner_keystore(ks2)
         masterkey_row = self.wallet.create_masterkey_from_keystore(keystore)
-        account_row = AccountRow(1, masterkey_row.masterkey_id, ScriptType.MULTISIG_P2SH, 'text')
-        account = MultisigAccount(self.wallet, account_row, [], [])
+        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_P2SH, 'text')
+        account_row = self.wallet.add_accounts([ account_row ])[0]
+        account = MultisigAccount(self.wallet, account_row)
         self.wallet.register_account(account.get_id(), account)
-        account.synchronize()
         return account
 
-    @pytest.mark.timeout(8)
     def test_electrum_seed_standard(self):
+        password = "zzz"
         seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
-        self.assertEqual(seed_type(seed_words), 'standard')
+        self.assertTrue(ElectrumMnemonic.is_valid_new(seed_words, SEED_PREFIX))
 
-        ks = keystore.from_seed(seed_words, '')
-
+        ks = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
         self._check_seeded_keystore_sanity(ks)
         self.assertTrue(isinstance(ks, keystore.BIP32_KeyStore))
 
@@ -110,11 +116,12 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
                          address_from_string('1KSezYMhAJMWqFbVFB2JshYg69UpmEXR4D'))
 
     def test_electrum_seed_old(self):
+        password = "zzz"
         seed_words = 'powerful random nobody notice nothing important anyway look away hidden message over'
-        self.assertEqual(seed_type(seed_words), 'old')
+        self.assertTrue(ElectrumMnemonic.is_valid_old(seed_words))
 
-        ks = keystore.from_seed(seed_words, '')
-
+        ks = cast(Old_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, seed_words, password))
         self._check_seeded_keystore_sanity(ks)
         self.assertTrue(isinstance(ks, keystore.Old_KeyStore))
 
@@ -129,11 +136,12 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
                          address_from_string('1KRW8pH6HFHZh889VDq6fEKvmrsmApwNfe'))
 
     def test_bip39_seed_bip44_standard(self):
+        password = "yyy"
         seed_words = 'treat dwarf wealth gasp brass outside high rent blood crowd make initial'
-        self.assertEqual(keystore.bip39_is_checksum_valid(seed_words), (True, True))
+        assert BIP39Mnemonic.is_valid(seed_words, Wordlists.bip39_wordlist("english.txt"))
 
-        ks = keystore.from_bip39_seed(seed_words, '', "m/44'/0'/0'")
-
+        ks = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.BIP39_SEED_WORDS, seed_words, password, derivation_text="m/44'/0'/0'"))
         self.assertTrue(isinstance(ks, keystore.BIP32_KeyStore))
 
         self.assertEqual(ks.xpub, 'xpub6DFh1smUsyqmYD4obDX6ngaxhd53Zx7aeFjoobebm7vbkT6f9awJ'
@@ -147,18 +155,23 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
                          address_from_string('1GG5bVeWgAp5XW7JLCphse14QaC4qiHyWn'))
 
     def test_electrum_multisig_seed_standard(self):
+        password = "rrrr"
         seed_words = ('blast uniform dragon fiscal ensure vast young utility dinosaur '
             'abandon rookie sure')
-        self.assertEqual(seed_type(seed_words), 'standard')
+        self.assertTrue(ElectrumMnemonic.is_valid_new(seed_words, SEED_PREFIX))
 
-        ks1 = keystore.from_seed(seed_words, '')
+        ks1 = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
         self._check_seeded_keystore_sanity(ks1)
         self.assertTrue(isinstance(ks1, keystore.BIP32_KeyStore))
         self.assertEqual(ks1.xpub, 'xpub661MyMwAqRbcGNEPu3aJQqXTydqR9t49Tkwb4Esrj112kw8xLthv'
             '8uybxvaki4Ygt9xiwZUQGeFTG7T2TUzR3eA4Zp3aq5RXsABHFBUrq4c')
 
-        ks2 = keystore.from_xpub('xpub661MyMwAqRbcGfCPEkkyo5WmcrhTq8mi3xuBS7VEZ3LYvsgY1cCFDb'
-            'enT33bdD12axvrmXhuX3xkAbKci3yZY9ZEk8vhLic7KNhLjqdh5ec')
+        ks2 = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.EXTENDED_PUBLIC_KEY,
+            'xpub661MyMwAqRbcGfCPEkkyo5WmcrhTq8mi3xuBS7VEZ3LYvsgY1cCFDb'
+                'enT33bdD12axvrmXhuX3xkAbKci3yZY9ZEk8vhLic7KNhLjqdh5ec',
+            watch_only=True))
         self._check_xpub_keystore_sanity(ks2)
         self.assertTrue(isinstance(ks2, keystore.BIP32_KeyStore))
 
@@ -170,16 +183,21 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
             address_from_string('36XWwEHrrVCLnhjK5MrVVGmUHghr9oWTN1'))
 
     def test_bip39_multisig_seed_bip45_standard(self):
+        password = "qwqwq"
         seed_words = 'treat dwarf wealth gasp brass outside high rent blood crowd make initial'
-        self.assertEqual(keystore.bip39_is_checksum_valid(seed_words), (True, True))
+        assert BIP39Mnemonic.is_valid(seed_words, Wordlists.bip39_wordlist("english.txt"))
 
-        ks1 = keystore.from_bip39_seed(seed_words, '', "m/45'/0")
+        ks1 = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.BIP39_SEED_WORDS, seed_words, password, derivation_text="m/45'/0"))
         self.assertTrue(isinstance(ks1, keystore.BIP32_KeyStore))
         self.assertEqual(ks1.xpub, 'xpub69xafV4YxC6o8Yiga5EiGLAtqR7rgNgNUGiYgw3S9g9pp6XYUne1'
             'KxdcfYtxwmA3eBrzMFuYcNQKfqsXCygCo4GxQFHfywxpUbKNfYvGJka')
 
-        ks2 = keystore.from_xpub('xpub6Bco9vrgo8rNUSi8Bjomn8xLA41DwPXeuPcgJamNRhTTyGVHsp8fZX'
-            'aGzp9ypHoei16J6X3pumMAP1u3Dy4jTSWjm4GZowL7Dcn9u4uZC9W')
+        ks2 = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.EXTENDED_PUBLIC_KEY,
+            'xpub6Bco9vrgo8rNUSi8Bjomn8xLA41DwPXeuPcgJamNRhTTyGVHsp8fZX'
+                'aGzp9ypHoei16J6X3pumMAP1u3Dy4jTSWjm4GZowL7Dcn9u4uZC9W',
+            watch_only=True))
         self._check_xpub_keystore_sanity(ks2)
         self.assertTrue(isinstance(ks2, keystore.BIP32_KeyStore))
 

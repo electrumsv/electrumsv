@@ -30,17 +30,26 @@
 # being used by dark coins like Bitcoin Cash.
 
 import json
-from typing import Dict, Tuple
+from typing import Any, Dict, Optional, Tuple, Type, Union
 
 from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet, \
-    BitcoinRegtest, PrivateKey, PublicKey, P2PKH_Address
+    BitcoinRegtest
 
 from .util import resource_path
 
 BLOCK_HEIGHT_OUT_OF_RANGE_ERROR = -8
 
 
-def read_json_dict(filename):
+class NetworkName:
+    MAINNET = 'mainnet'
+    REGTEST = 'regtest'
+    TESTNET = 'testnet'
+    SCALING_TESTNET = 'scalingtestnet'
+
+TEST_NETWORK_NAMES = { NetworkName.REGTEST, NetworkName.TESTNET, NetworkName.SCALING_TESTNET }
+
+
+def read_json_dict(filename: str) -> Any:
     path = resource_path(filename)
     with open(path, 'r') as f:
         return json.loads(f.read())
@@ -52,8 +61,9 @@ class SVMainnet(object):
     CASHADDR_PREFIX = "bitcoincash"
     DEFAULT_PORTS = {'t': '50001', 's': '50002'}
     DEFAULT_SERVERS = read_json_dict('servers.json')
+    DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers.json')
     GENESIS = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
-    NAME = 'mainnet'
+    NAME = NetworkName.MAINNET
     BITCOIN_URI_PREFIX = "bitcoin"
     PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0x80
@@ -69,13 +79,10 @@ class SVMainnet(object):
 
     # A post-split SV checkpoint.
     CHECKPOINT = CheckPoint(bytes.fromhex(
-        '00004020001c43664879f5c89384f39f0c71a48197b2f1bfdbbe83010000000000000000e3d8f953'
-        'f133959c98fadfced5b83f388b8aaee167772dc850425edcb5ac916e7862285fdf6203181438585e'
-    ), height=646575, prev_work=0x1149bb71861599709fe849c)
-
-    VERIFICATION_BLOCK_MERKLE_ROOT = (
-        '3fccaf735987c5a6bcf5ee24022a989d311b18e0fa20f67c4565137fb888317b'
-    )
+        '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
+        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c'
+    ), height=0, prev_work=0)
+    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = None
 
     BIP44_COIN_TYPE = 0
 
@@ -99,8 +106,8 @@ class SVMainnet(object):
     }
 
     FAUCET_URL = "https://faucet.satoshisvision.network"
-    KEEPKEY_DISPLAY_COIN_NAME = 'Bitcoin'
-    TREZOR_COIN_NAME = 'Bcash'
+    KEEPKEY_DISPLAY_COIN_NAME: str = 'Bitcoin'
+    TREZOR_COIN_NAME: str = 'Bcash'
     # Really we want to put the difficulty logic in this file
     TWENTY_MINUTE_RULE = False
 
@@ -112,8 +119,9 @@ class SVTestnet(object):
     CASHADDR_PREFIX = "bchtest"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
     DEFAULT_SERVERS = read_json_dict('servers_testnet.json')
+    DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers_testnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
-    NAME = 'testnet'
+    NAME = NetworkName.MAINNET
     BITCOIN_URI_PREFIX = "bitcoin"
     PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0xef
@@ -133,7 +141,7 @@ class SVTestnet(object):
         '767dc2e6fdb63e82d570461da2daa2f4fd9fe375ebce93f5b180a6f5ae7e285faef5021a7f406d4d'
     ), height=1377549, prev_work=0xade538ee77b27b019d)
 
-    VERIFICATION_BLOCK_MERKLE_ROOT = (
+    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = (
         'c2ca8aef7a20779fc9b7cc00af6b9b65f7ff99ae68fe22132c448d15de0d5943'
     )
 
@@ -161,7 +169,7 @@ class SVTestnet(object):
     FAUCET_URL = "https://testnet.satoshisvision.network"
     KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'
     # Note: testnet allegedly supported only by unofficial firmware
-    TREZOR_COIN_NAME = 'Bcash Testnet'
+    TREZOR_COIN_NAME: str = 'Bcash Testnet'
     # Really we want to put the difficulty logic in this file
     TWENTY_MINUTE_RULE = True
 
@@ -173,8 +181,9 @@ class SVScalingTestnet(object):
     CASHADDR_PREFIX = "bchtest"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
     DEFAULT_SERVERS = read_json_dict('servers_scalingtestnet.json')
+    DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers_scalingtestnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
-    NAME = 'scalingtestnet'
+    NAME = NetworkName.SCALING_TESTNET
     BITCOIN_URI_PREFIX = "bitcoin"
     PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0xef
@@ -194,7 +203,7 @@ class SVScalingTestnet(object):
     #     '0a4ff9d2499db4524ca1663b82736211390885bd5d813ef2d4612c798e7e285f99d91d1cb33ad085'
     # ), height=15789, prev_work=0x12c8202e00871)
 
-    # VERIFICATION_BLOCK_MERKLE_ROOT = (
+    # VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = (
     #     '3c6449749d6376dd341f4e1b2192ec658b68c241beaaf665e5615ae01c35b853'
     # )
 
@@ -203,7 +212,7 @@ class SVScalingTestnet(object):
         '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
         '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
     ), height=0, prev_work=0)
-    VERIFICATION_BLOCK_MERKLE_ROOT = None
+    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = None
 
     BIP44_COIN_TYPE = 1
 
@@ -229,44 +238,21 @@ class SVScalingTestnet(object):
     FAUCET_URL = "https://faucet.bitcoinscaling.io"
     KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'
     # Note: testnet allegedly supported only by unofficial firmware
-    TREZOR_COIN_NAME = 'Bcash Testnet'
+    TREZOR_COIN_NAME: str = 'Bcash Testnet'
     # Really we want to put the difficulty logic in this file
     TWENTY_MINUTE_RULE = True
 
 
 class SVRegTestnet(object):
-    """The checkpoint cannot be made until the bitcoin node has at least generated 146 blocks (to
-    calculate the DAA). Blocks are therefore generated until there are at least 200. A new
-    checkpoint at height = 200 is then calculated before allowing anything further to proceed.
-
-    Note: RegTest overflows the max nBits field, presumably due to a very short time interval
-    between generated blocks. To modify this field would be to change the hash of the header so
-    as a workaround, bitcoinx is monkeypatched to skip the checking of the difficulty target
-    (see HeadersRegtestMod)."""
-
-    # hardcoded
-    # - WIF private_key:    cT3G2vJGRNbpmoCVXYPYv2JbngzwtznLvioPPJXu39jfQeLpDuX5
-    # - Pubkey hash:        mfs8Y8gAwC2vJHCeSXkHs6LF5nu5PA7nxc
-    REGTEST_FUNDS_PRIVATE_KEY: PrivateKey = PrivateKey(
-        bytes.fromhex('a2d9803c912ab380c1491d3bd1aaab34ca06742d7885a224ec8d386182d26ed2'),
-        coin=BitcoinRegtest)
-    REGTEST_FUNDS_PRIVATE_KEY_WIF = REGTEST_FUNDS_PRIVATE_KEY.to_WIF()
-    REGTEST_FUNDS_PUBLIC_KEY: PublicKey = REGTEST_FUNDS_PRIVATE_KEY.public_key
-    REGTEST_P2PKH_ADDRESS: P2PKH_Address = REGTEST_FUNDS_PUBLIC_KEY.to_address().to_string()
-
-    # For CI/CD use (restapi will by default reset everything back to empty wallet with this seed)
-    # First receive address: mwv1WZTsrtKf3S9mRQABEeMaNefLbQbKpg
-    REGTEST_DEFAULT_ACCOUNT_SEED = 'tprv8ZgxMBicQKsPd4wsdaJ11eH84eq4hHLX1K6Mx8EQQhJzq8jr25WH1m8hg' \
-        'GkCqnksJDCZPZbDoMbQ6QtroyCyn5ZckCmsLeiHDb1MAxhNUHN'
-
     MIN_CHECKPOINT_HEIGHT = 0
     ADDRTYPE_P2PKH = 111
     ADDRTYPE_P2SH = 196
     CASHADDR_PREFIX = "bchtest"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
     DEFAULT_SERVERS = read_json_dict('servers_regtest.json')
+    DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers_regtest.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
-    NAME = 'regtest'
+    NAME = NetworkName.REGTEST
     BITCOIN_URI_PREFIX = "bitcoin"
     PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0xef
@@ -276,9 +262,9 @@ class SVRegTestnet(object):
     # Use the following for a chain reset.
     CHECKPOINT = CheckPoint(bytes.fromhex(
         '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
-        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
+        '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff7f2002000000'
     ), height=0, prev_work=0)
-    VERIFICATION_BLOCK_MERKLE_ROOT = None
+    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = None
 
     BIP44_COIN_TYPE = 1
 
@@ -287,13 +273,16 @@ class SVRegTestnet(object):
     FAUCET_URL = ""
     KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'
     # Note: testnet allegedly supported only by unofficial firmware
-    TREZOR_COIN_NAME = 'Bcash Testnet'
+    TREZOR_COIN_NAME: str = 'Bcash Testnet'
     TWENTY_MINUTE_RULE = True
+
+
+NetworkTypes = Union[SVMainnet, SVTestnet, SVScalingTestnet, SVRegTestnet]
 
 
 class _CurrentNetMeta(type):
 
-    def __getattr__(cls, attr):
+    def __getattr__(cls, attr: str) -> Any:
         return getattr(cls._net, attr)
 
 
@@ -306,8 +295,24 @@ class Net(metaclass=_CurrentNetMeta):
         Net.set_to(SVTestnet)
     '''
 
-    _net = SVMainnet
+    _net: Type[NetworkTypes] = SVMainnet
 
     @classmethod
-    def set_to(cls, net_class):
+    def set_to(cls, net_class: Type[NetworkTypes]) -> None:
         cls._net = net_class
+
+    @classmethod
+    def is_mainnet(cls) -> bool:
+        return cls._net is SVMainnet
+
+    @classmethod
+    def is_testnet(cls) -> bool:
+        return cls._net is SVTestnet
+
+    @classmethod
+    def is_scaling_testnet(cls) -> bool:
+        return cls._net is SVScalingTestnet
+
+    @classmethod
+    def is_regtest(cls) -> bool:
+        return cls._net is SVRegTestnet

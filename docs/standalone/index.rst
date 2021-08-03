@@ -109,6 +109,8 @@ Do I have to develop against the existing public blockchains?
    /building-on-electrumsv/rest-api
    /building-on-electrumsv/customised-wallet-servers
    /building-on-electrumsv/local-or-offline-development
+   /building-on-electrumsv/functional-tests
+   /building-on-electrumsv/benchmarks
 
 The ElectrumSV project
 ----------------------
@@ -140,6 +142,13 @@ What is the process of releasing a new version?
     release and updating the web site to have the content changes required to offer it for
     download. Read more about the :doc:`release process <the-electrumsv-project/release-process>`.
 
+What should be tested in order to verify things work as they should?
+    The unit and functional tests can only test so much. It is also necessary to do manual testing.
+    If someone wishes to go through it all and try it out, they are more than welcome to. But
+    generally, this will be used as a guide to do targeted testing based on what changes have been
+    made that are related to featured functionality. Read more about
+    :doc:`manual testing <the-electrumsv-project/testing-manually>`.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
@@ -148,6 +157,7 @@ What is the process of releasing a new version?
    /the-electrumsv-project/how-you-can-contribute
    /the-electrumsv-project/continuous-integration
    /the-electrumsv-project/release-process
+   /the-electrumsv-project/testing-manually
 
 Indices and tables
 ==================

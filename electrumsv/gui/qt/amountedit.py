@@ -23,11 +23,11 @@
 # SOFTWARE.
 
 from decimal import Decimal
-from typing import Optional
+from typing import Callable, Optional
 
 from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtGui import QPalette, QPainter
-from PyQt5.QtWidgets import (QLineEdit, QStyle, QStyleOptionFrame)
+from PyQt5.QtGui import QPalette, QPainter, QPaintEvent
+from PyQt5.QtWidgets import (QLineEdit, QStyle, QStyleOptionFrame, QWidget)
 
 from electrumsv.app_state import app_state
 from electrumsv.util import format_satoshis_plain
@@ -36,7 +36,7 @@ from electrumsv.util import format_satoshis_plain
 class MyLineEdit(QLineEdit):
     frozen = pyqtSignal()
 
-    def setFrozen(self, b):
+    def setFrozen(self, b: bool) -> None:
         self.setReadOnly(b)
         self.setFrame(not b)
         self.frozen.emit()
@@ -45,7 +45,7 @@ class MyLineEdit(QLineEdit):
 class AmountEdit(MyLineEdit):
     shortcut = pyqtSignal()
 
-    def __init__(self, base_unit_func, parent=None):
+    def __init__(self, base_unit_func: Callable[[], str], parent: Optional[QWidget]=None) -> None:
         super().__init__(parent)
         # This seems sufficient for hundred-BTC amounts with 8 decimals
         self.setFixedWidth(140)
@@ -54,10 +54,10 @@ class AmountEdit(MyLineEdit):
         self.is_shortcut = False
         self.help_palette = QPalette()
 
-    def decimal_point(self):
+    def decimal_point(self) -> int:
         return 8
 
-    def numbify(self):
+    def numbify(self) -> None:
         text = self.text().strip()
         if text == '!':
             self.shortcut.emit()
@@ -75,18 +75,20 @@ class AmountEdit(MyLineEdit):
         self.setModified(self.hasFocus())
         self.setCursorPosition(pos)
 
-    def paintEvent(self, event):
+    def paintEvent(self, event: QPaintEvent) -> None:
         QLineEdit.paintEvent(self, event)
         if self.base_unit_func:
             panel = QStyleOptionFrame()
             self.initStyleOption(panel)
-            textRect = self.style().subElementRect(QStyle.SE_LineEditContents, panel, self)
+            textRect = self.style().subElementRect(QStyle.SubElement.SE_LineEditContents, panel,
+                self)
             textRect.adjust(2, 0, -10, 0)
             painter = QPainter(self)
             painter.setPen(self.help_palette.brush(QPalette.Disabled, QPalette.Text).color())
-            painter.drawText(textRect, Qt.AlignRight | Qt.AlignVCenter, self.base_unit_func())
+            painter.drawText(textRect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+                self.base_unit_func())
 
-    def get_amount(self):
+    def get_amount(self) -> Optional[Decimal]:
         try:
             return Decimal(str(self.text()))
         except Exception:
@@ -94,10 +96,10 @@ class AmountEdit(MyLineEdit):
 
 
 class BTCAmountEdit(AmountEdit):
-    def __init__(self, parent=None) -> None:
+    def __init__(self, parent: Optional[QWidget]=None) -> None:
         super().__init__(app_state.base_unit, parent)
 
-    def decimal_point(self):
+    def decimal_point(self) -> int:
         return app_state.decimal_point
 
     def get_amount(self) -> Optional[int]:
@@ -109,7 +111,7 @@ class BTCAmountEdit(AmountEdit):
         p = pow(10, self.decimal_point())
         return int( p * x )
 
-    def setAmount(self, amount: int) -> None:
+    def setAmount(self, amount: Optional[int]) -> None:
         if amount is None:
             self.setText(" ") # Space forces repaint in case units changed
         else:
@@ -118,23 +120,23 @@ class BTCAmountEdit(AmountEdit):
 
 class BTCSatsByteEdit(AmountEdit):
 
-    def __init__(self, parent=None):
+    def __init__(self, parent: Optional[QWidget]=None) -> None:
         super().__init__(self.base_unit, parent=parent)
 
-    def decimal_point(self):
+    def decimal_point(self) -> int:
         return 2
 
-    def base_unit(self):
+    def base_unit(self) -> str:
         return 'sats/B'
 
-    def get_amount(self):
+    def get_amount(self) -> Optional[float]:
         try:
             x = float(Decimal(str(self.text())))
         except Exception:
             return None
         return x if x > 0.0 else None
 
-    def setAmount(self, amount):
+    def setAmount(self, amount: Optional[float]) -> None:
         if amount is None:
             self.setText(" ") # Space forces repaint in case units changed
         else:

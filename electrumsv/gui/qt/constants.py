@@ -1,7 +1,7 @@
 from enum import IntEnum
 
-from electrumsv.constants import PaymentFlag
-from electrumsv.i18n import _
+from ...constants import PaymentFlag
+from ...i18n import _
 
 
 ICON_NAME_INVOICE_PAYMENT = "seal"
@@ -20,13 +20,6 @@ pr_tooltips = {
     PaymentFlag.UNKNOWN:_('Unknown'),
     PaymentFlag.ARCHIVED:_('Archived'),
 }
-
-expiration_values = [
-    (_('1 hour'), 60*60),
-    (_('1 day'), 24*60*60),
-    (_('1 week'), 7*24*60*60),
-    (_('Never'), None)
-]
 
 
 class UIBroadcastSource(IntEnum):
@@ -60,33 +53,6 @@ QListView:item:selected {
 """
 f"  background-color: {CSS_TABLE_CELL_FOCUS_COLOR};"
 """
-}
-
-QTableView {
-  outline: 0;
-"""
-f"  alternate-background-color: {CSS_ALTERNATING_BACKGROUND_COLOR};"
-"""
-}
-QTableView:item {
-  color: black;
-  border: 0px;
-}
-QTableView::item:focus {
-  color: black;
-"""
-f"  background-color: {CSS_TABLE_CELL_FOCUS_COLOR};"
-"""
-  border: 0px;
-}
-
-QTreeView {
-"""
-f"  alternate-background-color: {CSS_ALTERNATING_BACKGROUND_COLOR};"
-"""
-}
-QTreeView::item {
-  padding: 0px 0px 0px 4px;
 }
 """)
 

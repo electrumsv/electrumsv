@@ -1,12 +1,13 @@
 import json
+from typing import cast
+
+from bitcoinx import bip32_key_from_string, BIP32PublicKey, P2PKH_Address, PrivateKey, \
+    PublicKey, Tx
 import pytest
 
-from bitcoinx import (
-    Address, PrivateKey, PublicKey, Tx, Script, TxOutput, bip32_key_from_string, hash160, Bitcoin
-)
-
 from electrumsv.bitcoin import address_from_string
-from electrumsv.keystore import Old_KeyStore, BIP32_KeyStore
+from electrumsv.constants import KeystoreTextType
+from electrumsv.keystore import BIP32_KeyStore, Old_KeyStore, instantiate_keystore_from_text
 from electrumsv.transaction import XPublicKey, Transaction, TransactionContext, NO_SIGNATURE
 
 
@@ -25,39 +26,48 @@ class TestTransaction:
         assert txin.prev_hash.hex() == '49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'
         assert txin.prev_idx == 1
         assert txin.script_sig.to_hex() == '01ff4c53ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300'
+        assert txin.script_length == 87
+        assert txin.script_offset == 42
         assert txin.sequence == 4294967294
         assert txin.value == 20112600
         assert txin.signatures == [NO_SIGNATURE]
         assert txin.x_pubkeys == [XPublicKey.from_hex('ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300')]
         assert txin.threshold == 1
-        assert (tx.outputs[0].value == 20112408 and tx.outputs[0].script_pubkey == \
-            address_from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())
+        txout = tx.outputs[0]
+        assert txout.value == 20112408 and txout.script_pubkey == cast(P2PKH_Address, address_from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK')).to_script()
+        assert txout.script_length == 25
+        assert txout.script_offset == 151
         assert tx.locktime == 507231
 
-        assert json.dumps(tx.to_dict()) == '{"version": 1, "hex": "010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000002401ff2103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166feffffff0118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 20112600, "signatures": ["ff"], "x_pubkeys": [{"bip32_xpub": "xpub661MyMwAqRbcFL6WFqND2XM2w1EfpBwFfhsSUcw9xDR3nH8eYLv4z4HAhxv5zkqjHojWsPYK1ZSK7yCr8fZ9iWU6D361G2ryv5UgsKjbeDq", "derivation_path": [0, 35]}]}]}'
+        assert json.dumps(tx.to_dict(TransactionContext())) == '{"version": 1, "hex": "010000000149f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed010000002401ff2103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166feffffff0118e43201000000001976a914e158fb15c888037fdc40fb9133b4c1c3c688706488ac5fbd0700", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 20112600, "signatures": ["ff"], "x_pubkeys": [{"bip32_xpub": "xpub661MyMwAqRbcFL6WFqND2XM2w1EfpBwFfhsSUcw9xDR3nH8eYLv4z4HAhxv5zkqjHojWsPYK1ZSK7yCr8fZ9iWU6D361G2ryv5UgsKjbeDq", "derivation_path": [0, 35]}]}]}'
 
     def test_tx_signed(self):
         # This is testing the extended parsing for a signed transaction.
-        tx = Transaction.from_extended_bytes(bytes.fromhex(signed_blob))
+        tx_bytes = bytes.fromhex(signed_blob)
+        tx = Transaction.from_extended_bytes(tx_bytes)
         assert tx.version == 1
         assert len(tx.inputs) == 1
         txin = tx.inputs[0]
         assert txin.prev_hash.hex() == '49f35e43fefd22d8bb9e4b3ff294c6286154c25712baf6ab77b646e5074d6aed'
         assert txin.prev_idx == 1
         assert txin.script_sig.to_hex() == '473044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f46885412103b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166'
+        assert txin.script_length == 106
+        assert txin.script_offset == 42
         assert txin.sequence == 4294967294
         assert txin.signatures == [bytes.fromhex('3044022025bdc804c6fe30966f6822dc25086bc6bb0366016e68e880cf6efd2468921f3202200e665db0404f6d6d9f86f73838306ac55bb0d0f6040ac6047d4e820f24f4688541')]
         assert txin.x_pubkeys == [XPublicKey.from_hex('03b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166')]
         assert txin.threshold == 1
-        assert (tx.outputs[0].value == 20112408 and tx.outputs[0].script_pubkey == \
-            address_from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK').to_script())
+        txout = tx.outputs[0]
+        assert txout.value == 20112408 and txout.script_pubkey == cast(P2PKH_Address, address_from_string('1MYXdf4moacvaEKZ57ozerpJ3t9xSeN6LK')).to_script()
+        assert txout.script_length == 25
+        assert txout.script_offset == 162
         assert tx.locktime == 507231
-        assert tx.to_dict() == {'hex': signed_blob, 'complete': True, 'version': 1}
+        assert tx.to_dict(TransactionContext()) == {'hex': signed_blob, 'complete': True, 'version': 1}
         assert tx.serialize() == signed_blob
 
         tx.update_signatures(signed_blob)
 
-        assert tx.estimated_size() == 192
+        assert sum(tx.estimated_size()) == len(tx_bytes)
 
     def test_parse_xpub(self):
         res = XPublicKey.from_hex('fe4e13b0f311a55b8a5db9a32e959da9f011b131019d4cebe6141b9e2c93edcbfc0954c358b062a9f94111548e50bde5847a3096b8b7872dcffadb0e9579b9017b01000200').to_address()
@@ -136,13 +146,13 @@ class TestTransaction2:
     def test_sign_tx_1(self):
         # Test signing the first input only
         tx = self.sign_tx(unsigned_tx, [priv_keys[0]])
-        assert json.dumps(tx.to_dict()) == '{"version": 1, "hex": "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000002401ff2102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000006b483045022100fa8ebdc7cefc407fd1b560fb2e2e5e96e900e94634d96df4fd284126048746a2022028d91ca132a1a386a67df69a2c5ba216218870c256c163d729f1575f7a8824f54121030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff01de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 18161, "signatures": ["ff"], "x_pubkeys": [{"pubkey_bytes": "02faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85"}]}, {"script_type": 2, "threshold": 1, "value": 88385, "signatures": ["3045022100fa8ebdc7cefc407fd1b560fb2e2e5e96e900e94634d96df4fd284126048746a2022028d91ca132a1a386a67df69a2c5ba216218870c256c163d729f1575f7a8824f541"], "x_pubkeys": [{"pubkey_bytes": "030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477ea"}]}]}'
+        assert json.dumps(tx.to_dict(TransactionContext())) == '{"version": 1, "hex": "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000002401ff2102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000006b483045022100fa8ebdc7cefc407fd1b560fb2e2e5e96e900e94634d96df4fd284126048746a2022028d91ca132a1a386a67df69a2c5ba216218870c256c163d729f1575f7a8824f54121030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff01de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 18161, "signatures": ["ff"], "x_pubkeys": [{"pubkey_bytes": "02faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85"}]}, {"script_type": 2, "threshold": 1, "value": 88385, "signatures": ["3045022100fa8ebdc7cefc407fd1b560fb2e2e5e96e900e94634d96df4fd284126048746a2022028d91ca132a1a386a67df69a2c5ba216218870c256c163d729f1575f7a8824f541"], "x_pubkeys": [{"pubkey_bytes": "030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477ea"}]}]}'
         assert not tx.is_complete()
 
     def test_sign_tx_2(self):
         # Test signing the second input only
         tx = self.sign_tx(unsigned_tx, [priv_keys[1]])
-        assert json.dumps(tx.to_dict()) == '{"version": 1, "hex": "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000006b4830450221008dc02fa531a9a704f5c01abdeb58930514651565b42abf94f6ad1565d0ad6785022027b1396f772c696629a4a09b01aed2416861aeaee05d0ff4a2e6fdfde73ec84d412102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000002401ff21030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff01de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 18161, "signatures": ["30450221008dc02fa531a9a704f5c01abdeb58930514651565b42abf94f6ad1565d0ad6785022027b1396f772c696629a4a09b01aed2416861aeaee05d0ff4a2e6fdfde73ec84d41"], "x_pubkeys": [{"pubkey_bytes": "02faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85"}]}, {"script_type": 2, "threshold": 1, "value": 88385, "signatures": ["ff"], "x_pubkeys": [{"pubkey_bytes": "030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477ea"}]}]}'
+        assert json.dumps(tx.to_dict(TransactionContext())) == '{"version": 1, "hex": "0100000002f25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084000000006b4830450221008dc02fa531a9a704f5c01abdeb58930514651565b42abf94f6ad1565d0ad6785022027b1396f772c696629a4a09b01aed2416861aeaee05d0ff4a2e6fdfde73ec84d412102faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85fefffffff25568d10d46181bc65b01b735f8cccdb91e4e7d172c5efb984b839d1c912084010000002401ff21030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477eafeffffff01de9e0100000000001976a914428f0dbcc74fc3a999bbaf8bf4600531e155e66b88ac75c50800", "complete": false, "inputs": [{"script_type": 2, "threshold": 1, "value": 18161, "signatures": ["30450221008dc02fa531a9a704f5c01abdeb58930514651565b42abf94f6ad1565d0ad6785022027b1396f772c696629a4a09b01aed2416861aeaee05d0ff4a2e6fdfde73ec84d41"], "x_pubkeys": [{"pubkey_bytes": "02faf7f10ccad1bc40e697e6b90b1d7c9daf92fdf47a4cf726f1c0422e4730fe85"}]}, {"script_type": 2, "threshold": 1, "value": 88385, "signatures": ["ff"], "x_pubkeys": [{"pubkey_bytes": "030c4ee92cd3c174e9aabcdec56ddc6b6d09a7767b563055a10e5406ec48f477ea"}]}]}'
         assert not tx.is_complete()
 
     def test_sign_tx_3(self):
@@ -162,15 +172,16 @@ class TestTransaction2:
 
     def multisig_keystores(self):
         seed = 'ee6ea9eceaf649640051a4c305ac5c59'
-        keystore1 = Old_KeyStore.from_seed(seed)
-        keystore1.update_password("OLD")
+        keystore1 = cast(Old_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, seed, password="OLD"))
 
         xprv = ('xprv9s21ZrQH143K4XLpSd2berkCzJTXDv68rusDQFiQGSqa1ZmVXnYzYpTQ9'
                 'qYiSB7mHvg6kEsrd2ZtnHRJ61sZhSN4jZ2T8wxA4T75BE4QQZ1')
         xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
                 'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
-        keystore2 = BIP32_KeyStore({'xprv': xprv, 'xpub': xpub})
-        keystore2.update_password("BIP32")
+        keystore2 = cast(BIP32_KeyStore, instantiate_keystore_from_text(
+            KeystoreTextType.EXTENDED_PRIVATE_KEY, xprv, password="BIP32"))
+        assert keystore2.xpub == xpub
 
         return [keystore1, keystore2]
 
@@ -188,8 +199,8 @@ class TestTransaction2:
         fully_signed_json_1, unsigned_json_2, signed1_json_2, signed2_json_2,
         fully_signed_json_2))
     def test_dict_io(self, json_text: str) -> None:
-        tx = Transaction.from_dict(json.loads(json_text))
-        assert json.dumps(tx.to_dict()) == json_text
+        tx, context = Transaction.from_dict(json.loads(json_text))
+        assert json.dumps(tx.to_dict(context)) == json_text
 
     @pytest.mark.parametrize("unsigned_pair, signed1_pair, fully_signed_pair, signed2_pair", (
         (
@@ -225,11 +236,11 @@ class TestTransaction2:
 
         keystore1, keystore2 = self.multisig_keystores()
 
-        assert json.dumps(tx.to_dict()) == unsigned_json
+        assert json.dumps(tx.to_dict(TransactionContext())) == unsigned_json
 
         # Sign with keystore 1, then 2
         keystore1.sign_transaction(tx, "OLD", TransactionContext())
-        assert json.dumps(tx.to_dict()) == signed1_json
+        assert json.dumps(tx.to_dict(TransactionContext())) == signed1_json
 
         keystore2.sign_transaction(tx, "BIP32", TransactionContext())
         assert tx.serialize() == fully_signed_hex
@@ -238,11 +249,11 @@ class TestTransaction2:
         tx = Transaction.from_extended_bytes(bytes.fromhex(unsigned_hex))
 
         keystore2.sign_transaction(tx, "BIP32", TransactionContext())
-        assert json.dumps(tx.to_dict()) == signed2_json
+        assert json.dumps(tx.to_dict(TransactionContext())) == signed2_json
 
         keystore1.sign_transaction(tx, "OLD", TransactionContext())
         assert tx.serialize() == fully_signed_hex
-        assert json.dumps(tx.to_dict()) == fully_signed_json
+        assert json.dumps(tx.to_dict(TransactionContext())) == fully_signed_json
 
 
 class TestXPublicKey:
@@ -299,7 +310,7 @@ class TestXPublicKey:
         xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
                 'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
         root_key = bip32_key_from_string(xpub)
-        True_10_public_key = root_key.child(path[0]).child(path[1])
+        True_10_public_key = cast(BIP32PublicKey, root_key.child(path[0]).child(path[1]))
 
         x_pubkey = XPublicKey.from_bytes(bytes.fromhex(raw_hex))
         # assert x_pubkey.to_bytes() == bytes.fromhex(raw_hex)

@@ -1,11 +1,12 @@
-import concurrent
+import concurrent.futures
 from enum import IntEnum
 from functools import partial, lru_cache
-import os.path
+import os
 import sys
 import time
 import traceback
-from typing import Any, Iterable, List, Callable, Optional, Set, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Iterable, List, Optional, Set, TYPE_CHECKING, TypeVar, \
+    Union
 import weakref
 
 from aiorpcx import RPCError
@@ -21,8 +22,8 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.uic import loadUi
 
-from electrumsv.app_state import app_state
-from electrumsv.constants import DATABASE_EXT
+from electrumsv.app_state import app_state, get_app_state_qt
+from electrumsv.constants import CredentialPolicyFlag, DATABASE_EXT
 from electrumsv.exceptions import WaitingTaskCancelled
 from electrumsv.i18n import _, languages
 from electrumsv.logs import logs
@@ -30,7 +31,11 @@ from electrumsv.types import WaitingUpdateCallback
 from electrumsv.util import resource_path
 
 if TYPE_CHECKING:
+    from ...credentials import CredentialCache
+    from .app import SVApplication
     from .main_window import ElectrumWindow
+
+D1 = TypeVar('D1', bound=Callable[..., Any])
 
 
 logger = logs.get_logger("qt-util")
@@ -45,7 +50,7 @@ class EnterButton(QPushButton):
         self.clicked.connect(func)
 
     def keyPressEvent(self, e: QKeyEvent):
-        if e.key() in (Qt.Key_Return, Qt.Key_Enter):
+        if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.func()
 
 
@@ -53,9 +58,11 @@ class KeyEventLineEdit(QLineEdit):
     key_event_signal = pyqtSignal(int)
 
     def __init__(self, parent: Optional[QWidget]=None, text: str='',
-            override_events: Set[int]=frozenset()) -> None:
+            override_events: Optional[Set[int]]=None) -> None:
         QLineEdit.__init__(self, text, parent)
 
+        if override_events is None:
+            override_events = set()
         self._override_events = override_events
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
@@ -67,16 +74,16 @@ class KeyEventLineEdit(QLineEdit):
 
 
 class WWLabel(QLabel):
-    def __init__ (self, text="", parent=None):
+    def __init__ (self, text: str="", parent: Optional[QWidget]=None) -> None:
         QLabel.__init__(self, text, parent)
         self.setWordWrap(True)
 
 
 class HelpLabel(QLabel):
-    def __init__(self, text, help_text, parent: Optional[QWidget]=None):
+    def __init__(self, text, help_text, parent: Optional[QWidget]=None) -> None:
         super().__init__(text, parent)
         self.app = QCoreApplication.instance()
-        self.font = QFont()
+        self._font = QFont()
         self.set_help_text(help_text)
 
     def set_help_text(self, help_text):
@@ -86,25 +93,25 @@ class HelpLabel(QLabel):
         QMessageBox.information(self, 'Help', self.help_text)
 
     def enterEvent(self, event):
-        self.font.setUnderline(True)
-        self.setFont(self.font)
-        self.app.setOverrideCursor(QCursor(Qt.PointingHandCursor))
+        self._font.setUnderline(True)
+        self.setFont(self._font)
+        self.app.setOverrideCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         return QLabel.enterEvent(self, event)
 
     def leaveEvent(self, event):
-        self.font.setUnderline(False)
-        self.setFont(self.font)
-        self.app.setOverrideCursor(QCursor(Qt.ArrowCursor))
+        self._font.setUnderline(False)
+        self.setFont(self._font)
+        self.app.setOverrideCursor(QCursor(Qt.CursorShape.ArrowCursor))
         return QLabel.leaveEvent(self, event)
 
 
 class HelpButton(QPushButton):
-    def __init__(self, text, textFormat=Qt.AutoText, title="Help", button_text="?"):
+    def __init__(self, text, textFormat=Qt.TextFormat.AutoText, title="Help", button_text="?"):
         self.textFormat = textFormat
         self.title = title
         QPushButton.__init__(self, button_text)
         self.help_text = text
-        self.setFocusPolicy(Qt.NoFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setFixedWidth(20)
         self.clicked.connect(self._on_clicked)
 
@@ -129,9 +136,15 @@ class Buttons(QHBoxLayout):
             padding-left: 20px;
             padding-right: 20px;
         }
+        QToolButton {
+            padding-top: 4px;
+            padding-bottom: 4px;
+            padding-left: 20px;
+            padding-right: 20px;
+        }
     """
 
-    def __init__(self, *buttons: Iterable[QAbstractButton]) -> None:
+    def __init__(self, *buttons: QAbstractButton) -> None:
         QHBoxLayout.__init__(self)
         self.addStretch(1)
         for b in buttons:
@@ -143,10 +156,11 @@ class Buttons(QHBoxLayout):
 
 
 class CloseButton(QPushButton):
-    def __init__(self, dialog):
+    def __init__(self, dialog: QDialog) -> None:
         QPushButton.__init__(self, _("Close"))
         self.clicked.connect(dialog.accept)
         self.setDefault(True)
+
 
 class CopyButton(QPushButton):
     def __init__(self, text_getter, app):
@@ -154,20 +168,20 @@ class CopyButton(QPushButton):
         self.clicked.connect(lambda: app.clipboard().setText(text_getter()))
 
 class CopyCloseButton(QPushButton):
-    def __init__(self, text_getter, app, dialog):
+    def __init__(self, text_getter, app, dialog) -> None:
         QPushButton.__init__(self, _("Copy and Close"))
         self.clicked.connect(lambda: app.clipboard().setText(text_getter()))
         self.clicked.connect(dialog.close)
         self.setDefault(True)
 
 class OkButton(QPushButton):
-    def __init__(self, dialog, label=None):
+    def __init__(self, dialog: QDialog, label: Optional[str]=None) -> None:
         QPushButton.__init__(self, label or _("OK"))
         self.clicked.connect(dialog.accept)
         self.setDefault(True)
 
 class CancelButton(QPushButton):
-    def __init__(self, dialog, label=None):
+    def __init__(self, dialog: QDialog, label: Optional[str]=None) -> None:
         QPushButton.__init__(self, label or _("Cancel"))
         self.clicked.connect(dialog.reject)
 
@@ -213,7 +227,7 @@ class MessageBoxMixin(object):
     def top_level_window(self):
         return top_level_window_recurse(self)
 
-    def question(self, msg: str, parent=None, title=None, icon=None) -> int:
+    def question(self, msg: str, parent=None, title=None, icon=None) -> bool:
         Yes, No = QMessageBox.Yes, QMessageBox.No
         return self.msg_box(icon or QMessageBox.Question,
                             parent, title or '',
@@ -240,8 +254,8 @@ class MessageBoxMixin(object):
         parent = parent or self.top_level_window()
         d = QMessageBox(icon, title, str(text), buttons, parent)
         if not app_state.config.get('ui_disable_modal_dialogs', False):
-            d.setWindowModality(Qt.WindowModal)
-        d.setWindowFlags(d.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+            d.setWindowModality(Qt.WindowModality.WindowModal)
+        d.setWindowFlags(d.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
@@ -269,7 +283,7 @@ class MessageBox:
     def msg_box(cls, icon, parent, title, text, buttons=QMessageBox.Ok,
                 defaultButton=QMessageBox.NoButton):
         d = QMessageBox(icon, title, str(text), buttons, parent)
-        d.setWindowFlags(d.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        d.setWindowFlags(d.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
@@ -277,8 +291,9 @@ class MessageBox:
 class UntrustedMessageDialog(QDialog):
     def __init__(self, parent, title, description, exception: Optional[Exception]=None,
             untrusted_text: str="") -> None:
-        QDialog.__init__(self, parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+        QDialog.__init__(self, parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint |
+            Qt.WindowType.WindowCloseButtonHint))
         self.setWindowTitle(title)
         self.setMinimumSize(500, 280)
         self.setMaximumSize(1000, 400)
@@ -309,19 +324,20 @@ class UntrustedMessageDialog(QDialog):
 class WindowModalDialog(QDialog, MessageBoxMixin):
     '''Handy wrapper; window modal dialogs are better for our multi-window
     daemon model as other wallet windows can still be accessed.'''
-    def __init__(self, parent, title: Optional[str]=None, hide_close_button: bool=False):
-        flags = Qt.WindowSystemMenuHint | Qt.WindowTitleHint
+    def __init__(self, parent: QWidget, title: Optional[str]=None, hide_close_button: bool=False):
+        flags = Qt.WindowType.WindowSystemMenuHint | Qt.WindowType.WindowTitleHint
         # This is the window close button, not any one we add ourselves.
         if not hide_close_button:
-            flags |= Qt.WindowCloseButtonHint
-        QDialog.__init__(self, parent, flags)
+            flags |= Qt.WindowType.WindowCloseButtonHint
+        QDialog.__init__(self, parent, Qt.WindowType(flags))
         if not app_state.config.get('ui_disable_modal_dialogs', False):
-            self.setWindowModality(Qt.WindowModal)
+            self.setWindowModality(Qt.WindowModality.WindowModal)
         if title:
             self.setWindowTitle(title)
 
 
 WaitingCompletionCallback = Optional[Callable[[concurrent.futures.Future], None]]
+
 
 class WaitingDialog(WindowModalDialog):
     """
@@ -367,18 +383,18 @@ class WaitingDialog(WindowModalDialog):
         # If we do not do this, waiting dialogs get leaked. This can be observed by commenting
         # out this line and looking for the `__del__` call which should happen after this
         # dialog is closed.
-        self.setAttribute(Qt.WA_DeleteOnClose)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
         self._title = title
         self._base_message = message
         self._close_delay = close_delay
 
         self._main_label = QLabel()
-        self._main_label.setAlignment(Qt.AlignCenter)
+        self._main_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._main_label.setWordWrap(True)
 
         self._secondary_label = QLabel()
-        self._secondary_label.setAlignment(Qt.AlignCenter)
+        self._secondary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._secondary_label.setWordWrap(True)
 
         self._progress_bar: Optional[QProgressBar] = None
@@ -386,10 +402,10 @@ class WaitingDialog(WindowModalDialog):
             progress_bar = self._progress_bar = QProgressBar()
             progress_bar.setRange(0, progress_steps)
             progress_bar.setValue(0)
-            progress_bar.setOrientation(Qt.Horizontal)
+            progress_bar.setOrientation(Qt.Orientation.Horizontal)
             progress_bar.setMinimumWidth(250)
             # This explicitly needs to be done for the progress bar else it has some RHS space.
-            progress_bar.setAlignment(Qt.AlignCenter)
+            progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.advance_progress_signal.connect(self._advance_progress)
 
@@ -405,13 +421,14 @@ class WaitingDialog(WindowModalDialog):
         button_box_1 = QHBoxLayout()
         lm, tm, rm, bm = button_box_1.getContentsMargins()
         button_box_1.setContentsMargins(lm, tm + 10, rm, bm)
-        button_box_1.addWidget(self._dismiss_button, False, Qt.AlignHCenter)
+        button_box_1.addWidget(self._dismiss_button, False, Qt.AlignmentFlag.AlignHCenter)
         vbox.addLayout(button_box_1)
 
         args = (*args, self._step_progress)
-        # NOTE: The `on_done` callback runs in the GUI thread.
+        # NOTE: `run_in_thread` ensures the `on_done` callback runs in the GUI thread.
         self._on_done_callback = on_done
-        self._future = app_state.app.run_in_thread(func, *args, on_done=self._on_run_done)
+        self._future = cast("SVApplication", app_state.app).run_in_thread(func, *args,
+            on_done=self._on_run_done)
 
         self.accepted.connect(self._on_accepted)
         self.rejected.connect(self._on_rejected)
@@ -462,6 +479,7 @@ class WaitingDialog(WindowModalDialog):
         future = self._future
         self._future = None
         on_done_callback = self._on_done_callback
+        assert on_done_callback is not None
         self._on_done_callback = None
 
         # To get here the future has to have completed successfully (or unsuccessfully).
@@ -484,7 +502,7 @@ class WaitingDialog(WindowModalDialog):
             self.update_message(message)
 
     @classmethod
-    def test(cls, window: 'ElectrumWindow', delay: int=5) -> None:
+    def test(cls, window: 'ElectrumWindow', delay: int=5) -> "WaitingDialog":
         title = "title"
         message = "message"
         steps = 5
@@ -529,20 +547,22 @@ def line_dialog(parent: QWidget, title: str, label: str, ok_label: str,
     def enable_OK() -> None:
         nonlocal txt, ok_button
         new_text = txt.text().strip()
-        ok_button.setEnabled(len(new_text))
+        ok_button.setEnabled(len(new_text) > 0)
     txt.textChanged.connect(enable_OK)
     if default:
         default = default.strip()
         txt.setText(default)
     l.addWidget(txt)
     enable_OK()
-    txt.setFocus(True)
+    txt.setFocus()
     txt.selectAll()
     l.addLayout(Buttons(CancelButton(dialog), ok_button))
     if dialog.exec_():
         return txt.text().strip()
 
-def text_dialog(parent, title, label, ok_label, default=None, allow_multi=False):
+
+def text_dialog(parent: QWidget, title: str, label: str, ok_label: str, default: Optional[str]=None,
+        allow_multi: bool=False) -> Optional[str]:
     from .qrtextedit import ScanQRTextEdit
     dialog = WindowModalDialog(parent, title)
     dialog.setMinimumWidth(500)
@@ -556,6 +576,8 @@ def text_dialog(parent, title, label, ok_label, default=None, allow_multi=False)
     l.addLayout(Buttons(CancelButton(dialog), OkButton(dialog, ok_label)))
     if dialog.exec_():
         return txt.toPlainText()
+    return None
+
 
 class ChoicesLayout(object):
     def __init__(self, msg: str, choices, on_clicked=None, checked_index=0):
@@ -617,7 +639,8 @@ def filename_field(config, defaultname, select_msg):
         _filter = ("*.csv" if text.endswith(".csv") else
                    "*.json" if text.endswith(".json") else
                    None)
-        p, __ = QFileDialog.getSaveFileName(None, select_msg, text, _filter)
+        # NOTE(typing) None filter seems to be no filter, but unsupported by the type signature.
+        p, __ = QFileDialog.getSaveFileName(None, select_msg, text, _filter) # type: ignore
         if p:
             filename_e.setText(p)
 
@@ -637,9 +660,11 @@ def filename_field(config, defaultname, select_msg):
 
     return vbox, filename_e, b1
 
+
 class ElectrumItemDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
         return self.parent().createEditor(parent, option, index)
+
 
 class MyTreeWidget(QTreeWidget):
 
@@ -650,10 +675,10 @@ class MyTreeWidget(QTreeWidget):
         self.setAlternatingRowColors(True)
         self.setUniformRowHeights(True)
 
-        self._main_window = weakref.proxy(main_window)
+        self._main_window = cast("ElectrumWindow", weakref.proxy(main_window))
         self.config = self._main_window.config
         self.stretch_column = stretch_column
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(create_menu)
         # extend the syntax for consistency
         self.addChild = self.addTopLevelItem
@@ -683,12 +708,12 @@ class MyTreeWidget(QTreeWidget):
         if column in self.editable_columns:
             self.editing_itemcol = (item, column, item.text(column))
             # Calling setFlags causes on_changed events for some reason
-            item.setFlags(item.flags() | Qt.ItemIsEditable)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
             QTreeWidget.editItem(self, item, column)
-            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
     def keyPressEvent(self, event: QKeyEvent):
-        if event.key() in [ Qt.Key_F2, Qt.Key_Return ] and self.editor is None:
+        if event.key() in [ Qt.Key.Key_F2, Qt.Key.Key_Return ] and self.editor is None:
             self.on_activated(self.currentItem(), self.currentColumn())
         else:
             QTreeWidget.keyPressEvent(self, event)
@@ -711,8 +736,9 @@ class MyTreeWidget(QTreeWidget):
         self.customContextMenuRequested.emit(pt)
 
     def createEditor(self, parent, option, index):
-        self.editor = QStyledItemDelegate.createEditor(self.itemDelegate(),
-                                                       parent, option, index)
+        self.editor = QStyledItemDelegate.createEditor(
+            cast(QStyledItemDelegate, self.itemDelegate()),
+            parent, option, index)
         self.editor.editingFinished.connect(self.editing_finished)
         return self.editor
 
@@ -744,9 +770,9 @@ class MyTreeWidget(QTreeWidget):
         text = item.text(column).strip()
         if text == "":
             text = None
-        account_id, tx_hash = item.data(0, Qt.UserRole)
-        self._main_window._wallet.set_transaction_label(tx_hash, text)
-        self._main_window.history_view.update_tx_labels()
+        account_id, tx_hash = item.data(0, Qt.ItemDataRole.UserRole)
+        account = self._main_window._wallet.get_account(account_id)
+        account.set_transaction_label(tx_hash, text)
 
     def update(self) -> None:
         # Defer updates if editing
@@ -787,14 +813,15 @@ class ButtonsMode(IntEnum):
 
 class ButtonsWidget(QWidget):
     buttons_mode = ButtonsMode.INTERNAL
+    qt_css_class = "ButtonsWidget"
     qt_css_extra = ""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.buttons: Iterable[QAbstractButton] = []
+        self.buttons: List[QAbstractButton] = []
 
-    def resizeButtons(self):
-        frame_width = self.style().pixelMetric(QStyle.PM_DefaultFrameWidth)
+    def resizeButtons(self) -> None:
+        frame_width = self.style().pixelMetric(QStyle.PixelMetric.PM_DefaultFrameWidth)
         if self.buttons_mode == ButtonsMode.INTERNAL:
             x = self.rect().right() - frame_width
             y = self.rect().top() + frame_width
@@ -820,7 +847,7 @@ class ButtonsWidget(QWidget):
                 button.move(x, y - sz.height())
 
     def addButton(self, icon_name: str, on_click: Callable[[], None], tooltip: str,
-            insert: bool=False) -> None:
+            insert: bool=False) -> QToolButton:
         button = QToolButton(self)
         button.setIcon(read_QIcon(icon_name))
         # Horizontal buttons are inside the edit widget and do not have borders.
@@ -829,7 +856,7 @@ class ButtonsWidget(QWidget):
                                 "pressed {border: 1px} padding: 0px; }")
         button.setVisible(True)
         button.setToolTip(tooltip)
-        button.setCursor(QCursor(Qt.PointingHandCursor))
+        button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         button.clicked.connect(on_click)
         if insert:
             self.buttons.insert(0, button)
@@ -838,7 +865,7 @@ class ButtonsWidget(QWidget):
 
         # Vertical buttons are integrated into the widget, within a margin that moves the edge
         # of the edit widget over to make space.
-        frame_width = self.style().pixelMetric(QStyle.PM_DefaultFrameWidth)
+        frame_width = self.style().pixelMetric(QStyle.PixelMetric.PM_DefaultFrameWidth)
         if self.buttons_mode == ButtonsMode.TOOLBAR_RIGHT:
             self.button_padding = max(button.sizeHint().width() for button in self.buttons) + 4
             self.setStyleSheet(self.qt_css_class +
@@ -852,15 +879,14 @@ class ButtonsWidget(QWidget):
                 self.qt_css_extra)
         return button
 
-    def addCopyButton(self, app, tooltipText: Optional[str]=None) -> QAbstractButton:
+    def addCopyButton(self, tooltipText: Optional[str]=None) -> QAbstractButton:
         if tooltipText is None:
             tooltipText = _("Copy to clipboard")
-        self.app = app
         return self.addButton("icons8-copy-to-clipboard-32.png", self._on_copy,
             tooltipText)
 
     def _on_copy(self) -> None:
-        self.app.clipboard().setText(self.text())
+        get_app_state_qt().app_qt.clipboard().setText(self.text())
         QToolTip.showText(QCursor.pos(), _("Text copied to clipboard"), self)
 
 
@@ -868,8 +894,8 @@ class ButtonsLineEdit(KeyEventLineEdit, ButtonsWidget):
     qt_css_class = "QLineEdit"
 
     def __init__(self, text=''):
-        KeyEventLineEdit.__init__(self, None, text, {Qt.Key_Return, Qt.Key_Enter})
-        self.buttons: Iterable[QAbstractButton] = []
+        KeyEventLineEdit.__init__(self, None, text, {Qt.Key.Key_Return, Qt.Key.Key_Enter})
+        self.buttons: List[QAbstractButton] = []
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         QLineEdit.resizeEvent(self, event)
@@ -887,7 +913,7 @@ class ButtonsTextEdit(QPlainTextEdit, ButtonsWidget):
         QPlainTextEdit.__init__(self, text)
         self.setText = self.setPlainText
         self.text = self.toPlainText
-        self.buttons: Iterable[QAbstractButton] = []
+        self.buttons: List[QAbstractButton] = []
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         QPlainTextEdit.resizeEvent(self, event)
@@ -951,7 +977,7 @@ class ColorScheme:
 
 
 class SortableTreeWidgetItem(QTreeWidgetItem):
-    DataRole = Qt.UserRole + 1
+    DataRole = Qt.ItemDataRole.UserRole + 1
 
     def __lt__(self, other):
         column = self.treeWidget().sortColumn()
@@ -990,12 +1016,12 @@ def update_fixed_tree_height(tree: QTreeWidget, maximum_height=None):
     tree.setFixedHeight(table_height)
 
 
-def protected(func):
+def protected(func: D1) -> D1:
     '''Password request wrapper.  The password is passed to the function
     as the 'password' named argument.  "None" indicates either an
     unencrypted wallet, or the user cancelled the password request.
     An empty input is passed as the empty string.'''
-    def request_password(self, *args, **kwargs):
+    def request_password(self, *args: Any, **kwargs: Any) -> Any:
         main_window = self
         if 'main_window' in kwargs:
             main_window = kwargs['main_window']
@@ -1018,7 +1044,7 @@ def protected(func):
 
         kwargs['password'] = password
         return func(self, *args, **kwargs)
-    return request_password
+    return cast(D1, request_password)
 
 
 def icon_path(icon_basename):
@@ -1053,6 +1079,7 @@ def show_in_file_explorer(path: str) -> bool:
             args.append('/select,')
         args.append(QDir.toNativeSeparators(path))
         QProcess.startDetached('explorer', args)
+        return True
     elif sys.platform == 'darwin':
         args = [
             '-e', 'tell application "Finder"',
@@ -1062,6 +1089,8 @@ def show_in_file_explorer(path: str) -> bool:
             '-e', 'return',
         ]
         QProcess.execute('/usr/bin/osascript', args)
+        return True
+    return False
 
 
 def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
@@ -1094,15 +1123,24 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
     ]
     from .password_dialog import ChangePasswordDialog, PasswordAction
     from .wallet_wizard import PASSWORD_NEW_TEXT
-    d = ChangePasswordDialog(parent, PASSWORD_NEW_TEXT, _("Create New Wallet"), fields,
+    # NOTE(typing) The signature matches for `fields` but the type checker gives a false positive.
+    d = ChangePasswordDialog(parent, PASSWORD_NEW_TEXT, _("Create New Wallet"),
+        fields, # type: ignore
         kind=PasswordAction.NEW)
     success, _old_password, new_password = d.run()
     if not success or not new_password.strip():
         return None
 
+    assert new_password is not None
     from electrumsv.storage import WalletStorage
     storage = WalletStorage.create(create_filepath, new_password)
+    # This path is guaranteed to be the full file path with file extension.
+    wallet_path = storage.get_path()
     storage.close()
+    # Store the credential in case we most likely are going to open it immediately and do not
+    # want to prompt for the password immediately after the user just specififed it.
+    cast("CredentialCache", app_state.credentials).set_wallet_password(wallet_path, new_password,
+        CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD | CredentialPolicyFlag.IS_BEING_ADDED)
     return create_filepath
 
 
@@ -1118,6 +1156,12 @@ class FormSeparatorLine(QFrame):
 FieldType = Union[QWidget, QLayout]
 
 class FormSectionWidget(QWidget):
+    """
+    A standardised look for forms whether informational or user editable.
+
+    In the longer term it might be worth looking at whether the standard Qt FormLayout
+    can be used to do something that looks the same with less custom code to achieve it.
+    """
     show_help_label: bool = True
     minimum_label_width: int = 80
 
@@ -1125,15 +1169,14 @@ class FormSectionWidget(QWidget):
             minimum_label_width: Optional[int]=None) -> None:
         super().__init__(parent)
 
-        if minimum_label_width is not None:
-            self.minimum_label_width = minimum_label_width
-
-        self.frame_layout = QVBoxLayout()
-        self._resizable_rows: List[QVBoxLayout] = []
-
-        frame = QFrame()
+        frame = self._frame = QFrame()
         frame.setObjectName("FormFrame")
-        frame.setLayout(self.frame_layout)
+        self._frame_layout: Optional[QVBoxLayout] = None
+
+        self._initial_minimum_label_width = minimum_label_width
+        self.clear()
+
+        frame.setLayout(self._frame_layout)
 
         self.setStyleSheet("""
         #FormSeparatorLine {
@@ -1150,10 +1193,10 @@ class FormSectionWidget(QWidget):
         }
         """)
 
-        vlayout = QVBoxLayout()
-        vlayout.setContentsMargins(0, 0, 0, 0)
-        vlayout.addWidget(frame)
-        self.setLayout(vlayout)
+        vbox = QVBoxLayout()
+        vbox.setContentsMargins(0, 0, 0, 0)
+        vbox.addWidget(frame)
+        self.setLayout(vbox)
 
     def create_title(self, title_text: str) -> QLabel:
         label = QLabel(title_text)
@@ -1163,20 +1206,25 @@ class FormSectionWidget(QWidget):
 
     def add_title(self, title_text: str) -> None:
         label = self.create_title(title_text)
-        self.frame_layout.addWidget(label, Qt.AlignTop)
+        self._frame_layout.addWidget(label, Qt.AlignmentFlag.AlignTop)
 
     def add_title_row(self, title_object: FieldType) -> None:
         if isinstance(title_object, QLayout):
-            self.frame_layout.addLayout(title_object)
+            self._frame_layout.addLayout(title_object)
         else:
-            self.frame_layout.addWidget(title_object, Qt.AlignTop)
+            self._frame_layout.addWidget(title_object, Qt.AlignmentFlag.AlignTop)
 
     def add_row(self, label_text: Union[str, QLabel], field_object: FieldType,
-            stretch_field: bool=False) -> Optional[QLabel]:
-        result: Optional[QLabel] = None
+            stretch_field: bool=False) -> QWidget:
+        """
+        Add a row to the form section.
 
-        if self.frame_layout.count() > 0:
-            self.frame_layout.addWidget(FormSeparatorLine())
+        Returns the container widget for the generated row layout. It is envisioned that the
+        caller can use that and helper functions to dynamically alter the form section display
+        as needed (hide, show, ..).
+        """
+        if self._frame_layout.count() > 0:
+            self._frame_layout.addWidget(FormSeparatorLine())
 
         if isinstance(label_text, QLabel):
             label = label_text
@@ -1185,7 +1233,6 @@ class FormSectionWidget(QWidget):
             if not label_text.endswith(":"):
                 label_text += ":"
             label = QLabel(label_text)
-            result = label
         label.setObjectName("FormSectionLabel")
         label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
 
@@ -1196,12 +1243,13 @@ class FormSectionWidget(QWidget):
 
         grid_layout = QGridLayout()
         grid_layout.setContentsMargins(0, 0, 0, 0)
-        grid_layout.addWidget(label, 0, 0, Qt.AlignRight | Qt.AlignTop)
+        grid_layout.addWidget(label, 0, 0,
+            Qt.AlignmentFlag(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop))
         if stretch_field:
             if isinstance(field_object, QLayout):
-                grid_layout.addLayout(field_object, 0, 1, Qt.AlignTop)
+                grid_layout.addLayout(field_object, 0, 1, Qt.AlignmentFlag.AlignTop)
             else:
-                grid_layout.addWidget(field_object, 0, 1, Qt.AlignTop)
+                grid_layout.addWidget(field_object, 0, 1, Qt.AlignmentFlag.AlignTop)
         else:
             field_layout = QHBoxLayout()
             field_layout.setContentsMargins(0, 0, 0, 0)
@@ -1210,20 +1258,39 @@ class FormSectionWidget(QWidget):
             else:
                 field_layout.addWidget(field_object)
             field_layout.addStretch(1)
-            grid_layout.addLayout(field_layout, 0, 1, Qt.AlignTop)
+            grid_layout.addLayout(field_layout, 0, 1, Qt.AlignmentFlag.AlignTop)
         grid_layout.setColumnMinimumWidth(0, self.minimum_label_width)
         grid_layout.setColumnStretch(0, 0)
         grid_layout.setColumnStretch(1, 1)
         grid_layout.setHorizontalSpacing(10)
-        grid_layout.setSizeConstraint(QLayout.SetMinimumSize)
+        grid_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
 
         if self.minimum_label_width != old_minimum_width:
-            for layout in self._resizable_rows:
+            for layout in self._row_layouts:
                 layout.setColumnMinimumWidth(0, self.minimum_label_width)
 
-        self.frame_layout.addLayout(grid_layout)
-        self._resizable_rows.append(grid_layout)
-        return result
+        grid_widget = QWidget()
+        grid_widget.setLayout(grid_layout)
+
+        self._frame_layout.addWidget(grid_widget)
+        self._row_layouts.append(grid_layout)
+        return grid_widget
+
+    def clear(self) -> None:
+        self.minimum_label_width = FormSectionWidget.minimum_label_width
+        if self._initial_minimum_label_width is not None:
+            self.minimum_label_width = self._initial_minimum_label_width
+
+        if self._frame_layout is not None:
+            # NOTE This is a Qt thing. You have to transplant the layout from an object before you
+            #   can set a new one. So that is what we are doing here, transplanting to nowhere.
+            discardable_widget = QWidget()
+            discardable_widget.setLayout(self._frame_layout)
+
+        self._frame_layout = QVBoxLayout()
+        self._row_layouts: List[QGridLayout] = []
+
+        self._frame.setLayout(self._frame_layout)
 
 
 class FramedTextWidget(QLabel):
@@ -1241,9 +1308,9 @@ class ClickableLabel(QLabel):
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def mousePressEvent(self, ev):
+    def mousePressEvent(self, _event):
         self.clicked.emit()
 
 
@@ -1262,17 +1329,64 @@ class AspectRatioPixmapLabel(QLabel):
 
     def heightForWidth(self, width: int) -> int:
         return self.height() if self._pixmap is None else \
-            (self._pixmap.height() * width) / self._pixmap.width()
+            (self._pixmap.height() * width) // self._pixmap.width()
 
     def sizeHint(self) -> QSize:
         width = self.parent().width()
         return QSize(width, self.heightForWidth(width))
 
     def _scaled_pixmap(self) -> QPixmap:
-        return self._pixmap.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        return self._pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         if self._pixmap is not None:
             super().setPixmap(self._scaled_pixmap())
         super().resizeEvent(event)
 
+
+class ExpandableSection(QWidget):
+    def __init__(self, title: str, child: QWidget) -> None:
+        super().__init__()
+
+        self._child = child
+
+        def on_clicked_button_expand_details() -> None:
+            nonlocal expand_details_button, self
+            is_expanded = expand_details_button.text() == "-"
+            if is_expanded:
+                expand_details_button.setText("+")
+                self._child.setVisible(False)
+            else:
+                expand_details_button.setText("-")
+                self._child.setVisible(True)
+
+        expand_details_button = QPushButton("+")
+        expand_details_button.setStyleSheet("padding: 2px;")
+        expand_details_button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+        expand_details_button.clicked.connect(on_clicked_button_expand_details)
+        expand_details_button.setMinimumWidth(15)
+
+        # NOTE(copy-paste) Generic separation line code used elsewhere as well.
+        details_header_line = QFrame()
+        details_header_line.setStyleSheet("QFrame { border: 1px solid #C3C2C2; }")
+        details_header_line.setFrameShape(QFrame.HLine)
+        details_header_line.setFixedHeight(1)
+
+        details_header = QHBoxLayout()
+        details_header.addWidget(expand_details_button)
+        details_header.addWidget(QLabel(title))
+        details_header.addWidget(details_header_line, 1)
+
+        expandable_section_layout = self._details_layout = QVBoxLayout()
+        expandable_section_layout.addLayout(details_header)
+        expandable_section_layout.addWidget(child)
+        expandable_section_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.setLayout(expandable_section_layout)
+
+    def expand(self) -> None:
+        self._child.setVisible(True)
+
+    def contract(self) -> None:
+        self._child.setVisible(False)

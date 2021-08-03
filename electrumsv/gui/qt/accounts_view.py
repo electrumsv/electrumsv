@@ -4,7 +4,7 @@ import json
 import os
 import threading
 import time
-from typing import List, Optional, Sequence
+from typing import cast, List, Optional, Sequence
 import weakref
 
 from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, pyqtSignal, QSize, Qt
@@ -12,11 +12,12 @@ from PyQt5.QtGui import QPainter, QPaintEvent
 from PyQt5.QtWidgets import (QLabel, QListWidget, QListWidgetItem, QMenu, QSplitter, QTabWidget,
     QTextEdit, QVBoxLayout)
 
-from electrumsv.bitcoin import address_from_string, script_template_to_string
-from electrumsv.constants import AccountType, DerivationType, KeystoreType
-from electrumsv.i18n import _
-from electrumsv.logs import logs
-from electrumsv.wallet import AbstractAccount, MultisigAccount, Wallet
+from ...bitcoin import address_from_string, script_template_to_string
+from ...constants import AccountType, DerivationType, KeystoreType
+from ...i18n import _
+from ...logs import logs
+from ...wallet import (AbstractAccount, ImportedAddressAccount, ImportedPrivkeyAccount,
+    MultisigAccount, Wallet)
 
 from .account_dialog import AccountDialog
 from .main_window import ElectrumWindow
@@ -32,7 +33,7 @@ class AccountsView(QSplitter):
         super().__init__(main_window)
 
         self._logger = logs.get_logger("accounts-view")
-        self._main_window = weakref.proxy(main_window)
+        self._main_window = cast(ElectrumWindow, weakref.proxy(main_window))
         self._wallet = wallet
 
         self._main_window.account_created_signal.connect(self._on_account_created)
@@ -41,10 +42,10 @@ class AccountsView(QSplitter):
         # We subclass QListWidget so accounts cannot be deselected.
         class CustomListWidget(QListWidget):
             def selectionCommand(self, index: QModelIndex, event: Optional[QEvent]) \
-                    -> QItemSelectionModel.SelectionFlags:
+                    -> QItemSelectionModel.SelectionFlag:
                 flags = super().selectionCommand(index, event)
-                if flags == QItemSelectionModel.Deselect:
-                    return QItemSelectionModel.NoUpdate
+                if flags == QItemSelectionModel.SelectionFlag.Deselect:
+                    return QItemSelectionModel.SelectionFlag.NoUpdate
                 return flags
 
             def paintEvent(self, event: QPaintEvent) -> None:
@@ -54,7 +55,8 @@ class AccountsView(QSplitter):
                     return
 
                 painter = QPainter(self.viewport())
-                painter.drawText(self.rect(), Qt.AlignCenter, _("Add your first account.."))
+                painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                    _("Add your first account.."))
 
         self._account_ids: List[int] = []
         self._tab_widget = QTabWidget()
@@ -62,7 +64,7 @@ class AccountsView(QSplitter):
         self._selection_list = CustomListWidget()
         self._selection_list.setMinimumWidth(150)
         self._selection_list.setIconSize(QSize(32, 32))
-        self._selection_list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self._selection_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._selection_list.customContextMenuRequested.connect(self._show_account_menu)
         self._selection_list.currentItemChanged.connect(self._on_current_item_changed)
 
@@ -83,6 +85,14 @@ class AccountsView(QSplitter):
             self._logger.debug("init_geometry.2 %r", sizes)
         self.setSizes(sizes)
 
+    def _select_account(self, account_id: int) -> bool:
+        if self._update_active_account(account_id):
+            account = self._main_window._wallet.get_account(account_id)
+            assert account is not None
+            self._update_window_account(account)
+            return True
+        return False
+
     def _on_account_created(self, new_account_id: int, new_account: AbstractAccount) -> None:
         # It should be made the active wallet account and followed up with the change event.
         self._add_account_to_list(new_account)
@@ -93,15 +103,14 @@ class AccountsView(QSplitter):
             row = self._account_ids.index(new_account_id)
             self._selection_list.setCurrentRow(row)
 
-        if self._import_invoices_action is not None:
-            self._import_invoices_action.setEnabled(self._main_window.is_send_view_active())
+        # TODO(invoice-import) What format are these imported files? No idea.
+        # if self._import_invoices_action is not None:
+        #     self._import_invoices_action.setEnabled(self._main_window.is_send_view_active())
 
     def _on_current_item_changed(self, item: QListWidgetItem, last_item: QListWidgetItem) -> None:
-        account_id = item.data(Qt.UserRole)
+        account_id = item.data(Qt.ItemDataRole.UserRole)
         # This should update the internal tracking, and also the active wallet account.
-        if self._update_active_account(account_id):
-            account = self._main_window._wallet.get_account(account_id)
-            self._update_window_account(account)
+        self._select_account(account_id)
 
     def _update_active_account(self, account_id: int) -> bool:
         if account_id == self._current_account_id:
@@ -119,17 +128,16 @@ class AccountsView(QSplitter):
         self._selection_list.clear()
         self._account_ids.clear()
 
-        # TODO(rt12): These should respect user ordering, and perhaps also later hierarchy.
+        # TODO These could respect user ordering, perhaps also later hierarchy.
         for account in self._wallet.get_accounts():
             self._add_account_to_list(account)
 
         if len(self._account_ids):
             self._selection_list.setCurrentRow(0)
+
             currentItem = self._selection_list.currentItem()
-            account_id = currentItem.data(Qt.UserRole)
-            if self._update_active_account(account_id):
-                account = self._main_window._wallet.get_account(account_id)
-                self._update_window_account(account)
+            account_id = currentItem.data(Qt.ItemDataRole.UserRole)
+            self._select_account(account_id)
 
     def _add_account_to_list(self, account: AbstractAccount) -> None:
         account_id = account.get_id()
@@ -162,7 +170,7 @@ class AccountsView(QSplitter):
         if is_watching_only:
             tooltip_text += f" ({_('watch only')})"
         item.setIcon(read_QIcon(icon_filename.format(icon_state)))
-        item.setData(Qt.UserRole, account_id)
+        item.setData(Qt.ItemDataRole.UserRole, account_id)
         item.setText(account.display_name())
         item.setToolTip(tooltip_text)
         self._selection_list.addItem(item)
@@ -173,8 +181,9 @@ class AccountsView(QSplitter):
         if not item:
             return
 
-        account_id = item.data(Qt.UserRole)
+        account_id = item.data(Qt.ItemDataRole.UserRole)
         account = self._wallet.get_account(account_id)
+        assert account is not None
 
         menu = QMenu()
         self.add_menu_items(menu, account, self._main_window)
@@ -219,11 +228,12 @@ class AccountsView(QSplitter):
         invoices_menu = menu.addMenu(_("Invoices"))
         self._import_invoices_action = invoices_menu.addAction(_("Import"),
             partial(self._on_menu_import_invoices, account_id))
-        self._import_invoices_action.setEnabled(main_window.is_send_view_active())
+        self._import_invoices_action.setEnabled(False)
+        # self._import_invoices_action.setEnabled(main_window.is_send_view_active())
 
         payments_menu = menu.addMenu(_("Payments"))
         ed_action = payments_menu.addAction(_("Export destinations"),
-            partial(self._generate_destinations, account_id))
+            partial(self._on_menu_generate_destinations, account_id))
         keystore = account.get_keystore()
         ed_action.setEnabled(keystore is not None and
             keystore.type() != KeystoreType.IMPORTED_PRIVATE_KEY)
@@ -235,10 +245,13 @@ class AccountsView(QSplitter):
         self._main_window.do_export_labels(account_id)
 
     def _on_menu_import_invoices(self, account_id: int) -> None:
-        send_view = self._main_window.get_send_view(account_id)
-        send_view.import_invoices()
+        pass
+    # TODO(invoice-import) What format are these imported files? No idea.
+    #     send_view = self._main_window.get_send_view(account_id)
+    #     send_view.import_invoices()
 
     def _rename_account(self, account_id: int) -> None:
+        assert self._current_account_id is not None
         account = self._main_window._wallet.get_account(self._current_account_id)
         new_account_name = line_dialog(self, _("Rename account"), _("Account name"), _("OK"),
             account.get_name())
@@ -253,7 +266,7 @@ class AccountsView(QSplitter):
         dialog = AccountDialog(self._main_window, self._wallet, account_id, self)
         dialog.exec_()
 
-    def _generate_destinations(self, account_id) -> None:
+    def _on_menu_generate_destinations(self, account_id) -> None:
         from . import payment_destinations_dialog
         from importlib import reload
         reload(payment_destinations_dialog)
@@ -261,10 +274,24 @@ class AccountsView(QSplitter):
             self._wallet, account_id, self)
         dialog.exec_()
 
-    def _can_view_secured_data(self, account: AbstractAccount) -> None:
-        return not account.is_watching_only() and not isinstance(account, MultisigAccount) \
-            and not account.involves_hardware_wallet() \
-            and account.type() != AccountType.IMPORTED_PRIVATE_KEY
+    def _on_menu_blockchain_scan(self, account_id: int) -> None:
+        if not self._main_window.has_connected_main_server():
+            MessageBox.show_message(_("The wallet is not currently connected to an indexing "
+                "server. As such, the blockchain scanner cannot be used at this time."),
+                self._main_window.reference())
+            return
+
+        from . import blockchain_scan_dialog
+        # from importlib import reload # TODO(dev-helper) Remove at some point.
+        # reload(blockchain_scan_dialog)
+        dialog = blockchain_scan_dialog.BlockchainScanDialog(self._main_window,
+            self._wallet, account_id, blockchain_scan_dialog.ScanDialogRole.MANUAL_RESCAN)
+        dialog.exec_()
+
+    def _can_view_secured_data(self, account: AbstractAccount) -> bool:
+        return bool(not account.is_watching_only() and not isinstance(account, MultisigAccount)
+            and not account.involves_hardware_wallet()
+            and account.type() != AccountType.IMPORTED_PRIVATE_KEY)
 
     @protected
     def _view_secured_data(self, main_window: ElectrumWindow, account_id: int=-1,
@@ -272,9 +299,12 @@ class AccountsView(QSplitter):
         # account_id is a keyword argument so that 'protected' can identity the correct wallet
         # window to do the password request in the context of.
         account = self._wallet.get_account(account_id)
+        assert account is not None
         if self._can_view_secured_data(account):
             keystore = account.get_keystore()
+            assert keystore is not None
             from .secured_data_dialog import SecuredDataDialog
+            assert password is not None
             d = SecuredDataDialog(self._main_window, self, keystore, password)
             d.exec_()
         else:
@@ -286,14 +316,16 @@ class AccountsView(QSplitter):
             password: Optional[str]=None) -> None:
         # account_id is a keyword argument so that 'protected' can identity the correct wallet
         # window to do the password request in the context of.
-        account = self._wallet.get_account(account_id)
+        account = cast(ImportedPrivkeyAccount, self._wallet.get_account(account_id))
 
         title, msg = _('Import private keys'), _("Enter private keys")
+        # NOTE(typing) `password` is non-None here, but we cannot do an assertion that is the case
+        #   and have the type checker (pylance) observe it in the lambda.
         self._main_window._do_import(title, msg,
-            lambda x: account.import_private_key(x, password))
+            lambda x: account.import_private_key(x, password)) # type:ignore
 
     def _import_addresses(self, account_id: int) -> None:
-        account = self._wallet.get_account(account_id)
+        account = cast(ImportedAddressAccount, self._wallet.get_account(account_id))
 
         title, msg = _('Import addresses'), _("Enter addresses")
         def import_addr(addr):
@@ -341,16 +373,24 @@ class AccountsView(QSplitter):
         vbox.addLayout(Buttons(CancelButton(d), b))
 
         private_keys = {}
-        keyinstance_ids = account.get_keyinstance_ids()
+        keyinstances = account.get_keyinstances()
+        # TODO(ScriptTypeAssumption) really what we would have is the used script type for
+        # each key, rather than just using the redeem script based on the accounts default
+        # script type. However, who really exports their private keys? It seems like a weird
+        # thing to do and has no definitive use case.
+        script_type = account.get_default_script_type()
         done = False
         cancelled = False
         def privkeys_thread():
-            for keyinstance_id in keyinstance_ids:
+            nonlocal done, cancelled, keyinstances, password, private_keys, script_type
+            for keyinstance in keyinstances:
                 time.sleep(0.1)
                 if done or cancelled:
                     break
-                privkey = account.export_private_key(keyinstance_id, password)
-                script_template = account.get_script_template_for_id(keyinstance_id)
+                assert password is not None
+                privkey = account.export_private_key(keyinstance, password)
+                script_template = account.get_script_template_for_derivation(script_type,
+                    keyinstance.derivation_type, keyinstance.derivation_data2)
                 script_text = script_template_to_string(script_template)
                 private_keys[script_text] = privkey
                 self.computing_privkeys_signal.emit()
@@ -359,24 +399,23 @@ class AccountsView(QSplitter):
                 self.show_privkeys_signal.emit()
 
         def show_privkeys():
+            nonlocal b, done, e
             s = "\n".join('{}\t{}'.format(script_text, privkey)
                           for script_text, privkey in private_keys.items())
             e.setText(s)
             b.setEnabled(True)
             self.show_privkeys_signal.disconnect()
-            nonlocal done
             done = True
 
         def on_dialog_closed(*args):
-            nonlocal done
-            nonlocal cancelled
+            nonlocal cancelled, done
             if not done:
                 cancelled = True
                 self.computing_privkeys_signal.disconnect()
                 self.show_privkeys_signal.disconnect()
 
         self.computing_privkeys_signal.connect(lambda: e.setText(
-            "Please wait... %d/%d" % (len(private_keys),len(keyinstance_ids))))
+            "Please wait... %d/%d" % (len(private_keys), len(keyinstances))))
         self.show_privkeys_signal.connect(show_privkeys)
         d.finished.connect(on_dialog_closed)
         threading.Thread(target=privkeys_thread).start()
@@ -397,8 +436,8 @@ class AccountsView(QSplitter):
                 str(reason)
             ])
             MessageBox.show_error(txt, title=_("Unable to create csv"))
-        except Exception as e:
-            MessageBox.show_message(str(e), main_window.reference())
+        except Exception as exc:
+            MessageBox.show_message(str(exc), main_window.reference())
             return
 
         MessageBox.show_message(_('Private keys exported'), main_window.reference())

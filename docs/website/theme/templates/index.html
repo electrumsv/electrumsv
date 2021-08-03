@@ -82,16 +82,14 @@
                     <div class="esv-section-title">Latest Update</div>
                 </div>
                 <div class="row esv-box-border">
-                    <div class="col-12 text-center pt-3">
-                        <p>
-                            <a href="download.html">ElectrumSV {{DOWNLOAD_LATEST.version}}</a> ({{DOWNLOAD_LATEST.release_date}})
-                            <br/>
-                            {% if DOWNLOAD_LATEST.article_link.startswith("/") %}
-                            <a href="{{SITEURL}}{{DOWNLOAD_LATEST.article_link}}">What changed?</a>
-                            {% else %}
-                            <a target="_blank" rel="noopener" href="{{DOWNLOAD_LATEST.article_link}}">What changed? <i class="fas fa-external-link-alt"></i></a>
-                            {% endif %}
-                        </p>
+                    <div class="col-12 text-center pt-2 pb-2">
+                        <a href="download.html">ElectrumSV {{DOWNLOAD_LATEST.version}}</a> ({{DOWNLOAD_LATEST.release_date}})
+                        <br/>
+                        {% if DOWNLOAD_LATEST.article_link.startswith("/") %}
+                        <a href="{{SITEURL}}{{DOWNLOAD_LATEST.article_link}}">What changed?</a>
+                        {% else %}
+                        <a target="_blank" rel="noopener" href="{{DOWNLOAD_LATEST.article_link}}">What changed? <i class="fas fa-external-link-alt"></i></a>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -99,18 +97,22 @@
                 <div class="row">
                     <div class="esv-section-title">Need help?</div>
                 </div>
-                <div class="row esv-box-border">
-                    <div class="col-12 pt-3">
-                        <p>
-                            If you need assistance with some issue, please go to our
-                            <a href="https://github.com/electrumsv/electrumsv/issues/new/choose">issue tracker</a>
-                            and fill out all the details so we can understand enough about your situation.
-                        </p>
-                        <p>
-                            Otherwise you might consider looking at
-                            <a href="https://electrumsv.readthedocs.io/">our documentation</a>
-                            to see if it helps you find out what you need to know.
-                        </p>
+                <div class="row esv-box-border mb-1">
+                    <div class="col-12 pt-2 pb-2">
+                        <a href="https://github.com/electrumsv/electrumsv/issues/new/choose">Talk to us</a> <i class="fas fa-external-link-alt"></i>
+                    </div>
+                </div>
+                <div class="row esv-box-border mb-1">
+                    <div class="col-12 pt-2 pb-2">
+                        <a href="https://electrumsv.readthedocs.io/">Read our documentation</a> <i class="fas fa-external-link-alt"></i>
+                    </div>
+                </div>
+                <div class="row esv-box-border mb-1">
+                    <div class="col-12 pt-2 pb-1">
+                        <a href="https://tokenrecovery.org">Deal with lost/stolen coin recovery</a> <i class="fas fa-external-link-alt"></i>
+                    </div>
+                    <div class="col-12 pb-2">
+                        Please talk to us first to confirm your coins are lost or stolen if you are not sure.
                     </div>
                 </div>
             </div>
@@ -123,10 +125,10 @@
                             <div class="row esv-box-border esv-box-padding {% if not loop.first %}mt-1{% endif %}">
                                 <article>
                                     <header>
-                                        <h4 class="entry-title"><a href="{{ SITEURL }}/{{ article.url }}" rel="bookmark" title="Permalink to {{ article.title|striptags }}">{{ article.title }}</a></h4>
+                                        <h5 class="entry-title"><a href="{{ SITEURL }}/{{ article.url }}" rel="bookmark" title="Permalink to {{ article.title|striptags }}">{{ article.title }}</a></h5>
                                     </header>
-                                    <div class="entry-content"> {{ article.summary }} </div>
-                                    <footer class="post-info mt-2">
+                                    <div class="entry-content"> {{ article.summary | striptags }} </div>
+                                    <footer class="post-info pt-1 text-right">
                                         <time datetime="{{ article.date.isoformat() }}"> {{ article.date|strftime('%Y/%m/%d') }} </time>
                                     </footer>
                                 </article>

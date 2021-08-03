@@ -31,7 +31,7 @@ from typing import Optional, Union
 import pyaes
 
 from .exceptions import InvalidPassword
-from .util import assert_bytes, to_bytes, to_string
+from .util import assert_bytes
 
 
 try:
@@ -112,11 +112,11 @@ def DecodeAES_bytes(secret: bytes, ciphertext: bytes) -> bytes:
     return s
 
 
-def pw_encode(data: str, password: Union[bytes, str]) -> str:
-    if not password:
+def pw_encode(data: str, password: Optional[Union[bytes, str]]) -> str:
+    if password is None:
         return data
     secret = sha256d(password)
-    return EncodeAES_base64(secret, to_bytes(data, "utf8")).decode('utf8')
+    return EncodeAES_base64(secret, data.encode("utf8")).decode('utf8')
 
 
 def pw_decode(data: str, password: Optional[Union[bytes, str]]) -> str:
@@ -124,20 +124,19 @@ def pw_decode(data: str, password: Optional[Union[bytes, str]]) -> str:
         return data
     secret = sha256d(password)
     try:
-        d = to_string(DecodeAES_base64(secret, data), "utf8")
+        return DecodeAES_base64(secret, data).decode('utf8')
     except Exception:
         raise InvalidPassword()
-    return d
 
 
-def sha256(x: Union[bytes, str]) -> bytes:
-    x = to_bytes(x, 'utf8')
-    return hashlib.sha256(x).digest()
+def sha256(data: Union[bytes, str]) -> bytes:
+    data_bytes = data.encode("utf8") if isinstance(data, str) else data
+    return hashlib.sha256(data_bytes).digest()
 
 
-def sha256d(x: Union[bytes, str]) -> bytes:
-    x = to_bytes(x, 'utf8')
-    return sha256(sha256(x))
+def sha256d(data: Union[bytes, str]) -> bytes:
+    data_bytes = data.encode("utf8") if isinstance(data, str) else data
+    return sha256(sha256(data_bytes))
 
 
 def hash_160(x: bytes) -> bytes:
@@ -146,9 +145,5 @@ def hash_160(x: bytes) -> bytes:
     return md.digest()
 
 
-def hmac_oneshot(key: bytes, msg: bytes, digest) -> bytes:
-    if hasattr(hmac, 'digest'):
-        # requires python 3.7+; faster
-        return hmac.digest(key, msg, digest)
-    else:
-        return hmac.new(key, msg, digest).digest()
+def hmac_oneshot(key: bytes, msg: bytes, digest: str) -> bytes:
+    return hmac.digest(key, msg, digest)

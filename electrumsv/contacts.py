@@ -24,11 +24,14 @@
 import datetime
 from dateutil.parser import isoparse
 from enum import IntEnum
-from typing import Any, Iterable, List, NamedTuple, Optional, Tuple
+from typing import Any, cast, Dict, Iterable, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
 
 from bitcoinx import PublicKey, sha256
 
 from .logs import logs
+
+if TYPE_CHECKING:
+    from .storage import WalletStorage
 
 
 logger = logs.get_logger("contacts")
@@ -67,47 +70,51 @@ def get_system_id(system_name: str) -> IdentitySystem:
     raise ContactDataError(f"Unknown system name {system_name}")
 
 
+IdentityExportType = Tuple[str, int, Any, Optional[str]]
+ContactExportType = Tuple[int, str, List[IdentityExportType]]
+
+
 class ContactIdentity(NamedTuple):
     identity_id: bytes
     system_id: IdentitySystem
     system_data: Any
     last_verified: Optional[datetime.datetime] = None
 
-    def to_list(self) -> List[Any]:
-        return [
+    def to_data(self) -> IdentityExportType:
+        return (
             self.identity_id.hex(),
             int(self.system_id),
             self.system_data,
             self.last_verified.astimezone().isoformat()
                 if self.last_verified is not None else None,
-        ]
+        )
 
     @classmethod
-    def from_list(klass, data: List) -> "ContactIdentity":
+    def from_data(cls, data: IdentityExportType) -> "ContactIdentity":
         dt = None
         if data[3] is not None:
             dt = isoparse(data[3])
-        return klass(bytes.fromhex(data[0]), IdentitySystem(data[1]), data[2], dt)
+        return cls(bytes.fromhex(data[0]), IdentitySystem(data[1]), data[2], dt)
 
 
 class ContactEntry(NamedTuple):
     contact_id: int
     label: str
-    identities: Iterable[ContactIdentity]
+    identities: List[ContactIdentity]
 
-    def to_list(self) -> List[Any]:
-        return [ self.contact_id, self.label, [ each.to_list() for each in self.identities ] ]
+    def to_data(self) -> ContactExportType:
+        return (self.contact_id, self.label, [ each.to_data() for each in self.identities ])
 
     @classmethod
-    def from_list(klass, data: List) -> "ContactEntry":
-        identities = [ ContactIdentity.from_list(l) for l in data[2] ]
-        return klass(data[0], data[1], identities)
+    def from_data(cls, data: ContactExportType) -> "ContactEntry":
+        identities = [ ContactIdentity.from_data(l) for l in data[2] ]
+        return cls(data[0], data[1], identities)
 
 
 class Contacts(object):
-    def __init__(self, storage):
-        self._identity_contact_id = {}
-        self._entries = {}
+    def __init__(self, storage: "WalletStorage"):
+        self._identity_contact_id: Dict[bytes, int] = {}
+        self._entries: Dict[int, ContactEntry] = {}
         self.storage = storage
 
         data = storage.get('contacts2')
@@ -117,7 +124,7 @@ class Contacts(object):
                 pass
             elif version == 4:
                 for row in contacts_data:
-                    entry = ContactEntry.from_list(row)
+                    entry = ContactEntry.from_data(row)
                     self._entries[entry.contact_id] = entry
 
                     for identity in entry.identities:
@@ -126,10 +133,10 @@ class Contacts(object):
             else:
                 raise ContactDataError("Unrecognized version")
 
-    def save(self):
+    def save(self) -> None:
         contacts_data = []
         for entry in self._entries.values():
-            contacts_data.append(entry.to_list())
+            contacts_data.append(entry.to_data())
         self.storage.put('contacts2', [ 4, contacts_data ])
 
     def check_identity_exists(self, system_id: IdentitySystem,
@@ -238,7 +245,7 @@ class Contacts(object):
 
         return identity
 
-    def remove_identity(self, contact_id: int, identity_id: int) -> None:
+    def remove_identity(self, contact_id: int, identity_id: bytes) -> None:
         contact = self._entries[contact_id]
         for identity in contact.identities:
             if identity.identity_id == identity_id:
@@ -251,7 +258,7 @@ class Contacts(object):
     def _get_unique_identity_id(self, system_id: IdentitySystem, system_data: str) -> bytes:
         if system_id == IdentitySystem.OnChain:
             return bytes.fromhex(system_data)
-        return sha256(system_data.encode('utf-8'))
+        return cast(bytes, sha256(system_data.encode('utf-8')))
 
     def _is_public_key_valid(self, hex: str) -> bool:
         try:

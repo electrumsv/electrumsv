@@ -25,7 +25,7 @@ from decimal import Decimal
 import random
 import re
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, TYPE_CHECKING
 import urllib
 import urllib.parse
 
@@ -40,39 +40,48 @@ from .networks import Net
 from .util import format_satoshis_plain
 
 
+if TYPE_CHECKING:
+    from .paymentrequest import PaymentRequest
+    from .simple_config import SimpleConfig
+
+
 logger = logs.get_logger("web")
 
 
-def BE_from_config(config):
-    return config.get('block_explorer', '')
+def BE_from_config(config: "SimpleConfig") -> str:
+    return config.get_explicit_type(str, 'block_explorer', '')
 
-def random_BE(kind: Optional[str]=None):
-    possible_keys = [ k for (k, v) in Net.BLOCK_EXPLORERS.items()
+
+def random_BE(kind: Optional[str]=None) -> Optional[str]:
+    possible_keys: List[str] = [ k for (k, v) in Net.BLOCK_EXPLORERS.items()
         if k != "system default" and (kind is None or v[1].get(kind) is not None) ]
     if len(possible_keys):
         return random.choice(possible_keys)
+    return None
 
-def BE_URL(config, kind: str, item):
-    selected_key = BE_from_config(config)
+
+def BE_URL(config: "SimpleConfig", kind: str, item: str) -> Optional[str]:
+    selected_key: Optional[str] = BE_from_config(config)
     if selected_key is None or selected_key not in Net.BLOCK_EXPLORERS:
         selected_key = random_BE(kind)
     be_tuple = Net.BLOCK_EXPLORERS.get(selected_key)
     if not be_tuple:
-        return
+        return None
     url_base, parts = be_tuple
     kind_str = parts.get(kind)
     if kind_str is None:
-        return
+        return None
     if kind == 'addr':
         assert isinstance(item, Address)
         item = item.to_string()
     return "/".join(part for part in (url_base, kind_str, item) if part)
 
-def BE_sorted_list():
+
+def BE_sorted_list() -> Iterable[str]:
     return sorted(Net.BLOCK_EXPLORERS)
 
 
-def create_URI(dest: str, amount: int, message: str) -> str:
+def create_URI(dest: str, amount: Optional[int], message: str) -> str:
     scheme = Net.BITCOIN_URI_PREFIX
     query_parts = ['sv']
     scheme_idx = dest.find(":")
@@ -92,7 +101,7 @@ def create_URI(dest: str, amount: int, message: str) -> str:
     return urllib.parse.urlunparse(p)
 
 
-def is_URI(text):
+def is_URI(text: str) -> bool:
     '''Returns true if the text looks like a URI.  It is not validated, and is not checked to
     be a Bitcoin SV URI.
     '''
@@ -108,7 +117,8 @@ class URIError(Exception):
     pass
 
 
-def parse_URI(uri: str, on_pr=None, on_pr_error=None) -> Dict[str, Any]:
+def parse_URI(uri: str, on_pr: Optional[Callable[["PaymentRequest"], None]]=None,
+        on_pr_error: Optional[Callable[[str], None]]=None) -> Dict[str, Any]:
     if is_address_valid(uri):
         return {'address': uri}
 
@@ -158,8 +168,9 @@ def parse_URI(uri: str, on_pr=None, on_pr_error=None) -> Dict[str, Any]:
 
     payment_url = out.get('r')
     if on_pr and payment_url:
-        def get_payment_request_thread():
+        def get_payment_request_thread() -> None:
             from . import paymentrequest
+            assert payment_url is not None
             try:
                 request = paymentrequest.get_payment_request(payment_url)
             except Bip270Exception as e:

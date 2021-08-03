@@ -1,19 +1,24 @@
+from typing import Any
 
 from bitcoinx import Ops, P2MultiSig_Output, pack_byte, push_int, push_item
 
 
-class AccumulatorMultiSigOutput(P2MultiSig_Output):
+# NOTE(typing) This is a subclass from bitcoinx and it does not have typing information, we cannot
+#  do anything about it, so we have to ignore it.
+class AccumulatorMultiSigOutput(P2MultiSig_Output): # type: ignore
+    threshold: int
+
     # Do not use this or other forms of non-standard script construction unless unit tests are
     # written against a script simulator to prove correctness.
-    def __eq__(self, other):
+    def __eq__(self, other: Any) -> bool:
         return (isinstance(other, AccumulatorMultiSigOutput)
                 and self.public_keys == other.public_keys
                 and self.threshold == other.threshold)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.public_keys) + self.threshold + 256796
 
-    def to_script_bytes(self):
+    def to_script_bytes(self) -> bytes:
         parts = [
             pack_byte(Ops.OP_0),
             pack_byte(Ops.OP_TOALTSTACK),

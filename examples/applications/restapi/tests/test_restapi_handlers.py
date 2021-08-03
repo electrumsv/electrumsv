@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import json
 import logging
 import tempfile
@@ -7,14 +8,16 @@ import pytest
 import bitcoinx
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
-from bitcoinx import Address, Script, BitcoinTestnet, hex_str_to_hash
+from bitcoinx import BitcoinTestnet, hex_str_to_hash
 from typing import List, Union, Dict, Any, Optional, Tuple
 from concurrent.futures.thread import ThreadPoolExecutor
 
-from electrumsv.constants import TransactionOutputFlag, ScriptType
-from electrumsv.restapi import good_response, Fault
-from electrumsv.wallet import UTXO, Wallet, AbstractAccount
-from electrumsv.transaction import Transaction
+from electrumsv.constants import ScriptType, TransactionOutputFlag, TxFlags
+from electrumsv.restapi import Fault, good_response
+from electrumsv.wallet import AbstractAccount, Wallet
+from electrumsv.transaction import Transaction, TransactionContext
+from electrumsv.types import TransactionSize
+from electrumsv.wallet_database.types import TransactionOutputSpendableRow
 from ..errors import Errors
 
 from ..handlers import ExtensionEndpoints
@@ -43,30 +46,30 @@ class Net(metaclass=_CurrentNetMeta):
 
 
 SPENDABLE_UTXOS = [
-    UTXO(address=Address.from_string('miz93i75XiTdnvzkU6sDddvGcCr4ZrCmou',
-                                              Net.COIN),
-         is_coinbase=False,
-         out_index=0,
-         script_pubkey=Script(b'v\xa9\x14&\x0c\x95\x8e\x81\xc8o\xe3.\xc3\xd4\x1d7\x1cy'
-                             b'\x0e\xed\x9a\xb4\xf3\x88\xac'),
-         tx_hash=hex_str_to_hash(
+    TransactionOutputSpendableRow(
+        tx_hash=hex_str_to_hash(
+            '76d5bfabe40ca6cbd315b04aa24b68fdd8179869fd1c3501d5a88a980c61c1bf'),
+        txo_index = 0,
+        value=100000,
+        keyinstance_id=0,
+        script_type=ScriptType.P2PKH,
+        flags=TransactionOutputFlag.NONE,
+        account_id=None,
+        masterkey_id=None,
+        derivation_type=None,
+        derivation_data2=None),
+    TransactionOutputSpendableRow(
+        tx_hash=hex_str_to_hash(
              '76d5bfabe40ca6cbd315b04aa24b68fdd8179869fd1c3501d5a88a980c61c1bf'),
-         value=100000,
-         script_type=ScriptType.P2PKH,
-         keyinstance_id=0,
-         flags=TransactionOutputFlag.NONE),
-    UTXO(address=Address.from_string('msccMGHunfHANQWXMZragRggHMkJaBWSFr',
-                                              Net.COIN),
-         is_coinbase=False,
-         out_index=0,
-         script_pubkey=Script(b'v\xa9\x14\x84\xb3[1i\xe4+"}+\x9d\x85s!\t\xa1y\xab\xff'
-                              b'\x12\x88\xac'),
-         tx_hash=hex_str_to_hash(
-             '76d5bfabe40ca6cbd315b04aa24b68fdd8179869fd1c3501d5a88a980c61c1bf'),
-         value=100000,
-         script_type=ScriptType.P2PKH,
-         keyinstance_id=0,
-         flags=TransactionOutputFlag.NONE)
+        txo_index=0,
+        value=100000,
+        keyinstance_id=0,
+        script_type=ScriptType.P2PKH,
+        flags=TransactionOutputFlag.NONE,
+        account_id=None,
+        masterkey_id=None,
+        derivation_type=None,
+        derivation_data2=None)
     ]
 
 p2pkh_object = bitcoinx.P2PKH_Address.from_string("muV4JqcF3V3Vi7J2hGucQJzSLcsUAaJwLA", Net.COIN)
@@ -124,11 +127,11 @@ def _fake_remove_transaction_raise_fault(tx_hash: bytes, wallet: AbstractAccount
     raise Fault(Errors.DISABLED_FEATURE_CODE, Errors.DISABLED_FEATURE_MESSAGE)
 
 
-async def _fake_load_wallet_succeeds(wallet_name) -> Wallet:
+async def _fake_load_wallet_succeeds(wallet_name: str, password: str) -> Wallet:
     return MockWallet()
 
 
-def _fake_coin_state_dto(wallet) -> Union[Fault, Dict[str, Any]]:
+def _fake_coin_state_dto(wallet) -> Dict[str, Any]:
     results = {"cleared_coins": 50,
                "settled_coins": 2000,
                "unmatured": 100}
@@ -139,61 +142,66 @@ def _fake_create_transaction_succeeded(file_id, message_bytes, child_wallet, pas
                                        require_confirmed) -> Tuple[Any, set]:
     # Todo - test _create_transaction separately
     tx = Transaction.from_hex(rawtx)
-    frozen_utxos = set([])
+    frozen_utxos = set()
     return tx, frozen_utxos
 
 async def _fake_broadcast_tx(rawtx: str, tx_hash: bytes, account: AbstractAccount) -> str:
     return "6797415e3b4a9fbb61b209302374853bdefeb4567ad0ed76ade055e94b9b66a2"
 
-def _fake_get_frozen_utxos_for_tx(tx: Transaction, child_wallet: AbstractAccount) \
-        -> List[UTXO]:
-    """can get away with this for the 'happy path' but not if errors an unfreezing occurs"""
-    pass
 
 
 def _fake_spawn(fn, *args):
     return '<throwaway _future>'
 
+
+class FakeFuture:
+    def __init__(self, result) -> None:
+        self._result = result
+
+    def result(self) -> Any:
+        return self._result
+
+
 class MockAccount(AbstractAccount):
 
     def __init__(self, wallet=None):
         self._id = 1
-        self._frozen_coins = set([])
-        self._subpath_gap_limits = {(0,): 20,
-                                    (1,): 20}
         self._wallet = wallet
 
-    def maybe_set_transaction_dispatched(self, tx_hash):
+    def maybe_set_transaction_state(self, tx_hash: bytes, flags: TxFlags,
+            ignore_mask: Optional[TxFlags]=None) -> bool:
         return True
 
     def dumps(self):
         return None
 
-    def get_spendable_coins(self, domain=None, config={}) -> List[UTXO]:
+    def get_transaction_outputs_with_key_data(self, exclude_frozen: bool=True, mature: bool=True,
+            confirmed_only: Optional[bool]=None, keyinstance_ids: Optional[List[int]]=None) \
+                -> List[TransactionOutputSpendableRow]:
         return SPENDABLE_UTXOS
 
-    def get_utxos(self, domain=None, exclude_frozen=False, mature=False, confirmed_only=False) \
-            -> List[UTXO]:
-        return SPENDABLE_UTXOS
+    def make_unsigned_transaction(self, utxos=None, outputs=None):
+        return Transaction.from_hex(rawtx), TransactionContext()
 
-    def make_unsigned_transaction(self, utxos=None, outputs=None, config=None):
-        return Transaction.from_hex(rawtx)
-
-    def sign_transaction(self, tx=None, password=None):
-        return Transaction.from_hex(rawtx)
+    def sign_transaction(self, tx: Transaction, password: str,
+            context: Optional[TransactionContext]=None) \
+                -> Optional[FakeFuture]:
+        return FakeFuture(Transaction.from_hex(rawtx))
 
 
 class MockWallet(Wallet):
 
     def __init__(self):
         self._accounts: Dict[int, AbstractAccount] = {1: MockAccount(self)}
-        self._frozen_coins = set([])
 
     def set_boolean_setting(self, setting_name: str, enabled: bool) -> None:
         return
 
     def _fake_get_account(self, account_id):
         return self._accounts[account_id]
+
+    def get_id(self) -> int:
+        return 32323232
 
 
 class MockApp:
@@ -209,9 +217,6 @@ class MockApp:
     def broadcast_file(*args):
         pass
 
-    def get_and_set_frozen_utxos_for_tx(self):
-        pass
-
     def _create_tx_helper(self):
         pass
 
@@ -220,8 +225,8 @@ class MockConfig:
     def __init__(self):
         pass
 
-    def estimate_fee(self, size):
-        return size * 1  # 1 sat/byte
+    def estimate_fee(self, size: TransactionSize) -> int:
+        return sum(size) * 1  # 1 sat/byte
 
     def fee_per_kb(self):
         return 1000  # 1 sat/bytes
@@ -290,9 +295,6 @@ class MockDefaultEndpoints(ExtensionEndpoints):
         return {wallet._id: {"wallet_type": "StandardWallet",
                              "is_wallet_ready": True}}
 
-    def _fake_get_and_set_frozen_utxos_for_tx(self, tx, child_wallet):
-        return
-
     def _fake_create_tx_helper_raise_exception(self, request) -> Tuple[Any, set]:
         raise Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE)
 
@@ -301,8 +303,8 @@ class MockDefaultEndpoints(ExtensionEndpoints):
         return Transaction.from_hex(rawtx).txid()
 
 
-def _fake_get_account_succeeded(wallet_name, index) -> Union[Fault, AbstractAccount]:
-    return MockAccount()  # which in-turn patches get_spendable_coins()
+def _fake_get_account_succeeded(wallet_name, index) -> AbstractAccount:
+    return MockAccount()  # which in-turn patches get_transaction_outputs_with_key_data()
 
 
 class TestDefaultEndpoints:
@@ -400,12 +402,16 @@ class TestDefaultEndpoints:
         # mock request
         network = "test"
         wallet_name = "wallet_file1.sqlite"
-        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/load_wallet")
+        password = "mypass"
+        resp = await cli.post(f"/v1/{network}/dapp/wallets/{wallet_name}/load_wallet",
+            json= { "password": password })
 
         # check
-        expected_json = {"parent_wallet": wallet_name,
-                         "accounts": {'1': {"wallet_type": "StandardWallet",
-                                            "is_wallet_ready": True}}}
+        expected_json = {
+            "parent_wallet": wallet_name,
+            "wallet_id": 32323232,
+            "accounts": {'1': {"wallet_type": "StandardWallet",
+                "is_wallet_ready": True}}}
         assert resp.status == 200
         response = await resp.read()
         assert json.loads(response) == expected_json
@@ -590,8 +596,6 @@ class TestDefaultEndpoints:
         monkeypatch.setattr(self.rest_server.app_state.app, '_create_transaction',
                             _fake_create_transaction_succeeded)
         monkeypatch.setattr(asyncio, 'get_event_loop', _fake_get_event_loop)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
-                            self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
 
         # mock request
         network = "test"
@@ -625,8 +629,6 @@ class TestDefaultEndpoints:
         monkeypatch.setattr(self.rest_server, '_create_tx_helper',
                             self.rest_server._fake_create_tx_helper_raise_exception)
         monkeypatch.setattr(asyncio, 'get_event_loop', _fake_get_event_loop)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
-                            self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
 
         # mock request
         network = "test"
@@ -656,8 +658,6 @@ class TestDefaultEndpoints:
                             _fake_spawn)
         monkeypatch.setattr(self.rest_server.app_state.async_, 'spawn',
                             _fake_spawn)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
-                            self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
         monkeypatch.setattr(self.rest_server, 'send_request',
                             self.rest_server._fake_send_request)
 
@@ -685,8 +685,6 @@ class TestDefaultEndpoints:
                             _fake_create_transaction_succeeded)
         monkeypatch.setattr(self.rest_server, '_broadcast_transaction',
                             _fake_broadcast_tx)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
-                            self.rest_server._fake_get_and_set_frozen_utxos_for_tx)
         monkeypatch.setattr(self.rest_server, 'send_request',
                             self.rest_server._fake_send_request)
 
@@ -709,8 +707,6 @@ class TestDefaultEndpoints:
     async def test_split_utxos_good_response(self, monkeypatch, cli, spendable_utxos):
         monkeypatch.setattr(self.rest_server, '_get_account',
                             _fake_get_account_succeeded)
-        monkeypatch.setattr(self.rest_server.app_state.app, 'get_and_set_frozen_utxos_for_tx',
-                            _fake_get_frozen_utxos_for_tx)
 
         # mock request
         network = "test"

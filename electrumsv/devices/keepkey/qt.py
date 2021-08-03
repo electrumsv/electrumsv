@@ -23,28 +23,32 @@
 # SOFTWARE.
 
 from functools import partial
+from typing import Any, cast, Dict, Optional, Tuple, TYPE_CHECKING, Union
 
-from PyQt5.QtCore import Qt, QEventLoop, pyqtSignal, QRegExp
-from PyQt5.QtGui import QRegExpValidator
+from bitcoinx import bip32_key_from_string, BIP32PrivateKey
+
+from PyQt5.QtCore import pyqtBoundSignal, Qt, QEventLoop, pyqtSignal, QRegExp
+from PyQt5.QtGui import QKeyEvent, QRegExpValidator
 from PyQt5.QtWidgets import (
-    QGridLayout, QTabWidget, QPushButton, QVBoxLayout, QLabel, QHBoxLayout, QDialog,
+    QGridLayout, QTabWidget, QPushButton, QVBoxLayout, QLabel, QHBoxLayout,
     QLineEdit, QGroupBox, QButtonGroup, QRadioButton, QCheckBox, QTextEdit,
     QMessageBox, QWidget, QSlider
 )
 
 from keepkeylib.qt.pinmatrix import PinMatrixWidget
 from .keepkey import KeepKeyPlugin, TIM_NEW, TIM_RECOVER, TIM_MNEMONIC
-from ..hw_wallet.qt import QtHandlerBase, QtPluginBase, HandlerWindow
+from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
 
-from electrumsv.app_state import app_state
-from electrumsv.keystore import is_xprv, Hardware_KeyStore
-from electrumsv.i18n import _
-from electrumsv.util import bh2u
+from ...app_state import app_state
+from ...keystore import Hardware_KeyStore
+from ...i18n import _
 
-from electrumsv.gui.qt.main_window import ElectrumWindow
-from electrumsv.gui.qt.util import (
-    WindowModalDialog, WWLabel, Buttons, CancelButton, OkButton, CloseButton,
-)
+from ...gui.qt.util import WindowModalDialog, WWLabel, Buttons, CancelButton, OkButton, CloseButton
+
+if TYPE_CHECKING:
+    from ...gui.qt.account_wizard import AccountWizard
+    from ...gui.qt.main_window import ElectrumWindow
+    from .client import CharacterRequestType, KeepKeyClient, KeepKeyFeatures
 
 
 PASSPHRASE_HELP_SHORT = _(
@@ -77,15 +81,16 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
     icon_paired = "icons8-usb-connected-80.png"
     icon_unpaired = "icons8-usb-disconnected-80.png"
 
-    def create_handler(self, window: HandlerWindow) -> QtHandlerBase:
+    def create_handler(self, window: "ElectrumWindow") -> QtHandlerBase:
         return QtHandler(window, self.device)
 
-    def show_settings_dialog(self, window: ElectrumWindow, keystore: Hardware_KeyStore) -> None:
+    def show_settings_dialog(self, window: "ElectrumWindow", keystore: Hardware_KeyStore) -> None:
         device_id = self.choose_device(window, keystore)
         if device_id:
             SettingsDialog(window, self, keystore, device_id).exec_()
 
-    def request_trezor_init_settings(self, wizard, method, device):
+    def request_trezor_init_settings(self, wizard: "AccountWizard", method: int, device: str) \
+            -> Tuple[Union[int, str], str, Union[bool, str], bool]:
         vbox = QVBoxLayout()
         next_enabled = True
         label = QLabel(_("Enter a label to name your device:"))
@@ -96,10 +101,14 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
         hl.addStretch(1)
         vbox.addLayout(hl)
 
-        def clean_text(widget):
+        def clean_text(widget: QTextEdit) -> str:
             text = widget.toPlainText().strip()
             return ' '.join(text.split())
 
+        bg: Optional[QButtonGroup] = None
+        cb_pin: Optional[QCheckBox] = None
+        text: Optional[QTextEdit] = None
+        pin: Optional[QLineEdit] = None
         if method in [TIM_NEW, TIM_RECOVER]:
             gb = QGroupBox()
             hbox1 = QHBoxLayout()
@@ -118,16 +127,21 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
                 rb.setChecked(True)
             cb_pin = QCheckBox(_('Enable PIN protection'))
             cb_pin.setChecked(True)
+
+            vbox.addWidget(WWLabel(RECOMMEND_PIN))
+            vbox.addWidget(cb_pin)
         else:
             text = QTextEdit()
             text.setMaximumHeight(60)
             if method == TIM_MNEMONIC:
                 msg = _("Enter your BIP39 mnemonic:")
             else:
-                def set_enabled():
-                    wizard.next_button.setEnabled(is_xprv(clean_text(text)))
+                def set_enabled() -> None:
+                    assert text is not None
+                    key = bip32_key_from_string(clean_text(text))
+                    wizard.next_button.setEnabled(isinstance(key, BIP32PrivateKey))
                 msg = _("Enter the master private key beginning with xprv:")
-                text.textChanged.connect(set_enabled)
+                cast(pyqtBoundSignal, text.textChanged).connect(set_enabled)
                 next_enabled = False
 
             vbox.addWidget(QLabel(msg))
@@ -140,10 +154,6 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
             hbox_pin.addWidget(pin)
             hbox_pin.addStretch(1)
 
-        if method in [TIM_NEW, TIM_RECOVER]:
-            vbox.addWidget(WWLabel(RECOMMEND_PIN))
-            vbox.addWidget(cb_pin)
-        else:
             vbox.addLayout(hbox_pin)
 
         passphrase_msg = WWLabel(PASSPHRASE_HELP_SHORT)
@@ -157,27 +167,32 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
 
         wizard.exec_layout(vbox, next_enabled=next_enabled)
 
+        item: Union[int, str]
+        pin_value: Union[bool, str]
         if method in [TIM_NEW, TIM_RECOVER]:
+            assert bg is not None and cb_pin is not None
             item = bg.checkedId()
-            pin = cb_pin.isChecked()
+            pin_value = cb_pin.isChecked()
         else:
+            assert text is not None and pin is not None
             item = ' '.join(str(clean_text(text)).split())
-            pin = str(pin.text())
+            pin_value = str(pin.text())
 
-        return (item, name.text(), pin, cb_phrase.isChecked())
+        return (item, name.text(), pin_value, cb_phrase.isChecked())
 
 
 class CharacterButton(QPushButton):
-    def __init__(self, text=None):
+    def __init__(self, text: Optional[str]=None) -> None:
         QPushButton.__init__(self, text)
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         event.setAccepted(False)   # Pass through Enter and Space keys
 
 
 class CharacterDialog(WindowModalDialog):
+    data: Optional[Dict[str, Any]]
 
-    def __init__(self, parent):
+    def __init__(self, parent: QWidget) -> None:
         super(CharacterDialog, self).__init__(parent)
         self.setWindowTitle(_("KeepKey Seed Recovery"))
         self.character_pos = 0
@@ -196,24 +211,24 @@ class CharacterDialog(WindowModalDialog):
             self.char_buttons.append(char_button)
             hbox.addWidget(char_button)
         self.accept_button = CharacterButton(_("Accept Word"))
-        self.accept_button.clicked.connect(partial(self.process_key, 32))
-        self.rejected.connect(partial(self.loop.exit, 1))
+        cast(pyqtBoundSignal, self.accept_button.clicked).connect(partial(self.process_key, 32))
+        cast(pyqtBoundSignal, self.rejected).connect(partial(self.loop.exit, 1))
         hbox.addWidget(self.accept_button)
         hbox.addStretch(1)
         vbox.addLayout(hbox)
 
         self.finished_button = QPushButton(_("Seed Entered"))
         self.cancel_button = QPushButton(_("Cancel"))
-        self.finished_button.clicked.connect(partial(self.process_key,
-                                                     Qt.Key_Return))
-        self.cancel_button.clicked.connect(self.rejected)
+        cast(pyqtBoundSignal, self.finished_button.clicked).connect(
+            partial(self.process_key, Qt.Key.Key_Return))
+        cast(pyqtBoundSignal, self.cancel_button.clicked).connect(self.rejected)
         buttons = Buttons(self.finished_button, self.cancel_button)
         vbox.addSpacing(40)
         vbox.addLayout(buttons)
         self.refresh()
         self.show()
 
-    def refresh(self):
+    def refresh(self) -> None:
         self.word_help.setText("Enter seed word %2d:" % (self.word_pos + 1))
         self.accept_button.setEnabled(self.character_pos >= 3)
         self.finished_button.setEnabled((self.word_pos in (11, 17, 23)
@@ -223,7 +238,7 @@ class CharacterDialog(WindowModalDialog):
             if n == self.character_pos:
                 button.setFocus()
 
-    def is_valid_alpha_space(self, key):
+    def is_valid_alpha_space(self, key: int) -> bool:
         # Auto-completion requires at least 3 characters
         if key == ord(' ') and self.character_pos >= 3:
             return True
@@ -233,23 +248,23 @@ class CharacterDialog(WindowModalDialog):
         return (key >= ord('a') and key <= ord('z')
                 or (key >= ord('A') and key <= ord('Z')))
 
-    def process_key(self, key):
+    def process_key(self, key: int) -> None:
         self.data = None
-        if key == Qt.Key_Return and self.finished_button.isEnabled():
+        if key == Qt.Key.Key_Return and self.finished_button.isEnabled():
             self.data = {'done': True}
-        elif key == Qt.Key_Backspace and (self.word_pos or self.character_pos):
+        elif key == Qt.Key.Key_Backspace and (self.word_pos or self.character_pos):
             self.data = {'delete': True}
         elif self.is_valid_alpha_space(key):
             self.data = {'character': chr(key).lower()}
         if self.data:
             self.loop.exit(0)
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         self.process_key(event.key())
         if not self.data:
-            QDialog.keyPressEvent(self, event)
+            super().keyPressEvent(event)
 
-    def get_char(self, word_pos, character_pos):
+    def get_char(self, word_pos: int, character_pos: int) -> Optional[Dict[str, Any]]:
         self.word_pos = word_pos
         self.character_pos = character_pos
         self.refresh()
@@ -259,29 +274,29 @@ class CharacterDialog(WindowModalDialog):
 
 
 class QtHandler(QtHandlerBase):
-
     char_signal = pyqtSignal(object)
     pin_signal = pyqtSignal(object)
+    response: str
 
-    def __init__(self, win, device):
+    def __init__(self, win: "ElectrumWindow", device: str) -> None:
         super(QtHandler, self).__init__(win, device)
         self.char_signal.connect(self.update_character_dialog)
         self.pin_signal.connect(self.pin_dialog)
-        self.character_dialog = None
+        self.character_dialog: Optional[CharacterDialog] = None
 
-    def get_char(self, msg):
+    def get_char(self, msg: "CharacterRequestType") -> Optional[Dict[str, Any]]:
         self.done.clear()
         self.char_signal.emit(msg)
         self.done.wait()
-        return self.done.data
+        return self.done_data
 
-    def get_pin(self, msg):
+    def get_pin(self, msg: str) -> str:
         self.done.clear()
         self.pin_signal.emit(msg)
         self.done.wait()
         return self.response
 
-    def pin_dialog(self, msg):
+    def pin_dialog(self, msg: str) -> None:
         # Needed e.g. when resetting a device
         self.clear_dialog()
         dialog = WindowModalDialog(self.top_level_window(), _("Enter PIN"))
@@ -295,14 +310,14 @@ class QtHandler(QtHandlerBase):
         self.response = str(matrix.get_value())
         self.done.set()
 
-    def update_character_dialog(self, msg):
-        if not self.character_dialog:
+    def update_character_dialog(self, msg: "CharacterRequestType") -> None:
+        if self.character_dialog is None:
             self.character_dialog = CharacterDialog(self.top_level_window())
         data = self.character_dialog.get_char(msg.word_pos, msg.character_pos)
         if not data or 'done' in data:
             self.character_dialog.accept()
             self.character_dialog = None
-        self.done.data = data
+        self.done_data = data
         self.done.set()
 
 
@@ -310,19 +325,21 @@ class SettingsDialog(WindowModalDialog):
     '''This dialog doesn't require a device be paired with a wallet.
     We want users to be able to wipe a device even if they've forgotten
     their PIN.'''
+    features: "KeepKeyFeatures"
 
-    def __init__(self, window, plugin, keystore, device_id):
+    def __init__(self, window: "ElectrumWindow", plugin: Plugin, keystore: Hardware_KeyStore,
+            device_id: str) -> None:
         title = _("{} Settings").format(plugin.device)
         super(SettingsDialog, self).__init__(window, title)
 
         config = app_state.config
-        hs_rows, hs_cols = (64, 128)
 
-        def invoke_client(method, *args, **kw_args):
-            unpair_after = kw_args.pop('unpair_after', False)
+        def invoke_client(method: Optional[str], *args: Any, **kw_args: Any) -> None:
+            unpair_after = cast(bool, kw_args.pop('unpair_after', False))
 
-            def task():
-                client = app_state.device_manager.client_by_id(device_id)
+            def task() -> "KeepKeyFeatures":
+                client = cast(Optional["KeepKeyClient"],
+                    app_state.device_manager.client_by_id(device_id))
                 if not client:
                     raise RuntimeError("Device not connected")
                 if method:
@@ -333,10 +350,10 @@ class SettingsDialog(WindowModalDialog):
 
             window.run_in_thread(task, on_success=update)
 
-        def update(features):
+        def update(features: "KeepKeyFeatures") -> None:
             self.features = features
             set_label_enabled()
-            bl_hash = bh2u(features.bootloader_hash)
+            bl_hash = features.bootloader_hash.hex()
             bl_hash = "\n".join([bl_hash[:32], bl_hash[32:]])
             noyes = [_("No"), _("Yes")]
             endis = [_("Enable Passphrases"), _("Disable Passphrases")]
@@ -362,13 +379,13 @@ class SettingsDialog(WindowModalDialog):
             passphrase_button.setText(endis[features.passphrase_protection])
             language_label.setText(features.language)
 
-        def set_label_enabled():
+        def set_label_enabled() -> None:
             label_apply.setEnabled(label_edit.text() != self.features.label)
 
-        def rename():
+        def rename() -> None:
             invoke_client('change_label', label_edit.text())
 
-        def toggle_passphrase():
+        def toggle_passphrase() -> None:
             title = _("Confirm Toggle Passphrase Protection")
             currently_enabled = self.features.passphrase_protection
             if currently_enabled:
@@ -388,13 +405,13 @@ class SettingsDialog(WindowModalDialog):
                 return
             invoke_client('toggle_passphrase', unpair_after=currently_enabled)
 
-        def set_pin():
+        def set_pin() -> None:
             invoke_client('set_pin', remove=False)
 
-        def clear_pin():
+        def clear_pin() -> None:
             invoke_client('set_pin', remove=True)
 
-        def wipe_device():
+        def wipe_device() -> None:
             accounts = window._wallet.get_accounts_for_keystore(keystore)
             if sum(sum(account.get_balance()) for account in accounts):
                 title = _("Confirm Device Wipe")
@@ -405,11 +422,11 @@ class SettingsDialog(WindowModalDialog):
                     return
             invoke_client('wipe_device', unpair_after=True)
 
-        def slider_moved():
+        def slider_moved() -> None:
             mins = timeout_slider.sliderPosition()
             timeout_minutes.setText(_("%2d minutes") % mins)
 
-        def slider_released():
+        def slider_released() -> None:
             config.set_session_timeout(timeout_slider.sliderPosition() * 60)
 
         # Information tab
@@ -456,8 +473,8 @@ class SettingsDialog(WindowModalDialog):
         label_edit.setMinimumWidth(150)
         label_edit.setMaxLength(plugin.MAX_LABEL_LEN)
         label_apply = QPushButton(_("Apply"))
-        label_apply.clicked.connect(rename)
-        label_edit.textChanged.connect(set_label_enabled)
+        cast(pyqtBoundSignal, label_apply.clicked).connect(rename)
+        cast(pyqtBoundSignal, label_edit.textChanged).connect(set_label_enabled)
         settings_glayout.addWidget(label_label, 0, 0)
         settings_glayout.addWidget(label_edit, 0, 1, 1, 2)
         settings_glayout.addWidget(label_apply, 0, 3)
@@ -466,7 +483,7 @@ class SettingsDialog(WindowModalDialog):
         # Settings tab - PIN
         pin_label = QLabel(_("PIN Protection"))
         pin_button = QPushButton()
-        pin_button.clicked.connect(set_pin)
+        cast(pyqtBoundSignal, pin_button.clicked).connect(set_pin)
         settings_glayout.addWidget(pin_label, 2, 0)
         settings_glayout.addWidget(pin_button, 2, 1)
         pin_msg = QLabel(_("PIN protection is strongly recommended.  "
@@ -480,7 +497,7 @@ class SettingsDialog(WindowModalDialog):
         # Settings tab - Session Timeout
         timeout_label = QLabel(_("Session Timeout"))
         timeout_minutes = QLabel()
-        timeout_slider = QSlider(Qt.Horizontal)
+        timeout_slider = QSlider(Qt.Orientation.Horizontal)
         timeout_slider.setRange(1, 60)
         timeout_slider.setSingleStep(1)
         timeout_slider.setTickInterval(5)
@@ -494,8 +511,8 @@ class SettingsDialog(WindowModalDialog):
         timeout_msg.setWordWrap(True)
         timeout_slider.setSliderPosition(config.get_session_timeout() // 60)
         slider_moved()
-        timeout_slider.valueChanged.connect(slider_moved)
-        timeout_slider.sliderReleased.connect(slider_released)
+        cast(pyqtBoundSignal, timeout_slider.valueChanged).connect(slider_moved)
+        cast(pyqtBoundSignal, timeout_slider.sliderReleased).connect(slider_released)
         settings_glayout.addWidget(timeout_label, 6, 0)
         settings_glayout.addWidget(timeout_slider, 6, 1, 1, 3)
         settings_glayout.addWidget(timeout_minutes, 6, 4)
@@ -510,7 +527,7 @@ class SettingsDialog(WindowModalDialog):
 
         # Advanced tab - clear PIN
         clear_pin_button = QPushButton(_("Disable PIN"))
-        clear_pin_button.clicked.connect(clear_pin)
+        cast(pyqtBoundSignal, clear_pin_button.clicked).connect(clear_pin)
         clear_pin_warning = QLabel(
             _("If you disable your PIN, anyone with physical access to your "
               "{} device can spend your bitcoins.").format(plugin.device))
@@ -521,7 +538,7 @@ class SettingsDialog(WindowModalDialog):
 
         # Advanced tab - toggle passphrase protection
         passphrase_button = QPushButton()
-        passphrase_button.clicked.connect(toggle_passphrase)
+        cast(pyqtBoundSignal, passphrase_button.clicked).connect(toggle_passphrase)
         passphrase_msg = WWLabel(PASSPHRASE_HELP)
         passphrase_warning = WWLabel(PASSPHRASE_NOT_PIN)
         passphrase_warning.setStyleSheet("color: red")
@@ -531,7 +548,7 @@ class SettingsDialog(WindowModalDialog):
 
         # Advanced tab - wipe device
         wipe_device_button = QPushButton(_("Wipe Device"))
-        wipe_device_button.clicked.connect(wipe_device)
+        cast(pyqtBoundSignal, wipe_device_button.clicked).connect(wipe_device)
         wipe_device_msg = QLabel(
             _("Wipe the device, removing all data from it.  The firmware "
               "is left unchanged."))

@@ -24,25 +24,25 @@
 # SOFTWARE.
 
 import json
-import time
-from typing import Any, List, Optional, Dict, TYPE_CHECKING
+from typing import Any, cast, List, Optional, Dict, TYPE_CHECKING, Union
 import urllib.parse
 
-from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
 from bitcoinx import Script
 import certifi
 import requests
 
+from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
 from .exceptions import Bip270Exception
 from .i18n import _
 from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
 from .transaction import XTxOutput
-from .wallet_database.tables import PaymentRequestRow
+from .util import get_posix_timestamp
+from .wallet_database.types import PaymentRequestReadRow
 
 
 if TYPE_CHECKING:
-    from electrumsv.wallet import DeterministicAccount
+    from electrumsv.wallet import AbstractAccount
 
 logger = logs.get_logger("paymentrequest")
 
@@ -66,17 +66,13 @@ ca_path = certifi.where()
 # https://github.com/moneybutton/bips/blob/master/bip-0270.mediawiki
 
 def has_expired(expiration_timestamp: Optional[int]=None) -> bool:
-    return expiration_timestamp is not None and expiration_timestamp < int(time.time())
+    return expiration_timestamp is not None and expiration_timestamp < get_posix_timestamp()
 
 
 class Output:
-    # FIXME: this should either be removed in favour of TxOutput, or be a lighter wrapper
-    # around it.
-
     def __init__(self, script: Script, amount: Optional[int]=None,
                  description: Optional[str]=None):
         self.script = script
-        # TODO: Must not have a JSON string length of 100 bytes.
         if description is not None:
             description_json = json.dumps(description)
             if len(description_json) > 100:
@@ -90,7 +86,7 @@ class Output:
         return XTxOutput(self.amount, self.script) # type: ignore
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'Output':
+    def from_dict(cls, data: Dict[str, Any]) -> 'Output':
         if 'script' not in data:
             raise Bip270Exception("Missing required 'script' field")
         script_hex = data['script']
@@ -106,7 +102,7 @@ class Output:
         return cls(Script.from_hex(script_hex), amount, description)
 
     def to_dict(self) -> Dict[str, Any]:
-        data = {
+        data: Dict[str, Any] = {
             'script': self.script.to_hex(),
         }
         if self.amount and type(self.amount) is int:
@@ -132,8 +128,9 @@ class PaymentRequest:
 
     error: Optional[str] = None
 
-    def __init__(self, outputs, creation_timestamp=None, expiration_timestamp=None, memo=None,
-                 payment_url=None, merchant_data=None):
+    def __init__(self, outputs: List[Output], creation_timestamp: Optional[int]=None,
+            expiration_timestamp: Optional[int]=None, memo: Optional[str]=None,
+            payment_url: Optional[str]=None, merchant_data: Optional[str]=None) -> None:
         # This is only used if there is a requestor identity (old openalias, needs rewrite).
         self._id: Optional[int] = None
         self.tx = None
@@ -143,7 +140,7 @@ class PaymentRequest:
         if creation_timestamp is not None:
             creation_timestamp = int(creation_timestamp)
         else:
-            creation_timestamp = int(time.time())
+            creation_timestamp = get_posix_timestamp()
         self.creation_timestamp = creation_timestamp
         if expiration_timestamp is not None:
             expiration_timestamp = int(expiration_timestamp)
@@ -156,17 +153,22 @@ class PaymentRequest:
         return self.to_json()
 
     @classmethod
-    def from_wallet_entry(cls, account: 'DeterministicAccount',
-            pr: PaymentRequestRow) -> 'PaymentRequest':
-        script = account.get_script_for_id(pr.keyinstance_id)
+    def from_wallet_entry(cls, account: 'AbstractAccount',
+            pr: PaymentRequestReadRow) -> 'PaymentRequest':
+        wallet = account.get_wallet()
+        keyinstance = wallet.read_keyinstance(keyinstance_id=pr.keyinstance_id)
+        assert keyinstance is not None
+        script_type = account.get_default_script_type()
+        script = account.get_script_for_derivation(script_type, keyinstance.derivation_type,
+            keyinstance.derivation_data2)
         date_expiry = None
         if pr.expiration is not None:
             date_expiry = pr.date_created + pr.expiration
-        outputs = [ Output(script, pr.value) ]
+        outputs = [ Output(script, pr.requested_value) ]
         return cls(outputs, pr.date_created, date_expiry, pr.description)
 
     @classmethod
-    def from_json(cls, s: str) -> 'PaymentRequest':
+    def from_json(cls, s: Union[bytes, str]) -> 'PaymentRequest':
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception(_("Payment request oversized"))
 
@@ -218,9 +220,10 @@ class PaymentRequest:
         return pr
 
     def to_json(self) -> str:
-        d = {}
+        # TODO: This should be a TypedDict.
+        d: Dict[str, Any] = {}
         d['network'] = self.network
-        d['outputs'] = [output.to_dict() for output in self.outputs]  # type: ignore
+        d['outputs'] = [output.to_dict() for output in self.outputs]
         d['creationTimestamp'] = self.creation_timestamp
         if self.expiration_timestamp is not None:
             d['expirationTimestamp'] = self.expiration_timestamp
@@ -238,11 +241,11 @@ class PaymentRequest:
     def has_expired(self) -> bool:
         return has_expired(self.expiration_timestamp)
 
-    def get_expiration_date(self) -> int:
+    def get_expiration_date(self) -> Optional[int]:
         return self.expiration_timestamp
 
     def get_amount(self) -> int:
-        return sum(x.amount for x in self.outputs)
+        return sum(cast(int, x.amount) for x in self.outputs)
 
     def get_address(self) -> str:
         if Net._net is SVMainnet:
@@ -261,7 +264,7 @@ class PaymentRequest:
         assert self.payment_url is not None
         return self.payment_url
 
-    def get_memo(self) -> str:
+    def get_memo(self) -> Optional[str]:
         return self.memo
 
     def get_id(self) -> Optional[int]:
@@ -273,7 +276,7 @@ class PaymentRequest:
     def get_outputs(self) -> List[XTxOutput]:
         return [output.to_tx_output() for output in self.outputs]
 
-    def send_payment(self, account: 'DeterministicAccount', transaction_hex: str) -> bool:
+    def send_payment(self, account: 'AbstractAccount', transaction_hex: str) -> bool:
         self.error = None
 
         if not self.payment_url:
@@ -315,7 +318,7 @@ class PaymentRequest:
         return True
 
     # The following function and classes is abstracted to allow unit testing.
-    def _make_request(self, url, message):
+    def _make_request(self, url: str, message: str) -> "_RequestsResponseWrapper":
         r = requests.post(url, data=message, headers=ACK_HEADERS, verify=ca_path)
         return self._RequestsResponseWrapper(r)
 
@@ -342,7 +345,7 @@ class Payment:
         self.memo = memo
 
     @classmethod
-    def from_dict(cls, data: dict, ack: bool=False) -> 'Payment':
+    def from_dict(cls, data: Dict[str, Any], ack: bool=False) -> 'Payment':
         merchant_data: Any
         if 'merchantData' in data:
             merchant_data = data['merchantData']
@@ -364,7 +367,7 @@ class Payment:
 
         return cls(merchant_data, transaction_hex, memo)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
         data = {
             'merchantData': self.merchant_data,
             'transaction': self.transaction_hex,
@@ -416,7 +419,7 @@ class PaymentACK:
         return json.dumps(data)
 
     @classmethod
-    def from_json(cls, s: str) -> 'PaymentACK':
+    def from_json(cls, s: Union[bytes, str]) -> 'PaymentACK':
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception(f"Invalid payment ACK, too large")
         data = json.loads(s)

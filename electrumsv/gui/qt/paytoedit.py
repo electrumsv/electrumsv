@@ -253,7 +253,7 @@ class PayToEdit(ScanQRTextEdit):
     def update_size(self):
         lineHeight = QFontMetrics(self.document().defaultFont()).height()
         docHeight = self.document().size().height()
-        h = docHeight * lineHeight + 11
+        h = int(docHeight * lineHeight + 11)
         if self.heightMin <= h <= self.heightMax:
             self.setMinimumHeight(h)
             self.setMaximumHeight(h)
@@ -262,7 +262,7 @@ class PayToEdit(ScanQRTextEdit):
     def set_completer(self, completer):
         self._completer = completer
         self._completer.setWidget(self)
-        self._completer.setCompletionMode(QCompleter.PopupCompletion)
+        self._completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         self._completer.activated.connect(self._insert_completion)
 
     def _insert_completion(self, completion):
@@ -285,26 +285,27 @@ class PayToEdit(ScanQRTextEdit):
             return
 
         if self._completer.popup().isVisible():
-            if e.key() in [Qt.Key_Enter, Qt.Key_Return]:
+            if e.key() in [Qt.Key.Key_Enter, Qt.Key.Key_Return]:
                 e.ignore()
                 return
 
-        if e.key() in [Qt.Key_Tab]:
+        if e.key() in [Qt.Key.Key_Tab]:
             e.ignore()
             return
 
-        if e.key() in [Qt.Key_Down, Qt.Key_Up] and not self._is_multiline():
+        if e.key() in [Qt.Key.Key_Down, Qt.Key.Key_Up] and not self._is_multiline():
             e.ignore()
             return
 
         QPlainTextEdit.keyPressEvent(self, e)
 
-        ctrlOrShift = e.modifiers() and (Qt.ControlModifier or Qt.ShiftModifier)
+        ctrlOrShift = e.modifiers() and \
+            (Qt.KeyboardModifier.ControlModifier or Qt.KeyboardModifier.ShiftModifier)
         if self._completer is None or (ctrlOrShift and not e.text()):
             return
 
         eow = "~!@#$%^&*()_+{}|:\"<>?,./;'[]\\-="
-        hasModifier = (e.modifiers() != Qt.NoModifier) and not ctrlOrShift
+        hasModifier = (e.modifiers() != Qt.KeyboardModifier.NoModifier) and not ctrlOrShift
         completionPrefix = self._get_text_under_cursor()
 
         if hasModifier or not e.text() or len(completionPrefix) < 1 or eow.find(e.text()[-1]) >= 0:

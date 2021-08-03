@@ -25,21 +25,27 @@
 '''QT application state.'''
 
 import sys
+from typing import TYPE_CHECKING
 
 from electrumsv.app_state import AppStateProxy
 
 from .app import SVApplication
 
+if TYPE_CHECKING:
+    from ...simple_config import SimpleConfig
+
 
 class QtAppStateProxy(AppStateProxy):
+    def __init__(self, config: "SimpleConfig", gui_kind: str) -> None:
+        super().__init__(config, gui_kind)
+        # NOTE(typing) We use `app` for the `DefaultApp` in headless mode. `app_qt` otherwise.
+        self.app = SVApplication(sys.argv) # type: ignore
 
-    def __init__(self, *args):
-        super().__init__(*args)
-        self.app = SVApplication(sys.argv)
-
-    def has_app(self):
+    def has_app(self) -> bool:
         return True
 
-    def set_base_unit(self, base_unit):
+    def set_base_unit(self, base_unit: str) -> bool:
         if super().set_base_unit(base_unit):
-            self.app.base_unit_changed.emit()
+            self.app_qt.base_unit_changed.emit()
+            return True
+        return False

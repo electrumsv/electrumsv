@@ -24,7 +24,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Any, Optional
+from typing import Any, Optional, Tuple, TYPE_CHECKING
 
 from PyQt5.QtCore import Qt, QSortFilterProxyModel, QObject, QSize
 from PyQt5.QtGui import QPainter, QPixmap
@@ -36,6 +36,8 @@ from electrumsv.contacts import (get_system_id, IDENTITY_SYSTEM_NAMES, IdentityS
     ContactDataError, IdentityCheckResult, ContactEntry, ContactIdentity)
 from electrumsv.i18n import _
 
+if TYPE_CHECKING:
+    from .main_window import ElectrumWindow
 from .util import (Buttons, CancelButton, OkButton, WindowModalDialog, icon_path,
     read_QIcon)
 from .wallet_api import WalletAPI
@@ -154,7 +156,6 @@ class ContactCards(QWidget):
         self._list.setItemWidget(list_item, test_card)
 
     def _remove_identity(self, contact: ContactEntry, identity: ContactIdentity) -> None:
-        removal_entries = []
         for i in range(self._list.count()-1, -1, -1):
             item = self._list.item(i)
             widget = self._list.itemWidget(item)
@@ -180,7 +181,7 @@ class ContactCards(QWidget):
 
     def _add_empty_label(self) -> None:
         self._empty_label = QLabel(_("You do not currently have any contacts."))
-        self._empty_label.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+        self._empty_label.setAlignment(Qt.AlignmentFlag(Qt.AlignHCenter | Qt.AlignVCenter))
         self._layout.addWidget(self._empty_label)
 
     def _remove_empty_label(self) -> None:
@@ -284,7 +285,7 @@ class ContactCard(QWidget):
 
 
 # TODO: Refactor this into a class.
-def edit_contact_dialog(wallet_api, contact_key=None):
+def edit_contact_dialog(wallet_api, contact_key: Optional[Tuple[int, bytes]]=None):
     editing = contact_key is not None
     if editing:
         title = _("Edit Contact")

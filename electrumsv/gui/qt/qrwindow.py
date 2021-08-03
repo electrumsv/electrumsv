@@ -37,7 +37,6 @@ class QR_Window(QWidget):
 
     def __init__(self, win):
         QWidget.__init__(self)
-        self.win = win
         self.setWindowTitle('ElectrumSV - ' + _('Payment Request'))
         self.label = ''
         self.amount = 0

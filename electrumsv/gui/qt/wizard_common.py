@@ -31,7 +31,7 @@ from typing import NamedTuple, Optional
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget, QWizard
 
-from electrumsv.constants import IntFlag
+from ...constants import IntFlag
 
 from .help_dialog import HelpDialog
 from .util import FormSectionWidget
@@ -64,8 +64,8 @@ class BaseWizard(QWizard):
     HELP_DIRNAME: str
 
     def __init__(self, parent: Optional[QWidget]=None) -> None:
-        super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+        super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
         self.setOption(QWizard.IndependentPages, False)
         self.setOption(QWizard.NoDefaultButton, True)
@@ -77,7 +77,7 @@ class BaseWizard(QWizard):
         self.currentIdChanged.connect(self._event_wizard_page_changed)
         self.helpRequested.connect(self._event_help_requested)
 
-    def run(self):
+    def run(self) -> int:
         self.ensure_shown()
         return self.exec()
 

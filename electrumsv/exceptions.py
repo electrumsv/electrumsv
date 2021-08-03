@@ -23,6 +23,7 @@
 
 from typing import Set
 
+from .constants import DatabaseWriteErrorCodes
 from .i18n import _
 
 class NotEnoughFunds(Exception):
@@ -32,17 +33,17 @@ class ExcessiveFee(Exception):
     pass
 
 class InvalidPassword(Exception):
-    def __str__(self):
+    def __str__(self) -> str:
         return _("Incorrect password")
 
 
 class FileImportFailed(Exception):
-    def __str__(self):
+    def __str__(self) -> str:
         return _("Failed to import file.")
 
 
 class FileImportFailedEncrypted(FileImportFailed):
-    def __str__(self):
+    def __str__(self) -> str:
         return (_('Failed to import file.') + ' ' +
                 _('Perhaps it is encrypted...') + '\n' +
                 _('Importing encrypted files is not supported.'))
@@ -65,6 +66,9 @@ class Bip270Exception(Exception):
 class OverloadedMultisigKeystore(Exception):
     pass
 
+class InvalidTransactionError(Exception):
+    pass
+
 class UnknownTransactionException(Exception):
     pass
 
@@ -78,6 +82,15 @@ class WalletLoadError(Exception):
     pass
 
 class InvalidPayToError(Exception):
+    pass
+
+class UnsupportedAccountTypeError(Exception):
+    pass
+
+class UnsupportedScriptTypeError(Exception):
+    pass
+
+class SubscriptionStale(Exception):
     pass
 
 class PreviousTransactionsMissingException(Exception):
@@ -97,3 +110,16 @@ class PreviousTransactionsMissingException(Exception):
 
 class WaitingTaskCancelled(Exception):
     pass
+
+
+class DatabaseWriteError(Exception):
+    def __init__(self, error_code: DatabaseWriteErrorCodes):
+        super().__init__()
+        self.error_code = error_code
+
+    def __str__(self) -> str:
+        if self.error_code == DatabaseWriteErrorCodes.TX_ADD_MISSING_KEYS:
+            return _("When adding a transaction we failed to find known keys for all the "
+                "outputs.")
+        return _("Fallthrough database write error, code={}").format(self.error_code)
+

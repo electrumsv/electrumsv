@@ -31,21 +31,23 @@
 from functools import partial
 import json
 import time
-from typing import List, NamedTuple, Set
+from typing import List, NamedTuple, Optional, Set, TYPE_CHECKING
 from xmlrpc.client import ServerProxy
 
-from bitcoinx import PublicKey, bip32_key_from_string
+from bitcoinx import PublicKey, bip32_key_from_string, BIP32PrivateKey
 
-from electrumsv import util
-from electrumsv.app_state import app_state
-from electrumsv.crypto import sha256d
-from electrumsv.extensions import cosigner_pool
-from electrumsv.i18n import _
-from electrumsv.keystore import Hardware_KeyStore
-from electrumsv.logs import logs
-from electrumsv.transaction import Transaction
-from electrumsv.wallet import MultisigAccount, AbstractAccount
+from ... import util
+from ...app_state import app_state
+from ...crypto import sha256d
+from ...extensions import cosigner_pool
+from ...i18n import _
+from ...keystore import Hardware_KeyStore
+from ...logs import logs
+from ...transaction import Transaction, TransactionContext
+from ...wallet import MultisigAccount, AbstractAccount
 
+if TYPE_CHECKING:
+    from electrumsv.gui.qt.main_window import ElectrumWindow
 from electrumsv.gui.qt.util import WaitingDialog
 
 
@@ -102,7 +104,7 @@ class Listener(util.DaemonThread):
 
 
 class CosignerPool:
-    _listener: Listener = None
+    _listener: Optional[Listener] = None
 
     def __init__(self):
         # This is accessed without locking by both the UI thread and the listener thread.
@@ -113,7 +115,7 @@ class CosignerPool:
         self.on_enabled_changed()
 
     # Externally invoked when the extension is enabled or disabled.
-    def on_enabled_changed(self):
+    def on_enabled_changed(self) -> None:
         if cosigner_pool.is_enabled():
             if self._listener is None:
                 logger.debug("starting listener")
@@ -151,7 +153,7 @@ class CosignerPool:
             self._items.extend(items)
 
     def _cosigner_can_sign(self, tx: Transaction, cosigner_xpub: str) -> bool:
-        xpub_set = set([])
+        xpub_set = set()
         for txin in tx.inputs:
             for x_pubkey in txin.x_pubkeys:
                 if x_pubkey.is_bip32_key():
@@ -190,9 +192,10 @@ class CosignerPool:
             server.put(item.keyhash_hex, message)
 
         account_id = account.get_id()
+        context = TransactionContext()
         for item in self._items:
             if self._is_theirs(window, account_id, item, tx):
-                raw_tx_bytes = json.dumps(tx.to_dict()).encode()
+                raw_tx_bytes = json.dumps(tx.to_dict(context)).encode()
                 public_key = PublicKey.from_bytes(item.pubkey_bytes)
                 message = public_key.encrypt_message_to_base64(raw_tx_bytes)
                 WaitingDialog(item.window, _('Sending transaction to cosigning pool...'),
@@ -202,6 +205,7 @@ class CosignerPool:
         logger.debug("signal arrived for '%s'", item.keyhash_hex)
         window = item.window
         account = window._wallet.get_account(item.account_id)
+        assert account is not None
 
         for keystore in account.get_keystores():
             if keystore.get_master_public_key() == item.xpub:
@@ -230,6 +234,7 @@ class CosignerPool:
         if not xprv:
             return
         privkey = bip32_key_from_string(xprv)
+        assert isinstance(privkey, BIP32PrivateKey)
         try:
             message = privkey.decrypt_message(message).decode()
         except Exception as e:
@@ -238,5 +243,5 @@ class CosignerPool:
             return
 
         txdict = json.loads(message)
-        tx = Transaction.from_dict(txdict)
-        window.show_transaction(account, tx, prompt_if_unsaved=True)
+        tx, context = Transaction.from_dict(txdict)
+        window.show_transaction(account, tx, context, prompt_if_unsaved=True)

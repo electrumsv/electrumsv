@@ -27,6 +27,7 @@
 import ast
 import base64
 import binascii
+import concurrent.futures
 import copy
 import hashlib
 import json
@@ -35,7 +36,6 @@ import re
 import shutil
 import stat
 import threading
-import time
 from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Set, Sequence, Tuple,
     Type, TypeVar)
 import zlib
@@ -44,8 +44,8 @@ from bitcoinx import DecryptionError, hash_to_hex_str, hex_str_to_hash, PrivateK
 from bitcoinx.address import P2PKH_Address, P2SH_Address
 
 from .bitcoin import is_address_valid, address_from_string
-from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, MIGRATION_CURRENT,
-    MIGRATION_FIRST, RECEIVING_SUBPATH, ScriptType, StorageKind, TxFlags, TransactionOutputFlag,
+from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, DerivationPath,
+    MIGRATION_CURRENT, MIGRATION_FIRST, RECEIVING_SUBPATH, ScriptType, StorageKind,
     KeyInstanceFlag)
 from .crypto import pw_encode, pw_decode
 from .exceptions import IncompatibleWalletError, InvalidPassword
@@ -54,19 +54,27 @@ from .keystore import bip44_derivation
 from .logs import logs
 from .networks import Net
 from .transaction import Transaction, classify_tx_output, parse_script_sig
-from .wallet_database import (AccountTable, TxData, DatabaseContext, migration,
-    KeyInstanceTable, MasterKeyTable, PaymentRequestTable, TransactionDeltaTable,
-    TransactionOutputTable, TransactionTable, WalletDataTable)
-from .wallet_database.tables import (AccountRow, KeyInstanceRow, MasterKeyRow,
-    PaymentRequestRow, TransactionDeltaRow, TransactionOutputRow, TransactionRow,
-    WalletDataRow)
+from .util import get_posix_timestamp
+from .util.misc import ProgressCallbacks
+from .wallet_database import migration
+from .wallet_database import functions as db_functions
+from .wallet_database.storage_migration import (create_accounts1, create_keys1,
+    create_master_keys1, create_payment_requests1, create_transaction_outputs1,
+    create_transactions1, create_wallet_datas1, AccountRow1, KeyInstanceRow1, MasterKeyRow1,
+    PaymentRequestRow1, TransactionOutputFlag1, TransactionOutputRow1, TransactionRow1, TxData1,
+    TxFlags1, read_wallet_data1, update_wallet_datas1, WalletDataRow1)
+from .wallet_database.sqlite_support import DatabaseContext
+from .wallet_database.types import WalletDataRow
 
+
+T1 = TypeVar("T1")
+T2 = TypeVar("T2")
 
 logger = logs.get_logger("storage")
 
 
 
-def multisig_type(wallet_type) -> Optional[Tuple[int, int]]:
+def multisig_type(wallet_type: str) -> Optional[Tuple[int, int]]:
     '''If wallet_type is mofn multi-sig, return [m, n],
     otherwise return None.'''
     if wallet_type:
@@ -105,8 +113,8 @@ def get_categorised_files(wallet_path: str) -> List[WalletStorageInfo]:
     DATABASE - Just the database (version >= 22).
       thiswalletfile.sqlite
     """
-    filenames = set(s for s in os.listdir(wallet_path))
-    database_filenames = set([ s for s in filenames if s.endswith(DATABASE_EXT) ])
+    filenames = { s for s in os.listdir(wallet_path) }
+    database_filenames = { s for s in filenames if s.endswith(DATABASE_EXT) }
     matches = []
     for database_filename in database_filenames:
         filename, _ext = os.path.splitext(database_filename)
@@ -212,24 +220,32 @@ class AbstractStore:
                 v = copy.deepcopy(v)
         return v
 
-    def put(self, key: str, value: Any) -> None:
+    def get_explicit_type(self, return_type: Type[T1], key: str, default: T1) -> T1:
+        with self._lock:
+            v = self._data.get(key)
+            if v is None:
+                return default
+            ret = cast(T1, copy.deepcopy(v))
+        assert isinstance(ret, return_type)
+        return ret
+
+    def put(self, key: str, value: Any, already_persisted: bool=False) -> None:
         # Both key and value should be JSON serialisable.
         json.dumps([ key, value ])
 
         with self._lock:
             if value is not None:
                 if self._data.get(key) != value:
-                    is_update = key in self._data
                     self._data[key] = copy.deepcopy(value)
-                    self._on_value_modified(key, self._data[key], is_update)
+                    self._on_value_modified(key, self._data[key], already_persisted)
             elif key in self._data:
                 self._data.pop(key)
-                self._on_value_deleted(key)
+                self._on_value_deleted(key, already_persisted)
 
-    def _on_value_modified(self, key: str, value: Any, is_update: bool) -> None:
+    def _on_value_modified(self, key: str, value: Any, already_persisted: bool=False) -> None:
         raise NotImplementedError
 
-    def _on_value_deleted(self, key: str) -> None:
+    def _on_value_deleted(self, key: str, already_persisted: bool=False) -> None:
         raise NotImplementedError
 
     def write(self) -> None:
@@ -254,7 +270,8 @@ class AbstractStore:
     def requires_upgrade(self) -> bool:
         raise NotImplementedError
 
-    def upgrade(self, has_password: bool, new_password: str) -> Optional['AbstractStore']:
+    def upgrade(self, has_password: bool, new_password: str,
+            callbacks: Optional[ProgressCallbacks]=None) -> Optional['AbstractStore']:
         raise NotImplementedError
 
     def _get_version(self) -> int:
@@ -263,16 +280,18 @@ class AbstractStore:
 
 class DatabaseStore(AbstractStore):
     _db_context: DatabaseContext
-    _table: WalletDataTable
 
     def __init__(self, path: str) -> None:
         super().__init__(path)
 
         database_already_exists = os.path.exists(self.get_path())
         if not database_already_exists:
-            # The database does not exist. Create it.
-            from .wallet_database.migration import create_database_file
+            # The database does not exist. Create it with the latest schema.
+            # Note that the migration process will have pre-created it through in
+            # `_convert_to_database`.
+            from .wallet_database.migration import create_database_file, update_database_file
             create_database_file(path)
+            update_database_file(path)
         self.open_database()
         self.attempt_load_data()
 
@@ -287,11 +306,8 @@ class DatabaseStore(AbstractStore):
         # This table is unencrypted. If anything is to be encrypted in it, it is encrypted
         # manually before storage.
         self._db_context = DatabaseContext(self._path)
-        self._table = WalletDataTable(self._db_context)
 
     def close_database(self) -> None:
-        self._table.close()
-
         # Wait for the database to finish writing, and verify that the context has been fully
         # released by all stores that make use of it.
         self._db_context.close()
@@ -313,20 +329,19 @@ class DatabaseStore(AbstractStore):
 
     def attempt_load_data(self) -> bool:
         self._data = {}
-        for row in self._table.read():
+        for row in db_functions.read_wallet_datas(self._db_context):
             self._data[row[0]] = row[1]
         return True
 
-    def _on_value_modified(self, key: str, value: Any, is_update: bool) -> None:
+    def _on_value_modified(self, key: str, value: Any, already_persisted: bool=False) -> None:
         # Queued write, we do not wait for it to complete. Closing the DB context will wait.
-        if is_update:
-            self._table.update([ WalletDataRow(key, value) ])
-        else:
-            self._table.create([ WalletDataRow(key, value) ])
+        if not already_persisted:
+            db_functions.set_wallet_datas(self._db_context, [ WalletDataRow(key, value) ])
 
-    def _on_value_deleted(self, key: str) -> None:
+    def _on_value_deleted(self, key: str, already_persisted: bool=False) -> None:
         # Queued write, we do not wait for it to complete. Closing the DB context will wait.
-        self._table.delete(key)
+        if not already_persisted:
+            db_functions.delete_wallet_data(self._db_context, key)
 
     def _write(self) -> None:
         pass
@@ -335,14 +350,14 @@ class DatabaseStore(AbstractStore):
         return False
 
     def requires_upgrade(self) -> bool:
-        return self.get("migration") < MIGRATION_CURRENT
+        return self.get_explicit_type(int, "migration", 0) < MIGRATION_CURRENT
 
-    def upgrade(self: 'DatabaseStore', has_password: bool, new_password: str) \
-            -> Optional['DatabaseStore']:
+    def upgrade(self: 'DatabaseStore', has_password: bool, new_password: str,
+            callbacks: Optional[ProgressCallbacks]=None) -> Optional['DatabaseStore']:
         from .wallet_database.migration import update_database
         connection = self._db_context.acquire_connection()
         try:
-            update_database(connection)
+            update_database(connection, callbacks)
         finally:
             self._db_context.release_connection(connection)
         # Refresh the cached data.
@@ -433,11 +448,13 @@ class TextStore(AbstractStore):
                     continue
                 self._data[key] = value
 
-    def _on_value_modified(self, key: str, value: Any, is_update: bool) -> None:
-        self._modified = True
+    def _on_value_modified(self, key: str, value: Any, already_persisted: bool=False) -> None:
+        if not already_persisted:
+            self._modified = True
 
-    def _on_value_deleted(self, key: str) -> None:
-        self._modified = True
+    def _on_value_deleted(self, key: str, already_persisted: bool=False) -> None:
+        if not already_persisted:
+            self._modified = True
 
     def _write(self) -> None:
         if self._modified or not self.is_primed():
@@ -529,7 +546,8 @@ class TextStore(AbstractStore):
             raise IncompatibleWalletError("Not an ElectrumSV wallet")
         return False
 
-    def upgrade(self, has_password: bool, new_password: str) -> Optional[AbstractStore]:
+    def upgrade(self, has_password: bool, new_password: str,
+            callbacks: Optional[ProgressCallbacks]=None) -> Optional[AbstractStore]:
         self._convert_imported()
         self._convert_wallet_type()
         self._convert_account()
@@ -548,7 +566,7 @@ class TextStore(AbstractStore):
 
         return DatabaseStore.from_text_store(self)
 
-    def _is_upgrade_method_needed(self, min_version, max_version):
+    def _is_upgrade_method_needed(self, min_version: int, max_version: int) -> bool:
         cur_version = self._get_version()
         if cur_version > max_version:
             return False
@@ -592,7 +610,7 @@ class TextStore(AbstractStore):
         if not self._is_upgrade_method_needed(0, 13):
             return
 
-        wallet_type = self.get('wallet_type')
+        wallet_type = self.get_explicit_type(str, 'wallet_type', "")
         if wallet_type == 'btchip': wallet_type = 'ledger'
         if self.get('keystore') or self.get('x1/') or wallet_type=='imported':
             return # False
@@ -744,14 +762,14 @@ class TextStore(AbstractStore):
         if not self._is_upgrade_method_needed(15, 15):
             return
 
-        def remove_address(addr):
-            def remove_from_dict(dict_name):
+        def remove_address(addr: str) -> None:
+            def remove_from_dict(dict_name: str) -> None:
                 d = self.get(dict_name, None)
                 if d is not None:
                     d.pop(addr, None)
                     self.put(dict_name, d)
 
-            def remove_from_list(list_name):
+            def remove_from_list(list_name: str) -> None:
                 lst = self.get(list_name, None)
                 if lst is not None:
                     s = set(lst)
@@ -806,27 +824,24 @@ class TextStore(AbstractStore):
         # This code should be updated as the structure and wallet workings changes to ensure
         # older wallets can always be migrated as long as we support them.
         db_context = DatabaseContext(self._path)
-        walletdata_table: Optional[WalletDataTable] = None
         try:
-            walletdata_table = WalletDataTable(db_context)
-
-            next_masterkey_id = cast(int, walletdata_table.get_value("next_masterkey_id"))
-            next_account_id = cast(int, walletdata_table.get_value("next_account_id"))
-            next_keyinstance_id = cast(int, walletdata_table.get_value("next_keyinstance_id"))
-            next_paymentrequest_id = cast(int, walletdata_table.get_value("next_paymentrequest_id"))
+            next_masterkey_id = cast(int, read_wallet_data1(db_context, "next_masterkey_id"))
+            next_account_id = cast(int, read_wallet_data1(db_context, "next_account_id"))
+            next_keyinstance_id = cast(int, read_wallet_data1(db_context, "next_keyinstance_id"))
+            next_paymentrequest_id = cast(int, read_wallet_data1(db_context,
+                "next_paymentrequest_id"))
 
             masterkey_id = next_masterkey_id
             next_masterkey_id += 1
             account_id = next_account_id
             next_account_id += 1
 
-            masterkey_rows: List[MasterKeyRow] = []
-            account_rows: List[AccountRow] = []
-            keyinstance_rows: List[KeyInstanceRow] = []
-            transaction_rows: List[TransactionRow] = []
-            txdelta_rows: List[TransactionDeltaRow] = []
-            txoutput_rows: List[TransactionOutputRow] = []
-            paymentrequest_rows: List[PaymentRequestRow] = []
+            masterkey_rows: List[MasterKeyRow1] = []
+            account_rows: List[AccountRow1] = []
+            keyinstance_rows: List[KeyInstanceRow1] = []
+            transaction_rows: List[TransactionRow1] = []
+            txoutput_rows: List[TransactionOutputRow1] = []
+            paymentrequest_rows: List[PaymentRequestRow1] = []
 
             class _TxState(NamedTuple):
                 tx: Transaction
@@ -834,8 +849,8 @@ class TextStore(AbstractStore):
                 bytedata: bytes
                 verified: bool
                 height: int
-                known_addresses: set
-                encountered_addresses: set
+                known_addresses: Set[str]
+                encountered_addresses: Set[str]
 
             class _TxOutputState(NamedTuple):
                 value: int
@@ -862,7 +877,7 @@ class TextStore(AbstractStore):
                     for addr_history in address_usage.values()
                     for tx_id, tx_height in addr_history}
 
-            txouts_frozen = set([])
+            txouts_frozen = set()
             for txo_id in frozen_coins:
                 tx_id, n = txo_id.split(":")
                 txouts_frozen.add((tx_id, int(n)))
@@ -870,7 +885,7 @@ class TextStore(AbstractStore):
             address_states: Dict[str, _AddressState] = {}
             tx_states: Dict[str, _TxState] = {}
 
-            date_added = int(time.time())
+            date_added = get_posix_timestamp()
             for tx_id, tx_hex in tx_map_in.items():
                 tx_hash = hex_str_to_hash(tx_id)
                 tx_bytedata = bytes.fromhex(tx_hex)
@@ -878,23 +893,21 @@ class TextStore(AbstractStore):
                 fee = tx_fees.get(tx_id)
                 description = labels.pop(tx_id, None)
                 if tx_id in tx_verified:
-                    flags = TxFlags.StateSettled
+                    flags = TxFlags1.STATE_SETTLED
                     height, _timestamp, position = tx_verified[tx_id]
                     tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
-                        verified=True, height=height, known_addresses=set([]),
-                        encountered_addresses=set([]))
+                        verified=True, height=height, known_addresses=set(),
+                        encountered_addresses=set())
                 else:
                     height = tx_heights.get(tx_id)
-                    flags = TxFlags.StateCleared
+                    flags = TxFlags1.STATE_CLEARED
                     position = None
                     tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
-                        verified=False, height=height, known_addresses=set([]),
-                        encountered_addresses=set([]))
-                tx_metadata = TxData(height=height, fee=fee, position=position,
+                        verified=False, height=height, known_addresses=set(),
+                        encountered_addresses=set())
+                tx_metadata = TxData1(height=height, fee=fee, position=position,
                     date_added=date_added, date_updated=date_added)
-                # TODO(rt12) BACKLOG what if this code is later reused and the operation is an
-                # import and the rows already exist?
-                transaction_rows.append(TransactionRow(tx_hash, tx_metadata, tx_bytedata, flags,
+                transaction_rows.append(TransactionRow1(tx_hash, tx_metadata, tx_bytedata, flags,
                     description))
 
             # Index all the address usage via the ElectrumX server scripthash state.
@@ -924,6 +937,10 @@ class TextStore(AbstractStore):
             def update_private_data(data: str) -> str:
                 # We can assume that the new password is the old password.
                 if has_password:
+                    # We do this for several reasons.
+                    # 1. A legacy wallet that has encrypted secured data, but not the file itself.
+                    # 2. Any passworded wallet that has data, to ensure it is correctly encrypted.
+                    pw_decode(data, new_password)
                     return data
                 return pw_encode(data, new_password)
 
@@ -949,7 +966,7 @@ class TextStore(AbstractStore):
                 return derivation_type, data
 
             def convert_keystore(data: Dict[str, Any],
-                    subpaths: Optional[Sequence[Tuple[Sequence[int], int]]]=None) -> Tuple[
+                    subpaths: Optional[Sequence[Tuple[DerivationPath, int]]]=None) -> Tuple[
                         DerivationType, bytes]:
                 derivation_type, data = get_keystore_data(data)
                 if subpaths is not None:
@@ -968,19 +985,19 @@ class TextStore(AbstractStore):
                         address_states[address_string] = _AddressState(next_keyinstance_id,
                             len(keyinstance_rows), script_type)
                         description = labels.pop(address_string, None)
-                        flags = KeyInstanceFlag.IS_ACTIVE
+                        flags = KeyInstanceFlag.ACTIVE
                         derivation_info = {
                             "subpath": (type_idx, address_idx),
                         }
                         derivation_data = json.dumps(derivation_info).encode()
-                        keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                        keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
                             masterkey_id, DerivationType.BIP32_SUBPATH, derivation_data,
                             ScriptType.NONE, flags, description))
                         next_keyinstance_id += 1
 
-            def process_transactions(*script_classes: Tuple[Any]) -> None:
+            def process_transactions(*script_classes: Any) -> None:
                 nonlocal _receiving_address_strings, _change_address_strings
-                nonlocal keyinstance_rows, txoutput_rows, txdelta_rows
+                nonlocal keyinstance_rows, txoutput_rows
                 nonlocal address_states, tx_states
 
                 key_deltas: Dict[int, int] = {}
@@ -988,8 +1005,6 @@ class TextStore(AbstractStore):
                 txout_states: Dict[Tuple[bytes, int], _TxOutputState] = {}
 
                 # Locate all the outputs.
-                FROZEN_FLAGS = (TransactionOutputFlag.IS_FROZEN |
-                    TransactionOutputFlag.USER_SET_FROZEN)
                 for tx_id, tx_state in tx_states.items():
                     for n, tx_output in enumerate(tx_state.tx.outputs):
                         output = classify_tx_output(tx_output)
@@ -1007,11 +1022,12 @@ class TextStore(AbstractStore):
                             txout_states[(tx_state.tx_hash, n)] = _TxOutputState(tx_output.value,
                                 len(txoutput_rows))
                             # Handled later: flags are changed if spent.
-                            is_frozen = (address_string in frozen_addresses or
-                                (tx_id, n) in txouts_frozen)
-                            flags = (FROZEN_FLAGS if is_frozen else TransactionOutputFlag.NONE)
-                            txoutput_rows.append(TransactionOutputRow(tx_state.tx_hash, n,
-                                tx_output.value, address_state.keyinstance_id, flags))
+                            txo_flags = (TransactionOutputFlag1.IS_FROZEN
+                                if (address_string in frozen_addresses or
+                                    (tx_id, n) in txouts_frozen)
+                                else TransactionOutputFlag1.NONE)
+                            txoutput_rows.append(TransactionOutputRow1(tx_state.tx_hash, n,
+                                tx_output.value, address_state.keyinstance_id, txo_flags))
                             tx_state.encountered_addresses.add(address_string)
 
                             # We now update the key to reflect the existence of the output.
@@ -1046,15 +1062,10 @@ class TextStore(AbstractStore):
 
                             # Go back to the rows produced from outputs and adjust spent flag.
                             orow = txoutput_rows[txout_state.row_index]
-                            txoutput_rows[txout_state.row_index] = TransactionOutputRow(
+                            txoutput_rows[txout_state.row_index] = TransactionOutputRow1(
                                 orow.tx_hash, orow.tx_index, orow.value, orow.keyinstance_id,
-                                TransactionOutputFlag.IS_SPENT)
+                                TransactionOutputFlag1.IS_SPENT)
                             tx_state.encountered_addresses.add(address_string)
-
-                # Record all the balance deltas.
-                for (tx_hash, keyinstance_id), delta_value in tx_deltas.items():
-                    txdelta_rows.append(TransactionDeltaRow(tx_hash, keyinstance_id,
-                        delta_value))
 
             multsig_mn = multisig_type(wallet_type)
             if multsig_mn is not None:
@@ -1076,9 +1087,9 @@ class TextStore(AbstractStore):
                 }
 
                 derivation_data = json.dumps(mk_data).encode()
-                masterkey_rows.append(MasterKeyRow(masterkey_id, None,
+                masterkey_rows.append(MasterKeyRow1(masterkey_id, None,
                     DerivationType.ELECTRUM_MULTISIG, derivation_data))
-                account_rows.append(AccountRow(account_id, masterkey_id, ScriptType.MULTISIG_BARE,
+                account_rows.append(AccountRow1(account_id, masterkey_id, ScriptType.MULTISIG_BARE,
                     "Multisig account"))
                 process_keyinstances_receiving_change(ScriptType.MULTISIG_P2SH)
                 process_transactions(P2SH_Address)
@@ -1091,20 +1102,20 @@ class TextStore(AbstractStore):
                     if isinstance(address, P2PKH_Address):
                         address_states[address_string] = _AddressState(next_keyinstance_id,
                             len(keyinstance_rows), ScriptType.P2PKH)
-                        keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                        keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
                             None, DerivationType.PUBLIC_KEY_HASH, derivation_data,
-                            ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, description))
+                            ScriptType.P2PKH, KeyInstanceFlag.ACTIVE, description))
                     elif isinstance(address, P2SH_Address):
                         address_states[address_string] = _AddressState(next_keyinstance_id,
                             len(keyinstance_rows), ScriptType.MULTISIG_P2SH)
-                        keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                        keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
                             None, DerivationType.SCRIPT_HASH, derivation_data,
-                            ScriptType.MULTISIG_P2SH, KeyInstanceFlag.IS_ACTIVE, description))
+                            ScriptType.MULTISIG_P2SH, KeyInstanceFlag.ACTIVE, description))
                     else:
                         raise IncompatibleWalletError("imported address wallet has non-address")
                     next_keyinstance_id += 1
 
-                account_rows.append(AccountRow(account_id, None, ScriptType.NONE,
+                account_rows.append(AccountRow1(account_id, None, ScriptType.NONE,
                     "Imported addresses"))
                 process_transactions(P2PKH_Address, P2SH_Address)
             elif wallet_type == "imported_privkey":
@@ -1123,12 +1134,12 @@ class TextStore(AbstractStore):
                         "prv": update_private_data(enc_prvkey),
                     }
                     derivation_data = json.dumps(ik_data).encode()
-                    keyinstance_rows.append(KeyInstanceRow(next_keyinstance_id, account_id,
+                    keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
                         None, DerivationType.PRIVATE_KEY, derivation_data,
-                        ScriptType.P2PKH, KeyInstanceFlag.IS_ACTIVE, description))
+                        ScriptType.P2PKH, KeyInstanceFlag.ACTIVE, description))
                     next_keyinstance_id += 1
 
-                account_rows.append(AccountRow(account_id, None, ScriptType.P2PKH,
+                account_rows.append(AccountRow1(account_id, None, ScriptType.P2PKH,
                     "Imported private keys"))
                 process_transactions(P2PKH_Address)
             elif wallet_type in ("standard", "old"):
@@ -1137,10 +1148,10 @@ class TextStore(AbstractStore):
                     (CHANGE_SUBPATH, len(_change_address_strings)),
                 ]
                 keystore = self.get("keystore")
-                masterkey_row = MasterKeyRow(*(masterkey_id, None),
+                masterkey_row = MasterKeyRow1(*(masterkey_id, None),
                     *convert_keystore(keystore, subpaths))
                 masterkey_rows.append(masterkey_row)
-                account_rows.append(AccountRow(account_id, masterkey_id, ScriptType.P2PKH,
+                account_rows.append(AccountRow1(account_id, masterkey_id, ScriptType.P2PKH,
                     "Standard account"))
                 process_keyinstances_receiving_change(ScriptType.P2PKH)
                 process_transactions(P2PKH_Address)
@@ -1153,11 +1164,12 @@ class TextStore(AbstractStore):
                     continue
 
                 address_state = address_states[address_string]
-                paymentrequest_rows.append(PaymentRequestRow(next_paymentrequest_id,
+                paymentrequest_rows.append(PaymentRequestRow1(next_paymentrequest_id,
                     address_state.keyinstance_id,
                     request_data.get('status', 2), # PaymentFlag.UNKNOWN = 2
                     request_data.get('amount', None), request_data.get('exp', None),
-                    request_data.get('memo', None), request_data.get('time', time.time())))
+                    request_data.get('memo', None),
+                        request_data.get('time', get_posix_timestamp())))
                 next_paymentrequest_id += 1
 
             # Reconcile what addresses we found for transactions with the addresses that were in
@@ -1173,36 +1185,28 @@ class TextStore(AbstractStore):
                         extra_addresses)
 
             # Commit all the changes to the database. This is ordered to respect FK constraints.
-            # TODO(rt12) BACKLOG Shouldn't this use explicit creation calls for the first
-            # migration so that subsequent migrations can be applied?
+            # Note that database write calls are done sequentially. By waiting for the final one
+            # to complete we know the others have already completed.
+            futures: List[concurrent.futures.Future[None]] = []
             if len(transaction_rows):
-                with TransactionTable(db_context) as table:
-                    table.create(transaction_rows)
+                futures.append(create_transactions1(db_context, transaction_rows))
             if len(masterkey_rows):
-                with MasterKeyTable(db_context) as table:
-                    table.create(masterkey_rows)
+                futures.append(create_master_keys1(db_context, masterkey_rows))
             if len(account_rows):
-                with AccountTable(db_context) as table:
-                    table.create(account_rows)
+                futures.append(create_accounts1(db_context, account_rows))
             if len(keyinstance_rows):
-                with KeyInstanceTable(db_context) as table:
-                    table.create(keyinstance_rows)
-            if len(txdelta_rows):
-                with TransactionDeltaTable(db_context) as table:
-                    table.create(txdelta_rows)
+                futures.append(create_keys1(db_context, keyinstance_rows))
             if len(txoutput_rows):
-                with TransactionOutputTable(db_context) as table:
-                    table.create(txoutput_rows)
+                futures.append(create_transaction_outputs1(db_context, txoutput_rows))
             if len(paymentrequest_rows):
-                with PaymentRequestTable(db_context) as table:
-                    table.create(paymentrequest_rows)
+                futures.append(create_payment_requests1(db_context, paymentrequest_rows))
 
             # The database creation should create these rows.
             creation_rows = []
-            creation_rows.append(WalletDataRow("password-token",
+            creation_rows.append(WalletDataRow1("password-token",
                 pw_encode(os.urandom(32).hex(), new_password)))
             if len(labels):
-                creation_rows.append(WalletDataRow("lost-labels", labels))
+                creation_rows.append(WalletDataRow1("lost-labels", labels))
             for key in [
                     "contacts2", # contacts.py
                     "wallet_nonce", "labels", # labels.py (A, B), wallet.py (B)
@@ -1211,21 +1215,22 @@ class TextStore(AbstractStore):
                     "invoices", "stored_height", "gap_limit" ]: # wallet.py
                 value = self.get(key)
                 if value is not None:
-                    creation_rows.append(WalletDataRow(key, value))
-            walletdata_table.create(creation_rows)
+                    creation_rows.append(WalletDataRow1(key, value))
+            futures.append(create_wallet_datas1(db_context, creation_rows))
 
-            walletdata_table.update([
-                WalletDataRow("next_masterkey_id", next_masterkey_id),
-                WalletDataRow("next_account_id", next_account_id),
-                WalletDataRow("next_keyinstance_id", next_keyinstance_id),
-                WalletDataRow("next_paymentrequest_id", next_paymentrequest_id),
-            ])
-            walletdata_table.close()
-            walletdata_table = None
+            # These are inserted when the table is created, so we know the update will have an
+            # existing row to effect and won't be a NOP.
+            update_rows = [
+                WalletDataRow1("next_masterkey_id", next_masterkey_id),
+                WalletDataRow1("next_account_id", next_account_id),
+                WalletDataRow1("next_keyinstance_id", next_keyinstance_id),
+                WalletDataRow1("next_paymentrequest_id", next_paymentrequest_id),
+            ]
+            futures.append(update_wallet_datas1(db_context, update_rows))
+
+            for future in futures:
+                future.result()
         finally:
-            # We need to close this one explicitly if it opened successfully.
-            if walletdata_table is not None:
-                walletdata_table.close()
             db_context.close()
 
         # We hand across the data to the database store, so correct it.
@@ -1252,7 +1257,7 @@ class TextStore(AbstractStore):
         self.put('seed_version', MIGRATION_FIRST)
 
     def _get_version(self) -> int:
-        seed_version = self.get('seed_version')
+        seed_version = self.get_explicit_type(int, 'seed_version', 0)
         if not seed_version:
             seed_version = (self.OLD_SEED_VERSION if len(self.get('master_public_key','')) == 128
                 else self.NEW_SEED_VERSION)
@@ -1292,8 +1297,7 @@ class WalletStorage:
     _is_closed: bool = False
     _backup_filepaths: Optional[Tuple[str, str]] = None
 
-    def __init__(self, path: str, manual_upgrades: bool=False,
-            storage_kind: StorageKind=StorageKind.UNKNOWN) -> None:
+    def __init__(self, path: str, storage_kind: StorageKind=StorageKind.UNKNOWN) -> None:
         logger.debug("wallet path '%s'", path)
         dirname = os.path.dirname(path)
         if not os.path.exists(dirname):
@@ -1324,8 +1328,8 @@ class WalletStorage:
             self._set_store(store)
 
     @classmethod
-    def create(klass, wallet_path: str, password: str) -> 'WalletStorage':
-        storage = klass(wallet_path)
+    def create(cls, wallet_path: str, password: str) -> 'WalletStorage':
+        storage = cls(wallet_path)
         storage.put("password-token", pw_encode(os.urandom(32).hex(), password))
         return storage
 
@@ -1372,6 +1376,7 @@ class WalletStorage:
 
         del self.check_password
         del self.get
+        del self.get_explicit_type
         del self.put
         del self.write
         del self.requires_split
@@ -1405,6 +1410,7 @@ class WalletStorage:
 
         self.check_password = store.check_password
         self.get = store.get
+        self.get_explicit_type = store.get_explicit_type
         self.put = store.put
         self.write = store.write
         self.requires_split = store.requires_split
@@ -1428,14 +1434,15 @@ class WalletStorage:
     def get_backup_filepaths(self) -> Optional[Tuple[str, str]]:
         return self._backup_filepaths
 
-    def upgrade(self, has_password: bool, new_password: str) -> None:
+    def upgrade(self, has_password: bool, new_password: str,
+            callbacks: Optional[ProgressCallbacks]=None) -> None:
         logger.debug('upgrading wallet format')
         self._backup_filepaths = backup_wallet_file(self._path)
 
         # The store can change if the old kind of store was obsoleted. We upgrade through
         # obsoleted kinds of stores to the final in-use kind of store.
         while True:
-            new_store = self._store.upgrade(has_password, new_password)
+            new_store = self._store.upgrade(has_password, new_password, callbacks)
             if new_store is not None:
                 self._set_store(new_store)
                 if new_store.requires_upgrade():
@@ -1448,13 +1455,13 @@ class WalletStorage:
         return None
 
     @classmethod
-    def files_are_matched_by_path(klass, path: Optional[str]) -> bool:
+    def files_are_matched_by_path(cls, path: Optional[str]) -> bool:
         if path is None:
             return False
         return categorise_file(path).kind != StorageKind.UNKNOWN
 
     @classmethod
-    def canonical_path(klass, database_filepath: str) -> str:
+    def canonical_path(cls, database_filepath: str) -> str:
         if not database_filepath.lower().endswith(DATABASE_EXT):
             database_filepath += DATABASE_EXT
         return database_filepath

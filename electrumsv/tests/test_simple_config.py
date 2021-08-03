@@ -36,7 +36,7 @@ class Test_SimpleConfig(unittest.TestCase):
     def test_simple_config_key_rename(self):
         """auto_cycle was renamed auto_connect"""
         fake_read_user = lambda _: {"auto_cycle": True}
-        read_user_dir = lambda : self.user_dir
+        read_user_dir = lambda prefer_local=False: self.user_dir
         config = SimpleConfig(options=self.options,
                               read_user_config_function=fake_read_user,
                               read_user_dir_function=read_user_dir)
@@ -53,7 +53,7 @@ class Test_SimpleConfig(unittest.TestCase):
         """Options passed by command line override all other configuration
         sources"""
         fake_read_user = lambda _: {"electrum_sv_path": "b"}
-        read_user_dir = lambda : self.user_dir
+        read_user_dir = lambda prefer_local=False: self.user_dir
         config = SimpleConfig(options=self.options,
                               read_user_config_function=fake_read_user,
                               read_user_dir_function=read_user_dir)
@@ -64,7 +64,7 @@ class Test_SimpleConfig(unittest.TestCase):
         """If no system-wide configuration and no command-line options are
         specified, the user configuration is used instead."""
         fake_read_user = lambda _: {"electrum_sv_path": self.electrum_dir}
-        read_user_dir = lambda : self.user_dir
+        read_user_dir = lambda prefer_local=False: self.user_dir
         config = SimpleConfig(options={},
                               read_user_config_function=fake_read_user,
                               read_user_dir_function=read_user_dir)
@@ -73,7 +73,7 @@ class Test_SimpleConfig(unittest.TestCase):
 
     def test_cannot_set_options_passed_by_command_line(self):
         fake_read_user = lambda _: {"electrum_sv_path": "b"}
-        read_user_dir = lambda : self.user_dir
+        read_user_dir = lambda prefer_local=False: self.user_dir
         config = SimpleConfig(options=self.options,
                               read_user_config_function=fake_read_user,
                               read_user_dir_function=read_user_dir)
@@ -84,7 +84,7 @@ class Test_SimpleConfig(unittest.TestCase):
     def test_can_set_options_set_in_user_config(self):
         another_path = tempfile.mkdtemp()
         fake_read_user = lambda _: {"electrum_sv_path": self.electrum_dir}
-        read_user_dir = lambda : self.user_dir
+        read_user_dir = lambda prefer_local=False: self.user_dir
         config = SimpleConfig(options={},
                               read_user_config_function=fake_read_user,
                               read_user_dir_function=read_user_dir)
@@ -94,7 +94,7 @@ class Test_SimpleConfig(unittest.TestCase):
     def test_user_config_is_not_written_with_read_only_config(self):
         """The user config does not contain command-line options when saved."""
         fake_read_user = lambda _: {"something": "a"}
-        read_user_dir = lambda : self.user_dir
+        read_user_dir = lambda prefer_local=False: self.user_dir
         self.options.update({"something": "c"})
         config = SimpleConfig(options=self.options,
                               read_user_config_function=fake_read_user,
@@ -124,7 +124,7 @@ class TestUserConfig(unittest.TestCase):
         sys.stdout = self._saved_stdout
 
     def test_no_path_means_no_result(self):
-        result = read_user_config(None)
+        result = read_user_config("")
         self.assertEqual({}, result)
 
     def test_path_without_config_file(self):

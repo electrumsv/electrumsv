@@ -22,10 +22,13 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from collections import namedtuple
+from abc import ABC
 import threading
 import time
-from typing import Dict, Any, TYPE_CHECKING
+from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING, \
+    TypedDict, Union
+
+from bitcoinx import BIP32PublicKey
 
 from .app_state import app_state
 from .i18n import _
@@ -33,14 +36,46 @@ from .exceptions import UserCancelled
 from .logs import logs
 
 if TYPE_CHECKING:
-    from electrumsv.keystore import KeyStore
-    from electrumsv.wallet_database.tables import KeyInstanceRow
+    from .devices.hw_wallet.plugin import HW_PluginBase
+    from .devices.hw_wallet.qt import QtHandlerBase
+    from .keystore import Hardware_KeyStore
+    from .types import MasterKeyDataHardware
+    from .wallet_database.types import MasterKeyRow
 
 
 logger = logs.get_logger("devices")
-Device = namedtuple("Device", "path interface_number id_ product_key "
-                    "usage_page transport_ui_string")
-DeviceInfo = namedtuple("DeviceInfo", "device label initialized")
+
+
+class Device(NamedTuple):
+    # TODO(hid-path-debacle) If you call `hid.enumerate` this is `bytes`, but if you look at
+    #   dependent library code they expect it to be a string.. The existing code seems to treat it
+    #   that way too, so not sure what to do about `path`.
+    path: str
+    interface_number: int
+    id_: str
+    product_key: Any
+    usage_page: int
+    transport_ui_string: str
+
+
+class DeviceInfo(NamedTuple):
+    device: Device
+    label: str
+    initialized: bool
+
+
+class HidEntry(TypedDict):
+    # TODO(hid-path-debacle) Is actually `bytes` but existing code expects `str` when it uses it.
+    path: str # bytes
+    vendor_id: int
+    product_id: int
+    serial_number: str
+    release_number: int
+    manufacturer_string: str
+    product_string: str
+    usage_page: int
+    usage: int
+    interface_number: int
 
 
 class DeviceError(Exception):
@@ -49,6 +84,31 @@ class DeviceError(Exception):
 
 class DeviceUnpairableError(DeviceError):
     pass
+
+
+class SVBaseClient(ABC):
+    handler: "QtHandlerBase"
+
+    def close(self) -> None:
+        raise NotImplementedError
+
+    def timeout(self, cutoff: float) -> None:
+        raise NotImplementedError
+
+    def label(self) -> str:
+        raise NotImplementedError
+
+    def has_usable_connection_with_device(self) -> bool:
+        raise NotImplementedError
+
+    def get_master_public_key(self, bip32_path: str) -> Optional[BIP32PublicKey]:
+        raise NotImplementedError
+
+    def is_pairable(self) -> bool:
+        raise NotImplementedError
+
+    def is_initialized(self) -> bool:
+        raise NotImplementedError
 
 
 class DeviceMgr:
@@ -76,20 +136,21 @@ class DeviceMgr:
     '''
     all_devices = ['digitalbitbox', 'keepkey', 'ledger', 'trezor']
 
-    def __init__(self):
-        self.plugins = {}
+    def __init__(self) -> None:
+        self.plugins: Dict[str, "HW_PluginBase"] = {}
         # Keyed by xpub.  The value is the device id
         # has been paired, and None otherwise.
-        self.xpub_ids = {}
+        self.xpub_ids: Dict[str, str] = {}
         # A list of clients.  The key is the client, the value is
         # a (path, id_) pair.
-        self.clients = {}
+        self.clients: Dict[SVBaseClient, Tuple[str, str]] = {}
         # For synchronization
         self.lock = threading.RLock()
         self.hid_lock = threading.RLock()
 
+    # NOTE(typing) Mapping these module types into some kind of union would be painful.
     @classmethod
-    def _module(cls, device_kind: str):
+    def _module(cls, device_kind: str): # type: ignore
         if device_kind == 'trezor':
             import electrumsv.devices.trezor as module1
             return module1
@@ -106,10 +167,11 @@ class DeviceMgr:
             raise DeviceError(f'unsupported device kind: {device_kind}')
 
     @classmethod
-    def _plugin_class(cls, device_kind):
-        return cls._module(device_kind).plugin_class(app_state.gui_kind)
+    def _plugin_class(cls, device_kind: str) -> "HW_PluginBase":
+        return cast("HW_PluginBase", cls._module(device_kind).plugin_class(app_state.gui_kind))
 
-    def _create_client(self, device, handler, plugin):
+    def _create_client(self, device: Device, handler: "QtHandlerBase", plugin: "HW_PluginBase") \
+            -> Optional[SVBaseClient]:
         # Get from cache first
         client = self.client_lookup(device.id_)
         if client:
@@ -121,9 +183,12 @@ class DeviceMgr:
                 self.clients[client] = (device.path, device.id_)
         return client
 
-    def _client_by_xpub(self, plugin, xpub, handler, devices):
+    def _client_by_xpub(self, plugin: "HW_PluginBase", xpub: str, handler: "QtHandlerBase",
+            devices: List[Device]) -> Optional[SVBaseClient]:
+        client: Optional[SVBaseClient] = None
         _id = self.xpub_id(xpub)
-        client = self.client_lookup(_id)
+        if _id is not None:
+            client = self.client_lookup(_id)
         if client:
             # An unpaired client might have another wallet's handler
             # from a prior scan.  Replace to fix dialog parenting.
@@ -134,7 +199,10 @@ class DeviceMgr:
             if device.id_ == _id:
                 return self._create_client(device, handler, plugin)
 
-    def _force_pair_xpub(self, plugin, handler, info, xpub, derivation, devices):
+        return None
+
+    def _force_pair_xpub(self, plugin: "HW_PluginBase", handler: "QtHandlerBase", info: DeviceInfo,
+            xpub: str, derivation: str, devices: List[Device]) -> SVBaseClient:
         # The wallet has not been previously paired, so let the user
         # choose an unpaired device and compare its first address.
         client = self.client_lookup(info.device.id_)
@@ -159,7 +227,7 @@ class DeviceMgr:
               'or that you have its seed (and passphrase, if any). Otherwise all '
               'bitcoins you receive will be unspendable.').format(plugin.device))
 
-    def timeout_clients(self):
+    def timeout_clients(self) -> None:
         '''Handle device timeouts.'''
         with self.lock:
             clients = list(self.clients.keys())
@@ -167,21 +235,26 @@ class DeviceMgr:
         for client in clients:
             client.timeout(cutoff)
 
-    def get_plugin(self, device_kind: str):
+    def get_plugin(self, device_kind: str) -> "HW_PluginBase":
         # There need only be one instance per device kind.
         if device_kind not in self.plugins:
-            self.plugins[device_kind] = self._plugin_class(device_kind)(device_kind)
+            plugin_class = self._plugin_class(device_kind)
+            # NOTE(typing) `HW_PluginBase` is not callable, but we are not dealing with that
+            #   but rather one of the HW wallet subclasses that derive from it.
+            plugin = plugin_class(device_kind) # type: ignore
+            self.plugins[device_kind] = plugin
             logger.debug("loaded %s", device_kind)
         return self.plugins[device_kind]
 
-    def create_keystore(self, data: Dict[str, Any], row: 'KeyInstanceRow') -> 'KeyStore':
+    def create_keystore(self, data: "MasterKeyDataHardware", row: Optional['MasterKeyRow']) \
+            -> 'Hardware_KeyStore':
         plugin = self.get_plugin(data['hw_type'])
         return plugin.create_keystore(data, row)
 
-    def supported_devices(self):
+    def supported_devices(self) -> Dict[str, Union["HW_PluginBase", Exception]]:
         '''Returns a dictionary.  Keys are all supported device kinds; the value is
         the plugin object, or the exception if it could not be instantiated.'''
-        def plugin(device_kind):
+        def plugin(device_kind: str) -> Union["HW_PluginBase", Exception]:
             try:
                 return self.get_plugin(device_kind)
             except Exception as e:
@@ -189,49 +262,49 @@ class DeviceMgr:
 
         return {device_kind: plugin(device_kind) for device_kind in self.all_devices}
 
-    def xpub_id(self, xpub):
+    def xpub_id(self, xpub: str) -> Optional[str]:
         with self.lock:
             return self.xpub_ids.get(xpub)
 
-    def xpub_by_id(self, id_):
+    def xpub_by_id(self, id_: str) -> Optional[str]:
         with self.lock:
             for xpub, xpub_id in self.xpub_ids.items():
                 if xpub_id == id_:
                     return xpub
             return None
 
-    def unpair_xpub(self, xpub):
+    def unpair_xpub(self, xpub: str) -> None:
         with self.lock:
             if xpub not in self.xpub_ids:
                 return
             _id = self.xpub_ids.pop(xpub)
             self._close_client(_id)
 
-    def unpair_id(self, id_):
+    def unpair_id(self, id_: str) -> None:
         xpub = self.xpub_by_id(id_)
         if xpub:
             self.unpair_xpub(xpub)
         else:
             self._close_client(id_)
 
-    def _close_client(self, id_):
+    def _close_client(self, id_: str) -> None:
         client = self.client_lookup(id_)
-        self.clients.pop(client, None)
         if client:
+            self.clients.pop(client, None)
             client.close()
 
-    def pair_xpub(self, xpub, id_):
+    def pair_xpub(self, xpub: str, id_: str) -> None:
         with self.lock:
             self.xpub_ids[xpub] = id_
 
-    def client_lookup(self, id_):
+    def client_lookup(self, id_: str) -> Optional[SVBaseClient]:
         with self.lock:
             for client, (path, client_id) in self.clients.items():
                 if client_id == id_:
                     return client
         return None
 
-    def client_by_id(self, id_):
+    def client_by_id(self, id_: str) -> Optional[SVBaseClient]:
         '''Returns a client for the device ID if one is registered.  If a device is wiped or in
         bootloader mode pairing is impossible; in such cases we communicate by device ID
         and not wallet.
@@ -239,15 +312,19 @@ class DeviceMgr:
         self.scan_devices()
         return self.client_lookup(id_)
 
-    def client_for_keystore(self, plugin, keystore, force_pair):
+    def client_for_keystore(self, plugin: "HW_PluginBase", keystore: "Hardware_KeyStore",
+            force_pair: bool) -> Optional[SVBaseClient]:
         logger.debug("getting client for keystore")
+        assert keystore.plugin is not None
         if not keystore.plugin.libraries_available:
-            raise RuntimeError(keystore.plugin.missing_message())
-        handler = keystore.handler
+            raise RuntimeError(keystore.plugin_qt.missing_message())
+        handler = keystore.handler_qt
+        assert handler is not None
         handler.update_status(False)
         devices = self.scan_devices()
         xpub = keystore.xpub
-        derivation = keystore.get_derivation()
+        assert xpub is not None
+        derivation = keystore.derivation
         client = self._client_by_xpub(plugin, xpub, handler, devices)
         if client is None and force_pair:
             info = self.select_device(plugin, handler, keystore, devices)
@@ -256,7 +333,8 @@ class DeviceMgr:
             handler.update_status(True)
         return client
 
-    def unpaired_device_infos(self, handler, plugin, devices=None):
+    def unpaired_device_infos(self, handler: "QtHandlerBase", plugin: "HW_PluginBase",
+            devices: Optional[List[Device]]=None) -> List[DeviceInfo]:
         '''Returns a list of DeviceInfo objects: one for each connected,
         unpaired device accepted by the hardware.'''
         if not plugin.libraries_available:
@@ -264,7 +342,7 @@ class DeviceMgr:
         if devices is None:
             devices = self.scan_devices()
         devices = [dev for dev in devices if not self.xpub_by_id(dev.id_)]
-        infos = []
+        infos: List[DeviceInfo] = []
         for device in devices:
             if device.product_key not in plugin.DEVICE_IDS:
                 continue
@@ -280,7 +358,8 @@ class DeviceMgr:
 
         return infos
 
-    def select_device(self, plugin, handler, keystore, devices=None):
+    def select_device(self, plugin: "HW_PluginBase", handler: "QtHandlerBase",
+            keystore: "Hardware_KeyStore", devices: Optional[List[Device]]=None) -> DeviceInfo:
         '''Ask the user to select a device to use if there is more than one, and return the
         DeviceInfo for the device.
         '''
@@ -310,7 +389,7 @@ class DeviceMgr:
         keystore.set_label(info.label)
         return info
 
-    def find_hid_devices(self, device_ids):
+    def find_hid_devices(self, device_ids: List[Tuple[int, int]]) -> List[Device]:
         # Devices with a list of product keys that have to be found by hid should call this
         # method.
         # device_ids -- List of known (vendor_id, product_id) pairs (a pair is a product key).
@@ -320,9 +399,9 @@ class DeviceMgr:
             return []
 
         with self.hid_lock:
-            hid_list = hid.enumerate(0, 0)
+            hid_list = cast(List[HidEntry], hid.enumerate(0, 0))
 
-        devices = []
+        devices: List[Device] = []
         for d in hid_list:
             product_id = d['product_id']
             vendor_id = d['vendor_id']
@@ -340,18 +419,18 @@ class DeviceMgr:
                 serial_number = str(path)
             serial_number += str(interface_number) + str(usage_page)
             devices.append(Device(path=path,
-                                    interface_number=interface_number,
-                                    id_=serial_number,
-                                    product_key=product_key,
-                                    usage_page=usage_page,
-                                    transport_ui_string='hid'))
+                interface_number=interface_number,
+                id_=serial_number,
+                product_key=product_key,
+                usage_page=usage_page,
+                transport_ui_string='hid'))
         return devices
 
-    def scan_devices(self):
+    def scan_devices(self) -> List[Device]:
         logger.debug("scanning devices...")
 
         # Let plugins enumerate devices
-        devices = []
+        devices: List[Device] = []
         for vendor, plugin in self.supported_devices().items():
             if not isinstance(plugin, Exception):
                 try:
@@ -376,3 +455,4 @@ class DeviceMgr:
             self.unpair_id(id_)
 
         return devices
+

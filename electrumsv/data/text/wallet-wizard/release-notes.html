@@ -2,26 +2,13 @@
     <body>
         <p>
             Changes included in this version of ElectrumSV are documented in a more readable
-            form within the following article: <a href="https://electrumsv.io/articles/2021/electrumsv-1_3_13.html">ElectrumSV 1.3.13</a>
+            form within the following article: <a href="https://electrumsv.io/articles/2021/electrumsv-1_3_13.html">ElectrumSV 1.4.0</a>
         </p>
         <p>
             The most prominent changes are also summarised below for convenience, if you wish to read more
             about any given change, please read the linked article.
         </p>
         <ul>
-          <li>Reliability: Fixed a long time bug in the transaction caching which would in very rare
-            circumstances cause errors when transactions were evicted from the cache to make room for
-            more recently loaded ones.</li>
-          <li>Transaction loading: The loading from file dialog filtered for the '.txn' extension and
-            now it offers a range of filters including '*.json', '*.txt' and the open '*.*'.</li>
-          <li>Scaling testnet: The checkpoint for the scaling testnet was out of date and prevented using
-            existing builds for that blockchain. Now the checkpoint has been removed, and any build
-            from this one on should never have this problem again.</li>
-          <li>Documentation: Extended the 'verify your download' guide with information on how to verify
-            the GPG signatures on MacOS.</li>
-          <li>Web site: An article on how to access the scaling testnet (STN) with ElectrumSV has
-            been added.
-          </li>
         </ul>
     </body>
 </html>

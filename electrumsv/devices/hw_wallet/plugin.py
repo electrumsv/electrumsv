@@ -25,40 +25,51 @@
 # SOFTWARE.
 
 import threading
-from typing import Any, Dict, TYPE_CHECKING
+from typing import Any, List, Optional, Tuple, Type, TYPE_CHECKING
 
-from electrumsv.i18n import _
-from electrumsv.logs import logs
-from electrumsv.util import versiontuple
+from bitcoinx import BIP32PublicKey
 
-from .cmdline import CmdLineHandler
+from ...i18n import _
+from ...logs import logs
+from ...types import MasterKeyDataHardware
+from ...util import versiontuple
 
 if TYPE_CHECKING:
-    from electrumsv.keystore import KeyStore
-    from electrumsv.wallet_database.tables import MasterKeyRow
+    from ...device import Device, DeviceInfo
+    from ...keystore import Hardware_KeyStore
+    from ...wallet_database.types import MasterKeyRow
+    from ...gui.qt.account_wizard import AccountWizard
+    from ...gui.qt.main_window import ElectrumWindow
+    from ..hw_wallet.qt import QtHandlerBase
+
 
 class HW_PluginBase(object):
-    keystore_class: Any
+    keystore_class: Type["Hardware_KeyStore"]
     libraries_available_message: str
+    libraries_available: bool
+    DEVICE_IDS: List[Any]
 
     hid_lock = threading.Lock()
 
-    def __init__(self, device_kind) -> None:
-        self.device: Any = self.keystore_class.device
+    def __init__(self, device_kind: str) -> None:
+        self.device: str = self.keystore_class.device
         self.name = device_kind
         self.logger = logs.get_logger(device_kind)
 
-    def create_keystore(self, data: Dict[str, Any], row: 'MasterKeyRow') -> 'KeyStore':
+    def create_keystore(self, data: MasterKeyDataHardware, row: Optional['MasterKeyRow']) \
+            -> 'Hardware_KeyStore':
         keystore = self.keystore_class(data, row)
         keystore.plugin = self
-        # This should be replaced when a window is opened in the gui
-        keystore.gui_handler = CmdLineHandler()
         return keystore
 
-    def create_handler(self, window: Any) -> Any:
+    def create_handler(self, window: "ElectrumWindow") -> "QtHandlerBase":
         raise NotImplementedError
 
-    def is_enabled(self):
+    def create_client(self, device: "Device", handler: "QtHandlerBase") -> Any:
+        raise NotImplementedError
+            # -> Optional[DigitalBitbox_Client]:
+
+    def is_enabled(self) -> bool:
         return True
 
     def get_library_version(self) -> str:
@@ -72,7 +83,7 @@ class HW_PluginBase(object):
         raise NotImplementedError()
 
     def check_libraries_available(self) -> bool:
-        def version_str(t):
+        def version_str(t: Tuple[int]) -> str:
             return ".".join(str(i) for i in t)
 
         try:
@@ -95,7 +106,7 @@ class HW_PluginBase(object):
                     + '\nInstalled: {}, Needed: {} <= x < {}'
                     .format(library_version,
                             version_str(self.minimum_library),  # type: ignore
-                            max_version_str))  # type: ignore
+                            max_version_str))
             self.logger.warning(self.libraries_available_message)
             return False
 
@@ -109,11 +120,18 @@ class HW_PluginBase(object):
         message += '\n' + _("Make sure you install it with python3")
         return message
 
-    def enumerate_devices(self):
+    def setup_device(self, device_info: "DeviceInfo", wizard: "AccountWizard") -> None:
+        raise NotImplementedError
+
+    def enumerate_devices(self) -> List["Device"]:
+        raise NotImplementedError
+
+    def get_master_public_key(self, device_id: str, derivation: str, wizard: "AccountWizard") \
+            -> BIP32PublicKey:
         raise NotImplementedError
 
 
 class LibraryFoundButUnusable(Exception):
-    def __init__(self, library_version='unknown'):
+    def __init__(self, library_version: str='unknown') -> None:
         super().__init__()
         self.library_version = library_version

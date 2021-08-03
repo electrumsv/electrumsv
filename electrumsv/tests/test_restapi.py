@@ -1,8 +1,10 @@
 from aiohttp import web
 
 import electrumsv
-from electrumsv.restapi import bad_request, Fault, not_found, internal_server_error, \
-    fault_to_http_response, Errors, unauthorized, forbidden, get_network_type
+import electrumsv.restapi
+from electrumsv.restapi import bad_request, ErrorCode, ErrorMessage, Fault, \
+    fault_to_http_response, forbidden, get_network_type, internal_server_error, not_found, \
+    unauthorized
 
 
 class MockAppStateMain():
@@ -61,8 +63,8 @@ def test_fault_to_http_response():
 
 
 def test_unauthorized():
-    CODE_401 = Errors.AUTH_UNSUPPORTED_TYPE_CODE
-    MESSAGE_401 = Errors.AUTH_UNSUPPORTED_TYPE_MESSAGE
+    CODE_401 = ErrorCode.AUTH_UNSUPPORTED_TYPE_CODE
+    MESSAGE_401 = ErrorMessage.AUTH_UNSUPPORTED_TYPE_MESSAGE
 
     response_obj = {'code': CODE_401,
                     'message': MESSAGE_401}
@@ -71,8 +73,8 @@ def test_unauthorized():
 
 
 def test_forbidden():
-    CODE_403 = Errors.AUTH_CREDENTIALS_INVALID_CODE
-    MESSAGE_403 = Errors.AUTH_CREDENTIALS_INVALID_MESSAGE
+    CODE_403 = ErrorCode.AUTH_CREDENTIALS_INVALID_CODE
+    MESSAGE_403 = ErrorMessage.AUTH_CREDENTIALS_INVALID_MESSAGE
 
     response_obj = {'code': CODE_403, 'message': MESSAGE_403}
     assert forbidden(CODE_403, MESSAGE_403)._body == web.json_response(data=response_obj,

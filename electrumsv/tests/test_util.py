@@ -1,7 +1,7 @@
 import pytest
 import unittest
 
-from electrumsv.util import format_satoshis, get_identified_release_signers
+from electrumsv.util import format_satoshis, get_identified_release_signers, ReleaseEntryType
 from electrumsv.util.cache import LRUCache
 
 from .conftest import get_tx_datacarrier_size, get_tx_small_size
@@ -71,7 +71,7 @@ class TestUtil(unittest.TestCase):
 
 
 def test_get_identified_release_signers():
-    entry = {
+    entry: ReleaseEntryType = {
 	"version": "1.2.0",
 	"date": "2019-03-20T18:00:00.000000+13:00",
 	"signatures": [

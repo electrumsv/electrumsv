@@ -16,7 +16,7 @@ PYINSTALLER_REPO="https://github.com/SomberNight/pyinstaller.git"
 PYINSTALLER_COMMIT="80ee4d613ecf75a1226b960a560ee01459e65ddb"
 # ^ tag 4.2, plus a custom commit that fixes cross-compilation with MinGW
 
-PYTHON_VERSION=3.9.1
+PYTHON_VERSION=3.9.5
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64
@@ -74,11 +74,6 @@ download_if_not_exist() {
 here=$(dirname $(readlink -e $0))
 set -e
 
-# HACK to work around https://bugs.winehq.org/show_bug.cgi?id=42474#c22
-# needed for python 3.6+
-rm -f /opt/wine-stable/lib/wine/fakedlls/api-ms-win-core-path-l1-1-0.dll
-rm -f /opt/wine-stable/lib/wine/api-ms-win-core-path-l1-1-0.dll.so
-
 wine 'wineboot'
 
 cd /tmp/electrum-build
@@ -101,7 +96,7 @@ done
 # upgrade pip
 $PYTHON -m pip install pip --upgrade
 
-
+$PYTHON -m pip install -r $here/../deterministic-build/requirements-pyinstaller.txt
 $PYTHON -m pip install -r $here/../deterministic-build/requirements-binaries.txt
 $PYTHON -m pip install -r $here/../deterministic-build/requirements-pyinstaller.txt
 

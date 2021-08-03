@@ -28,49 +28,52 @@
 # SOFTWARE.
 import asyncio
 import os
+from os import urandom
 import sys
 import time
+from typing import Any, cast, Dict, Optional, Tuple, Union
 
 import bitcoinx
-from os import urandom
 
-from electrumsv import daemon, web
-from electrumsv.app_state import app_state, AppStateProxy, DefaultApp
-from electrumsv.commands import get_parser, known_commands, Commands, config_variables
-from electrumsv.constants import KeystoreTextType
-from electrumsv.exceptions import IncompatibleWalletError, InvalidPassword
-from electrumsv.keystore import instantiate_keystore_from_text
-from electrumsv.logs import logs
-from electrumsv.networks import Net, SVTestnet, SVScalingTestnet, SVRegTestnet
-from electrumsv.platform import platform
-from electrumsv.simple_config import SimpleConfig
-from electrumsv import startup
-from electrumsv.storage import WalletStorage
-from electrumsv.util import json_encode, json_decode, setup_thread_excepthook
-from electrumsv.wallet import Wallet
+from . import daemon, web
+from .app_state import app_state, AppStateProxy, DefaultApp
+from .commands import Command, Commands, config_variables, get_parser, known_commands
+from .constants import AccountCreationType, KeystoreTextType
+from .exceptions import IncompatibleWalletError, InvalidPassword
+from .keystore import instantiate_keystore_from_text
+from .logs import logs
+from .networks import Net, SVTestnet, SVScalingTestnet, SVRegTestnet
+from .platform import platform
+from .simple_config import SimpleConfig
+from . import startup
+from .storage import WalletStorage
+from .util import json_encode, json_decode, setup_thread_excepthook
+from .wallet import Wallet
 
 
 if sys.platform == "win32":
+    # aiodns forces us to do override the default proactor loop with the selector loop.
+    # https://github.com/saghul/aiodns/issues/78
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
-# get password routine
-def prompt_password(prompt, confirm=True):
+def prompt_password(prompt: str, confirm: bool=True) -> Optional[str]:
+    # NOTE(shoddy-windows-getpass-support) Search for this named note for more information.
     import getpass
-    password = getpass.getpass(prompt, stream=None)
+    password = getpass.getpass(prompt)
     if password and confirm:
         password2 = getpass.getpass("Confirm: ")
         if password != password2:
             sys.exit("Error: Passwords do not match.")
     if not password:
-        password = None
+        return None
     return password
 
 
-def run_non_RPC(config):
+def run_non_RPC(config: SimpleConfig) -> None:
     """Most commands should go through the daemon or RPC, especially commands that operate on
     wallets."""
-    cmdname = config.get('cmd')
+    cmdname = config.get_optional_type(str, 'cmd')
 
     def get_wallet_path() -> str:
         wallet_path = config.get_cmdline_wallet_filepath()
@@ -84,8 +87,9 @@ def run_non_RPC(config):
         return final_path
 
     if cmdname in {'create_wallet', 'create_account'}:
+        password: Optional[str]
         if not config.cmdline_options.get('nopasswordcheck'):
-            password = prompt_password("Password:")
+            password = prompt_password("Password: ")
             password = password.strip() if password is not None else password
         else:
             password = config.cmdline_options.get('wallet_password')
@@ -100,9 +104,9 @@ def run_non_RPC(config):
             sys.exit(0)
 
         elif cmdname == 'create_account':
-            wallet_path = config.get_cmdline_wallet_filepath()
+            wallet_path = cast(str, config.get_cmdline_wallet_filepath())
             storage = WalletStorage.create(wallet_path, password)
-            parent_wallet = Wallet(storage)
+            parent_wallet = Wallet(storage, password)
 
             # create an account for the Wallet (only random new seeds supported - no importing)
             text_type = KeystoreTextType.EXTENDED_PRIVATE_KEY
@@ -113,18 +117,18 @@ def run_non_RPC(config):
                 coin = bitcoinx.BitcoinRegtest
                 xprv = bitcoinx.BIP32PrivateKey._from_parts(data[:32], data[32:], coin)
                 text_match = xprv.to_extended_key_string()
-
+            assert text_match is not None # typing bug
             keystore = instantiate_keystore_from_text(text_type, text_match, password,
-                derivation_text=None, passphrase=None, watch_only=False)
-            parent_wallet.create_account_from_keystore(keystore)
+                derivation_text=None, passphrase="", watch_only=False)
+            parent_wallet.create_account_from_keystore(AccountCreationType.IMPORTED, keystore)
             print(f"New standard (bip32) account created for: '{wallet_path}'")
             sys.exit(0)
 
     else:
-        sys.exit("error: unrecognised command")
+        sys.exit(f"error: unrecognised command '{cmdname}'")
 
 
-def init_daemon(config_options):
+def init_daemon(config_options: Dict[str, Any]) -> None:
     config = SimpleConfig(config_options)
     wallet_path = config.get_cmdline_wallet_filepath()
     if not WalletStorage.files_are_matched_by_path(wallet_path):
@@ -132,23 +136,28 @@ def init_daemon(config_options):
         print("Type 'electrum-sv create' to create a new wallet, "
               "or provide a path to a wallet with the -w option")
         sys.exit(0)
-    storage = WalletStorage(wallet_path)
+
+    assert wallet_path is not None
+    WalletStorage(wallet_path)
     if 'wallet_password' in config_options:
         print('Warning: unlocking wallet with commandline argument \"--walletpassword\"')
         password = config_options['wallet_password']
     elif config.get('password'):
         password = config.get('password')
     else:
-        password = prompt_password('Password:', False)
+        password = prompt_password('Password: ', confirm=False)
         if not password:
             print("Error: Password required")
             sys.exit(1)
+
     config_options['password'] = password
 
 
-def init_cmdline(config_options, server):
+def init_cmdline(config_options: Dict[str, Any]) -> Tuple[Command, Optional[str]]:
+    # The config object should be read-only. Do not change it.
     config = SimpleConfig(config_options)
     cmdname = config.get('cmd')
+    assert isinstance(cmdname, str)
     cmd = known_commands[cmdname.replace("-", "_")]
 
     if cmdname == 'signtransaction' and config.get('privkey'):
@@ -177,9 +186,10 @@ def init_cmdline(config_options, server):
               "proposed by third parties.", file=sys.stderr)
 
     # commands needing password
-    if cmd.requires_wallet and server is None or cmd.requires_password:
+    password: Optional[str]
+    if cmd.requires_wallet or cmd.requires_password: # `cmd.requires_wallet or server is None`
         if config.get('password'):
-            password = config.get('password')
+            password = config.get_optional_type(str, 'password')
         else:
             password = prompt_password('Password:', False)
             if not password:
@@ -197,20 +207,23 @@ def init_cmdline(config_options, server):
     return cmd, password
 
 
-def run_offline_command(config, config_options):
-    cmdname = config.get('cmd')
+def run_offline_command(config: SimpleConfig, config_options: Dict[str, Any]) -> Any:
+    cmdname = config.get_explicit_type(str, 'cmd', "?")
     cmd = known_commands[cmdname]
     password = config_options.get('password')
+    wallet: Optional[Wallet]
     if cmd.requires_wallet:
         wallet_path = config.get_cmdline_wallet_filepath()
         if not WalletStorage.files_are_matched_by_path(wallet_path):
             print("Error: wallet does not exist at given path")
             sys.exit(1)
+        assert wallet_path is not None
         storage = WalletStorage(wallet_path)
         wallet = Wallet(storage)
     else:
         wallet = None
     if cmd.requires_password:
+        assert wallet is not None and password is not None
         try:
             wallet.check_password(password)
         except (InvalidPassword, IncompatibleWalletError):
@@ -219,7 +232,7 @@ def run_offline_command(config, config_options):
     if cmd.requires_network:
         print("Warning: running command offline")
     # arguments passed to function
-    args = [config.get(x) for x in cmd.params]
+    args = [cast(str, config.get(x)) for x in cmd.params]
     # decode json arguments
     if cmdname not in ('setconfig',):
         args = [json_decode(arg) for arg in args]
@@ -232,11 +245,11 @@ def run_offline_command(config, config_options):
     result = func(*args, **kwargs)
     # save wallet
     if wallet:
-        wallet.save_storage()
+        wallet.stop()
     return result
 
 
-def load_app_module(module_name, config):
+def load_app_module(module_name: str, config: SimpleConfig) -> None:
     from importlib import import_module
     try:
         module = import_module(module_name)
@@ -246,7 +259,7 @@ def load_app_module(module_name, config):
 
     for memberValue in module.__dict__.values():
         if (memberValue is not AppStateProxy and type(memberValue) is type(AppStateProxy) and
-            issubclass(memberValue, AppStateProxy)):
+                issubclass(memberValue, AppStateProxy)):
             memberValue(config, 'daemon-app')
             if not app_state.has_app():
                 print(f'Daemon app {module_name} has_app() is False', file=sys.stderr)
@@ -257,7 +270,9 @@ def load_app_module(module_name, config):
     sys.exit(1)
 
 
-def run_app_with_daemon(fd, is_gui, config_options):
+def run_app_with_daemon(fd: int, is_gui: bool=False) -> None:
+    assert app_state.app is not None
+
     with app_state.async_ as async_:
         d = daemon.Daemon(fd, is_gui)
         app_state.app.setup_app()
@@ -274,16 +289,11 @@ def run_app_with_daemon(fd, is_gui, config_options):
     sys.exit(0)
 
 
-def enforce_requirements():
+def enforce_requirements() -> None:
     # Are we running from source, and do we have the requirements?  If not we do not apply.
     requirement_path = os.path.join(
         startup.base_dir, "contrib", "requirements", "requirements.txt")
     if not os.path.exists(requirement_path):
-        return
-
-    # The method below only checks installed Python packages. It does not check the packages in
-    # the local 'packages' directory created by `./contrib/make_packages`.
-    if os.path.exists(startup.packages_dir):
         return
 
     import pkg_resources
@@ -299,7 +309,7 @@ def enforce_requirements():
             sys.exit(str(e))
 
 
-def read_cli_args():
+def read_cli_args() -> None:
     # read arguments from stdin pipe and prompt
     for i, arg in enumerate(sys.argv):
         if arg == '-':
@@ -311,10 +321,12 @@ def read_cli_args():
         elif arg == '?':
             sys.argv[i] = input("Enter argument:")
         elif arg == ':':
-            sys.argv[i] = prompt_password('Enter argument (will not echo):', False)
+            hidden_text = prompt_password('Enter argument (will not echo):', confirm=False)
+            assert hidden_text is not None
+            sys.argv[i] = hidden_text
 
 
-def get_config_options():
+def get_config_options() -> Dict[str, Any]:
     read_cli_args()
     parser = get_parser()
     args = parser.parse_args()
@@ -328,7 +340,7 @@ def get_config_options():
     return config_options
 
 
-def set_restapi_credentials(config, config_options):
+def set_restapi_credentials(config: SimpleConfig, config_options: Dict[str, Any]) -> None:
     if config_options.get('restapi_username'):
         config._set_key_in_user_config(
             "rpcuser", config_options.get('restapi_username'), save=True)
@@ -337,9 +349,13 @@ def set_restapi_credentials(config, config_options):
             "rpcpassword", config_options.get('restapi_password'), save=True)
 
 
-def main():
+def main() -> None:
     enforce_requirements()
-    if sys.platform == 'win32':
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
+        # NOTE(shoddy-windows-getpass-support) This replaces `sys.stdin` and a side effect is
+        # that `getpass.getpass` bails out of the Windows support to the fallback support which
+        # does not hide the input and shows a confusing warning. The Windows support does work
+        # with this replacement, but we need to replace `getpass.getpass` to ensure it is used.
         from electrumsv.winconsole import setup_windows_console
         setup_windows_console()
 
@@ -364,7 +380,9 @@ def main():
     # fixme: this can probably be achieved with a runtime hook (pyinstaller)
     portable_base_path = None
     try:
-        if startup.is_bundle and os.path.exists(os.path.join(sys._MEIPASS, 'is_portable')):
+        # NOTE(typing) `MEIPASS` is a PyInstaller installed module attribute, not standard.
+        if startup.is_bundle and \
+                os.path.exists(os.path.join(sys._MEIPASS, 'is_portable')): # type: ignore
             config_options['portable'] = True
             # Ensure the wallet data is stored in the same directory as the executable.
             portable_base_path = os.path.dirname(sys.executable)
@@ -403,10 +421,11 @@ def main():
             sys.exit(1)
         config_options['url'] = uri
 
-    # todo: defer this to gui
+    # This takes a copy of `config_options`, any changes to `config_options` past this point will
+    # not be present in `config`'s copy.
     config = SimpleConfig(config_options)
     set_restapi_credentials(config, config_options)
-    cmdname = config.get('cmd')
+    cmdname = config.get_optional_type(str, 'cmd')
 
     # Set the app state proxy
     if cmdname == 'gui':
@@ -414,6 +433,7 @@ def main():
             from electrumsv.gui.qt.app_state import QtAppStateProxy
         except ImportError as e:
             platform.missing_import(e)
+            raise
         QtAppStateProxy(config, 'qt')
     elif cmdname == 'daemon' and 'daemon_app_module' in config_options:
         load_app_module(config_options['daemon_app_module'], config)
@@ -426,58 +446,54 @@ def main():
         run_non_RPC(config)
         sys.exit(0)
 
+    result: Union[str, Dict[Any, Any]] = ""
     if cmdname == 'gui':
-        fd, server = daemon.get_fd_or_server(config)
-        if fd is not None:
-            run_app_with_daemon(fd, True, config_options)
+        lockfile_fd = daemon.get_lockfile_fd(config)
+        if lockfile_fd:
+            run_app_with_daemon(lockfile_fd, is_gui=True)
         else:
-            result = server.gui(config_options)
+            result = daemon.remote_daemon_request(config, "/v1/rpc/gui", config_options)
 
     elif cmdname == 'daemon':
-        subcommand = config.get('subcommand')
-        if subcommand in ['load_wallet']:
-            init_daemon(config_options)
-
+        subcommand = config.get_optional_type(str, 'subcommand')
         if subcommand in [None, 'start']:
-            fd, server = daemon.get_fd_or_server(config)
-            if fd is not None:
+            lockfile_fd = daemon.get_lockfile_fd(config)
+            if lockfile_fd:
                 if not app_state.has_app():
                     print("No application present to run.")
                     sys.exit(0)
 
                 if subcommand == 'start':
-                    if not hasattr(os, "fork"):
+                    fork = getattr(os, "fork")
+                    if fork is None:
                         print(f"Starting the daemon is not supported on {sys.platform}.")
                         sys.exit(0)
-                    pid = os.fork()
+                    pid = fork()
                     if pid:
                         print("Starting daemon (PID %d)" % pid, file=sys.stderr)
                         sys.exit(0)
 
-                run_app_with_daemon(fd, False, config_options)
-            else:
-                result = server.daemon(config_options)
+                run_app_with_daemon(lockfile_fd)
+                return
+
+            result = daemon.remote_daemon_request(config, "/v1/rpc/daemon", config_options)
         else:
-            server = daemon.get_server(config)
-            if server is not None:
-                result = server.daemon(config_options)
-            else:
-                print("Daemon not running")
-                sys.exit(1)
+            if subcommand == 'load_wallet':
+                init_daemon(config_options)
+
+            result = daemon.remote_daemon_request(config, "/v1/rpc/daemon", config_options)
     else:
         # command line
-        server = daemon.get_server(config)
-        init_cmdline(config_options, server)
-        if server is not None:
-            result = server.run_cmdline(config_options)
+        init_cmdline(config_options)
+        assert isinstance(cmdname, str)
+        cmd = known_commands[cmdname]
+        if cmd.requires_network:
+            result = daemon.remote_daemon_request(config, "/v1/rpc/cmdline", config_options)
+            print("Daemon not running; try 'electrum-sv daemon start'")
+            sys.exit(1)
         else:
-            cmd = known_commands[cmdname]
-            if cmd.requires_network:
-                print("Daemon not running; try 'electrum-sv daemon start'")
-                sys.exit(1)
-            else:
-                result = run_offline_command(config, config_options)
-                # print result
+            result = run_offline_command(config, config_options)
+
     if isinstance(result, str):
         print(result)
     elif type(result) is dict and result.get('error'):

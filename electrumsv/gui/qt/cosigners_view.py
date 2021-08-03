@@ -38,7 +38,7 @@ from PyQt5.QtWidgets import (QAbstractItemView, QAbstractScrollArea, QLabel, QLi
 
 from electrumsv.constants import DerivationType, KeystoreTextType
 from electrumsv.i18n import _
-from electrumsv.keystore import instantiate_keystore_from_text, KeyStore
+from electrumsv.keystore import instantiate_keystore_from_text, KeyStore, SinglesigKeyStoreTypes
 
 from .main_window import ElectrumWindow
 from .qrtextedit import ShowQRTextEdit
@@ -47,11 +47,12 @@ from .wizard_common import WizardFlags
 
 
 class CosignerState:
-    keystore: Optional[KeyStore] = None
+    keystore: Optional[SinglesigKeyStoreTypes] = None
     name: Optional[str] = None
     is_local = False
 
-    def __init__(self, cosigner_index: int, keystore: Optional[KeyStore]=None) -> None:
+    def __init__(self, cosigner_index: int, keystore: Optional[SinglesigKeyStoreTypes]=None) \
+            -> None:
         self.cosigner_index = cosigner_index
         self.keystore = keystore
 
@@ -96,7 +97,7 @@ class CosignerCard(FormSectionWidget):
         key_edit.setTabChangesFocus(True)
         key_edit.textChanged.connect(self._event_text_changed)
         self._show_qr_button = key_edit.qr_button
-        self._key_copy_button = key_edit.addCopyButton(self._main_window.app)
+        self._key_copy_button = key_edit.addCopyButton()
         self._cosigner_key_button = key_edit.addButton(
             'icons8-key.svg',
             self._event_click_set_cosigner_key, _("Specify key data"))
@@ -164,7 +165,7 @@ class CosignerCard(FormSectionWidget):
 
         password = None
         keystore = instantiate_keystore_from_text(KeystoreTextType.EXTENDED_PUBLIC_KEY,
-            text, password)
+            text, password, watch_only=True)
         self._update_keystore(keystore)
 
     def _update_keystore(self, keystore: Optional[KeyStore]) -> None:

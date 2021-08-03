@@ -1,21 +1,29 @@
-from concurrent.futures import ThreadPoolExecutor
+import asyncio
+import concurrent.futures
 from enum import Enum
 import queue
 try:
-    # Linux expects the latest package version of 3.31.1 (as of p)
-    import pysqlite3 as sqlite3
+    # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
+    import pysqlite3
 except ModuleNotFoundError:
-    # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
-    # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
-    import sqlite3 # type: ignore
+    # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
+    # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
+    import sqlite3
+else:
+    sqlite3 = pysqlite3
 import threading
 import time
-import traceback
-from typing import Any, Callable, List, NamedTuple, Optional, Tuple, Set
+from typing import Any, cast, Dict, Callable, Protocol, Set, Tuple, TypeVar
 
 from ..constants import DATABASE_EXT
 from ..logs import logs
 
+
+class DatabaseFunction(Protocol):
+    def __call__(self, db: sqlite3.Connection, *args: Any, **kwargs: Any) -> Any: ...
+
+
+T1 = TypeVar("T1")
 
 class LeakedSQLiteConnectionError(Exception):
     pass
@@ -27,7 +35,7 @@ class LeakedSQLiteConnectionError(Exception):
 #     was exacerbated on the Azure Pipelines CI, and had errors there it didn't when running
 #     the unit tests locally (the unit tests exercise the in-memory storage).
 
-def max_sql_variables():
+def max_sql_variables() -> int:
     """Get the maximum number of arguments allowed in a query by the current
     sqlite3 implementation.
 
@@ -79,37 +87,23 @@ class WriteDisabledError(Exception):
     pass
 
 
-WriteCallbackType = Callable[[sqlite3.Connection], None]
-CompletionCallbackType = Callable[[Optional[Exception]], None]
-class WriteEntryType(NamedTuple):
-    write_callback: WriteCallbackType
-    completion_callback: Optional[CompletionCallbackType]
-    size_hint: int
-
-CompletionEntryType = Tuple[CompletionCallbackType, Optional[Exception]]
-
 class SqliteWriteDispatcher:
     """
-    This is a relatively simple write batcher for Sqlite that keeps all the writes on one thread,
+    This is a relatively simple write dispatcher for Sqlite that keeps all the writes on one thread,
     in order to avoid conflicts. Any higher level context that invokes a write, can choose to
     get notified on completion. If an exception happens in the course of a writer, the exception
     is passed back to the invoker in the completion notification.
 
     Completion notifications are done in a thread so as to not block the write dispatcher.
-
-    TODO: Allow writes to be wrapped with async logic so that async coroutines can do writes
-    in their natural fashion.
     """
 
     def __init__(self, db_context: "DatabaseContext") -> None:
         self._db_context = db_context
         self._logger = logs.get_logger("sqlite-writer")
 
-        self._writer_queue: "queue.Queue[WriteEntryType]" = queue.Queue()
+        self._writer_queue: queue.Queue["ExecutorItem"] = queue.Queue()
         self._writer_thread = threading.Thread(target=self._writer_thread_main, daemon=True)
         self._writer_loop_event = threading.Event()
-
-        self._callback_thread_pool = ThreadPoolExecutor()
 
         self._allow_puts = True
         self._is_alive = True
@@ -120,78 +114,25 @@ class SqliteWriteDispatcher:
     def _writer_thread_main(self) -> None:
         self._db: sqlite3.Connection = self._db_context.acquire_connection()
 
-        maximum_batch_size = 10
-        write_entries: List[WriteEntryType] = []
-        write_entry_backlog: List[WriteEntryType] = []
         while self._is_alive:
             self._writer_loop_event.set()
 
-            if len(write_entry_backlog):
-                assert maximum_batch_size == 1
-                write_entries = [ write_entry_backlog.pop(0) ]
-            else:
-                # Block until we have at least one write action. If we already have write
-                # actions at this point, it is because we need to retry after a transaction
-                # was rolled back.
-                try:
-                    write_entry: WriteEntryType = self._writer_queue.get(timeout=0.1)
-                except queue.Empty:
-                    if self._exit_when_empty:
-                        return
-                    continue
-                write_entries = [ write_entry ]
-
-            # Gather the rest of the batch for this transaction.
-            while len(write_entries) < maximum_batch_size and not self._writer_queue.empty():
-                write_entries.append(self._writer_queue.get_nowait())
-
-            # Using the connection as a context manager, apply the batch as a transaction.
-            time_start = time.time()
-            completion_callbacks: List[CompletionEntryType] = []
-            total_size_hint = 0
+            # Block until we have at least one write action. If we already have write
+            # actions at this point, it is because we need to retry after a transaction
+            # was rolled back.
             try:
-                with self._db:
-                    # We have to force a grouped statement transaction with the explicit 'begin'.
-                    self._db.execute('begin')
-                    for write_callback, completion_callback, entry_size_hint in write_entries:
-                        write_callback(self._db)
-                        if completion_callback is not None:
-                            completion_callbacks.append((completion_callback, None))
-                        total_size_hint += entry_size_hint
-                # The transaction was successfully committed.
-            except Exception as e:
-                # Exception: This is caught because we need to relay any exception to the
-                # calling context's completion notification callback.
-                self._logger.exception("Database write failure", exc_info=e)
-                # The transaction was rolled back.
-                if len(write_entries) > 1:
-                    self._logger.debug("Retrying with batch size of 1")
-                    # We're going to try and reapply the write actions one by one.
-                    maximum_batch_size = 1
-                    write_entry_backlog = write_entries
-                    continue
-                # We applied the batch actions one by one. If there was an error with this action
-                # then we've logged it, so we can discard it for lack of any other option.
-                if write_entries[0][1] is not None:
-                    completion_callbacks.append((write_entries[0][1], e))
-            else:
-                if len(write_entries):
-                    time_ms = int((time.time() - time_start) * 1000)
-                    self._logger.debug("Invoked %d write callbacks (hinted at %d bytes) in %d ms",
-                        len(write_entries), total_size_hint, time_ms)
+                write_entry: ExecutorItem = self._writer_queue.get(timeout=0.1)
+            except queue.Empty:
+                if self._exit_when_empty:
+                    return
+                continue
 
-            for dispatchable_callback in completion_callbacks:
-                self._callback_thread_pool.submit(self._dispatch_callback, *dispatchable_callback)
+            time_start = time.time()
+            write_entry(self._db)
+            time_ms = int((time.time() - time_start) * 1000)
+            self._logger.debug("Invoked write callback in %d ms", time_ms)
 
-    def _dispatch_callback(self, callback: CompletionCallbackType,
-            exc_value: Optional[Exception]) -> None:
-        try:
-            callback(exc_value)
-        except Exception as e:
-            traceback.print_exc()
-            self._logger.exception("Exception within completion callback", exc_info=e)
-
-    def put(self, write_entry: WriteEntryType) -> None:
+    def put(self, write_entry: 'ExecutorItem') -> None:
         # If the writer is closed, then it is expected the caller should have made sure that
         # no more puts will be made, and the error will only be raised if something puts to
         # flag that it is wrong.
@@ -211,7 +152,6 @@ class SqliteWriteDispatcher:
         self._writer_loop_event.wait()
         self._writer_thread.join()
         self._db_context.release_connection(self._db)
-        self._callback_thread_pool.shutdown(wait=True)
         self._is_alive = False
 
     def is_stopped(self) -> bool:
@@ -231,30 +171,26 @@ class DatabaseContext:
     MEMORY_PATH = ":memory:"
     JOURNAL_MODE = JournalModes.WAL
 
-    SQLITE_CONN_POOL_SIZE = 0
-
     def __init__(self, wallet_path: str) -> None:
         if not self.is_special_path(wallet_path) and not wallet_path.endswith(DATABASE_EXT):
             wallet_path += DATABASE_EXT
         self._db_path = wallet_path
-        self._connection_pool: queue.Queue = queue.Queue()
-        self._active_connections: Set = set()
-        # self._debug_texts = {}
+        self._connection_pool: queue.Queue[sqlite3.Connection] = queue.Queue()
+        self._active_connections: Set[sqlite3.Connection] = set()
 
         self._logger = logs.get_logger("sqlite-context")
         self._lock = threading.Lock()
         self._write_dispatcher = SqliteWriteDispatcher(self)
+        self._executor = SqliteExecutor(self._write_dispatcher)
 
     def acquire_connection(self) -> sqlite3.Connection:
         try:
             conn = self._connection_pool.get_nowait()
-            self._active_connections.add(conn)
-            return conn
-        except queue.Empty as e:
+        except queue.Empty:
             self.increase_connection_pool()
             conn = self._connection_pool.get_nowait()
-            self._active_connections.add(conn)
-            return conn
+        self._active_connections.add(conn)
+        return conn
 
     def release_connection(self, connection: sqlite3.Connection) -> None:
         self._active_connections.remove(connection)
@@ -262,9 +198,9 @@ class DatabaseContext:
 
     def increase_connection_pool(self) -> None:
         """adds 1 more connection to the pool"""
-        self.SQLITE_CONN_POOL_SIZE += 1
-
-        # debug_text = traceback.format_stack()
+        # pylint: disable=line-too-long
+        # `isolation_level` is set to `None` in order to disable the automatic transaction
+        # management in :mod:`sqlite3`. See the `Python documentation <https://docs.python.org/3/library/sqlite3.html#controlling-transactions>`_
         connection = sqlite3.connect(self._db_path, check_same_thread=False,
             isolation_level=None)
         connection.execute("PRAGMA busy_timeout=5000;")
@@ -274,7 +210,6 @@ class DatabaseContext:
         if not self.is_special_path(self._db_path):
             self._ensure_journal_mode(connection)
 
-        # self._debug_texts[connection] = debug_text
         self._connection_pool.put(connection)
 
     def decrease_connection_pool(self) -> None:
@@ -323,12 +258,6 @@ class DatabaseContext:
     def get_path(self) -> str:
         return self._db_path
 
-    def queue_write(self, write_callback: WriteCallbackType,
-            completion_callback: Optional[CompletionCallbackType]=None,
-            size_hint: int=0) -> None:
-        self._write_dispatcher.put(WriteEntryType(write_callback, completion_callback,
-            size_hint))
-
     def close(self) -> None:
         self._write_dispatcher.stop()
 
@@ -337,12 +266,13 @@ class DatabaseContext:
         for conn in outstanding_connections:
             self.release_connection(conn)
 
-        for conn in range(self.SQLITE_CONN_POOL_SIZE):
+        while self._connection_pool.qsize() > 0:
             self.decrease_connection_pool()
 
-        if len(outstanding_connections) != 0:
-            raise LeakedSQLiteConnectionError("There were still outstanding SQLite connections "
-                "when attempting to close DatabaseContext! Force closed all connections.")
+        leak_count = len(outstanding_connections)
+        if leak_count:
+            raise LeakedSQLiteConnectionError(f"Leaked {leak_count} SQLite connections "
+                "when closing DatabaseContext.")
         assert self.is_closed(), f"{self._write_dispatcher.is_stopped()}"
 
     def is_closed(self) -> bool:
@@ -358,44 +288,116 @@ class DatabaseContext:
             return True
         return False
 
+    def post_to_thread(self, func: Callable[..., T1], *args: Any, **kwargs: Any) \
+            -> concurrent.futures.Future[T1]:
+        return self._executor.submit(func, *args, **kwargs)
+
+    def run_in_thread(self, func: Callable[..., T1], *args: Any, **kwargs: Any) -> T1:
+        future = self._executor.submit(func, *args, **kwargs)
+        return cast(T1, future.result())
+
+    async def run_in_thread_async(self, func: Callable[..., T1], *args: Any) -> T1:
+        """
+        Yield the current task until the function has executed in the SQLite write thread.
+
+        This should never be called from outside :mod:`electrumsv.wallet_database`. It is limited
+        to positional arguments because that is all :meth:`asyncio.BaseEventLoop.run_in_executor`
+        takes.
+
+        The first argument will be the `sqlite3.Connection` instance of the database connection
+        that should be used for writing (and reads related to the write). If the caller needs
+        positional arguments to precede the database connection, they should use
+        :meth:`functools.partial` to achieve that.
+
+        .. code-block:: python
+
+           def _writer(db: sqlite3.Connection) -> Any:
+               cursor = db.execute("DELETE FROM Transactions WHERE tx_data IS NULL")
+               return cursor.rowcount
+
+           db_context.run_in_thread_async(_writer)
+        """
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(self._executor, func, *args)
+
     @classmethod
     def shared_memory_uri(cls, unique_name: str) -> str:
         return f"file:{unique_name}?mode=memory&cache=shared"
 
-class _QueryCompleter:
-    def __init__(self):
-        self._event = threading.Event()
 
-        self._gave_callback = False
-        self._have_result = False
-        self._result: Any = None
+# Based on `concurrent.futures.thread._ExecutorItem`.
+# Relabels `run` to `__call__` and
+class ExecutorItem(object):
+    def __init__(self, future: concurrent.futures.Future[Any], fn: DatabaseFunction,
+            args: Tuple[Any, ...], kwargs: Dict[str, Any]) -> None:
+        self._future = future
+        self._fn: DatabaseFunction = fn
+        self._args = args
+        self._kwargs = kwargs
 
-    def get_callback(self) -> CompletionCallbackType:
-        assert not self._gave_callback, "Query completer cannot be reused"
-        def callback(exc_value: Optional[Exception]) -> None:
-            self._have_result = True
-            self._result = exc_value
-            self._event.set()
-        self._gave_callback = True
-        return callback
+    def __call__(self, db: sqlite3.Connection) -> None:
+        if not self._future.set_running_or_notify_cancel():
+            return
 
-    def succeeded(self) -> bool:
-        if not self._have_result:
-            self._event.wait()
-        if self._result is None:
-            return True
-        exc_value = self._result
-        self._result = None
-        assert exc_value is not None
-        raise exc_value # pylint: disable=raising-bad-type
+        db.execute("BEGIN")
+        try:
+            result = self._fn(db, *self._args, **self._kwargs)
+        except BaseException as exc:
+            db.execute("ROLLBACK")
+            self._future.set_exception(exc)
+            # Break a reference cycle with the exception 'exc'
+            self = None # type: ignore
+        else:
+            db.execute("COMMIT")
+            self._future.set_result(result)
 
 
-class SynchronousWriter:
-    def __init__(self):
-        self._completer = _QueryCompleter()
+class SqliteExecutor(concurrent.futures.Executor):
+    """
+    Allow queueing SQLite database writes on the writer thread.
 
-    def __enter__(self):
-        return self._completer
+    At this time is is intended that this should only be used through
+    :meth:`DatabaseContext.run_in_thread`, and not used directly.
+    """
+    def __init__(self, dispatcher: SqliteWriteDispatcher) -> None:
+        self._dispatcher = dispatcher
+        self._shutdown = False
+        self._shutdown_lock = threading.Lock()
+        self._shutdown_event = threading.Event()
+        self._active_items = 0
 
-    def __exit__(self, type, value, traceback):
-        pass
+    # NOTE(typing) mypy wants a perfect function signature match with Executor parent class
+    def submit(self, fn, *args, **kwargs) -> concurrent.futures.Future:  # type: ignore
+        with self._shutdown_lock:
+            if self._shutdown:
+                raise RuntimeError('cannot schedule new futures after shutdown')
+            self._active_items += 1
+            future: concurrent.futures.Future[Any] = concurrent.futures.Future()
+            # Used to implement the wait on shutdown.
+            future.add_done_callback(self._on_future_done)
+            self._dispatcher.put(ExecutorItem(future, fn, args, kwargs))
+            return future
+
+    # NOTE(typing) mypy wants a perfect function signature match with Executor parent class
+    def shutdown(self, wait: bool=True) -> None:  # type: ignore
+        with self._shutdown_lock:
+            self._shutdown = True
+        if wait:
+            self._shutdown_event.wait()
+
+    def _on_future_done(self, _future: concurrent.futures.Future[Any]) -> None:
+        with self._shutdown_lock:
+            self._active_items -= 1
+            if self._active_items == 0:
+                self._shutdown_event.set()
+
+
+def replace_db_context_with_connection(func: Callable[..., T1]) \
+        -> Callable[..., T1]:
+    def wrapped_call(db_context: DatabaseContext, *args: Any, **kwargs: Any) -> T1:
+        db = db_context.acquire_connection()
+        try:
+            return func(db, *args, **kwargs)
+        finally:
+            db_context.release_connection(db)
+    return wrapped_call

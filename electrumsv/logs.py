@@ -24,48 +24,45 @@
 '''ElectrumSV logging facilities.'''
 
 import logging
+from typing import TextIO, Union
 
 
 class Logs(object):
     '''Manages various aspects of logging.'''
 
-    def __init__(self):
+    def __init__(self) -> None:
         # by default this show warnings and above.  root is a public attribute.
         self.root = logging.getLogger()
         self.stream_handler = logging.StreamHandler()
         self.add_handler(self.stream_handler)
 
-    def add_handler(self, handler):
+    def add_handler(self, handler: logging.Handler) -> None:
         formatter = logging.Formatter('%(asctime)s:' + logging.BASIC_FORMAT)
         handler.setFormatter(formatter)
         self.root.addHandler(handler)
 
-    def remove_handler(self, handler):
+    def remove_handler(self, handler: logging.Handler) -> None:
         self.root.removeHandler(handler)
 
-    def add_file_output(self, path):
+    def add_file_output(self, path: str) -> None:
         self.add_handler(logging.FileHandler(path))
 
-    def set_stream_output(self, stream):
-        # > 3.6
-        # self.stream_handler.setStream(stream)
-        self.remove_handler(self.stream_handler)
-        self.stream_handler = logging.StreamHandler(stream)
-        self.add_handler(self.stream_handler)
+    def set_stream_output(self, stream: TextIO) -> None:
+        self.stream_handler.setStream(stream)
 
-    def get_logger(self, name):
+    def get_logger(self, name: str) -> logging.Logger:
         return logging.getLogger(name)
 
-    def set_level(self, level):
+    def set_level(self, level: Union[str, int]) -> None:
         '''Level can be a string, such as "info", or a constant from logging module.'''
         if isinstance(level, str):
             level = level.upper()
         self.root.setLevel(level)
 
-    def level(self):
+    def level(self) -> int:
         return self.root.level
 
-    def is_debug_level(self):
+    def is_debug_level(self) -> bool:
         return self.level() == logging.DEBUG
 
 

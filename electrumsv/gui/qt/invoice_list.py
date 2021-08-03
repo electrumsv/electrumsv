@@ -21,6 +21,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import concurrent.futures
 from functools import partial
 import math
 import time
@@ -30,18 +31,16 @@ import weakref
 
 from PyQt5.QtCore import Qt, QPoint, QTimer
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QHeaderView, QTreeWidgetItem, QFileDialog, QMenu
+from PyQt5.QtWidgets import QHeaderView, QTreeWidgetItem, QMenu
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentFlag
-from electrumsv.exceptions import FileImportFailed
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.paymentrequest import PaymentRequest
 from electrumsv.platform import platform
-from electrumsv.util import format_time
-from electrumsv.wallet import AbstractAccount
-from electrumsv.wallet_database.tables import InvoiceRow
+from electrumsv.util import format_posix_timestamp, get_posix_timestamp
+from electrumsv.wallet_database.types import InvoiceRow
 
 from .constants import pr_icons, pr_tooltips
 from .util import MyTreeWidget, read_QIcon
@@ -81,10 +80,10 @@ class InvoiceList(MyTreeWidget):
         # This is used if there is a pending expiry.
         self._timer: Optional[QTimer] = None
 
-    def _start_timer(self, event_time: int) -> None:
+    def _start_timer(self, event_time: float) -> None:
         seconds = math.ceil(event_time - time.time())
         assert seconds > 0, f"got invalid timer duration {seconds}"
-        logger.debug("start_timer for %d seconds", seconds)
+        # logger.debug("start_timer for %d seconds", seconds)
         interval = seconds * 1000
 
         assert self._timer is None, "timer already active"
@@ -95,11 +94,11 @@ class InvoiceList(MyTreeWidget):
     def _stop_timer(self) -> None:
         if self._timer is None:
             return
+        # logger.debug("_stop_timer")
         self._timer.stop()
         self._timer = None
 
     def _on_timer_event(self) -> None:
-        logger.debug("_on_timer_event")
         self._stop_timer()
         self.update()
 
@@ -114,16 +113,23 @@ class InvoiceList(MyTreeWidget):
             current_id = self._send_view._payment_request.get_id()
         if current_id is None:
             current_item = self.currentItem()
-            current_id = current_item.data(COL_RECEIVED, Qt.UserRole) if current_item else None
+            current_id = current_item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole) \
+                if current_item else None
 
         self.clear()
 
         current_item = None
-        current_time = time.time()
+        current_time = get_posix_timestamp()
         nearest_expiry_time = float("inf")
 
-        for row in self._send_view._account.invoices.get_invoices():
-            flags = row.flags & PaymentFlag.STATE_MASK
+        # TODO Ability to change the invoice list to specify what invoices are shown.
+        #   This would for instance allow viewing of archived invoices.
+        wallet = self._send_view._account.get_wallet()
+        invoice_rows = wallet.read_invoices_for_account(self._send_view._account.get_id(),
+            PaymentFlag.NONE, PaymentFlag.ARCHIVED)
+
+        for row in invoice_rows:
+            flags = row.flags & PaymentFlag.MASK_STATE
             if flags & PaymentFlag.UNPAID and row.date_expires:
                 if row.date_expires <= current_time + 5:
                     flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
@@ -132,19 +138,20 @@ class InvoiceList(MyTreeWidget):
 
             requestor_uri = urllib.parse.urlparse(row.payment_uri)
             requestor_text = requestor_uri.netloc
-            received_text = format_time(row.date_created, _("Unknown"))
-            expires_text = format_time(row.date_expires, _("Unknown")
-                if row.date_expires else _('Never'))
-            item = QTreeWidgetItem([received_text, expires_text, requestor_text, row.description,
+            received_text = format_posix_timestamp(row.date_created, _("Unknown"))
+            expires_text = format_posix_timestamp(row.date_expires, _("Unknown")) \
+                if row.date_expires else _('Never')
+            description = row.description if row.description is not None else ""
+            item = QTreeWidgetItem([received_text, expires_text, requestor_text, description,
                 app_state.format_amount(row.value, whitespaces=True),
                 # The tooltip text should be None to ensure the icon does not have extra RHS space.
-                pr_tooltips.get(flags, None)])
+                pr_tooltips.get(flags, "")])
             icon_entry = pr_icons.get(flags)
             if icon_entry:
                 item.setIcon(COL_STATUS, read_QIcon(icon_entry))
             if row.invoice_id == current_id:
                 current_item = item
-            item.setData(COL_RECEIVED, Qt.UserRole, row.invoice_id)
+            item.setData(COL_RECEIVED, Qt.ItemDataRole.UserRole, row.invoice_id)
             item.setFont(COL_DESCRIPTION, self._monospace_font)
             item.setFont(COL_AMOUNT, self._monospace_font)
             self.addTopLevelItem(item)
@@ -160,26 +167,31 @@ class InvoiceList(MyTreeWidget):
         text = item.text(column).strip()
         if text == "":
             text = None
-        invoice_id = item.data(COL_RECEIVED, Qt.UserRole)
-        self._send_view._account.invoices.set_invoice_description(invoice_id, text)
+        invoice_id = item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole)
+        future = self._send_view._account._wallet.update_invoice_descriptions(
+            [ (text, invoice_id) ])
+        future.result()
 
-    def import_invoices(self, account: AbstractAccount) -> None:
-        try:
-            wallet_folder = self.config.get_preferred_wallet_dirpath()
-        except FileNotFoundError as e:
-            self._main_window.show_error(str(e))
-            return
+    # TODO(invoice-import) What format are these imported files? No idea.
+    #   This imported some json files directly into an invoice store.
+    #   https://github.com/electrumsv/electrumsv/blob/sv-1.2.5/electrumsv/paymentrequest.py#L523
+    # def import_invoices(self, account: AbstractAccount) -> None:
+    #     try:
+    #         wallet_folder = self.config.get_preferred_wallet_dirpath()
+    #     except FileNotFoundError as e:
+    #         self._main_window.show_error(str(e))
+    #         return
 
-        filename, __ = QFileDialog.getOpenFileName(self._main_window.reference(),
-            _("Select your wallet file"), wallet_folder)
-        if not filename:
-            return
+    #     filename, __ = QFileDialog.getOpenFileName(self._main_window.reference(),
+    #         _("Select your wallet file"), wallet_folder)
+    #     if not filename:
+    #         return
 
-        try:
-            account.invoices.import_file(filename)
-        except FileImportFailed as e:
-            self._main_window.show_message(str(e))
-        self.on_update()
+    #     try:
+    #         account.invoices.import_file(filename)
+    #     except FileImportFailed as e:
+    #         self._main_window.show_message(str(e))
+    #     self.on_update()
 
     def create_menu(self, position: QPoint) -> None:
         menu = QMenu()
@@ -190,13 +202,13 @@ class InvoiceList(MyTreeWidget):
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
 
-        invoice_id: int = item.data(COL_RECEIVED, Qt.UserRole)
-        row = self._send_view._account.invoices.get_invoice_for_id(invoice_id)
+        invoice_id: int = item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole)
+        row = self._send_view._account._wallet.read_invoice(invoice_id=invoice_id)
         assert row is not None, f"invoice {invoice_id} not found"
 
-        flags = row.flags & PaymentFlag.STATE_MASK
+        flags = row.flags & PaymentFlag.MASK_STATE
         if flags & PaymentFlag.UNPAID and row.date_expires:
-            if row.date_expires <= time.time() + 4:
+            if row.date_expires <= get_posix_timestamp() + 4:
                 flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
 
         if column_data:
@@ -212,7 +224,7 @@ class InvoiceList(MyTreeWidget):
         self._main_window.show_invoice(self._send_view._account, row)
 
     def _pay_invoice(self, invoice_id: int) -> None:
-        row = self._send_view._account.invoices.get_invoice_for_id(invoice_id)
+        row = self._send_view._account._wallet.read_invoice(invoice_id=invoice_id)
         if row is None:
             return
 
@@ -229,10 +241,17 @@ class InvoiceList(MyTreeWidget):
         if not self._main_window.question(_('Delete invoice?')):
             return
 
-        def callback(exc_value: Optional[Exception]=None) -> None:
+        def callback(future: concurrent.futures.Future) -> None:
             nonlocal invoice_id
-            if exc_value is not None:
-                raise exc_value # pylint: disable=raising-bad-type
+            # Skip if the operation was cancelled.
+            if future.cancelled():
+                return
+            # Raise any exception if it errored or get the result if completed successfully.
+            future.result()
+
+            # NOTE This callback will be happening in the database thread. No UI calls should
+            #   be made, unless we emit a signal to do it.
             self._send_view.payment_request_deleted_signal.emit(invoice_id)
 
-        self._send_view._account.invoices.delete_invoice(invoice_id, callback)
+        future = self._send_view._account._wallet.delete_invoices([ (invoice_id,) ])
+        future.add_done_callback(callback)

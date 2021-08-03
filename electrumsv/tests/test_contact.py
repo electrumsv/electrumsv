@@ -19,16 +19,16 @@ class TestContactExtras(unittest.TestCase):
             # We call 'astimezone' pre-emptively so that the comparison works.
             identity = contacts.ContactIdentity(os.urandom(32), system_id, "test",
                 datetime.datetime.now().astimezone())
-            data = identity.to_list()
-            new_identity = contacts.ContactIdentity.from_list(data)
+            data = identity.to_data()
+            new_identity = contacts.ContactIdentity.from_data(data)
             self.assertEqual(identity, new_identity, str(data))
 
     def test_contact_entry_persistence(self):
         entry = contacts.ContactEntry(1, "zzz", [
             contacts.ContactIdentity(os.urandom(32), contacts.IdentitySystem.OnChain, "...", None)
         ])
-        data = entry.to_list()
-        new_entry = contacts.ContactEntry.from_list(data)
+        data = entry.to_data()
+        new_entry = contacts.ContactEntry.from_data(data)
         self.assertEqual(entry, new_entry)
 
     def test_get_system_id(self):
@@ -148,8 +148,8 @@ class TestContacts(unittest.TestCase):
         contact2 = contacts1.add_contact(system_id, "name2", pk_hex_2)
         entries = contacts1.get_contacts()
         self.assertEqual(2, len(entries))
-        self.assertEqual(set([ contact1.contact_id, contact2.contact_id ]),
-            set([ c.contact_id for c in entries ]))
+        self.assertEqual({ contact1.contact_id, contact2.contact_id },
+            { c.contact_id for c in entries })
 
     def test_contacts_add_contact(self):
         storage = MockStorage()
@@ -215,9 +215,8 @@ class TestContacts(unittest.TestCase):
         contact1_2 = contacts1.get_contact(contact1_1.contact_id)
         self.assertEqual(2, len(contact1_2.identities))
 
-        system_ids = set([ v.system_id for v in contact1_2.identities ])
-        expected_system_ids = set([
-            contacts.IdentitySystem.OnChain, contacts.IdentitySystem.Paymail ])
+        system_ids = { v.system_id for v in contact1_2.identities }
+        expected_system_ids = { contacts.IdentitySystem.OnChain, contacts.IdentitySystem.Paymail }
         self.assertEqual(expected_system_ids, system_ids)
 
         identity1 = [
@@ -240,8 +239,8 @@ class TestContacts(unittest.TestCase):
         contacts1.remove_identity(contact1_2.contact_id, identity1.identity_id)
         self.assertEqual(1, len(contact1_2.identities))
 
-        system_ids = set([ v.system_id for v in contact1_2.identities ])
-        expected_system_ids = set([ contacts.IdentitySystem.Paymail ])
+        system_ids = { v.system_id for v in contact1_2.identities }
+        expected_system_ids = { contacts.IdentitySystem.Paymail }
         self.assertEqual(expected_system_ids, system_ids)
 
 

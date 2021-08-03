@@ -23,21 +23,29 @@
 # SOFTWARE.
 
 import threading
-from typing import cast, Dict, List
+from typing import cast, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
 
-from bitcoinx import (
-    BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string, Address,
-)
+from bitcoinx import Address, BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string
 
-from electrumsv.app_state import app_state
-from electrumsv.device import Device
-from electrumsv.exceptions import UserCancelled
-from electrumsv.i18n import _
-from electrumsv.keystore import Hardware_KeyStore
-from electrumsv.logs import logs
-from electrumsv.networks import Net
-from electrumsv.transaction import classify_tx_output, Transaction, TransactionContext
-from electrumsv.wallet import AbstractAccount
+from ...app_state import app_state
+from ...constants import DerivationPath, unpack_derivation_path
+from ...device import Device, DeviceInfo
+from ...exceptions import UserCancelled
+from ..hw_wallet.plugin import HW_PluginBase
+from ...i18n import _
+from ...keystore import Hardware_KeyStore
+from ...logs import logs
+from ...networks import Net
+from ...transaction import classify_tx_output, HardwareSigningMetadata, Transaction, \
+    TransactionContext, XPublicKey, XTxInput
+from ...wallet import AbstractAccount
+from ...wallet_database.types import KeyListRow
+
+if TYPE_CHECKING:
+    from ...gui.qt.account_wizard import AccountWizard
+    from ..hw_wallet.qt import QtHandlerBase
+    from .qt import Plugin, QtHandler
+
 
 logger = logs.get_logger("plugin.keepkey")
 
@@ -46,13 +54,12 @@ try:
     import keepkeylib
     import keepkeylib.ckd_public
     from keepkeylib.client import types
-    from usb1 import USBContext
+    from keepkeylib.transport import Transport
+    from usb1 import USBContext, USBDevice
     KEEPKEYLIB = True
 except Exception:
     logger.exception("Failed to import keepkeylib")
     KEEPKEYLIB = False
-
-from ..hw_wallet import HW_PluginBase
 
 # TREZOR initialization methods
 TIM_NEW, TIM_RECOVER, TIM_MNEMONIC, TIM_PRIVKEY = range(0, 4)
@@ -72,26 +79,30 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         # not called for BSV coins as they use BIP143, where the spent output's value is signed.
         return False
 
-    def get_client(self, force_pair=True):
-        return self.plugin.get_client(self, force_pair)
+    def get_client(self, force_pair: bool=True) -> Optional[KeepKeyClient]:
+        return cast(KeepKeyPlugin, self.plugin).get_client(self, force_pair)
 
-    def decrypt_message(self, sequence, message, password):
+    def decrypt_message(self, sequence: DerivationPath, message: bytes, password: str) -> bytes:
         raise RuntimeError(_('Encryption and decryption are not implemented by {}').format(
             self.device))
 
-    def sign_message(self, sequence, message, password):
+    def sign_message(self, sequence: DerivationPath, message: bytes, password: str) -> bytes:
         client = self.get_client()
+        assert client is not None
         address_path = self.get_derivation() + "/%d/%d"%sequence
         address_n = bip32_decompose_chain_string(address_path)
-        msg_sig = client.sign_message(self.plugin.get_coin_name(client), address_n, message)
-        return msg_sig.signature
+        # returns protobuf mess
+        msg_sig = client.sign_message(cast(KeepKeyPlugin, self.plugin).get_coin_name(client),
+            address_n, message)
+        return cast(bytes, msg_sig.signature)
 
     def sign_transaction(self, tx: Transaction, password: str,
-            tx_context: TransactionContext) -> None:
+            context: TransactionContext) -> None:
         if tx.is_complete():
             return
 
-        assert not len(tx_context.prev_txs), "This keystore does not require input transactions"
+        assert not len(context.parent_transactions), \
+            "This keystore does not require input transactions"
         # path of the xpubs that are involved
         xpub_path: Dict[str, str] = {}
         for txin in tx.inputs:
@@ -103,7 +114,8 @@ class KeepKey_KeyStore(Hardware_KeyStore):
                     xpub_path[xpub] = self.get_derivation()
 
         assert self.plugin is not None
-        self.plugin.sign_transaction(self, tx, xpub_path)
+        cast(KeepKeyPlugin, self.plugin).sign_transaction(self, tx,
+            context.hardware_signing_metadata, xpub_path)
 
 
 class KeepKeyPlugin(HW_PluginBase):
@@ -115,9 +127,9 @@ class KeepKeyPlugin(HW_PluginBase):
     minimum_firmware = (4, 0, 0)
     keystore_class = KeepKey_KeyStore
 
-    DEVICE_IDS = (KEEPKEY_PRODUCT_KEY,)
+    DEVICE_IDS = [ KEEPKEY_PRODUCT_KEY ]
 
-    def __init__(self, name):
+    def __init__(self, name: str) -> None:
         super().__init__(name)
 
         self.libraries_available = KEEPKEYLIB
@@ -130,32 +142,32 @@ class KeepKeyPlugin(HW_PluginBase):
 
         self.main_thread = threading.current_thread()
 
-    def get_coin_name(self, client):
+    def get_coin_name(self, client: KeepKeyClient) -> str:
         # No testnet support yet
         if client.features.major_version < 6:
             return "BitcoinCash"
         return "BitcoinSV"
 
-    def _libusb_enumerate(self):
+    def _libusb_enumerate(self) -> Generator[USBDevice, None, None]:
         from keepkeylib.transport_webusb import DEVICE_IDS
         for dev in self.usb_context.getDeviceIterator(skip_on_error=True):
             usb_id = (dev.getVendorID(), dev.getProductID())
             if usb_id in DEVICE_IDS:
                 yield dev
 
-    def _enumerate_hid(self):
+    def _enumerate_hid(self) -> List[Tuple[Optional[str], Optional[str], None]]:
         if KEEPKEYLIB:
             from keepkeylib.transport_hid import HidTransport
-            return HidTransport.enumerate()
+            return cast(List[Tuple[Optional[str], Optional[str], None]], HidTransport.enumerate())
         return []
 
-    def _enumerate_web_usb(self):
+    def _enumerate_web_usb(self) -> List[USBDevice]:
         if KEEPKEYLIB:
             from keepkeylib.transport_webusb import WebUsbTransport
-            return self._libusb_enumerate()
+            return list(self._libusb_enumerate())
         return []
 
-    def _get_transport(self, device):
+    def _get_transport(self, device: Device) -> Transport:
         logger.debug("Trying to connect over USB...")
 
         if device.path.startswith('web_usb'):
@@ -165,13 +177,17 @@ class KeepKeyPlugin(HW_PluginBase):
                     return WebUsbTransport(d)
         else:
             for d in self._enumerate_hid():
+                # TODO(no-merge) This needs to be resolved in hardware wallet testing.
+                #   Is this bytes or string in d[0]?? Really, hid returns bytes but
+                #   things use it as string, and converting it to a string makes it "b'...'" which
+                #   just does not make sense.
                 if str(d[0]) == device.path:
                     from keepkeylib.transport_hid import HidTransport
                     return HidTransport(d)
 
         raise RuntimeError(f'device {device} not found')
 
-    def _device_for_path(self, path):
+    def _device_for_path(self, path: str) -> Device:
         return Device(
             path=path,
             interface_number=-1,
@@ -181,11 +197,11 @@ class KeepKeyPlugin(HW_PluginBase):
             transport_ui_string=path,
         )
 
-    def _web_usb_path(self, device):
+    def _web_usb_path(self, device: USBDevice) -> str:
         return f'web_usb:{device.getBusNumber()}:{device.getPortNumberList()}'
 
-    def enumerate_devices(self):
-        devices = []
+    def enumerate_devices(self) -> List[Device]:
+        devices: List[Device] = []
 
         for device in self._enumerate_web_usb():
             devices.append(self._device_for_path(self._web_usb_path(device)))
@@ -196,7 +212,7 @@ class KeepKeyPlugin(HW_PluginBase):
 
         return devices
 
-    def create_client(self, device, handler):
+    def create_client(self, device: Device, handler: "QtHandlerBase") -> Optional[KeepKeyClient]:
         # disable bridge because it seems to never returns if keepkey is plugged
         try:
             transport = self._get_transport(device)
@@ -225,14 +241,17 @@ class KeepKeyPlugin(HW_PluginBase):
 
         return client
 
-    def get_client(self, keystore, force_pair=True):
-        client = app_state.device_manager.client_for_keystore(self, keystore, force_pair)
+    def get_client(self, keystore: KeepKey_KeyStore, force_pair: bool=True) \
+            -> Optional[KeepKeyClient]:
+        client = cast(Optional[KeepKeyClient],
+            app_state.device_manager.client_for_keystore(self, keystore, force_pair))
         # returns the client for a given keystore. can use xpub
         if client:
             client.used()
         return client
 
-    def initialize_device(self, device_id, wizard, handler):
+    def initialize_device(self, device_id: str, wizard: "AccountWizard", handler: "QtHandler") \
+            -> None:
         # Initialization method
         msg = _("Choose how you want to initialize your {}.\n\n"
                 "The first two methods are secure as no secret information "
@@ -249,8 +268,9 @@ class KeepKeyPlugin(HW_PluginBase):
             (TIM_MNEMONIC, _("Upload a BIP39 mnemonic to generate the seed")),
             (TIM_PRIVKEY, _("Upload a master private key"))
         ]
-        def f(method):
-            settings = self.request_trezor_init_settings(wizard, method, self.device)
+        def f(method: int) -> None:
+            settings = cast("Plugin", self).request_trezor_init_settings(
+                wizard, method, self.device)
             t = threading.Thread(target = self._initialize_device_safe,
                                  args=(settings, method, device_id, wizard, handler))
             t.setDaemon(True)
@@ -259,7 +279,8 @@ class KeepKeyPlugin(HW_PluginBase):
         wizard.choice_dialog(title=_('Initialize Device'), message=msg,
                              choices=choices, run_next=f)
 
-    def _initialize_device_safe(self, settings, method, device_id, wizard, handler):
+    def _initialize_device_safe(self, settings: Tuple[Union[int, str], str, Union[bool, str], bool],
+            method: int, device_id: str, wizard: "AccountWizard", handler: "QtHandler") -> None:
         exit_code = 0
         try:
             self._initialize_device(settings, method, device_id, wizard, handler)
@@ -271,17 +292,20 @@ class KeepKeyPlugin(HW_PluginBase):
         finally:
             wizard.loop.exit(exit_code)
 
-    def _initialize_device(self, settings, method, device_id, wizard, handler):
+    def _initialize_device(self, settings: Tuple[Union[int, str], str, Union[bool, str], bool],
+            method: int, device_id: str, wizard: "AccountWizard", handler: "QtHandler") -> None:
         item, label, pin_protection, passphrase_protection = settings
 
         language = 'english'
-        client = app_state.device_manager.client_by_id(device_id)
+        client = cast(KeepKeyClient, app_state.device_manager.client_by_id(device_id))
 
         if method == TIM_NEW:
+            assert isinstance(item, int)
             strength = 64 * (item + 2)  # 128, 192 or 256
             client.reset_device(True, strength, passphrase_protection,
                                 pin_protection, label, language)
         elif method == TIM_RECOVER:
+            assert isinstance(item, int)
             word_count = 6 * (item + 2)  # 12, 18 or 24
             client.step = 0
             client.recovery_device(
@@ -301,35 +325,43 @@ class KeepKeyPlugin(HW_PluginBase):
             client.load_device_by_xprv(item, pin, passphrase_protection,
                                        label, language)
 
-    def setup_device(self, device_info, wizard):
+    def setup_device(self, device_info: DeviceInfo, wizard: "AccountWizard") -> None:
         '''Called when creating a new wallet.  Select the device to use.  If
         the device is uninitialized, go through the intialization
         process.'''
         device_id = device_info.device.id_
-        client = app_state.device_manager.client_by_id(device_id)
-        client.handler = self.create_handler(wizard)
+        client = cast(Optional[KeepKeyClient], app_state.device_manager.client_by_id(device_id))
+        assert client is not None
+        client.handler = cast("QtHandler", self.create_handler(wizard))
         if not device_info.initialized:
             self.initialize_device(device_id, wizard, client.handler)
         client.get_master_public_key('m', creating=True)
 
-    def get_master_public_key(self, device_id, derivation, wizard):
-        client = app_state.device_manager.client_by_id(device_id)
-        client.handler = self.create_handler(wizard)
+    def get_master_public_key(self, device_id: str, derivation: str, wizard: "AccountWizard") \
+            -> BIP32PublicKey:
+        client = cast(Optional[KeepKeyClient], app_state.device_manager.client_by_id(device_id))
+        assert client is not None
+        client.handler = cast("QtHandler", self.create_handler(wizard))
         return client.get_master_public_key(derivation)
 
     def sign_transaction(self, keystore: KeepKey_KeyStore, tx: Transaction,
-            xpub_path: Dict[str, str]) -> None:
+            signing_metadata: List[HardwareSigningMetadata], xpub_path: Dict[str, str]) -> None:
         client = self.get_client(keystore)
+        assert client is not None
         inputs = self.tx_inputs(tx, xpub_path)
-        outputs = self.tx_outputs(keystore, keystore.get_derivation(), tx)
-        signatures = client.sign_tx(self.get_coin_name(client), inputs, outputs,
-                                    lock_time=tx.locktime)[0]
+        outputs = self.tx_outputs(keystore, keystore.get_derivation(), tx, signing_metadata)
+        # NOTE(rt12) This will error on regtest, with "Failed to compile output". Chances are that
+        #   that something like the xpub prefix are not supported.
+        signatures, _ = cast(Tuple[List[bytes], bytes],
+            client.sign_tx(self.get_coin_name(client), inputs, outputs, lock_time=tx.locktime))
         tx.update_signatures(signatures)
 
-    def show_key(self, account: AbstractAccount, keyinstance_id: int) -> None:
+    def show_key(self, account: AbstractAccount, keydata: KeyListRow) -> None:
         keystore = cast(KeepKey_KeyStore, account.get_keystore())
         client = self.get_client(keystore)
-        derivation_path = account.get_derivation_path(keyinstance_id)
+        assert client is not None
+        assert keydata.derivation_data2 is not None
+        derivation_path = unpack_derivation_path(keydata.derivation_data2)
         assert derivation_path is not None
         subpath = '/'.join(str(x) for x in derivation_path)
         address_path = f"{keystore.derivation}/{subpath}"
@@ -340,10 +372,12 @@ class KeepKeyPlugin(HW_PluginBase):
 
     def tx_inputs(self, tx: Transaction, xpub_path: Dict[str, str]) -> List[types.TxInputType]:
         inputs = []
+        txin: XTxInput
         for txin in tx.inputs:
             txinputtype = types.TxInputType()
 
             x_pubkeys = txin.x_pubkeys
+            path: DerivationPath
             if len(x_pubkeys) == 1:
                 x_pubkey = x_pubkeys[0]
                 xpub, path = x_pubkey.bip32_extended_key_and_path()
@@ -352,13 +386,14 @@ class KeepKeyPlugin(HW_PluginBase):
                 txinputtype.address_n.extend(path)
                 txinputtype.script_type = types.SPENDADDRESS
             else:
-                def f(x_pubkey):
+                def f(x_pubkey: XPublicKey) -> types.HDNodePathType:
                     if x_pubkey.is_bip32_key():
                         xpub, path = x_pubkey.bip32_extended_key_and_path()
                     else:
-                        xpub = BIP32PublicKey(x_pubkey.to_public_key(), NULL_DERIVATION, Net.COIN)
-                        xpub = xpub.to_extended_key_string()
-                        path = []
+                        xpub_key = BIP32PublicKey(x_pubkey.to_public_key(), NULL_DERIVATION,
+                            Net.COIN)
+                        xpub = xpub_key.to_extended_key_string()
+                        path = cast(DerivationPath, ())
                     node = keepkeylib.ckd_public.deserialize(xpub)
                     return types.HDNodePathType(node=node, address_n=path)
                 pubkeys = [f(x) for x in x_pubkeys]
@@ -391,14 +426,15 @@ class KeepKeyPlugin(HW_PluginBase):
 
         return inputs
 
-    def tx_outputs(self, keystore: KeepKey_KeyStore, derivation: str, tx: Transaction):
+    def tx_outputs(self, keystore: KeepKey_KeyStore, derivation: str, tx: Transaction,
+            signing_metadata: List[HardwareSigningMetadata]) -> List[types.TxOutputType]:
         has_change = False
         account_derivation = tuple(bip32_decompose_chain_string(derivation))
         keystore_fingerprint = keystore.get_fingerprint()
 
-        outputs = []
-        assert tx.output_info is not None
-        for tx_output, output_metadatas in zip(tx.outputs, tx.output_info):
+        outputs: List[types.TxOutputType] = []
+        assert len(tx.outputs) == len(signing_metadata)
+        for tx_output, output_metadatas in zip(tx.outputs, signing_metadata):
             info = output_metadatas.get(keystore_fingerprint)
             if info is not None and not has_change:
                 has_change = True # no more than one change address

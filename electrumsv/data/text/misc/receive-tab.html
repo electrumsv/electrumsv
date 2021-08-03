@@ -1,0 +1,35 @@
+<h2>The Receive tab</h2>
+<p style="text-align: center"><i>Provisional in-wallet help</i></p>
+<p>
+The Receive tab is used to declare to the wallet that the user expects an incoming payment to
+be received at some point. Unless the user has declared this to the wallet, the wallet will not
+look for the payment and will never know about it. For this reason the user must click
+the <cite>Create</cite> button before a payment destination is reserved and made available to them
+to give out.
+</p>
+<p>
+It is not recommended that users declare expected payments that do not expire. This will make the
+user's wallet vulnerable to attacks where they are sent unsolicited payments which might be
+intended either for tracking or contain malicious material of an illegal nature. The user should
+quarantine any such funds and avoid spending or using them in any way.
+</p>
+<h4>Description (required)</h4>
+<p>
+The <cite>Description</cite> field is there to tell the user what the payment is related to,
+perhaps noting who it might be from.
+</p>
+<h4>Requested amount (optional)</h4>
+<p>
+This <cite>Requested amount</cite> field is for both the user's records, and also for the wallet
+software to use in matching payments. Detected incoming payments to the reserved payment
+destination will count towards this amount, and the payment state will be toggled to "Paid" if
+they are of sufficient value. If no value is provides, then this address will be observed
+indefinitely regardless of how many payments are made to it.
+</p>
+<h4>Request expires (required)</h4>
+<p>
+This <cite>Request expires</cite> field ensures that the wallet only observes the reserved payment
+destination for a limited amount of time. This ensures that the wallet is not left consuming
+resources monitoring this payment destination indefinitely, which may in the long run cost the
+user to access the APIs necessary to do so, and slow down the operation of their wallet.
+</p>

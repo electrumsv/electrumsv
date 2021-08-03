@@ -10,6 +10,16 @@ electrumsv-sdk stop
 if %ERRORLEVEL% neq 0 goto ProcessError
 
 @rem "resetting node, electrumx and electrumsv..."
+electrumsv-sdk install node
+if %ERRORLEVEL% neq 0 goto ProcessError
+
+electrumsv-sdk install electrumx
+if %ERRORLEVEL% neq 0 goto ProcessError
+
+electrumsv-sdk install --repo=%ESVDIR% electrumsv
+if %ERRORLEVEL% neq 0 goto ProcessError
+
+@rem "resetting node, electrumx and electrumsv..."
 electrumsv-sdk reset node
 if %ERRORLEVEL% neq 0 goto ProcessError
 

@@ -29,14 +29,15 @@
 
 from enum import IntEnum
 import json
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from bitcoinx import Address, Base58Error, bip32_decompose_chain_string, hex_str_to_hash
 
-from electrumsv.bitcoin import ScriptTemplate
-from electrumsv.constants import ScriptType
-from electrumsv.networks import Net
-from electrumsv.wallet import AbstractAccount, MultisigAccount
+from ..bitcoin import ScriptTemplate
+from ..constants import ScriptType, DerivationPath, unpack_derivation_path
+from ..networks import Net
+from ..wallet import AbstractAccount, MultisigAccount
+from ..wallet_database.types import KeyInstanceRow
 
 
 class LabelImportFormat(IntEnum):
@@ -52,7 +53,7 @@ class LabelImportResult:
         # These are known to be transaction labels, even if the wallet does not know of them all.
         self.transaction_labels: Dict[bytes, str] = {}
         # These are known to be key instance labels, the wallet knows them all.
-        self.key_labels: Dict[int, str] = {}
+        self.key_labels: Dict[DerivationPath, str] = {}
         # These are things that were not for any possible transactions or existing key instances.
         self.unknown_labels: Dict[str, str] = {}
 
@@ -79,27 +80,20 @@ def identify_label_import_format(text: str) -> LabelImportFormat:
 
 class LabelImport:
     @classmethod
-    def _get_derivations(klass, account: AbstractAccount) -> Dict[Sequence[int], int]:
-        keypaths = account.get_key_paths()
-        result: Dict[Sequence[int], int] = {}
-        for keyinstance_id, derivation_path in keypaths.items():
-            result[derivation_path] = keyinstance_id
-        return result
-
-    @classmethod
-    def _get_addresses(klass, account: AbstractAccount) -> Dict[ScriptTemplate, int]:
+    def _get_addresses(cls, account: AbstractAccount) -> Dict[ScriptTemplate, KeyInstanceRow]:
         script_type = ScriptType.P2PKH
         if isinstance(account, MultisigAccount):
             script_type = ScriptType.MULTISIG_P2SH
-        result: Dict[ScriptTemplate, int] = {}
-        for keyinstance_id in account.get_keyinstance_ids():
-            template = account.get_script_template_for_id(keyinstance_id, script_type)
-            result[template] = keyinstance_id
+        result: Dict[ScriptTemplate, KeyInstanceRow] = {}
+        for keyinstance in account.get_keyinstances():
+            template = account.get_script_template_for_derivation(script_type,
+                keyinstance.derivation_type, keyinstance.derivation_data2)
+            result[template] = keyinstance
         return result
 
     @classmethod
-    def parse_label_sync_json(klass, account: AbstractAccount, text: str) -> LabelImportResult:
-        addresses = klass._get_addresses(account)
+    def parse_label_sync_json(cls, account: AbstractAccount, text: str) -> LabelImportResult:
+        addresses = cls._get_addresses(account)
         updates: List[Tuple[str, str]] = json.loads(text).items()
         results = LabelImportResult(LabelImportFormat.LABELSYNC)
         for label_reference, label_text in updates:
@@ -117,16 +111,18 @@ class LabelImport:
                 except (Base58Error, ValueError):
                     pass
                 else:
-                    keyinstance_id = addresses.get(address)
-                    if keyinstance_id is not None:
-                        results.key_labels[keyinstance_id] = label_text
+                    keyinstance = addresses.get(address)
+                    if keyinstance is not None:
+                        assert keyinstance.derivation_data2 is not None
+                        derivation_path = unpack_derivation_path(keyinstance.derivation_data2)
+                        results.key_labels[derivation_path] = label_text
                         continue
             results.unknown_labels[label_reference] = label_text
 
         return results
 
     @classmethod
-    def parse_label_export_json(klass, account: AbstractAccount, text: str) -> LabelImportResult:
+    def parse_label_export_json(cls, account: AbstractAccount, text: str) -> LabelImportResult:
         updates: Dict[str, Any] = json.loads(text)
         results = LabelImportResult(LabelImportFormat.ACCOUNT)
         for tx_id, label_text in updates.get("transactions", []):
@@ -145,7 +141,7 @@ class LabelImport:
             account_fingerprint = account.get_fingerprint().hex()
             if isinstance(keydata.get("account_fingerprint"), str):
                 results.account_fingerprint = keydata["account_fingerprint"]
-            derivations = klass._get_derivations(account)
+
             for derivation_path_text, label_text in keydata["entries"]:
                 try:
                     derivation_path = tuple(bip32_decompose_chain_string(derivation_path_text))
@@ -154,10 +150,8 @@ class LabelImport:
                 else:
                     # We never import key descriptions if the account does not match.
                     if account_fingerprint == results.account_fingerprint:
-                        keyinstance_id = derivations.get(derivation_path)
-                        if keyinstance_id is not None:
-                            results.key_labels[keyinstance_id] = label_text
-                            continue
+                        results.key_labels[derivation_path] = label_text
+                        continue
                 results.unknown_labels[derivation_path_text] = label_text
 
         return results

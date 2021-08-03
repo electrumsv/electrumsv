@@ -23,29 +23,28 @@
 
 '''ElectrumSV application.'''
 
-import concurrent
+import concurrent.futures
 import datetime
 import os
 from functools import partial
 import signal
 import sys
 import threading
-from typing import Callable, Optional
+from typing import Any, Callable, cast, Coroutine, Iterable, List, Optional, TypeVar
 
 from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
-from PyQt5.QtCore import pyqtSignal, QObject, QTimer
+from PyQt5.QtCore import pyqtBoundSignal, pyqtSignal, QObject, QTimer
 from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QDialog
 
 from electrumsv.app_state import app_state
 from electrumsv.contacts import ContactEntry, ContactIdentity
-from electrumsv.i18n import _, set_language
+from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.wallet import AbstractAccount, Wallet
-from electrumsv.wallet_database.tables import WalletEventRow
 
-from . import dialogs
+from . import dialogs, network_dialog
 from .cosigner_pool import CosignerPool
 from .main_window import ElectrumWindow
 from .exception_window import Exception_Hook
@@ -54,6 +53,9 @@ from .log_window import SVLogWindow, SVLogHandler
 from .util import ColorScheme, get_default_language, MessageBox, read_QIcon
 from .wallet_wizard import WalletWizard
 
+
+
+T1 = TypeVar("T1")
 
 logger = logs.get_logger('app')
 
@@ -64,7 +66,7 @@ class OpenFileEventFilter(QObject):
         self.windows = windows
 
     def eventFilter(self, obj, event):
-        if event.type() == QtCore.QEvent.FileOpen:
+        if event.type() == QtCore.QEvent.Type.FileOpen:
             if len(self.windows) >= 1:
                 self.windows[0].pay_to_URI(event.url().toString())
                 return True
@@ -74,7 +76,7 @@ class OpenFileEventFilter(QObject):
 class SVApplication(QApplication):
 
     # Signals need to be on a QObject
-    create_new_window_signal = pyqtSignal(str, object)
+    create_new_window_signal = pyqtSignal(object, object, bool)
     cosigner_received_signal = pyqtSignal(object, object)
     labels_changed_signal = pyqtSignal(object, object, object)
     window_opened_signal = pyqtSignal(object)
@@ -98,20 +100,20 @@ class SVApplication(QApplication):
     contact_removed_signal = pyqtSignal(object)
     identity_added_signal = pyqtSignal(object, object)
     identity_removed_signal = pyqtSignal(object, object)
-    new_notification = pyqtSignal(object, object)
 
     def __init__(self, argv):
-        QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_X11InitThreads)
+        QtCore.QCoreApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_X11InitThreads)
         if hasattr(QtCore.Qt, "AA_ShareOpenGLContexts"):
-            QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
+            QtCore.QCoreApplication.setAttribute(
+                QtCore.Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
         if hasattr(QGuiApplication, 'setDesktopFileName'):
             QGuiApplication.setDesktopFileName('electrum-sv.desktop')
         super().__init__(argv)
-        self.windows = []
+        self.windows: List[ElectrumWindow] = []
         self.log_handler = SVLogHandler()
         self.log_window = None
         self.net_dialog = None
-        self.timer = QTimer()
+        self.timer = QTimer(self)
         self.exception_hook = None
         # A floating point number, e.g. 129.1
         self.dpi = self.primaryScreen().physicalDotsPerInch()
@@ -125,7 +127,7 @@ class SVApplication(QApplication):
         self.tray.show()
 
         # FIXME Fix what.. what needs to be fixed here?
-        set_language(app_state.config.get('language', get_default_language()))
+        app_state.config.get('language', get_default_language())
 
         logs.add_handler(self.log_handler)
         self._start()
@@ -201,7 +203,7 @@ class SVApplication(QApplication):
         self.tray.setIcon(self._tray_icon())
 
     def _tray_activated(self, reason) -> None:
-        if reason == QSystemTrayIcon.DoubleClick:
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             if all([w.is_hidden() for w in self.windows]):
                 for w in self.windows:
                     w.bring_to_top()
@@ -211,7 +213,7 @@ class SVApplication(QApplication):
 
     def new_window(self, path: Optional[str], uri: Optional[str]=None) -> None:
         # Use a signal as can be called from daemon thread
-        self.create_new_window_signal.emit(path, uri)
+        self.create_new_window_signal.emit(path, uri, False)
 
     def show_network_dialog(self, parent) -> None:
         if not app_state.daemon.network:
@@ -219,14 +221,15 @@ class SVApplication(QApplication):
                                   'ElectrumSV if you want to get connected'), title=_('Offline'))
             return
         if self.net_dialog:
-            self.net_dialog.on_update()
+            self.net_dialog._event_network_updated()
             self.net_dialog.show()
             self.net_dialog.raise_()
             return
-        from . import network_dialog
         # from importlib import reload
         # reload(network_dialog)
-        self.net_dialog = network_dialog.NetworkDialog(app_state.daemon.network, app_state.config)
+        network = app_state.daemon.network
+        assert network is not None
+        self.net_dialog = network_dialog.NetworkDialog(network)
         self.net_dialog.show()
 
     def show_log_viewer(self) -> None:
@@ -239,8 +242,9 @@ class SVApplication(QApplication):
             if dialog:
                 dialog.accept()
 
-    def on_transaction_label_change(self, wallet: Wallet, tx_hash: bytes, text: str) -> None:
-        self.label_sync.set_transaction_label(wallet, tx_hash, text)
+    def on_transaction_label_change(self, account: AbstractAccount, tx_hash: bytes, text: str) \
+            -> None:
+        self.label_sync.set_transaction_label(account, tx_hash, text)
 
     def on_keyinstance_label_change(self, account: AbstractAccount, key_id: int, text: str) -> None:
         self.label_sync.set_keyinstance_label(account, key_id, text)
@@ -271,19 +275,21 @@ class SVApplication(QApplication):
     def _on_contact_removed(self, contact: ContactEntry) -> None:
         self.contact_removed_signal.emit(contact)
 
-    def on_new_wallet_event(self, wallet_path: str, row: WalletEventRow) -> None:
-        self.new_notification.emit(wallet_path, row)
+    def get_wallets(self) -> Iterable[Wallet]:
+        return [ window._wallet for window in self.windows ]
 
     def get_wallet_window(self, path: str) -> Optional[ElectrumWindow]:
         for w in self.windows:
             if w._wallet.get_storage_path() == path:
                 return w
+        return None
 
     def get_wallet_window_by_id(self, account_id: int) -> Optional[ElectrumWindow]:
         for w in self.windows:
             for account in w._wallet.get_accounts():
                 if account.get_id() == account_id:
                     return w
+        return None
 
     def start_new_window(self, wallet_path: Optional[str], uri: Optional[str]=None,
             is_startup: bool=False) -> Optional[ElectrumWindow]:
@@ -296,34 +302,40 @@ class SVApplication(QApplication):
         else:
             wizard_window: Optional[WalletWizard] = None
             if wallet_path is not None:
-                is_valid, was_aborted, wizard_window = WalletWizard.attempt_open(wallet_path)
-                if was_aborted:
+                open_result  = WalletWizard.attempt_open(wallet_path)
+                if open_result.was_aborted:
                     return None
-                if not is_valid:
+                if not open_result.is_valid:
                     wallet_filename = os.path.basename(wallet_path)
                     MessageBox.show_error(
                         _("Unable to load file '{}'.").format(wallet_filename))
                     return None
+                wizard_window = open_result.wizard
             else:
                 wizard_window = WalletWizard(is_startup=is_startup)
             if wizard_window is not None:
                 result = wizard_window.run()
+                # This will return Accepted in some failure cases, like migration failure, due
+                # to wallet wizard standard buttons not being easily dynamically changeable.
                 if result != QDialog.Accepted:
                     return None
                 wallet_path = wizard_window.get_wallet_path()
-                # We cannot rely on accept alone indicating success.
                 if wallet_path is None:
                     return None
+            # All paths leading to this obtain a password and put it in the credential cache.
+            assert wallet_path is not None
             wallet = app_state.daemon.load_wallet(wallet_path)
             assert wallet is not None
             w = self._create_window_for_wallet(wallet)
         if uri:
             w.pay_to_URI(uri)
-        w.bring_to_top()
-        w.setWindowState(w.windowState() & ~QtCore.Qt.WindowMinimized | QtCore.Qt.WindowActive)
 
+        w.bring_to_top()
+        w.setWindowState((w.windowState() & ~QtCore.Qt.WindowState.WindowMinimized) |
+            QtCore.Qt.WindowState.WindowActive)
         # this will activate the window
         w.activateWindow()
+
         return w
 
     def update_check(self) -> None:
@@ -355,7 +367,7 @@ class SVApplication(QApplication):
 
     def initial_dialogs(self) -> None:
         '''Suppressible dialogs that are shown when first opening the app.'''
-        dialogs.show_named('welcome-ESV-1.3.13')
+        dialogs.show_named('welcome-ESV-1.4.0')
 
     def event_loop_started(self) -> None:
         self.cosigner_pool = CosignerPool()
@@ -378,7 +390,7 @@ class SVApplication(QApplication):
         threading.current_thread().setName('GUI')
         self.timer.setSingleShot(False)
         self.timer.setInterval(500)  # msec
-        self.timer.timeout.connect(app_state.device_manager.timeout_clients)
+        cast(pyqtBoundSignal, self.timer.timeout).connect(app_state.device_manager.timeout_clients)
 
         QTimer.singleShot(0, self.event_loop_started)
         self.exec_()
@@ -388,23 +400,26 @@ class SVApplication(QApplication):
         self.timer.stop()
         # clipboard persistence
         # see http://www.mail-archive.com/pyqt@riverbankcomputing.com/msg17328.html
-        event = QtCore.QEvent(QtCore.QEvent.Clipboard)
+        event = QtCore.QEvent(QtCore.QEvent.Type.Clipboard)
         self.sendEvent(self.clipboard(), event)
         self.tray.hide()
 
-    def run_coro(self, coro, *args, on_done=None):
+    def run_coro(self, coro: Callable[..., Coroutine[Any, Any, T1]], *args: Any,
+            on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
+                -> concurrent.futures.Future[T1]:
         '''Run a coroutine.  on_done, if given, is passed the future containing the reuslt or
         exception, and is guaranteed to be called in the context of the GUI thread.
         '''
-        def task_done(future):
+        def task_done(future: concurrent.futures.Future[T1]) -> None:
             self.async_tasks_done.emit()
 
         future = app_state.async_.spawn(coro, *args, on_done=on_done)
         future.add_done_callback(task_done)
         return future
 
-    def run_in_thread(self, func, *args,
-            on_done: Optional[Callable[[concurrent.futures.Future], None]]=None):
+    def run_in_thread(self, func: Callable[..., T1], *args: Any,
+            on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
+                -> concurrent.futures.Future[T1]:
         '''Run func(*args) in a thread.  on_done, if given, is passed the future containing the
         reuslt or exception, and is guaranteed to be called in the context of the GUI
         thread.

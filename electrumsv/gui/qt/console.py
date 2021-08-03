@@ -28,9 +28,11 @@ import os
 import re
 import sys
 import traceback
+from typing import Any, cast, Callable, Dict, List, Optional, TextIO
 
 from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtGui import QFont, QResizeEvent, QTextCursor, QTextOption
+from PyQt5.QtGui import QFont, QKeyEvent, QMouseEvent, QResizeEvent, QTextCursor, QTextOption
+from PyQt5.QtWidgets import QWidget
 
 from electrumsv import util
 from electrumsv.i18n import _
@@ -52,31 +54,32 @@ class OverlayLabel(QtWidgets.QLabel):
     }
     '''
 
-    def __init__(self, text, parent):
+    def __init__(self, text: str, parent: "Console") -> None:
         super().__init__(text, parent)
         self.setMinimumHeight(150)
         self.setGeometry(0, 0, self.width(), self.height())
         self.setStyleSheet(self.STYLESHEET)
         self.setMargin(0)
-        parent.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        parent.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setWordWrap(True)
 
-    def mousePressEvent(self, e):
+    def mousePressEvent(self, e: QMouseEvent) -> None:
         self.hide()
 
-    def on_resize(self, w):
+    def on_resize(self, w: int) -> None:
         padding = 2  # px, from the stylesheet above
         self.setFixedWidth(w - padding)
 
 
 class Console(QtWidgets.QPlainTextEdit):
-    def __init__(self, prompt='>> ', startup_message='', parent=None):
+    def __init__(self, prompt: str='>> ', startup_message: str='',
+            parent: Optional[QWidget]=None) -> None:
         QtWidgets.QPlainTextEdit.__init__(self, parent)
 
         self.prompt = prompt
-        self.history = []
-        self.namespace = {}
-        self.construct = []
+        self.history: List[str] = []
+        self.namespace: Dict[str, Any] = {}
+        self.construct: List[str] = []
 
         self.setGeometry(50, 75, 600, 400)
         self.setWordWrapMode(QTextOption.WrapAnywhere)
@@ -109,7 +112,7 @@ class Console(QtWidgets.QPlainTextEdit):
     def set_json(self, b: bool=True) -> None:
         self.is_json = b
 
-    def run_script(self, filename):
+    def run_script(self, filename: str) -> None:
         with open(filename) as f:
             script = f.read()
 
@@ -117,18 +120,18 @@ class Console(QtWidgets.QPlainTextEdit):
         # pylint: disable=eval-used
         eval(script, self.namespace, self.namespace)
 
-    def updateNamespace(self, namespace):
+    def updateNamespace(self, namespace: Dict[str, Any]) -> None:
         self.namespace.update(namespace)
 
-    def showMessage(self, message):
+    def showMessage(self, message: str) -> None:
         self.appendPlainText(message)
         self.newPrompt()
 
-    def clear(self):
+    def clear(self) -> None:
         self.setPlainText('')
         self.newPrompt()
 
-    def newPrompt(self):
+    def newPrompt(self) -> None:
         if self.construct:
             prompt = '.' * len(self.prompt)
         else:
@@ -140,14 +143,14 @@ class Console(QtWidgets.QPlainTextEdit):
         self.appendPlainText(prompt)
         self.moveCursor(QTextCursor.End)
 
-    def getCommand(self):
+    def getCommand(self) -> str:
         doc = self.document()
         curr_line = doc.findBlockByLineNumber(doc.lineCount() - 1).text()
         curr_line = curr_line.rstrip()
         curr_line = curr_line[len(self.prompt):]
         return curr_line
 
-    def setCommand(self, command):
+    def setCommand(self, command: str) -> None:
         if self.getCommand() == command:
             return
 
@@ -161,7 +164,7 @@ class Console(QtWidgets.QPlainTextEdit):
         self.textCursor().insertText(command)
         self.moveCursor(QTextCursor.End)
 
-    def show_completions(self, completions):
+    def show_completions(self, completions: List[str]) -> None:
         if self.completions_visible:
             self.hide_completions()
 
@@ -178,7 +181,7 @@ class Console(QtWidgets.QPlainTextEdit):
         self.moveCursor(QTextCursor.End)
         self.completions_visible = True
 
-    def hide_completions(self):
+    def hide_completions(self) -> None:
         if not self.completions_visible:
             return
         c = self.textCursor()
@@ -189,7 +192,7 @@ class Console(QtWidgets.QPlainTextEdit):
         self.moveCursor(QTextCursor.End)
         self.completions_visible = False
 
-    def getConstruct(self, command):
+    def getConstruct(self, command: str) -> str:
         if self.construct:
             prev_command = self.construct[-1]
             self.construct.append(command)
@@ -206,13 +209,10 @@ class Console(QtWidgets.QPlainTextEdit):
             else:
                 return command
 
-    def getHistory(self):
+    def getHistory(self) -> List[str]:
         return self.history
 
-    def setHisory(self, history):
-        self.history = history
-
-    def addToHistory(self, command):
+    def addToHistory(self, command: str) -> None:
         if command[0:1] == ' ':
             return
 
@@ -220,13 +220,13 @@ class Console(QtWidgets.QPlainTextEdit):
             self.history.append(command)
         self.history_index = len(self.history)
 
-    def getPrevHistoryEntry(self):
+    def getPrevHistoryEntry(self) -> str:
         if self.history:
             self.history_index = max(0, self.history_index - 1)
             return self.history[self.history_index]
         return ''
 
-    def getNextHistoryEntry(self):
+    def getNextHistoryEntry(self) -> str:
         if self.history:
             hist_len = len(self.history)
             self.history_index = min(hist_len, self.history_index + 1)
@@ -234,20 +234,16 @@ class Console(QtWidgets.QPlainTextEdit):
                 return self.history[self.history_index]
         return ''
 
-    def getCursorPosition(self):
+    def getCursorPosition(self) -> int:
         c = self.textCursor()
         return c.position() - c.block().position() - len(self.prompt)
 
-    def setCursorPosition(self, position):
+    def setCursorPosition(self, position: int) -> None:
         self.moveCursor(QTextCursor.StartOfLine)
         for i in range(len(self.prompt) + position):
             self.moveCursor(QTextCursor.Right)
 
-    def register_command(self, c, func):
-        methods = {c: func}
-        self.updateNamespace(methods)
-
-    def runCommand(self):
+    def runCommand(self) -> None:
         command = self.getCommand()
         self.addToHistory(command)
 
@@ -257,21 +253,21 @@ class Console(QtWidgets.QPlainTextEdit):
             tmp_stdout = sys.stdout
 
             class stdoutProxy():
-                def __init__(self, write_func):
+                def __init__(self, write_func: Callable[[str], None]) -> None:
                     self.write_func = write_func
                     self.skip = False
 
-                def flush(self):
+                def flush(self) -> None:
                     pass
 
-                def write(self, text):
+                def write(self, text: str) -> None:
                     if not self.skip:
                         stripped_text = text.rstrip('\n')
                         self.write_func(stripped_text)
                         QtCore.QCoreApplication.processEvents()
                     self.skip = not self.skip
 
-            sys.stdout = stdoutProxy(self.appendPlainText)
+            sys.stdout = cast(TextIO, stdoutProxy(self.appendPlainText))
             try:
                 try:
                     # eval is generally considered bad practice. use it wisely!
@@ -299,36 +295,37 @@ class Console(QtWidgets.QPlainTextEdit):
         self.newPrompt()
         self.set_json(False)
 
-    def keyPressEvent(self, event):
-        if event.key() == QtCore.Qt.Key_Tab:
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == QtCore.Qt.Key.Key_Tab:
             self.completions()
             return
 
         self.hide_completions()
 
-        if event.key() in (QtCore.Qt.Key_Enter, QtCore.Qt.Key_Return):
+        if event.key() in (QtCore.Qt.Key.Key_Enter, QtCore.Qt.Key.Key_Return):
             self.runCommand()
             return
-        if event.key() == QtCore.Qt.Key_Home:
+        if event.key() == QtCore.Qt.Key.Key_Home:
             self.setCursorPosition(0)
             return
-        if event.key() == QtCore.Qt.Key_PageUp:
+        if event.key() == QtCore.Qt.Key.Key_PageUp:
             return
-        elif event.key() in (QtCore.Qt.Key_Left, QtCore.Qt.Key_Backspace):
+        elif event.key() in (QtCore.Qt.Key.Key_Left, QtCore.Qt.Key.Key_Backspace):
             if self.getCursorPosition() == 0:
                 return
-        elif event.key() == QtCore.Qt.Key_Up:
+        elif event.key() == QtCore.Qt.Key.Key_Up:
             self.setCommand(self.getPrevHistoryEntry())
             return
-        elif event.key() == QtCore.Qt.Key_Down:
+        elif event.key() == QtCore.Qt.Key.Key_Down:
             self.setCommand(self.getNextHistoryEntry())
             return
-        elif event.key() == QtCore.Qt.Key_L and event.modifiers() == QtCore.Qt.ControlModifier:
+        elif event.key() == QtCore.Qt.Key.Key_L and \
+                event.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier:
             self.clear()
 
-        super(Console, self).keyPressEvent(event)
+        super().keyPressEvent(event)
 
-    def completions(self):
+    def completions(self) -> None:
         cmd = self.getCommand()
         lastword = re.split(r' |\(|\)', cmd)[-1]
         beginning = cmd[0: -len(lastword)]
@@ -336,7 +333,7 @@ class Console(QtWidgets.QPlainTextEdit):
         path = lastword.split('.')
         prefix = '.'.join(path[:-1])
         prefix = (prefix + '.') if prefix else prefix
-        ns = self.namespace.keys()
+        ns = list(self.namespace.keys())
 
         if len(path) > 1:
             obj = self.namespace.get(path[0])

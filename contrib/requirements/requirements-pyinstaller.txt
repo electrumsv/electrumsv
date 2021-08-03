@@ -1,4 +1,4 @@
-# By adding pyinstaller 4.3 here and commenting out the rest, then generating the deterministic
+# By adding pyinstaller here and commenting out the rest, then generating the deterministic
 # requirements we can get this set of requirements for pyinstaller.
 altgraph==0.17
 future==0.18.2

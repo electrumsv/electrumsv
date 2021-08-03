@@ -26,6 +26,7 @@
 import os
 import platform as os_platform
 import sys
+from typing import NoReturn, Type
 
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -40,7 +41,6 @@ class Platform(object):
         'SimpleWebSocketServer': 'SimpleWebSocketServer',
         'dateutil': 'python-dateutil',
         'electrumsv_secp256k1': 'electrumsv-secp256k1',
-        'jsonrpclib': 'jsonrpclib-pelix',
         'pyaes': 'pyaes',
         'qrcode': 'qrcode',
         'requests': 'requests',
@@ -49,15 +49,15 @@ class Platform(object):
     monospace_font = 'monospace'
     name = 'unset platform'
 
-    def user_dir(self, prefer_local=False):
+    def user_dir(self, prefer_local: bool=False) -> str:
         home_dir = os.environ.get("HOME", ".")
         return os.path.join(home_dir, ".electrum-sv")
 
-    def dbb_user_dir(self):
+    def dbb_user_dir(self) -> str:
         '''User directory for digital bitbox plugin.'''
         return os.path.join(os.environ["HOME"], ".dbb")
 
-    def missing_import(self, exception):
+    def missing_import(self, exception: ImportError) -> NoReturn:
         module = exception.name
         if module is not None:
             # Only hint about a missing import if the failure was a missing module.
@@ -74,7 +74,7 @@ class Darwin(Platform):
     monospace_font = 'Monaco'
     name = 'MacOSX'
 
-    def dbb_user_dir(self):
+    def dbb_user_dir(self) -> str:
         return os.path.join(os.environ.get("HOME", ""), "Library", "Application Support", "DBB")
 
 
@@ -91,19 +91,20 @@ class Windows(Platform):
     monospace_font = 'Consolas'
     name = 'Windows'
 
-    def user_dir(self, prefer_local=False):
+    def user_dir(self, prefer_local: bool=False) -> str:
         app_dir = os.environ.get("APPDATA")
         localapp_dir = os.environ.get("LOCALAPPDATA")
         if not app_dir or (localapp_dir and prefer_local):
             app_dir = localapp_dir
         return os.path.join(app_dir or ".", "ElectrumSV")
 
-    def dbb_user_dir(self):
+    def dbb_user_dir(self) -> str:
         return os.path.join(os.environ["APPDATA"], "DBB")
 
 
-def _detect():
+def _detect() -> Platform:
     system = os_platform.system()
+    cls: Type[Platform]
     if system == 'Darwin':
         cls = Darwin
     elif system == 'Linux':

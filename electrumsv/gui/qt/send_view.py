@@ -26,9 +26,10 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import concurrent.futures
 import textwrap
 import time
-from typing import Any, Dict, List, Tuple, Optional, TYPE_CHECKING
+from typing import Any, cast, Dict, Iterable, List, Tuple, Optional, TYPE_CHECKING
 import weakref
 
 from bitcoinx import hash_to_hex_str
@@ -37,16 +38,17 @@ from PyQt5.QtCore import pyqtSignal, Qt, QStringListModel
 from PyQt5.QtWidgets import (QCheckBox, QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QMenu,
     QLabel, QSizePolicy, QTreeView, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from electrumsv.app_state import app_state
-from electrumsv.constants import PaymentFlag, WalletSettings
-from electrumsv.exceptions import ExcessiveFee, NotEnoughFunds
-from electrumsv.i18n import _
-from electrumsv.logs import logs
-from electrumsv.paymentrequest import has_expired, PaymentRequest
-from electrumsv.transaction import Transaction, XTxOutput
-from electrumsv.util import format_satoshis_plain
-from electrumsv.wallet import AbstractAccount, UTXO
-from electrumsv.wallet_database.tables import InvoiceRow
+from ...app_state import app_state
+from ...constants import PaymentFlag, WalletSettings
+from ...exceptions import ExcessiveFee, NotEnoughFunds
+from ...i18n import _
+from ...logs import logs
+from ...network_support import mapi
+from ...paymentrequest import has_expired, PaymentRequest
+from ...transaction import Transaction, TransactionContext, XTxOutput
+from ...util import format_satoshis_plain
+from ...wallet import AbstractAccount
+from ...wallet_database.types import InvoiceRow, TransactionOutputSpendableTypes
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
 from . import dialogs
@@ -82,14 +84,16 @@ class SendView(QWidget):
     def __init__(self, main_window: 'ElectrumWindow', account_id: int) -> None:
         super().__init__(main_window)
 
-        self._main_window = weakref.proxy(main_window)
+        self._main_window = cast("ElectrumWindow", weakref.proxy(main_window))
         self._account_id = account_id
         self._account = main_window._wallet.get_account(account_id)
         self._logger = logs.get_logger(f"send_view[{self._account_id}]")
 
+        self._mapi_future: Optional[concurrent.futures.Future] = None
+
         self._is_max = False
         self._not_enough_funds = False
-        self._require_fee_update: Optional[int] = None
+        self._require_fee_update: Optional[float] = None
         self._payment_request: Optional[PaymentRequest] = None
         self._completions = QStringListModel()
 
@@ -102,9 +106,41 @@ class SendView(QWidget):
         self.payment_request_deleted_signal.connect(self._payment_request_deleted)
 
         self._main_window.wallet_setting_changed_signal.connect(self._on_wallet_setting_changed)
+        app_state.app_qt.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
+        self._main_window.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
+        self._main_window.keys_updated_signal.connect(self._on_keys_updated)
+
+    def clean_up(self) -> None:
+        if self._mapi_future is not None:
+            self._mapi_future.cancel()
+
+        self._main_window.keys_updated_signal.disconnect(self._on_keys_updated)
+        self._main_window.new_fx_quotes_signal.disconnect(self._on_ui_exchange_rate_quotes)
+        app_state.app_qt.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
+
+    def _on_wallet_setting_changed(self, setting_name: str, setting_value: Any) -> None:
+        if setting_name == WalletSettings.ADD_SV_OUTPUT:
+            self._coinsplitting_checkbox.setVisible(setting_value)
+
+    def _on_fiat_ccy_changed(self) -> None:
+        flag = bool(app_state.fx and app_state.fx.is_enabled())
+        self._fiat_send_e.setVisible(flag)
+
+    def _on_ui_exchange_rate_quotes(self) -> None:
+        edit = self._fiat_send_e if self._fiat_send_e.is_last_edited else self.amount_e
+        edit.textEdited.emit(edit.text())
+
+    def _on_keys_updated(self, account_id: int, keyinstance_ids: List[int]) -> None:
+        # Mostly this will re-select outputs, and for instance not select newly frozen
+        # keys. However, if the user has spent from specific keys we assume they want to
+        # spend those coins, and we do not reselect them.
+        if account_id != self._account_id:
+            return
+        self.update_fee()
 
     def create_send_layout(self) -> QVBoxLayout:
         """ Re-render the layout and it's child widgets of this view. """
+        assert self._account is not None
         # A 4-column grid layout.  All the stretch is in the last column.
         # The exchange rate plugin adds a fiat widget in column 2
         self._send_grid = grid = QGridLayout()
@@ -120,11 +156,11 @@ class SendView(QWidget):
 
         self._from_label = QLabel(_('From'), self)
         self._from_label.setContentsMargins(0, 5, 0, 0)
-        self._from_label.setAlignment(Qt.AlignTop)
+        self._from_label.setAlignment(Qt.AlignmentFlag.AlignTop)
         grid.addWidget(self._from_label, 1, 0)
 
         self._from_list = MyTreeWidget(self, self._main_window.reference(), self.from_list_menu,
-            ['Address / Outpoint','Amount'])
+            [ _('Outpoint / Key ID'), _('Amount') ])
         self._from_list.setMaximumHeight(80)
         grid.addWidget(self._from_list, 1, 1, 1, -1)
         self.set_pay_from([])
@@ -149,7 +185,7 @@ class SendView(QWidget):
         grid.addWidget(self.amount_e, 3, 1)
 
         self._fiat_send_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '', self)
-        self.set_fiat_ccy_enabled(bool(app_state.fx and app_state.fx.is_enabled()))
+        self._on_fiat_ccy_changed()
 
         grid.addWidget(self._fiat_send_e, 3, 2)
         self.amount_e.frozen.connect(
@@ -160,7 +196,7 @@ class SendView(QWidget):
         grid.addWidget(self._max_button, 3, 3)
 
         completer = QCompleter()
-        completer.setCaseSensitivity(False)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseSensitive)
         self._payto_e.set_completer(completer)
         completer.setModel(self._completions)
 
@@ -181,8 +217,8 @@ class SendView(QWidget):
         self._coinsplitting_checkbox.setVisible(self._show_splitting_option())
         # Hardware wallets can only sign a small set of fixed types of scripts (not this kind).
         self._coinsplitting_checkbox.setEnabled(not self._account.involves_hardware_wallet())
-        def coinsplitting_checkbox_cb(state: int) -> None:
-            if state != Qt.Checked:
+        def coinsplitting_checkbox_cb(state: Qt.CheckState) -> None:
+            if state != Qt.CheckState.Checked:
                 dialogs.show_named('sv-only-disabled')
         self._coinsplitting_checkbox.stateChanged.connect(coinsplitting_checkbox_cb)
         grid.addWidget(self._coinsplitting_checkbox, 5, 1, 1, -1)
@@ -242,7 +278,7 @@ class SendView(QWidget):
 
         invoice_box = QGroupBox()
         invoice_box.setTitle(_('Invoices'))
-        invoice_box.setAlignment(Qt.AlignCenter)
+        invoice_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
         invoice_box.setContentsMargins(0, 0, 0, 0)
         invoice_box.setLayout(invoice_layout)
 
@@ -254,15 +290,21 @@ class SendView(QWidget):
 
         return vbox
 
-    def clean_up(self) -> None:
-        pass
-
-    def _on_wallet_setting_changed(self, setting_name: str, setting_value: Any) -> None:
-        if setting_name == WalletSettings.ADD_SV_OUTPUT:
-            self._coinsplitting_checkbox.setVisible(setting_value)
-
     def _show_splitting_option(self) -> bool:
+        assert self._account is not None
         return self._account._wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT)
+
+    def on_tab_activated(self) -> None:
+        # Do nothing if we were already doing something.
+        if self._main_window.network is None or self._mapi_future is not None:
+            return
+
+        assert self._account is not None
+        self._mapi_future = mapi.poll_servers(self._main_window.network, self._account)
+        # if self._mapi_future is not None:
+        # TODO(MAPI) disable UI waiting for result?
+        # ... not sure yet, might be enough to check if this future is complete.
+        # TODO(MAPI) after servers are edited, this should probably be done is well.
 
     # Called externally via the Find menu option.
     def on_search_toggled(self) -> None:
@@ -272,12 +314,13 @@ class SendView(QWidget):
         self._invoice_list.filter(text)
 
     def _on_entry_changed(self) -> None:
+        assert self._account is not None
         text = ""
         if self._not_enough_funds:
             amt_color = ColorScheme.RED
             text = _( "Not enough funds" )
-            c, u, x = self._account.get_frozen_balance()
-            if c+u+x:
+            c, u, x, a = self._account.get_frozen_balance()
+            if c+u+x+a:
                 text += (' (' + app_state.format_amount(c+u+x).strip() + ' ' +
                             app_state.base_unit() + ' ' + _("are frozen") + ')')
 
@@ -331,7 +374,7 @@ class SendView(QWidget):
     def update_fee(self) -> None:
         self._require_fee_update = time.monotonic()
 
-    def set_pay_from(self, coins: List[UTXO]) -> None:
+    def set_pay_from(self, coins: Iterable[TransactionOutputSpendableTypes]) -> None:
         self.pay_from = list(coins)
         self.redraw_from_list()
 
@@ -352,9 +395,9 @@ class SendView(QWidget):
         self._from_label.setHidden(len(self.pay_from) == 0)
         self._from_list.setHidden(len(self.pay_from) == 0)
 
-        def format_utxo(utxo: UTXO) -> str:
+        def format_utxo(utxo: TransactionOutputSpendableTypes) -> str:
             h = hash_to_hex_str(utxo.tx_hash)
-            return '{}...{}:{:d}\t{}'.format(h[0:10], h[-10:], utxo.out_index, utxo.address)
+            return '{}...{}:{:d}\t{}'.format(h[0:10], h[-10:], utxo.txo_index, utxo.keyinstance_id)
 
         for utxo in self.pay_from:
             self._from_list.addTopLevelItem(QTreeWidgetItem(
@@ -376,24 +419,24 @@ class SendView(QWidget):
         '''Recalculate the fee.  If the fee was manually input, retain it, but
         still build the TX to see if there are enough funds.
         '''
+        assert self._account is not None
         amount = all if self._is_max else self.amount_e.get_amount()
         if amount is None:
             self._not_enough_funds = False
             self._on_entry_changed()
         else:
-            fee = None
             outputs = self._payto_e.get_outputs(self._is_max)
             if not outputs:
                 output_script = self._payto_e.get_payee_script()
                 if output_script is None:
                     output_script = self._account.get_dummy_script_template().to_script()
-                outputs = [XTxOutput(amount, output_script)]
+                # NOTE(typing) workaround for mypy not recognising the base class init arguments.
+                outputs = [XTxOutput(amount, output_script)] # type: ignore
 
             coins = self._get_coins()
             outputs.extend(self._account.create_extra_outputs(coins, outputs))
             try:
-                tx = self._account.make_unsigned_transaction(self._get_coins(), outputs,
-                    self._main_window.config, fee)
+                tx, tx_context = self._account.make_unsigned_transaction(coins, outputs)
                 self._not_enough_funds = False
             except NotEnoughFunds:
                 self._logger.debug("Not enough funds")
@@ -412,6 +455,7 @@ class SendView(QWidget):
         self._do_send(preview=True)
 
     def _do_send(self, preview: bool=False) -> None:
+        assert self._account is not None
         dialogs.show_named('think-before-sending')
 
         if self._payment_request is not None:
@@ -426,14 +470,13 @@ class SendView(QWidget):
                 return
 
         r = self._read()
-        if not r:
+        if r is None:
             return
 
-        outputs, fee, tx_desc, coins = r
+        outputs, tx_desc, coins = r
         outputs.extend(self._account.create_extra_outputs(coins, outputs))
         try:
-            tx = self._account.make_unsigned_transaction(coins, outputs, self._main_window.config,
-                fee)
+            tx, tx_context = self._account.make_unsigned_transaction(coins, outputs)
         except NotEnoughFunds:
             self._main_window.show_message(_("Insufficient funds"))
             return
@@ -445,17 +488,18 @@ class SendView(QWidget):
             self._main_window.show_message(str(e))
             return
 
-        tx.context.description = tx_desc
+        tx_context.description = tx_desc
         if preview:
-            self._main_window.show_transaction(self._account, tx, pr=self._payment_request)
+            self._main_window.show_transaction(self._account, tx, tx_context,
+                pr=self._payment_request)
         else:
             amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
-            self._sign_tx_and_broadcast_if_complete(amount, tx)
+            self._sign_tx_and_broadcast_if_complete(amount, tx, tx_context)
 
-    def _read(self) -> Tuple[List[XTxOutput], Optional[int], str, List[UTXO]]:
+    def _read(self) -> Optional[Tuple[List[XTxOutput], str, List[TransactionOutputSpendableTypes]]]:
         if self._payment_request and self._payment_request.has_expired():
             self._main_window.show_error(_('Payment request has expired'))
-            return
+            return None
         label = self._message_e.text()
 
         outputs: List[XTxOutput]
@@ -468,32 +512,33 @@ class SendView(QWidget):
                     '\n'.join([
                         "\n".join(textwrap.wrap(_("Line #") + str(x[0]+1) +": "+ x[1]))
                         for x in errors]))
-                return
+                return None
             outputs = self._payto_e.get_outputs(self._is_max)
 
         if not outputs:
             self._main_window.show_error(_('No payment destinations provided'))
-            return
+            return None
 
         if any(output.value is None for output in outputs):
             self._main_window.show_error(_('Invalid Amount'))
-            return
+            return None
 
-        fee = None
         coins = self._get_coins()
-        return outputs, fee, label, coins
+        return outputs, label, coins
 
-    def _get_coins(self) -> List[UTXO]:
+    def _get_coins(self) -> List[TransactionOutputSpendableTypes]:
         if self.pay_from:
             return self.pay_from
-        return self._account.get_spendable_coins(None, self._main_window.config)
+        assert self._account is not None
+        return self._account.get_transaction_outputs_with_key_data()
 
-    def _sign_tx_and_broadcast_if_complete(self, amount: int, tx: Transaction) -> None:
+    def _sign_tx_and_broadcast_if_complete(self, amount: int, tx: Transaction,
+            tx_context: TransactionContext) -> None:
         # confirmation dialog
         fee = tx.get_fee()
 
         msg = []
-        if fee < round(tx.estimated_size() * 0.5):
+        if fee < round(sum(tx.estimated_size()) * 0.5):
             msg.append(_('Warning') + ': ' +
                 _('The fee is less than 500 sats/kb. It may take a very long time to confirm.'))
         msg.append("")
@@ -507,37 +552,47 @@ class SendView(QWidget):
             return
 
         if self._payment_request is not None:
-            tx.context.invoice_id = self._payment_request.get_id()
+            tx_context.invoice_id = self._payment_request.get_id()
 
         def sign_done(success: bool) -> None:
             if success:
                 if not tx.is_complete():
-                    self._main_window.show_transaction(self._account, tx, pr=self._payment_request)
+                    self._main_window.show_transaction(self._account, tx, tx_context,
+                        pr=self._payment_request)
                     self.clear()
                     return
 
-                self._main_window.broadcast_transaction(self._account, tx)
+                self._main_window.broadcast_transaction(self._account, tx, tx_context)
 
-        self._main_window.sign_tx_with_password(tx, sign_done, password, tx_context=tx.context)
+        self._main_window.sign_tx_with_password(tx, sign_done, password, context=tx_context)
+
+    def is_invoice_payment(self) -> bool:
+        return self._payment_request is not None
 
     def get_transaction_for_invoice(self) -> Optional[Transaction]:
-        invoice_row = self._account.invoices.get_invoice_for_id(self._payment_request.get_id())
+        assert self._account is not None and self._payment_request is not None
+        invoice_row = self._account._wallet.read_invoice(
+            invoice_id=self._payment_request.get_id())
+        assert invoice_row is not None
         if invoice_row.tx_hash is not None:
-            return self._account.get_transaction(invoice_row.tx_hash)
+            return self._main_window._wallet.get_transaction(invoice_row.tx_hash)
         return None
 
     def maybe_send_invoice_payment(self, tx: Transaction) -> bool:
+        assert self._account is not None
         pr = self._payment_request
         if pr:
             tx_hash = tx.hash()
             invoice_id = pr.get_id()
+            assert invoice_id is not None
 
             # TODO: Remove the dependence of broadcasting a transaction to pay an invoice on that
             # invoice being active in the send tab. Until then we assume that broadcasting a
             # transaction that is not related to the active invoice and it's repercussions, has
             # been confirmed by the appropriate calling logic. Like `confirm_broadcast_transaction`
             # in the main window logic.
-            invoice_row = self._account.invoices.get_invoice_for_id(invoice_id)
+            invoice_row = self._account._wallet.read_invoice(invoice_id=invoice_id)
+            assert invoice_row is not None
             if tx_hash != invoice_row.tx_hash:
                 # Calling logic should have detected this and warned/confirmed with the user.
                 return True
@@ -551,7 +606,9 @@ class SendView(QWidget):
                 self.payment_request_error_signal.emit(invoice_id, tx_hash)
                 return False
 
-            self._account.invoices.set_invoice_paid(invoice_id)
+            future = self._account._wallet.update_invoice_flags(
+                [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
+            future.result()
 
             self._payment_request = None
             # On success we broadcast as well, but it is assumed that the merchant also
@@ -598,7 +655,8 @@ class SendView(QWidget):
         if address:
             self._payto_e.setText(address)
         if bip276_text:
-            self._payto_e.setText(bip276_text, True)
+            # NOTE(typing) This is our `PayToEdit.setPlainText` override.
+            self._payto_e.setText(bip276_text, True) # type: ignore
         if message:
             self._message_e.setText(message)
         if amount:
@@ -606,24 +664,41 @@ class SendView(QWidget):
             self.amount_e.textEdited.emit("")
 
     def payment_request_ok(self) -> None:
-        pr = self._payment_request
+        pr_optional = self._payment_request
+        account = self._account
+        assert account is not None and pr_optional is not None
+        pr = pr_optional
+        wallet = account._wallet
 
-        service = self._account.invoices
         if pr.get_id() is None:
-            def callback(exc_value: Optional[Exception]=None) -> None:
-                nonlocal service
-                if exc_value is not None:
-                    raise exc_value # pylint: disable=raising-bad-type
-                row = service.get_invoice_for_payment_uri(pr.get_payment_uri())
+            def callback(future: concurrent.futures.Future) -> None:
+                nonlocal wallet, pr
+                # Skip if the action was cancelled.
+                if future.cancelled():
+                    return
+                # Raise any exception encountered.
+                future.result()
+
+                # NOTE This callback will be happening in the database thread. No UI calls should
+                #   be made, unless we emit a signal to do it.
+                row = wallet.read_invoice(payment_uri=pr.get_payment_uri())
+                assert row is not None
                 pr.set_id(row.invoice_id)
                 self.payment_request_imported_signal.emit(row)
 
-            row = service.import_payment_request(pr, callback)
-            if row.invoice_id is None:
+            # TODO Is this the best algorithm for detecting a duplicate? No idea.
+            row = wallet.read_invoice_duplicate(pr.get_amount(), pr.get_payment_uri())
+            if row is None:
+                row = InvoiceRow(0, account.get_id(), None, pr.get_payment_uri(), pr.get_memo(),
+                    PaymentFlag.UNPAID, pr.get_amount(), pr.to_json().encode(),
+                    pr.get_expiration_date())
+                future = wallet.create_invoices([ row ])
+                future.add_done_callback(callback)
                 # We're waiting for the callback.
                 return
         else:
-            row = service.get_invoice_for_id(pr.get_id())
+            row = account._wallet.read_invoice(invoice_id=pr.get_id())
+            assert row is not None
 
         # The invoice is already present. Populate it unless it's paid.
         if row.flags & PaymentFlag.PAID:
@@ -634,6 +709,8 @@ class SendView(QWidget):
         self._payment_request_imported(row)
 
     def _payment_request_imported(self, row: InvoiceRow) -> None:
+        assert row.description is not None
+
         self._invoice_list.update()
 
         self._payto_e.is_pr = True
@@ -659,6 +736,7 @@ class SendView(QWidget):
         self.update_widgets()
 
     def payment_request_error(self, invoice_id: int, tx_hash: bytes) -> None:
+        assert self._payment_request is not None
         # The transaction is still signed and associated with the invoice. This should be
         # indicated to the user in the UI, and they can deal with it.
 
@@ -675,10 +753,6 @@ class SendView(QWidget):
         # Used to apply changes like base unit changes to all applicable edit fields.
         return [ self.amount_e ]
 
-    def update_for_fx_quotes(self) -> None:
-        edit = self._fiat_send_e if self._fiat_send_e.is_last_edited else self.amount_e
-        edit.textEdited.emit(edit.text())
-
     def paytomany(self) -> None:
         self._payto_e.paytomany()
         msg = '\n'.join([
@@ -689,11 +763,10 @@ class SendView(QWidget):
         ])
         self._main_window.show_message(msg, title=_('Pay to many'))
 
-    def import_invoices(self) -> None:
-        self._invoice_list.import_invoices(self._account)
+    # TODO(invoice-import) What format are these imported files? No idea.
+    # def import_invoices(self) -> None:
+    #     assert self._account is not None
+    #     self._invoice_list.import_invoices(self._account)
 
     def update_widgets(self) -> None:
         self._invoice_list.update()
-
-    def set_fiat_ccy_enabled(self, flag: bool) -> None:
-        self._fiat_send_e.setVisible(flag)
