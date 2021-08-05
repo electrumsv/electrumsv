@@ -32,11 +32,13 @@ app_state.func()
 
 etc.
 '''
+from abc import ABC
 import concurrent.futures
 import os
 import shutil
 import time
-from typing import Any, Callable, cast, Coroutine, Optional, Tuple, TYPE_CHECKING, TypeVar
+from types import TracebackType
+from typing import Any, Callable, cast, Coroutine, Optional, Tuple, Type, TYPE_CHECKING, TypeVar
 
 from bitcoinx import Headers
 
@@ -59,6 +61,12 @@ if TYPE_CHECKING:
 T1 = TypeVar("T1")
 
 logger = logs.get_logger("app_state")
+
+
+class ExceptionHandlerABC(ABC):
+    def handler(self, exc_type: Type[BaseException], exc_value: BaseException,
+            traceback: TracebackType) -> None:
+        raise NotImplementedError
 
 
 class DefaultApp(object):
@@ -232,4 +240,16 @@ app_state = cast(AppStateProxy, AppState)
 def get_app_state_qt() -> "QtAppStateProxy":
     assert type(app_state) is not AppStateProxy
     return cast("QtAppStateProxy", app_state)
+
+
+def attempt_exception_reporting(exc_type: Type[BaseException], exc_value: BaseException,
+        traceback: TracebackType) -> bool:
+    # Assume that any non-default app is GUI for now.
+    if isinstance(app_state.app, DefaultApp):
+        return False
+    if app_state.app_qt.exception_hook is None:
+        return False
+    app_state.app_qt.exception_hook.handler(exc_type, exc_value, traceback)
+    return True
+
 

@@ -30,6 +30,8 @@ import platform
 import sys
 import threading
 import traceback
+from types import TracebackType
+from typing import Tuple, Type
 
 import requests
 from PyQt5.QtCore import QObject, pyqtSignal, Qt
@@ -37,6 +39,7 @@ from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QMessageBox,
 )
 
+from electrumsv.app_state import ExceptionHandlerABC
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.version import PACKAGE_VERSION
@@ -98,7 +101,7 @@ class Exception_Window(QDialog):
               "issue."),
             "</i>",
         ]))
-        label.setTextFormat(Qt.RichText)
+        label.setTextFormat(Qt.TextFormat.RichText)
         main_box.addWidget(label)
 
         self.description_textfield = QTextEdit()
@@ -188,23 +191,28 @@ class Exception_Window(QDialog):
 class Exception_Hook(QObject):
     uncaught_signal = pyqtSignal(object)
 
-    def __init__(self, app):
+    def __init__(self, app) -> None:
         super().__init__()
         self.app = app
         sys.excepthook = self.handler
         self.uncaught_signal.connect(self.show)
 
-    def handler(self, exctype, value, tb):
-        if exctype is KeyboardInterrupt or exctype is SystemExit:
-            sys.__excepthook__(exctype, value, tb)
+    def handler(self, exc_type: Type[BaseException], exc_value: BaseException,
+            traceback: TracebackType) -> None:
+        if exc_type is KeyboardInterrupt or exc_type is SystemExit:
+            sys.__excepthook__(exc_type, exc_value, traceback)
         else:
             # Ensure that the exception is logged at the point of occurrence.
             logger.exception("logged exception, thread=%s", threading.get_ident(),
-                exc_info=(exctype, value, tb))
-            self.uncaught_signal.emit((exctype, value, tb))
+                exc_info=(exc_type, exc_value, traceback))
+            self.uncaught_signal.emit((exc_type, exc_value, traceback))
 
-    def show(self, exc_triple):
+    def show(self, exc_triple: Tuple[Type[BaseException], BaseException, TracebackType]) -> None:
         cls = Exception_Window
         if not cls._active_window:
             cls._active_window = cls(self.app, exc_triple)
             cls._active_window.exec_()
+
+
+ExceptionHandlerABC.register(Exception_Hook)
+

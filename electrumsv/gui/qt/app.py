@@ -38,7 +38,7 @@ from PyQt5.QtCore import pyqtBoundSignal, pyqtSignal, QObject, QTimer
 from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QDialog
 
-from electrumsv.app_state import app_state
+from electrumsv.app_state import app_state, ExceptionHandlerABC
 from electrumsv.contacts import ContactEntry, ContactIdentity
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -114,7 +114,7 @@ class SVApplication(QApplication):
         self.log_window = None
         self.net_dialog = None
         self.timer = QTimer(self)
-        self.exception_hook = None
+        self.exception_hook: Optional[ExceptionHandlerABC] = None
         # A floating point number, e.g. 129.1
         self.dpi = self.primaryScreen().physicalDotsPerInch()
 
@@ -373,7 +373,7 @@ class SVApplication(QApplication):
         self.cosigner_pool = CosignerPool()
         self.label_sync = LabelSync()
         if app_state.config.get("show_crash_reporter", default=True):
-            self.exception_hook = Exception_Hook(self)
+            self.exception_hook = cast(ExceptionHandlerABC, Exception_Hook(self))
         self.timer.start()
         signal.signal(signal.SIGINT, lambda *args: self.quit())
         self.initial_dialogs()

@@ -46,7 +46,7 @@ from bitcoinx import BitcoinRegtest, Chain, CheckPoint, Coin, double_sha256, Hea
     IncorrectBits, InsufficientPoW, MissingHeader, hash_to_hex_str, hex_str_to_hash, sha256
 import certifi
 
-from .app_state import app_state
+from .app_state import app_state, attempt_exception_reporting
 from .constants import NetworkServerType, TransactionImportFlag, TxFlags
 from .i18n import _
 from .logs import logs
@@ -958,6 +958,7 @@ class Network(TriggeredCallbacks):
     '''Manages a set of connections to remote ElectrumX servers.  All operations are
     asynchronous.
     '''
+    _main_task_active = False
 
     def __init__(self) -> None:
         TriggeredCallbacks.__init__(self)
@@ -991,7 +992,7 @@ class Network(TriggeredCallbacks):
         # Feed pub-sub notifications to currently active SVSession for processing
         self._on_status_queue = async_.queue()
 
-        self.future = async_.spawn(self._main_task)
+        self.future = async_.spawn(self._main_task_loop)
 
         self.subscriptions.set_script_hash_callbacks(
             self._on_subscribe_script_hashes, self._on_unsubscribe_script_hashes)
@@ -1033,24 +1034,50 @@ class Network(TriggeredCallbacks):
         # If we request an anonymous fee quote for this server, keep the last one.
         server.setdefault("anonymous_fee_quote", {})
 
-    async def _main_task(self) -> None:
+    async def _main_task_loop(self) -> None:
+        self._main_task_active = True
+        iterations = 0
         try:
-            async with TaskGroup() as group:
+            while self._main_task_active:
+                if iterations > 0:
+                    logger.debug("Restarting main task, attempt %d", iterations)
+                await self._main_task()
+                iterations += 1
+        finally:
+            logger.debug("Network main task loop exiting.")
+            self.shutdown_complete_event.set()
+            app_state.config.set_key('servers', list(SVServer.all_servers.values()), True)
+            app_state.config.set_key('mapi_servers', self.get_config_mapi_servers(), True)
+
+    async def _main_task(self) -> None:
+        # self._cevent = app_state.async_.event() # TODO remove
+        group = TaskGroup()
+        try:
+            async with group:
                 await group.spawn(self._start_network, group)
                 await group.spawn(self._monitor_lagging_sessions)
                 await group.spawn(self._monitor_main_chain)
                 await group.spawn(self._initial_script_hash_status_subscriptions, group)
                 await group.spawn(self._monitor_script_hash_status_subscriptions, group)
                 await group.spawn(self._monitor_wallets, group)
+                # self._ctask = await group.spawn(self._cancellable_task) # TODO remove
         finally:
-            self.shutdown_complete_event.set()
-            app_state.config.set_key('servers', list(SVServer.all_servers.values()), True)
-            app_state.config.set_key('mapi_servers', self.get_config_mapi_servers(), True)
+            logger.debug("Network main task exiting.")
+            exception_count = 0
+            for exc_idx, exc in enumerate(group.exceptions):
+                if not (exc is None or isinstance(exc, CancelledError)):
+                    exception_count += 1
+                    # We only try reporting the first exception for now, because if there are many
+                    # the user will get spammed with windows.
+                    if exception_count == 1:
+                        attempt_exception_reporting(type(exc), exc, exc.__traceback__)
+                    logger.exception("Exception in task %d", exc_idx,
+                        exc_info=(type(exc), exc, exc.__traceback__))
+            logger.debug("Network main task exited, exceptions: %d", exception_count)
 
-    async def _do_mapi_health_check(self) -> None:
-        """The last_good and last_try timestamps will be used to include/exclude the mAPI for
-        selection"""
-        return
+    # async def _cancellable_task(self) -> None: # TODO remove
+    #     await self._cevent.wait()
+    #     raise Exception("zzzz")
 
     async def _restart_network(self) -> None:
         self.stop_network_event.set()
@@ -1211,7 +1238,6 @@ class Network(TriggeredCallbacks):
         # sessions, given that an existing session can be upgraded to a main session.
         self.sessions_changed_event.set()
         self.sessions_changed_event.clear()
-        _main_session = self.main_session()
         # Disconnect the old main session, if any, in order to lose scripthash
         # subscriptions.
         if old_main_session:
@@ -1540,6 +1566,7 @@ class Network(TriggeredCallbacks):
     #
 
     async def shutdown_wait(self) -> None:
+        self._main_task_active = False
         self.future.cancel()
         await self.shutdown_complete_event.wait()
         assert not self.sessions
