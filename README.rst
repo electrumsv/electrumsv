@@ -247,14 +247,13 @@ Check out the code from Github::
     git clone https://github.com/ElectrumSV/ElectrumSV
     cd ElectrumSV
 
-Run the pip installs (this should install dependencies)::
+Run the pip installs (this should install the normal dependencies)::
 
     pip3 install .
 
-Create translations (optional)::
+Install the development-related dependencies::
 
-    sudo apt-get install python-requests gettext
-    ./contrib/make_locale
+    pip3 install -r contrib/requirements/requirements-dev.txt
 
 Running unit tests (with the `pytest` package)::
 
@@ -268,6 +267,10 @@ Running mypy::
 
     mypy --config-file mypy.ini --python-version 3.7
 
+Create translations (optional)::
+
+    sudo apt-get install python-requests gettext
+    ./contrib/make_locale
 
 Builds
 ======
