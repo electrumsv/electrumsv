@@ -759,7 +759,7 @@ class Transaction(Tx): # type: ignore[misc]
             version=read_le_int32(read), # type: ignore[call-arg]
             inputs=xread_list(read, tell, XTxInput.read),
             outputs=xread_list(read, tell, XTxOutput.read),
-            locktime=read_le_uint32(read), # type: ignore[call-arg]
+            locktime=read_le_uint32(read),
         )
 
     @classmethod
@@ -770,7 +770,7 @@ class Transaction(Tx): # type: ignore[misc]
             version=read_le_int32(read), # type: ignore[call-arg]
             inputs=xread_list(read, tell, XTxInput.read_extended),
             outputs=xread_list(read, tell, XTxOutput.read),
-            locktime=read_le_uint32(read), # type: ignore[call-arg]
+            locktime=read_le_uint32(read),
         )
 
     def to_bytes(self) -> bytes:
