@@ -27,7 +27,7 @@ import enum
 from io import BytesIO
 import struct
 from struct import error as struct_error
-from typing import Any, Callable, cast, Dict, Generator, List, Optional, Tuple, \
+from typing import Any, Callable, cast, Dict, Generator, List, Optional, Sequence, Tuple, \
     TypedDict, TypeVar, Union
 
 import attr
@@ -38,6 +38,7 @@ from bitcoinx import (
     PrivateKey, PublicKey, push_int, push_item, read_le_int32, read_le_int64, read_le_uint32,
     read_varint, Script, SigHash, Tx, TxInput, TxOutput, unpack_le_uint16, varint_len
 )
+from typing_extensions import Protocol
 
 from .bitcoin import ScriptTemplate
 from .constants import DatabaseKeyDerivationType, DerivationPath, ScriptType
@@ -45,6 +46,11 @@ from .logs import logs
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
 from .types import DatabaseKeyDerivationData, TransactionSize, Outpoint
+
+
+class SupportsToBytes(Protocol):
+    def to_bytes(self, *, compressed: Optional[bool]=None) -> bytes:
+       ...
 
 
 NO_SIGNATURE = b'\xff'
@@ -257,8 +263,8 @@ class XPublicKey:
             return d
         raise NotImplementedError
 
-    def to_bytes(self) -> bytes:
-        return cast(bytes, self.to_public_key().to_bytes())
+    def to_bytes(self, *, compressed: Optional[bool]=None) -> bytes:
+        return cast(bytes, self.to_public_key().to_bytes(compressed=compressed))
 
     def __eq__(self, other: object) -> bool:
         return (isinstance(other, XPublicKey) and self._pubkey_bytes == other._pubkey_bytes and
@@ -363,9 +369,9 @@ class XPublicKey:
             f"pubkey={self._pubkey_bytes.hex() if self._pubkey_bytes is not None else None!r}")
 
 
-# NOTE(typing) The bitcoinx base class does not have typing information, so we need to ignore that.
+# NOTE(typing) Disable the 'Class cannot subclass "Tx" (has type "Any")' message.
 @attr.s(slots=True, repr=False)
-class XTxInput(TxInput): # type: ignore
+class XTxInput(TxInput): # type: ignore[misc]
     '''An extended bitcoin transaction input.'''
     # Used for signing metadata for hardware wallets.
     # Exchanged in incomplete transactions to aid in comprehending unknown inputs.
@@ -394,7 +400,7 @@ class XTxInput(TxInput): # type: ignore
         assert len(script_sig_bytes) != 0
 
         # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
-        return cls(prev_hash, prev_idx, script_sig, sequence, # type: ignore
+        return cls(prev_hash, prev_idx, script_sig, sequence, # type: ignore[arg-type]
             script_offset=script_sig_offset, script_length=len(script_sig_bytes))
 
     @classmethod
@@ -422,7 +428,7 @@ class XTxInput(TxInput): # type: ignore
             if 'address' in kwargs:
                 del kwargs['address']
         # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
-        result = cls(prev_hash, prev_idx, script_sig, sequence, # type: ignore
+        result = cls(prev_hash, prev_idx, script_sig, sequence, # type: ignore[arg-type]
             value=None, **kwargs) # type: ignore
         if not result.is_complete():
             result.value = read_le_int64(read)
@@ -484,9 +490,9 @@ class XTxInput(TxInput): # type: ignore
         )
 
 
-# NOTE(typing) The bitcoinx base class does not have typing information, so we need to ignore that.
+# NOTE(typing) Disable the 'Class cannot subclass "Tx" (has type "Any")' message.
 @attr.s(slots=True, repr=False)
-class XTxOutput(TxOutput): # type: ignore
+class XTxOutput(TxOutput): # type: ignore[misc]
     """
     An extended Bitcoin transaction output.
 
@@ -586,15 +592,15 @@ def _extract_multisig_pattern(decoded: List[Tuple[int, Optional[bytes], int]]) \
     return m, n, l
 
 
-def multisig_script(x_pubkeys: List[XPublicKey], threshold: int) -> bytes:
+def multisig_script(pubkeylikes: Sequence[SupportsToBytes], threshold: int) -> bytes:
     '''Returns bytes.
 
     x_pubkeys is an array of XPulicKey objects or an array of PublicKey objects.
     '''
-    assert 1 <= threshold <= len(x_pubkeys)
+    assert 1 <= threshold <= len(pubkeylikes)
     parts = [push_int(threshold)]
-    parts.extend(push_item(x_pubkey.to_bytes()) for x_pubkey in x_pubkeys)
-    parts.append(push_int(len(x_pubkeys)))
+    parts.extend(push_item(x_pubkey.to_bytes()) for x_pubkey in pubkeylikes)
+    parts.append(push_int(len(pubkeylikes)))
     parts.append(pack_byte(Ops.OP_CHECKMULTISIG))
     return b''.join(parts)
 
@@ -612,17 +618,17 @@ def bare_multisignatures(threshold: int, signatures: List[bytes]) -> List[bytes]
     return present_signatures
 
 
-def create_script_sig(script_type: ScriptType, threshold: int, x_pubkeys: List[XPublicKey],
-        signatures: List[bytes]) -> Script:
+def create_script_sig(script_type: ScriptType, threshold: int,
+        pubkeylikes: Sequence[SupportsToBytes], signatures: List[bytes]) -> Script:
     if script_type == ScriptType.P2PK:
         return Script(push_item(signatures[0]))
     elif script_type == ScriptType.P2PKH:
-        return Script(push_item(signatures[0]) + push_item(x_pubkeys[0].to_bytes()))
+        return Script(push_item(signatures[0]) + push_item(pubkeylikes[0].to_bytes()))
     elif script_type == ScriptType.MULTISIG_P2SH:
         prepared_signatures = bare_multisignatures(threshold, signatures)
         parts = [pack_byte(Ops.OP_0)]
         parts.extend(push_item(signature) for signature in prepared_signatures)
-        nested_script = multisig_script(x_pubkeys, threshold)
+        nested_script = multisig_script(pubkeylikes, threshold)
         parts.append(push_item(nested_script))
         return Script(b''.join(parts))
     elif script_type == ScriptType.MULTISIG_BARE:
@@ -638,7 +644,7 @@ def create_script_sig(script_type: ScriptType, threshold: int, x_pubkeys: List[X
             else:
                 parts.append([
                     push_item(signature),
-                    push_item(x_pubkeys[i].to_bytes()),
+                    push_item(pubkeylikes[i].to_bytes()),
                     pack_byte(Ops.OP_TRUE),
                 ])
         parts.reverse()
@@ -730,41 +736,41 @@ DATA_PREFIX1 = bytes.fromhex("6a")
 DATA_PREFIX2 = bytes.fromhex("006a")
 
 
-# NOTE(typing) The bitcoinx base class does not have typing information, so we need to ignore that.
+# NOTE(typing) Disable the 'Class cannot subclass "Tx" (has type "Any")' message.
 @attr.s(slots=True)
-class Transaction(Tx): # type: ignore
+class Transaction(Tx): # type: ignore[misc]
     SIGHASH_FORKID = 0x40
 
-    inputs: List[XTxInput]
-    outputs: List[XTxOutput]
+    inputs: List[XTxInput] = attr.ib(default=attr.Factory(list))
+    outputs: List[XTxOutput] = attr.ib(default=attr.Factory(list))
 
     @classmethod
     def from_io(cls, inputs: List[XTxInput], outputs: List[XTxOutput], locktime: int=0) \
             -> "Transaction":
-        # NOTE(typing) attrs-based subclass lacks typing
-        return cls(version=1, inputs=inputs, outputs=outputs.copy(), # type: ignore
-            locktime=locktime)
+        # NOTE(typing) Until the base class is fully typed it's attrs won't be found properly.
+        return cls(version=1, locktime=locktime, # type: ignore[call-arg]
+            inputs=inputs, outputs=outputs.copy())
 
     @classmethod
     def read(cls, read: Callable[[int], bytes], tell: Callable[[], int]) -> 'Transaction':
         '''Overridden to specialize reading the inputs.'''
-        # NOTE(typing) workaround for mypy not recognising the base class init arguments.
-        return cls( # type: ignore
-            read_le_int32(read),
-            xread_list(read, tell, XTxInput.read),
-            xread_list(read, tell, XTxOutput.read),
-            read_le_uint32(read),
+        # NOTE(typing) Until the base class is fully typed it's attrs won't be found properly.
+        return cls(
+            version=read_le_int32(read), # type: ignore[call-arg]
+            inputs=xread_list(read, tell, XTxInput.read),
+            outputs=xread_list(read, tell, XTxOutput.read),
+            locktime=read_le_uint32(read), # type: ignore[call-arg]
         )
 
     @classmethod
     def read_extended(cls, read: Callable[[int], bytes], tell: Callable[[], int]) -> 'Transaction':
         '''Overridden to specialize reading the inputs.'''
-        # NOTE(typing) workaround for mypy not recognising the base class init arguments.
-        return cls( # type: ignore
-            read_le_int32(read),
-            xread_list(read, tell, XTxInput.read_extended),
-            xread_list(read, tell, XTxOutput.read),
-            read_le_uint32(read),
+        return cls(
+            # NOTE(typing) Until the base class is fully typed it's attrs won't be found properly.
+            version=read_le_int32(read), # type: ignore[call-arg]
+            inputs=xread_list(read, tell, XTxInput.read_extended),
+            outputs=xread_list(read, tell, XTxOutput.read),
+            locktime=read_le_uint32(read), # type: ignore[call-arg]
         )
 
     def to_bytes(self) -> bytes:
