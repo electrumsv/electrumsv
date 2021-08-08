@@ -59,7 +59,6 @@ class CoinSplittingTab(QWidget):
     splittable_unit_label = None
     unsplittable_unit_label = None
     waiting_dialog = None
-    new_transaction_cv = None
 
     _direct_splitting_enabled = False
     _direct_splitting = False
@@ -157,11 +156,12 @@ class CoinSplittingTab(QWidget):
         self._faucet_button.setEnabled(False)
 
         # At this point we know we should get a key that is addressable.
-        unused_key = self._account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
+        pr_future, key_data = self._account.create_payment_request(
+            _("Receive faucet dust for coin-splitting."), expiration_seconds=5*60)
         script_type = self._account.get_default_script_type()
         script_template = self._account.get_script_template_for_derivation(script_type,
-            unused_key.derivation_type, unused_key.derivation_data2)
-        self._allocated_key_state = AllocatedKeyState(script_template, unused_key.keyinstance_id,
+            key_data.derivation_type, key_data.derivation_data2)
+        self._allocated_key_state = AllocatedKeyState(script_template, key_data.keyinstance_id,
             script_type)
 
         self.split_stage = STAGE_PREPARING
@@ -247,6 +247,7 @@ class CoinSplittingTab(QWidget):
             unused_key.derivation_type, unused_key.derivation_data2)
         outputs = [ XTxOutput(all, script) ]
         tx, tx_context = self._account.make_unsigned_transaction(coins, outputs)
+        tx_context.description = f"{TX_DESC_PREFIX}: {_('Your split coins')}"
 
         amount = tx.output_value()
         fee = tx.get_fee()
@@ -266,8 +267,6 @@ class CoinSplittingTab(QWidget):
                     dialog = self._main_window.show_transaction(self._account, tx)
                     dialog.exec()
                 else:
-                    extra_text = _("Your split coins")
-                    tx_context.description = f"{TX_DESC_PREFIX}: {extra_text}"
                     self._main_window.broadcast_transaction(self._account, tx,
                         success_text=_("Your coins have now been split."))
             self._cleanup_tx_final()
@@ -299,6 +298,7 @@ class CoinSplittingTab(QWidget):
 
             if self._account_id not in args[2].account_ids:
                 return
+            assert self._account is not None
 
             our_script = self._allocated_key_state.script_template.to_script_bytes()
             # args = (tx_hash, tx, involved_account_ids, import_flags)
@@ -364,7 +364,7 @@ class CoinSplittingTab(QWidget):
 
         vbox = QVBoxLayout()
         vbox.addStretch(1)
-        vbox.addWidget(self._intro_label, 0, Qt.AlignCenter)
+        vbox.addWidget(self._intro_label, 0, Qt.AlignmentFlag.AlignCenter)
         vbox.addStretch(1)
 
         grid = QGridLayout()
@@ -381,8 +381,8 @@ class CoinSplittingTab(QWidget):
         grid.addWidget(line, row_index, 1, 1, 2)
         row_index += 1
 
-        grid.addWidget(self._direct_button, row_index, 1, 1, 1, Qt.AlignLeft)
-        grid.addWidget(self._direct_label, row_index, 2, 1, 1, Qt.AlignCenter)
+        grid.addWidget(self._direct_button, row_index, 1, 1, 1, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self._direct_label, row_index, 2, 1, 1, Qt.AlignmentFlag.AlignCenter)
         row_index += 1
 
         line = QFrame()
@@ -393,8 +393,8 @@ class CoinSplittingTab(QWidget):
         grid.addWidget(line, row_index, 1, 1, 2)
         row_index += 1
 
-        grid.addWidget(self._faucet_button, row_index, 1, 1, 1, Qt.AlignLeft)
-        grid.addWidget(self._faucet_label, row_index, 2, 1, 1, Qt.AlignCenter)
+        grid.addWidget(self._faucet_button, row_index, 1, 1, 1, Qt.AlignmentFlag.AlignLeft)
+        grid.addWidget(self._faucet_label, row_index, 2, 1, 1, Qt.AlignmentFlag.AlignCenter)
         row_index += 1
 
         line = QFrame()
@@ -409,7 +409,7 @@ class CoinSplittingTab(QWidget):
 
         vbox.addLayout(grid)
         vbox.addStretch(1)
-        vbox.addWidget(self._help_button, 0, Qt.AlignCenter)
+        vbox.addWidget(self._help_button, 0, Qt.AlignmentFlag.AlignCenter)
         vbox.addStretch(1)
 
         self._replace_layout(vbox)
@@ -418,7 +418,8 @@ class CoinSplittingTab(QWidget):
         label = QLabel(disabled_text)
 
         hbox = QHBoxLayout()
-        hbox.addWidget(label, 0, Qt.AlignHCenter | Qt.AlignVCenter)
+        hbox.addWidget(label, 0,
+            Qt.AlignmentFlag(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter))
 
         vbox = QVBoxLayout()
         vbox.addLayout(hbox)
@@ -444,10 +445,11 @@ class SplitWaitingDialog(QProgressDialog):
 
         # These flags remove the close button, which removes a corner case that we'd
         # otherwise have to handle.
-        super().__init__("", None, 0, 100, parent,
-                         Qt.Window | Qt.WindowTitleHint) # | Qt.CustomizeWindowHint)
+        super().__init__("", "", 0, 100, parent,
+            Qt.WindowType(Qt.WindowType.Window | Qt.WindowType.WindowTitleHint))
+        # | Qt.WindowFlags.CustomizeWindowHint)
 
-        self.setWindowModality(Qt.WindowModal)
+        self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setWindowTitle(_("Please wait"))
 
         self.stage_progress = 0
@@ -457,7 +459,7 @@ class SplitWaitingDialog(QProgressDialog):
                 return
             self.accept()
             on_done(future)
-        future = app_state.app.run_in_thread(func, self, on_done=_on_done)
+        future = app_state.app_qt.run_in_thread(func, self, on_done=_on_done)
         self.accepted.connect(future.cancel)
         def _on_rejected():
             self.was_rejected = True
