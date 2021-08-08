@@ -121,7 +121,7 @@ class SVTestnet(object):
     DEFAULT_SERVERS = read_json_dict('servers_testnet.json')
     DEFAULT_MAPI_SERVERS = read_json_dict('mapi_servers_testnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
-    NAME = NetworkName.MAINNET
+    NAME = NetworkName.TESTNET
     BITCOIN_URI_PREFIX = "bitcoin"
     PAY_URI_PREFIX = "pay"
     WIF_PREFIX = 0xef
