@@ -1062,18 +1062,27 @@ class Network(TriggeredCallbacks):
                 await group.spawn(self._monitor_wallets, group)
                 # self._ctask = await group.spawn(self._cancellable_task) # TODO remove
         finally:
-            logger.debug("Network main task exiting.")
-            exception_count = 0
+            logger.debug("Network main task exiting")
+            # NOTE(exception-reporting) We only try reporting the first exception for now, we do
+            # not really expect more than one and it might become spammy if there are many.
+            # NOTE(network-exit-bug) We have a problem where the network main task exits because
+            # presumably an exception happens in a task, or a task is cancelled by something
+            # unknown and this is caught by the `TaskGroup` and causes the cancellation of
+            # all the tasks in it (and previously the network main task to exit).
+            reported_one_exception = False
             for exc_idx, exc in enumerate(group.exceptions):
-                if not (exc is None or isinstance(exc, CancelledError)):
-                    exception_count += 1
-                    # We only try reporting the first exception for now, because if there are many
-                    # the user will get spammed with windows.
-                    if exception_count == 1:
+                if exc is not None:
+                    if not isinstance(exc, CancelledError) and not reported_one_exception:
+                        reported_one_exception = True
                         attempt_exception_reporting(type(exc), exc, exc.__traceback__)
+                    # Do not log `CancelledError` if we are exiting the network as it is normal.
+                    if not self._main_task_active and isinstance(exc, CancelledError):
+                        continue
+                    # Otherwise log it (in addition to exceptions) because this is possibly an
+                    # erroneous cancellation and we want to see where they all came from (this
+                    # might not even be good enough and the real problem may be in sub-taskgroups.
                     logger.exception("Exception in task %d", exc_idx,
                         exc_info=(type(exc), exc, exc.__traceback__))
-            logger.debug("Network main task exited, exceptions: %d", exception_count)
 
     # async def _cancellable_task(self) -> None: # TODO remove
     #     await self._cevent.wait()
