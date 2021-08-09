@@ -236,6 +236,10 @@ class NodesListWidget(QTreeWidget):
                 item = QTreeWidgetItem([session.server.host + extra_name,
                     str(session.tip.height)])
                 item.setIcon(NodesListColumn.SERVER, self._connected_icon)
+                if session.server.protocol == "t":
+                    item.setToolTip(NodesListColumn.SERVER, _("Unencrypted"))
+                else:
+                    item.setToolTip(NodesListColumn.SERVER, _("Encrypted / SSL"))
                 item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, session.server)
                 if isinstance(tree_item, NodesListWidget):
                     tree_item.addTopLevelItem(item)
