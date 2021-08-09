@@ -30,7 +30,7 @@ How do you create a wallet?
 
 How do you create an account?
     Each account in your wallet is much like a bank account, with the funds in each separated from
-    the others. Read more about :doc:`creating an account <getting-started/creating-an-account>`.
+    the others. Read more about :doc:`creating a new account <getting-started/creating-an-account>`.
 
 How do you receive a payment from someone else?
     Each account has the ability to provide countless unique and private receiving addresses and
@@ -142,12 +142,6 @@ What is the process of releasing a new version?
     release and updating the web site to have the content changes required to offer it for
     download. Read more about the :doc:`release process <the-electrumsv-project/release-process>`.
 
-What should be tested in order to verify things work as they should?
-    The unit and functional tests can only test so much. It is also necessary to do manual testing.
-    If someone wishes to go through it all and try it out, they are more than welcome to. But
-    generally, this will be used as a guide to do targeted testing based on what changes have been
-    made that are related to featured functionality. Read more about
-    :doc:`manual testing <the-electrumsv-project/testing-manually>`.
 
 .. toctree::
    :maxdepth: 1
@@ -157,7 +151,6 @@ What should be tested in order to verify things work as they should?
    /the-electrumsv-project/how-you-can-contribute
    /the-electrumsv-project/continuous-integration
    /the-electrumsv-project/release-process
-   /the-electrumsv-project/testing-manually
 
 Indices and tables
 ==================

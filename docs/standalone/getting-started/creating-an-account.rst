@@ -4,7 +4,7 @@ Creating an account
 If you are reading this, you likely have a new wallet that has no accounts, and you want to add
 one to it. We support addition of a wide variety of account types:
 
-- A new “Standard” account. This is the equivalent of creating a new ElectrumSV seed-word
+- A new "Standard" account. This is the equivalent of creating a new ElectrumSV seed-word
   based wallet in 1.2.5 and earlier.
 - A multi-signature account. Use this if you are creating a new multi-signature account, or
   restoring an existing one from master public keys, seed words and so on.
@@ -18,33 +18,34 @@ one to it. We support addition of a wide variety of account types:
 
 This guide solely covers creating a "Standard" account.
 
-Adding an account
------------------
+Adding a new account
+--------------------
 
-In the top-left-hand corner of your wallet window, you will see the “Add Account” button.
-Click it and it will open the account wizard which allows all supported types of accounts to be
-created.
+On creating a new wallet, the first thing you will be presented with is the window for adding
+a new account.
 
-.. figure:: images/creating-an-account-01-add-account-button.png
+.. figure:: images/creating-a-wallet-04-new-wallet-window.png
+   :alt: The account creation window.
+   :align: center
+   :scale: 80%
+
+   The account creation window.
+
+If you dismiss this window, accidentally or otherwise, you can re-open it by clicking on the
+"Add Account" button on the left hand side of the wallet window toolbar. Click it and it will open
+the account wizard which allows all supported types of accounts to be created.
+
+.. figure:: images/creating-a-wallet-05-wallet-window-no-account-yet.png
    :alt: The "Add Account" button highlighted.
    :align: center
    :scale: 80%
 
    The "Add Account" button highlighted.
 
-The account wizard offers four different types of account addition, at the time of writing.
-
-.. figure:: images/creating-an-account-02-account-wizard-types.png
-   :alt: The Account Types page in the Account Wizard.
-   :align: center
-   :scale: 80%
-
-   The Account Types page in the Account Wizard.
-
-Creating a new “Standard” Account
+Creating a new "Standard" Account
 ---------------------------------
 
-Double-click on the “Standard” entry to proceed. Or if you prefer to work for it, click the
+Double-click on the "Standard" entry to proceed. Or if you prefer to work for it, click the
 “Next” button or press the enter key. You will be asked for your password so that the generated
 seed words and private key data can be encrypted into your wallet. This also verifies you have
 the ability to really use this wallet, and should able to add an account.
@@ -60,38 +61,16 @@ You will immediately see that the account has been added to your wallet. You wil
 no point did you have to copy down your new seed words, or confirm them. You will be reminded to
 back them up by the wallet, and can do so at your leisure and own risk.
 
-.. figure:: images/creating-an-account-03-wallet-window-receiving-tab.png
-   :alt: The new account's receiving tab.
+.. figure:: images/creating-an-account-03-wallet-window-post-creation.png
+   :alt: The first thing you see on creating your new account.
    :align: center
    :scale: 80%
 
-   The new account's receiving tab.
+   The first thing you see on creating your new account.
 
-Backing up your seed words
---------------------------
-
-The wallet window now has a notification center, which is used to remind you to deal with
-important events, and point out how you can do it.
-
-.. figure:: images/creating-an-account-04-wallet-window-notifications-indicator.png
-   :alt: The wallet's notifications indicator.
-   :align: center
-   :scale: 80%
-
-   The wallet's notifications indicator.
-
-The initial backup notification
--------------------------------
-
-Clicking the notification icon will make the new “Notifications” tab the active one and show the
-initial notification about backing up your data.
-
-.. figure:: images/creating-an-account-05-wallet-window-notifications-tab.png
-   :alt: The initial backup notification in the wallet's notifications tab.
-   :align: center
-   :scale: 80%
-
-   The initial backup notification in the wallet's notifications tab.
+The "Notifications" tab will be shown every time you own your wallet as long as you have not
+dismissed the "Backup your wallet" notification. It is advised you go and back up your secured
+data immediately, as it instructs you to.
 
 Follow the link to your secured data
 ------------------------------------

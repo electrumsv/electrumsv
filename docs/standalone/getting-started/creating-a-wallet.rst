@@ -39,8 +39,8 @@ Add a mandatory password
 
 The next step is setting a password for your new wallet. We require a password and there is no
 way to opt out, but you can always enter something like “password” or “123456” if you wish.
-This is also required for hardware and watch-only wallets, where there is no key or seed word
-data to encrypt.
+For now this is also required for hardware and watch-only wallets, where there is no key or
+seed word data to encrypt.
 
 .. figure:: images/creating-a-wallet-03-add-password-dialog.png
    :alt: blah
@@ -50,21 +50,25 @@ data to encrypt.
    The wallet file name dialog.
 
 Once you have entered a password, and confirmed it, the “OK” button will become enabled and you
-can click it (or just press the enter key) to open the new wallet.
+can click it (or just press the enter key) to open the new wallet. On doing so, the wallet window
+will open and you will be presented with the account creation dialog.
 
 .. figure:: images/creating-a-wallet-04-new-wallet-window.png
    :alt: blah
    :align: center
    :scale: 80%
 
-   The new wallet's wallet window.
+   The new wallet's wallet window with account creation dialog.
 
-Congratulations, you have created a new empty wallet. It will not be usable until you have
-created an account, and various parts of the user interface will indicate this.
+If you dismiss the dialog either intentionally, or accidentally, before creating an account you
+can bring it back up by clicking the "Add Account" button.
 
-.. figure:: images/creating-a-wallet-05-wallet-window-receiving-disabled.png
+.. figure:: images/creating-a-wallet-05-wallet-window-no-account-yet.png
    :alt: blah
    :align: center
    :scale: 80%
 
    The receiving tab is disabled.
+
+Congratulations, you have created a new empty wallet. It will not be usable until you have
+created an account, and various parts of the user interface will indicate this.
