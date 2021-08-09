@@ -1,5 +1,9 @@
 {
     "tsv.usebsv.com": {
         "s": "51002"
+    },
+    "testnet.electrumsv.io": {
+        "s": "51002",
+        "t": "51001"
     }
 }

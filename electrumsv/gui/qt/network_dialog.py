@@ -73,7 +73,6 @@ class Roles:
 
 logger = logs.get_logger("network-ui")
 
-
 # These are display ordered for the combo box.
 SERVER_TYPE_ENTRIES = [
     NetworkServerType.ELECTRUMX,
@@ -140,6 +139,11 @@ def url_to_server_key(url: str) -> SVServerKey:
     return SVServerKey(host, port, protocol)
 
 
+class NodesListColumn(enum.IntEnum):
+    SERVER = 0
+    HEIGHT = 1
+
+
 class NodesListWidget(QTreeWidget):
 
     def __init__(self, parent: 'BlockchainTab', network: Network) -> None:
@@ -162,7 +166,7 @@ class NodesListWidget(QTreeWidget):
         item = self.currentItem()
         if not item:
             return
-        server = item.data(0, Qt.ItemDataRole.UserRole)
+        server = item.data(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole)
         if not server:
             return
 
@@ -202,8 +206,8 @@ class NodesListWidget(QTreeWidget):
 
         _chain, common_height = our_chain.common_chain_and_height(chain)
         fork_height = common_height + 1
-        headers_obj = app_state.headers
-        header = headers_obj.header_at_height(chain, fork_height)
+        assert app_state.headers is not None
+        header = app_state.headers.header_at_height(chain, fork_height)
         prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
         return f'{prefix}@{fork_height}'
 
@@ -216,7 +220,7 @@ class NodesListWidget(QTreeWidget):
             if len(chains) > 1:
                 name = self.chain_name(chain, our_chain)
                 tree_item = QTreeWidgetItem([name, '%d' % chain.height])
-                tree_item.setData(0, Qt.ItemDataRole.UserRole, None)  # server
+                tree_item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, None)
             else:
                 tree_item = self
             # If someone is connected to two nodes on the same server, indicate the difference.
@@ -231,8 +235,8 @@ class NodesListWidget(QTreeWidget):
                     else ''
                 item = QTreeWidgetItem([session.server.host + extra_name,
                     str(session.tip.height)])
-                item.setIcon(0, self._connected_icon)
-                item.setData(0, Qt.ItemDataRole.UserRole, session.server)
+                item.setIcon(NodesListColumn.SERVER, self._connected_icon)
+                item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, session.server)
                 if isinstance(tree_item, NodesListWidget):
                     tree_item.addTopLevelItem(item)
                 else:
@@ -273,7 +277,8 @@ class NodesListWidget(QTreeWidget):
                 pixmaps.append((self._lock_pixmap,
                     _("This server is locked into place as the permanent main server.")))
             if self._network.main_server.state.last_good < self._network.main_server.state.last_try:
-                pixmaps.append((self._warning_pixmap, _("This server is not currently connected.")))
+                pixmaps.append((self._warning_pixmap,
+                    _("This server is not known to be up to date.")))
 
             while len(pixmaps) < 2:
                 pixmaps.append((None, ''))
@@ -291,8 +296,8 @@ class NodesListWidget(QTreeWidget):
 
         h = self.header()
         h.setStretchLastSection(False)
-        h.setSectionResizeMode(0, QHeaderView.Stretch)
-        h.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        h.setSectionResizeMode(NodesListColumn.SERVER, QHeaderView.ResizeMode.Stretch)
+        h.setSectionResizeMode(NodesListColumn.HEIGHT, QHeaderView.ResizeMode.ResizeToContents)
 
 
 class BlockchainTab(QWidget):
