@@ -1807,11 +1807,8 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
     return db_context.post_to_thread(_write)
 
 
-# TODO It is not expected that the number of closed payment requests will be larger than the
-#   amount of possible bindings, for an executed statement. This is why we should be calling
-#   `execute_sql_by_id`
 def _close_paid_payment_requests(db: sqlite3.Connection) \
-        -> Tuple[Set[int], List[Tuple[int, int, int]]]:
+        -> Tuple[Set[int], List[Tuple[int, int, int]], List[Tuple[str, int, bytes]]]:
     timestamp = get_posix_timestamp()
     sql_read_1 = """
     WITH key_payments AS (
@@ -1831,42 +1828,54 @@ def _close_paid_payment_requests(db: sqlite3.Connection) \
         KeyInstanceFlag.IS_PAYMENT_REQUEST,
         PaymentFlag.MASK_STATE, PaymentFlag.UNPAID,
     ]
-    rows = db.execute(sql_read_1, sql_read_1_values).fetchall()
+    read_rows = db.execute(sql_read_1, sql_read_1_values).fetchall()
+    paymentrequest_ids = { row[0] for row in read_rows }
+    keyinstance_rows: List[Tuple[int, int, int]] = []
+    txdesc_rows: List[Tuple[str, int, bytes]] = []
 
-    if len(rows):
+    if len(read_rows):
         paymentrequest_update_rows = []
-        for paymentrequest_id, keyinstance_id in rows:
+        for paymentrequest_id, keyinstance_id in read_rows:
             paymentrequest_update_rows.append((timestamp, PaymentFlag.CLEARED_MASK_STATE,
                 PaymentFlag.PAID, paymentrequest_id))
         sql_write_1 = "UPDATE PaymentRequests SET date_updated=?, state=(state&?)|? " \
             "WHERE paymentrequest_id=?"
         db.executemany(sql_write_1, paymentrequest_update_rows).rowcount
 
-        # We cannot do an `executemany` here, as it doesn't handle whatever adding the
-        # `RETURNING` made this, given that it worked before we added it.
+        # NOTE(sqlite-update-returning-executemany) We cannot do an `executemany` here, as
+        # it doesn't handle whatever adding the `RETURNING` made this, given that it worked
+        # before we added it.
         keyinstance_update_row = [
             timestamp,
             KeyInstanceFlag.MASK_ACTIVE_REASON, KeyInstanceFlag.IS_PAYMENT_REQUEST,
             ~(KeyInstanceFlag.IS_PAYMENT_REQUEST|KeyInstanceFlag.ACTIVE),
             ~KeyInstanceFlag.IS_PAYMENT_REQUEST,
         ]
-        keyinstance_update_row.extend(row[1] for row in rows)
+        keyinstance_update_row.extend(row[1] for row in read_rows)
         sql_write_2 = f"""
         UPDATE KeyInstances SET date_updated=?, flags=CASE
             WHEN flags&?=? THEN flags&? ELSE flags&? END
-        WHERE keyinstance_id IN ({",".join("?" for v in rows)})
+        WHERE keyinstance_id IN ({",".join("?" for v in read_rows)})
         RETURNING account_id, keyinstance_id, flags
         """
         keyinstance_rows = db.execute(sql_write_2, keyinstance_update_row).fetchall()
 
-        paymentrequest_ids = { row[0] for row in rows }
-        return paymentrequest_ids, keyinstance_rows
+        sql_write_3a = """
+        UPDATE AccountTransactions AS ATX
+        SET description=PR.description
+        FROM TransactionOutputs TXO
+        INNER JOIN PaymentRequests PR ON PR.keyinstance_id=TXO.keyinstance_id
+        WHERE TXO.tx_hash=ATX.tx_hash AND ATX.description IS NULL AND PR.paymentrequest_id IN ({})
+        RETURNING description, account_id, tx_hash
+        """
+        sql_write_3b = sql_write_3a.format(",".join("?" for k in paymentrequest_ids))
+        txdesc_rows = db.execute(sql_write_3b, list(paymentrequest_ids)).fetchall()
 
-    return set(), []
+    return paymentrequest_ids, keyinstance_rows, txdesc_rows
 
 
 async def close_paid_payment_requests_async(db_context: DatabaseContext) \
-        -> Tuple[Set[int], List[Tuple[int, int, int]]]:
+        -> Tuple[Set[int], List[Tuple[int, int, int]], List[Tuple[str, int, bytes]]]:
     """
     Wrap the database operations required to link a transaction so the processing is
     offloaded to the SQLite writer thread while this task is blocked.

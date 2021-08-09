@@ -882,7 +882,8 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     ACCOUNT_ID = 10
     MASTERKEY_ID = 20
     DERIVATION_DATA = b'111'
-
+    TX_DESC1 = "desc1"
+    TX_DESC2 = "desc2"
     TX_BYTES2 = os.urandom(10)
     TX_HASH2 = bitcoinx.double_sha256(TX_BYTES2)
 
@@ -890,8 +891,8 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     assert len(rows) == 0
 
     LINE_COUNT = 3
-    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None, None, "desc")
-    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100, 60*60, None)
+    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None, None, TX_DESC1)
+    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100, 60*60, TX_DESC2)
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.
@@ -988,13 +989,21 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     future = db_functions.create_transaction_outputs(db_context, [ txo_row1 ])
     future.result(timeout=5)
 
+    account_transaction_entries = [
+        AccountTransactionRow(ACCOUNT_ID, TX_HASH, AccountTxFlags.NONE, None),
+    ]
+    future = db_functions.create_account_transactions(db_context, account_transaction_entries)
+    future.result()
+
     db = db_context.acquire_connection()
     try:
-        closed_request_ids, updated_key_rows = db_functions._close_paid_payment_requests(db)
+        closed_request_ids, updated_key_rows, transaction_description_update_rows = \
+            db_functions._close_paid_payment_requests(db)
     finally:
         db_context.release_connection(db)
     assert closed_request_ids == { line2.paymentrequest_id }
     assert updated_key_rows == [ (ACCOUNT_ID, KEYINSTANCE_ID+1, KeyInstanceFlag.USED) ]
+    assert transaction_description_update_rows == [ (TX_DESC2, ACCOUNT_ID, TX_HASH) ]
 
     ## Continue.
     future = db_functions.update_payment_requests(db_context, [ PaymentRequestUpdateRow(

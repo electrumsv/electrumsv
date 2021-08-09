@@ -2209,7 +2209,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _on_transaction_labels_updated_signal(self,
             update_entries: List[Tuple[Optional[str], int, bytes]]) -> None:
-        self.history_view.update_tx_labels()
+        self.history_view.update_descriptions(update_entries)
         self.utxo_list.update_tx_labels(update_entries)
 
     def _on_transaction_state_change(self, account_id: int, tx_hash: bytes,

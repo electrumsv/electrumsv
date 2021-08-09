@@ -3502,7 +3502,7 @@ class Wallet(TriggeredCallbacks):
         self.trigger_callback('transaction_link_result', tx_hash, link_state)
 
     async def _close_paid_payment_requests_async(self) \
-            -> Tuple[Set[int], List[Tuple[int, int, int]]]:
+            -> Tuple[Set[int], List[Tuple[int, int, int]], List[Tuple[str, int, bytes]]]:
         """
         Apply paid status to any payment requests and keys satisfied by this transaction.
 
@@ -3511,8 +3511,8 @@ class Wallet(TriggeredCallbacks):
         keys. It will mark those as `PAID` and it will remove the flag on the keys that
         identifies them as used in a payment request.
         """
-        paymentrequest_ids, key_update_rows = await db_functions.close_paid_payment_requests_async(
-            self.get_db_context())
+        paymentrequest_ids, key_update_rows, transaction_description_update_rows = \
+            await db_functions.close_paid_payment_requests_async(self.get_db_context())
 
         # Notify any dependent systems including the GUI that payment requests have updated.
         if len(paymentrequest_ids):
@@ -3525,7 +3525,10 @@ class Wallet(TriggeredCallbacks):
         for account_id, keyinstance_ids in account_keyinstance_ids.items():
             self._accounts[account_id].delete_key_subscriptions(list(keyinstance_ids))
 
-        return paymentrequest_ids, key_update_rows
+        if len(transaction_description_update_rows):
+            self.trigger_callback('transaction_labels_updated', transaction_description_update_rows)
+
+        return paymentrequest_ids, key_update_rows, transaction_description_update_rows
 
     def read_bip32_keys_gap_size(self, account_id: int, masterkey_id: int, prefix_bytes: bytes) \
             -> int:

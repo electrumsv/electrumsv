@@ -70,7 +70,9 @@ async def test_key_creation(mock_app_state) -> None:
         < keyinstance_rows[2].derivation_data2)
 
     # Create seven more keys via `derive_new_keys_until`.
-    account.derive_new_keys_until(RECEIVING_SUBPATH + (10,))
+    derive_future, _keyinstance_rows = account.derive_new_keys_until(RECEIVING_SUBPATH + (10,))
+    if derive_future is not None:
+        derive_future.result()
     assert account.get_next_derivation_index(RECEIVING_SUBPATH) == 11
     assert account.get_next_derivation_index(CHANGE_SUBPATH) == 0
 

@@ -23,10 +23,9 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from collections import defaultdict
 import enum
 from functools import partial
-from typing import cast, Dict, List, Optional, Sequence, TYPE_CHECKING
+from typing import cast, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 import weakref
 import webbrowser
 
@@ -46,7 +45,6 @@ from ...platform import platform
 from ...util import format_posix_timestamp, get_posix_timestamp, posix_timestamp_to_datetime, \
     profiler
 from ...wallet import AbstractAccount
-from ...wallet_database.types import AccountTransactionDescriptionRow
 from ...wallet_database.exceptions import TransactionRemovalError
 from ... import web
 
@@ -275,33 +273,23 @@ class HistoryList(MyTreeWidget):
                 MessageBox.show_error(_("The full transaction is not yet present in your wallet."+
                     " Please try again when it has been obtained from the network."))
 
-    def update_tx_labels(self) -> None:
+    def update_descriptions(self, entries: List[Tuple[Optional[str], int, bytes]]) -> None:
+        tx_hash_descriptions: Dict[bytes, Optional[str]] = {}
+        for description, account_id, tx_hash in entries:
+            if account_id == self._account_id:
+                tx_hash_descriptions[tx_hash] = description
+
+        if not len(tx_hash_descriptions):
+            return
+
         root = self.invisibleRootItem()
         child_count = root.childCount()
-
-        tx_hashes_for_account_id: Dict[int, List[bytes]] = defaultdict(list)
         for i in range(child_count):
             item = root.child(i)
-            account_id = cast(int, item.data(Columns.STATUS, self.ACCOUNT_ROLE))
-            tx_hash = cast(bytes, item.data(Columns.STATUS, self.TX_ROLE))
-            tx_hashes_for_account_id[account_id].append(tx_hash)
-
-        descriptions_for_account_id: Dict[int, List[AccountTransactionDescriptionRow]] = {}
-        for account_id, tx_hashes in tx_hashes_for_account_id.items():
-            account = self._wallet.get_account(account_id)
-            assert account is not None
-            descriptions_for_account_id[account_id] = account.get_transaction_labels(tx_hashes)
-
-        for i in range(child_count):
-            item = root.child(i)
-            account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
             tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
-            label: Optional[str] = None
-            for label_row in descriptions_for_account_id.get(account_id, []):
-                if label_row.tx_hash == tx_hash:
-                    label = label_row.description
-                    break
-            item.setText(Columns.DESCRIPTION, label or "")
+            if tx_hash in tx_hash_descriptions:
+                description = tx_hash_descriptions[tx_hash]
+                item.setText(Columns.DESCRIPTION, description or "")
 
     # From the wallet 'verified' event.
     def update_tx_item(self, tx_hash: bytes, block_height: int, block_position: int,
@@ -531,8 +519,8 @@ class HistoryView(QWidget):
         self._account_id = new_account_id
         self._account = new_account
 
-    def update_tx_labels(self) -> None:
-        self.list.update_tx_labels()
+    def update_descriptions(self, entries: List[Tuple[Optional[str], int, bytes]]) -> None:
+        self.list.update_descriptions(entries)
 
     def update_tx_headers(self) -> None:
         self.list.update_tx_headers()
