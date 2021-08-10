@@ -127,6 +127,12 @@ How can you contribute?
     do the work to translate it. And that's just a few of the possibilities. Read more about
     :doc:`contributing <the-electrumsv-project/how-you-can-contribute>`.
 
+What platforms and platform versions do we make releases for?
+    Our builds are created using both third-party dependencies and the Azure Devops services.
+    There are certain limitations that each of these two things imposes on the releases we can
+    make. Read more about the relevant choices and limitations involved in
+    :doc:`our releases <the-electrumsv-project/releases>`.
+
 Where is the continuous integration and how is it used?
     We use Microsoft's Azure DevOps services for continuous integration. Microsoft provide
     generous levels of free usage to open source projects hosted on Github. This is used to do
@@ -150,6 +156,7 @@ What is the process of releasing a new version?
 
    /the-electrumsv-project/how-you-can-contribute
    /the-electrumsv-project/continuous-integration
+   /the-electrumsv-project/releases
    /the-electrumsv-project/release-process
 
 Indices and tables
