@@ -118,6 +118,7 @@ Do I have to develop against the existing public blockchains?
    /building-on-electrumsv/local-or-offline-development
    /building-on-electrumsv/functional-tests
    /building-on-electrumsv/benchmarks
+   /building-on-electrumsv/wallet-database
 
 The ElectrumSV project
 ----------------------
@@ -154,7 +155,6 @@ What is the process of releasing a new version?
     that the release has the content changes required for new version, and also publishing the
     release and updating the web site to have the content changes required to offer it for
     download. Read more about the :doc:`release process <the-electrumsv-project/release-process>`.
-
 
 .. toctree::
    :maxdepth: 1
