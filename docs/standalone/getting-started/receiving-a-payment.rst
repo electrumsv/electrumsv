@@ -68,7 +68,7 @@ description of what the payment is for.
 The payment link from the screenshot above is as follows. It will of course differ for your payment.
 The specification that defines these payment URLs is `BIP21`_.
 
-.. _BIP21: https://github.com/moneybutton/bips/blob/master/bip-0021.mediawiki
+.. _BIP21: https://github.com/electrumsv/bips/blob/master/bip-0021.mediawiki
 
 ``bitcoin:mrYrDB3s2xeLu9FrmFdNkMiZKmGYWwBKZg?sv&message=Payment%20from%20someone``
 
@@ -90,7 +90,7 @@ Copying the raw payment destination
 In some cases, you might just want to give the payer the raw payment destination which will either
 be an address or a `BIP276`_ script.
 
-.. _BIP276: https://github.com/moneybutton/bips/blob/master/bip-0276.mediawiki
+.. _BIP276: https://github.com/electrumsv/bips/blob/master/bip-0276.mediawiki
 
 .. figure:: images/receiving-a-payment-07-expected-payment-dialog-copy-destination.png
    :align: center

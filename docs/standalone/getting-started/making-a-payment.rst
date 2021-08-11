@@ -6,7 +6,7 @@ making payments in the following ways:
 
 - Payment to a Bitcoin address.
 - Payment to a
-  `BIP276 <https://github.com/moneybutton/bips/blob/master/bip-0276.mediawiki>`_ address.
+  `BIP276 <https://github.com/electrumsv/bips/blob/master/bip-0276.mediawiki>`_ address.
 - Payment to a Bitcoin script.
 
 This guide solely covers payment to an address. It is not recommended you pay to a Bitcoin script

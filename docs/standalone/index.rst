@@ -43,6 +43,12 @@ How do you make a payment to someone else?
     should be able to send some or all of those coins to that address. Read more about
     :doc:`making a payment <getting-started/making-a-payment>`.
 
+How do you scan the blockchain?
+    Whether you have restored the wallet, or you are an advanced user and you have given out a
+    payment destination ElectrumSV does not know about, it is necessary to be able to find
+    payments related to your wallet that exist on the blockchain. Read more about
+    :doc:`making a payment <getting-started/scanning-the-blockchain>`.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
@@ -53,6 +59,7 @@ How do you make a payment to someone else?
    /getting-started/creating-an-account
    /getting-started/receiving-a-payment
    /getting-started/making-a-payment
+   /getting-started/scanning-the-blockchain
 
 Problem solving
 ---------------
