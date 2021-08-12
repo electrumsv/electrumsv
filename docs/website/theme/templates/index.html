@@ -34,8 +34,8 @@
             <div class="row">
                 <div class="esv-section-title">Features</div>
             </div>
-            <div class="mb-4">
-                <div class="esv-box-border esv-box-padding">
+            <div class="mb-1">
+                <div class="esv-box-border esv-box-padding mb-1">
                     <div class="row align-items-center">
                         <div class="col-lg-2 text-center esv-feature-icon">
                             <i class="fas fa-shield-alt"></i>
@@ -46,7 +46,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="esv-box-border esv-box-padding mt-2">
+                <div class="esv-box-border esv-box-padding mb-1">
                     <div class="row align-items-center">
                         <div class="col-lg-2 text-center esv-feature-icon">
                             <i class="fas fa-shopping-cart"></i>
@@ -55,13 +55,13 @@
                             Obtain and pay invoices from a range of compatible services including
                             <a href="https://anypayinc.com/">Anypay</a> and
                             <a href="https://centi.ch/">Centi</a>. The
-                            <a href="https://github.com/moneybutton/bips/blob/master/bip-0270.mediawiki">BIP270 protocol</a>
+                            <a href="https://github.com/electrumsv/bips/blob/master/bip-0270.mediawiki">BIP270 protocol</a>
                             allows users to copy a payment URL or scan a QR code, and by providing it
                             to ElectrumSV streamlining payment.
                         </div>
                     </div>
                 </div>
-                <div class="esv-box-border esv-box-padding mt-2">
+                <div class="esv-box-border esv-box-padding">
                     <div class="row align-items-center">
                         <div class="col-lg-2 text-center esv-feature-icon">
                             <i class="fas fa-users"></i>
@@ -93,6 +93,24 @@
                     </div>
                 </div>
             </div>
+            {% if DOWNLOADS_EXPERIMENTAL|length > 0 %}
+            <div class="mb-3">
+                <div class="row">
+                    <div class="esv-section-title">Experimental Update</div>
+                </div>
+                <div class="row esv-box-border">
+                    <div class="col-12 text-center pt-2 pb-2">
+                        <a href="download.html#experimental">ElectrumSV {{DOWNLOADS_EXPERIMENTAL[0].version}}</a> ({{DOWNLOADS_EXPERIMENTAL[0].release_date}})
+                        <br/>
+                        {% if DOWNLOADS_EXPERIMENTAL[0].article_link.startswith("/") %}
+                        <a href="{{SITEURL}}{{DOWNLOADS_EXPERIMENTAL[0].article_link}}">What changed?</a>
+                        {% else %}
+                        <a target="_blank" rel="noopener" href="{{DOWNLOADS_EXPERIMENTAL[0].article_link}}">What changed? <i class="fas fa-external-link-alt"></i></a>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% endif %}
             <div class="mb-3">
                 <div class="row">
                     <div class="esv-section-title">Need help?</div>

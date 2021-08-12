@@ -884,7 +884,7 @@ class Transaction(Tx): # type: ignore[misc]
         script_code = self.get_preimage_script_bytes(txin)
         sighash = SigHash(self.nHashType())
         # Original BTC algorithm: https://en.bitcoin.it/wiki/OP_CHECKSIG
-        # Current algorithm: https://github.com/moneybutton/bips/blob/master/bip-0143.mediawiki
+        # Current algorithm: https://github.com/electrumsv/bips/blob/master/bip-0143.mediawiki
         return cast(bytes,
             self.signature_hash(input_index, txin.value, script_code, sighash=sighash))
 
