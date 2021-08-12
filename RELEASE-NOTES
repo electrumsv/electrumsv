@@ -35,8 +35,49 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
-# Release 1.4.0
-  * Release guide: https://electrumsv.io/articles/2021/electrumsv-1_3_13.html
+# Release 1.4.0b1
+  * Release guide: https://electrumsv.io/articles/2021/electrumsv-1_4_0b1.html
+  * Sqlite: The minimum required version of Sqlite is 3.35.4. The reason for requiring this is
+    that it is the first version that supports the RETURNING clause on INSERT, UPDATE and
+    DELETE statements.
+  * Python: The minimum required version of Python is 3.9.5. The reason for requiring this is
+    that it bundles Sqlite 3.35.5 for Windows, and 3.35.4 for MacOS, ensuring it meets the minimum
+    version requirements.
+  * Database model: The database now includes as much possible data about transactions as possible
+    with the goal of not having to read and reparse the transaction data later.
+  * MAPI support: All the preparation is in place for ElectrumSV to support transaction
+    broadcasting via MAPI. It just isn't hooked in to the broadcast action yet.
+  * Caching layers: Previously all transaction data was checked and processed through in-memory
+    caching layers. This complicated the wallet logic, and slowed down transacion processing.
+  * Type annotations: We now apply strict mypy type checking to the wallet code, but not yet
+    the user interface and unit test code.
+  * Blockchain observation: The wallet no longer monitors all possible key usage up to and
+    including the BIP32 gap limits. Instead it monitors for key usage where the user asks it
+    to reserve a key for a specific purpose, and specifically for the purpose of detecting when
+    a transaction has been mined.
+  * Blockchain scanning: A blockchain scanner has been added to cover the case of wallet recovery
+    and looking for unexpected transactions.
+  * Backup notification: We have been putting a message in the notifications tab to remind people
+    to back up their seed words. Whenever a user opens an account, if this message has not been
+    dismissed the notification tab is shown as the default view (otherwise it is the history tab
+    as before).
+  * Account creation: When an account is created from pre-existing seed words or keys, we
+    automatically show the blockchain scanner when they return to the wallet from the account
+    creation user interface.
+  * Network bug workaround: There was a change in a dependency, aiorpcx, where if a task in a
+    task group was cancelled this then causes the rest of the tasks in that task group to be
+    cancelled and the group to exit. This appears to be a correct change, but it caused our
+    network loop to exit. We now restart the network loop if this problem happens and there was
+    not an intentional shut down, log any cancellations involved and if the UI is active, ask
+    the user to report any exception.
+  * Database migration stability: We have made historically correct copies of older database
+    structures for previous migrations, these are used when loading in older databases so that
+    as the structures change with future changes to ElectrumSV the migrations will continue
+    to work.
+  * Transaction locktime: Historically there was some weird thing going on with setting locktime
+    and non-final sequence numbers to prevent "reorg attacks" from taking transactions and putting
+    them into earlier blocks (or something). We moved to using final sequence numbers many versions
+    ago, and with this change we should stop setting the locktime.
 
 # Release 1.3.13
   * Release guide: https://electrumsv.io/articles/2021/electrumsv-1_3_13.html
