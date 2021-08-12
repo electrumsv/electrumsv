@@ -1459,7 +1459,7 @@ class ImportedAddressAccount(ImportedAccountBase):
 
         existing_keys = self._wallet.read_keyinstances_for_derivations(self._id, derivation_type,
             [ address.hash160() ])
-        if len(existing_keys) == 0:
+        if len(existing_keys):
             return False
 
         def callback(future: concurrent.futures.Future[None]) -> None:
