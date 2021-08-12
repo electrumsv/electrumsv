@@ -65,6 +65,19 @@ the wallet or the user. For this reason, we have added the blockchain scanner.
 You can read our guide on `how to scan the blockchain <https://electrumsv.readthedocs.io/en/releases-1.4/getting-started/scanning-the-blockchain.html>`__
 in our documentation.
 
+Complete historical mainnet headers
+===================================
+
+We bundle all mainnet headers up to a recent height with this release. This is a change from the
+existing approach where we had checkpoints and only fetched and backfilled headers as we needed
+them. This prepares us for supporting SPV in the future.
+
+Note that this comes with costs:
+
+* Download sizes are 40 megabytes larger.
+* Startup will be several seconds slower, and because of PyInstaller is already slow, this may
+  be especially noticeable.
+
 The details
 -----------
 
