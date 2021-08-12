@@ -34,6 +34,7 @@ binaries += [b for b in collect_dynamic_libs('PyQt5') if 'qwindowsvista' in b[0]
 datas = [
     (str(home / 'data'), 'electrumsv/data'),
 ]
+datas += collect_data_files('bitcoinx')
 datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')
 datas += collect_data_files('keepkeylib')

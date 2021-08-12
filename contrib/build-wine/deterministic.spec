@@ -22,6 +22,7 @@ datas = [
 ]
 # rt12 -- As far as I know only trezor has required data files. It will error if it cannot load
 # things like coins.json and so on.
+datas += collect_data_files('bitcoinx')
 datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')
 datas += collect_data_files('keepkeylib')
