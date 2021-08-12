@@ -78,12 +78,12 @@ DOWNLOADS_OLDER = [
 
 DOWNLOADS_EXPERIMENTAL = [
     DownloadEntry("1.4.0b1", "2021/08/19", "/articles/2021/electrumsv-1_4_0b1.html", [
-        DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.4.0b1.dmg","30.5 MiB"),
-        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.4.0b1.exe", "26.8 MiB"),
-        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.4.0b1-portable.exe", "26.8 MiB"),
-        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.4.0b1.tar.gz", "9.0 MiB"),
-        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.4.0b1.zip", "9.3 MiB"),
-        DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.4.0b1-docs.zip", "10.3 MiB"),
+        DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.4.0b1.dmg","78.5 MiB"),
+        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.4.0b1.exe", "74.0 MiB"),
+        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.4.0b1-portable.exe", "74.0 MiB"),
+        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.4.0b1.tar.gz", "56.0 MiB"),
+        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.4.0b1.zip", "56.4 MiB"),
+        DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.4.0b1-docs.zip", "11.0 MiB"),
     ]),
 ]
 
