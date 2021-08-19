@@ -31,7 +31,10 @@ function DoCodeSignMaybe { # ARGS: infoName fileOrDirName codesignIdentity
         fail "Argument error to internal function DoCodeSignMaybe()"
     fi
     info "Code signing ${infoName}..."
-    codesign -f -v $deep -s "$identity" --preserve-metadata=requirements,entitlements "$file" || fail "Could not code sign ${infoName}"
+    hardened_arg="--entitlements=contrib/osx/entitlements.plist -o runtime"
+
+    info "Code signing ${infoName}..."
+    codesign -f -v $deep -s "$identity" $hardened_arg "$file" || fail "Could not code sign ${infoName}"
 }
 
 verify_hash() {
