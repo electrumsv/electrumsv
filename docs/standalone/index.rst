@@ -77,6 +77,10 @@ How do I split my coins?
     the other. Read more about
     :doc:`coin splitting <problem-solving/coin-splitting>`.
 
+How do I deal with problems on MacOS?
+    Apple have a special operating system which many love. But it comes with some problems. If
+    you use MacOS and something isn't working right, maybe we have documented it here. Read more
+    about :doc:`solutions to MacOS problems <problem-solving/macos>`.
 
 .. toctree::
    :maxdepth: 1
@@ -85,6 +89,7 @@ How do I split my coins?
 
    /problem-solving/hardware-wallets
    /problem-solving/coin-splitting
+   /problem-solving/macos
 
 Building on ElectrumSV
 ----------------------
