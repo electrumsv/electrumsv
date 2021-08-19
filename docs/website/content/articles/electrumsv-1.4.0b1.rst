@@ -75,8 +75,23 @@ them. This prepares us for supporting SPV in the future.
 Note that this comes with costs:
 
 * Download sizes are 40 megabytes larger.
-* Startup will be several seconds slower, and because of PyInstaller is already slow, this may
-  be especially noticeable.
+* Startup will be several seconds slower, and because the application creation tool that we use,
+  PyInstaller, is already slow this may be especially noticeable.
+
+New problems for MacOS users
+============================
+
+Unfortunately, Apple have broken the way we distribute applications. When Apple users start up
+ElectrumSV they will see the following misleading error and will not be able to run it.
+
+.. figure:: {static}electrumsv-1.4.0b1/macos-damaged-dms.png
+   :align: center
+   :width: 50%
+   :alt: The buggy MacOS "your application is not signed" dialog.
+
+You can read our guide on `MacOS issues and ways to work around them <https://electrumsv.readthedocs.io/en/releases-1.4/problem-solving/macos.html#damaged-and-can-t-be-opened>`__
+in our documentation. We will attempt to fix this before we release the final polished 1.4.0
+release we eventually make.
 
 The details
 -----------
