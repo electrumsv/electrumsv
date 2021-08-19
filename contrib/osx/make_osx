@@ -40,22 +40,22 @@ else
     warn "Code signing DISABLED. Specify a valid macOS Developer identity installed on the system as the first argument to this script to enable signing."
 fi
 
-info "Installing Python $PYTHON_VERSION"
-export PATH="~/.pyenv/bin:~/.pyenv/shims:$PATH"
-if [ -d "~/.pyenv" ]; then
-  pyenv update
-else
-  curl -L https://raw.githubusercontent.com/pyenv/pyenv-installer/master/bin/pyenv-installer | bash > /dev/null 2>&1
-fi
-# https://github.com/pyenv/pyenv/issues/1066#issuecomment-536700708
+# info "Installing Python $PYTHON_VERSION"
+# export PATH="~/.pyenv/bin:~/.pyenv/shims:$PATH"
+# if [ -d "~/.pyenv" ]; then
+#   pyenv update
+# else
+#   curl -L https://raw.githubusercontent.com/pyenv/pyenv-installer/master/bin/pyenv-installer | bash > /dev/null 2>&1
+# fi
+# # https://github.com/pyenv/pyenv/issues/1066#issuecomment-536700708
 
-# -I$(xcrun --show-sdk-path)/usr/include
-CFLAGS="-I$(brew --prefix sqlite3)/include" \
-LDFLAGS="-L$(brew --prefix sqlite3)/lib" \
-SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX10.14.sdk MACOSX_DEPLOYMENT_TARGET=10.14 \
-PYTHON_CONFIGURE_OPTS="--enable-framework" pyenv install -s $PYTHON_VERSION && \
-pyenv global $PYTHON_VERSION || \
-fail "Unable to use Python $PYTHON_VERSION"
+# # -I$(xcrun --show-sdk-path)/usr/include
+# CFLAGS="-I$(brew --prefix sqlite3)/include" \
+# LDFLAGS="-L$(brew --prefix sqlite3)/lib" \
+# SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX10.14.sdk MACOSX_DEPLOYMENT_TARGET=10.14 \
+# PYTHON_CONFIGURE_OPTS="--enable-framework" pyenv install -s $PYTHON_VERSION && \
+# pyenv global $PYTHON_VERSION || \
+# fail "Unable to use Python $PYTHON_VERSION"
 rm -rf ./dist
 
 git submodule init
@@ -125,7 +125,16 @@ info "Hopefully forcing light mode and avoiding dark mode which we do not suppor
 plutil -insert NSRequiresAquaSystemAppearance -bool YES -- dist/$PACKAGE.app/Contents/Info.plist \
 	|| fail "Could not add keys to Info.plist. Make sure the program 'plutil' exists and is installed."
 
-DoCodeSignMaybe "app bundle" "dist/${PACKAGE}.app" "$APP_SIGN"
+DoCodeSignMaybe "app bundle" "dist/${PACKAGE}.app"  "$APP_SIGN"
+
+if [ ! -z "$APP_SIGN" ]; then
+    if [ ! -z "$APPLE_ID_USER" ]; then
+        info "Notarizing .app with Apple's central server..."
+        "contrib/osx/notarize_app.sh" "dist/${PACKAGE}.app" || fail "Could not notarize binary."
+    else
+        warn "AppleID details not set! Skipping Apple notarization."
+    fi
+fi
 
 info "Creating .DMG"
 dmgbuild -D PACKAGE=$PACKAGE -s contrib/osx/dmg-settings.py "" dist/$PACKAGE-$VERSION.dmg || fail "Could not create .DMG"
