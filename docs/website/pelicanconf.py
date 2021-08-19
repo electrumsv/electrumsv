@@ -84,7 +84,7 @@ DOWNLOADS_EXPERIMENTAL = [
         DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.4.0b1.tar.gz", "56.0 MiB"),
         DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.4.0b1.zip", "56.4 MiB"),
         DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.4.0b1-docs.zip", "11.0 MiB"),
-    ]),
+    ], "Due to Apple's new security requirements, please read <a href='https://electrumsv.readthedocs.io/en/releases-1.4/problem-solving/macos.html#damaged-and-can-t-be-opened'>our workaround</a> for a problem you may encounter."),
 ]
 
 # The maximum number articles to include on a page.
