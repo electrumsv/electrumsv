@@ -1,6 +1,5 @@
 from distutils.version import StrictVersion
 import requests
-from typing import Any
 
 from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import QDialogButtonBox, QLabel, QProgressBar, QVBoxLayout, QWidget
@@ -123,14 +122,14 @@ class UpdateCheckDialog(WindowModalDialog):
         else:
             self._on_update_error(result)
 
-    def _on_update_success(self, result: Any) -> None:
+    def _on_update_success(self, result: ReleaseDocumentType) -> None:
         self._stop_updates()
 
         # Indicate success by filling in the progress bar.
         self._set_progress(1.0)
 
         # Handle the case where data was fetched and it is incorrect or lacking.
-        if not isinstance(result, ReleaseDocumentType) or 'stable' not in result \
+        if not isinstance(result, dict) or 'stable' not in result \
                 or 'unstable' not in result:
             self._set_message(_("The information about the latest version is broken."))
             return
