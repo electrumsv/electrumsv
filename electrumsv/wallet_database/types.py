@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, NamedTuple, Optional, Sequence, Set, Tuple, Union
+import dataclasses
+from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Sequence, Set, Tuple, Union
 
 from bitcoinx import hash_to_hex_str
 
@@ -61,7 +62,16 @@ class InvoiceRow(NamedTuple):
     date_created: int = -1
 
 
-class KeyDataType(NamedTuple):
+class KeyDataProtocol(Protocol):
+    keyinstance_id: int                 # Overlapping common output/spendable type field.
+    account_id: int                     # Spendable type field.
+    masterkey_id: Optional[int]         # Spendable type field.
+    derivation_type: DerivationType     # Spendable type field.
+    derivation_data2: Optional[bytes]   # Spendable type field.
+
+
+@dataclasses.dataclass
+class KeyData:
     """
     At the time of writing, no database operation uses this. It is a helper abstraction that
     allows non-database types that do not have to be contiguous immutable rows to encapsulate the
@@ -236,6 +246,15 @@ class TransactionMetadata(NamedTuple):
     date_created: int
 
 
+class TransactionOutputCommonProtocol(Protocol):
+    tx_hash: bytes
+    txo_index: int
+    value: int
+    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
+    flags: TransactionOutputFlag
+    script_type: ScriptType
+
+
 class TransactionOutputAddRow(NamedTuple):
     tx_hash: bytes
     txo_index: int
@@ -323,11 +342,10 @@ class TransactionOutputSpendableRow2(NamedTuple):
 
 # Types which have the common spendable type fields.
 #   account_id, masterkey_id, derivation_type, derivation_data2
-KeyDataTypes = Union[
-    KeyDataType,
-    KeyInstanceRow,
-    TransactionOutputSpendableRow,
-    TransactionOutputSpendableRow2]
+    # KeyData,
+    # KeyInstanceRow,
+    # TransactionOutputSpendableRow,
+    # TransactionOutputSpendableRow2
 
 # Types which have the common output fields.
 TransactionOutputTypes = Union[
@@ -337,10 +355,26 @@ TransactionOutputTypes = Union[
     TransactionOutputSpendableRow2]
 # Some lower comment.
 
+
+class TransactionOutputSpendableProtocol(Protocol):
+    # Standard transaction output fields.
+    tx_hash: bytes
+    txo_index: int
+    value: int
+    script_type: ScriptType
+    keyinstance_id: Optional[int]       # Overlapping common output/spendable type field.
+    account_id: int                     # Spendable type field.
+    masterkey_id: Optional[int]         # Spendable type field.
+    derivation_type: DerivationType     # Spendable type field.
+    derivation_data2: Optional[bytes]   # Spendable type field.
+
+
+
+
 # Types which have the common output fields and the common spendable type fields.
-TransactionOutputSpendableTypes = Union[
-    TransactionOutputSpendableRow,
-    TransactionOutputSpendableRow2]
+# TransactionOutputSpendableTypes = Union[
+#     TransactionOutputSpendableRow,
+#     TransactionOutputSpendableRow2]
 
 
 class TransactionRow(NamedTuple):

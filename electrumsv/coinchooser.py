@@ -25,8 +25,7 @@
 
 from collections import defaultdict
 from math import floor, log10
-from typing import Any, Callable, cast, Dict, List, NamedTuple, Sequence, Set, Tuple, \
-    TYPE_CHECKING, TypeVar
+from typing import Any, Callable, cast, Dict, List, NamedTuple, Sequence, Set, Tuple, TypeVar
 
 from bitcoinx import sha256
 
@@ -36,8 +35,6 @@ from .transaction import Transaction, XTxInput, XTxOutput
 from .types import TransactionFeeEstimator, TransactionSize
 from .exceptions import NotEnoughFunds
 
-if TYPE_CHECKING:
-    from .wallet_database.types import KeyDataType
 
 T = TypeVar("T")
 

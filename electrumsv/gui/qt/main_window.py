@@ -75,8 +75,8 @@ from ...util import (format_fee_satoshis, get_update_check_dates,
     get_identified_release_signers, get_wallet_name_from_path, profiler, ReleaseDocumentType)
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, AccountInstantiationFlags, Wallet
-from ...wallet_database.types import (InvoiceRow, KeyDataTypes, TransactionBlockRow,
-    TransactionLinkState, TransactionOutputSpendableTypes)
+from ...wallet_database.types import (InvoiceRow, KeyDataProtocol, TransactionBlockRow,
+    TransactionLinkState, TransactionOutputSpendableProtocol)
 from ... import web
 
 from .amountedit import AmountEdit, BTCAmountEdit
@@ -1227,7 +1227,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.history_view = HistoryView(self._accounts_view, self)
         return self.history_view
 
-    def show_key(self, account: AbstractAccount, key_data: KeyDataTypes,
+    def show_key(self, account: AbstractAccount, key_data: KeyDataProtocol,
             script_type: ScriptType) -> None:
         from . import key_dialog
         # from importlib import reload
@@ -1599,7 +1599,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.contact_list = l = ContactList(self._api, self)
         return self.create_list_tab(l)
 
-    def spend_coins(self, coins: Iterable[TransactionOutputSpendableTypes]) -> None:
+    def spend_coins(self, coins: Iterable[TransactionOutputSpendableProtocol]) -> None:
         self._send_view.set_pay_from(coins)
         self.show_send_tab()
         self._send_view.update_fee()
@@ -1788,7 +1788,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         d.exec_()
 
     @protected
-    def show_private_key(self, account: AbstractAccount, keydata: KeyDataTypes,
+    def show_private_key(self, account: AbstractAccount, keydata: KeyDataProtocol,
             script_type: ScriptType, password: str) -> None:
         try:
             privkey_text = account.export_private_key(keydata, password)
@@ -1817,7 +1817,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         d.exec_()
 
     @protected
-    def do_sign(self, account: AbstractAccount, key_data: Optional[KeyDataTypes],
+    def do_sign(self, account: AbstractAccount, key_data: Optional[KeyDataProtocol],
             message: QTextEdit, signature: QTextEdit, password: str) -> None:
         message_text = message.toPlainText().strip()
         if account.is_watching_only():
@@ -1853,7 +1853,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     on_success(result)
         return self.app.run_in_thread(func, *args, on_done=_on_done)
 
-    def do_verify(self, account: AbstractAccount, key_data: Optional[KeyDataTypes],
+    def do_verify(self, account: AbstractAccount, key_data: Optional[KeyDataProtocol],
             address_widget: QLineEdit, message_widget, signature) -> None:
         if key_data is None:
             try:
@@ -1881,7 +1881,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_error(_("Wrong signature"))
 
     def sign_verify_message(self, account: Optional[AbstractAccount]=None,
-            key_data: Optional[KeyDataTypes]=None) -> None:
+            key_data: Optional[KeyDataProtocol]=None) -> None:
         if account is None:
             account = self._wallet.get_default_account()
 
@@ -1913,9 +1913,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         b = QPushButton(_("Sign"))
         def do_sign(checked=False) -> None:
-            # pylint: disable=no-value-for-parameter
-            # NOTE(typing) The password decorator is not visible to Pylance.
-            self.do_sign(account, key_data, message_e, signature_e) # type: ignore
+            self.do_sign(account, key_data, message_e,signature_e) # pylint: disable=no-value-for-parameter
         b.clicked.connect(do_sign)
         hbox.addWidget(b)
 
@@ -1931,7 +1929,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         d.exec_()
 
     @protected
-    def do_decrypt(self, account: AbstractAccount, key_data: KeyDataTypes, message_e: QTextEdit,
+    def do_decrypt(self, account: AbstractAccount, key_data: KeyDataProtocol, message_e: QTextEdit,
             encrypted_e: QTextEdit, password: Optional[str]) -> None:
         if account.is_watching_only():
             self.show_message(_('This is a watching-only account, and cannot decrypt.'))
@@ -1945,7 +1943,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.run_in_thread(account.decrypt_message, key_data, cyphertext, password,
             on_success=show_decrypted_message)
 
-    def do_encrypt(self, account: AbstractAccount, key_data: Optional[KeyDataTypes],
+    def do_encrypt(self, account: AbstractAccount, key_data: Optional[KeyDataProtocol],
             message_e: QTextEdit, pubkey_e: QLineEdit, encrypted_e: QTextEdit) -> None:
         message = message_e.toPlainText()
         message = message.encode('utf-8')
@@ -1962,7 +1960,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         encrypted_e.setText(encrypted)
 
     def encrypt_message(self, account: Optional[AbstractAccount]=None,
-            key_data: Optional[KeyDataTypes]=None) -> None:
+            key_data: Optional[KeyDataProtocol]=None) -> None:
         account = self._account if account is None else account
         assert account is not None
 

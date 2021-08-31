@@ -31,7 +31,7 @@ from ...bitcoin import script_template_to_string
 from ...constants import ACCOUNT_SCRIPT_TYPES, ScriptType
 from ...i18n import _
 from ...types import DerivationType
-from ...wallet_database.types import KeyDataTypes
+from ...wallet_database.types import KeyDataProtocol
 
 from .main_window import ElectrumWindow
 from .util import WindowModalDialog, ButtonsLineEdit, ColorScheme, Buttons, CloseButton
@@ -40,7 +40,7 @@ from .qrtextedit import ShowQRTextEdit
 
 
 class KeyDialog(WindowModalDialog):
-    def __init__(self, main_window: ElectrumWindow, account_id: int, key_data: KeyDataTypes,
+    def __init__(self, main_window: ElectrumWindow, account_id: int, key_data: KeyDataProtocol,
             used_script_type: ScriptType) -> None:
         WindowModalDialog.__init__(self, main_window, _("Key"))
 
@@ -139,6 +139,7 @@ class KeyDialog(WindowModalDialog):
             timestamp)
 
     def _update_address(self) -> None:
+        assert self._account is not None
         script_template = self._account.get_script_template_for_derivation(self._script_type,
             cast(DerivationType, self._key_data.derivation_type), self._key_data.derivation_data2)
         text = ""
@@ -147,6 +148,7 @@ class KeyDialog(WindowModalDialog):
         self._key_edit.setText(text)
 
     def _update_script(self) -> None:
+        assert self._account is not None
         script_template = self._account.get_script_template_for_derivation(self._script_type,
             cast(DerivationType, self._key_data.derivation_type), self._key_data.derivation_data2)
         self._script_edit.setText(script_template.to_script_bytes().hex())
@@ -159,6 +161,7 @@ class KeyDialog(WindowModalDialog):
         return [ self._key_data.keyinstance_id ]
 
     def show_qr(self) -> None:
+        assert self._account is not None
         script_template = self._account.get_script_template_for_derivation(self._script_type,
             cast(DerivationType, self._key_data.derivation_type), self._key_data.derivation_data2)
         if script_template is not None:

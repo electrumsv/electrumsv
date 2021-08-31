@@ -699,8 +699,14 @@ def read_keyinstances_for_derivations(db: sqlite3.Connection, account_id: int,
         sql_values.append(masterkey_id)
     else:
         sql += " AND masterkey_id IS NULL"
+    sql2 = ("SELECT KI.keyinstance_id, KI.account_id, KI.masterkey_id, KI.derivation_type, "
+            "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description "
+        "FROM KeyInstances AS KI "
+        "WHERE account_id=?")
+    print("AAAA", db.execute(sql2, (account_id,)).fetchall())
     # This needs to be last as the batch read message appends the "id" values after the sql values.
     sql += " AND derivation_data2 IN ({})"
+    print("ZZZZ", sql, sql_values, derivation_data2s)
     return read_rows_by_id(KeyInstanceRow, db, sql, sql_values, derivation_data2s)
 
 

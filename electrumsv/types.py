@@ -12,7 +12,7 @@ from .constants import DatabaseKeyDerivationType, DerivationType, DerivationPath
 
 
 if TYPE_CHECKING:
-    from .wallet_database.types import KeyDataTypes, NetworkServerRow, NetworkServerAccountRow, \
+    from .wallet_database.types import KeyDataProtocol, NetworkServerRow, NetworkServerAccountRow, \
         TransactionSubscriptionRow
 
 
@@ -36,7 +36,7 @@ class DatabaseKeyDerivationData:
     source: DatabaseKeyDerivationType = dataclasses.field(default=DatabaseKeyDerivationType.UNKNOWN)
 
     @classmethod
-    def from_key_data(cls, row: "KeyDataTypes",
+    def from_key_data(cls, row: "KeyDataProtocol",
             source: DatabaseKeyDerivationType=DatabaseKeyDerivationType.UNKNOWN) \
                 -> "DatabaseKeyDerivationData":
         derivation_path: Optional[DerivationPath] = None

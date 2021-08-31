@@ -91,7 +91,7 @@ from .wallet_database.exceptions import KeyInstanceNotFoundError
 from .wallet_database import functions as db_functions
 from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
-    HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataType, KeyDataTypes,
+    HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataProtocol, KeyData,
     KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult, PaymentRequestReadRow,
@@ -99,7 +99,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     TransactionDeltaSumRow, TransactionExistsRow, TransactionLinkState, TransactionMetadata,
     TransactionSubscriptionRow,
     TransactionOutputShortRow, TransactionOutputSpendableRow2, TransactionOutputSpendableRow,
-    TransactionOutputSpendableTypes, TransactionValueRow,
+    TransactionOutputSpendableProtocol, TransactionValueRow,
     TransactionInputAddRow, TransactionOutputAddRow,
     TransactionRow, TxProof, WalletBalance, WalletEventRow)
 from .wallet_database.util import create_derivation_data2
@@ -224,7 +224,7 @@ class AbstractAccount:
         raise NotImplementedError
 
     def reserve_unassigned_key(self, derivation_parent: DerivationPath, flags: KeyInstanceFlag) \
-            -> KeyDataType:
+            -> KeyDataProtocol:
         raise NotImplementedError
 
     def derive_new_keys_until(self, derivation_path: DerivationPath,
@@ -538,7 +538,7 @@ class AbstractAccount:
     def get_threshold(self) -> int:
         return 1
 
-    def export_private_key(self, keydata: KeyDataTypes, password: str) -> Optional[str]:
+    def export_private_key(self, keydata: KeyDataProtocol, password: str) -> Optional[str]:
         """ extended WIF format """
         if self.is_watching_only():
             return None
@@ -600,13 +600,13 @@ class AbstractAccount:
             confirmed_only=confirmed_only, mature_height=mature_height,
             exclude_frozen=exclude_frozen, keyinstance_ids=keyinstance_ids)
 
-    def get_extended_input_for_spendable_output(self, row: TransactionOutputSpendableTypes) \
+    def get_extended_input_for_spendable_output(self, row: TransactionOutputSpendableProtocol) \
             -> XTxInput:
         assert row.account_id is not None
         assert row.account_id == self._id
         assert row.keyinstance_id is not None
         assert row.derivation_type is not None
-        x_pubkeys = self.get_xpubkeys_for_key_data(row)
+        x_pubkeys = self.get_xpubkeys_for_key_data(cast(KeyDataProtocol, row))
         # NOTE(typing) The first four arguments for `TxInput` cause mypy to choke because `attrs`..
         return XTxInput(
             prev_hash          = row.tx_hash, # type: ignore
@@ -704,7 +704,7 @@ class AbstractAccount:
             out.append(export_entry)
         return out
 
-    def create_extra_outputs(self, coins: List[TransactionOutputSpendableTypes],
+    def create_extra_outputs(self, coins: List[TransactionOutputSpendableProtocol],
             outputs: List[XTxOutput], force: bool=False) -> List[XTxOutput]:
         # Hardware wallets can only sign a limited range of output types (not OP_FALSE OP_RETURN).
         if self.involves_hardware_wallet() or len(coins) == 0:
@@ -720,7 +720,7 @@ class AbstractAccount:
         ordered_coins = sorted(coins, key=lambda v: cast(int, v.keyinstance_id))
         assert ordered_coins[0].derivation_data2 is not None
         public_keys = self.get_public_keys_for_derivation(
-            cast(DerivationType, ordered_coins[0].derivation_type),
+            ordered_coins[0].derivation_type,
             ordered_coins[0].derivation_data2)
         for public_key in public_keys:
             raw_payload_bytes = push_item(os.urandom(random.randrange(32)))
@@ -745,7 +745,7 @@ class AbstractAccount:
             return self.MAX_HARDWARE_CHANGE_OUTPUTS
         return self.MAX_SOFTWARE_CHANGE_OUTPUTS
 
-    def make_unsigned_transaction(self, unspent_outputs: List[TransactionOutputSpendableTypes],
+    def make_unsigned_transaction(self, unspent_outputs: List[TransactionOutputSpendableProtocol],
             outputs: List[XTxOutput]) -> Tuple[Transaction, TransactionContext]:
         # check outputs
         all_index = None
@@ -786,13 +786,14 @@ class AbstractAccount:
                         script_pubkey = self.get_script_for_derivation(script_type,
                             keyinstance.derivation_type, keyinstance.derivation_data2),
                         script_type   = script_type,
-                        x_pubkeys     = self.get_xpubkeys_for_key_data(keyinstance)))
+                        x_pubkeys     = self.get_xpubkeys_for_key_data(
+                            cast(KeyDataProtocol, keyinstance))))
             else:
                 # NOTE(typing) `attrs` and `mypy` are not compatible, `TxOutput` vars unseen.
                 change_outs = [ XTxOutput( # type: ignore
                     value         = 0,
                     script_pubkey = self.get_script_for_derivation(unspent_outputs[0].script_type,
-                        cast(DerivationType, unspent_outputs[0].derivation_type),
+                        unspent_outputs[0].derivation_type,
                         unspent_outputs[0].derivation_data2),
                     script_type   = inputs[0].script_type,
                     x_pubkeys     = inputs[0].x_pubkeys) ]
@@ -1105,7 +1106,7 @@ class AbstractAccount:
             return None
 
         db_outputs = sorted(db_outputs, key=lambda db_output: -db_output.value)
-        output = db_outputs[0]
+        output = cast(TransactionOutputSpendableProtocol, db_outputs[0])
         inputs = [ self.get_extended_input_for_spendable_output(output) ]
         # TODO(rt12) This should get a change output key from the account (if applicable).
         # NOTE(typing) mypy struggles with attrs inheritance, so we need to disable it.
@@ -1114,7 +1115,7 @@ class AbstractAccount:
                 # TxOutput
                 output.value - fee, # type:ignore
                 self.get_script_for_derivation(output.script_type,
-                    cast(DerivationType, output.derivation_type), output.derivation_data2),
+                    output.derivation_type, output.derivation_data2),
                 # XTxOutput
                 output.script_type,
                 self.get_xpubkeys_for_key_data(output)) # type:ignore
@@ -1130,7 +1131,7 @@ class AbstractAccount:
                 return True
         return False
 
-    def get_xpubkeys_for_key_data(self, row: KeyDataTypes) -> List[XPublicKey]:
+    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> List[XPublicKey]:
         raise NotImplementedError
 
     def get_master_public_key(self) -> Optional[str]:
@@ -1364,10 +1365,10 @@ class AbstractAccount:
     def can_delete_key(self) -> bool:
         return False
 
-    def sign_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
+    def sign_message(self, key_data: KeyDataProtocol, message: bytes, password: str) -> bytes:
         raise NotImplementedError
 
-    def decrypt_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
+    def decrypt_message(self, key_data: KeyDataProtocol, message: bytes, password: str) -> bytes:
         raise NotImplementedError
 
     def is_watching_only(self) -> bool:
@@ -1389,7 +1390,7 @@ class AbstractAccount:
 
     def create_payment_request(self, message: str, amount: Optional[int]=None,
             expiration_seconds: Optional[int]=None) \
-                -> Tuple[concurrent.futures.Future[List[PaymentRequestRow]], KeyDataType]:
+                -> Tuple[concurrent.futures.Future[List[PaymentRequestRow]], KeyDataProtocol]:
         # Note that we are allowed to set `ACTIVE` here because we clear it when we delete
         # the payment request, and we need to know about payments made to the given script or
         # address on the blockchain.
@@ -1552,25 +1553,25 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
             enc_private_key_text)
         return private_key_text
 
-    def export_private_key(self, keydata: KeyDataTypes, password: str) -> str:
+    def export_private_key(self, keydata: KeyDataProtocol, password: str) -> str:
         '''Returned in WIF format.'''
         keystore = cast(Imported_KeyStore, self.get_keystore())
         public_key = PublicKey.from_bytes(keydata.derivation_data2)
         return keystore.export_private_key(public_key, password)
 
-    def sign_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
+    def sign_message(self, key_data: KeyDataProtocol, message: bytes, password: str) -> bytes:
         assert key_data.derivation_data2 is not None
         public_key = PublicKey.from_bytes(key_data.derivation_data2)
         keystore = cast(Imported_KeyStore, self.get_keystore())
         return keystore.sign_message(public_key, message, password)
 
-    def decrypt_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
+    def decrypt_message(self, key_data: KeyDataProtocol, message: bytes, password: str) -> bytes:
         assert key_data.derivation_data2 is not None
         public_key = PublicKey.from_bytes(key_data.derivation_data2)
         keystore = cast(Imported_KeyStore, self.get_keystore())
         return keystore.decrypt_message(public_key, message, password)
 
-    def get_xpubkeys_for_key_data(self, row: KeyDataTypes) -> List[XPublicKey]:
+    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> List[XPublicKey]:
         data = DatabaseKeyDerivationData.from_key_data(row, DatabaseKeyDerivationType.SIGNING)
         return [ XPublicKey(pubkey_bytes=row.derivation_data2, derivation_data=data) ]
 
@@ -1653,13 +1654,13 @@ class DeterministicAccount(AbstractAccount):
             if future is not None:
                 future.result()
 
-    def sign_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
+    def sign_message(self, key_data: KeyDataProtocol, message: bytes, password: str) -> bytes:
         assert key_data.derivation_data2 is not None
         derivation_path = unpack_derivation_path(key_data.derivation_data2)
         keystore = cast(SignableKeystoreTypes, self.get_keystore())
         return keystore.sign_message(derivation_path, message, password)
 
-    def decrypt_message(self, key_data: KeyDataTypes, message: bytes, password: str) -> bytes:
+    def decrypt_message(self, key_data: KeyDataProtocol, message: bytes, password: str) -> bytes:
         assert key_data.derivation_data2 is not None
         derivation_path = unpack_derivation_path(key_data.derivation_data2)
         keystore = cast(BIP32_KeyStore, self.get_keystore())
@@ -1826,7 +1827,7 @@ class DeterministicAccount(AbstractAccount):
             tuple(derivation_subpath) + (i,)) for i in range(next_index, next_index + count))
 
     def reserve_unassigned_key(self, derivation_subpath: DerivationPath, flags: KeyInstanceFlag) \
-            -> KeyDataType:
+            -> KeyDataProtocol:
         """
         Reserve the first available unused key from the given derivation path.
 
@@ -1868,7 +1869,7 @@ class DeterministicAccount(AbstractAccount):
             self._network.subscriptions.create_entries(
                 self._get_subscription_entries_for_keyinstance_ids([ keyinstance_id ]),
                     self._subscription_owner_for_keys)
-        return KeyDataType(keyinstance_id, self._id, masterkey_id, derivation_type,
+        return KeyData(keyinstance_id, self._id, masterkey_id, derivation_type,
             derivation_data2)
 
     def derive_new_keys_until(self, derivation_path: DerivationPath,
@@ -1980,7 +1981,7 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
         public_key = xpub_keystore.derive_pubkey(derivation_path)
         return self.get_script_template(public_key, script_type)
 
-    def get_xpubkeys_for_key_data(self, row: KeyDataTypes) -> List[XPublicKey]:
+    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> List[XPublicKey]:
         data = DatabaseKeyDerivationData.from_key_data(row, DatabaseKeyDerivationType.SIGNING)
         keystore = cast(KeyStore, self.get_keystore())
         if keystore.type() == KeystoreType.OLD:
@@ -2023,10 +2024,10 @@ class MultisigAccount(DeterministicAccount):
             -> List[PublicKey]:
         return [ keystore.derive_pubkey(derivation_path) for keystore in self.get_keystores() ]
 
-    def get_possible_scripts_for_key_data(self, keydata: KeyDataTypes) \
+    def get_possible_scripts_for_key_data(self, keydata: KeyDataProtocol) \
             -> List[Tuple[ScriptType, Script]]:
-        public_keys = self.get_public_keys_for_derivation(
-            cast(DerivationType, keydata.derivation_type), keydata.derivation_data2)
+        public_keys = self.get_public_keys_for_derivation(keydata.derivation_type,
+            keydata.derivation_data2)
         public_keys_hex = [ public_key.to_hex() for public_key in public_keys ]
         return [
             (script_type, self.get_script_template(public_keys_hex, script_type).to_script())
@@ -2087,7 +2088,7 @@ class MultisigAccount(DeterministicAccount):
         _sorted_mpks, sorted_fingerprints = zip(*sorted(zip(mpks, fingerprints)))
         return b''.join(cast(Sequence[bytes], sorted_fingerprints))
 
-    def get_xpubkeys_for_key_data(self, row: KeyDataTypes) -> List[XPublicKey]:
+    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> List[XPublicKey]:
         data = DatabaseKeyDerivationData.from_key_data(row, DatabaseKeyDerivationType.SIGNING)
         x_pubkeys = [ k.get_xpubkey(data) for k in self.get_keystores() ]
         # Sort them using the order of the realized pubkeys
@@ -3169,7 +3170,8 @@ class Wallet(TriggeredCallbacks):
             for txo_row in db_functions.read_parent_transaction_outputs_with_key_data(
                     self.get_db_context(), tx_hash):
                 found_in_database = True
-                database_data = DatabaseKeyDerivationData.from_key_data(txo_row,
+                database_data = DatabaseKeyDerivationData.from_key_data(
+                    cast(KeyDataProtocol, txo_row),
                     DatabaseKeyDerivationType.EXTENSION_LINKED)
                 outpoint = Outpoint(txo_row.tx_hash, txo_row.txo_index)
                 self.sanity_check_derivation_key_data(
@@ -3180,7 +3182,8 @@ class Wallet(TriggeredCallbacks):
             for txo_row in db_functions.read_transaction_outputs_with_key_data(
                     self.get_db_context(), tx_hash=tx_hash, require_keys=True):
                 found_in_database = True
-                database_data = DatabaseKeyDerivationData.from_key_data(txo_row,
+                database_data = DatabaseKeyDerivationData.from_key_data(
+                    cast(KeyDataProtocol, txo_row),
                     DatabaseKeyDerivationType.EXTENSION_LINKED)
                 self.sanity_check_derivation_key_data(
                     tx_context.key_datas_by_txo_index.get(txo_row.txo_index), database_data)
@@ -3195,7 +3198,8 @@ class Wallet(TriggeredCallbacks):
             all_outpoints = [ Outpoint(input.prev_hash, input.prev_idx) for input in tx.inputs ]
             for txo_row in db_functions.read_transaction_outputs_with_key_data(
                     self.get_db_context(), txo_keys=all_outpoints):
-                database_data = DatabaseKeyDerivationData.from_key_data(txo_row,
+                database_data = DatabaseKeyDerivationData.from_key_data(
+                    cast(KeyDataProtocol, txo_row),
                     DatabaseKeyDerivationType.EXTENSION_UNLINKED)
                 outpoint = Outpoint(txo_row.tx_hash, txo_row.txo_index)
                 existing_data = tx_context.key_datas_by_spent_outpoint.get(outpoint)
@@ -3237,7 +3241,8 @@ class Wallet(TriggeredCallbacks):
 
         for keyinstance_row in db_functions.read_keyinstances(self.get_db_context(),
                 keyinstance_ids=list(script_hashes_by_keyinstance_id)):
-            database_data = DatabaseKeyDerivationData.from_key_data(keyinstance_row,
+            database_data = DatabaseKeyDerivationData.from_key_data(
+                cast(KeyDataProtocol, keyinstance_row),
                 DatabaseKeyDerivationType.EXTENSION_UNLINKED)
             for script_hash in script_hashes_by_keyinstance_id[keyinstance_row.keyinstance_id]:
                 for txo_index in txo_indexes_by_script_hash[script_hash]:

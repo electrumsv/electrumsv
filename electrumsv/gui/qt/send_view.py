@@ -48,7 +48,7 @@ from ...paymentrequest import has_expired, PaymentRequest
 from ...transaction import Transaction, TransactionContext, XTxOutput
 from ...util import format_satoshis_plain
 from ...wallet import AbstractAccount
-from ...wallet_database.types import InvoiceRow, TransactionOutputSpendableTypes
+from ...wallet_database.types import InvoiceRow, TransactionOutputSpendableProtocol
 
 from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
 from . import dialogs
@@ -184,7 +184,7 @@ class SendView(QWidget):
         grid.addWidget(amount_label, 3, 0)
         grid.addWidget(self.amount_e, 3, 1)
 
-        self._fiat_send_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '', self)
+        self._fiat_send_e = AmountEdit(app_state.fx.get_currency if app_state.fx else "", self)
         self._on_fiat_ccy_changed()
 
         grid.addWidget(self._fiat_send_e, 3, 2)
@@ -374,7 +374,7 @@ class SendView(QWidget):
     def update_fee(self) -> None:
         self._require_fee_update = time.monotonic()
 
-    def set_pay_from(self, coins: Iterable[TransactionOutputSpendableTypes]) -> None:
+    def set_pay_from(self, coins: Iterable[TransactionOutputSpendableProtocol]) -> None:
         self.pay_from = list(coins)
         self.redraw_from_list()
 
@@ -395,7 +395,7 @@ class SendView(QWidget):
         self._from_label.setHidden(len(self.pay_from) == 0)
         self._from_list.setHidden(len(self.pay_from) == 0)
 
-        def format_utxo(utxo: TransactionOutputSpendableTypes) -> str:
+        def format_utxo(utxo: TransactionOutputSpendableProtocol) -> str:
             h = hash_to_hex_str(utxo.tx_hash)
             return '{}...{}:{:d}\t{}'.format(h[0:10], h[-10:], utxo.txo_index, utxo.keyinstance_id)
 
@@ -496,7 +496,8 @@ class SendView(QWidget):
             amount = tx.output_value() if self._is_max else sum(output.value for output in outputs)
             self._sign_tx_and_broadcast_if_complete(amount, tx, tx_context)
 
-    def _read(self) -> Optional[Tuple[List[XTxOutput], str, List[TransactionOutputSpendableTypes]]]:
+    def _read(self) -> Optional[Tuple[List[XTxOutput], str,
+            List[TransactionOutputSpendableProtocol]]]:
         if self._payment_request and self._payment_request.has_expired():
             self._main_window.show_error(_('Payment request has expired'))
             return None
@@ -526,11 +527,12 @@ class SendView(QWidget):
         coins = self._get_coins()
         return outputs, label, coins
 
-    def _get_coins(self) -> List[TransactionOutputSpendableTypes]:
+    def _get_coins(self) -> List[TransactionOutputSpendableProtocol]:
         if self.pay_from:
             return self.pay_from
         assert self._account is not None
-        return self._account.get_transaction_outputs_with_key_data()
+        return cast(List[TransactionOutputSpendableProtocol],
+            self._account.get_transaction_outputs_with_key_data())
 
     def _sign_tx_and_broadcast_if_complete(self, amount: int, tx: Transaction,
             tx_context: TransactionContext) -> None:
