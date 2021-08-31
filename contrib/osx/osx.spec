@@ -49,28 +49,33 @@ if False:
         pprint(getattr(a, key))
 
 PACKAGE='ElectrumSV'
+BUNDLE_IDENTIFIER='io.electrumsv.' + PACKAGE
 ICONS_FILE='contrib/osx/ElectrumSV.icns'
 
 pyz = PYZ(a.pure, a.zipped_data, cipher=None)
 
-exe = EXE(pyz,
-          a.scripts,
-          a.binaries,
-          a.datas,
-          name=version.PACKAGE_VERSION,
-          debug=False,
-          strip=False,
-          upx=True,
-          icon=base_dir + ICONS_FILE,
-          console=False)
+exe = EXE(
+    pyz,
+    a.scripts,
+    exclude_binaries=True,
+    name=version.PACKAGE_VERSION,
+    debug=False,
+    strip=False,
+    upx=True,
+    icon=base_dir + ICONS_FILE,
+    console=False)
 
-app = BUNDLE(exe,
-             version=version.PACKAGE_VERSION,
-             name=PACKAGE + '.app',
-             icon=base_dir + ICONS_FILE,
-             bundle_identifier=None,
-             info_plist={
-                'NSHighResolutionCapable': 'True',
-                'NSSupportsAutomaticGraphicsSwitching': 'True'
-             }
+app = BUNDLE(
+    exe,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    version=version.PACKAGE_VERSION,
+    name=PACKAGE + '.app',
+    icon=base_dir + ICONS_FILE,
+    bundle_identifier=BUNDLE_IDENTIFIER,
+    info_plist={
+        'NSHighResolutionCapable': 'True',
+        'NSSupportsAutomaticGraphicsSwitching': 'True'
+    }
 )
