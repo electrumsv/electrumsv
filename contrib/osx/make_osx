@@ -123,6 +123,9 @@ info "Hopefully forcing light mode and avoiding dark mode which we do not suppor
 plutil -insert NSRequiresAquaSystemAppearance -bool YES -- dist/$PACKAGE.app/Contents/Info.plist \
 	|| fail "Could not add keys to Info.plist. Make sure the program 'plutil' exists and is installed."
 
+# We (ElectrumSV) created and publish this package with it's local dynamic library, so we should be safe to sign it. Ideally we would
+# sign it before we publish the given package, but that is much more work and I am not sure the signing persists into our packaging. 
+DoCodeSignMaybe "electrumsv-secp256k1" "dist/ElectrumSV.app/Contents/Resources/electrumsv_secp256k1/.dylibs/libgmp.10.dylib" "$APP_SIGN"
 DoCodeSignMaybe "app bundle" "dist/${PACKAGE}.app"  "$APP_SIGN"
 
 if [ ! -z "$APP_SIGN" ]; then
