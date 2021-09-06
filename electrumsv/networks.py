@@ -87,10 +87,6 @@ class SVMainnet(object):
     BIP44_COIN_TYPE = 0
 
     BLOCK_EXPLORERS = {
-        'hugeblock.info': (
-            'https://hugeblock.info',
-            {'tx': 'tx', 'addr': 'address'},
-        ),
         'whatsonchain.com': (
             'https://whatsonchain.com',
             {'tx': 'tx', 'addr': 'address', 'script': 'script'},
