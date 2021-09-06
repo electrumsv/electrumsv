@@ -2,15 +2,13 @@ Building Mac OS binaries
 ========================
 
 This guide explains how to build ElectrumSV binaries for macOS systems.
-We build our binaries on El Capitan (10.11.6) as building it on High Sierra
-makes the binaries incompatible with older versions.
+We build our binaries on Big Sur (10.15) as this is the current release
+of MacOS and we do not have the manpower or resources to commit to
+supporting people that cannot upgrade their computer unfortunately.
 
 ## 1. Building the binary
 
-This needs to be done on a system running macOS or OS X. We use El
-Capitan (10.11.6) as building it on High Sierra (or later) makes the
-binaries [incompatible with older
-versions](https://github.com/pyinstaller/pyinstaller/issues/1191).
+This needs to be done on a system running macOS or OS X Big Sur or later.
 
 Before starting, make sure that the Xcode command line tools are
 installed (e.g. you have `git`).
@@ -20,48 +18,65 @@ installed (e.g. you have `git`).
 Building the QR scanner (CalinsQRReader) requires full Xcode (not just
 command line tools).
 
-The last Xcode version compatible with El Capitan is Xcode 8.2.1
-
-Get it from [here](https://developer.apple.com/download/more/).
-
-Unfortunately, you need an "Apple ID" account.
-
-After downloading, uncompress it.
-
-Make sure it is the "selected" xcode (e.g.):
-
-    sudo xcode-select -s $HOME/Downloads/Xcode.app/Contents/Developer/
-
-
 #### 1.2 Build ElectrumSV
 
     cd electrum-sv
     ./contrib/osx/make_osx
 
-This creates both a folder named `Electrum.app` and the `.dmg` file.
+On success this will creates build artifacts in the `dist` folder. A
+directory named `ElectrumSV.app` and the `.dmg` file packaging that
+app into an installer.
 
 If you get errors about zlib not being found, try the fix at the top of
 https://github.com/pyenv/pyenv/issues/1219.
 
 
-## 2. Building the image deterministically (WIP)
+## 2. Code signing builds
 
-The usual way to distribute macOS applications is to use image files
-containing the application. Although these images can be created on a
-Mac with the built-in `hdiutil`, they are not deterministic.
+With each version of MacOS, Apple requires more and more security checks
+before users can run any out of store applications they download.
 
-Instead, we use the toolchain that Bitcoin uses: genisoimage and
-libdmg-hfsplus.  These tools do not work on macOS, so you need a
-separate Linux machine (or VM).
+* An unsigned application will run but fail with a buggy looking warning
+  about the application being damaged. This just means it is unsigned and
+  Apple intentionally decided to give a misleading message, or perhaps
+  sloppily failed to notify the user correctly and this is actually a bug.
+* A signed application will require two levels of confirmation from the
+  user in the Security Center, before MacOS will let it run.
+* A signed and notarised application will simply ask the user if they are
+  sure they wish to run a file they downloaded from the internet, and
+  allow them to run it if they click okay.
 
-Copy the Electrum.app directory over and install the dependencies, e.g.:
+### 2.1 Signing
 
-    apt install libcap-dev cmake make gcc faketime
+If you are doing local development, you will not be able to notarise your
+build. Ensure you do not have the three environment variables set that you
+would have, for notarisation. Then start the build and signing process
+with your certificate name.
 
-Then you can just invoke `package.sh` with the path to the app directory:
+    ./contrib/make_osx "Mac Developer: <developer name> (BSASA23SAS)"
 
-    cd electrum-sv
-    ./contrib/osx/package.sh ~/ElectrumSV.app/
+### 2.2 Signing and notarisation
 
-This will place an electrum-SV `.dmg` file in the parent directory of the
-app directory and print its md5 sum.
+In order to perform notarisation after code-signing the user should set
+three environment variables before they run the build process.
+
+    export APPLE_ID_USER=<Your Apple ID>
+    export APPLE_ID_PASSWORD=<Your password>
+    export APPLE_ID_PROVIDER=<Your provider id>
+
+The password does not have to be your Apple ID password, instead in the
+Developer site you can create an application password that can be used
+for signing instead.
+
+The provider ID is around 10 letters and contains upper-case letters 
+mixed with numbers. It usually can be found in your Developer ID certificate
+name, but you can get it other ways. It is necessary in case your Apple ID
+is associated with multiple Apple Developer accounts.
+
+In the following command, you would substitute the single argument with the
+name of your signing certificate, which might look quite similar. The
+dummy "ASASA23SAS" value would be pone place where you see your provider ID.
+
+    ./contrib/make_osx "Developer ID Application: <developer name> (ASASA23SAS)"
+
+This should complete successfully, leaving the artifacts in the `dist` folder.

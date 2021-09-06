@@ -10,8 +10,8 @@ if [ -z "$1" ]; then
     exit 1
 fi
 
-if [ -z "$APPLE_ID_USER" ] || [ -z "$APPLE_ID_PASSWORD" ]; then
-    echo "You need to set your Apple ID credentials with \$APPLE_ID_USER and \$APPLE_ID_PASSWORD."
+if [ -z "$APPLE_ID_USER" ] || [ -z "$APPLE_ID_PASSWORD" ] || [ -z "$APPLE_ID_PROVIDER" ]; then
+    echo "You need to set your Apple ID credentials with \$APPLE_ID_USER, \$APPLE_ID_PASSWORD and \$APPLE_ID_PROVIDER."
     exit 1
 fi
 
@@ -31,6 +31,7 @@ RESULT=$(xcrun altool --notarize-app --type osx \
   --primary-bundle-id io.electrumsv.electrumsv \
   --username $APPLE_ID_USER \
   --password @env:APPLE_ID_PASSWORD \
+  --asc-provider $APPLE_ID_PROVIDER \
   --output-format xml)
 
 if [ $? -ne 0 ]; then
@@ -59,6 +60,7 @@ do
   RESULT=$(xcrun altool --notarization-info "$REQUEST_UUID" \
     --username "$APPLE_ID_USER" \
     --password @env:APPLE_ID_PASSWORD \
+    --asc-provider $APPLE_ID_PROVIDER \
     --output-format xml)
   STATUS=$(echo "$RESULT" | xpath -e \
     "//key[normalize-space(text()) = 'Status']/following-sibling::string[1]/text()" 2> /dev/null)
