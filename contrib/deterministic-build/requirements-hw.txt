@@ -140,9 +140,9 @@ urllib3==1.26.6 \
     #   requests
 
 # The following packages are considered to be unsafe in a requirements file:
-setuptools==58.0.0 \
-    --hash=sha256:ee45f4d69c4bbd21a27b60a7f1f32cbdcd34755cb613e5c4edcb58145394a0a3 \
-    --hash=sha256:fa14855ea8332dc12cae21b8e18cf55573eeaabad9fe3b8b787e6a74e01885d3
+setuptools==58.0.3 \
+    --hash=sha256:1ceadf3ea9a821ef305505db995f2e21550ea62500900164278c4b23109204f3 \
+    --hash=sha256:5e4c36f55012a46c1b3e4b67a8236d1d73856a90fc7b3207d29bedb7d2bac417
     # via
     #   hidapi
     #   trezor

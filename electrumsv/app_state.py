@@ -40,9 +40,8 @@ import time
 from types import TracebackType
 from typing import Any, Callable, cast, Coroutine, Optional, Tuple, Type, TYPE_CHECKING, TypeVar
 
-from bitcoinx import Headers
-
 from .async_ import ASync
+from .cached_headers import read_cached_headers, write_cached_headers
 from .constants import MAX_INCOMING_ELECTRUMX_MESSAGE_MB
 from .credentials import CredentialCache
 from .logs import logs
@@ -52,6 +51,8 @@ from .startup import package_dir
 from .util import format_satoshis
 
 if TYPE_CHECKING:
+    from bitcoinx import Headers
+
     from .daemon import Daemon
     from .exchange_rate import FxTask
     from .gui.qt.app import SVApplication
@@ -135,6 +136,9 @@ class AppStateProxy(object):
             base_headers2_filepath = os.path.join(package_dir, "data", "headers_mainnet")
             shutil.copyfile(base_headers2_filepath, headers2_filepath)
 
+            base_headers2_filepath = os.path.join(package_dir, "data", "headers_mainnet")
+            shutil.copyfile(base_headers2_filepath +".chain_data", headers2_filepath +".chain_data")
+
     def shutdown(self) -> None:
         self.credentials.close()
 
@@ -162,9 +166,18 @@ class AppStateProxy(object):
         return os.path.join(self.config.path, 'headers2')
 
     def read_headers(self) -> None:
-        self.headers = Headers.from_file(Net.COIN, self.headers_filename(), Net.CHECKPOINT)
+        self.headers = read_cached_headers(Net.COIN, self.headers_filename(),
+            Net.CHECKPOINT)
         for n, chain in enumerate(self.headers.chains(), start=1):
             logger.info(f'chain #{n}: {chain.desc()}')
+
+    def on_stop(self) -> None:
+        self._write_header_cache()
+
+    def _write_header_cache(self) -> None:
+        if self.headers is not None:
+            logger.debug("writing header cache")
+            write_cached_headers(self.headers)
 
     def base_unit(self) -> str:
         index = self.decimal_points.index(self.decimal_point)
