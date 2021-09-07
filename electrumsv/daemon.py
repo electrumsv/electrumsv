@@ -371,6 +371,7 @@ class Daemon(DaemonThread):
             assert self.fx_task is not None, "fx task should be valid if network is"
             self.fx_task.cancel()
             app_state.async_.spawn_and_wait(self.network.shutdown_wait)
+        app_state.on_stop()
         self.on_stop()
 
     def stop(self) -> None:
