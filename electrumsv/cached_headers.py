@@ -60,5 +60,5 @@ def read_cached_headers(coin: Network, file_path: str, checkpoint: CheckPoint) -
     else:
         logger.debug("cached chain data file not found")
 
-    return cast(Headers, Headers.from_file(coin, file_path, checkpoint))
+    return cast(Headers, Headers(coin, file_path, checkpoint))
 
