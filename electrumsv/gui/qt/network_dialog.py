@@ -215,18 +215,21 @@ class NodesListWidget(QTreeWidget):
         self.clear()
 
         chains = self._network.sessions_by_chain()
+        chain_items = list(chains.items())
+        host_counts = {}
+        for chain, sessions in chain_items:
+            # If someone is connected to two nodes on the same server, indicate the difference.
+            for i, session in enumerate(sessions):
+                host_counts[session.server.host] = host_counts.get(session.server.host, 0) + 1
+
         our_chain = self._network.chain()
-        for chain, sessions in chains.items():
+        for chain, sessions in chain_items:
             if len(chains) > 1:
                 name = self.chain_name(chain, our_chain)
                 tree_item = QTreeWidgetItem([name, '%d' % chain.height])
                 tree_item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, None)
             else:
                 tree_item = self
-            # If someone is connected to two nodes on the same server, indicate the difference.
-            host_counts = {}
-            for session in sessions:
-                host_counts[session.server.host] = host_counts.get(session.server.host, 0) + 1
             for session in sessions:
                 extra_name = ""
                 if host_counts[session.server.host] > 1:
@@ -1371,13 +1374,17 @@ class ServersListWidget(QTableWidget):
         if not sessions:
             return False
 
-        max_tip_height = max([session.tip.height for session in sessions])
         for session in sessions:
             if session.server == server:
                 break
         else:
             return False  # The server is unable to connect - there is no SVSession for it
 
+        if session.tip is None:
+            return False
+
+        max_tip_height = max([session.tip.height if session.tip is not None else 0
+            for session in sessions])
         is_more_than_two_blocks_behind = max_tip_height > session.tip.height + 2
         if server.state.last_good >= server.state.last_try and not is_more_than_two_blocks_behind:
             return True
