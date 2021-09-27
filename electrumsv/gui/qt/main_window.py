@@ -1538,7 +1538,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
             # NOTE This callback will be happening in the database thread. No UI calls should
             #   be made within it, unless we explicitly emit a signal to do it.
-            def ui_callback() -> None:
+            def ui_callback(args: Tuple) -> None:
                 self.utxo_list.update()
                 send_view = self.get_send_view(account.get_id())
                 # This will refresh the send view for selected coins.
