@@ -12,8 +12,9 @@ ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 LIBUSB_REPO='https://github.com/libusb/libusb.git'
 LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 
-PYINSTALLER_REPO='https://github.com/ElectrumSV/pyinstaller.git'
-PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
+PYINSTALLER_REPO='https://github.com/pyinstaller/pyinstaller.git'
+PYINSTALLER_COMMIT=5a02f55c696f16b98f23a8b487f3daa8f644a8d2
+# 4.5.1
 
 PYTHON_VERSION=3.7.8
 
