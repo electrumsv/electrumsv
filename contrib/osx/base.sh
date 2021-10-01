@@ -30,8 +30,7 @@ function DoCodeSignMaybe { # ARGS: infoName fileOrDirName codesignIdentity
     if [ -z "$infoName" ] || [ -z "$file" ] || [ -z "$identity" ] || [ ! -e "$file" ]; then
         fail "Argument error to internal function DoCodeSignMaybe()"
     fi
-    info "Code signing ${infoName}..."
-    hardened_arg="--entitlements=contrib/osx/entitlements.plist -o runtime"
+        hardened_arg="--entitlements=contrib/osx/entitlements.plist -o runtime"
 
     info "Code signing ${infoName}..."
     codesign -f -v $deep -s "$identity" $hardened_arg "$file" || fail "Could not code sign ${infoName}"

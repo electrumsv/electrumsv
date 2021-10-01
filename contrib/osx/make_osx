@@ -9,12 +9,14 @@ cd $build_dir/../..
 
 export PYTHONHASHSEED=22
 
-# Paramterize
+# Parameterize.
 PYTHON_VERSION=3.9.5
 BUILDDIR=/tmp/electrum-sv-build
 PACKAGE=ElectrumSV
 GIT_REPO_ACCT=https://github.com/electrumsv
 GIT_REPO=$GIT_REPO_ACCT/electrumsv
+
+python3 -c "import sys; assert sys.version_info >= (${PYTHON_VERSION//./,})" > /dev/null 2>&1 || fail "Please ensure Python 3.9 is the default 'python3' command and it is later than Python $PYTHON_VERSION"
 
 which xcodebuild > /dev/null 2>&1 || fail "Please install Xcode and xcode command line tools to continue"
 
@@ -40,22 +42,6 @@ else
     warn "Code signing DISABLED. Specify a valid macOS Developer identity installed on the system as the first argument to this script to enable signing."
 fi
 
-# info "Installing Python $PYTHON_VERSION"
-# export PATH="~/.pyenv/bin:~/.pyenv/shims:$PATH"
-# if [ -d "~/.pyenv" ]; then
-#   pyenv update
-# else
-#   curl -L https://raw.githubusercontent.com/pyenv/pyenv-installer/master/bin/pyenv-installer | bash > /dev/null 2>&1
-# fi
-# # https://github.com/pyenv/pyenv/issues/1066#issuecomment-536700708
-
-# # -I$(xcrun --show-sdk-path)/usr/include
-# CFLAGS="-I$(brew --prefix sqlite3)/include" \
-# LDFLAGS="-L$(brew --prefix sqlite3)/lib" \
-# SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX10.14.sdk MACOSX_DEPLOYMENT_TARGET=10.14 \
-# PYTHON_CONFIGURE_OPTS="--enable-framework" pyenv install -s $PYTHON_VERSION && \
-# pyenv global $PYTHON_VERSION || \
-# fail "Unable to use Python $PYTHON_VERSION"
 rm -rf ./dist
 
 git submodule init
@@ -109,6 +95,7 @@ python3 -m pip install . > /dev/null || fail "Could not build $PACKAGE"
 # --match: Only consider tags matching the given pattern.
 # e.g. "sv-1.1.0-12-f3d2d22" (12 commits past tag, and on commit f3d2d22)
 RAW_VERSION=`git describe --tags --dirty --always --match sv-*`
+#RAW_VERSION=sv-1.4.0b1
 # Strip the leading 3 characters from the description, 'sv-1.1.0' -> '1.1.0' (the release version).
 VERSION=${RAW_VERSION:3}
 
@@ -129,20 +116,18 @@ plutil -insert NSRequiresAquaSystemAppearance -bool YES -- dist/$PACKAGE.app/Con
 # sign it before we publish the given package, but that is much more work and I am not sure the signing persists into our packaging. 
 DoCodeSignMaybe "electrumsv-secp256k1" "dist/ElectrumSV.app/Contents/Resources/electrumsv_secp256k1/.dylibs/libgmp.10.dylib" "$APP_SIGN"
 DoCodeSignMaybe "app bundle" "dist/${PACKAGE}.app"  "$APP_SIGN"
+info "Creating .DMG"
+dmgbuild -D PACKAGE=$PACKAGE -s contrib/osx/dmg-settings.py "" dist/$PACKAGE-$VERSION.dmg || fail "Could not create .DMG"
+DoCodeSignMaybe ".DMG" "dist/${PACKAGE}-${VERSION}.dmg" "$APP_SIGN"
 
 if [ ! -z "$APP_SIGN" ]; then
     if [ ! -z "$APPLE_ID_USER" ]; then
-        info "Notarizing .app with Apple's central server..."
-        "contrib/osx/notarize_app.sh" "dist/${PACKAGE}.app" || fail "Could not notarize binary."
+        info "Notarizing .dmg with Apple's central server..."
+        "contrib/osx/notarize_file.sh" "dist/${PACKAGE}-${VERSION}.dmg" || fail "Could not notarize binary."
     else
         warn "AppleID details not set! Skipping Apple notarization."
     fi
 fi
-
-info "Creating .DMG"
-dmgbuild -D PACKAGE=$PACKAGE -s contrib/osx/dmg-settings.py "" dist/$PACKAGE-$VERSION.dmg || fail "Could not create .DMG"
-
-DoCodeSignMaybe ".DMG" "dist/${PACKAGE}-${VERSION}.dmg" "$APP_SIGN"
 
 if [ -z "$APP_SIGN" ]; then
     warn "App was built successfully but was not code signed."
