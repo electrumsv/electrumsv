@@ -27,10 +27,6 @@ On success this will creates build artifacts in the `dist` folder. A
 directory named `ElectrumSV.app` and the `.dmg` file packaging that
 app into an installer.
 
-If you get errors about zlib not being found, try the fix at the top of
-https://github.com/pyenv/pyenv/issues/1219.
-
-
 ## 2. Code signing builds
 
 With each version of MacOS, Apple requires more and more security checks
@@ -79,4 +75,13 @@ dummy "ASASA23SAS" value would be pone place where you see your provider ID.
 
     ./contrib/make_osx "Developer ID Application: <developer name> (ASASA23SAS)"
 
-This should complete successfully, leaving the artifacts in the `dist` folder.
+This should complete successfully, leaving the completely signed and notarised
+DMG file in the `dist` folder. Apple recommends only notarising the external
+container, which for out of store is the DMG. When we are building an installer
+to publish in the App store, this will likely be the PKG file.
+
+## 3. References
+
+* [Signing a Mac Product For Distribution](https://developer.apple.com/forums/thread/128166).
+* [Testing a Notarised Product](https://developer.apple.com/forums/thread/130560).
+* [Checking DMG notarization. Rejected, but works fine](https://developer.apple.com/forums/thread/675354).
