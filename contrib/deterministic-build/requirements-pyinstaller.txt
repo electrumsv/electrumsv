@@ -4,22 +4,28 @@
 #
 #    pip-compile --allow-unsafe --generate-hashes --output-file='C:\Data\Git\electrumsv\contrib\deterministic-build\requirements-pyinstaller.txt' 'C:\Data\Git\electrumsv\contrib\requirements\requirements-pyinstaller.txt'
 #
-altgraph==0.17 \
-    --hash=sha256:1f05a47122542f97028caf78775a095fbe6a2699b5089de8477eb583167d69aa \
-    --hash=sha256:c623e5f3408ca61d4016f23a681b9adb100802ca3e3da5e718915a9e4052cebe
+altgraph==0.17.2 \
+    --hash=sha256:743628f2ac6a7c26f5d9223c91ed8ecbba535f506f4b6f558885a8a56a105857 \
+    --hash=sha256:ebf2269361b47d97b3b88e696439f6e4cbc607c17c51feb1754f90fb79839158
     # via pyinstaller
 future==0.18.2 \
     --hash=sha256:b1bead90b70cf6ec3f0710ae53a525360fa360d306a86583adc6bf83a4db537d
     # via pefile
-pefile==2019.4.18 \
-    --hash=sha256:a5d6e8305c6b210849b47a6174ddf9c452b2888340b8177874b862ba6c207645
+pefile==2021.9.3 \
+    --hash=sha256:344a49e40a94e10849f0fe34dddc80f773a12b40675bf2f7be4b8be578bdd94a
     # via pyinstaller
-pyinstaller-hooks-contrib==2020.11 \
-    --hash=sha256:fa8280b79d8a2b267a2e43ff44f73b3e4a68fc8d205b8d34e8e06c960f7c2fcf \
-    --hash=sha256:fc3290a2ca337d1d58c579c223201360bfe74caed6454eaf5a2550b77dbda45c
+pyinstaller-hooks-contrib==2021.3 \
+    --hash=sha256:169b09802a19f83593114821d6ba0416a05c7071ef0ca394f7bfb7e2c0c916c8 \
+    --hash=sha256:a52bc3834281266bbf77239cfc9521923336ca622f44f90924546ed6c6d3ad5e
     # via pyinstaller
-pyinstaller==4.2 \
-    --hash=sha256:f5c0eeb2aa663cce9a5404292c0195011fa500a6501c873a466b2e8cad3c950c
+pyinstaller==4.5.1 \
+    --hash=sha256:30733baaf8971902286a0ddf77e5499ac5f7bf8e7c39163e83d4f8c696ef265e \
+    --hash=sha256:4d848cd782ee0893d7ad9fe2bfe535206a79f0b6760cecc5f2add831258b9322 \
+    --hash=sha256:8f747b190e6ad30e2d2fd5da9a64636f61aac8c038c0b7f685efa92c782ea14f \
+    --hash=sha256:aae456205c68355f9597411090576bb31b614e53976b4c102d072bbe5db8392a \
+    --hash=sha256:c587da8f521a7ce1b9efb4e3d0117cd63c92dc6cedff24590aeef89372f53012 \
+    --hash=sha256:ecc2baadeeefd2b6fbf39d13c65d4aa603afdda1c6aaaebc4577ba72893fee9e \
+    --hash=sha256:fed9f5e4802769a416a8f2ca171c6be961d1861cc05a0b71d20dfe05423137e9
     # via -r C:\Data\Git\electrumsv\contrib\requirements\requirements-pyinstaller.txt
 pywin32-ctypes==0.2.0 \
     --hash=sha256:24ffc3b341d457d48e8922352130cf2644024a4ff09762a2261fd34c36ee5942 \
