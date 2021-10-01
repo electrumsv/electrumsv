@@ -5,7 +5,8 @@ steps:
     addToPath: true
     architecture: x64
 - script: |
-    git clone https://github.com/electrumsv/electrumsv-sdk.git
+    git clone https://github.com/electrumsv/electrumsv-sdk.git --branch electrumsv-1.3.13-build --single-branch
+
     cd electrumsv-sdk
     python3 -m pip install -e .
     cd ..
