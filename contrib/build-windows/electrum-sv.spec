@@ -93,7 +93,6 @@ exe = EXE(pyz,
     exclude_binaries=True,
     # The normal way that PyInstaller works is to embed the PKG archive in the executable which allows it to be signed.
     # We want it kept separate in order to give us the ability to experiment with alternative bootloading.
-    append_pkg=False,
     name='electrumsv',
     debug=False,
     bootloader_ignore_signals=False,
@@ -101,6 +100,7 @@ exe = EXE(pyz,
     strip=False,
     upx=False,
     console=False)
+
 coll = COLLECT(exe,
     a.binaries,
     a.zipfiles,
@@ -108,4 +108,4 @@ coll = COLLECT(exe,
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='electrumsv')
+    name='ElectrumSV')

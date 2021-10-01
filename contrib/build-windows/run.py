@@ -3,16 +3,26 @@
 #       - It might actually be better to do download and verification as a developer who is
 #         priming the initial (hopefully) reproducible build. Then the hashes can help ensure
 #         that the content does not change, and can be embedded in github for the reproducibility.
-# TODO: The whole point of specifying what pip, setuptools and wheel versions to use when
+# TODO: Do we want to replace requirements-pyinstaller with just installing pyinstaller, as we
+#       now have to do.
+# NOTE: The whole point of specifying what pip, setuptools and wheel versions to use when
 #       bootstrapping pip, is to make sure they match the versions in the deterministic
 #       requirements.
-# TODO:
+"""
+Build artifacts
+-r
+sds
+ds
+d
+sds
+d
+"""
 
+
+
+# NOTE: For the PyInstaller build artifact, look for the `Python-3.7.9\dist\electrumsv` directory.
+# NOTE: To run ElectrumSV as installed in the embedded Python, enter the `Python-3.7.9` directory
 #
-# Git commits of interest:
-#
-# Where the Python embedded build would run with ElectrumSV installed into it.
-# https://github.com/electrumsv/electrumsv/blob/a4f6da0a7778553acf89a6fae669abfd11d32388/contrib/build-windows/run.py
 
 import hashlib
 import logging
@@ -39,12 +49,13 @@ SOURCE_ARCHIVE_FILENAME = "Python-{version}.tar.xz"
 PYINSTALLER_SPEC_NAME = "electrum-sv.spec"
 LIBUSB_DLL_NAME = "libusb-1.0.dll"
 LIBZBAR_DLL_NAME = "libzbar-0.dll"
+ZBAR_DLL_PATH = BASE_PATH / "prebuilt" / LIBZBAR_DLL_NAME
 
 HASH_CHUNK_SIZE = 65536
 
-PYTHON_VERSION = "3.7.9"
-PYTHON_ARCH = "win32" # amd64
-PYTHON_ABI = "cp37"
+PYTHON_VERSION = "3.9.7"
+PYTHON_ARCH = "amd64" # win32
+PYTHON_ABI = "cp39"
 
 BUILD_ARCH = {
     "amd64": "x64",
@@ -116,7 +127,12 @@ def _run_command(*args: Sequence[str], cwd: Optional[pathlib.Path]=None,
         thread.start()
         return local_queue, thread
 
-    env = None if preserve_env else { 'SYSTEMROOT': os.environ['SYSTEMROOT'], 'PATH': '.' }
+    if preserve_env:
+        env = None
+    else:
+        env = os.environ.copy()
+        filtered_paths = [ line for line in env["PATH"].split(";") if "python" not in line.lower() ]
+        env["PATH"] = ";".join(filtered_paths)
     process = subprocess.Popen(args, env=env, cwd=cwd, stdout=subprocess.PIPE,
         stderr=subprocess.PIPE, universal_newlines=True)
 
@@ -133,6 +149,7 @@ def _run_command(*args: Sequence[str], cwd: Optional[pathlib.Path]=None,
 
     if errored:
         raise Exception("Process errored")
+
 
 def _build_libusb(download_path: pathlib.Path, output_path: pathlib.Path, build_arch: str) \
         -> pathlib.Path:
@@ -156,6 +173,41 @@ def _build_libusb(download_path: pathlib.Path, output_path: pathlib.Path, build_
     dll_path = build_path / build_arch / "Release" / "dll" / LIBUSB_DLL_NAME
     assert dll_path.exists(), "The libusb dll did not appear to get built"
     return dll_path
+
+
+def install_electrumsv(executable_path: pathlib.Path, build_path: pathlib.Path) -> None:
+    # Install all ElectrumSV's deterministic dependencies into the build's site-packages.
+    for ext_text in ("", "-binaries", "-hw"):
+        _run_command(str(executable_path), "-m", "pip", "-v", "install",
+            "-r", str(REQUIREMENTS_PATH / f"requirements{ext_text}.txt"),
+            "--no-warn-script-location",
+            cwd=build_path, preserve_env=False)
+
+    # Install ElectrumSV into the build's site-packages.
+    _run_command(str(executable_path), "-m", "pip", "-v", "install", ".",
+        "--no-warn-script-location",
+        cwd=SOURCE_PATH, preserve_env=False)
+
+
+def run_pyinstaller(executable_path: pathlib.Path, build_path: pathlib.Path,
+        output_path: pathlib.Path) -> None:
+    _run_command(str(executable_path), "-m", "pip", "install", "pyinstaller",
+        "--no-warn-script-location",
+        cwd=build_path, preserve_env=False)
+
+    # Ensure the PyInstaller spec file in in the right place for us to execute.
+    pyinstaller_spec_path = BASE_PATH / PYINSTALLER_SPEC_NAME
+    shutil.copyfile(pyinstaller_spec_path, build_path / PYINSTALLER_SPEC_NAME)
+
+    _run_command(str(executable_path), "-m", "PyInstaller", PYINSTALLER_SPEC_NAME,
+        "--workpath", str(output_path / "build-pyinstaller"),
+        "--distpath", str(output_path / "dist-pyinstaller"),
+        cwd=build_path, preserve_env=False)
+
+    _run_command(str(executable_path), "-m", "pip", "uninstall", "pyinstaller", "pip",
+        "--no-warn-script-location",
+        cwd=build_path, preserve_env=False)
+
 
 def build_for_platform(python_arch: str, python_version: str, python_abi: str) -> None:
     # Where to store the downloaded files.
@@ -184,44 +236,54 @@ def build_for_platform(python_arch: str, python_version: str, python_abi: str) -
     _download_file("https://bootstrap.pypa.io/get-pip.py", getpip_script_path)
 
     # Extract and build the Python source code.
-    logger.info(f"Extracting {source_archive_filename}")
+    logger.info("Extracting %s", source_archive_filename)
     with tarfile.open(download_path / source_archive_filename, 'r') as z:
         z.extractall(output_path)
 
     _run_command(str(build_path / "PCbuild" / "build.bat"), "-e", "--no-tkinter",
         "-p", build_arch)
 
-    executable_path = build_path / "PCbuild" / build_arch / "python.exe"
+    executable_path = build_path / "PCbuild" / python_arch / "python.exe"
+    logger.info("expected executable path: %s", executable_path)
     assert executable_path.exists(), "failed to build the python interpreter"
 
-    # Ensure that the libusb DLL is in the right place for PyInstaller to find (via the spec file).
+    embedded_dist_path = output_path / "dist-embedded"
+
+    # Create the embedded distribution before we add the dependencies so that the standard library
+    # is all that is in the embedded build's source zip archive.
+    # ```
+    # python.bat PC\layout -s . -t ..\build-embedded --copy ..\dist-embedded --precompile
+    #   --zip-lib --include-underpth --include-stable --flat-dlls
+    # ```
+    _run_command(str(executable_path), r"PC\layout",
+        "-s", str(build_path),
+        "-t", str(output_path / "build-embedded"),
+        "--copy", str(embedded_dist_path),
+        "--precompile", "--zip-lib", "--include-underpth", "--include-stable", "--flat-dlls",
+        cwd=build_path, preserve_env=False)
+
+    # Ensure that the extra DLLs are in the right place for PyInstaller to find (via the spec file).
     shutil.copyfile(libusb_dll_path, build_path / LIBUSB_DLL_NAME)
+    shutil.copyfile(ZBAR_DLL_PATH, build_path / LIBZBAR_DLL_NAME)
 
-    zbar_dll_path = BASE_PATH / "prebuilt" / LIBZBAR_DLL_NAME
-    shutil.copyfile(zbar_dll_path, build_path / LIBZBAR_DLL_NAME)
-
-    # Ensure the PyInstaller spec file in in the right place for us to execute later.
-    pyinstaller_spec_path = BASE_PATH / PYINSTALLER_SPEC_NAME
-    shutil.copyfile(pyinstaller_spec_path, build_path / PYINSTALLER_SPEC_NAME)
+    # Ensure that the extra DLLs are in the embedded build.
+    shutil.copyfile(libusb_dll_path, embedded_dist_path / LIBUSB_DLL_NAME)
+    shutil.copyfile(ZBAR_DLL_PATH, embedded_dist_path / LIBZBAR_DLL_NAME)
 
     # These versions should be aligned with the existing deterministic requirements.
     _run_command(str(executable_path),
         str(getpip_script_path),
-        "--no-warn-script-location", "pip==20.2.3", "setuptools==50.3.0", "wheel==0.35.1",
+        "--no-warn-script-location", "pip==21.2.4", "setuptools==58.0.3", "wheel==0.36.1",
         cwd=build_path, preserve_env=False)
 
-    for ext_text in ("", "-binaries", "-hw", "-pyinstaller"):
-        _run_command(str(executable_path), "-m", "pip", "-v", "install",
-            "-r", str(REQUIREMENTS_PATH / f"requirements{ext_text}.txt"),
-            "--no-warn-script-location",
-            cwd=build_path, preserve_env=False)
+    install_electrumsv(executable_path, build_path)
+    run_pyinstaller(executable_path, build_path, output_path)
 
-    _run_command(str(executable_path), "-m", "pip", "-v", "install", ".",
-        "--no-warn-script-location",
-        cwd=SOURCE_PATH, preserve_env=False)
+    # TODO: The following only apply if the embedded build
+    # TODO: Copy the site-packages to the embedded build?
+    # TODO: Pre-compile the scripts in site-packages.
+    # TODO: Update `python39.pth` in the embedded build directory.
 
-    _run_command(str(executable_path), "-m", "PyInstaller", PYINSTALLER_SPEC_NAME,
-        cwd=build_path, preserve_env=False)
 
 def run(python_arch: str, python_version: str) -> None:
     vs_arch = VS_ARCH[python_arch]
