@@ -93,3 +93,13 @@ CSS_STYLES = """
 
 
 CSS_WALLET_WINDOW_STYLE = CSS_TABLE_VIEW_STYLE + CSS_STYLES
+
+
+class ScanDialogRole(IntEnum):
+    """
+    This is the context in which the dialog is invoked.
+    """
+    # Immediately following account creation.
+    ACCOUNT_CREATION      = 1
+    # Any time after the initial scan for an existing account of suitable type.
+    MANUAL_RESCAN         = 2

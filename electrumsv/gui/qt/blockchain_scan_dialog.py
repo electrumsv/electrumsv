@@ -25,6 +25,7 @@ from ...wallet import Wallet
 from ...wallet_database.types import TransactionLinkState
 from ...web import BE_URL
 
+from .constants import ScanDialogRole
 from .util import FormSectionWidget, read_QIcon, WindowModalDialog
 
 if TYPE_CHECKING:
@@ -40,6 +41,11 @@ TEXT_SCAN_ADVANCED_TITLE = _("Advanced options")
 
 # All these "about" texts have the top title, then a standard line spacing, then more text.
 # Any pages with multi-line centering are fudged to get the same result.
+TEXT_NO_SERVERS = _("<center><b>Not ready to scan</b></center>"
+    "<br/>"
+    "There are no servers currently available and ready for scanning. It is possible that they "
+    "are not currently reachable or that required blockchain headers are still being obtained."
+    "<br/><br/>")
 TEXT_PRE_SCAN = _("<center><b>Ready to scan</b></center>"
     "<br/>"
     "This process will contact servers in order to locate existing transactions that are "
@@ -93,16 +99,6 @@ class ScanDialogStage(IntEnum):
     PRE_IMPORT  = 4
     IMPORT      = 5
     FINAL       = 6
-
-
-class ScanDialogRole(IntEnum):
-    """
-    This is the context in which the dialog is invoked.
-    """
-    # Immediately following account creation.
-    ACCOUNT_CREATION      = 1
-    # Any time after the initial scan for an existing account of suitable type.
-    MANUAL_RESCAN         = 2
 
 
 @dataclass
@@ -162,27 +158,12 @@ class BlockchainScanDialog(WindowModalDialog):
         self._import_tx_count = 0
         self._import_state: Dict[bytes, TransactionScanState] = {}
 
-        account = self._wallet.get_account(account_id)
-        assert account is not None
-        self._scanner = Scanner.from_account(account,
-            settings=self._advanced_settings,
-            extend_range_cb=self._on_scanner_range_extended)
-
-        # We do not have to forceably stop this timer if the dialog is closed. It's lifecycle
-        # is directly tied to the life of this dialog.
-        self._timer = QTimer(self)
-
-        self.import_step_signal.connect(self._update_for_import_step)
-
-        self.attempt_import_icon = read_QIcon("icons8-add-green-48-ui.png")
-        self._conflicted_tx_icon = read_QIcon("icons8-error-48-ui.png")
-        self._imported_tx_icon = read_QIcon("icons8-add-grey-48-ui.png")
-
-        self._about_label = QLabel(TEXT_PRE_SCAN)
-        self._about_label.setWordWrap(True)
-        self._about_label.setAlignment(Qt.AlignmentFlag(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop))
-        self._about_label.setMinimumHeight(60)
+        self._advanced_button = QPushButton(_("Advanced"))
+        self._help_button = QPushButton(_("Help"))
+        self._scan_button = QPushButton()
+        self._exit_button = QPushButton()
+        self._exit_button.clicked.connect(self._on_clicked_button_exit)
+        self._help_button.clicked.connect(self._on_clicked_button_help)
 
         self._progress_bar = QProgressBar()
         self._progress_bar.setRange(0, 100)
@@ -190,52 +171,77 @@ class BlockchainScanDialog(WindowModalDialog):
         self._progress_bar.setFormat("%p% scanned")
         self._progress_bar.setVisible(False)
 
-        self.update_progress_signal.connect(self._progress_bar.setValue)
+        if not main_window_proxy.has_connected_main_server():
+            self._about_label = QLabel(TEXT_NO_SERVERS)
+            self._about_label.setWordWrap(True)
+            self._about_label.setAlignment(Qt.AlignmentFlag(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop))
+            self._about_label.setMinimumHeight(60)
 
-        self._advanced_button = QPushButton(_("Advanced"))
-        # At the time of writing, there are no advanced options to set for non-deterministic ones.
-        self._advanced_button.setEnabled(account.is_deterministic())
-        self._help_button = QPushButton(_("Help"))
-        self._scan_button = QPushButton()
-        self._exit_button = QPushButton()
+            self._scan_button.setVisible(False)
+            self._advanced_button.setVisible(False)
+        else:
+            account = self._wallet.get_account(account_id)
+            assert account is not None
+            self._scanner = Scanner.from_account(account,
+                settings=self._advanced_settings,
+                extend_range_cb=self._on_scanner_range_extended)
 
-        self._exit_button.clicked.connect(self._on_clicked_button_exit)
-        self._help_button.clicked.connect(self._on_clicked_button_help)
-        self._advanced_button.clicked.connect(self._on_clicked_button_advanced)
+            # We do not have to forceably stop this timer if the dialog is closed. It's lifecycle
+            # is directly tied to the life of this dialog.
+            self._timer = QTimer(self)
 
-        expand_details_button = self._expand_details_button = QPushButton("+")
-        expand_details_button.setStyleSheet("padding: 2px;")
-        expand_details_button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
-        expand_details_button.clicked.connect(self._on_clicked_button_expand_details)
-        expand_details_button.setMinimumWidth(15)
+            self.import_step_signal.connect(self._update_for_import_step)
 
-        # NOTE(copy-paste) Generic separation line code used elsewhere as well.
-        details_header_line = QFrame()
-        details_header_line.setStyleSheet("QFrame { border: 1px solid #C3C2C2; }")
-        details_header_line.setFrameShape(QFrame.HLine)
-        details_header_line.setFixedHeight(1)
+            self.attempt_import_icon = read_QIcon("icons8-add-green-48-ui.png")
+            self._conflicted_tx_icon = read_QIcon("icons8-error-48-ui.png")
+            self._imported_tx_icon = read_QIcon("icons8-add-grey-48-ui.png")
 
-        details_header = QHBoxLayout()
-        details_header.addWidget(expand_details_button)
-        details_header.addWidget(QLabel(_("Details")))
-        details_header.addWidget(details_header_line, 1)
+            self._about_label = QLabel(TEXT_PRE_SCAN)
+            self._about_label.setWordWrap(True)
+            self._about_label.setAlignment(Qt.AlignmentFlag(
+                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop))
+            self._about_label.setMinimumHeight(60)
 
-        tree = self._scan_detail_tree = QTreeWidget()
-        tree.header().setStretchLastSection(False)
-        tree.setHeaderLabels([ "", "Transaction ID", "Block Height" ])
-        tree.setColumnCount(Columns.COLUMN_COUNT)
-        tree.header().setSectionResizeMode(Columns.STATUS, QHeaderView.ResizeToContents)
-        tree.header().setSectionResizeMode(Columns.TX_ID, QHeaderView.Stretch)
-        tree.header().setSectionResizeMode(Columns.HEIGHT, QHeaderView.ResizeToContents)
-        tree.setVisible(False)
-        tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        tree.setSelectionMode(tree.ExtendedSelection)
-        tree.customContextMenuRequested.connect(self._on_tree_scan_context_menu)
-        self._scan_tree_indexes: Dict[bytes, int] = {}
+            self.update_progress_signal.connect(self._progress_bar.setValue)
 
-        details_layout = self._details_layout = QVBoxLayout()
-        details_layout.addLayout(details_header)
-        details_layout.addWidget(tree)
+            # At the time of writing, there are no advanced options to set for non-deterministic.
+            self._advanced_button.setEnabled(account.is_deterministic())
+            self._advanced_button.clicked.connect(self._on_clicked_button_advanced)
+
+            expand_details_button = self._expand_details_button = QPushButton("+")
+            expand_details_button.setStyleSheet("padding: 2px;")
+            expand_details_button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+            expand_details_button.clicked.connect(self._on_clicked_button_expand_details)
+            expand_details_button.setMinimumWidth(15)
+
+            # NOTE(copy-paste) Generic separation line code used elsewhere as well.
+            details_header_line = QFrame()
+            details_header_line.setStyleSheet("QFrame { border: 1px solid #C3C2C2; }")
+            details_header_line.setFrameShape(QFrame.HLine)
+            details_header_line.setFixedHeight(1)
+
+            details_header = QHBoxLayout()
+            details_header.addWidget(expand_details_button)
+            details_header.addWidget(QLabel(_("Details")))
+            details_header.addWidget(details_header_line, 1)
+
+            tree = self._scan_detail_tree = QTreeWidget()
+            tree.header().setStretchLastSection(False)
+            tree.setHeaderLabels([ "", "Transaction ID", "Block Height" ])
+            tree.setColumnCount(Columns.COLUMN_COUNT)
+            tree.header().setSectionResizeMode(Columns.STATUS, QHeaderView.ResizeToContents)
+            tree.header().setSectionResizeMode(Columns.TX_ID, QHeaderView.Stretch)
+            tree.header().setSectionResizeMode(Columns.HEIGHT, QHeaderView.ResizeToContents)
+            tree.setVisible(False)
+            tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            tree.setSelectionMode(tree.ExtendedSelection)
+            tree.customContextMenuRequested.connect(self._on_tree_scan_context_menu)
+            self._scan_tree_indexes: Dict[bytes, int] = {}
+
+            details_layout = self._details_layout = QVBoxLayout()
+            details_layout.addLayout(details_header)
+            details_layout.addWidget(tree)
 
         # NOTE(copy-paste) Generic separation line code used elsewhere as well.
         button_box_line = QFrame()
@@ -259,6 +265,8 @@ class BlockchainScanDialog(WindowModalDialog):
         else:
             self._scan_button.setText(_("Scan now"))
             button_box.addWidget(self._scan_button)
+            self._scan_button.clicked.connect(self._on_clicked_button_action)
+
             self._exit_button.setText(_("Scan later"))
             button_box.addWidget(self._exit_button)
 
@@ -543,6 +551,7 @@ class BlockchainScanDialog(WindowModalDialog):
         # The linking of transaction to accounts cannot be done unless the keys exist with their
         # script hashes.
         account = self._wallet.get_account(self._account_id)
+        assert account is not None
         last_scripthash_future: Optional[concurrent.futures.Future] = None
         for subpath, subpath_index in subpath_indexes.items():
             scripthash_future, keyinstance_rows = account.derive_new_keys_until(

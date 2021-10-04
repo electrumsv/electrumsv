@@ -80,7 +80,7 @@ from ...wallet_database.types import (InvoiceRow, KeyDataProtocol, TransactionBl
 from ... import web
 
 from .amountedit import AmountEdit, BTCAmountEdit
-from .constants import CSS_WALLET_WINDOW_STYLE, UIBroadcastSource
+from .constants import CSS_WALLET_WINDOW_STYLE, ScanDialogRole, UIBroadcastSource
 from .contact_list import ContactList, edit_contact_dialog
 from .notifications_view import View
 from .qrcodewidget import QRDialog
@@ -403,7 +403,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.set_active_account(account)
 
         if flags & AccountInstantiationFlags.NEW == 0 and account.is_deterministic():
-            self.scan_active_account()
+            self.scan_active_account(ScanDialogRole.ACCOUNT_CREATION)
 
     def set_active_account(self, account: AbstractAccount) -> None:
         account_id = account.get_id()
@@ -821,7 +821,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._scan_account_action = QAction(read_QIcon("icons8-blockchain-technology-80-scan.png"),
             _("Scan Account"), self)
-        self._scan_account_action.triggered.connect(self.scan_active_account)
+        self._scan_account_action.triggered.connect(self.scan_active_account_manual)
         toolbar.addAction(self._scan_account_action)
         self._scan_account_action.setEnabled(False)
 
@@ -950,7 +950,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         wizard_window = account_wizard.AccountWizard(self)
         wizard_window.show()
 
-    def scan_active_account(self) -> None:
+    def scan_active_account_manual(self) -> None:
+        self.scan_active_account(ScanDialogRole.MANUAL_RESCAN)
+
+    def scan_active_account(self, scan_role: ScanDialogRole) -> None:
         """
         Display the blockchain scanning UI for the active account.
 
@@ -958,20 +961,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         - The user creates a new account that uses deterministic key derivation.
         - The user clicks the button in the toolbar.
         """
+        print(scan_role)
         assert self._account_id is not None
         assert self._account is not None
         assert self._account.is_deterministic()
 
-        if not self.has_connected_main_server():
-            self.show_message(_("The wallet is not currently connected to an indexing "
-                "server. As such, the blockchain scanner cannot be used at this time."), self)
-            return
-
         from . import blockchain_scan_dialog
-        # from importlib import reload # TODO(dev-helper) Remove at some point.
-        # reload(blockchain_scan_dialog)
+        from importlib import reload # TODO(dev-helper) Remove at some point.
+        reload(blockchain_scan_dialog)
         dialog = blockchain_scan_dialog.BlockchainScanDialog(self, self._wallet, self._account_id,
-            blockchain_scan_dialog.ScanDialogRole.MANUAL_RESCAN)
+            scan_role)
         dialog.show()
 
     def new_payment(self) -> None:
