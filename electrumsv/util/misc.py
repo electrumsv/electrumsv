@@ -1,7 +1,11 @@
 from collections import deque
 from itertools import chain
+import os
+import platform
 from sys import getsizeof
-from typing import Any, Generator
+import subprocess
+from typing import Any, cast, Generator
+import uuid
 
 from bitcoinx import Script
 
@@ -80,3 +84,49 @@ class ProgressCallbacks:
 
     def progress(self, progress: int, message: str) -> None:
         pass
+
+
+UNKNOWN_UUID = uuid.UUID(hex="FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF")
+
+
+def get_linux_system_uuid() -> uuid.UUID:
+    if os.path.isfile("/etc/machine-id"):
+        with open("/etc/machine-id", "r") as f:
+            return uuid.UUID(bytes=bytes.fromhex(f.read()))
+    return UNKNOWN_UUID
+
+
+def get_macos_system_uuid() -> uuid.UUID:
+    try:
+        output_bytes = subprocess.check_output("ioreg -rd1 -c IOPlatformExpertDevice".split())
+    except subprocess.CalledProcessError:
+        return UNKNOWN_UUID
+
+    for line in [ s.strip() for s in output_bytes.decode().split("\n") if len(s) ]:
+        if line.startswith("\"IOPlatformUUID\""):
+            key, value = line.split(" = ", 1)
+            uuid_hex = value.strip()[1:-1]
+            return uuid.UUID(hex=uuid_hex)
+    # It is not expected that this will happen on MacOS.
+    return UNKNOWN_UUID
+
+
+def get_windows_system_uuid() -> uuid.UUID:
+    # TODO(windows-store) Is this available in APPX containers?
+    output_bytes = subprocess.check_output('wmic csproduct get uuid')
+    machine_id = cast(str, output_bytes.decode().split('\n')[1].strip())
+    machine_uuid = uuid.UUID(hex=machine_id)
+    if machine_uuid != UNKNOWN_UUID:
+        return machine_uuid
+    # TODO(rt12) This is apparently a possibility for some systems.
+    return UNKNOWN_UUID
+
+
+def get_system_uuid() -> uuid.UUID:
+    system_name = platform.system()
+    if system_name == "Windows":
+        return get_windows_system_uuid()
+    elif system_name == "Darwin":
+        return get_macos_system_uuid()
+    else:
+        return get_linux_system_uuid()
