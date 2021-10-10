@@ -4,7 +4,7 @@ import os
 import platform
 from sys import getsizeof
 import subprocess
-from typing import Any, cast, Generator
+from typing import Any, Generator
 import uuid
 
 from bitcoinx import Script
@@ -114,7 +114,7 @@ def get_macos_system_uuid() -> uuid.UUID:
 def get_windows_system_uuid() -> uuid.UUID:
     # TODO(windows-store) Is this available in APPX containers?
     output_bytes = subprocess.check_output('wmic csproduct get uuid')
-    machine_id = cast(str, output_bytes.decode().split('\n')[1].strip())
+    machine_id = output_bytes.decode().split('\n')[1].strip()
     machine_uuid = uuid.UUID(hex=machine_id)
     if machine_uuid != UNKNOWN_UUID:
         return machine_uuid
