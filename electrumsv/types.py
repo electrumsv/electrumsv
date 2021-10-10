@@ -164,7 +164,8 @@ IndefiniteCredentialId = uuid.UUID
 class NetworkServerState(NamedTuple):
     key: ServerAccountKey
     credential_id: Optional[IndefiniteCredentialId]
-    fee_quote_json: Optional[str] = None
+    # MAPI specific, used for JSONEnvelope serialised transaction fee quotes.
+    mapi_fee_quote_json: Optional[str] = None
     date_last_try: int = 0
     date_last_good: int = 0
 

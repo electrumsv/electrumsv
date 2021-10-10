@@ -117,7 +117,7 @@ def poll_servers(network: "Network", account: "AbstractAccount") \
     we return `None`.
     """
     server_entries: List[Tuple["NewServer", Optional["IndefiniteCredentialId"]]] = []
-    for server, credential_id in network.get_mapi_servers_for_account(account):
+    for server, credential_id in network.get_api_servers_for_account(account):
         if server.should_request_fee_quote(credential_id):
             server_entries.append((server, credential_id))
 

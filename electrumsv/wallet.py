@@ -2944,11 +2944,13 @@ class Wallet(TriggeredCallbacks):
         for server_row in server_rows:
             server_key = ServerAccountKey.for_server_row(server_row)
             results.append(NetworkServerState(server_key, self._registered_api_keys.get(server_key),
-                server_row.fee_quote_json, server_row.date_last_try, server_row.date_last_good))
+                server_row.mapi_fee_quote_json, server_row.date_last_try,
+                server_row.date_last_good))
         for account_row in account_rows:
             server_key = ServerAccountKey.for_account_row(account_row)
             results.append(NetworkServerState(server_key, self._registered_api_keys.get(server_key),
-                account_row.fee_quote_json, account_row.date_last_try, account_row.date_last_good))
+                account_row.mapi_fee_quote_json, account_row.date_last_try,
+                account_row.date_last_good))
         return results
 
     def get_credential_id_for_server_key(self, key: ServerAccountKey) \
@@ -3052,13 +3054,13 @@ class Wallet(TriggeredCallbacks):
         for state in updated_states:
             if state.key.account_id == -1:
                 server_rows.append(NetworkServerRow(state.key.url, state.key.server_type,
-                    fee_quote_json=state.fee_quote_json, date_last_good=state.date_last_good,
-                    date_last_try=state.date_last_try))
+                    mapi_fee_quote_json=state.mapi_fee_quote_json,
+                    date_last_good=state.date_last_good, date_last_try=state.date_last_try))
             else:
                 server_account_rows.append(NetworkServerAccountRow(state.key.url,
                     state.key.server_type, state.key.account_id,
-                    fee_quote_json=state.fee_quote_json, date_last_good=state.date_last_good,
-                    date_last_try=state.date_last_try))
+                    mapi_fee_quote_json=state.mapi_fee_quote_json,
+                    date_last_good=state.date_last_good, date_last_try=state.date_last_try))
         future = db_functions.update_network_server_states(self.get_db_context(),
             server_rows, server_account_rows)
         return future

@@ -1179,6 +1179,7 @@ def read_network_servers(db: sqlite3.Connection,
         read_account_rows_sql += f" WHERE server_type=? AND url=?"
         params = server_key
     cursor = db.execute(read_server_row_sql, params)
+    # WARNING The order of the fields in this data structure are implicitly linked to the query.
     server_rows = [ NetworkServerRow(*r) for r in cursor.fetchall() ]
     cursor = db.execute(read_account_rows_sql, params)
     account_rows = [ NetworkServerAccountRow(*r) for r in cursor.fetchall() ]
@@ -1984,10 +1985,10 @@ def update_network_server_states(db_context: DatabaseContext,
         "date_last_connected=?, date_last_tried=? WHERE url=? AND server_type=? AND account_id=?"
 
     timestamp_utc = get_posix_timestamp()
-    update_server_rows = [ (timestamp_utc, server_row.fee_quote_json, server_row.date_last_good,
-        server_row.date_last_try, server_row.url, server_row.server_type)
+    update_server_rows = [ (timestamp_utc, server_row.mapi_fee_quote_json,
+        server_row.date_last_good, server_row.date_last_try, server_row.url, server_row.server_type)
         for server_row in updated_server_rows ]
-    update_server_account_rows = [ (timestamp_utc, account_row.fee_quote_json,
+    update_server_account_rows = [ (timestamp_utc, account_row.mapi_fee_quote_json,
         account_row.date_last_good, account_row.date_last_try,
         account_row.url, account_row.server_type, account_row.account_id)
         for account_row in updated_server_account_rows ]

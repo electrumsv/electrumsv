@@ -1398,9 +1398,9 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
 
     # Verify that updating the server state works.
     if True:
-        new_server_rows = [ server_rows[0]._replace(fee_quote_json="fee_quote_json",
+        new_server_rows = [ server_rows[0]._replace(mapi_fee_quote_json="fee_quote_json",
             date_last_good=111111, date_last_try=22222) ]
-        new_server_account_rows = [ server_account_rows[0]._replace(fee_quote_json="zzzz",
+        new_server_account_rows = [ server_account_rows[0]._replace(mapi_fee_quote_json="zzzz",
             date_last_try=555555) ]
         future = db_functions.update_network_server_states(db_context, new_server_rows,
             new_server_account_rows)

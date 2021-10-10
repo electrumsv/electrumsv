@@ -369,6 +369,10 @@ class NetworkEventNames:
 class NetworkServerType(IntEnum):
     ELECTRUMX = 1
     MERCHANT_API = 2
+    GENERAL = 3
+
+
+API_SERVER_TYPES = { NetworkServerType.MERCHANT_API, NetworkServerType.GENERAL }
 
 
 class ServerCapability(IntEnum):

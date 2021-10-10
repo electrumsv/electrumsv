@@ -132,12 +132,14 @@ class MasterKeyRow(NamedTuple):
     derivation_data: bytes
 
 
+# WARNING The order of the fields in this data structure are implicitly linked to the query.
 class NetworkServerRow(NamedTuple):
     url: str
     server_type: NetworkServerType
     encrypted_api_key: Optional[str] = None
     flags: NetworkServerFlag = NetworkServerFlag.NONE
-    fee_quote_json: Optional[str] = None
+    # MAPI specific: used for JSONEnvelope serialised transaction fee quotes.
+    mapi_fee_quote_json: Optional[str] = None
     date_last_try: int = 0
     date_last_good: int = 0
     date_created: int = -1
@@ -149,7 +151,7 @@ class NetworkServerAccountRow(NamedTuple):
     server_type: NetworkServerType
     account_id: int
     encrypted_api_key: Optional[str] = None
-    fee_quote_json: Optional[str] = None
+    mapi_fee_quote_json: Optional[str] = None
     date_last_try: int = 0
     date_last_good: int = 0
     date_created: int = -1

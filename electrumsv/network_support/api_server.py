@@ -33,6 +33,9 @@ class CapabilitySupport:
 
 
 SERVER_CAPABILITIES = {
+    NetworkServerType.GENERAL: [
+        CapabilitySupport(_("Blockchain scanning"), ServerCapability.BLOCKCHAIN_SCAN),
+    ],
     NetworkServerType.MERCHANT_API: [
         CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST,
             can_disable=True),
@@ -104,7 +107,7 @@ class NewServer:
         self.config: Optional[Dict[str, Any]] = config
         self.config_credential_id: Optional[IndefiniteCredentialId] = None
 
-        # These are the enabled clients and which/whether they use an API key.
+        # These are the enabled clients, whether they use an API key and the id if so.
         self.client_api_keys: Dict[NewServerAPIContext, Optional[IndefiniteCredentialId]] = {}
         # We keep per-API key state for a reason. An API key can be considered to be a distinct
         # account with the service, and it makes sense to keep the statistics/metadata for the
@@ -138,10 +141,12 @@ class NewServer:
         key_state = self.api_key_state[server_state.credential_id]
         if server_state.date_last_good > key_state.last_good:
             key_state.last_try = max(key_state.last_try, server_state.date_last_try)
-            fee_response: Optional[JSONEnvelope] = None
-            if server_state.fee_quote_json:
-                fee_response = cast(JSONEnvelope, json.loads(server_state.fee_quote_json))
-            key_state.set_fee_quote(fee_response, server_state.date_last_good)
+            # Fee quote state is only relevant for MAPI.
+            if self.server_type == NetworkServerType.MERCHANT_API:
+                fee_response: Optional[JSONEnvelope] = None
+                if server_state.mapi_fee_quote_json:
+                    fee_response = cast(JSONEnvelope, json.loads(server_state.mapi_fee_quote_json))
+                key_state.set_fee_quote(fee_response, server_state.date_last_good)
 
     def remove_wallet_usage(self, wallet_path: str, specific_server_key: ServerAccountKey) -> None:
         usage_context = NewServerAPIContext(wallet_path, specific_server_key.account_id)
@@ -162,13 +167,16 @@ class NewServer:
             del self.client_api_keys[client_key]
 
             key_state = self.api_key_state[credential_id]
-            specific_server_key = ServerAccountKey(self.url, NetworkServerType.MERCHANT_API,
+            specific_server_key = ServerAccountKey(self.url, self.server_type,
                 client_key.account_id)
-            fee_quote_json: Optional[str] = None
-            if key_state.last_fee_quote_response:
-                fee_quote_json = json.dumps(key_state.last_fee_quote_response)
-            server_state = NetworkServerState(specific_server_key, credential_id, fee_quote_json,
-                int(key_state.last_try), int(key_state.last_good))
+            mapi_fee_quote_json: Optional[str] = None
+            if self.server_type == NetworkServerType.MERCHANT_API:
+                if key_state.last_fee_quote_response:
+                    mapi_fee_quote_json = json.dumps(key_state.last_fee_quote_response)
+            else:
+                assert key_state.last_fee_quote_response is None
+            server_state = NetworkServerState(specific_server_key, credential_id,
+                mapi_fee_quote_json, int(key_state.last_try), int(key_state.last_good))
             results.append(server_state)
         return results
 
@@ -194,14 +202,21 @@ class NewServer:
                 self.api_key_state[self.config_credential_id] = NewServerAccessState()
 
     def is_unusable(self) -> bool:
+        """
+        Whether the given server is configured to be unusable by anything.
+        """
         if len(self.client_api_keys) == 0:
             if self.config is None:
                 return True
             # TODO(typing) This `config` should be a TypedDict.
+            # TODO(rt12) This needs to be documented. How is an enabled server unusable? Wouldn't
+            #   it be the other way around?
             return cast(bool, self.config["enabled_for_all_wallets"])
         return False
 
     def is_unused(self) -> bool:
+        """ An API server is considered unused if it is not a globally stored one (if it were it
+            would have a config object) and it no longer has any loaded wallets using it. """
         return len(self.client_api_keys) == 0 and self.config is None
 
     def should_request_fee_quote(self, credential_id: Optional[IndefiniteCredentialId]) -> bool:
