@@ -613,8 +613,8 @@ class PaymentNoteWidget(FormSectionWidget):
         theirs_widget.setEnabled(False)
 
         self.add_title(_("Payment notes"))
-        self.add_row(_("Yours"), yours_widget, stretch_field=True)
-        self.add_row(_("Theirs"), theirs_widget, stretch_field=True)
+        self.add_row(_("Yours"), yours_widget)
+        self.add_row(_("Theirs"), theirs_widget)
 
 
 class PaymentDetailsFormWidget(QWidget):

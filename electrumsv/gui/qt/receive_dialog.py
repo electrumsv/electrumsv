@@ -130,10 +130,10 @@ class ReceiveDialog(QDialog):
         self._receive_destination_e.addCopyButton()
         self._receive_destination_e.setReadOnly(True)
         self._receive_destination_e.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        form.add_row(_('Payment destination'), self._receive_destination_e, stretch_field=True)
+        form.add_row(_('Payment destination'), self._receive_destination_e)
 
         self._receive_message_e = QLineEdit()
-        form.add_row(_('Description'), self._receive_message_e, stretch_field=True)
+        form.add_row(_('Description'), self._receive_message_e)
         self._receive_message_e.setText("" if self._request_row.description is None
             else self._request_row.description)
 

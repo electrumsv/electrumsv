@@ -320,7 +320,7 @@ class BlockchainTab(QWidget):
 
         form = FormSectionWidget()
         self.status_label = QLabel(_("No connections yet."))
-        form.add_row(_('Status'), self.status_label, True)
+        form.add_row(_('Status'), self.status_label)
         self.server_label = QLabel()
         self.server_label_icon1 = QLabel()
         self.server_label_icon2 = QLabel()
@@ -331,9 +331,9 @@ class BlockchainTab(QWidget):
         server_label_layout.addSpacing(4)
         server_label_layout.addWidget(self.server_label_icon2)
         server_label_layout.addStretch(1)
-        form.add_row(_('Main server'), server_label_layout, True)
+        form.add_row(_('Main server'), server_label_layout)
         self.height_label = QLabel('')
-        form.add_row(_('Blockchain'), self.height_label, True)
+        form.add_row(_('Blockchain'), self.height_label)
 
         blockchain_layout.addWidget(form)
 
@@ -487,8 +487,8 @@ class EditServerDialog(WindowModalDialog):
                 _("Changing the server URL is not currently supported."))
 
         editable_form = FormSectionWidget()
-        editable_form.add_row(_("Type"), self._server_type_combobox, True)
-        editable_form.add_row(_("URL"), self._server_url_edit, True)
+        editable_form.add_row(_("Type"), self._server_type_combobox)
+        editable_form.add_row(_("URL"), self._server_url_edit)
 
         self._vbox.addWidget(editable_form)
 
@@ -582,8 +582,8 @@ class EditServerDialog(WindowModalDialog):
             else:
                 connected_label = QLabel("-")
 
-            self._usage_form.add_row(_("Last attempted"), attempt_label, stretch_field=True)
-            self._usage_form.add_row(_("Last connected"), connected_label, stretch_field=True)
+            self._usage_form.add_row(_("Last attempted"), attempt_label)
+            self._usage_form.add_row(_("Last connected"), connected_label)
 
             usage_section = ExpandableSection(_("Usage data"), self._usage_form)
             usage_section.contract()
@@ -1195,7 +1195,7 @@ class EditServerDialog(WindowModalDialog):
                 capability_checkbox.setDisabled(True)
                 capability_checkbox.setToolTip(
                     _("Disabling this service is not yet supported."))
-            self._services_form.add_row(capability.name, capability_checkbox, True)
+            self._services_form.add_row(capability.name, capability_checkbox)
 
         # Revalidate the server URL value and apply validation related UI changes.
         self._server_url_edit.textChanged.emit("")

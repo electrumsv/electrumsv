@@ -15,8 +15,8 @@ from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProc
     QModelIndex, QSize, QTimer)
 from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette, QPixmap, QResizeEvent
 from PyQt5.QtWidgets import (
-    QAbstractButton, QButtonGroup, QDialog, QGridLayout, QGroupBox, QMessageBox, QHBoxLayout,
-    QHeaderView, QLabel, QLayout, QLineEdit, QFileDialog, QFrame, QPlainTextEdit, QProgressBar,
+    QAbstractButton, QButtonGroup, QDialog, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
+    QHeaderView, QLabel, QLayout, QLineEdit, QMessageBox, QFrame, QPlainTextEdit, QProgressBar,
     QPushButton, QRadioButton, QSizePolicy, QStyle, QStyledItemDelegate, QTableWidget,
     QToolButton, QToolTip, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QWizard
 )
@@ -772,6 +772,7 @@ class MyTreeWidget(QTreeWidget):
             text = None
         account_id, tx_hash = item.data(0, Qt.ItemDataRole.UserRole)
         account = self._main_window._wallet.get_account(account_id)
+        assert account is not None
         account.set_transaction_label(tx_hash, text)
 
     def update(self) -> None:
@@ -1026,7 +1027,8 @@ def protected(func: D1) -> D1:
         if 'main_window' in kwargs:
             main_window = kwargs['main_window']
         elif 'wallet_id' in kwargs:
-            main_window = app_state.app.get_wallet_window_by_id(kwargs['wallet_id'])
+            main_window = app_state.app_qt.get_wallet_window_by_id(kwargs['wallet_id'])
+            assert main_window is not None
 
         parent = main_window.top_level_window()
         password: Optional[str] = None
@@ -1163,7 +1165,9 @@ class FormSectionWidget(QWidget):
     can be used to do something that looks the same with less custom code to achieve it.
     """
     show_help_label: bool = True
-    minimum_label_width: int = 80
+    # minimum_label_width: int = 80
+
+    _frame_layout: QFormLayout
 
     def __init__(self, parent: Optional[QWidget]=None,
             minimum_label_width: Optional[int]=None) -> None:
@@ -1171,10 +1175,8 @@ class FormSectionWidget(QWidget):
 
         frame = self._frame = QFrame()
         frame.setObjectName("FormFrame")
-        self._frame_layout: Optional[QVBoxLayout] = None
 
-        self._initial_minimum_label_width = minimum_label_width
-        self.clear()
+        self.clear(have_layout=False)
 
         frame.setLayout(self._frame_layout)
 
@@ -1206,16 +1208,16 @@ class FormSectionWidget(QWidget):
 
     def add_title(self, title_text: str) -> None:
         label = self.create_title(title_text)
-        self._frame_layout.addWidget(label, Qt.AlignmentFlag.AlignTop)
+        self._frame_layout.addRow(label)
 
     def add_title_row(self, title_object: FieldType) -> None:
         if isinstance(title_object, QLayout):
-            self._frame_layout.addLayout(title_object)
+            self._frame_layout.addRow(title_object)
         else:
-            self._frame_layout.addWidget(title_object, Qt.AlignmentFlag.AlignTop)
+            self._frame_layout.addRow(title_object)
 
     def add_row(self, label_text: Union[str, QLabel], field_object: FieldType,
-            stretch_field: bool=False) -> QWidget:
+            use_separator: bool=True) -> None:
         """
         Add a row to the form section.
 
@@ -1223,8 +1225,8 @@ class FormSectionWidget(QWidget):
         caller can use that and helper functions to dynamically alter the form section display
         as needed (hide, show, ..).
         """
-        if self._frame_layout.count() > 0:
-            self._frame_layout.addWidget(FormSeparatorLine())
+        if use_separator and self._frame_layout.count() > 0:
+            self._frame_layout.addRow(FormSeparatorLine())
 
         if isinstance(label_text, QLabel):
             label = label_text
@@ -1236,60 +1238,16 @@ class FormSectionWidget(QWidget):
         label.setObjectName("FormSectionLabel")
         label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
 
-        label_width = label.fontMetrics().boundingRect(label_text).width() + 10
-        old_minimum_width = self.minimum_label_width
-        if label_width > self.minimum_label_width:
-            self.minimum_label_width = label_width
+        self._frame_layout.addRow(label, field_object)
 
-        grid_layout = QGridLayout()
-        grid_layout.setContentsMargins(0, 0, 0, 0)
-        grid_layout.addWidget(label, 0, 0,
-            Qt.AlignmentFlag(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop))
-        if stretch_field:
-            if isinstance(field_object, QLayout):
-                grid_layout.addLayout(field_object, 0, 1, Qt.AlignmentFlag.AlignTop)
-            else:
-                grid_layout.addWidget(field_object, 0, 1, Qt.AlignmentFlag.AlignTop)
-        else:
-            field_layout = QHBoxLayout()
-            field_layout.setContentsMargins(0, 0, 0, 0)
-            if isinstance(field_object, QLayout):
-                field_layout.addLayout(field_object)
-            else:
-                field_layout.addWidget(field_object)
-            field_layout.addStretch(1)
-            grid_layout.addLayout(field_layout, 0, 1, Qt.AlignmentFlag.AlignTop)
-        grid_layout.setColumnMinimumWidth(0, self.minimum_label_width)
-        grid_layout.setColumnStretch(0, 0)
-        grid_layout.setColumnStretch(1, 1)
-        grid_layout.setHorizontalSpacing(10)
-        grid_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
-
-        if self.minimum_label_width != old_minimum_width:
-            for layout in self._row_layouts:
-                layout.setColumnMinimumWidth(0, self.minimum_label_width)
-
-        grid_widget = QWidget()
-        grid_widget.setLayout(grid_layout)
-
-        self._frame_layout.addWidget(grid_widget)
-        self._row_layouts.append(grid_layout)
-        return grid_widget
-
-    def clear(self) -> None:
-        self.minimum_label_width = FormSectionWidget.minimum_label_width
-        if self._initial_minimum_label_width is not None:
-            self.minimum_label_width = self._initial_minimum_label_width
-
-        if self._frame_layout is not None:
+    def clear(self, have_layout: bool=True) -> None:
+        if have_layout and self._frame_layout is not None:
             # NOTE This is a Qt thing. You have to transplant the layout from an object before you
             #   can set a new one. So that is what we are doing here, transplanting to nowhere.
             discardable_widget = QWidget()
             discardable_widget.setLayout(self._frame_layout)
 
-        self._frame_layout = QVBoxLayout()
-        self._row_layouts: List[QGridLayout] = []
-
+        self._frame_layout = QFormLayout()
         self._frame.setLayout(self._frame_layout)
 
 
@@ -1336,6 +1294,7 @@ class AspectRatioPixmapLabel(QLabel):
         return QSize(width, self.heightForWidth(width))
 
     def _scaled_pixmap(self) -> QPixmap:
+        assert self._pixmap is not None
         return self._pixmap.scaled(self.size(), Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation)
 

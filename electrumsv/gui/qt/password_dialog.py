@@ -143,7 +143,7 @@ class PasswordLayout(object):
         label = QLabel(msg + "\n")
         label.setWordWrap(True)
 
-        form = FormSectionWidget(minimum_label_width=120)
+        form = FormSectionWidget()
 
         if kind == PasswordAction.PASSPHRASE:
             vbox.addWidget(label)

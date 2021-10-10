@@ -88,7 +88,7 @@ class AccountDialog(QDialog):
         # allow changing the script type at this time. If it is enabled for some reason,
         # accumulator multi-signature should be excluded UNLESS it has been tested sufficiently.
         script_type_combo.setEnabled(not Net.is_mainnet())
-        form.add_row(_("Script type"), script_type_combo, True)
+        form.add_row(_("Script type"), script_type_combo)
 
         vbox.addWidget(form)
 
@@ -96,7 +96,7 @@ class AccountDialog(QDialog):
         if keystore is not None:
             if keystore.derivation_type == DerivationType.ELECTRUM_MULTISIG:
                 mkeystore = cast(Multisig_KeyStore, keystore)
-                multisig_form = FormSectionWidget(minimum_label_width=160)
+                multisig_form = FormSectionWidget()
                 multisig_form.add_title("Multi-signature properties")
                 multisig_form.add_row(_("Number of cosigners"), QLabel(str(mkeystore.n)))
                 multisig_form.add_row(_("Number of signatures required"), QLabel(str(mkeystore.m)))
@@ -116,7 +116,7 @@ class AccountDialog(QDialog):
                 mpk_text.addCopyButton()
                 mpk_text.setText(mpk_list[0])
                 mpk_text.repaint()   # macOS hack for Electrum #4777
-                form.add_row(_("Master public key"), mpk_text, True)
+                form.add_row(_("Master public key"), mpk_text)
         if add_stretch:
             vbox.addStretch(1)
 

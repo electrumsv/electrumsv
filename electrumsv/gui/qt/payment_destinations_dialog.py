@@ -36,7 +36,7 @@ class PaymentDestinationsDialog(QDialog):
 
         vbox = QVBoxLayout()
 
-        self._form = form = FormSectionWidget(minimum_label_width=80)
+        self._form = form = FormSectionWidget()
         form.add_title(_("Options"))
         form.add_row(_("How many"), quantity_widget)
         vbox.addWidget(form)

@@ -211,7 +211,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.tx_hash_e.addButton("copy.png",
             self._on_click_copy_tx_id, _("Copy to clipboard"))
         self.tx_hash_e.setReadOnly(True)
-        form.add_row(_("Transaction ID"), self.tx_hash_e, True)
+        form.add_row(_("Transaction ID"), self.tx_hash_e)
 
         self.tx_desc = QLabel()
         form.add_row(_("Description"), self.tx_desc)

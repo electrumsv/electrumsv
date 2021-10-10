@@ -745,8 +745,8 @@ class AdvancedScanOptionsDialog(WindowModalDialog):
 
             deterministic_form = FormSectionWidget()
             deterministic_form.add_title(_("Detecting when to stop searching"))
-            deterministic_form.add_row(_("Change"), hbox2, stretch_field=True)
-            deterministic_form.add_row(_("Received funds"), hbox1, stretch_field=True)
+            deterministic_form.add_row(_("Change"), hbox2)
+            deterministic_form.add_row(_("Received funds"), hbox1)
 
             change_edit.valueChanged.connect(self._on_value_changed_change)
             receiving_edit.valueChanged.connect(self._on_value_changed_receiving)

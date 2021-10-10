@@ -44,7 +44,7 @@ class InvoiceDialog(WindowModalDialog):
             total_amount += output.amount
 
         vbox = QVBoxLayout(self)
-        form = FormSectionWidget(minimum_label_width=120)
+        form = FormSectionWidget()
         form.add_row(_('Type'), QLabel(_("BIP270")))
         form.add_row(_("State"), QLabel(pr_tooltips.get(state, _("Unknown"))))
         form.add_row(_('Amount'),

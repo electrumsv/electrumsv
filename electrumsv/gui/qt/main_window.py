@@ -1727,8 +1727,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         path_edit.addCopyButton()
 
         file_form = FormSectionWidget()
-        file_form.add_row(_("File name"), name_edit, True)
-        file_form.add_row(_("File path"), path_edit, True)
+        file_form.add_row(_("File name"), name_edit)
+        file_form.add_row(_("File path"), path_edit)
         vbox.addWidget(file_form)
 
         current_txcachesize_label = QLabel()
@@ -1747,7 +1747,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             misses_label.setText(str(cache.misses))
         update_txcachesizes()
 
-        memory_usage_form = FormSectionWidget(minimum_label_width=100)
+        memory_usage_form = FormSectionWidget()
         memory_usage_form.add_title(_("Transaction data cache"))
         memory_usage_form.add_row(_("Current usage"), current_txcachesize_label)
         memory_usage_form.add_row(_("Maximum usage"), maximum_txcachesize_label)

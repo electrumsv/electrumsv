@@ -107,7 +107,7 @@ class LabelImporter(QDialog):
 
         forms_layout = QHBoxLayout()
 
-        left_form = FormSectionWidget(minimum_label_width=190)
+        left_form = FormSectionWidget()
         self._updateable_tx_label = QLabel()
         left_form.add_row(_("New transaction descriptions"), self._updateable_tx_label)
         self._replacement_tx_label = QLabel()
@@ -117,7 +117,7 @@ class LabelImporter(QDialog):
         self._unmatched_tx_label = QLabel()
         left_form.add_row(_("Unknown transactions"), self._unmatched_tx_label)
 
-        right_form = FormSectionWidget(minimum_label_width=190)
+        right_form = FormSectionWidget()
         self._matched_key_label = QLabel()
         right_form.add_row(_("New key descriptions"), self._matched_key_label)
         self._replacement_key_label = QLabel()

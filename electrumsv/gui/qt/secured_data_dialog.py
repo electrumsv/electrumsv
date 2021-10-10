@@ -52,7 +52,7 @@ class SecuredDataDialog(QDialog):
         self.setMinimumSize(500, 200)
 
         vbox = QVBoxLayout()
-        self._form = form = FormSectionWidget(minimum_label_width=120)
+        self._form = form = FormSectionWidget()
 
         assert keystore.derivation_type in (DerivationType.BIP32, DerivationType.ELECTRUM_OLD)
 
@@ -92,7 +92,7 @@ class SecuredDataDialog(QDialog):
             seed_edit.setFixedHeight(80)
             seed_edit.addCopyButton()
             seed_edit.setText(seed_text)
-            form.add_row(_("Seed phrase"), seed_edit, True)
+            form.add_row(_("Seed phrase"), seed_edit)
             self._seed_edit = seed_edit
 
         # Ambiguous if empty string or None.
@@ -107,7 +107,7 @@ class SecuredDataDialog(QDialog):
             passphrase_widget = passphrase_edit
         else:
             passphrase_widget = QLabel(_("None"))
-        form.add_row(_("Passphrase"), passphrase_widget, True)
+        form.add_row(_("Passphrase"), passphrase_widget)
 
         if keystore.derivation_type == DerivationType.BIP32:
             if keystore.xprv is not None:
@@ -118,7 +118,7 @@ class SecuredDataDialog(QDialog):
                 xprv_edit.setFixedHeight(80)
                 xprv_edit.addCopyButton()
                 xprv_edit.setText(private_key.to_extended_key_string())
-                form.add_row(_("Master private key"), xprv_edit, True)
+                form.add_row(_("Master private key"), xprv_edit)
 
         vbox.addWidget(form)
         vbox.addStretch(1)

@@ -126,9 +126,9 @@ class PreferencesDialog(QDialog):
         options_box.setLayout(options_vbox)
         options_vbox.addWidget(unconf_cb)
 
-        form = FormSectionWidget(minimum_label_width=120)
+        form = FormSectionWidget()
         form.add_row(_('Custom Fee Rate'), customfee_e)
-        form.add_row(_("Options"), options_box, True)
+        form.add_row(_("Options"), options_box)
 
         vbox = QVBoxLayout()
         vbox.addWidget(form)
@@ -236,7 +236,7 @@ class PreferencesDialog(QDialog):
         updatecheck_unstable_cb.stateChanged.connect(on_set_updatecheck_unstable)
         updatecheck_vbox.addWidget(updatecheck_unstable_cb)
 
-        form = FormSectionWidget(minimum_label_width=130)
+        form = FormSectionWidget()
         form.add_row(_('Language'), lang_combo)
         form.add_row(_('Zeros after decimal point'), nz)
         form.add_row(_('Base unit'), unit_combo)
@@ -344,7 +344,7 @@ class PreferencesDialog(QDialog):
         extension_form = FormSectionWidget()
         extension_form.add_row(_('Currency'), ccy_combo)
         extension_form.add_row(_('Source'), ex_combo)
-        extension_form.add_row(_('Options'), options_box, True)
+        extension_form.add_row(_('Options'), options_box)
 
         vbox = QVBoxLayout()
         vbox.addWidget(extension_form)
@@ -376,7 +376,7 @@ class PreferencesDialog(QDialog):
             else:
                 cb.clicked.connect(partial(cb_clicked, extension, None))
             field_layout.addWidget(help_widget)
-            extension_form.add_row(extension.name, field_layout, True)
+            extension_form.add_row(extension.name, field_layout)
 
         vbox.addWidget(extension_form)
         vbox.addStretch(1)
@@ -482,9 +482,9 @@ class PreferencesDialog(QDialog):
         tx_cache_layout.addWidget(nz)
         tx_cache_layout.addWidget(QLabel(_("MiB")))
 
-        form = FormSectionWidget(minimum_label_width=120)
-        form.add_row(_('General options'), options_box, True)
-        form.add_row(_('Experimental options'), experimental_box, True)
+        form = FormSectionWidget()
+        form.add_row(_('General options'), options_box)
+        form.add_row(_('Experimental options'), experimental_box)
         form.add_row(_('Transaction Cache Size'), tx_cache_layout)
 
         vbox = QVBoxLayout()
@@ -521,7 +521,7 @@ class PreferencesDialog(QDialog):
         tx_cache_layout.addWidget(nz)
         tx_cache_layout.addWidget(QLabel(_("MiB")))
 
-        form = FormSectionWidget(minimum_label_width=120)
+        form = FormSectionWidget()
         form.add_row(nz_label, tx_cache_layout)
         # form.add_row(_('Message size limit'), tx_cache_layout)
 

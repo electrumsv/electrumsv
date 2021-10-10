@@ -1452,8 +1452,8 @@ class CreateMultisigAccountSettingsWidget(WizardFormSection):
         on_n(DEFAULT_COSIGNER_COUNT)
         on_m(DEFAULT_COSIGNER_COUNT)
 
-        self.add_row(n_label, n_edit, True)
-        self.add_row(m_label, m_edit, True)
+        self.add_row(n_label, n_edit)
+        self.add_row(m_label, m_edit)
 
         page.registerField("multisig-m", m_edit, "value")
         page.registerField("multisig-n", n_edit, "value")
