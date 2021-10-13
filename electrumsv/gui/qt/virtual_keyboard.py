@@ -24,8 +24,9 @@
 from collections import namedtuple
 from functools import partial
 import random
+from typing import Callable, Optional
 
-from PyQt5.QtWidgets import QGridLayout, QPushButton, QWidget
+from PyQt5.QtWidgets import QGridLayout, QLineEdit, QPushButton, QWidget
 
 from electrumsv.i18n import _
 
@@ -43,16 +44,16 @@ pages = [
 max_chars = max(len(page.chars) for page in pages)
 
 
-def vkb_button(click_cb):
+def vkb_button(click_cb: Callable[[QPushButton], None]) -> QPushButton:
     button = QPushButton()
     button.clicked.connect(partial(click_cb, button))
-    button.setFixedWidth(app_state.app.dpi / 3.6)
+    button.setFixedWidth(int(app_state.app_qt.dpi / 3.6))
     return button
 
 
 class VirtualKeyboard(QWidget):
 
-    def __init__(self, pw_edit):
+    def __init__(self, pw_edit: QLineEdit) -> None:
         super().__init__(pw_edit)
         self.pw_edit = pw_edit
         self.page = pages[0]
@@ -66,7 +67,7 @@ class VirtualKeyboard(QWidget):
         self.setLayout(self._create_grid_layout())
         self._refresh()
 
-    def _refresh(self, _button=None):
+    def _refresh(self, _button: Optional[QPushButton]=None) -> None:
         random.shuffle(self.pages)
         for button, page in zip(self.page_buttons, self.pages):
             button.setIcon(read_QIcon(page.icon))
@@ -74,7 +75,7 @@ class VirtualKeyboard(QWidget):
             button.setDisabled(page is self.page)
         self._shuffle_page()
 
-    def _shuffle_page(self):
+    def _shuffle_page(self) -> None:
         chars = list(self.page.chars)
         random.shuffle(chars)
         for n, char_button in enumerate(self.char_buttons):
@@ -84,7 +85,7 @@ class VirtualKeyboard(QWidget):
             else:
                 char_button.setVisible(False)
 
-    def _create_grid_layout(self):
+    def _create_grid_layout(self) -> QGridLayout:
         grid = QGridLayout()
         grid.setVerticalSpacing(2)
         grid.setHorizontalSpacing(1)
@@ -97,12 +98,12 @@ class VirtualKeyboard(QWidget):
             grid.addWidget(button, n + 1, cols + 1)
         for n, button in enumerate(self.char_buttons):
             grid.addWidget(button, n // cols, n % cols)
-        grid.setColumnMinimumWidth(cols, app_state.app.dpi / 12)
+        grid.setColumnMinimumWidth(cols, int(app_state.app_qt.dpi / 12))
         return grid
 
-    def _on_page_button(self, button):
+    def _on_page_button(self, button: QPushButton) -> None:
         self.page = self.pages[self.page_buttons.index(button)]
         self._refresh()
 
-    def _char_pressed(self, button):
+    def _char_pressed(self, button: QPushButton) -> None:
         self.pw_edit.setText(self.pw_edit.text() + button.text()[0])

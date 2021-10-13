@@ -31,10 +31,11 @@ import sys
 import threading
 import traceback
 from types import TracebackType
-from typing import Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple, Type, TYPE_CHECKING
 
 import requests
 from PyQt5.QtCore import QObject, pyqtSignal, Qt
+from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QMessageBox,
 )
@@ -42,9 +43,14 @@ from PyQt5.QtWidgets import (
 from electrumsv.app_state import ExceptionHandlerABC
 from electrumsv.i18n import _
 from electrumsv.logs import logs
+from electrumsv.types import ExceptionInfoType
 from electrumsv.version import PACKAGE_VERSION
+
 from .main_window import ElectrumWindow
 from .util import read_QIcon
+
+if TYPE_CHECKING:
+    from .app import SVApplication
 
 
 logger = logs.get_logger("exc-handler")
@@ -68,9 +74,9 @@ report_server = "https://crashhub.electrumsv.io/crash"
 
 
 class Exception_Window(QDialog):
-    _active_window = None
+    _active_window: Optional["Exception_Window"] = None
 
-    def __init__(self, app, exc_triple):
+    def __init__(self, app: "SVApplication", exc_triple: ExceptionInfoType) -> None:
         super().__init__()
         self.exc_triple = exc_triple
         self.app = app
@@ -129,28 +135,28 @@ class Exception_Window(QDialog):
 
         self.setLayout(main_box)
 
-    def send_report(self):
+    def send_report(self) -> None:
         report = self.get_traceback_info()
         report.update(self.get_additional_info())
-        report = json.dumps(report)
-        response = requests.post(report_server, data=report)
+        report_json = json.dumps(report)
+        response = requests.post(report_server, data=report_json)
         QMessageBox.about(self, "Crash report", response.text)
         self.close()
 
-    def on_close(self):
+    def on_close(self) -> None:
         Exception_Window._active_window = None
         sys.__excepthook__(*self.exc_triple)
         self.close()
 
-    def show_never(self):
+    def show_never(self) -> None:
         self.app.config.set_key("show_crash_reporter", False)
         self.close()
 
-    def closeEvent(self, event):
+    def closeEvent(self, event: QCloseEvent) -> None:
         self.on_close()
         event.accept()
 
-    def get_traceback_info(self):
+    def get_traceback_info(self) -> Dict[str, Any]:
         exc_string = str(self.exc_triple[1])
         stack = traceback.extract_tb(self.exc_triple[2])
         readable_trace = "".join(traceback.format_list(stack))
@@ -165,8 +171,8 @@ class Exception_Window(QDialog):
             "id": traceback_id
         }
 
-    def get_additional_info(self):
-        account_type_names = []
+    def get_additional_info(self) -> Dict[str, Any]:
+        account_type_names: List[str] = []
         for window in self.app.windows:
             if isinstance(window, ElectrumWindow):
                 account_type_names.extend(a.debug_name() for a in window._wallet.get_accounts())
@@ -180,7 +186,7 @@ class Exception_Window(QDialog):
             "wallet_type": wallet_types,
         }
 
-    def show_contents(self):
+    def show_contents(self) -> None:
         info = self.get_additional_info()
         lines = traceback.format_exception(*self.exc_triple)
         info["traceback"] = html.escape(''.join(lines), quote=False)
@@ -191,7 +197,7 @@ class Exception_Window(QDialog):
 class Exception_Hook(QObject):
     uncaught_signal = pyqtSignal(object)
 
-    def __init__(self, app) -> None:
+    def __init__(self, app: "SVApplication") -> None:
         super().__init__()
         self.app = app
         sys.excepthook = self.handler

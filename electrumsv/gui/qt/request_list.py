@@ -30,7 +30,7 @@ import time
 from typing import Optional, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import pyqtSignal, Qt, QTimer
+from PyQt5.QtCore import pyqtSignal, QPoint, Qt, QTimer
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QLabel, QTreeWidgetItem, QMenu, QVBoxLayout
 
@@ -101,7 +101,7 @@ class RequestList(MyTreeWidget):
 
         # This is used if there is a pending expiry.
         self._timer: Optional[QTimer] = None
-        self._timer_event_time = 0
+        self._timer_event_time = 0.
 
     def _start_timer(self, event_time: float) -> None:
         self._stop_timer()
@@ -124,7 +124,7 @@ class RequestList(MyTreeWidget):
             return
         self._timer.stop()
         self._timer = None
-        self._timer_event_time = 0
+        self._timer_event_time = 0.
 
     def _on_timer_event(self) -> None:
         """
@@ -143,7 +143,7 @@ class RequestList(MyTreeWidget):
         else:
             self.update()
 
-    def _on_item_double_clicked(self, item) -> None:
+    def _on_item_double_clicked(self, item: QTreeWidgetItem) -> None:
         if item is None:
             return
         if not item.isSelected():
@@ -201,7 +201,7 @@ class RequestList(MyTreeWidget):
         if nearest_expiry_time != float("inf"):
             self._start_timer(nearest_expiry_time)
 
-    def create_menu(self, position):
+    def create_menu(self, position: QPoint) -> None:
         item = self.itemAt(position)
         if not item:
             return
@@ -282,6 +282,6 @@ class RequestList(MyTreeWidget):
         vbox.addWidget(label)
         pr_e = ShowQRTextEdit(text=data)
         vbox.addWidget(pr_e)
-        vbox.addLayout(Buttons(CopyCloseButton(pr_e.text, app_state.app, dialog)))
+        vbox.addLayout(Buttons(CopyCloseButton(pr_e.text, app_state.app_qt, dialog)))
         dialog.setLayout(vbox)
         dialog.exec_()

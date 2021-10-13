@@ -441,3 +441,7 @@ class CredentialPolicyFlag(IntFlag):
 
     # Cache flags.
     IS_BEING_ADDED = 1 << 30
+
+
+# Where the user is spending all the satoshis and not a specific amount.
+MAX_VALUE = -1

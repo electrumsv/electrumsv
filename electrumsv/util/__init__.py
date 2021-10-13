@@ -40,6 +40,7 @@ from bitcoinx import PublicKey
 
 from ..logs import logs
 from ..startup import package_dir
+from ..types import ExceptionInfoType
 from ..version import PACKAGE_DATE
 
 
@@ -237,12 +238,9 @@ def get_posix_timestamp() -> int:
     return int(datetime.now().timestamp())
 
 
-def posix_timestamp_to_datetime(timestamp: int) -> Optional[datetime]:
+def posix_timestamp_to_datetime(timestamp: int) -> datetime:
     "Get a local timezone unaware datetime object for the given posix timestamp."
-    try:
-        return datetime.fromtimestamp(timestamp)
-    except Exception:
-        return None
+    return datetime.fromtimestamp(timestamp)
 
 
 def format_posix_timestamp(timestamp: int, default_text: str) -> str:
@@ -382,6 +380,9 @@ class ReleaseEntryType(TypedDict):
 class ReleaseDocumentType(TypedDict, total=False):
     stable: ReleaseEntryType
     unstable: ReleaseEntryType
+
+
+UpdateCheckResultType = Union[ExceptionInfoType, ReleaseDocumentType]
 
 
 def get_identified_release_signers(entry: ReleaseEntryType) -> Set[str]:

@@ -21,6 +21,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from typing import List
+
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 
@@ -69,7 +71,7 @@ label_sync = LabelSyncExtension(
     "it has no way to store any descriptions which the account does not know of the "
     "address or transaction for."))
 
-extensions = [
+extensions: List[Extension] = [
     cosigner_pool,
     label_sync,
 ]

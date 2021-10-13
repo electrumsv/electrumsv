@@ -31,12 +31,12 @@ from functools import partial
 import gzip
 import json
 import math
-from typing import Any, cast, Dict, NamedTuple, Optional, Set, TYPE_CHECKING
+from typing import Any, cast, Dict, NamedTuple, Optional, Set, TYPE_CHECKING, Union
 import weakref
 import webbrowser
 
-from PyQt5.QtCore import pyqtBoundSignal, pyqtSignal, Qt
-from PyQt5.QtGui import QBrush, QCursor, QFont
+from PyQt5.QtCore import pyqtBoundSignal, pyqtSignal, QPoint, Qt
+from PyQt5.QtGui import QBrush, QCloseEvent, QCursor, QFont
 from PyQt5.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
     QToolTip, QTreeWidgetItem, QVBoxLayout, QWidget)
 
@@ -307,7 +307,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         QToolTip.showText(QCursor.pos(), _("Transaction ID copied to clipboard"), self)
 
     def _on_transaction_verified(self, tx_hash: bytes, block_height: int, block_position: int,
-            confirmations: int, timestamp: int):
+            confirmations: int, timestamp: int) -> None:
         if tx_hash == self._tx_hash:
             self.update()
 
@@ -340,7 +340,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         if self.ok_to_close():
             super().reject()
 
-    def closeEvent(self, event) -> None:
+    def closeEvent(self, event: QCloseEvent) -> None:
         # Invoked by user closing in window manager
         if self.ok_to_close():
             event.accept()
@@ -391,7 +391,8 @@ class TxDialog(QDialog, MessageBoxMixin):
             return json.dumps(tx_dict, indent=4) + '\n'
         return json.dumps(tx_dict)
 
-    def update(self) -> None:
+    # NOTE(typing) The override checks are just painful, how do they even work?
+    def update(self) -> None: # type: ignore[override]
         base_unit = app_state.base_unit()
         format_amount = app_state.format_amount
         tx_info = self._get_tx_info(self.tx)
@@ -524,7 +525,8 @@ class TxDialog(QDialog, MessageBoxMixin):
             steps = len(self.tx.inputs)
 
         # The done callbacks should happen in the context of the GUI thread.
-        def on_done(weakwindow: 'ElectrumWindow', future: concurrent.futures.Future) -> None:
+        def on_done(weakwindow: 'ElectrumWindow',
+                future: concurrent.futures.Future[Optional[Dict[str, Any]]]) -> None:
             try:
                 data = future.result()
             except concurrent.futures.CancelledError:
@@ -563,7 +565,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             _("Data copied to clipboard"))
 
     def _copy_transaction_ready(self, format: TxSerialisationFormat,
-            tx_data: Optional[Dict[str, Any]]=None) -> None:
+            tx_data: Optional[Union[str, Dict[str, Any]]]=None) -> None:
         if tx_data is None:
             logger.debug("_copy_transaction_ready aborted")
             return
@@ -772,6 +774,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     # Only called from the history ui dialog.
     def _get_tx_info(self, tx: Transaction) -> TxInfo:
+        amount: Optional[int]
         value_delta = 0
         can_broadcast = False
         label = ''
@@ -839,7 +842,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
             # For now all inputs must come from the same account.
             for input in tx.inputs:
-                value_delta -= input.value
+                value_delta -= cast(int, input.value)
             for output in tx.outputs:
                 # If we know what type of script it is, we sign it's spend (or co-sign it).
                 # We are sending to ourselves or we are receiving change.
@@ -937,7 +940,7 @@ class InputTreeWidget(MyTreeWidget):
             tx_hash = item.data(InputColumn.INDEX, Role.TX_HASH)
             self._show_other_transaction(tx_hash)
 
-    def _create_menu(self, position) -> None:
+    def _create_menu(self, position: QPoint) -> None:
         item = self.currentItem()
         if not item:
             return
@@ -999,7 +1002,7 @@ class OutputTreeWidget(MyTreeWidget):
         else:
             pass
 
-    def _create_menu(self, position) -> None:
+    def _create_menu(self, position: QPoint) -> None:
         item = self.currentItem()
         if not item:
             return

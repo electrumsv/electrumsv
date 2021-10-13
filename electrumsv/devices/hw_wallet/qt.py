@@ -30,7 +30,7 @@ import threading
 from typing import Any, Callable, cast, Iterable, Optional, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import QObject, pyqtSignal, pyqtBoundSignal
+from PyQt5.QtCore import QObject, pyqtSignal
 from PyQt5.QtWidgets import QAction, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, \
     QWidget
 from PyQt5 import sip
@@ -40,13 +40,14 @@ from ...exceptions import UserCancelled
 from ...keystore import Hardware_KeyStore
 from ...i18n import _
 
+from ...gui.qt.main_window import ElectrumWindow
 from ...gui.qt.password_dialog import (ChangePasswordDialog, PasswordAction,
                                                PassphraseDialog)
-from ...gui.qt.util import WindowModalDialog, Buttons, CancelButton, read_QIcon
+from ...gui.qt.util import WindowModalDialog, Buttons, CancelButton, read_QIcon, \
+    WindowProtocol
 
 if TYPE_CHECKING:
     from .plugin import HW_PluginBase
-    from ...gui.qt.main_window import ElectrumWindow
 
 
 # The trickiest thing about this handler was getting windows properly
@@ -74,7 +75,7 @@ class QtHandlerBase(QObject):
     icon_paired: str = ""
     icon_unpaired: str = ""
 
-    def __init__(self, win: "ElectrumWindow", device: str) -> None:
+    def __init__(self, win: "WindowProtocol", device: str) -> None:
         super(QtHandlerBase, self).__init__()
         self.clear_signal.connect(self.clear_dialog)
         self.error_signal.connect(self.error_dialog)
@@ -98,9 +99,6 @@ class QtHandlerBase(QObject):
         self._cleaned_up = True
         del self.win
 
-    def top_level_window(self) -> QWidget:
-        return self.win.top_level_window()
-
     def set_on_device_passphrase_result(self, value: Optional[Any]) -> None:
         self._on_device_passphrase_result = value
 
@@ -111,6 +109,9 @@ class QtHandlerBase(QObject):
         icon = self.icon_paired if paired else self.icon_unpaired
         assert self.action is not None
         self.action.setIcon(read_QIcon(icon))
+
+    def top_level_window(self) -> QWidget:
+        return self.win.top_level_window()
 
     def query_choice(self, msg: str, labels: Iterable[str]) -> Optional[int]:
         self.done.clear()
@@ -181,7 +182,7 @@ class QtHandlerBase(QObject):
         hbox.addWidget(QLabel(msg))
         text = QLineEdit()
         text.setMaximumWidth(100)
-        cast(pyqtBoundSignal, text.returnPressed).connect(dialog.accept)
+        text.returnPressed.connect(dialog.accept)
         hbox.addWidget(text)
         hbox.addStretch(1)
         dialog.exec_()  # Firmware cannot handle cancellation
@@ -197,7 +198,7 @@ class QtHandlerBase(QObject):
         vbox = QVBoxLayout(dialog)
         vbox.addWidget(l)
         if on_cancel:
-            cast(pyqtBoundSignal, dialog.rejected).connect(on_cancel)
+            dialog.rejected.connect(on_cancel)
             vbox.addLayout(Buttons(CancelButton(dialog)))
         dialog.show()
 
@@ -234,10 +235,11 @@ class QtPluginBase(object):
     libraries_available_message: str
     name: str
 
-    def create_handler(self, window: "ElectrumWindow") -> QtHandlerBase:
+    def create_handler(self, window: WindowProtocol) -> QtHandlerBase:
         raise NotImplementedError
 
-    def replace_gui_handler(self, window: "ElectrumWindow", keystore: Hardware_KeyStore) -> None:
+    def replace_gui_handler(self, window: WindowProtocol,
+            keystore: Hardware_KeyStore) -> None:
         handler = self.create_handler(window)
         keystore.handler_qt = handler
         keystore.plugin = cast("HW_PluginBase", self)
@@ -245,11 +247,12 @@ class QtPluginBase(object):
         action_label = _('Unnamed')
         if keystore.label and keystore.label.strip():
             action_label = keystore.label.strip()
-        action = QAction(read_QIcon(self.icon_unpaired), action_label, window)
-        cast(pyqtBoundSignal, action.triggered).connect(
+        action = QAction(read_QIcon(self.icon_unpaired), action_label, cast(QObject, window))
+        action.triggered.connect(
             partial(self.show_settings_wrapped, weakref.proxy(window), keystore))
         action.setToolTip(_("Hardware Wallet"))
-        window.add_toolbar_action(action)
+        if isinstance(window, ElectrumWindow):
+            window.add_toolbar_action(action)
         handler.action = action
         handler.icon_unpaired = self.icon_unpaired
         handler.icon_paired = self.icon_paired
@@ -262,7 +265,7 @@ class QtPluginBase(object):
         message += _("Make sure you install it with python3")
         return message
 
-    def choose_device(self, window: "ElectrumWindow", keystore: Hardware_KeyStore) -> Optional[str]:
+    def choose_device(self, keystore: Hardware_KeyStore) -> Optional[str]:
         '''This dialog box should be usable even if the user has
         forgotten their PIN or it is in bootloader mode.'''
         assert keystore.xpub is not None
@@ -281,11 +284,13 @@ class QtPluginBase(object):
     def show_settings_dialog(self, window: "ElectrumWindow", keystore: Hardware_KeyStore) -> None:
         raise NotImplementedError
 
-    def show_settings_wrapped(self, window: "ElectrumWindow", keystore: Hardware_KeyStore) -> None:
+    def show_settings_wrapped(self, window: "WindowProtocol",
+            keystore: Hardware_KeyStore) -> None:
         if isinstance(window, weakref.ProxyType):
             window = window.reference()
+        electrum_window = cast("ElectrumWindow", window)
         try:
-            self.show_settings_dialog(window, keystore)
+            self.show_settings_dialog(electrum_window, keystore)
         except Exception as e:
             assert keystore.handler_qt is not None
             keystore.handler_qt.show_error(str(e))

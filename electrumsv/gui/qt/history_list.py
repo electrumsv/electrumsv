@@ -25,7 +25,7 @@
 
 import enum
 from functools import partial
-from typing import cast, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
+from typing import Callable, cast, Dict, List, Optional, Sequence, Tuple, TYPE_CHECKING
 import weakref
 import webbrowser
 
@@ -154,12 +154,12 @@ class HistoryList(MyTreeWidget):
 
     def on_edited(self, item: QTreeWidgetItem, column: int, prior_text: str) -> None:
         '''Called only when the text actually changes'''
-        text = item.text(column).strip()
+        text: Optional[str] = item.text(column).strip()
         if text == "":
             text = None
         account_id = item.data(Columns.STATUS, self.ACCOUNT_ROLE)
         tx_hash = item.data(Columns.STATUS, self.TX_ROLE)
-        account = self._wallet.get_account(account_id)
+        account = cast(AbstractAccount, self._wallet.get_account(account_id))
         account.set_transaction_label(tx_hash, text)
 
     def update_tx_headers(self) -> None:
@@ -214,7 +214,7 @@ class HistoryList(MyTreeWidget):
             status_str = get_tx_desc(status, timestamp)
             v_str = app_state.format_amount(row.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(entry.balance, whitespaces=True)
-            line = [None, tx_id, status_str,
+            line: List[str] = ["", tx_id, status_str,
                 row.description if row.description is not None else "", v_str, balance_str]
             if fx and fx.show_history():
                 date = posix_timestamp_to_datetime(
@@ -367,11 +367,11 @@ class HistoryList(MyTreeWidget):
         if column in self.editable_columns:
             # We grab a fresh reference to the current item, as it has been deleted in a
             # reported issue.
-            # NOTE(typing) The PYQT_SLOT argument should take the lambda as a callable, but doesn't.
-            menu.addAction(_("Edit {}").format(column_title), # type: ignore
-                lambda: self.currentItem() and self.editItem(self.currentItem(), column))
-        menu.addAction(_("Details"), lambda: self._main_window.show_transaction(account, tx,
-            tx_context))
+            menu.addAction(_("Edit {}").format(column_title),
+                lambda: self.editItem(self.currentItem(), column) if self.currentItem() else None)
+        menu.addAction(_("Details"),
+            cast(Callable[[], None], lambda: self._main_window.show_transaction(account, tx,
+                tx_context)))
 
         flags = self._wallet.get_transaction_flags(tx_hash)
         if flags is not None and flags & TxFlags.PAYS_INVOICE:
@@ -382,10 +382,8 @@ class HistoryList(MyTreeWidget):
             action.setEnabled(invoice_id is not None)
 
         if tx_URL:
-            # NOTE(typing) The PYQT_SLOT argument should take the lambda as a callable, but doesn't.
-            # NOTE(typing) The `webbrowser.open` call does not factor in the above for used types.
-            menu.addAction(_("View on block explorer"), # type: ignore
-                lambda: webbrowser.open(tx_URL)) # type: ignore
+            menu.addAction(_("View on block explorer"),
+                cast(Callable[[], None], lambda: webbrowser.open(tx_URL)))
 
         menu.addSeparator()
 
@@ -397,9 +395,7 @@ class HistoryList(MyTreeWidget):
 
         if flags is not None and flags & TxFlags.MASK_STATE_UNCLEARED != 0:
             if flags & TxFlags.PAYS_INVOICE:
-                broadcast_action = menu.addAction(self.invoiceIcon, _("Pay invoice"),
-                    lambda: self._pay_invoice(tx_hash))
-
+                broadcast_action = menu.addAction(self.invoiceIcon, _("Pay invoice"))
                 row = self._account._wallet.read_invoice(tx_hash=tx_hash)
                 if row is None:
                     # The associated invoice has been deleted.
@@ -410,6 +406,9 @@ class HistoryList(MyTreeWidget):
                 elif has_expired(row.date_expires):
                     # The associated invoice has expired.
                     broadcast_action.setEnabled(False)
+                else:
+                    broadcast_action.triggered.connect(
+                        partial(self._main_window.pay_invoice, row.invoice_id))
             else:
                 menu.addAction(_("Broadcast"),
                     lambda: self._broadcast_transaction(tx_hash))
@@ -421,8 +420,7 @@ class HistoryList(MyTreeWidget):
     def _broadcast_transaction(self, tx_hash: bytes) -> None:
         tx = self._wallet.get_transaction(tx_hash)
         assert tx is not None
-        self._main_window.broadcast_transaction(self._account, tx,
-            window=self._main_window.reference())
+        self._main_window.broadcast_transaction(self._account, tx)
 
     def _show_invoice_window(self, invoice_id: int) -> None:
         row = self._wallet.read_invoice(invoice_id=invoice_id)

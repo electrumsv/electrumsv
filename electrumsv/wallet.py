@@ -53,7 +53,7 @@ from .bitcoin import scripthash_bytes, ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountType, BlockHeight,
     CHANGE_SUBPATH, DatabaseKeyDerivationType,
     DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath, TransactionImportFlag,
-    KeyInstanceFlag, KeystoreTextType, KeystoreType,
+    KeyInstanceFlag, KeystoreTextType, KeystoreType, MAX_VALUE,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerType,
     pack_derivation_path, PaymentFlag, RECEIVING_SUBPATH,
     SubscriptionOwnerPurpose, SubscriptionType, ScriptType, TransactionInputFlag,
@@ -91,6 +91,7 @@ from .wallet_database.exceptions import KeyInstanceNotFoundError
 from .wallet_database import functions as db_functions
 from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
+    AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataProtocol, KeyData,
     KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
@@ -98,7 +99,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
     TransactionDeltaSumRow, TransactionExistsRow, TransactionLinkState, TransactionMetadata,
     TransactionSubscriptionRow,
-    TransactionOutputShortRow, TransactionOutputSpendableRow2, TransactionOutputSpendableRow,
+    TransactionOutputShortRow, TransactionOutputSpendableRow,
     TransactionOutputSpendableProtocol, TransactionValueRow,
     TransactionInputAddRow, TransactionOutputAddRow,
     TransactionRow, TxProof, WalletBalance, WalletEventRow)
@@ -106,7 +107,7 @@ from .wallet_database.util import create_derivation_data2
 
 if TYPE_CHECKING:
     from .network import Network
-    from electrumsv.gui.qt.main_window import ElectrumWindow
+    from electrumsv.gui.qt.util import WindowProtocol
     from electrumsv.devices.hw_wallet.qt import QtPluginBase
 
 logger = logs.get_logger("wallet")
@@ -582,7 +583,7 @@ class AbstractAccount:
 
     def get_transaction_outputs_with_key_data(self, exclude_frozen: bool=True, mature: bool=True,
             confirmed_only: Optional[bool]=None, keyinstance_ids: Optional[List[int]]=None) \
-                -> List[TransactionOutputSpendableRow]:
+                -> Sequence[AccountTransactionOutputSpendableRow]:
         if confirmed_only is None:
             confirmed_only = cast(bool, app_state.config.get('confirmed_only', False))
         mature_height = self._wallet.get_local_height() if mature else None
@@ -592,7 +593,8 @@ class AbstractAccount:
 
     def get_transaction_outputs_with_key_and_tx_data(self, exclude_frozen: bool=True,
             mature: bool=True, confirmed_only: Optional[bool]=None,
-            keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow2]:
+            keyinstance_ids: Optional[List[int]]=None) \
+                -> List[AccountTransactionOutputSpendableRowExtended]:
         if confirmed_only is None:
             confirmed_only = cast(bool, app_state.config.get('confirmed_only', False))
         mature_height = self._wallet.get_local_height() if mature else None
@@ -704,7 +706,7 @@ class AbstractAccount:
             out.append(export_entry)
         return out
 
-    def create_extra_outputs(self, coins: List[TransactionOutputSpendableProtocol],
+    def create_extra_outputs(self, coins: Sequence[TransactionOutputSpendableProtocol],
             outputs: List[XTxOutput], force: bool=False) -> List[XTxOutput]:
         # Hardware wallets can only sign a limited range of output types (not OP_FALSE OP_RETURN).
         if self.involves_hardware_wallet() or len(coins) == 0:
@@ -745,12 +747,13 @@ class AbstractAccount:
             return self.MAX_HARDWARE_CHANGE_OUTPUTS
         return self.MAX_SOFTWARE_CHANGE_OUTPUTS
 
-    def make_unsigned_transaction(self, unspent_outputs: List[TransactionOutputSpendableProtocol],
+    def make_unsigned_transaction(self,
+            unspent_outputs: Sequence[TransactionOutputSpendableProtocol],
             outputs: List[XTxOutput]) -> Tuple[Transaction, TransactionContext]:
         # check outputs
         all_index = None
         for n, output in enumerate(outputs):
-            if output.value is all:
+            if output.value == MAX_VALUE:
                 if all_index is not None:
                     raise ValueError("More than one output set to spend max")
                 all_index = n
@@ -2760,14 +2763,14 @@ class Wallet(TriggeredCallbacks):
     def read_account_transaction_outputs_with_key_data(self, account_id: int,
             confirmed_only: bool=False, mature_height: Optional[int]=None,
             exclude_frozen: bool=False, keyinstance_ids: Optional[List[int]]=None) \
-                -> List[TransactionOutputSpendableRow]:
+                -> List[AccountTransactionOutputSpendableRow]:
         return db_functions.read_account_transaction_outputs_with_key_data(self.get_db_context(),
             account_id, confirmed_only, mature_height, exclude_frozen, keyinstance_ids)
 
     def read_account_transaction_outputs_with_key_and_tx_data(self, account_id: int,
             confirmed_only: bool=False, mature_height: Optional[int]=None,
             exclude_frozen: bool=False, keyinstance_ids: Optional[List[int]]=None) \
-                -> List[TransactionOutputSpendableRow2]:
+                -> List[AccountTransactionOutputSpendableRowExtended]:
         return db_functions.read_account_transaction_outputs_with_key_and_tx_data(
             self.get_db_context(), account_id, confirmed_only, mature_height, exclude_frozen,
                 keyinstance_ids)
@@ -3759,7 +3762,7 @@ class Wallet(TriggeredCallbacks):
         self._network = None
         self._stopped = True
 
-    def create_gui_handler(self, window: 'ElectrumWindow', account: AbstractAccount) -> None:
+    def create_gui_handler(self, window: 'WindowProtocol', account: AbstractAccount) -> None:
         for keystore in account.get_keystores():
             if isinstance(keystore, Hardware_KeyStore):
                 plugin = cast('QtPluginBase', keystore.plugin)

@@ -39,7 +39,7 @@ if TYPE_CHECKING:
     from ...keystore import Hardware_KeyStore
     from ...wallet_database.types import MasterKeyRow
     from ...gui.qt.account_wizard import AccountWizard
-    from ...gui.qt.main_window import ElectrumWindow
+    from ...gui.qt.util import WindowProtocol
     from ..hw_wallet.qt import QtHandlerBase
 
 
@@ -62,7 +62,7 @@ class HW_PluginBase(object):
         keystore.plugin = self
         return keystore
 
-    def create_handler(self, window: "ElectrumWindow") -> "QtHandlerBase":
+    def create_handler(self, window: "WindowProtocol") -> "QtHandlerBase":
         raise NotImplementedError
 
     def create_client(self, device: "Device", handler: "QtHandlerBase") -> Any:

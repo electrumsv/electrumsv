@@ -27,7 +27,7 @@
 from typing import Any, Optional, Tuple, TYPE_CHECKING
 
 from PyQt5.QtCore import Qt, QSortFilterProxyModel, QObject, QSize
-from PyQt5.QtGui import QPainter, QPixmap
+from PyQt5.QtGui import QPainter, QPaintEvent, QPixmap
 from PyQt5.QtWidgets import (QVBoxLayout, QLabel,
     QLineEdit, QComboBox, QCompleter, QGridLayout, QWidget, QHBoxLayout, QSizePolicy,
     QStyle, QStyleOption, QPushButton, QToolBar, QAction, QListWidget, QListWidgetItem)
@@ -103,6 +103,7 @@ class ContactList(QWidget):
         edit_contact_dialog(self._context.wallet_api)
 
     def _on_sort_action(self) -> None:
+        assert self._cards._list is not None
         if self._sort_type == 1:
             self._sort_type = -1
             self._sort_action.setIcon(read_QIcon("icons8-alphabetical-sorting-80-blueui.png"))
@@ -123,8 +124,8 @@ class ContactCards(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
 
-        self._empty_label = None
-        self._list = None
+        self._empty_label: Optional[QLabel] = None
+        self._list: Optional[QListWidget] = None
 
         contact_identities = self._context.wallet_api.get_identities()
         if len(contact_identities) > 0:
@@ -156,6 +157,7 @@ class ContactCards(QWidget):
         self._list.setItemWidget(list_item, test_card)
 
     def _remove_identity(self, contact: ContactEntry, identity: ContactIdentity) -> None:
+        assert self._list is not None
         for i in range(self._list.count()-1, -1, -1):
             item = self._list.item(i)
             widget = self._list.itemWidget(item)
@@ -166,7 +168,8 @@ class ContactCards(QWidget):
 
         if self._list.count() == 0:
             # Remove the list.
-            self._list.setParent(None)
+            # NOTE(typing) We need to do this to deparent the label, but no type stub from Qt5.
+            self._list.setParent(None) # type: ignore[call-overload]
             self._list = None
 
             # Replace it with the placeholder label.
@@ -180,13 +183,15 @@ class ContactCards(QWidget):
             self._remove_identity(contact, identity)
 
     def _add_empty_label(self) -> None:
-        self._empty_label = QLabel(_("You do not currently have any contacts."))
-        self._empty_label.setAlignment(Qt.AlignmentFlag(Qt.AlignHCenter | Qt.AlignVCenter))
-        self._layout.addWidget(self._empty_label)
+        label = QLabel(_("You do not currently have any contacts."))
+        label.setAlignment(Qt.AlignmentFlag(Qt.AlignHCenter | Qt.AlignVCenter))
+        self._layout.addWidget(label)
+        self._empty_label = label
 
     def _remove_empty_label(self) -> None:
         if self._empty_label is not None:
-            self._empty_label.setParent(None)
+            # NOTE(typing) We need to do this to deparent the label, but no type stub from Qt5.
+            self._empty_label.setParent(None) # type: ignore[call-overload]
             self._empty_label = None
 
 
@@ -234,6 +239,7 @@ class ContactCard(QWidget):
             edit_contact_dialog(self._context.wallet_api, contact_key)
 
             contact = self._context.wallet_api.get_contact(contact_key[0])
+            assert contact is not None
             identity = [ ci for ci in contact.identities if ci.identity_id == contact_key[1] ][0]
 
             self._contact = contact
@@ -274,18 +280,19 @@ class ContactCard(QWidget):
         self._update()
 
     # QWidget styles do not render. Found this somewhere on the qt5 doc site.
-    def paintEvent(self, event):
+    def paintEvent(self, event: QPaintEvent) -> None:
         opt = QStyleOption()
         opt.initFrom(self)
         p = QPainter(self)
         self.style().drawPrimitive(QStyle.PE_Widget, opt, p, self)
 
-    def _update(self):
+    def _update(self) -> None:
         self._name_label.setText(self._contact.label)
 
 
 # TODO: Refactor this into a class.
-def edit_contact_dialog(wallet_api, contact_key: Optional[Tuple[int, bytes]]=None):
+def edit_contact_dialog(wallet_api: WalletAPI, contact_key: Optional[Tuple[int, bytes]]=None) \
+        -> None:
     editing = contact_key is not None
     if editing:
         title = _("Edit Contact")
@@ -296,7 +303,7 @@ def edit_contact_dialog(wallet_api, contact_key: Optional[Tuple[int, bytes]]=Non
     vbox = QVBoxLayout(d)
     vbox.addWidget(QLabel(title + ':'))
 
-    def _contact_insert_completion(text):
+    def _contact_insert_completion(text: str) -> None:
         if text:
             index = combo1.findText(text)
             combo1.setCurrentIndex(index)
@@ -320,7 +327,7 @@ def edit_contact_dialog(wallet_api, contact_key: Optional[Tuple[int, bytes]]=Non
     ok_button.setEnabled(False)
 
     def _validate_form() -> None:
-        def _set_validation_state(element, is_valid) -> None:
+        def _set_validation_state(element: QWidget, is_valid: bool) -> None:
             if not is_valid:
                 element.setStyleSheet("border: 1px solid red")
             else:
@@ -328,12 +335,12 @@ def edit_contact_dialog(wallet_api, contact_key: Optional[Tuple[int, bytes]]=Non
 
         can_submit = True
 
+        system_id: Optional[IdentitySystem] = None
         system_name = combo1.currentText().lower().strip()
-        is_valid = True
         try:
             system_id = get_system_id(system_name)
+            is_valid = True
         except ContactDataError:
-            system_id = None
             is_valid = False
         _set_validation_state(combo1, is_valid)
         can_submit = can_submit and is_valid
@@ -401,6 +408,7 @@ def edit_contact_dialog(wallet_api, contact_key: Optional[Tuple[int, bytes]]=Non
         identity_line.setFocus()
     else:
         entry = wallet_api.get_contact(contact_key[0])
+        assert entry is not None
         identity = [ ci for ci in entry.identities if ci.identity_id == contact_key[1] ][0]
         combo1.lineEdit().setText(IDENTITY_SYSTEM_NAMES[identity.system_id])
         identity_line.setText(identity.system_data)
@@ -413,6 +421,7 @@ def edit_contact_dialog(wallet_api, contact_key: Optional[Tuple[int, bytes]]=Non
         system_id = get_system_id(combo1.currentText())
         if contact_key is not None:
             contact = wallet_api.get_contact(contact_key[0])
+            assert contact is not None
             identity = [ ci for ci in contact.identities if ci.identity_id == contact_key[1] ][0]
             if contact_key[1] != identity.identity_id:
                 wallet_api.remove_identity(contact_key[0], contact_key[1])

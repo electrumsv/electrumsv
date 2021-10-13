@@ -46,8 +46,7 @@ class TableTopButtonLayout(ButtonLayout):
 
     def __init__(self, parent: Optional[QWidget]=None, filter_placeholder_text: str="",
             enable_filter: bool=True) -> None:
-        # NOTE(typing) The checker does not have signatures for the parent being an explicit None.
-        super().__init__(parent) # type: ignore
+        super().__init__(parent)
 
         # The offset to insert the next button at.
         self._button_index = 0
@@ -80,17 +79,12 @@ class TableTopButtonLayout(ButtonLayout):
     def add_create_button(self, tooltip: Optional[str]=None) -> QToolButton:
         if tooltip is None:
             tooltip = _("Add a new entry.")
-        # NOTE(typing) The checker does not have correct signal handling.
-        return self.add_button("icons8-add-new-96-windows.png",
-            self.add_signal.emit, # type: ignore
-            tooltip)
+        return self.add_button("icons8-add-new-96-windows.png", self.add_signal.emit, tooltip)
 
     def add_refresh_button(self, tooltip: Optional[str]=None) -> QToolButton:
         if tooltip is None:
             tooltip = _("Refresh the list.")
-        # NOTE(typing) The checker does not have correct signal handling.
-        return self.add_button("refresh_win10_16.png", self.refresh_signal.emit, # type: ignore
-            tooltip)
+        return self.add_button("refresh_win10_16.png", self.refresh_signal.emit, tooltip)
 
     def add_filter_button(self, tooltip: Optional[str]=None) -> QToolButton:
         if tooltip is None:
@@ -109,6 +103,7 @@ class TableTopButtonLayout(ButtonLayout):
 
     # Call externally to toggle the filter.
     def on_toggle_filter(self) -> None:
+        assert self._filter_button is not None
         if self._filter_box.isHidden():
             # Activate filtering and show the text field.
             self._filter_button.setIcon(read_QIcon("icons8-clear-filters-32-windows.png"))

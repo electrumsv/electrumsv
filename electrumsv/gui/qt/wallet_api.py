@@ -29,20 +29,20 @@ class WalletAPI(QObject):
 
         self.wallet_window = cast("ElectrumWindow", weakref.proxy(wallet_window))
 
-        app_state.app.identity_added_signal.connect(self._on_contact_added)
-        app_state.app.identity_removed_signal.connect(self._on_contact_removed)
-        app_state.app.contact_added_signal.connect(self._on_contact_added)
-        app_state.app.contact_removed_signal.connect(self._on_contact_removed)
+        app_state.app_qt.identity_added_signal.connect(self._on_contact_added)
+        app_state.app_qt.identity_removed_signal.connect(self._on_contact_removed)
+        app_state.app_qt.contact_added_signal.connect(self._on_contact_added)
+        app_state.app_qt.contact_removed_signal.connect(self._on_contact_removed)
 
         self.wallet_window.notifications_created_signal.connect(self._on_new_notifications)
 
     def clean_up(self) -> None:
         self.wallet_window.notifications_created_signal.disconnect(self._on_new_notifications)
 
-        app_state.app.identity_added_signal.disconnect(self._on_contact_added)
-        app_state.app.identity_removed_signal.disconnect(self._on_contact_removed)
-        app_state.app.contact_added_signal.disconnect(self._on_contact_added)
-        app_state.app.contact_removed_signal.disconnect(self._on_contact_removed)
+        app_state.app_qt.identity_added_signal.disconnect(self._on_contact_added)
+        app_state.app_qt.identity_removed_signal.disconnect(self._on_contact_removed)
+        app_state.app_qt.contact_added_signal.disconnect(self._on_contact_added)
+        app_state.app_qt.contact_removed_signal.disconnect(self._on_contact_removed)
 
     # def __del__(self) -> None:
     #     print(f"Wallet API {self!r} was garbage collected")
@@ -68,7 +68,7 @@ class WalletAPI(QObject):
     def get_contact(self, contact_id: int) -> Optional[ContactEntry]:
         return self.wallet_window.contacts.get_contact(contact_id)
 
-    def get_identities(self):
+    def get_identities(self) -> List[Tuple[ContactEntry, ContactIdentity]]:
         return self.wallet_window.contacts.get_contact_identities()
 
     def check_label(self, label: str) -> IdentityCheckResult:
@@ -80,11 +80,12 @@ class WalletAPI(QObject):
 
     def get_account_name(self, account_id: int) -> str:
         account = self.wallet_window._wallet.get_account(account_id)
+        assert account is not None
         return account.display_name()
 
     # Balance related.
 
-    def get_balance(self, account_id=None) -> int:
+    def get_balance(self, account_id: Optional[int]=None) -> int:
         balance = 0
         for account in self.wallet_window._wallet.get_accounts():
             if account_id is None or account_id == account.get_id():
@@ -96,6 +97,7 @@ class WalletAPI(QObject):
         fx = app_state.fx
         if fx and fx.is_enabled():
             return fx.get_currency()
+        return None
 
     def get_amount_and_units(self, amount: int) -> Tuple[str, str]:
         return app_state.get_amount_and_units(amount)
@@ -106,6 +108,7 @@ class WalletAPI(QObject):
         fx = app_state.fx
         if fx and fx.is_enabled():
             return fx.format_amount(sv_value)
+        return None
 
     def get_base_unit(self) -> str:
         return app_state.base_unit()

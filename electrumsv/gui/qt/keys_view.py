@@ -34,16 +34,16 @@ from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_C
 import weakref
 import webbrowser
 
-from bitcoinx import Address, bip32_build_chain_string, hash_to_hex_str
+from bitcoinx import Address, bip32_build_chain_string, hash_to_hex_str, sha256
 
-from PyQt5.QtCore import QAbstractItemModel, QModelIndex, QVariant, Qt, QPoint, \
+from PyQt5.QtCore import QAbstractItemModel, QModelIndex, Qt, QPoint, \
     QSortFilterProxyModel, QTimer
-from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QKeySequence
+from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QKeyEvent, QKeySequence
 from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 
 from ...i18n import _
 from ...app_state import app_state
-from ...bitcoin import scripthash_bytes, sha256
+from ...bitcoin import scripthash_bytes
 from ...constants import (ACCOUNT_SCRIPT_TYPES, AccountType, ADDRESSABLE_SCRIPT_TYPES,
     DerivationType, IntFlag,
     KeyInstanceFlag, ScriptType, unpack_derivation_path)
@@ -200,10 +200,10 @@ class _ItemModel(QAbstractItemModel):
 
     # Overridden methods:
 
-    def columnCount(self, model_index: QModelIndex) -> int:
+    def columnCount(self, model_index: QModelIndex=QModelIndex()) -> int:
         return len(self._column_names)
 
-    def data(self, model_index: QModelIndex, role: int) -> Any:
+    def data(self, model_index: QModelIndex, role: int=Qt.ItemDataRole.DisplayRole) -> Any:
         if self._view._account_id != self._account_id:
             return None
 
@@ -234,7 +234,7 @@ class _ItemModel(QAbstractItemModel):
                     if default_script_type in ADDRESSABLE_SCRIPT_TYPES:
                         template = account.get_script_template_for_derivation(default_script_type,
                             line.derivation_type, line.derivation_data2)
-                        return template.to_string() # type: ignore
+                        return template.to_string()
                 elif column == LABEL_COLUMN:
                     return line.description
                 elif column == USAGES_COLUMN:
@@ -246,6 +246,7 @@ class _ItemModel(QAbstractItemModel):
                             return value
                         elif column == FIAT_BALANCE_COLUMN:
                             fx = app_state.fx
+                            assert fx is not None
                             rate = fx.exchange_rate()
                             return fx.value_str(value, rate)
 
@@ -283,7 +284,7 @@ class _ItemModel(QAbstractItemModel):
                     if default_script_type in ADDRESSABLE_SCRIPT_TYPES:
                         template = account.get_script_template_for_derivation(default_script_type,
                             line.derivation_type, line.derivation_data2)
-                        return template.to_string() # type: ignore
+                        return template.to_string()
                 elif column == LABEL_COLUMN:
                     return line.description
                 elif column == USAGES_COLUMN:
@@ -294,6 +295,7 @@ class _ItemModel(QAbstractItemModel):
                         return app_state.format_amount(value, whitespaces=True)
                     elif column == FIAT_BALANCE_COLUMN:
                         fx = app_state.fx
+                        assert fx is not None
                         rate = fx.exchange_rate()
                         return fx.value_str(value, rate)
             elif role == Qt.ItemDataRole.FontRole:
@@ -344,40 +346,48 @@ class _ItemModel(QAbstractItemModel):
                 if column == LABEL_COLUMN:
                     return line.description
 
-    def flags(self, model_index: QModelIndex) -> Qt.ItemFlag:
+    def flags(self, model_index: QModelIndex) -> Qt.ItemFlags:
         if model_index.isValid():
             column = model_index.column()
             flags = super().flags(model_index)
             if column == LABEL_COLUMN:
-                flags |= Qt.ItemFlag.ItemIsEditable
+                flags = Qt.ItemFlags( # type: ignore[call-overload]
+                    int(flags) | Qt.ItemFlag.ItemIsEditable)
             return flags
-        return Qt.ItemFlag.ItemIsEnabled
+        return Qt.ItemFlags(Qt.ItemFlag.ItemIsEnabled)
 
-    def headerData(self, section: int, orientation: int, role: int) -> Any:
+    def headerData(self, section: int, orientation: Qt.Orientation,
+            role: int=Qt.ItemDataRole.DisplayRole) -> Any:
         if orientation == Qt.Orientation.Horizontal and role == Qt.ItemDataRole.DisplayRole:
             if section < len(self._column_names):
                 return self._column_names[section]
 
-    def index(self, row_index: int, column_index: int, parent: Any) -> QModelIndex:
+    def index(self, row_index: int, column_index: int,
+            parent: QModelIndex=QModelIndex()) -> QModelIndex:
         if self.hasIndex(row_index, column_index, parent):
             return self.createIndex(row_index, column_index)
         return QModelIndex()
 
-    def parent(self, model_index: QModelIndex) -> QModelIndex:
+    # NOTE(typing) I have no idea what this wants in the way of typing. The errors do not help.
+    def parent(self, index: QModelIndex) -> QModelIndex: # type: ignore[override]
         return QModelIndex()
 
-    def rowCount(self, model_index: QModelIndex) -> int:
+    def rowCount(self, model_index: QModelIndex=QModelIndex()) -> int:
         return len(self._data)
 
-    def setData(self, model_index: QModelIndex, value: QVariant, role: int) -> bool:
+    def setData(self, model_index: QModelIndex, value: Any,
+            role: int=Qt.ItemDataRole.EditRole) -> bool:
         if model_index.isValid() and role == Qt.ItemDataRole.EditRole:
             row = model_index.row()
             line = self._data[row]
             if model_index.column() == LABEL_COLUMN:
+                assert self._view._account is not None
+                label_value = cast(Optional[str], value)
                 # Update the database (we do not wait on the future as we update the model data).
                 self._view._account.set_keyinstance_label(line.keyinstance_id, value)
                 # Update the model data.
-                text = None if value is None or value.strip() == "" else value.strip()
+                text = None if label_value is None or label_value.strip() == "" \
+                    else label_value.strip()
                 self._data[row] = line._replace(description=text)
                 # Force the label cell for the given keyinstance to update.
                 self.dataChanged.emit(model_index, model_index)
@@ -422,8 +432,10 @@ class _SortFilterProxyModel(QSortFilterProxyModel):
         # There is the chance that the data can be None which will not compare in problematic
         # situations, however the filter should check for it and prevent those rows from being
         # compared.
-        value_left = self.sourceModel().data(source_left, Roles.SORT)
-        value_right = self.sourceModel().data(source_right, Roles.SORT)
+        # NOTE(typing) We cast to `int` even though it is not correct, as this can be any
+        #   of a variety of types and we want the operator typing to just work.
+        value_left = cast(int, self.sourceModel().data(source_left, Roles.SORT))
+        value_right = cast(int, self.sourceModel().data(source_right, Roles.SORT))
         return value_left < value_right
 
     def filterAcceptsRow(self, source_row: int, source_parent: QModelIndex) -> bool:
@@ -489,7 +501,7 @@ class KeyView(QTableView):
         self.setModel(proxy_model)
 
         fx = app_state.fx
-        self._set_fiat_columns_enabled(fx and fx.get_fiat_address_config())
+        self._set_fiat_columns_enabled(fx is not None and fx.get_fiat_address_config())
 
         # Sort by type then by index, by making sure the initial sort is our type column.
         self.sortByColumn(BALANCE_COLUMN, Qt.SortOrder.DescendingOrder)
@@ -513,7 +525,7 @@ class KeyView(QTableView):
         horizontalHeader.resizeSection(USAGES_COLUMN, fw("Usages"))
         horizontalHeader.setSectionResizeMode(ADDRESS_COLUMN, QHeaderView.Stretch)
         horizontalHeader.setSectionResizeMode(LABEL_COLUMN, QHeaderView.Stretch)
-        balance_width = mw(app_state.format_amount(1.2, whitespaces=True))
+        balance_width = mw(app_state.format_amount(123, whitespaces=True))
         horizontalHeader.resizeSection(BALANCE_COLUMN, balance_width)
 
         verticalHeader = self.verticalHeader()
@@ -532,16 +544,16 @@ class KeyView(QTableView):
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._event_create_menu)
 
-        app_state.app.base_unit_changed.connect(self._on_balance_display_change)
-        app_state.app.fiat_balance_changed.connect(self._on_fiat_balance_display_change)
-        app_state.app.fiat_ccy_changed.connect(self._on_fiat_balance_display_change)
-        app_state.app.labels_changed_signal.connect(self.update_labels)
-        app_state.app.num_zeros_changed.connect(self._on_balance_display_change)
+        app_state.app_qt.base_unit_changed.connect(self._on_balance_display_change)
+        app_state.app_qt.fiat_balance_changed.connect(self._on_fiat_balance_display_change)
+        app_state.app_qt.fiat_ccy_changed.connect(self._on_fiat_balance_display_change)
+        app_state.app_qt.labels_changed_signal.connect(self.update_labels)
+        app_state.app_qt.num_zeros_changed.connect(self._on_balance_display_change)
 
         self.setEditTriggers(QAbstractItemView.DoubleClicked)
         self.doubleClicked.connect(self._event_double_clicked)
 
-        self._last_not_synced = 0
+        self._last_not_synced = 0.
         self._timer = QTimer(self)
         self._timer.setSingleShot(False)
         self._timer.setInterval(1000)
@@ -595,7 +607,7 @@ class KeyView(QTableView):
         if account_id == self._account_id:
             self.reset_table()
 
-    def keyPressEvent(self, event):
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.matches(QKeySequence.Copy):
             selected_indexes = self.selectedIndexes()
             if len(selected_indexes):
@@ -622,7 +634,7 @@ class KeyView(QTableView):
         if self._main_window.network and not self._main_window._wallet.is_synchronized():
             self._last_not_synced = time.time()
             return
-        self._last_not_synced = 0
+        self._last_not_synced = 0.
 
         with self._update_lock:
             pending_actions = self._pending_actions
@@ -691,7 +703,7 @@ class KeyView(QTableView):
                 self._base_model.invalidate_column(BALANCE_COLUMN)
             elif ListActions.RESET_FIAT_BALANCES:
                 fx = app_state.fx
-                flag = fx and fx.get_fiat_address_config()
+                flag = fx is not None and fx.get_fiat_address_config()
                 # This will show or hide the relevant columns as applicable.
                 self._set_fiat_columns_enabled(flag)
                 # This will notify the model that the relevant cells are changed.
@@ -857,11 +869,13 @@ class KeyView(QTableView):
 
         if flag:
             fx = app_state.fx
+            assert fx is not None
             self._base_model.set_column_name(FIAT_BALANCE_COLUMN, f"{fx.ccy} {_('Balance')}")
 
         self.setColumnHidden(FIAT_BALANCE_COLUMN, not flag)
 
     def _set_user_active(self, keyinstance_ids: Set[int], enable: bool) -> None:
+        assert self._account is not None
         self._logger.debug("_set_user_active %s %s", keyinstance_ids, enable)
         flags = KeyInstanceFlag.USER_SET_ACTIVE if enable else KeyInstanceFlag.NONE
         # We do not clear `ACTIVE` as there may be other reasons for activeness, and we rely
@@ -870,6 +884,7 @@ class KeyView(QTableView):
         self._account.set_keyinstance_flags(list(keyinstance_ids), flags, mask)
 
     def _set_key_frozen(self, keyinstance_ids: Set[int], enable: bool) -> None:
+        assert self._account is not None
         self._logger.debug("_set_key_frozen %s %s", keyinstance_ids, enable)
         flags = KeyInstanceFlag.FROZEN if enable else KeyInstanceFlag.NONE
         # We do not clear `ACTIVE` as there may be other reasons for activeness, and we rely
@@ -888,6 +903,8 @@ class KeyView(QTableView):
             self._main_window.show_key(self._account, line, self._account.get_default_script_type())
 
     def _event_create_menu(self, position: QPoint) -> None:
+        assert self._account is not None
+
         menu = QMenu()
 
         # What the user clicked on.
@@ -974,7 +991,7 @@ class KeyView(QTableView):
                     keystore = self._account.get_keystore()
                     if isinstance(keystore, Hardware_KeyStore):
                         # NOTE(typing) The whole keystore.plugin thing is not well defined.
-                        def show_key():
+                        def show_key() -> None:
                             self._main_window.run_in_thread(
                                 keystore.plugin.show_key, self._account, # type: ignore
                                     line.keyinstance_id)

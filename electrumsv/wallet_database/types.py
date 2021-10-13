@@ -63,11 +63,23 @@ class InvoiceRow(NamedTuple):
 
 
 class KeyDataProtocol(Protocol):
-    keyinstance_id: int                 # Overlapping common output/spendable type field.
-    account_id: int                     # Spendable type field.
-    masterkey_id: Optional[int]         # Spendable type field.
-    derivation_type: DerivationType     # Spendable type field.
-    derivation_data2: Optional[bytes]   # Spendable type field.
+    # Overlapping common output/spendable type field.
+    @property
+    def keyinstance_id(self) -> int:
+        pass
+    # Spendable type fields.
+    @property
+    def account_id(self) -> int:
+        pass
+    @property
+    def masterkey_id(self) -> Optional[int]:
+        pass
+    @property
+    def derivation_type(self) -> DerivationType:
+        pass
+    @property
+    def derivation_data2(self) -> Optional[bytes]:
+        pass
 
 
 @dataclasses.dataclass
@@ -113,6 +125,7 @@ class KeyInstanceScriptHashRow(NamedTuple):
 
 
 class KeyListRow(NamedTuple):
+    account_id: int
     keyinstance_id: int                 # Overlapping common output/spendable type field.
     masterkey_id: Optional[int]         # Spendable type field.
     derivation_type: DerivationType     # Spendable type field.
@@ -299,6 +312,42 @@ class TransactionOutputFullRow(NamedTuple):
     spending_txi_index: Optional[int]
 
 
+class AccountTransactionOutputSpendableRow(NamedTuple):
+    """
+    Transaction output data with the additional key instance information required for spending it.
+    """
+    # Standard transaction output fields.
+    tx_hash: bytes
+    txo_index: int
+    value: int
+    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
+    script_type: ScriptType
+    flags: TransactionOutputFlag
+    # KeyInstance fields.
+    account_id: int                             # Spendable type field.
+    masterkey_id: Optional[int]                 # Spendable type field.
+    derivation_type: DerivationType             # Spendable type field.
+    derivation_data2: Optional[bytes]           # Spendable type field.
+
+
+class AccountTransactionOutputSpendableRowExtended(NamedTuple):
+    # Standard transaction output fields.
+    tx_hash: bytes
+    txo_index: int
+    value: int
+    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
+    script_type: ScriptType
+    flags: TransactionOutputFlag
+    # KeyInstance fields.
+    account_id: int                             # Spendable type field.
+    masterkey_id: Optional[int]                 # Spendable type field.
+    derivation_type: DerivationType             # Spendable type field.
+    derivation_data2: Optional[bytes]           # Spendable type field.
+    # Extension fields for this type.
+    tx_flags: TxFlags
+    block_height: Optional[int]
+
+
 class TransactionOutputSpendableRow(NamedTuple):
     """
     Transaction output data with the additional key instance information required for spending it.
@@ -316,23 +365,14 @@ class TransactionOutputSpendableRow(NamedTuple):
     derivation_type: Optional[DerivationType]   # Spendable type field.
     derivation_data2: Optional[bytes]           # Spendable type field.
 
-
-class TransactionOutputSpendableRow2(NamedTuple):
-    # Standard transaction output fields.
-    tx_hash: bytes
-    txo_index: int
-    value: int
-    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
-    script_type: ScriptType
-    flags: TransactionOutputFlag
-    # KeyInstance fields.
-    account_id: Optional[int]                   # Spendable type field.
-    masterkey_id: Optional[int]                 # Spendable type field.
-    derivation_type: Optional[DerivationType]   # Spendable type field.
-    derivation_data2: Optional[bytes]           # Spendable type field.
-    # Extension fields for this type.
-    tx_flags: TxFlags
-    block_height: Optional[int]
+    # def to_account_row(self) -> AccountTransactionOutputSpendableRow:
+    #     assert self.account_id is not None
+    #     assert self.derivation_type is not None
+    #     return AccountTransactionOutputSpendableRow(tx_hash=self.tx_hash,
+    #           txo_index=self.txo_index,
+    #         value=self.value, keyinstance_id=self.keyinstance_id, script_type=self.script_type,
+    #         flags=self.flags, account_id=self.account_id, masterkey_id=self.masterkey_id,
+    #         derivation_type=self.derivation_type, derivation_data2=self.derivation_data2)
 
 
 # NOTE(TypeUnionsForCommonFields) NamedTuple does not support subclassing, Mypy recommends data
@@ -342,41 +382,44 @@ class TransactionOutputSpendableRow2(NamedTuple):
 # union types. The type checker should pick out use of any attributes that are not common to all
 # included types.
 
-# Types which have the common spendable type fields.
-#   account_id, masterkey_id, derivation_type, derivation_data2
-    # KeyData,
-    # KeyInstanceRow,
-    # TransactionOutputSpendableRow,
-    # TransactionOutputSpendableRow2
-
 # Types which have the common output fields.
 TransactionOutputTypes = Union[
     TransactionOutputShortRow,
     TransactionOutputFullRow,
     TransactionOutputSpendableRow,
-    TransactionOutputSpendableRow2]
+    AccountTransactionOutputSpendableRowExtended]
 # Some lower comment.
 
 
 class TransactionOutputSpendableProtocol(Protocol):
     # Standard transaction output fields.
-    tx_hash: bytes
-    txo_index: int
-    value: int
-    script_type: ScriptType
-    keyinstance_id: Optional[int]       # Overlapping common output/spendable type field.
-    account_id: int                     # Spendable type field.
-    masterkey_id: Optional[int]         # Spendable type field.
-    derivation_type: DerivationType     # Spendable type field.
-    derivation_data2: Optional[bytes]   # Spendable type field.
-
-
-
-
-# Types which have the common output fields and the common spendable type fields.
-# TransactionOutputSpendableTypes = Union[
-#     TransactionOutputSpendableRow,
-#     TransactionOutputSpendableRow2]
+    @property
+    def tx_hash(self) -> bytes:
+        pass
+    @property
+    def txo_index(self) -> int:
+        pass
+    @property
+    def value(self) -> int:
+        pass
+    @property
+    def script_type(self) -> ScriptType:
+        pass
+    @property
+    def keyinstance_id(self) -> Optional[int]:
+        pass
+    @property
+    def account_id(self) ->  int:
+        pass
+    @property
+    def masterkey_id(self) ->  Optional[int]:
+        pass
+    @property
+    def derivation_type(self) ->  DerivationType:
+        pass
+    @property
+    def derivation_data2(self) -> Optional[bytes]:
+        pass
 
 
 class TransactionRow(NamedTuple):

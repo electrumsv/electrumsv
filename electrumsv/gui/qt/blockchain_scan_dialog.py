@@ -416,7 +416,8 @@ class BlockchainScanDialog(WindowModalDialog):
         remaining_work_units = len(self._import_fetch_hashes) + len(self._import_link_hashes)
         return total_work_units, remaining_work_units
 
-    def _on_import_obtain_transactions_started(self, future: concurrent.futures.Future) -> None:
+    def _on_import_obtain_transactions_started(self,
+            future: concurrent.futures.Future[Set[bytes]]) -> None:
         """
         The callback for the when the process of obtaining the missing transaction has started.
 
@@ -431,7 +432,7 @@ class BlockchainScanDialog(WindowModalDialog):
             return
 
         # Overwrite the default fetch step count value with the working value.
-        self._import_fetch_hashes = set(future.result())
+        self._import_fetch_hashes = future.result()
         self._import_fetch_steps = len(self._import_fetch_hashes)
 
         total_work_units, _remaining_work_units = self._get_import_work_units()
@@ -499,7 +500,7 @@ class BlockchainScanDialog(WindowModalDialog):
             else:
                 self._about_label.setText(TEXT_FINAL_FAILURE.format(failed_import))
 
-    def _on_scan_complete(self, future: concurrent.futures.Future) -> None:
+    def _on_scan_complete(self, future: concurrent.futures.Future[None]) -> None:
         if future.cancelled():
             logger.debug("_on_scan_complete.cancelled")
             return
@@ -517,7 +518,7 @@ class BlockchainScanDialog(WindowModalDialog):
 
         all_tx_hashes: List[bytes] = []
         subpath_indexes: Dict[DerivationPath, int] = defaultdict(int)
-        self._import_state: Dict[bytes, TransactionScanState] = {}
+        self._import_state = {}
         for script_hash, script_history in self._scanner.get_scan_results().items():
             # TODO Look into why there are empty script history lists. This seems like a minor
             #     thing that could be fixed.
@@ -552,7 +553,7 @@ class BlockchainScanDialog(WindowModalDialog):
         # script hashes.
         account = self._wallet.get_account(self._account_id)
         assert account is not None
-        last_scripthash_future: Optional[concurrent.futures.Future] = None
+        last_scripthash_future: Optional[concurrent.futures.Future[None]] = None
         for subpath, subpath_index in subpath_indexes.items():
             scripthash_future, keyinstance_rows = account.derive_new_keys_until(
                 tuple(subpath) + (subpath_index,))
@@ -617,8 +618,10 @@ class BlockchainScanDialog(WindowModalDialog):
                 height_text = "Pending"
             else:
                 height_text = str(entry.block_height)
+            # NOTE(typing) It accepts `None` in an iterable of strings. Need to test if it can
+            #   be replaced by an empty string.
             column_values = [ None, entry.tx_id, height_text ]
-            tree_item = QTreeWidgetItem(column_values)
+            tree_item = QTreeWidgetItem(column_values) # type: ignore[arg-type]
             if entry.already_conflicting:
                 tree_item.setIcon(Columns.STATUS, self._conflicted_tx_icon)
                 tree_item.setToolTip(Columns.STATUS, _("A previous attempt to import this "
@@ -663,7 +666,8 @@ class BlockchainScanDialog(WindowModalDialog):
         tree = self._scan_detail_tree
 
         tree_items = tree.selectedItems()
-        entries = [ tree_item.data(0, Qt.ItemDataRole.UserRole) for tree_item in tree_items ]
+        entries = [ cast(TransactionScanState, tree_item.data(Columns.STATUS, ImportRoles.ENTRY))
+            for tree_item in tree_items ]
         if not len(entries):
             return
 
@@ -689,7 +693,7 @@ class BlockchainScanDialog(WindowModalDialog):
         tx_ids_text = json.dumps(list(entry.tx_id for entry in entries))
         self._main_window.app.clipboard().setText(tx_ids_text)
 
-    def _on_menu_view_on_block_explorer(self, entries) -> None:
+    def _on_menu_view_on_block_explorer(self, entries: List[TransactionScanState]) -> None:
         for entry in entries:
             tx_URL = BE_URL(app_state.config, 'tx', entry.tx_id)
             assert tx_URL is not None
@@ -787,8 +791,8 @@ class AdvancedScanOptionsDialog(WindowModalDialog):
             HELP_SCAN_ADVANCED_FILE_NAME)
         h.run()
 
-    def _adjust_contents_margins(self, widget: QWidget, *, left_plus=0, top_plus=0, right_plus=0,
-            bottom_plus=0) -> None:
+    def _adjust_contents_margins(self, widget: QWidget, *, left_plus: int=0, top_plus: int=0,
+            right_plus: int=0, bottom_plus: int=0) -> None:
         margins = widget.contentsMargins()
         widget.setContentsMargins(margins.left() + left_plus, margins.top() + top_plus,
             margins.right() + right_plus, margins.bottom() + bottom_plus)

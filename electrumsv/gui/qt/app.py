@@ -34,14 +34,16 @@ from typing import Any, Callable, cast, Coroutine, Iterable, List, Optional, Typ
 
 from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
-from PyQt5.QtCore import pyqtBoundSignal, pyqtSignal, QObject, QTimer
-from PyQt5.QtGui import QGuiApplication
+from PyQt5.QtCore import pyqtSignal, QEvent, QObject, QTimer
+from PyQt5.QtGui import QFileOpenEvent, QGuiApplication, QIcon
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QDialog
 
 from electrumsv.app_state import app_state, ExceptionHandlerABC
 from electrumsv.contacts import ContactEntry, ContactIdentity
 from electrumsv.i18n import _
 from electrumsv.logs import logs
+from electrumsv.types import ExceptionInfoType
+from electrumsv.util import UpdateCheckResultType
 from electrumsv.wallet import AbstractAccount, Wallet
 
 from . import dialogs, network_dialog
@@ -61,14 +63,14 @@ logger = logs.get_logger('app')
 
 
 class OpenFileEventFilter(QObject):
-    def __init__(self, windows):
+    def __init__(self, windows: List[ElectrumWindow]) -> None:
         super().__init__()
         self.windows = windows
 
-    def eventFilter(self, obj, event):
+    def eventFilter(self, obj: QObject, event: QEvent) -> bool:
         if event.type() == QtCore.QEvent.Type.FileOpen:
             if len(self.windows) >= 1:
-                self.windows[0].pay_to_URI(event.url().toString())
+                self.windows[0].pay_to_URI(cast(QFileOpenEvent, event).url().toString())
                 return True
         return False
 
@@ -101,7 +103,7 @@ class SVApplication(QApplication):
     identity_added_signal = pyqtSignal(object, object)
     identity_removed_signal = pyqtSignal(object, object)
 
-    def __init__(self, argv):
+    def __init__(self, argv: List[str]) -> None:
         QtCore.QCoreApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_X11InitThreads)
         if hasattr(QtCore.Qt, "AA_ShareOpenGLContexts"):
             QtCore.QCoreApplication.setAttribute(
@@ -111,8 +113,8 @@ class SVApplication(QApplication):
         super().__init__(argv)
         self.windows: List[ElectrumWindow] = []
         self.log_handler = SVLogHandler()
-        self.log_window = None
-        self.net_dialog = None
+        self.log_window: Optional[SVLogWindow] = None
+        self.net_dialog: Optional[network_dialog.NetworkDialog] = None
         self.timer = QTimer(self)
         self.exception_hook: Optional[ExceptionHandlerABC] = None
         # A floating point number, e.g. 129.1
@@ -132,7 +134,7 @@ class SVApplication(QApplication):
         logs.add_handler(self.log_handler)
         self._start()
 
-    def _start(self):
+    def _start(self) -> None:
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.installEventFilter(OpenFileEventFilter(self.windows))
         self.create_new_window_signal.connect(self.start_new_window)
@@ -146,22 +148,22 @@ class SVApplication(QApplication):
         self.update_check_signal.connect(partial(self._signal_all, 'on_update_check'))
         ColorScheme.update_from_widget(QWidget())
 
-    def _signal_all(self, method, *args):
+    def _signal_all(self, method: str, *args: str) -> None:
         for window in self.windows:
             getattr(window, method)(*args)
 
-    def _close(self):
+    def _close(self) -> None:
         for window in self.windows:
             window.close()
 
-    def close_window(self, window) -> None:
+    def close_window(self, window: ElectrumWindow) -> None:
         # NOTE: `ElectrumWindow` removes references to itself while it is closing. This creates
         # a problem where it gets garbage collected before it's Qt5 `closeEvent` handling is
         # completed and on Linux/MacOS it segmentation faults. On Windows, it is fine.
         QTimer.singleShot(0, partial(self._close_window, window))
         logger.debug("app.close_window.queued")
 
-    def _close_window(self, window):
+    def _close_window(self, window: ElectrumWindow) -> None:
         logger.debug(f"app.close_window.executing {window!r}")
         app_state.daemon.stop_wallet_at_path(window._wallet.get_storage_path())
         self.windows.remove(window)
@@ -170,11 +172,11 @@ class SVApplication(QApplication):
         if not self.windows:
             self._last_window_closed()
 
-    def setup_app(self):
+    def setup_app(self) -> None:
         # app_state.daemon is initialised after app. Setup things dependent on daemon here.
         pass
 
-    def _build_tray_menu(self):
+    def _build_tray_menu(self) -> None:
         # Avoid immediate GC of old menu when window closed via its action
         if self.tray.contextMenu() is None:
             m = QMenu()
@@ -185,13 +187,14 @@ class SVApplication(QApplication):
         for window in self.windows:
             submenu = m.addMenu(window._wallet.name())
             submenu.addAction(_("Show/Hide"), window.show_or_hide)
-            submenu.addAction(_("Close"), window.close)
+            # NOTE(typing) Need to pretend things that Qt uses return nothing.
+            submenu.addAction(_("Close"), cast(Callable[..., None], window.close))
         m.addAction(_("Dark/Light"), self._toggle_tray_icon)
         m.addSeparator()
         m.addAction(_("Exit ElectrumSV"), self._close)
         self.tray.setContextMenu(m)
 
-    def _tray_icon(self):
+    def _tray_icon(self) -> QIcon:
         if self.dark_icon:
             return read_QIcon('electrumsv_dark_icon.png')
         else:
@@ -202,7 +205,7 @@ class SVApplication(QApplication):
         app_state.config.set_key("dark_icon", self.dark_icon, True)
         self.tray.setIcon(self._tray_icon())
 
-    def _tray_activated(self, reason) -> None:
+    def _tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             if all([w.is_hidden() for w in self.windows]):
                 for w in self.windows:
@@ -215,7 +218,7 @@ class SVApplication(QApplication):
         # Use a signal as can be called from daemon thread
         self.create_new_window_signal.emit(path, uri, False)
 
-    def show_network_dialog(self, parent) -> None:
+    def show_network_dialog(self, parent: ElectrumWindow) -> None:
         if not app_state.daemon.network:
             parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
                                   'ElectrumSV if you want to get connected'), title=_('Offline'))
@@ -258,10 +261,11 @@ class SVApplication(QApplication):
         return w
 
     def _register_wallet_events(self, wallet: Wallet) -> None:
-        wallet.contacts._on_contact_added = self._on_contact_added
-        wallet.contacts._on_contact_removed = self._on_contact_removed
-        wallet.contacts._on_identity_added = self._on_identity_added
-        wallet.contacts._on_identity_removed = self._on_identity_removed
+        # NOTE(typing) Some typing nonsense about not being able to assign to a method.
+        wallet.contacts._on_contact_added = self._on_contact_added # type: ignore[assignment]
+        wallet.contacts._on_contact_removed = self._on_contact_removed # type: ignore[assignment]
+        wallet.contacts._on_identity_added = self._on_identity_added # type: ignore[assignment]
+        wallet.contacts._on_identity_removed = self._on_identity_removed # type: ignore[assignment]
 
     def _on_identity_added(self, contact: ContactEntry, identity: ContactIdentity) -> None:
         self.identity_added_signal.emit(contact, identity)
@@ -331,8 +335,9 @@ class SVApplication(QApplication):
             w.pay_to_URI(uri)
 
         w.bring_to_top()
-        w.setWindowState((w.windowState() & ~QtCore.Qt.WindowState.WindowMinimized) |
-            QtCore.Qt.WindowState.WindowActive)
+        w.setWindowState(QtCore.Qt.WindowState(
+            (int(w.windowState()) & ~QtCore.Qt.WindowState.WindowMinimized) |
+                QtCore.Qt.WindowState.WindowActive))
         # this will activate the window
         w.activateWindow()
 
@@ -343,7 +348,7 @@ class SVApplication(QApplication):
                 app_state.config.get("offline", False)):
             return
 
-        def f():
+        def f() -> None:
             import requests
             try:
                 response = requests.request(
@@ -352,13 +357,13 @@ class SVApplication(QApplication):
                 result = response.json()
                 self._on_update_check(True, result)
             except Exception:
-                self._on_update_check(False, sys.exc_info())
+                self._on_update_check(False, cast(ExceptionInfoType, sys.exc_info()))
 
         t = threading.Thread(target=f)
         t.setDaemon(True)
         t.start()
 
-    def _on_update_check(self, success: bool, result: dict) -> None:
+    def _on_update_check(self, success: bool, result: UpdateCheckResultType) -> None:
         if success:
             when_checked = datetime.datetime.now().astimezone().isoformat()
             app_state.config.set_key('last_update_check', result)
@@ -390,7 +395,7 @@ class SVApplication(QApplication):
         threading.current_thread().setName('GUI')
         self.timer.setSingleShot(False)
         self.timer.setInterval(500)  # msec
-        cast(pyqtBoundSignal, self.timer.timeout).connect(app_state.device_manager.timeout_clients)
+        self.timer.timeout.connect(app_state.device_manager.timeout_clients)
 
         QTimer.singleShot(0, self.event_loop_started)
         self.exec_()

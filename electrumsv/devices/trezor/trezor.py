@@ -20,6 +20,7 @@ from ..hw_wallet.plugin import HW_PluginBase, LibraryFoundButUnusable
 
 if TYPE_CHECKING:
     from ...gui.qt.account_wizard import AccountWizard
+    from ...gui.qt.util import WindowProtocol
     from ..hw_wallet.qt import QtHandlerBase
     from .qt import QtHandler, QtPlugin
 
@@ -274,7 +275,8 @@ class TrezorPlugin(HW_PluginBase):
         if client is None:
             raise Exception(_('Failed to create a client for this device.') + '\n' +
                             _('Make sure it is in the correct state.'))
-        client.handler = cast("QtHandler", self.create_handler(wizard))
+        window = cast("WindowProtocol", wizard)
+        client.handler = cast("QtHandler", self.create_handler(window))
         if not device_info.initialized:
             self.initialize_device(device_id, wizard, client.handler)
         client.get_master_public_key('m', creating=True)
@@ -283,7 +285,8 @@ class TrezorPlugin(HW_PluginBase):
             -> BIP32PublicKey:
         client = cast(Optional[TrezorClientSV], app_state.device_manager.client_by_id(device_id))
         assert client is not None
-        client.handler = cast("QtHandler", self.create_handler(wizard))
+        window = cast("WindowProtocol", wizard)
+        client.handler = cast("QtHandler", self.create_handler(window))
         return client.get_master_public_key(derivation)
 
     def get_trezor_input_script_type(self, is_multisig: bool) -> int:

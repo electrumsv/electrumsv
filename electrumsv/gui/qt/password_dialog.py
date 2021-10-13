@@ -102,7 +102,7 @@ class PasswordLineEdit(QWidget):
         # Pass-throughs
         self.key_event_signal = self.pw.key_event_signal
         self.returnPressed = self.pw.returnPressed
-        self.setFocus = self.pw.setFocus
+        self.setFocus = self.pw.setFocus # type: ignore[assignment]
         self.setMaxLength = self.pw.setMaxLength
         self.setPlaceholderText = self.pw.setPlaceholderText
         self.setText = self.pw.setText
@@ -112,10 +112,10 @@ class PasswordLineEdit(QWidget):
         self.editingFinished = self.pw.editingFinished
         self.textEdited = self.pw.textEdited
 
-    def toggle_keyboard(self):
+    def toggle_keyboard(self) -> None:
         self.keyboard.setVisible(not self.keyboard.isVisible())
 
-    def toggle_visible(self):
+    def toggle_visible(self) -> None:
         if self.pw.echoMode() == QLineEdit.Password:
             self.pw.setEchoMode(QLineEdit.Normal)
             self.reveal_button.setIcon(read_QIcon(self.hide_png))
@@ -125,14 +125,14 @@ class PasswordLineEdit(QWidget):
 
 
 LayoutFields = List[Tuple[Union[str, QLabel], QWidget]]
-PasswordCheckCallbackType = Optional[Callable[[str], bool]]
+PasswordCheckCallbackType = Callable[[str], bool]
 
 class PasswordLayout(object):
     titles = [_("Enter Password"), _("Change Password"), _("Enter Passphrase")]
 
     def __init__(self, msg: str, fields: Optional[LayoutFields], kind: PasswordAction,
             state_change_fn: Callable[[bool], None],
-            password_valid_fn: PasswordCheckCallbackType) -> None:
+            password_valid_fn: Optional[PasswordCheckCallbackType]) -> None:
         self.pw = PasswordLineEdit()
         self.new_pw = PasswordLineEdit()
         self.conf_pw = PasswordLineEdit()
@@ -202,13 +202,13 @@ class PasswordLayout(object):
 
         self.vbox = vbox
 
-    def title(self):
+    def title(self) -> str:
         return self.titles[self.kind]
 
-    def layout(self):
+    def layout(self) -> QVBoxLayout:
         return self.vbox
 
-    def pw_changed(self):
+    def pw_changed(self) -> None:
         password = self.new_pw.text()
         label = ""
         strength_text = ""
@@ -219,12 +219,13 @@ class PasswordLayout(object):
             strength_text = "<font color="+ colors[strength] + ">" + strength + "</font>"
         self._pw_strength.setText(strength_text)
 
-    def old_password(self):
+    def old_password(self) -> Optional[str]:
         if self.kind == PasswordAction.CHANGE:
             return self.pw.text() or None
         return None
 
-    def new_password(self):
+    def new_password(self) -> Optional[str]:
+        pw: Optional[str]
         pw = self.new_pw.text()
         # Empty passphrases are fine and returned empty.
         if pw == "" and self.kind != PasswordAction.PASSPHRASE:
@@ -233,7 +234,7 @@ class PasswordLayout(object):
 
 
 class ChangePasswordDialog(WindowModalDialog):
-    def __init__(self, parent: QWidget,
+    def __init__(self, parent: Optional[QWidget],
             msg: Optional[str]=None,
             title: Optional[str]=None,
             fields: Optional[LayoutFields]=None,
@@ -305,8 +306,9 @@ PASSWORD_REQUEST_TEXT = _("Your wallet has a password, you will need to provide 
     "in order to access it.")
 
 class PasswordDialog(WindowModalDialog):
-    def __init__(self, parent=None, msg: Optional[str]=None, force_keyboard: bool=False,
-            password_check_fn: PasswordCheckCallbackType=None,
+    def __init__(self, parent: Optional[QWidget], msg: Optional[str],
+            password_check_fn: PasswordCheckCallbackType,
+            force_keyboard: bool=False,
             fields: Optional[LayoutFields]=None,
             title: Optional[str]=None) -> None:
         super().__init__(parent, title or _("Enter Password"))
@@ -372,7 +374,7 @@ class PasswordDialog(WindowModalDialog):
         if self._ok_button.isEnabled():
             self.accept()
 
-    def run(self):
+    def run(self) -> Optional[str]:
         try:
             if not self.exec_():
                 return None
@@ -384,7 +386,7 @@ class PasswordDialog(WindowModalDialog):
 class PassphraseDialog(WindowModalDialog):
     '''Prompt for passphrase for hardware wallets.'''
 
-    def __init__(self, parent: QWidget, on_device_result: Optional[Any]=None) -> None:
+    def __init__(self, parent: QWidget, on_device_result: Optional[str]=None) -> None:
         super().__init__(parent, _("Enter Passphrase"))
         self._on_device_result = on_device_result
         self._on_device_selected = False
@@ -398,7 +400,7 @@ class PassphraseDialog(WindowModalDialog):
         self.accept()
 
     @classmethod
-    def run(cls, parent: QWidget, msg: str, on_device_result: Optional[Any]=None) -> Optional[str]:
+    def run(cls, parent: QWidget, msg: str, on_device_result: Optional[str]=None) -> Optional[str]:
         d = cls(parent, on_device_result)
         pw = PasswordLineEdit()
         pw.setMinimumWidth(200)

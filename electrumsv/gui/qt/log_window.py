@@ -43,7 +43,7 @@ class SVLogHandler(logging.Handler):
     def __init__(self, max_records: int=5_000, level: int=logging.NOTSET) -> None:
         super().__init__(level)
         self.max_records = max_records
-        self.deque = deque()
+        self.deque: deque[logging.LogRecord] = deque()
         self.createLock()
         self.categories: Set[str] = set()
 
@@ -55,7 +55,7 @@ class SVLogHandler(logging.Handler):
                 -> None:
         self.release()
 
-    def emit(self, record) -> None:
+    def emit(self, record: logging.LogRecord) -> None:
         deque = self.deque
         with self:
             if record.name not in self.categories:
@@ -76,9 +76,8 @@ class SVLogHandler(logging.Handler):
 class SVLogWindow(QDialog):
 
     def __init__(self, parent: Optional[QWidget], log_handler: SVLogHandler) -> None:
-        super().__init__(parent, Qt.WindowFlags.WindowSystemMenuHint |
-            Qt.WindowFlags.WindowTitleHint |
-            Qt.WindowFlags.WindowCloseButtonHint)
+        super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
         self.setModal(False)
         self.setWindowTitle('ElectrumSV Log Viewer')
         self.log_handler = log_handler
@@ -89,7 +88,7 @@ class SVLogWindow(QDialog):
             logging.WARNING: 'warning',
             logging.ERROR: 'error'
         }
-        self.layout()
+        self._layout()
         app_state.app_qt.new_log.connect(self.new_log)
         app_state.app_qt.new_category.connect(self.new_category)
         self.log_handler.emit_all()
@@ -97,20 +96,20 @@ class SVLogWindow(QDialog):
     def reject(self) -> None:
         self.hide()
 
-    def new_category(self, name) -> None:
+    def new_category(self, name: str) -> None:
         self.category_cb.addItem(name)
 
-    def new_log(self, record) -> None:
+    def new_log(self, record: logging.LogRecord) -> None:
         if record.name == self.category or self.category == 'all':
             msg = self.log_handler.format(record)
             self.log_view.appendPlainText(msg)
 
-    def layout(self) -> None:
+    def _layout(self) -> None:
         self.category_cb = QComboBox()
         self.category_cb.addItem('all')
         for category in sorted(self.log_handler.categories):
             self.category_cb.addItem(category)
-        def on_category(_index):
+        def on_category(_index: int) -> None:
             self.log_view.setPlainText('')
             self.category = self.category_cb.currentText()
             self.log_handler.emit_all()
@@ -119,7 +118,7 @@ class SVLogWindow(QDialog):
         level_cb = QComboBox()
         for level in self.levels.values():
             level_cb.addItem(level)
-        def on_level(_index):
+        def on_level(_index: int) -> None:
             logs.set_level(level_cb.currentText())
         level_cb.setCurrentIndex(level_cb.findText(self.levels[logs.level()]))
         level_cb.currentIndexChanged.connect(on_level)

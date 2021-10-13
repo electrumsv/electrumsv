@@ -34,12 +34,12 @@ import weakref
 
 from bitcoinx import hash_to_hex_str
 
-from PyQt5.QtCore import pyqtSignal, Qt, QStringListModel
+from PyQt5.QtCore import pyqtSignal, QPoint, QStringListModel, Qt
 from PyQt5.QtWidgets import (QCheckBox, QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QMenu,
     QLabel, QSizePolicy, QTreeView, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ...app_state import app_state
-from ...constants import PaymentFlag, WalletSettings
+from ...constants import MAX_VALUE, PaymentFlag, WalletSettings
 from ...exceptions import ExcessiveFee, NotEnoughFunds
 from ...i18n import _
 from ...logs import logs
@@ -81,6 +81,8 @@ class SendView(QWidget):
     _account_id: Optional[int] = None
     _account: Optional[AbstractAccount] = None
 
+    _coinsplitting_checkbox: QCheckBox
+
     def __init__(self, main_window: 'ElectrumWindow', account_id: int) -> None:
         super().__init__(main_window)
 
@@ -89,7 +91,7 @@ class SendView(QWidget):
         self._account = main_window._wallet.get_account(account_id)
         self._logger = logs.get_logger(f"send_view[{self._account_id}]")
 
-        self._mapi_future: Optional[concurrent.futures.Future] = None
+        self._mapi_future: Optional[concurrent.futures.Future[None]] = None
 
         self._is_max = False
         self._not_enough_funds = False
@@ -120,7 +122,7 @@ class SendView(QWidget):
 
     def _on_wallet_setting_changed(self, setting_name: str, setting_value: Any) -> None:
         if setting_name == WalletSettings.ADD_SV_OUTPUT:
-            self._coinsplitting_checkbox.setVisible(setting_value)
+            self._coinsplitting_checkbox.setVisible(bool(setting_value))
 
     def _on_fiat_ccy_changed(self) -> None:
         flag = bool(app_state.fx and app_state.fx.is_enabled())
@@ -184,7 +186,8 @@ class SendView(QWidget):
         grid.addWidget(amount_label, 3, 0)
         grid.addWidget(self.amount_e, 3, 1)
 
-        self._fiat_send_e = AmountEdit(app_state.fx.get_currency if app_state.fx else "", self)
+        self._fiat_send_e = AmountEdit(app_state.fx.get_currency if app_state.fx else lambda: "",
+            self)
         self._on_fiat_ccy_changed()
 
         grid.addWidget(self._fiat_send_e, 3, 2)
@@ -248,7 +251,7 @@ class SendView(QWidget):
         self._payto_e.textChanged.connect(self.update_fee)
         self.amount_e.textEdited.connect(self.update_fee)
 
-        def reset_max(t) -> None:
+        def reset_max(t: str) -> None:
             # Invoices set the amounts, which invokes this despite them being frozen.
             if self._payment_request is not None:
                 return
@@ -263,7 +266,7 @@ class SendView(QWidget):
             self._main_window.refresh_wallet_display)
         self._invoice_list_toolbar_layout.filter_signal.connect(self._filter_invoice_list)
 
-        self._invoice_list = InvoiceList(self, self._main_window.reference())
+        self.invoice_list = InvoiceList(self, self._main_window.reference())
 
         vbox0 = QVBoxLayout()
         vbox0.addLayout(grid)
@@ -274,7 +277,7 @@ class SendView(QWidget):
         invoice_layout.setSpacing(0)
         invoice_layout.setContentsMargins(6, 0, 6, 6)
         invoice_layout.addLayout(self._invoice_list_toolbar_layout)
-        invoice_layout.addWidget(self._invoice_list)
+        invoice_layout.addWidget(self.invoice_list)
 
         invoice_box = QGroupBox()
         invoice_box.setTitle(_('Invoices'))
@@ -286,7 +289,7 @@ class SendView(QWidget):
         vbox.addLayout(hbox)
         vbox.addSpacing(20)
         vbox.addWidget(invoice_box)
-        vbox.setStretchFactor(self._invoice_list, 1000)
+        vbox.setStretchFactor(self.invoice_list, 1000)
 
         return vbox
 
@@ -311,7 +314,7 @@ class SendView(QWidget):
         self._invoice_list_toolbar_layout.on_toggle_filter()
 
     def _filter_invoice_list(self, text: str) -> None:
-        self._invoice_list.filter(text)
+        self.invoice_list.filter(text)
 
     def _on_entry_changed(self) -> None:
         assert self._account is not None
@@ -384,7 +387,7 @@ class SendView(QWidget):
         self.redraw_from_list()
         self.update_fee()
 
-    def from_list_menu(self, position) -> None:
+    def from_list_menu(self, position: QPoint) -> None:
         item = self._from_list.itemAt(position)
         menu = QMenu()
         menu.addAction(_("Remove"), lambda: self._on_from_list_menu_remove(item))
@@ -420,7 +423,7 @@ class SendView(QWidget):
         still build the TX to see if there are enough funds.
         '''
         assert self._account is not None
-        amount = all if self._is_max else self.amount_e.get_amount()
+        amount = MAX_VALUE if self._is_max else self.amount_e.get_amount()
         if amount is None:
             self._not_enough_funds = False
             self._on_entry_changed()
@@ -673,7 +676,7 @@ class SendView(QWidget):
         wallet = account._wallet
 
         if pr.get_id() is None:
-            def callback(future: concurrent.futures.Future) -> None:
+            def callback(future: concurrent.futures.Future[None]) -> None:
                 nonlocal wallet, pr
                 # Skip if the action was cancelled.
                 if future.cancelled():
@@ -713,7 +716,7 @@ class SendView(QWidget):
     def _payment_request_imported(self, row: InvoiceRow) -> None:
         assert row.description is not None
 
-        self._invoice_list.update()
+        self.invoice_list.update()
 
         self._payto_e.is_pr = True
         if not has_expired(row.date_expires):
@@ -768,7 +771,7 @@ class SendView(QWidget):
     # TODO(invoice-import) What format are these imported files? No idea.
     # def import_invoices(self) -> None:
     #     assert self._account is not None
-    #     self._invoice_list.import_invoices(self._account)
+    #     self.invoice_list.import_invoices(self._account)
 
     def update_widgets(self) -> None:
-        self._invoice_list.update()
+        self.invoice_list.update()

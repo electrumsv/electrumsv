@@ -1,14 +1,17 @@
 from distutils.version import StrictVersion
 import requests
+from typing import cast
 
 from PyQt5.QtCore import QTimer
+from PyQt5.QtGui import QCloseEvent
 from PyQt5.QtWidgets import QDialogButtonBox, QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
 from electrumsv.logs import logs
+from electrumsv.types import ExceptionInfoType
 from electrumsv.util import get_update_check_dates, get_identified_release_signers, \
-    ReleaseDocumentType
+    ReleaseDocumentType, UpdateCheckResultType
 from electrumsv.version import PACKAGE_VERSION
 
 from .main_window import ElectrumWindow
@@ -55,14 +58,14 @@ class UpdateCheckDialog(WindowModalDialog):
 
         widget: QWidget = read_qt_ui("updater_widget.ui")
 
-        layout: QVBoxLayout = widget.findChild(QVBoxLayout, "vertical_layout")
-        self._title_label: QLabel = widget.findChild(QLabel, "title_label")
+        layout = cast(QVBoxLayout, widget.findChild(QVBoxLayout, "vertical_layout"))
+        self._title_label = cast(QLabel, widget.findChild(QLabel, "title_label"))
         self._title_label.setText(_(MSG_TITLE_CHECK))
-        self._progressbar: QProgressBar = widget.findChild(QProgressBar)
+        self._progressbar = cast(QProgressBar, widget.findChild(QProgressBar))
         self._progressbar.setValue(1)
-        self._message_label: QLabel = widget.findChild(QLabel, "message_label")
+        self._message_label = cast(QLabel, widget.findChild(QLabel, "message_label"))
         self._message_label.setText(_(MSG_BODY_CHECK))
-        self._buttonbar: QDialogButtonBox = widget.findChild(QDialogButtonBox)
+        self._buttonbar = cast(QDialogButtonBox, widget.findChild(QDialogButtonBox))
         self._buttonbar.rejected.connect(self.close)
 
         self.setLayout(layout)
@@ -71,7 +74,7 @@ class UpdateCheckDialog(WindowModalDialog):
 
         # The timer is to update the progress bar while the request is blocking the thread.
         counter = 0
-        def _on_timer_event():
+        def _on_timer_event() -> None:
             nonlocal counter
             counter += 1
             progress_fraction = counter / (10 * 10)
@@ -82,12 +85,12 @@ class UpdateCheckDialog(WindowModalDialog):
 
         self._timer = QTimer()
         self._timer.timeout.connect(_on_timer_event)
-        self._timer.start(1000/10)
+        self._timer.start(1000//10)
 
-        app_state.app.update_check_signal.connect(self._on_update_result)
-        app_state.app.update_check()
+        app_state.app_qt.update_check_signal.connect(self._on_update_result)
+        app_state.app_qt.update_check()
 
-    def closeEvent(self, event):
+    def closeEvent(self, event: QCloseEvent) -> None:
         self._close_cleanup()
         event.accept()
 
@@ -96,19 +99,20 @@ class UpdateCheckDialog(WindowModalDialog):
             self._stop_updates()
             self._timer = None
 
-    def _stop_updates(self):
+    def _stop_updates(self) -> None:
+        assert self._timer is not None
         self._timer.stop()
         try:
-            app_state.app.update_check_signal.disconnect(self._on_update_result)
+            app_state.app_qt.update_check_signal.disconnect(self._on_update_result)
         except TypeError:
             # TypeError: 'method' object is not connected
             # This can be called twice, easier to catch the exception than store additional state.
             pass
 
-    def _set_progress(self, ratio):
+    def _set_progress(self, ratio: float) -> None:
         self._progressbar.setValue(int(ratio * 500))
 
-    def _set_title(self, text):
+    def _set_title(self, text: str) -> None:
         self._title_label.setText(text)
 
     def _set_message(self, text: str) -> None:
@@ -116,10 +120,12 @@ class UpdateCheckDialog(WindowModalDialog):
         # circumstances may clip and not display text from the end of the message.
         self._message_label.setText(text+"<br/><br/>")
 
-    def _on_update_result(self, success, result: ReleaseDocumentType) -> None:
+    def _on_update_result(self, success: bool, result: UpdateCheckResultType) -> None:
         if success:
+            assert isinstance(result, dict)
             self._on_update_success(result)
         else:
+            assert isinstance(result, tuple)
             self._on_update_error(result)
 
     def _on_update_success(self, result: ReleaseDocumentType) -> None:
@@ -173,7 +179,7 @@ class UpdateCheckDialog(WindowModalDialog):
 
         self._set_message(message)
 
-    def _on_update_error(self, exc_info):
+    def _on_update_error(self, exc_info: ExceptionInfoType) -> None:
         self._stop_updates()
 
         message_text = _("Try again later, or consider reporting the problem.")

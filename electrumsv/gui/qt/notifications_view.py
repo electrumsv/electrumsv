@@ -27,13 +27,12 @@
 # SOFTWARE.
 
 from functools import partial
-from typing import Any, List
+from typing import Any, cast, List, Optional
 
 from PyQt5.QtCore import QObject, Qt, pyqtSignal
-from PyQt5.QtGui import QPainter, QPixmap
-from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QLayout, QWidget,
-    QHBoxLayout, QStyle, QStyleOption, QToolBar, QAction, QListWidget,
-    QListWidgetItem)
+from PyQt5.QtGui import QPainter, QPaintEvent, QPixmap
+from PyQt5.QtWidgets import (QAction,  QHBoxLayout, QLabel, QListWidget,
+    QListWidgetItem, QStyle, QStyleOption, QToolBar, QVBoxLayout, QWidget)
 
 from electrumsv.constants import WalletEventFlag, WalletEventType
 from electrumsv.i18n import _
@@ -121,14 +120,15 @@ class View(QWidget):
         self._sort_type = 1
 
     def _on_sort_action(self) -> None:
+        list = cast(QListWidget, self._cards._list)
         if self._sort_type == 1:
             self._sort_type = -1
             self._sort_action.setIcon(read_QIcon("icons8-alphabetical-sorting-80-blueui.png"))
-            self._cards._list.sortItems(Qt.SortOrder.DescendingOrder)
+            list.sortItems(Qt.SortOrder.DescendingOrder)
         else:
             self._sort_type = 1
             self._sort_action.setIcon(read_QIcon("icons8-alphabetical-sorting-2-80-blueui.png"))
-            self._cards._list.sortItems(Qt.SortOrder.AscendingOrder)
+            list.sortItems(Qt.SortOrder.AscendingOrder)
 
     def is_empty(self) -> bool:
         return self._cards.is_empty()
@@ -144,8 +144,8 @@ class Cards(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
 
-        self._empty_label = None
-        self._list = None
+        self._empty_label: Optional[QLabel] = None
+        self._list: Optional[QListWidget] = None
 
         rows = self._context.get_rows()
         if len(rows) > 0:
@@ -179,16 +179,17 @@ class Cards(QWidget):
         self._list.setItemWidget(list_item, card)
 
     def _remove_entry(self, row: Any) -> None:
-        for i in range(self._list.count()-1, -1, -1):
-            item = self._list.item(i)
-            widget = self._list.itemWidget(item)
+        list = cast(QListWidget, self._list)
+        for i in range(list.count()-1, -1, -1):
+            item = list.item(i)
+            widget = list.itemWidget(item)
             if self._context.compare_rows(widget._row, row):
-                self._list.takeItem(i)
+                list.takeItem(i)
 
-        if self._list.count() == 0:
+        if list.count() == 0:
             # Remove the list.
             # NOTE(typing) This is a unrecognized Pylance signature.
-            self._list.setParent(None) # type: ignore
+            list.setParent(None) # type: ignore
             self._list = None
 
             # Replace it with the placeholder label.
@@ -211,8 +212,7 @@ class Cards(QWidget):
 
     def _remove_empty_label(self) -> None:
         if self._empty_label is not None:
-            # NOTE(typing) This is a unrecognized Pylance signature.
-            self._empty_label.setParent(None) # type: ignore
+            self._empty_label.setParent(None) # type: ignore[call-overload]
             self._empty_label = None
 
 
@@ -256,16 +256,16 @@ class Card(QWidget):
         self.setLayout(self._layout)
 
     # QWidget styles do not render. Found this somewhere on the qt5 doc site.
-    def paintEvent(self, event):
+    def paintEvent(self, event: QPaintEvent) -> None:
         opt = QStyleOption()
         opt.initFrom(self)
         p = QPainter(self)
         self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, p, self)
 
-    def add_main_content(self, layout: QLayout) -> None:
+    def add_main_content(self, layout: QHBoxLayout) -> None:
         raise NotImplementedError
 
-    def add_actions(self, layout: QLayout) -> None:
+    def add_actions(self, layout: QVBoxLayout) -> None:
         raise NotImplementedError
 
 

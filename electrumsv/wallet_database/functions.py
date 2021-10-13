@@ -29,6 +29,7 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     TransactionAlreadyExistsError, TransactionRemovalError)
 from .sqlite_support import DatabaseContext, replace_db_context_with_connection
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
+    AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult,
@@ -37,8 +38,7 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
     TransactionOutputAddRow, TransactionOutputSpendableRow,
     TransactionValueRow, TransactionMetadata,
-    TransactionOutputFullRow, TransactionOutputShortRow,
-    TransactionOutputSpendableRow2, TransactionRow,
+    TransactionOutputFullRow, TransactionOutputShortRow, TransactionRow,
     TransactionSubscriptionRow, TxProof, TxProofResult,
     WalletBalance, WalletDataRow, WalletEventRow)
 from .util import (flag_clause, pack_proof, read_rows_by_id, read_rows_by_ids,
@@ -284,7 +284,7 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
 @replace_db_context_with_connection
 def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, account_id: int,
         confirmed_only: bool=False, mature_height: Optional[int]=None, exclude_frozen: bool=False,
-        keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow]:
+        keyinstance_ids: Optional[List[int]]=None) -> List[AccountTransactionOutputSpendableRow]:
     """
     Get the unspent coins in the given account.
 
@@ -321,10 +321,11 @@ def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, accou
         sql_values.extend([ coinbase_mask, COINBASE_MATURITY, mature_height ])
     if keyinstance_ids is not None:
         sql += " AND TXO.keyinstance_id IN ({})"
-        rows = read_rows_by_id(TransactionOutputSpendableRow, db, sql, sql_values, keyinstance_ids)
+        rows = read_rows_by_id(AccountTransactionOutputSpendableRow, db, sql, sql_values,
+            keyinstance_ids)
     else:
         cursor = db.execute(sql, sql_values)
-        rows = [ TransactionOutputSpendableRow(*row) for row in cursor.fetchall() ]
+        rows = [ AccountTransactionOutputSpendableRow(*row) for row in cursor.fetchall() ]
         cursor.close()
     return rows
 
@@ -332,7 +333,8 @@ def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, accou
 @replace_db_context_with_connection
 def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection, account_id: int,
         confirmed_only: bool=False, mature_height: Optional[int]=None, exclude_frozen: bool=False,
-        keyinstance_ids: Optional[List[int]]=None) -> List[TransactionOutputSpendableRow2]:
+        keyinstance_ids: Optional[List[int]]=None) \
+            -> List[AccountTransactionOutputSpendableRowExtended]:
     """
     Get the unspent coins in the given account extended with transaction fields.
 
@@ -370,10 +372,11 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
         sql_values.append(mature_height)
     if keyinstance_ids is not None:
         sql += " AND TXO.keyinstance_id IN ({})"
-        rows = read_rows_by_id(TransactionOutputSpendableRow2, db, sql, sql_values, keyinstance_ids)
+        rows = read_rows_by_id(AccountTransactionOutputSpendableRowExtended, db, sql, sql_values,
+            keyinstance_ids)
     else:
         cursor = db.execute(sql, sql_values)
-        rows = [ TransactionOutputSpendableRow2(*row) for row in cursor.fetchall() ]
+        rows = [ AccountTransactionOutputSpendableRowExtended(*row) for row in cursor.fetchall() ]
         cursor.close()
     return rows
 
@@ -566,7 +569,7 @@ def read_key_list(db: sqlite3.Connection, account_id: int,
     cursor = db.execute(sql, sql_values)
     rows = cursor.fetchall()
     cursor.close()
-    return [ KeyListRow(*t) for t in rows ]
+    return [ KeyListRow(account_id, *t) for t in rows ]
 
 
 @replace_db_context_with_connection

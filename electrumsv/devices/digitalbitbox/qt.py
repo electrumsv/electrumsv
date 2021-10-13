@@ -9,14 +9,14 @@ from .digitalbitbox import DigitalBitboxPlugin, DigitalBitbox_KeyStore
 
 
 if TYPE_CHECKING:
-    from ...gui.qt.main_window import ElectrumWindow
+    from ...gui.qt.util import WindowProtocol
 
 
 class Plugin(DigitalBitboxPlugin, QtPluginBase):
     icon_paired = "icons8-usb-connected-80.png"
     icon_unpaired = "icons8-usb-disconnected-80.png"
 
-    def create_handler(self, window: "ElectrumWindow") -> QtHandlerBase:
+    def create_handler(self, window: "WindowProtocol") -> QtHandlerBase:
         return DigitalBitbox_Handler(window)
 
     def show_key(self, account: AbstractAccount, keydata: KeyListRow) -> None:
@@ -41,5 +41,5 @@ class Plugin(DigitalBitboxPlugin, QtPluginBase):
 
 
 class DigitalBitbox_Handler(QtHandlerBase):
-    def __init__(self, window: "ElectrumWindow") -> None:
+    def __init__(self, window: "WindowProtocol") -> None:
         super(DigitalBitbox_Handler, self).__init__(window, 'Digital Bitbox')

@@ -16,13 +16,15 @@ from .util import (Buttons, ButtonsTableWidget, CloseButton, FormSectionWidget, 
 class PaymentDestinationsDialog(QDialog):
     def __init__(self, main_window: ElectrumWindow, wallet: Wallet, account_id: int,
             parent: QWidget) -> None:
-        super().__init__(parent, Qt.WindowSystemMenuHint | Qt.WindowTitleHint |
-            Qt.WindowCloseButtonHint)
+        # NOTE(typing) How you combine flags into a Qt.WindowFlags is beyond me.
+        super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
+            Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
         self._main_window = main_window
         self._wallet = wallet
 
         self._account = account = self._wallet.get_account(account_id)
+        assert account is not None
         keystore = account.get_keystore()
 
         self.setWindowTitle(_("Payment Destinations"))

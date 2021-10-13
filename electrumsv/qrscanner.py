@@ -25,6 +25,7 @@
 
 import os
 import ctypes
+from typing import Dict
 
 from electrumsv.platform import platform
 from electrumsv.startup import base_dir
@@ -36,7 +37,8 @@ except OSError:
     libzbar = None
 
 
-def scan_barcode_ctypes(device='', timeout=-1, display=True, threaded=False, try_again=True):
+def scan_barcode_ctypes(device: str='', timeout: int=-1, display: bool=True, threaded: bool=False,
+        try_again: bool=True) -> str:
     if libzbar is None:
         raise RuntimeError("Cannot start QR scanner; zbar not available.")
     libzbar.zbar_symbol_get_data.restype = ctypes.c_char_p
@@ -58,14 +60,15 @@ def scan_barcode_ctypes(device='', timeout=-1, display=True, threaded=False, try
         symbols = None
     libzbar.zbar_processor_destroy(proc)
     if symbols is None:
-        return
+        return ""
     if not libzbar.zbar_symbol_set_get_size(symbols):
-        return
+        return ""
     symbol = libzbar.zbar_symbol_set_first_symbol(symbols)
     data = libzbar.zbar_symbol_get_data(symbol)
     return data.decode('utf8')
 
-def scan_barcode_osx(*args_ignored, **kwargs_ignored):
+def scan_barcode_osx(device: str='', timeout: int=-1, display: bool=True, threaded: bool=False,
+        try_again: bool=True) -> str:
     import subprocess
     # NOTE: This code needs to be modified if the positions of this file changes with respect
     # to the helper app!  This assumes the built macOS .app bundle which puts the helper app in
@@ -87,7 +90,7 @@ def scan_barcode_osx(*args_ignored, **kwargs_ignored):
 
 scan_barcode = scan_barcode_osx if platform.name == 'MacOSX' else scan_barcode_ctypes
 
-def find_system_cameras():
+def find_system_cameras() -> Dict[str, str]:
     device_root = "/sys/class/video4linux"
     devices = {} # Name -> device
     if os.path.exists(device_root):

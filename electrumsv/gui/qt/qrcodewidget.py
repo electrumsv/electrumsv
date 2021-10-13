@@ -2,7 +2,7 @@ import os
 from typing import Optional
 
 from PyQt5.QtCore import pyqtSignal, QEvent, Qt
-from PyQt5.QtGui import QColor, QCursor, QMouseEvent, QPainter
+from PyQt5.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPaintEvent
 from PyQt5.QtWidgets import (
     QApplication, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QWidget)
 import qrcode
@@ -52,7 +52,7 @@ class QRCodeWidget(QWidget):
 
         self.update()
 
-    def paintEvent(self, e):
+    def paintEvent(self, event: QPaintEvent) -> None:
         if not self.data:
             return
 
@@ -64,8 +64,8 @@ class QRCodeWidget(QWidget):
             qp.begin(self)
             qp.setBrush(white)
             qp.setPen(white)
-            r = qp.viewport()
-            qp.drawRect(0, 0, r.width(), r.height())
+            rect = qp.viewport()
+            qp.drawRect(0, 0, rect.width(), rect.height())
             qp.end()
             return
 
@@ -73,14 +73,14 @@ class QRCodeWidget(QWidget):
         k = len(matrix)
         qp = QPainter()
         qp.begin(self)
-        r = qp.viewport()
+        rect = qp.viewport()
 
         margin = 10
-        framesize = min(r.width(), r.height())
+        framesize = min(rect.width(), rect.height())
         boxsize = int( (framesize - 2*margin)/k )
         size = k*boxsize
-        left = (r.width() - size)/2
-        top = (r.height() - size)/2
+        left = (rect.width() - size)//2
+        top = (rect.height() - size)//2
 
         # Make a white margin around the QR in case of dark theme use
         qp.setBrush(white)
@@ -89,17 +89,18 @@ class QRCodeWidget(QWidget):
         qp.setBrush(black)
         qp.setPen(black)
 
-        for r in range(k):
+        for rv in range(k):
             for c in range(k):
-                if matrix[r][c]:
-                    qp.drawRect(left+c*boxsize, top+r*boxsize, boxsize - 1, boxsize - 1)
+                if matrix[rv][c]:
+                    qp.drawRect(left+c*boxsize, top+rv*boxsize, boxsize - 1, boxsize - 1)
         qp.end()
 
 
 
 class QRDialog(WindowModalDialog):
 
-    def __init__(self, data: str, parent=None, title = "", show_text=False):
+    def __init__(self, data: str, parent: Optional[QWidget]=None, title: str = "",
+            show_text: bool=False) -> None:
         WindowModalDialog.__init__(self, parent, title)
 
         vbox = QVBoxLayout()
@@ -116,12 +117,12 @@ class QRDialog(WindowModalDialog):
 
         filename = os.path.join(app_state.config.path, "qrcode.png")
 
-        def print_qr():
+        def print_qr() -> None:
             pixmap = qrw.grab()
             pixmap.save(filename, 'png')
             self.show_message(_("QR code saved to file") + " " + filename)
 
-        def copy_to_clipboard():
+        def copy_to_clipboard() -> None:
             pixmap = qrw.grab()
             QApplication.clipboard().setPixmap(pixmap)
             self.show_message(_("QR code copied to clipboard"))

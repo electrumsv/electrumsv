@@ -4,10 +4,10 @@ import json
 import os
 import threading
 import time
-from typing import cast, List, Optional, Sequence
+from typing import Any, cast, Dict, List, Optional, Sequence
 import weakref
 
-from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, pyqtSignal, QSize, Qt
+from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, QPoint, pyqtSignal, QSize, Qt
 from PyQt5.QtGui import QPainter, QPaintEvent
 from PyQt5.QtWidgets import (QLabel, QListWidget, QListWidgetItem, QMenu, QSplitter, QTabWidget,
     QTextEdit, QVBoxLayout)
@@ -20,6 +20,7 @@ from ...wallet import (AbstractAccount, ImportedAddressAccount, ImportedPrivkeyA
     MultisigAccount, Wallet)
 
 from .account_dialog import AccountDialog
+from .constants import ScanDialogRole
 from .main_window import ElectrumWindow
 from .util import (Buttons, CancelButton, filename_field, line_dialog, MessageBox, OkButton,
     protected, read_QIcon, WindowModalDialog)
@@ -33,7 +34,7 @@ class AccountsView(QSplitter):
         super().__init__(main_window)
 
         self._logger = logs.get_logger("accounts-view")
-        self._main_window = cast(ElectrumWindow, weakref.proxy(main_window))
+        self._main_window = weakref.proxy(main_window)
         self._wallet = wallet
 
         self._main_window.account_created_signal.connect(self._on_account_created)
@@ -41,11 +42,14 @@ class AccountsView(QSplitter):
 
         # We subclass QListWidget so accounts cannot be deselected.
         class CustomListWidget(QListWidget):
-            def selectionCommand(self, index: QModelIndex, event: Optional[QEvent]) \
-                    -> QItemSelectionModel.SelectionFlag:
+            def selectionCommand(self, index: QModelIndex, event: Optional[QEvent]=None) \
+                    -> QItemSelectionModel.SelectionFlags:
                 flags = super().selectionCommand(index, event)
-                if flags == QItemSelectionModel.SelectionFlag.Deselect:
-                    return QItemSelectionModel.SelectionFlag.NoUpdate
+                if flags == \
+                        QItemSelectionModel.SelectionFlags(
+                            QItemSelectionModel.SelectionFlag.Deselect):
+                    return QItemSelectionModel.SelectionFlags(
+                        QItemSelectionModel.SelectionFlag.NoUpdate)
                 return flags
 
             def paintEvent(self, event: QPaintEvent) -> None:
@@ -176,7 +180,7 @@ class AccountsView(QSplitter):
         self._selection_list.addItem(item)
         self._account_ids.append(account_id)
 
-    def _show_account_menu(self, position) -> None:
+    def _show_account_menu(self, position: QPoint) -> None:
         item = self._selection_list.currentItem()
         if not item:
             return
@@ -253,6 +257,7 @@ class AccountsView(QSplitter):
     def _rename_account(self, account_id: int) -> None:
         assert self._current_account_id is not None
         account = self._main_window._wallet.get_account(self._current_account_id)
+        assert account is not None
         new_account_name = line_dialog(self, _("Rename account"), _("Account name"), _("OK"),
             account.get_name())
         if new_account_name is None:
@@ -266,7 +271,7 @@ class AccountsView(QSplitter):
         dialog = AccountDialog(self._main_window, self._wallet, account_id, self)
         dialog.exec_()
 
-    def _on_menu_generate_destinations(self, account_id) -> None:
+    def _on_menu_generate_destinations(self, account_id: int) -> None:
         from . import payment_destinations_dialog
         from importlib import reload
         reload(payment_destinations_dialog)
@@ -285,7 +290,7 @@ class AccountsView(QSplitter):
         # from importlib import reload # TODO(dev-helper) Remove at some point.
         # reload(blockchain_scan_dialog)
         dialog = blockchain_scan_dialog.BlockchainScanDialog(self._main_window,
-            self._wallet, account_id, blockchain_scan_dialog.ScanDialogRole.MANUAL_RESCAN)
+            self._wallet, account_id, ScanDialogRole.MANUAL_RESCAN)
         dialog.exec_()
 
     def _can_view_secured_data(self, account: AbstractAccount) -> bool:
@@ -328,18 +333,16 @@ class AccountsView(QSplitter):
         account = cast(ImportedAddressAccount, self._wallet.get_account(account_id))
 
         title, msg = _('Import addresses'), _("Enter addresses")
-        def import_addr(addr):
+        def import_addr(addr: str) -> None:
             address = address_from_string(addr)
-            if account.import_address(address):
-                return addr
-            # Show duplicate addition same as good addition.
-            return addr
+            account.import_address(address)
         self._main_window._do_import(title, msg, import_addr)
 
     @protected
     def _export_privkeys(self, main_window: ElectrumWindow, account_id: int=-1,
             password: Optional[str]=None) -> None:
         account = self._wallet.get_account(account_id)
+        assert account is not None
 
         if isinstance(self._wallet, MultisigAccount):
             MessageBox.show_message(
@@ -381,14 +384,16 @@ class AccountsView(QSplitter):
         script_type = account.get_default_script_type()
         done = False
         cancelled = False
-        def privkeys_thread():
+        def privkeys_thread() -> None:
             nonlocal done, cancelled, keyinstances, password, private_keys, script_type
+            assert account is not None
+            assert password is not None
             for keyinstance in keyinstances:
                 time.sleep(0.1)
                 if done or cancelled:
                     break
-                assert password is not None
                 privkey = account.export_private_key(keyinstance, password)
+                assert privkey is not None
                 script_template = account.get_script_template_for_derivation(script_type,
                     keyinstance.derivation_type, keyinstance.derivation_data2)
                 script_text = script_template_to_string(script_template)
@@ -398,7 +403,7 @@ class AccountsView(QSplitter):
                 self.computing_privkeys_signal.disconnect()
                 self.show_privkeys_signal.emit()
 
-        def show_privkeys():
+        def show_privkeys() -> None:
             nonlocal b, done, e
             s = "\n".join('{}\t{}'.format(script_text, privkey)
                           for script_text, privkey in private_keys.items())
@@ -407,7 +412,7 @@ class AccountsView(QSplitter):
             self.show_privkeys_signal.disconnect()
             done = True
 
-        def on_dialog_closed(*args):
+        def on_dialog_closed(*args: Any)-> None:
             nonlocal cancelled, done
             if not done:
                 cancelled = True
@@ -442,7 +447,7 @@ class AccountsView(QSplitter):
 
         MessageBox.show_message(_('Private keys exported'), main_window.reference())
 
-    def _do_export_privkeys(self, fileName: str, pklist, is_csv):
+    def _do_export_privkeys(self, fileName: str, pklist: Dict[str, str], is_csv: bool) -> None:
         with open(fileName, "w+") as f:
             if is_csv:
                 transaction = csv.writer(f)

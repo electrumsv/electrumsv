@@ -1,10 +1,10 @@
-from typing import TYPE_CHECKING
+from typing import Callable, cast, TYPE_CHECKING
 import weakref
 
 from bitcoinx import classify_output_script
 
-from PyQt5.QtCore import Qt, QAbstractItemModel
-from PyQt5.QtWidgets import QAbstractItemView, QHeaderView, QLabel, QMenu, QVBoxLayout
+from PyQt5.QtCore import Qt, QAbstractItemModel, QPoint
+from PyQt5.QtWidgets import QAbstractItemView, QHeaderView, QLabel, QMenu, QMessageBox, QVBoxLayout
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentFlag
@@ -17,7 +17,7 @@ from electrumsv.wallet_database.types import InvoiceRow
 
 from .constants import pr_tooltips
 from .util import (Buttons, ButtonsTableWidget, CloseButton, EnterButton, FormSectionWidget,
-    get_source_index, QMessageBox, WindowModalDialog)
+    get_source_index, WindowModalDialog)
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
@@ -41,6 +41,7 @@ class InvoiceDialog(WindowModalDialog):
 
         total_amount = 0
         for output in pr.outputs:
+            assert output.amount is not None and output.amount >= 0
             total_amount += output.amount
 
         vbox = QVBoxLayout(self)
@@ -91,7 +92,7 @@ class InvoiceDialog(WindowModalDialog):
 
             vbox.addWidget(table, 1)
 
-        def do_export():
+        def do_export() -> None:
             fn = self._main_window.getSaveFileName(_("Export invoice to file"), "*.bip270.json")
             if not fn:
                 return
@@ -100,17 +101,17 @@ class InvoiceDialog(WindowModalDialog):
             self._main_window.show_message(_('Invoice saved as' + ' ' + fn))
         exportButton = EnterButton(_('Export'), do_export)
 
-        def do_delete():
+        def do_delete() -> None:
             if self.question(_('Are you sure you want to delete this invoice?'),
                     title=_("Delete invoice"), icon=QMessageBox.Warning):
-                self._main_window._send_view._invoice_list._delete_invoice(row.invoice_id)
+                self._main_window.delete_invoice(row.invoice_id)
                 self.close()
 
         deleteButton = EnterButton(_('Delete'), do_delete)
 
         vbox.addLayout(Buttons(exportButton, deleteButton, CloseButton(self)))
 
-    def _on_table_menu(self, position) -> None:
+    def _on_table_menu(self, position: QPoint) -> None:
         menu = QMenu()
 
         # What the user clicked on.
@@ -123,6 +124,7 @@ class InvoiceDialog(WindowModalDialog):
             column_title = self._table_column_names[menu_column]
             copy_text = item.text().strip()
             menu.addAction(_("Copy {}").format(column_title),
-                lambda: self._main_window.app.clipboard().setText(copy_text))
+                cast(Callable[[], None],
+                    lambda: self._main_window.app.clipboard().setText(copy_text)))
 
         menu.exec_(self._table.viewport().mapToGlobal(position))

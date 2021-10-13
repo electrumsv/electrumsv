@@ -23,14 +23,13 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import cast, Optional, Sequence
+from typing import Optional, Sequence
 
 from PyQt5.QtWidgets import QComboBox, QLabel, QVBoxLayout
 
 from ...bitcoin import script_template_to_string
 from ...constants import ACCOUNT_SCRIPT_TYPES, ScriptType
 from ...i18n import _
-from ...types import DerivationType
 from ...wallet_database.types import KeyDataProtocol
 
 from .main_window import ElectrumWindow
@@ -86,8 +85,7 @@ class KeyDialog(WindowModalDialog):
         vbox.addWidget(self._key_edit)
 
         pubkeys = self._account.get_public_keys_for_derivation(
-            cast(DerivationType, key_data.derivation_type),
-            key_data.derivation_data2)
+            key_data.derivation_type, key_data.derivation_data2)
         if pubkeys:
             vbox.addWidget(QLabel(_("Public keys") + ':'))
             for pubkey in pubkeys:
@@ -111,7 +109,8 @@ class KeyDialog(WindowModalDialog):
         # reload(history_list)
         self._history_list = history_list.HistoryList(self._main_window, self._main_window)
         self._history_list._on_account_change(self._account_id, self._account)
-        self._history_list.get_domain = self.get_domain
+        # NOTE(typing) I have no idea why we are suddenly getting "Cannot assign to a method"
+        self._history_list.get_domain = self.get_domain # type: ignore[assignment]
         vbox.addWidget(self._history_list)
 
         vbox.addLayout(Buttons(CloseButton(self)))
@@ -141,7 +140,7 @@ class KeyDialog(WindowModalDialog):
     def _update_address(self) -> None:
         assert self._account is not None
         script_template = self._account.get_script_template_for_derivation(self._script_type,
-            cast(DerivationType, self._key_data.derivation_type), self._key_data.derivation_data2)
+            self._key_data.derivation_type, self._key_data.derivation_data2)
         text = ""
         if script_template is not None:
             text = script_template_to_string(script_template)
@@ -150,7 +149,7 @@ class KeyDialog(WindowModalDialog):
     def _update_script(self) -> None:
         assert self._account is not None
         script_template = self._account.get_script_template_for_derivation(self._script_type,
-            cast(DerivationType, self._key_data.derivation_type), self._key_data.derivation_data2)
+            self._key_data.derivation_type, self._key_data.derivation_data2)
         self._script_edit.setText(script_template.to_script_bytes().hex())
 
     def get_domain(self) -> Optional[Sequence[int]]:
@@ -163,7 +162,7 @@ class KeyDialog(WindowModalDialog):
     def show_qr(self) -> None:
         assert self._account is not None
         script_template = self._account.get_script_template_for_derivation(self._script_type,
-            cast(DerivationType, self._key_data.derivation_type), self._key_data.derivation_data2)
+            self._key_data.derivation_type, self._key_data.derivation_data2)
         if script_template is not None:
             text = script_template_to_string(script_template)
             try:

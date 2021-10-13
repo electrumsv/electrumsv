@@ -25,21 +25,21 @@
 
 import time
 from decimal import Decimal, InvalidOperation
-from typing import List, Optional, TYPE_CHECKING
+from typing import cast, List, Optional, Tuple, TYPE_CHECKING
 
 from bitcoinx import Address, cashaddr, Script, ScriptError
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFontMetrics, QTextCursor
+from PyQt5.QtGui import QKeyEvent, QFontMetrics, QTextCursor
 from PyQt5.QtWidgets import QCompleter, QPlainTextEdit
 
 from electrumsv.bitcoin import string_to_bip276_script
 from electrumsv.bip276 import PREFIX_BIP276_SCRIPT
-from electrumsv.constants import PREFIX_ASM_SCRIPT
+from electrumsv.constants import MAX_VALUE, PREFIX_ASM_SCRIPT
 from electrumsv.exceptions import InvalidPayToError
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.network import Net
+from electrumsv.networks import Net
 from electrumsv.transaction import XTxOutput
 from electrumsv.web import is_URI, URIError
 
@@ -65,33 +65,33 @@ class PayToEdit(ScanQRTextEdit):
         super().__init__()
 
         self._send_view = send_view
-        # self._main_window = send_view._main_window
-        self.document().contentsChanged.connect(self.update_size)
+        # NOTE(typing) Bad Qt5 type stubs for `contentsChanged`.
+        self.document().contentsChanged.connect(self.update_size) # type: ignore[attr-defined]
         self.heightMin = 0
         self.heightMax = 150
-        self._completer = None
+        self._completer: Optional[QCompleter] = None
         self.textChanged.connect(self._on_text_changed)
         self._outputs: List[XTxOutput] = []
-        self._errors = []
+        self._errors: List[Tuple[int, str]] = []
         # Accessed by the send view.
         self.is_pr = False
         self._ignore_uris = False
         self.update_size()
         self._payto_script: Optional[Script] = None
 
-    def setFrozen(self, b):
+    def setFrozen(self, b: bool) -> None:
         self.setReadOnly(b)
         self.setStyleSheet(frozen_style if b else normal_style)
         for button in self.buttons:
             button.setHidden(b)
 
-    def set_validated(self):
+    def set_validated(self) -> None:
         self.setStyleSheet(util.ColorScheme.GREEN.as_stylesheet(True))
 
-    def set_expired(self):
+    def set_expired(self) -> None:
         self.setStyleSheet(util.ColorScheme.RED.as_stylesheet(True))
 
-    def _show_cashaddr_warning(self, address_text):
+    def _show_cashaddr_warning(self, address_text: str) -> None:
         '''
         cash addresses are not in the future for BSV. Anyone who uses one should be warned that
         they are being phased out, in order to encourage them to pre-emptively move on.
@@ -134,7 +134,8 @@ class PayToEdit(ScanQRTextEdit):
         except InvalidOperation:
             raise InvalidPayToError(_("Invalid payment destination: {}").format(line))
 
-        return XTxOutput(amount, script)
+        # NOTE(typing) attrs has typing issues.
+        return XTxOutput(amount, script) # type: ignore[arg-type]
 
     def _parse_output(self, text: str) -> Script:
         # raises InvalidPayToError
@@ -159,9 +160,9 @@ class PayToEdit(ScanQRTextEdit):
 
         raise InvalidPayToError(_("Unrecognized payment destination: {}").format(text))
 
-    def _parse_amount(self, x):
+    def _parse_amount(self, x: str) -> int:
         if x.strip() == '!':
-            return all
+            return MAX_VALUE
         p = pow(10, self._send_view.amount_e.decimal_point())
         return int(p * Decimal(x.strip()))
 
@@ -174,7 +175,7 @@ class PayToEdit(ScanQRTextEdit):
         finally:
             self._ignore_uris = False
 
-    def _on_text_changed(self):
+    def _on_text_changed(self) -> None:
         self._errors = []
         if self.is_pr:
             return
@@ -210,7 +211,7 @@ class PayToEdit(ScanQRTextEdit):
                 continue
 
             outputs.append(tx_output)
-            if tx_output.value is all:
+            if tx_output.value == MAX_VALUE:
                 is_max = True
             else:
                 total += tx_output.value
@@ -223,34 +224,36 @@ class PayToEdit(ScanQRTextEdit):
             self._send_view.do_update_fee()
         else:
             self._send_view.amount_e.setAmount(total if outputs else None)
-            self._send_view.lock_amount(total or len(lines)>1)
+            self._send_view.lock_amount(total > 0 or len(lines) > 1)
 
-    def get_errors(self):
+    def get_errors(self) -> List[Tuple[int, str]]:
         return self._errors
 
     def get_payee_script(self) -> Optional[Script]:
         return self._payto_script
 
-    def get_outputs(self, is_max):
+    def get_outputs(self, is_max: bool) -> List[XTxOutput]:
         if self._payto_script is not None:
             if is_max:
-                amount = all
+                amount = MAX_VALUE
             else:
-                amount = self._send_view.amount_e.get_amount()
-            self._outputs = [XTxOutput(amount, self._payto_script)]
+                amount = cast(int, self._send_view.amount_e.get_amount())
+            # NOTE(typing) attrs has typing issues.
+            self._outputs = [
+                XTxOutput(amount, self._payto_script)] # type: ignore[arg-type]
         return self._outputs[:]
 
-    def _lines(self):
+    def _lines(self) -> List[str]:
         return self.toPlainText().split('\n')
 
-    def _is_multiline(self):
+    def _is_multiline(self) -> bool:
         return len(self._lines()) > 1
 
-    def paytomany(self):
+    def paytomany(self) -> None:
         self.setText("\n\n\n")
         self.update_size()
 
-    def update_size(self):
+    def update_size(self) -> None:
         lineHeight = QFontMetrics(self.document().defaultFont()).height()
         docHeight = self.document().size().height()
         h = int(docHeight * lineHeight + 11)
@@ -259,13 +262,14 @@ class PayToEdit(ScanQRTextEdit):
             self.setMaximumHeight(h)
         self.verticalScrollBar().hide()
 
-    def set_completer(self, completer):
+    def set_completer(self, completer: QCompleter) -> None:
         self._completer = completer
         self._completer.setWidget(self)
         self._completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         self._completer.activated.connect(self._insert_completion)
 
-    def _insert_completion(self, completion):
+    def _insert_completion(self, completion: str) -> None:
+        assert self._completer is not None
         if self._completer.widget() != self:
             return
         tc = self.textCursor()
@@ -275,15 +279,16 @@ class PayToEdit(ScanQRTextEdit):
         tc.insertText(completion[-extra:])
         self.setTextCursor(tc)
 
-    def _get_text_under_cursor(self):
+    def _get_text_under_cursor(self) -> str:
         tc = self.textCursor()
         tc.select(QTextCursor.WordUnderCursor)
         return tc.selectedText()
 
-    def keyPressEvent(self, e):
+    def keyPressEvent(self, e: QKeyEvent) -> None:
         if self.isReadOnly():
             return
 
+        assert self._completer is not None
         if self._completer.popup().isVisible():
             if e.key() in [Qt.Key.Key_Enter, Qt.Key.Key_Return]:
                 e.ignore()
@@ -305,7 +310,8 @@ class PayToEdit(ScanQRTextEdit):
             return
 
         eow = "~!@#$%^&*()_+{}|:\"<>?,./;'[]\\-="
-        hasModifier = (e.modifiers() != Qt.KeyboardModifier.NoModifier) and not ctrlOrShift
+        hasModifier = (e.modifiers() != Qt.KeyboardModifiers(Qt.KeyboardModifier.NoModifier)) and \
+            not ctrlOrShift
         completionPrefix = self._get_text_under_cursor()
 
         if hasModifier or not e.text() or len(completionPrefix) < 1 or eow.find(e.text()[-1]) >= 0:
@@ -321,8 +327,8 @@ class PayToEdit(ScanQRTextEdit):
                     + self._completer.popup().verticalScrollBar().sizeHint().width())
         self._completer.complete(cr)
 
-    def qr_input(self):
-        data = super(PayToEdit,self).qr_input(ignore_uris=True)
+    def qr_input(self) -> None:
+        data = super(PayToEdit,self).read_qr_input(ignore_uris=True)
         if data:
             try:
                 self._send_view._main_window.pay_to_URI(data)

@@ -31,6 +31,7 @@ import traceback
 from typing import Any, cast, Callable, Dict, List, Optional, TextIO
 
 from PyQt5 import QtCore, QtWidgets
+from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont, QKeyEvent, QMouseEvent, QResizeEvent, QTextCursor, QTextOption
 from PyQt5.QtWidgets import QWidget
 
@@ -320,7 +321,7 @@ class Console(QtWidgets.QPlainTextEdit):
             self.setCommand(self.getNextHistoryEntry())
             return
         elif event.key() == QtCore.Qt.Key.Key_L and \
-                event.modifiers() == QtCore.Qt.KeyboardModifier.ControlModifier:
+                event.modifiers() == Qt.KeyboardModifiers(Qt.KeyboardModifier.ControlModifier):
             self.clear()
 
         super().keyPressEvent(event)

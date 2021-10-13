@@ -37,13 +37,12 @@ from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtWidgets import QDialog, QHBoxLayout, QLabel, QTableWidget, QVBoxLayout
 
 from ...app_state import app_state
-from ...constants import DerivationType, pack_derivation_path
+from ...constants import DerivationPath, DerivationType, pack_derivation_path
 from ...i18n import _
 from ...logs import logs
-from ...types import DerivationPath
 from ...util.importers import (identify_label_import_format, LabelImport, LabelImportFormat,
     LabelImportResult)
-from ...wallet import Wallet
+from ...wallet import AbstractAccount, Wallet
 
 from .util import Buttons, CancelButton, FormSectionWidget, MessageBox, OkButton
 
@@ -167,7 +166,7 @@ class LabelImporter(QDialog):
 
         # Start the importing logic in a worker thread. This does not block and the user can
         # in theory cancel it by dismissing this dialog.
-        app_state.app.run_in_thread(self._threaded_import_thread, matched_format, text,
+        app_state.app_qt.run_in_thread(self._threaded_import_thread, matched_format, text,
             on_done=self._threaded_import_complete)
 
         result = self.exec()
@@ -179,7 +178,9 @@ class LabelImporter(QDialog):
         """
         Handle the 'Import' button being clicked and apply the imports.
         """
-        account = self._wallet.get_account(self._account_id)
+        assert self._import_result is not None
+
+        account = cast(AbstractAccount, self._wallet.get_account(self._account_id))
         account.set_transaction_labels(self._import_result.transaction_labels.items())
 
         # TODO This should be a bulk set operation, not per key.
@@ -248,7 +249,7 @@ class LabelImporter(QDialog):
 
         self._import_result = result
 
-    def _threaded_import_complete(self, future: concurrent.futures.Future) -> None:
+    def _threaded_import_complete(self, future: concurrent.futures.Future[None]) -> None:
         """
         GUI thread callback indicating the import logic completed.
         """
@@ -257,7 +258,7 @@ class LabelImporter(QDialog):
             self.reject()
             return
 
-        account = self._wallet.get_account(self._account_id)
+        account = cast(AbstractAccount, self._wallet.get_account(self._account_id))
 
         if self._import_result.format == LabelImportFormat.ACCOUNT:
             account_fingerprint = account.get_fingerprint().hex()
@@ -312,20 +313,20 @@ class LabelImporter(QDialog):
                 key_add_count += 1
                 continue
 
-            problem_text: str
+            problem_text2: str
             if label_state == LabelState.EXISTS:
                 key_skip_count += 1
                 continue
             elif label_state == LabelState.REPLACE:
                 key_replace_count += 1
-                problem_text = _("Replacement (for key)")
+                problem_text2 = _("Replacement (for key)")
             else:
                 raise NotImplementedError(f"Unrecognized key label state {label_state}")
 
             description_text = self._import_result.key_labels[derivation_path]
 
             self._detected_problems_table.insertRow(row_index)
-            self._detected_problems_table.setCellWidget(row_index, 0, QLabel(problem_text))
+            self._detected_problems_table.setCellWidget(row_index, 0, QLabel(problem_text2))
             derivation_text = bip32_build_chain_string(derivation_path)
             self._detected_problems_table.setCellWidget(row_index, 1, QLabel(derivation_text))
             self._detected_problems_table.setCellWidget(row_index, 2, QLabel(_(description_text)))

@@ -27,11 +27,11 @@
 # non-watching keys, and require each to sign. This may result in duplicate messages. It's
 # probably best for those doing so to do it manually until the cosigner pool handles it.
 
-
+import concurrent.futures
 from functools import partial
 import json
 import time
-from typing import List, NamedTuple, Optional, Set, TYPE_CHECKING
+from typing import cast, List, NamedTuple, Optional, Set, TYPE_CHECKING
 from xmlrpc.client import ServerProxy
 
 from bitcoinx import PublicKey, bip32_key_from_string, BIP32PrivateKey
@@ -41,7 +41,7 @@ from ...app_state import app_state
 from ...crypto import sha256d
 from ...extensions import cosigner_pool
 from ...i18n import _
-from ...keystore import Hardware_KeyStore
+from ...keystore import BIP32_KeyStore, Hardware_KeyStore
 from ...logs import logs
 from ...transaction import Transaction, TransactionContext
 from ...wallet import MultisigAccount, AbstractAccount
@@ -98,7 +98,7 @@ class Listener(util.DaemonThread):
                 if message:
                     self.received.add(item.keyhash_hex)
                     logger.debug("received message for %s", item.keyhash_hex)
-                    app_state.app.cosigner_received_signal.emit(item, message)
+                    app_state.app_qt.cosigner_received_signal.emit(item, message)
             # poll every 30 seconds
             time.sleep(30)
 
@@ -106,12 +106,12 @@ class Listener(util.DaemonThread):
 class CosignerPool:
     _listener: Optional[Listener] = None
 
-    def __init__(self):
+    def __init__(self) -> None:
         # This is accessed without locking by both the UI thread and the listener thread.
         self._items: List[CosignerItem] = []
-        app_state.app.cosigner_received_signal.connect(self._on_receive)
-        app_state.app.window_opened_signal.connect(self._window_opened)
-        app_state.app.window_closed_signal.connect(self._window_closed)
+        app_state.app_qt.cosigner_received_signal.connect(self._on_receive)
+        app_state.app_qt.window_opened_signal.connect(self._window_opened)
+        app_state.app_qt.window_closed_signal.connect(self._window_closed)
         self.on_enabled_changed()
 
     # Externally invoked when the extension is enabled or disabled.
@@ -121,7 +121,7 @@ class CosignerPool:
                 logger.debug("starting listener")
                 self._listener = Listener(self)
                 self._listener.start()
-            for window in app_state.app.windows:
+            for window in app_state.app_qt.windows:
                 self._window_opened(window)
         elif self._listener:
             logger.debug("shutting down listener")
@@ -144,7 +144,7 @@ class CosignerPool:
             account_id = account.get_id()
             items = []
             for keystore in account.get_keystores():
-                xpub = keystore.get_master_public_key()
+                xpub = cast(str, keystore.get_master_public_key())
                 pubkey = bip32_key_from_string(xpub)
                 pubkey_bytes = pubkey.to_bytes()
                 keyhash_hex = sha256d(pubkey_bytes).hex()
@@ -177,7 +177,7 @@ class CosignerPool:
 
     # Externally invoked to send the transaction to cosigners.
     def do_send(self, window: 'ElectrumWindow', account: AbstractAccount, tx: Transaction) -> None:
-        def on_done(window, future):
+        def on_done(window: 'ElectrumWindow', future: concurrent.futures.Future[None]) -> None:
             try:
                 future.result()
             except Exception as exc:
@@ -202,6 +202,8 @@ class CosignerPool:
                               send_message, on_done=partial(on_done, item.window))
 
     def _on_receive(self, item: CosignerItem, message: str) -> None:
+        assert self._listener is not None
+
         logger.debug("signal arrived for '%s'", item.keyhash_hex)
         window = item.window
         account = window._wallet.get_account(item.account_id)
@@ -221,6 +223,7 @@ class CosignerPool:
                   'which makes them incompatible with the current design of cosigner pool.'))
             self._listener.clear(item.keyhash_hex)
             return
+        bip32_keystore = cast(BIP32_KeyStore, keystore)
 
         password = window.password_dialog(
             _('An encrypted transaction was retrieved from cosigning pool.') + '\n' +
@@ -230,7 +233,7 @@ class CosignerPool:
 
         self._listener.clear(item.keyhash_hex)
 
-        xprv = keystore.get_master_private_key(password)
+        xprv = bip32_keystore.get_master_private_key(password)
         if not xprv:
             return
         privkey = bip32_key_from_string(xprv)

@@ -1,5 +1,6 @@
+import concurrent.futures
 import threading
-from typing import cast, List, NamedTuple, Optional, Tuple
+from typing import Any, Callable, cast, NamedTuple, Optional
 import weakref
 
 from PyQt5.QtCore import Qt, pyqtSignal, QUrl
@@ -18,7 +19,9 @@ from ...transaction import Transaction, XTxOutput
 from ...wallet import AbstractAccount
 
 from .main_window import ElectrumWindow
+from .password_dialog import LayoutFields
 from .util import EnterButton, HelpDialogButton
+
 
 logger = logs.get_logger("coinsplitting")
 
@@ -47,7 +50,7 @@ class AllocatedKeyState(NamedTuple):
 
 
 class CoinSplittingTab(QWidget):
-    _allocated_key_state = None
+    _allocated_key_state: Optional[AllocatedKeyState] = None
     unfrozen_balance = None
     frozen_balance = None
     split_stage = STAGE_INACTIVE
@@ -58,7 +61,7 @@ class CoinSplittingTab(QWidget):
     unsplittable_balance_label = None
     splittable_unit_label = None
     unsplittable_unit_label = None
-    waiting_dialog = None
+    waiting_dialog: Optional["SplitWaitingDialog"] = None
 
     _direct_splitting_enabled = False
     _direct_splitting = False
@@ -104,7 +107,8 @@ class CoinSplittingTab(QWidget):
         script = self._account.get_script_for_derivation(script_type, unused_key.derivation_type,
             unused_key.derivation_data2)
         coins = self._account.get_transaction_outputs_with_key_data()
-        outputs = [ XTxOutput(all, script) ]
+        # NOTE(typing) attrs has poor typing support and does not accept correct argument order.
+        outputs = [ XTxOutput(-1, script) ] # type: ignore[arg-type]
         outputs.extend(self._account.create_extra_outputs(coins, outputs, force=True))
         try:
             tx, tx_context = self._account.make_unsigned_transaction(coins, outputs)
@@ -122,7 +126,7 @@ class CoinSplittingTab(QWidget):
 
         amount = tx.output_value()
         fee = tx.get_fee()
-        fields: List[Tuple[str, QWidget]] = [
+        fields: LayoutFields = [
             (_("Amount to be sent"), QLabel(app_state.format_amount_and_units(amount))),
             (_("Mining fee"), QLabel(app_state.format_amount_and_units(fee))),
         ]
@@ -172,7 +176,9 @@ class CoinSplittingTab(QWidget):
             self._split_prepare_task, on_done=self._on_split_prepare_done,
             on_cancel=self._on_split_abort)
 
-    def _split_prepare_task(self, our_dialog: 'SplitWaitingDialog'):
+    def _split_prepare_task(self, our_dialog: 'SplitWaitingDialog') -> int:
+        assert self.waiting_dialog is not None
+        assert self._allocated_key_state is not None
         self.split_stage = STAGE_OBTAINING_DUST
 
         address_text = self._allocated_key_state.script_template.to_string()
@@ -199,12 +205,12 @@ class CoinSplittingTab(QWidget):
         self.split_stage = STAGE_SPLITTING
         return RESULT_READY_FOR_SPLIT
 
-    def _on_split_abort(self):
+    def _on_split_abort(self) -> None:
         self._main_window.show_error(_("Coin-splitting process has been cancelled."))
         self._cleanup_tx_final()
         self._cleanup_tx_created()
 
-    def _on_split_prepare_done(self, future):
+    def _on_split_prepare_done(self, future: concurrent.futures.Future[int]) -> None:
         try:
             result = future.result()
         except Exception as exc:
@@ -245,7 +251,8 @@ class CoinSplittingTab(QWidget):
         script_type = self._account.get_default_script_type()
         script = self._account.get_script_for_derivation(script_type,
             unused_key.derivation_type, unused_key.derivation_data2)
-        outputs = [ XTxOutput(all, script) ]
+        # NOTE(typing) attrs has issues with typing. It cannot work out how the arguments work.
+        outputs = [ XTxOutput(-1, script) ] # type: ignore[arg-type]
         tx, tx_context = self._account.make_unsigned_transaction(coins, outputs)
         tx_context.description = f"{TX_DESC_PREFIX}: {_('Your split coins')}"
 
@@ -260,8 +267,11 @@ class CoinSplittingTab(QWidget):
         msg.append("")
         msg.append(_("Enter your password to proceed"))
         password = self._main_window.password_dialog('\n'.join(msg))
+        if password is None:
+            self._cleanup_tx_final()
+            return
 
-        def sign_done(success) -> None:
+        def sign_done(success: bool) -> None:
             if success:
                 if not tx.is_complete():
                     dialog = self._main_window.show_transaction(self._account, tx)
@@ -272,7 +282,7 @@ class CoinSplittingTab(QWidget):
             self._cleanup_tx_final()
         self._main_window.sign_tx_with_password(tx, sign_done, password, context=tx_context)
 
-    def _cleanup_tx_created(self):
+    def _cleanup_tx_created(self) -> None:
         self._main_window._wallet.unregister_callback(self._on_wallet_event)
 
         self._allocated_key_state = None
@@ -291,7 +301,7 @@ class CoinSplittingTab(QWidget):
             self._faucet_button.setEnabled(True)
             self._faucet_splitting = False
 
-    def _on_wallet_event(self, event, *args) -> None:
+    def _on_wallet_event(self, event: str, *args: Any) -> None:
         if event == 'transaction_added':
             if self._allocated_key_state is None:
                 return
@@ -440,7 +450,9 @@ class SplitWaitingDialog(QProgressDialog):
     update_label = None
     was_rejected = False
 
-    def __init__(self, parent, splitter, func, on_done, on_cancel):
+    def __init__(self, parent: QWidget, splitter: CoinSplittingTab, func: Callable[..., int],
+            on_done: Callable[[concurrent.futures.Future[int]], None],
+            on_cancel: Callable[[], None]) -> None:
         self.splitter = splitter
 
         # These flags remove the close button, which removes a corner case that we'd
@@ -452,29 +464,29 @@ class SplitWaitingDialog(QProgressDialog):
         self.setWindowModality(Qt.WindowModality.WindowModal)
         self.setWindowTitle(_("Please wait"))
 
-        self.stage_progress = 0
+        self.stage_progress = 0.
 
-        def _on_done(future):
+        def _on_done(future: concurrent.futures.Future[int]) -> None:
             if self.was_rejected:
                 return
             self.accept()
             on_done(future)
         future = app_state.app_qt.run_in_thread(func, self, on_done=_on_done)
         self.accepted.connect(future.cancel)
-        def _on_rejected():
+        def _on_rejected() -> None:
             self.was_rejected = True
             future.cancel()
             on_cancel()
         self.rejected.connect(_on_rejected)
-        self.update_signal.connect(self.update)
-        self.update()
+        self.update_signal.connect(self._update)
+        self._update()
         self.show()
 
-    def set_stage_progress(self, stage_progress):
+    def set_stage_progress(self, stage_progress: float) -> None:
         self.stage_progress = max(0, min(0.99, stage_progress))
         self.update_signal.emit()
 
-    def update(self):
+    def _update(self) -> None:
         self.setValue(max(1, int(self.stage_progress * 100)))
         update_text = STAGE_NAMES[self.splitter.split_stage]
         if self.update_label is None:

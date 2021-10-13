@@ -44,6 +44,8 @@ class MyLineEdit(QLineEdit):
 
 class AmountEdit(MyLineEdit):
     shortcut = pyqtSignal()
+    in_event: bool = False
+    is_last_edited: bool = False
 
     def __init__(self, base_unit_func: Callable[[], str], parent: Optional[QWidget]=None) -> None:
         super().__init__(parent)
@@ -102,7 +104,8 @@ class BTCAmountEdit(AmountEdit):
     def decimal_point(self) -> int:
         return app_state.decimal_point
 
-    def get_amount(self) -> Optional[int]:
+    # NOTE(typing) Arbitrary requirement that subclasses can't do different things.
+    def get_amount(self) -> Optional[int]: # type: ignore[override]
         try:
             x = Decimal(str(self.text()))
         except Exception:
@@ -129,7 +132,7 @@ class BTCSatsByteEdit(AmountEdit):
     def base_unit(self) -> str:
         return 'sats/B'
 
-    def get_amount(self) -> Optional[float]:
+    def get_satoshis_per_byte(self) -> Optional[float]:
         try:
             x = float(Decimal(str(self.text())))
         except Exception:

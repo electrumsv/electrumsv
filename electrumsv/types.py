@@ -1,6 +1,7 @@
 import dataclasses
+from types import TracebackType
 from typing import Any, Callable, cast, Coroutine, Dict, List, NamedTuple, Optional, Tuple, \
-    TYPE_CHECKING, TypedDict, Union
+    Type, TYPE_CHECKING, TypedDict, Union
 import uuid
 
 from bitcoinx import hash_to_hex_str
@@ -130,6 +131,8 @@ class Outpoint(NamedTuple):
     def __repr__(self) -> str:
         return f'Outpoint("{hash_to_hex_str(self.tx_hash)}",{self.txo_index})'
 
+
+ExceptionInfoType = Tuple[Type[BaseException], BaseException, TracebackType]
 
 WaitingUpdateCallback = Callable[[Arg(bool, "advance"), DefaultArg(Optional[str], "message")], None]
 

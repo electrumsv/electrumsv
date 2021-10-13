@@ -27,7 +27,7 @@ from enum import IntEnum
 from typing import cast, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import QItemSelectionModel, Qt
+from PyQt5.QtCore import QItemSelectionModel, QPoint, Qt
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QAbstractItemView, QMenu, QTreeWidgetItem, QWidget
 
@@ -41,7 +41,7 @@ from ...platform import platform
 from ...types import Outpoint
 from ...util import profiler
 from ...wallet import AbstractAccount
-from ...wallet_database.types import TransactionOutputSpendableRow2
+from ...wallet_database.types import AccountTransactionOutputSpendableRowExtended
 
 from .util import SortableTreeWidgetItem, MyTreeWidget, ColorScheme
 
@@ -97,18 +97,19 @@ class UTXOList(MyTreeWidget):
         if self.permit_edit(item, column):
             super().on_doubleclick(item, column)
         else:
-            utxo = cast(TransactionOutputSpendableRow2, item.data(0, Role.DataUTXO))
+            utxo = cast(AccountTransactionOutputSpendableRowExtended, item.data(0, Role.DataUTXO))
             assert utxo.account_id is not None
             account = self._wallet.get_account(utxo.account_id)
             tx = self._wallet.get_transaction(utxo.tx_hash)
             assert tx is not None
             self._main_window.show_transaction(account, tx)
 
-    def update(self) -> None:
+    # NOTE(typing) Ignore the stupid override stuff from mypy. This matches one signature.
+    def update(self) -> None: # type: ignore[override]
         self._on_update_utxo_list()
 
     @profiler
-    def _on_update_utxo_list(self):
+    def _on_update_utxo_list(self) -> None:
         if self._account is None:
             return
 
@@ -151,17 +152,17 @@ class UTXOList(MyTreeWidget):
 
         for row_idx in range(self.topLevelItemCount()):
             item = self.topLevelItem(row_idx)
-            utxo = cast(TransactionOutputSpendableRow2, item.data(0, Role.DataUTXO))
+            utxo = cast(AccountTransactionOutputSpendableRowExtended, item.data(0, Role.DataUTXO))
             if utxo.tx_hash not in tx_descriptions:
                 continue
             new_description = tx_descriptions[utxo.tx_hash]
             if new_description != item.text(Column.DESCRIPTION):
                 item.setText(Column.DESCRIPTION, new_description)
 
-    def get_selected(self) -> Set[TransactionOutputSpendableRow2]:
-        return {item.data(0, Role.DataUTXO) for item in self.selectedItems()}
+    def get_selected(self) -> Set[AccountTransactionOutputSpendableRowExtended]:
+        return { item.data(0, Role.DataUTXO) for item in self.selectedItems() }
 
-    def create_menu(self, position) -> None:
+    def create_menu(self, position: QPoint) -> None:
         coins = self.get_selected()
         if not coins:
             return
@@ -205,7 +206,7 @@ class UTXOList(MyTreeWidget):
 
         menu.exec_(self.viewport().mapToGlobal(position))
 
-    def on_permit_edit(self, item, column) -> bool:
+    def on_permit_edit(self, item: QTreeWidgetItem, column: int) -> bool:
         # disable editing fields in this tab (labels)
         return False
 
@@ -220,7 +221,7 @@ class UTXOList(MyTreeWidget):
         items: List[QTreeWidgetItem] = []
         for row_idx in range(self.topLevelItemCount()):
             item = self.topLevelItem(row_idx)
-            utxo = cast(TransactionOutputSpendableRow2, item.data(0, Role.DataUTXO))
+            utxo = cast(AccountTransactionOutputSpendableRowExtended, item.data(0, Role.DataUTXO))
             txo_key = Outpoint(utxo.tx_hash, utxo.txo_index)
             if txo_key not in txo_keys:
                 continue

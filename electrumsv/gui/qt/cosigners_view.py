@@ -27,18 +27,20 @@
 # SOFTWARE.
 
 from functools import partial
-from typing import Optional
+from typing import cast, Optional, Union
+from weakref import ProxyType
 
 from bitcoinx import bip32_key_from_string, BIP32PublicKey
 
 from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtGui import QPainter
+from PyQt5.QtGui import QPainter, QPaintEvent
 from PyQt5.QtWidgets import (QAbstractItemView, QAbstractScrollArea, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QSizePolicy, QStyle, QStyleOption, QWizard)
 
 from electrumsv.constants import DerivationType, KeystoreTextType
 from electrumsv.i18n import _
-from electrumsv.keystore import instantiate_keystore_from_text, KeyStore, SinglesigKeyStoreTypes
+from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text, \
+    SinglesigKeyStoreTypes
 
 from .main_window import ElectrumWindow
 from .qrtextedit import ShowQRTextEdit
@@ -69,7 +71,8 @@ class CosignerCard(FormSectionWidget):
 
     cosigner_updated = pyqtSignal(int)
 
-    def __init__(self, main_window: ElectrumWindow, state: CosignerState, create: bool) -> None:
+    def __init__(self, main_window: Union[ElectrumWindow, ProxyType[ElectrumWindow]],
+            state: CosignerState, create: bool) -> None:
         super().__init__()
 
         self._main_window = main_window
@@ -90,7 +93,7 @@ class CosignerCard(FormSectionWidget):
         self._key_icon = read_QIcon('icons8-key.svg')
         self._delete_icon = read_QIcon('icons8-delete.svg')
 
-        key_edit = ShowQRTextEdit(self)
+        key_edit = ShowQRTextEdit()
         key_edit.setPlaceholderText(_("Paste any extended public key for this cosigner here, or "
             "use the key button for other options."))
         key_edit.setFixedHeight(65)
@@ -138,7 +141,7 @@ class CosignerCard(FormSectionWidget):
         child_wizard.set_subtitle(subtitle_text)
         if child_wizard.run() == QWizard.Accepted:
             assert child_wizard.has_result(), "accepted result-less wizard"
-            self._update_keystore(child_wizard.get_keystore())
+            self._update_keystore(cast(BIP32_KeyStore, child_wizard.get_keystore()))
         else:
             self._update_keystore(None)
 
@@ -164,11 +167,12 @@ class CosignerCard(FormSectionWidget):
                 return
 
         password = None
-        keystore = instantiate_keystore_from_text(KeystoreTextType.EXTENDED_PUBLIC_KEY,
-            text, password, watch_only=True)
+        keystore = cast(BIP32_KeyStore,
+            instantiate_keystore_from_text(KeystoreTextType.EXTENDED_PUBLIC_KEY,
+               text, password, watch_only=True))
         self._update_keystore(keystore)
 
-    def _update_keystore(self, keystore: Optional[KeyStore]) -> None:
+    def _update_keystore(self, keystore: Optional[SinglesigKeyStoreTypes]) -> None:
         if keystore is None:
             self._state.reset()
             self._key_edit.setReadOnly(False)
@@ -177,11 +181,13 @@ class CosignerCard(FormSectionWidget):
             self._cosigner_key_button.setToolTip(_("Set the current key for this cosigner"))
             self._cosigner_name_edit.setText("")
         else:
+            mpk_text = keystore.get_master_public_key()
+            assert mpk_text is not None
             self._state.keystore = keystore
             # The stringification of the key will ensure it displays correctly.
             self._key_edit.setReadOnly(True)
             self._key_edit.clear()
-            self._key_edit.appendPlainText(keystore.get_master_public_key())
+            self._key_edit.appendPlainText(mpk_text)
             self._cosigner_key_button.setIcon(self._delete_icon)
             self._cosigner_key_button.setToolTip(_("Clear the current key for this cosigner"))
             if self._create:
@@ -214,6 +220,7 @@ class CosignerCard(FormSectionWidget):
 
     def _update_status_label(self) -> None:
         if self._state.is_complete():
+            assert self._state.keystore is not None
             if self._state.keystore.is_watching_only():
                 self._signed_by_label.setText(_("External party") +".")
             else:
@@ -224,7 +231,7 @@ class CosignerCard(FormSectionWidget):
             self._signed_by_label.setStyleSheet("QLabel { color: red; }")
 
     # QWidget styles do not render. Found this somewhere on the qt5 doc site.
-    def paintEvent(self, event):
+    def paintEvent(self, event: QPaintEvent) -> None:
         opt = QStyleOption()
         opt.initFrom(self)
         p = QPainter(self)
@@ -232,7 +239,8 @@ class CosignerCard(FormSectionWidget):
 
 
 class CosignerList(QListWidget):
-    def __init__(self, main_window: ElectrumWindow, create: bool=True) -> None:
+    def __init__(self, main_window: Union[ElectrumWindow, ProxyType[ElectrumWindow]],
+            create: bool=True) -> None:
         self._main_window = main_window
         self._create = create
 

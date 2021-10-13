@@ -29,11 +29,12 @@ import datetime
 import enum
 from functools import partial
 import socket
-from typing import Callable, cast, Dict, List, NamedTuple, Optional, Sequence, TYPE_CHECKING, Tuple
+from typing import Any, Callable, cast, Dict, List, NamedTuple, Optional, Sequence, \
+    TYPE_CHECKING, Tuple, Union
 import urllib.parse
 
 from aiorpcx import NetAddress
-from bitcoinx import hash_to_hex_str
+from bitcoinx import Chain, hash_to_hex_str
 from PyQt5.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, QPoint, Qt, \
     QThread, QTimer
 from PyQt5.QtGui import QBrush, QCloseEvent, QColor, QContextMenuEvent, QIcon, QKeyEvent, \
@@ -50,8 +51,8 @@ from ...crypto import pw_decode, pw_encode
 from ...i18n import _
 from ...logs import logs
 from ...wallet import Wallet
-from ...network import NewServer, Network, SVServerKey, SVUserAuth, SVProxy, SVSession, SVServer
-from ...network_support.api_server import CapabilitySupport, SERVER_CAPABILITIES
+from ...network import Network, SVServerKey, SVUserAuth, SVProxy, SVSession, SVServer
+from ...network_support.api_server import CapabilitySupport, NewServer, SERVER_CAPABILITIES
 from ...types import ServerAccountKey
 from ...util.network import DEFAULT_SCHEMES, UrlValidationError, validate_url
 from ...wallet_database.types import NetworkServerRow, NetworkServerAccountRow
@@ -202,7 +203,7 @@ class NodesListWidget(QTreeWidget):
         pt.setX(50)
         self.customContextMenuRequested.emit(pt)
 
-    def chain_name(self, chain, our_chain) -> str:
+    def chain_name(self, chain: Chain, our_chain: Chain) -> str:
         if chain is our_chain:
             return 'our_chain'
 
@@ -213,26 +214,31 @@ class NodesListWidget(QTreeWidget):
         prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
         return f'{prefix}@{fork_height}'
 
-    def update(self) -> None:
+    def update(self) -> None: # type: ignore[override]
+        assert self._network.main_server is not None
+
         self.clear()
 
         chains = self._network.sessions_by_chain()
         chain_items = list(chains.items())
-        host_counts = {}
+        host_counts: Dict[str, int] = {}
         for chain, sessions in chain_items:
             # If someone is connected to two nodes on the same server, indicate the difference.
             for i, session in enumerate(sessions):
                 host_counts[session.server.host] = host_counts.get(session.server.host, 0) + 1
 
+        tree_item: Union[NodesListWidget, QTreeWidgetItem]
         our_chain = self._network.chain()
         for chain, sessions in chain_items:
             if len(chains) > 1:
+                assert our_chain is not None
                 name = self.chain_name(chain, our_chain)
                 tree_item = QTreeWidgetItem([name, '%d' % chain.height])
                 tree_item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, None)
             else:
                 tree_item = self
             for session in sessions:
+                assert session.tip is not None
                 extra_name = ""
                 if host_counts[session.server.host] > 1:
                     extra_name = f" (port: {session.server.port})"
@@ -251,9 +257,9 @@ class NodesListWidget(QTreeWidget):
                 else:
                     tree_item.addChild(item)
             if len(chains) > 1:
+                assert isinstance(tree_item, QTreeWidgetItem)
                 self.addTopLevelItem(tree_item)
-                # NOTE(typing) remove ambiguity so it knows it is a tree item, not the tree itself.
-                cast(QTreeWidgetItem, tree_item).setExpanded(True)
+                tree_item.setExpanded(True)
 
             height_str = "%d "%(self._network.get_local_height()) + _('blocks')
             self._parent_tab.height_label.setText(height_str)
@@ -265,11 +271,13 @@ class NodesListWidget(QTreeWidget):
             else:
                 status = _("Connected to {:d} servers.").format(n)
             self._parent_tab.status_label.setText(status)
-            chains = self._network.sessions_by_chain().keys()
-            if len(chains) > 1:
+
+            chains2 = self._network.sessions_by_chain().keys()
+            if len(chains2) > 1:
                 our_chain = self._network.chain()
+                assert our_chain is not None
                 heights = set()
-                for chain in chains:
+                for chain in chains2:
                     if chain != our_chain:
                         _chain, common_height = our_chain.common_chain_and_height(chain)
                         heights.add(common_height + 1)
@@ -409,7 +417,8 @@ class EditServerDialog(WindowModalDialog):
         self._edit_state = EditServerState(True)
         if entry is not None:
             self._edit_state.enabled = entry.enabled_for_all_wallets
-            if entry.data_api is not None and entry.data_api.config["api_key"]:
+            if entry.data_api is not None and entry.data_api.config is not None and \
+                    entry.data_api.config["api_key"]:
                 encrypted_api_key = entry.data_api.config["api_key"]
                 self._edit_state.encrypted_api_key = encrypted_api_key
                 self._edit_state.decrypted_api_key = pw_decode(encrypted_api_key, TOKEN_PASSWORD)
@@ -499,8 +508,8 @@ class EditServerDialog(WindowModalDialog):
                 self._dialog = dialog
                 self._editable_columns = editable_columns
 
-            def createEditor(self, parent: QWidget, style_option: QStyleOptionViewItem,
-                    index: QModelIndex) -> Optional[QWidget]:
+            def createEditor(self, parent: QWidget, # type: ignore[override]
+                    style_option: QStyleOptionViewItem, index: QModelIndex) -> Optional[QWidget]:
                 """
                 Overriden method that creates the widget used for editing.
 
@@ -622,7 +631,7 @@ class EditServerDialog(WindowModalDialog):
         app_state.app_qt.window_opened_signal.connect(self._on_wallet_opened)
         app_state.app_qt.window_closed_signal.connect(self._on_wallet_closed)
 
-    def closeEvent(self, event: QCloseEvent):
+    def closeEvent(self, event: QCloseEvent) -> None:
         """
         Dialog close event. Do any necessary clean up/unregistration here.
         """
@@ -668,13 +677,13 @@ class EditServerDialog(WindowModalDialog):
 
         wallet_item = item.parent()
         wallet_path = cast(str, wallet_item.data(0, Qt.ItemDataRole.UserRole))
-        wallet_state = self.get_wallet_state(wallet_path)
+        wallet_states = self.get_wallet_state(wallet_path)
         if wallet_item.indexOfChild(item) == 0:
             # Any account in this wallet.
-            return (wallet_path, -1, wallet_state[-1])
+            return (wallet_path, -1, wallet_states[-1])
 
         account_id = cast(int, item.data(0, Qt.ItemDataRole.UserRole))
-        return (wallet_path, account_id, wallet_state[account_id])
+        return (wallet_path, account_id, wallet_states[account_id])
 
     def _on_wallet_opened(self, window: 'ElectrumWindow') -> None:
         """
@@ -759,7 +768,8 @@ class EditServerDialog(WindowModalDialog):
         all_accounts_item = QTreeWidgetItem([ _("All accounts in this wallet"),
             api_key_placeholder_text ])
         if self._entry.api_key_supported:
-            all_accounts_item.setFlags(all_accounts_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            all_accounts_item.setFlags(
+                Qt.ItemFlag(int(all_accounts_item.flags()) | Qt.ItemFlag.ItemIsEditable))
         all_accounts_item.setCheckState(0, check_state)
         all_accounts_item.setDisabled(not self._entry.can_configure_wallet_access)
         wallet_item.addChild(all_accounts_item)
@@ -783,7 +793,8 @@ class EditServerDialog(WindowModalDialog):
                 api_key_placeholder_text ])
             account_item.setData(0, Qt.ItemDataRole.UserRole, account.get_id())
             if self._entry.api_key_supported:
-                account_item.setFlags(account_item.flags() | Qt.ItemFlag.ItemIsEditable)
+                account_item.setFlags(
+                    Qt.ItemFlag(int(account_item.flags()) | Qt.ItemFlag.ItemIsEditable))
             account_item.setCheckState(0, check_state)
             account_item.setDisabled(not self._entry.can_configure_wallet_access)
             wallet_item.addChild(account_item)
@@ -841,6 +852,7 @@ class EditServerDialog(WindowModalDialog):
         # already using the given URL we allow it to be saved and consider it valid.
         server_type = self._get_server_type()
         if server_type == NetworkServerType.ELECTRUMX:
+            assert self._entry.data_electrumx is not None
             electrumx_server_key = url_to_server_key(url)
             if electrumx_server_key in SVServer.all_servers:
                 # If we are editing this server, allow it to save/update with the same URL.
@@ -849,6 +861,7 @@ class EditServerDialog(WindowModalDialog):
                 else:
                     return _("This URL is already in use.")
         elif server_type in API_SERVER_TYPES:
+            assert self._entry.data_api is not None
             existing_urls = set(server_key.url.lower() \
                 for server_key in self._network.get_api_servers())
             if url.lower() in existing_urls:
@@ -921,6 +934,8 @@ class EditServerDialog(WindowModalDialog):
         self.accept()
 
     def _save_api_server(self, server_type: NetworkServerType, server_url: str) -> None:
+        wallet: Optional[Wallet]
+
         def encrypt_api_key(wallet_window: "ElectrumWindow", api_key_text: str) -> Optional[str]:
             nonlocal wallet
             assert wallet is not None
@@ -935,7 +950,7 @@ class EditServerDialog(WindowModalDialog):
         date_now_utc = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
         wallets_by_path = { w.get_storage_path(): w for w in app_state.app_qt.get_wallets() }
         saveable_states: List[WalletSaveState] = []
-        saveable_application_state: Dict = {}
+        saveable_application_state: Dict[str, Any] = {}
         for item_index in range(self._access_tree.topLevelItemCount()):
             wallet_item = self._access_tree.topLevelItem(item_index)
             wallet_item_path = wallet_item.data(0, Qt.ItemDataRole.UserRole)
@@ -943,6 +958,7 @@ class EditServerDialog(WindowModalDialog):
                 # Process the "All wallets" first top level item.
                 assert item_index == 0
                 state = self._edit_state
+                assert state.initial_state is not None
                 if state.decrypted_api_key == state.initial_state.decrypted_api_key:
                     if state.enabled == state.initial_state.enabled:
                         continue
@@ -971,6 +987,9 @@ class EditServerDialog(WindowModalDialog):
             keeping_account_rows = False
             check_wallet_row_index = len(edit_state)-1
 
+            encrypted_api_key: Optional[str] = None
+            update_api_key_pair: Optional[Tuple[str, str]] = None
+
             # The wallet-level "any account for this wallet" entry must be last as it needs
             # to take into account the state of the accounts in the wallet.
             for account_index, account_id in enumerate(sorted(edit_state, reverse=True)):
@@ -986,8 +1005,8 @@ class EditServerDialog(WindowModalDialog):
                             continue
 
                         # Update.
-                        update_api_key_pair: Optional[Tuple[str, str]] = None
-                        encrypted_api_key: Optional[str] = None
+                        update_api_key_pair = None
+                        encrypted_api_key = None
                         if state.decrypted_api_key is not None:
                             encrypted_api_key = encrypt_api_key(window, state.decrypted_api_key)
                             if encrypted_api_key is None:
@@ -1014,8 +1033,8 @@ class EditServerDialog(WindowModalDialog):
                                     date_updated=date_now_utc))
                     else:
                         # Addition.
-                        update_api_key_pair: Optional[Tuple[str, str]] = None
-                        encrypted_api_key: Optional[str] = None
+                        update_api_key_pair = None
+                        encrypted_api_key = None
                         if state.decrypted_api_key is not None:
                             encrypted_api_key = encrypt_api_key(window, state.decrypted_api_key)
                             if encrypted_api_key is None:
@@ -1084,7 +1103,7 @@ class EditServerDialog(WindowModalDialog):
                 self._network.create_config_api_server(server_type, saveable_application_state)
 
         if saveable_states:
-            futures: List[concurrent.futures.Future] = []
+            futures: List[concurrent.futures.Future[None]] = []
             for outgoing_state in saveable_states:
                 future = outgoing_state.wallet.update_network_servers(
                     outgoing_state.added_servers, outgoing_state.added_server_accounts,
@@ -1163,7 +1182,8 @@ class EditServerDialog(WindowModalDialog):
         all_wallets_item = QTreeWidgetItem([ _("Any loaded wallet or account"),
             api_key_placeholder_text ])
         if self._entry.api_key_supported:
-            all_wallets_item.setFlags(all_wallets_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            all_wallets_item.setFlags(
+                Qt.ItemFlag(int(all_wallets_item.flags()) | Qt.ItemFlag.ItemIsEditable))
         all_wallets_item.setCheckState(0, check_state)
         all_wallets_item.setDisabled(not self._entry.can_configure_wallet_access)
         self._access_tree.addTopLevelItem(all_wallets_item)
@@ -1217,7 +1237,8 @@ class SortableServerQTableWidgetItem(QTableWidgetItem):
             return False
         return False
 
-    def __lt__(self, other: 'SortableServerQTableWidgetItem') -> bool:
+    def __lt__(self, other: object) -> bool:
+        assert isinstance(other, SortableServerQTableWidgetItem)
         column = self.column()
         if column == 0:
             self_last_good: int = int(self.data(Roles.TIMESTAMP_SORTKEY))
@@ -1338,7 +1359,7 @@ class ServersListWidget(QTableWidget):
             # Unless we remove this flag, it seems for some reason this field is editable and when
             # it is double clicked it turns into a line edit as well as opening the edit dialog.
             # It's probably a default flag set when `setText` is called.
-            item_1.setFlags(item_1.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            item_1.setFlags(Qt.ItemFlag(int(item_1.flags()) & ~Qt.ItemFlag.ItemIsEditable))
             self.setItem(row_index, 1, item_1)
 
             item_2 = SortableServerQTableWidgetItem()
@@ -1394,7 +1415,7 @@ class ServersListWidget(QTableWidget):
     def _get_selected_entry(self) -> ServerListEntry:
         items = self.selectedItems()
         assert len(items) == 1
-        return items[0].data(Roles.ITEM_DATA)
+        return cast(ServerListEntry, items[0].data(Roles.ITEM_DATA))
 
     def _view_entry(self, entry: ServerListEntry) -> None:
         dialog = EditServerDialog(self._parent_tab, self._network, title="Edit Server",
@@ -1659,8 +1680,9 @@ class ProxyTab(QWidget):
     def _set_proxy(self) -> None:
         if self._filling_in:
             return
-        proxy = None
+        proxy: Optional[SVProxy] = None
         if self._proxy_checkbox.isChecked():
+            auth: Optional[SVUserAuth]
             try:
                 address = NetAddress(self._proxy_host_edit.text(), self._proxy_port_edit.text())
                 if self._proxy_username_edit.text():
@@ -1720,7 +1742,7 @@ class TorDetector(QThread):
                 return
 
     @staticmethod
-    def is_tor_port(pair) -> bool:
+    def is_tor_port(pair: Tuple[str, int]) -> bool:
         try:
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.settimeout(0.1)
@@ -1792,11 +1814,11 @@ class NetworkDialog(QDialog):
         # 'sessions': a session is either opened or closed.
         network.register_callback(self._event_network_callbacks, ['updated', 'sessions'])
 
-    def _event_network_callbacks(self, event, *args):
+    def _event_network_callbacks(self, event: List[str], *args: Any) -> None:
         # This may run in network thread??
         self.network_updated_signal.emit()
 
-    def _event_network_updated(self):
+    def _event_network_updated(self) -> None:
         # This always runs in main GUI thread.
         self._tabs_layout._servers_tab.update_servers()
 

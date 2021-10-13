@@ -56,5 +56,5 @@ class HelpDialog(WindowModalDialog):
         vbox.addWidget(widget)
         vbox.addLayout(Buttons(OkButton(self)))
 
-    def run(self):
+    def run(self) -> int:
         return self.exec_()

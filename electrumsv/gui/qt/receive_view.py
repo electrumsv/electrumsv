@@ -107,7 +107,7 @@ class ReceiveView(QWidget):
         grid.addWidget(QLabel(_('Requested amount')), 2, 0)
         grid.addWidget(self._receive_amount_e, 2, 1)
 
-        self._fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
+        self._fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else lambda: '')
         if not app_state.fx or not app_state.fx.is_enabled():
             self._fiat_receive_e.setVisible(False)
         grid.addWidget(self._fiat_receive_e, 2, 2, Qt.AlignmentFlag.AlignLeft)
@@ -233,7 +233,7 @@ class ReceiveView(QWidget):
         """
         return self._dialogs.get(request_id)
 
-    def create_edit_dialog(self, request_id) -> ReceiveDialog:
+    def create_edit_dialog(self, request_id: int) -> ReceiveDialog:
         dialog = ReceiveDialog(self._main_window.reference(), self, self._account_id, request_id)
         self._dialogs[request_id] = dialog
         def dialog_finished(result: int) -> None:
@@ -247,7 +247,6 @@ class ReceiveView(QWidget):
 
     def _on_dialog_closed(self, request_id: int) -> None:
         if request_id in self._dialogs:
-            # print("DIALOG REMOVED")
             del self._dialogs[request_id]
 
     def update_request_list(self) -> None:

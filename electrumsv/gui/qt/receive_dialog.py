@@ -52,6 +52,8 @@ class ReceiveDialog(QDialog):
     Display a popup window with a form containing the details of an existing expected payment.
     """
     _qr_window: Optional[QR_Window] = None
+    _fiat_receive_e: AmountEdit
+    _receive_amount_e: BTCAmountEdit
 
     def __init__(self, main_window: 'ElectrumWindow', view: "ReceiveView", account_id: int,
             request_id: int) -> None:
@@ -64,7 +66,7 @@ class ReceiveDialog(QDialog):
         # the dialog will be gc'd on the next `collect` call.
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
-        self._view = view
+        self._view: Optional["ReceiveView"] = view
         self._main_window = weakref.proxy(main_window)
         self._account_id = account_id
         self._account = cast("AbstractAccount", main_window._wallet.get_account(account_id))
@@ -138,7 +140,7 @@ class ReceiveDialog(QDialog):
             else self._request_row.description)
 
         self._receive_amount_e = BTCAmountEdit()
-        self._fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else '')
+        self._fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else lambda: '')
         self._main_window.connect_fields(self._receive_amount_e, self._fiat_receive_e)
 
         amount_widget_layout = QHBoxLayout()
@@ -290,7 +292,7 @@ class ReceiveDialog(QDialog):
         if not amount:
             amount = None
 
-        def callback(future: concurrent.futures.Future) -> None:
+        def callback(future: concurrent.futures.Future[None]) -> None:
             # Skip if the operation was cancelled.
             if future.cancelled():
                 return

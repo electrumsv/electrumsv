@@ -23,6 +23,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from typing import Optional
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (QLabel, QLineEdit, QGridLayout, QWidget,
     QPlainTextEdit)
@@ -34,8 +36,7 @@ from .qrcodewidget import QRCodeWidget
 
 
 class QR_Window(QWidget):
-
-    def __init__(self, win):
+    def __init__(self, win: QWidget) -> None:
         QWidget.__init__(self)
         self.setWindowTitle('ElectrumSV - ' + _('Payment Request'))
         self.label = ''
@@ -69,7 +70,7 @@ class QR_Window(QWidget):
 
         self.setLayout(layout)
 
-    def set_content(self, address_text, amount, message, url):
+    def set_content(self, address_text: str, amount: Optional[int], message: str, url: str) -> None:
         self._address_edit.setPlainText(address_text)
         if amount:
             amount_text = '{} {}'.format(app_state.format_amount(amount), app_state.base_unit())

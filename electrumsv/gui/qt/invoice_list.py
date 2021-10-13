@@ -25,7 +25,7 @@ import concurrent.futures
 from functools import partial
 import math
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import cast, TYPE_CHECKING, Optional
 import urllib.parse
 import weakref
 
@@ -109,6 +109,7 @@ class InvoiceList(MyTreeWidget):
         self._stop_timer()
 
         current_id = None
+        current_item: Optional[QTreeWidgetItem] = None
         if self._send_view._payment_request is not None:
             current_id = self._send_view._payment_request.get_id()
         if current_id is None:
@@ -124,6 +125,7 @@ class InvoiceList(MyTreeWidget):
 
         # TODO Ability to change the invoice list to specify what invoices are shown.
         #   This would for instance allow viewing of archived invoices.
+        assert self._send_view._account is not None
         wallet = self._send_view._account.get_wallet()
         invoice_rows = wallet.read_invoices_for_account(self._send_view._account.get_id(),
             PaymentFlag.NONE, PaymentFlag.ARCHIVED)
@@ -164,10 +166,12 @@ class InvoiceList(MyTreeWidget):
 
     def on_edited(self, item: QTreeWidgetItem, column: int, prior: str) -> None:
         '''Called only when the text actually changes'''
-        text = item.text(column).strip()
+        assert self._send_view._account is not None
+
+        text: Optional[str] = item.text(column).strip()
         if text == "":
             text = None
-        invoice_id = item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole)
+        invoice_id = cast(int, item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole))
         future = self._send_view._account._wallet.update_invoice_descriptions(
             [ (text, invoice_id) ])
         future.result()
@@ -194,6 +198,8 @@ class InvoiceList(MyTreeWidget):
     #     self.on_update()
 
     def create_menu(self, position: QPoint) -> None:
+        assert self._send_view._account is not None
+
         menu = QMenu()
         item = self.itemAt(position)
         if not item:
@@ -221,9 +227,11 @@ class InvoiceList(MyTreeWidget):
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _show_invoice_window(self, row: InvoiceRow) -> None:
+        assert self._send_view._account is not None
         self._main_window.show_invoice(self._send_view._account, row)
 
     def _pay_invoice(self, invoice_id: int) -> None:
+        assert self._send_view._account is not None
         row = self._send_view._account._wallet.read_invoice(invoice_id=invoice_id)
         if row is None:
             return
@@ -238,10 +246,12 @@ class InvoiceList(MyTreeWidget):
         self._send_view.pay_for_payment_request(pr)
 
     def _delete_invoice(self, invoice_id: int) -> None:
+        assert self._send_view._account is not None
+
         if not self._main_window.question(_('Delete invoice?')):
             return
 
-        def callback(future: concurrent.futures.Future) -> None:
+        def callback(future: concurrent.futures.Future[None]) -> None:
             nonlocal invoice_id
             # Skip if the operation was cancelled.
             if future.cancelled():

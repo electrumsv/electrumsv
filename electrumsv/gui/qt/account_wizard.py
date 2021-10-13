@@ -28,14 +28,17 @@
 
 import concurrent.futures
 import enum
-from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import Any, Callable, cast, Dict, List, Optional, Set, Tuple, TYPE_CHECKING, \
+    Union
+from weakref import ProxyType
 
 from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
     bip32_key_from_string, PrivateKey, P2SH_Address, bip32_build_chain_string,
     BIP39Mnemonic, ElectrumMnemonic, Wordlists)
 
 from PyQt5.QtCore import QObject, QSize, Qt
-from PyQt5.QtGui import QBrush, QColor, QPainter, QPalette, QPen, QPixmap, QTextOption
+from PyQt5.QtGui import QBrush, QColor, QKeyEvent, QPainter, QPaintEvent, QPalette, QPen, \
+    QPixmap, QTextOption
 from PyQt5.QtWidgets import (
     QCheckBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QProgressBar, QRadioButton, QSizePolicy, QSlider, QTextEdit,
@@ -47,17 +50,17 @@ from ...constants import (AccountCreationType, DEFAULT_COSIGNER_COUNT, Derivatio
     DerivationPath, KeystoreTextType, MAXIMUM_COSIGNER_COUNT, SEED_PREFIX)
 from ...device import DeviceInfo
 from ...i18n import _
-from ...keystore import (bip44_derivation_cointype,
+from ...keystore import (bip44_derivation_cointype, instantiate_keystore,
     instantiate_keystore_from_text, KeyStore, KeystoreMatchType, Multisig_KeyStore)
 from ...logs import logs
 from ...networks import Net
 from ...storage import WalletStorage
 from ...types import MasterKeyDataHardware
-from ...wallet import Wallet, instantiate_keystore
+from ...wallet import Wallet
 
 from .cosigners_view import CosignerState, CosignerList
 from .main_window import ElectrumWindow
-from .util import (ChoicesLayout, icon_path, MessageBox, MessageBoxMixin, protected, query_choice,
+from .util import (ChoicesLayout, icon_path, MessageBox, MessageBoxMixin, protected,
     read_QIcon)
 from .wizard_common import BaseWizard, DEFAULT_WIZARD_FLAGS, WizardFlags, WizardFormSection
 
@@ -128,7 +131,7 @@ TextKeystoreTypeFlags = {
 
 def request_password(parent: Optional[QWidget], storage: WalletStorage) -> Optional[str]:
     from .password_dialog import PasswordDialog
-    d = PasswordDialog(parent, PASSWORD_EXISTING_TEXT, password_check_fn=storage.is_password_valid)
+    d = PasswordDialog(parent, PASSWORD_EXISTING_TEXT, storage.is_password_valid)
     d.setMaximumWidth(200)
     return d.run()
 
@@ -142,10 +145,13 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
     _keystore: Optional[KeyStore] = None
     _keystore_type = AccountCreationType.UNKNOWN
 
-    def __init__(self, main_window: ElectrumWindow,
+    def __init__(self, main_window: Union[ElectrumWindow, ProxyType[ElectrumWindow]],
             flags: WizardFlags=DEFAULT_WIZARD_FLAGS, parent: Optional[QWidget]=None) -> None:
         if parent is None:
-            parent = main_window
+            if isinstance(main_window, ProxyType):
+                parent = main_window.reference()
+            else:
+                parent = main_window
         super().__init__(parent)
 
         self.flags = flags
@@ -175,10 +181,6 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
 
         self.setStartId(AccountPage.ADD_ACCOUNT_MENU)
 
-    # Used by hardware wallets.
-    def query_choice(self, msg: str, choices: Iterable[str]) -> Optional[int]:
-        return query_choice(self, msg, choices)
-
     def set_subtitle(self, subtitle: str) -> None:
         suffix = f" - {subtitle}" if len(subtitle) else ""
         self.setWindowTitle(f'ElectrumSV{suffix}')
@@ -190,7 +192,7 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
         assert self._selected_device is not None
         return self._selected_device
 
-    def get_main_window(self) -> ElectrumWindow:
+    def get_main_window(self) -> Union[ElectrumWindow, ProxyType[ElectrumWindow]]:
         "For page access to the parent window."
         return self._main_window
 
@@ -252,7 +254,7 @@ class AddAccountWizardPage(QWizardPage):
 
         page = self
         class ListWidget(QListWidget):
-            def keyPressEvent(self, event):
+            def keyPressEvent(self, event: QKeyEvent) -> None:
                 key = event.key()
                 if key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
                     page._event_key_press_selection()
@@ -341,10 +343,11 @@ class AddAccountWizardPage(QWizardPage):
         return False
 
     # Qt method called to get the Id of the next page.
-    def nextId(self) -> int:
+    def nextId(self) -> AccountPage:
         items = self._option_list.selectedItems()
         if len(items) > 0:
-            return items[0].data(Qt.ItemDataRole.UserRole).get("page", AccountPage.NONE)
+            entry = cast(Dict[str, Any], items[0].data(Qt.ItemDataRole.UserRole))
+            return entry.get("page", AccountPage.NONE)
         return AccountPage.NONE
 
     def _event_selection_changed(self) -> None:
@@ -399,7 +402,7 @@ class AddAccountWizardPage(QWizardPage):
         wizard.set_keystore_result(AccountCreationType.NEW, keystore)
         wizard.accept()
 
-    def _get_entry_detail(self, entry=None):
+    def _get_entry_detail(self, entry: Optional[Dict[str, Any]]=None) -> str:
         title_start_html = "<b>"
         title_end_html = "</b>"
         if entry is None:
@@ -428,7 +431,7 @@ class AddAccountWizardPage(QWizardPage):
         html += entry.get('long_description', '')
         return html
 
-    def _get_entries(self):
+    def _get_entries(self) -> List[Dict[str, Any]]:
         seed_phrase_html = ("<p>"+
             _("A seed phrase (also known as seed words or a mnemonic) is a way of storing an "
               "account's master key. Using it ElectrumSV can access the wallet's previous "+
@@ -555,7 +558,7 @@ class ImportWalletTextPage(QWizardPage):
 
         for match_type, button in self._get_buttons(wizard):
             def make_check_callback(match_type: KeystoreTextType) -> Callable[[bool], None]:
-                def on_button_check(_checked: bool=False):
+                def on_button_check(_checked: bool=False) -> None:
                     self._on_match_type_selected(match_type)
                 return on_button_check
             button.clicked.connect(make_check_callback(match_type))
@@ -666,8 +669,7 @@ class ImportWalletTextPage(QWizardPage):
 
         # If no full matches, try and match each "word".
         if not len(matches):
-            text = text.split()
-            for word in text:
+            for word in text.split():
                 match_found = False
                 try:
                     PrivateKey.from_text(word)
@@ -705,7 +707,7 @@ class ImportWalletTextPage(QWizardPage):
 
         self._set_matches(matches)
 
-    def _on_customize_button_clicked(self, *checked) -> None:
+    def _on_customize_button_clicked(self, checked: bool=False) -> None:
         assert self.isComplete()
         self._next_page_id = AccountPage.IMPORT_ACCOUNT_TEXT_CUSTOM
 
@@ -725,7 +727,7 @@ class ImportWalletTextPage(QWizardPage):
         wizard = cast(AccountWizard, self.wizard())
         if self._next_page_id == AccountPage.UNKNOWN:
             # Create the account with no customisation
-            if not self._create_account(main_window=wizard._main_window):
+            if not self._create_account():
                 return False
         else:
             assert self._checked_match_type is not None
@@ -734,7 +736,7 @@ class ImportWalletTextPage(QWizardPage):
         return True
 
     # Qt method called to get the Id of the next page.
-    def nextId(self) -> int:
+    def nextId(self) -> AccountPage:
         # Need to know if customize is clicked and go to the custom page.
         return self._next_page_id
 
@@ -758,8 +760,7 @@ class ImportWalletTextPage(QWizardPage):
         self._next_page_id = AccountPage.UNKNOWN
 
     @protected
-    def _create_account(self, main_window: Optional[ElectrumWindow]=None,
-            password: Optional[str]=None) -> bool:
+    def _create_account(self, password: Optional[str]=None) -> bool:
         wizard = cast(AccountWizard, self.wizard())
         assert self._checked_match_type is not None
         entries = self._matches[self._checked_match_type]
@@ -826,14 +827,13 @@ class ImportWalletTextCustomPage(QWizardPage):
         # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         assert self.isComplete()
 
-        wizard = cast(AccountWizard, self.wizard())
-        if not self._create_account(main_window=wizard._main_window):
+        if not self._create_account():
             return False
         return True
 
     # Qt method called to get the Id of the next page.
-    def nextId(self) -> int:
-        return -1
+    def nextId(self) -> AccountPage:
+        return AccountPage.UNKNOWN
 
     def on_enter(self) -> None:
         wizard = cast(AccountWizard, self.wizard())
@@ -867,8 +867,7 @@ class ImportWalletTextCustomPage(QWizardPage):
             KeystoreTextType.ELECTRUM_SEED_WORDS, KeystoreTextType.EXTENDED_PRIVATE_KEY)
 
     @protected
-    def _create_account(self, main_window: Optional[ElectrumWindow]=None,
-            password: Optional[str]=None) -> bool:
+    def _create_account(self, password: Optional[str]=None) -> bool:
         passphrase = (self._passphrase_edit.text().strip()
             if self._allow_passphrase_usage() else "")
         derivation_text = self._derivation_text if self._allow_derivation_path_usage() else None
@@ -902,7 +901,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
         self.setFinalPage(False)
 
     # Qt method called to get the Id of the next page.
-    def nextId(self):
+    def nextId(self) -> AccountPage:
         return AccountPage.SETUP_HARDWARE_WALLET
 
     # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
@@ -934,7 +933,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
         button = self.wizard().button(QWizard.CustomButton1)
         button.clicked.disconnect()
 
-    def _on_rescan_clicked(self, *checked) -> None:
+    def _on_rescan_clicked(self, checked: bool=False) -> None:
         self._initiate_scan()
 
     def _display_scan_in_progress(self) -> None:
@@ -1048,9 +1047,9 @@ class FindHardwareWalletAccountPage(QWizardPage):
 
         self._display_scan_in_progress()
 
-        app_state.app.run_in_thread(self._scan_attempt, on_done=self._on_scan_complete)
+        app_state.app_qt.run_in_thread(self._scan_attempt, on_done=self._on_scan_complete)
 
-    def _on_scan_complete(self, future: concurrent.futures.Future) -> None:
+    def _on_scan_complete(self, future: concurrent.futures.Future[None]) -> None:
         if len(self._devices):
             self._display_scan_success_results()
         else:
@@ -1081,8 +1080,11 @@ class FindHardwareWalletAccountPage(QWizardPage):
                     continue
 
                 try:
-                    # FIXME: side-effect: unpaired_device_info sets client.handler
-                    u = devmgr.unpaired_device_infos(None, plugin, devices=scanned_devices)
+                    # NOTE(typing) The whole hardware wallet client typing is that handlers
+                    #   are expected to be provided. But this works, and we're not going to fix
+                    #   it.
+                    u = devmgr.unpaired_device_infos(None, # type: ignore[arg-type]
+                        plugin, devices=scanned_devices)
                     devices += [(device_kind, x) for x in u]
                 except Exception as e:
                     logger.exception(f'error getting device information for {device_kind}')
@@ -1130,13 +1132,12 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         self.setFinalPage(False)
 
     # Qt method called to get the Id of the next page.
-    def nextId(self):
-        return -1
+    def nextId(self) -> AccountPage:
+        return AccountPage.UNKNOWN
 
     # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
     def validatePage(self) -> bool:
-        wizard = cast(AccountWizard, self.wizard())
-        if self._create_account(main_window=wizard._main_window):
+        if self._create_account():
             return True
         return False
 
@@ -1296,8 +1297,8 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         self.completeChanged.emit()
 
     @protected
-    def _create_account(self, main_window: Optional[ElectrumWindow]=None,
-            password: Optional[str]=None) -> bool:
+    def _create_account(self) -> bool:
+        assert self._plugin is not None
         # The derivation path is valid, proceed to create the account.
         wizard = cast(AccountWizard, self.wizard())
         name, device_info = wizard.get_selected_device()
@@ -1345,7 +1346,7 @@ class CosignWidget(QWidget):
         self.m = m
         self.update()
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         bgcolor = self.palette().color(QPalette.Background)
         pen = QPen(bgcolor, 7, Qt.PenStyle.SolidLine)
         qp = QPainter()
@@ -1522,11 +1523,11 @@ class CreateMultisigAccountPage(QWizardPage):
         self._form_context = None
 
     # Qt method called to get the Id of the next page.
-    def nextId(self):
+    def nextId(self) -> AccountPage:
         # Need to know if customize is clicked and go to the custom page.
         return self._next_page_id
 
-    def _on_customize_button_clicked(self, *checked) -> None:
+    def _on_customize_button_clicked(self, checked: bool=False) -> None:
         assert self.isComplete()
         self._next_page_id = AccountPage.CREATE_MULTISIG_ACCOUNT_CUSTOM
 
@@ -1586,15 +1587,13 @@ class CreateMultisigAccountCustomPage(QWizardPage):
         self._form_context = None
 
     # Qt method called to get the Id of the next page.
-    def nextId(self):
+    def nextId(self) -> AccountPage:
         # Need to know if customize is clicked and go to the custom page.
         return self._next_page_id
 
 
 class MultisigAccountCosignerListPage(QWizardPage):
     _cosigner_states: List[CosignerState] = []
-
-    _list: Optional[QListWidget] = None
 
     def __init__(self, wizard: AccountWizard) -> None:
         super().__init__(wizard)
@@ -1639,8 +1638,8 @@ class MultisigAccountCosignerListPage(QWizardPage):
         return True
 
     # Qt method called to get the Id of the next page.
-    def nextId(self) -> int:
-        return -1
+    def nextId(self) -> AccountPage:
+        return AccountPage.UNKNOWN
 
     # Qt method called to determine if 'Next' or 'Finish' should be enabled or disabled.
     # Overriding this requires us to emit the 'completeChanges' signal where applicable.
@@ -1650,3 +1649,4 @@ class MultisigAccountCosignerListPage(QWizardPage):
 
     def event_cosigner_updated(self, cosigner_index: int) -> None:
         self.completeChanged.emit()
+

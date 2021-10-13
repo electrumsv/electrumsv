@@ -1,8 +1,8 @@
-from typing import Optional, Tuple, TYPE_CHECKING
+from typing import cast, Optional, Tuple, TYPE_CHECKING
 import weakref
 
 from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QPainter, QPixmap
+from PyQt5.QtGui import QPainter, QPaintEvent, QPixmap
 from PyQt5.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QStatusBar,
     QStyle, QStyleOptionToolButton, QToolButton, QWidget, QWidgetAction)
 
@@ -18,14 +18,14 @@ if TYPE_CHECKING:
 
 class XToolButton(QToolButton):
     # This class enables the tool button icon to fill the whole button space.
-    def __init__(self, parent: QWidget=None) -> None:
+    def __init__(self, parent: Optional[QWidget]=None) -> None:
         super().__init__(parent)
 
         self.pad = 2     # padding between the icon and the button frame
         sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
         self.setSizePolicy(sizePolicy)
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event: QPaintEvent) -> None:
         qp = QPainter()
         qp.begin(self)
 
@@ -44,7 +44,7 @@ class XToolButton(QToolButton):
 
 
 class NotificationIndicator(XToolButton):
-    def __init__(self, main_window: 'ElectrumWindow', parent: QWidget=None) -> None:
+    def __init__(self, main_window: 'ElectrumWindow', parent: Optional[QWidget]=None) -> None:
         super().__init__(parent)
         self._main_window = weakref.proxy(main_window)
 
@@ -214,7 +214,7 @@ class StatusBar(QStatusBar):
         else:
             self._balance_fiat_label.setText('')
 
-    def set_fiat_status(self, status: Optional[Tuple[str, str]]) -> None:
+    def set_fiat_status(self, status: Optional[Tuple[Optional[str], Optional[str]]]) -> None:
         # None: Fiat is disabled.
         # (None, None): Fiat is enabled, but no rate information yet.
         if status is None or status[0] is None and status[1] is None:
@@ -222,8 +222,8 @@ class StatusBar(QStatusBar):
         else:
             self._fiat_widget.setVisible(True)
             # The first call before we fetch our first rate, will show empty space for status text.
-            self._fiat_bsv_label.setText(status[0])
-            self._fiat_value_label.setText(status[1])
+            self._fiat_bsv_label.setText(cast(str, status[0]))
+            self._fiat_value_label.setText(cast(str, status[1]))
 
     def set_network_status(self, text: str, tooltip_text: str="") -> None:
         self._network_label.setText(text)

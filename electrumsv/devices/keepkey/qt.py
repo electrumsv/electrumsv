@@ -27,7 +27,7 @@ from typing import Any, cast, Dict, Optional, Tuple, TYPE_CHECKING, Union
 
 from bitcoinx import bip32_key_from_string, BIP32PrivateKey
 
-from PyQt5.QtCore import pyqtBoundSignal, Qt, QEventLoop, pyqtSignal, QRegExp
+from PyQt5.QtCore import Qt, QEventLoop, pyqtSignal, QRegExp
 from PyQt5.QtGui import QKeyEvent, QRegExpValidator
 from PyQt5.QtWidgets import (
     QGridLayout, QTabWidget, QPushButton, QVBoxLayout, QLabel, QHBoxLayout,
@@ -43,7 +43,8 @@ from ...app_state import app_state
 from ...keystore import Hardware_KeyStore
 from ...i18n import _
 
-from ...gui.qt.util import WindowModalDialog, WWLabel, Buttons, CancelButton, OkButton, CloseButton
+from ...gui.qt.util import CancelButton, CloseButton, WindowProtocol, WindowModalDialog, \
+    WWLabel, Buttons, OkButton
 
 if TYPE_CHECKING:
     from ...gui.qt.account_wizard import AccountWizard
@@ -81,11 +82,11 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
     icon_paired = "icons8-usb-connected-80.png"
     icon_unpaired = "icons8-usb-disconnected-80.png"
 
-    def create_handler(self, window: "ElectrumWindow") -> QtHandlerBase:
+    def create_handler(self, window: WindowProtocol) -> QtHandlerBase:
         return QtHandler(window, self.device)
 
     def show_settings_dialog(self, window: "ElectrumWindow", keystore: Hardware_KeyStore) -> None:
-        device_id = self.choose_device(window, keystore)
+        device_id = self.choose_device(keystore)
         if device_id:
             SettingsDialog(window, self, keystore, device_id).exec_()
 
@@ -141,7 +142,7 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
                     key = bip32_key_from_string(clean_text(text))
                     wizard.next_button.setEnabled(isinstance(key, BIP32PrivateKey))
                 msg = _("Enter the master private key beginning with xprv:")
-                cast(pyqtBoundSignal, text.textChanged).connect(set_enabled)
+                text.textChanged.connect(set_enabled)
                 next_enabled = False
 
             vbox.addWidget(QLabel(msg))
@@ -211,17 +212,17 @@ class CharacterDialog(WindowModalDialog):
             self.char_buttons.append(char_button)
             hbox.addWidget(char_button)
         self.accept_button = CharacterButton(_("Accept Word"))
-        cast(pyqtBoundSignal, self.accept_button.clicked).connect(partial(self.process_key, 32))
-        cast(pyqtBoundSignal, self.rejected).connect(partial(self.loop.exit, 1))
+        self.accept_button.clicked.connect(partial(self.process_key, 32))
+        self.rejected.connect(partial(self.loop.exit, 1))
         hbox.addWidget(self.accept_button)
         hbox.addStretch(1)
         vbox.addLayout(hbox)
 
         self.finished_button = QPushButton(_("Seed Entered"))
         self.cancel_button = QPushButton(_("Cancel"))
-        cast(pyqtBoundSignal, self.finished_button.clicked).connect(
+        self.finished_button.clicked.connect(
             partial(self.process_key, Qt.Key.Key_Return))
-        cast(pyqtBoundSignal, self.cancel_button.clicked).connect(self.rejected)
+        self.cancel_button.clicked.connect(self.rejected)
         buttons = Buttons(self.finished_button, self.cancel_button)
         vbox.addSpacing(40)
         vbox.addLayout(buttons)
@@ -278,7 +279,7 @@ class QtHandler(QtHandlerBase):
     pin_signal = pyqtSignal(object)
     response: str
 
-    def __init__(self, win: "ElectrumWindow", device: str) -> None:
+    def __init__(self, win: "WindowProtocol", device: str) -> None:
         super(QtHandler, self).__init__(win, device)
         self.char_signal.connect(self.update_character_dialog)
         self.pin_signal.connect(self.pin_dialog)
@@ -473,8 +474,8 @@ class SettingsDialog(WindowModalDialog):
         label_edit.setMinimumWidth(150)
         label_edit.setMaxLength(plugin.MAX_LABEL_LEN)
         label_apply = QPushButton(_("Apply"))
-        cast(pyqtBoundSignal, label_apply.clicked).connect(rename)
-        cast(pyqtBoundSignal, label_edit.textChanged).connect(set_label_enabled)
+        label_apply.clicked.connect(rename)
+        label_edit.textChanged.connect(set_label_enabled)
         settings_glayout.addWidget(label_label, 0, 0)
         settings_glayout.addWidget(label_edit, 0, 1, 1, 2)
         settings_glayout.addWidget(label_apply, 0, 3)
@@ -483,7 +484,7 @@ class SettingsDialog(WindowModalDialog):
         # Settings tab - PIN
         pin_label = QLabel(_("PIN Protection"))
         pin_button = QPushButton()
-        cast(pyqtBoundSignal, pin_button.clicked).connect(set_pin)
+        pin_button.clicked.connect(set_pin)
         settings_glayout.addWidget(pin_label, 2, 0)
         settings_glayout.addWidget(pin_button, 2, 1)
         pin_msg = QLabel(_("PIN protection is strongly recommended.  "
@@ -511,8 +512,8 @@ class SettingsDialog(WindowModalDialog):
         timeout_msg.setWordWrap(True)
         timeout_slider.setSliderPosition(config.get_session_timeout() // 60)
         slider_moved()
-        cast(pyqtBoundSignal, timeout_slider.valueChanged).connect(slider_moved)
-        cast(pyqtBoundSignal, timeout_slider.sliderReleased).connect(slider_released)
+        timeout_slider.valueChanged.connect(slider_moved)
+        timeout_slider.sliderReleased.connect(slider_released)
         settings_glayout.addWidget(timeout_label, 6, 0)
         settings_glayout.addWidget(timeout_slider, 6, 1, 1, 3)
         settings_glayout.addWidget(timeout_minutes, 6, 4)
@@ -527,7 +528,7 @@ class SettingsDialog(WindowModalDialog):
 
         # Advanced tab - clear PIN
         clear_pin_button = QPushButton(_("Disable PIN"))
-        cast(pyqtBoundSignal, clear_pin_button.clicked).connect(clear_pin)
+        clear_pin_button.clicked.connect(clear_pin)
         clear_pin_warning = QLabel(
             _("If you disable your PIN, anyone with physical access to your "
               "{} device can spend your bitcoins.").format(plugin.device))
@@ -538,7 +539,7 @@ class SettingsDialog(WindowModalDialog):
 
         # Advanced tab - toggle passphrase protection
         passphrase_button = QPushButton()
-        cast(pyqtBoundSignal, passphrase_button.clicked).connect(toggle_passphrase)
+        passphrase_button.clicked.connect(toggle_passphrase)
         passphrase_msg = WWLabel(PASSPHRASE_HELP)
         passphrase_warning = WWLabel(PASSPHRASE_NOT_PIN)
         passphrase_warning.setStyleSheet("color: red")
@@ -548,7 +549,7 @@ class SettingsDialog(WindowModalDialog):
 
         # Advanced tab - wipe device
         wipe_device_button = QPushButton(_("Wipe Device"))
-        cast(pyqtBoundSignal, wipe_device_button.clicked).connect(wipe_device)
+        wipe_device_button.clicked.connect(wipe_device)
         wipe_device_msg = QLabel(
             _("Wipe the device, removing all data from it.  The firmware "
               "is left unchanged."))

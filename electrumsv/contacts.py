@@ -180,7 +180,7 @@ class Contacts(object):
     def get_contacts(self) -> Iterable[ContactEntry]:
         return self._entries.values()
 
-    def get_contact_identities(self) -> Iterable[Tuple[ContactEntry, ContactIdentity]]:
+    def get_contact_identities(self) -> List[Tuple[ContactEntry, ContactIdentity]]:
         results = []
         for contact in self._entries.values():
             for identity in contact.identities:

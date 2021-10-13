@@ -26,6 +26,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from typing import cast, Union
+from weakref import ProxyType
+
 from bitcoinx import bip32_key_from_string, BIP39Mnemonic, ElectrumMnemonic, Wordlists
 
 from PyQt5.QtCore import Qt
@@ -33,7 +36,7 @@ from PyQt5.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
 
 from ...constants import DerivationType, SEED_PREFIX
 from ...i18n import _
-from ...keystore import KeyStore
+from ...keystore import BIP32_KeyStore, Deterministic_KeyStore, KeyStore
 
 from .main_window import ElectrumWindow
 from .qrtextedit import ShowQRTextEdit
@@ -41,8 +44,8 @@ from .util import Buttons, CloseButton, FormSectionWidget
 
 
 class SecuredDataDialog(QDialog):
-    def __init__(self, main_window: ElectrumWindow, parent: QWidget, keystore: KeyStore,
-            password: str) -> None:
+    def __init__(self, main_window: Union[ElectrumWindow, ProxyType[ElectrumWindow]],
+            parent: QWidget, keystore: KeyStore, password: str) -> None:
         super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
@@ -55,10 +58,11 @@ class SecuredDataDialog(QDialog):
         self._form = form = FormSectionWidget()
 
         assert keystore.derivation_type in (DerivationType.BIP32, DerivationType.ELECTRUM_OLD)
+        deterministic_keystore = cast(Deterministic_KeyStore, keystore)
 
         self._seed_edit = None
-        if keystore.seed is not None:
-            seed_text = keystore.get_seed(password)
+        if deterministic_keystore.seed is not None:
+            seed_text = deterministic_keystore.get_seed(password)
 
             seed_type_text = _("Unknown")
             if keystore.derivation_type == DerivationType.BIP32:
@@ -88,7 +92,7 @@ class SecuredDataDialog(QDialog):
                 seed_type_text = _("BIP32 (Old-style Electrum)")
             form.add_row(_("Seed type"), QLabel(seed_type_text))
 
-            seed_edit = ShowQRTextEdit(self)
+            seed_edit = ShowQRTextEdit()
             seed_edit.setFixedHeight(80)
             seed_edit.addCopyButton()
             seed_edit.setText(seed_text)
@@ -97,10 +101,10 @@ class SecuredDataDialog(QDialog):
 
         # Ambiguous if empty string or None.
         passphrase_widget: QWidget
-        if keystore.passphrase:
-            passphrase_text = keystore.get_passphrase(password)
+        if deterministic_keystore.passphrase:
+            passphrase_text = deterministic_keystore.get_passphrase(password)
 
-            passphrase_edit = ShowQRTextEdit(self)
+            passphrase_edit = ShowQRTextEdit()
             passphrase_edit.setFixedHeight(80)
             passphrase_edit.addCopyButton()
             passphrase_edit.setText(passphrase_text)
@@ -110,11 +114,12 @@ class SecuredDataDialog(QDialog):
         form.add_row(_("Passphrase"), passphrase_widget)
 
         if keystore.derivation_type == DerivationType.BIP32:
-            if keystore.xprv is not None:
-                xprv_text = keystore.get_master_private_key(password)
+            bip32_keystore = cast(BIP32_KeyStore, keystore)
+            if bip32_keystore.xprv is not None:
+                xprv_text = bip32_keystore.get_master_private_key(password)
                 private_key = bip32_key_from_string(xprv_text)
 
-                xprv_edit = ShowQRTextEdit(self)
+                xprv_edit = ShowQRTextEdit()
                 xprv_edit.setFixedHeight(80)
                 xprv_edit.addCopyButton()
                 xprv_edit.setText(private_key.to_extended_key_string())

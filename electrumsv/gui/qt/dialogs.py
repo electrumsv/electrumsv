@@ -23,12 +23,18 @@
 
 import enum
 import time
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QMessageBox, QCheckBox
+from PyQt5.QtWidgets import QCheckBox, QDialog, QMessageBox, QWidget
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
+
+if TYPE_CHECKING:
+    from electrumsv.wallet import Wallet
+
+
 
 class DisplayFrequency(enum.Enum):
     Always = 1
@@ -36,16 +42,18 @@ class DisplayFrequency(enum.Enum):
 
 
 class BoxBase(object):
+    icon: QMessageBox.Icon
     display_frequency = DisplayFrequency.Always
-    last_shown = {}
+    last_shown: Dict[str, Tuple[float, bool]] = {}
 
-    def __init__(self, name, main_text, info_text, frequency=None):
+    def __init__(self, name: str, main_text: str, info_text: str,
+            frequency: Optional[DisplayFrequency]=None) -> None:
         self.name = name
         self.main_text = main_text
         self.info_text = info_text
         self.display_frequency = frequency or self.display_frequency
 
-    def result(self, parent, wallet, **kwargs):
+    def result(self, parent: Optional[QWidget], wallet: Optional["Wallet"], **kwargs: Any) -> Any:
         '''Return the result of the suppressible box.  If this is saved in the configuration
         then the saved value is returned, otherwise the user is asked.'''
         if self.name in self.last_shown:
@@ -54,24 +62,26 @@ class BoxBase(object):
                 return value
 
         key = f'suppress_{self.name}'
-        if wallet:
-            value = wallet.get_storage().get(key, None)
+        if wallet is not None:
+            config_value = wallet.get_storage().get(key, None)
         else:
-            value = app_state.config.get(key, None)
+            config_value = app_state.config.get(key, None)
 
-        if value is None:
+        if config_value is None:
             set_it, value = self.show_dialog(parent, **kwargs)
             if set_it and value is not None:
-                if wallet:
+                if wallet is not None:
                     wallet.get_storage().put(key, value)
                 else:
                     app_state.config.set_key(key, value, True)
 
             self.__class__.last_shown[self.name] = time.time(), value
+            return value
+        assert isinstance(config_value, bool)
+        return config_value
 
-        return value
-
-    def message_box(self, buttons, parent, cb, **kwargs):
+    def message_box(self, buttons: QMessageBox.StandardButton, parent: Optional[QWidget],
+            cb: QCheckBox, **kwargs: Any) -> QMessageBox:
         # Title bar text is blank for consistency across O/Ses (it is never shown on a Mac)
         main_text = kwargs.get('main_text', self.main_text)
         info_text = kwargs.get('info_text', self.info_text)
@@ -88,11 +98,14 @@ class BoxBase(object):
         dialog.setCheckBox(cb)
         return dialog
 
+    def show_dialog(self, parent: Optional[QWidget], **kwargs: Any) -> Tuple[bool, bool]:
+        raise NotImplementedError
+
 
 class InfoBox(BoxBase):
     icon = QMessageBox.Information
 
-    def show_dialog(self, parent, **kwargs):
+    def show_dialog(self, parent: Optional[QWidget], **kwargs: Any) -> Tuple[bool, bool]:
         cb = QCheckBox(_('Do not show me again'))
         dialog = self.message_box(QMessageBox.Ok, parent, cb, **kwargs)
         _set_window_title_and_icon(dialog)
@@ -107,7 +120,8 @@ class WarningBox(InfoBox):
 class YesNoBox(BoxBase):
     icon = QMessageBox.Question
 
-    def __init__(self, name, main_text, info_text, yes_text, no_text, default, frequency=None):
+    def __init__(self, name: str, main_text: str, info_text: str, yes_text: str, no_text: str,
+            default: bool, frequency: Optional[DisplayFrequency]=None) -> None:
         '''yes_text and no_text do not have defaults to encourage you to choose something more
         informative and direct than Yes or No.
         '''
@@ -116,7 +130,7 @@ class YesNoBox(BoxBase):
         self.no_text = no_text
         self.default = default
 
-    def show_dialog(self, parent, **kwargs):
+    def show_dialog(self, parent: Optional[QWidget], **kwargs: str) -> Tuple[bool, bool]:
         cb = QCheckBox(_('Do not ask me again'))
         dialog = self.message_box(QMessageBox.NoButton, parent, cb, **kwargs)
         yes_button = dialog.addButton(kwargs.get('yes_text', self.yes_text), QMessageBox.YesRole)
@@ -127,7 +141,8 @@ class YesNoBox(BoxBase):
         return cb.isChecked(), dialog.clickedButton() is yes_button
 
 
-def show_named(name, *, parent=None, wallet=None, **kwargs):
+def show_named(name: str, *, parent: Optional[QWidget]=None, wallet: Optional["Wallet"]=None,
+        **kwargs: Any) -> Any:
     box = all_boxes_by_name.get(name)
     if not box:
         raise ValueError(f'no box with name {name} found')
@@ -143,7 +158,7 @@ an overview of the various risks, and the mistakes others have made resulting in
 Your coins are your responsibility, take care with them.</span>
 """
 
-all_boxes = [
+all_boxes: List[BoxBase] = [
     InfoBox('welcome-ESV-1.4.0b1',
             _('Welcome to ElectrumSV 1.4.0b1'),
             '<p>'+ take_care_notice +'</p>'+
@@ -170,15 +185,15 @@ all_boxes = [
         ))),
 ]
 
-all_boxes_by_name = {box.name: box for box in all_boxes}
+all_boxes_by_name: Dict[str, BoxBase] = {box.name: box for box in all_boxes}
 
 
-def _set_window_title_and_icon(dialog):
+def _set_window_title_and_icon(dialog: QDialog) -> None:
     # These have no effect on a Mac, but improve the look on Windows
     dialog.setWindowTitle('ElectrumSV')
 
 
-def error_dialog(main_text, *, info_text='', parent=None):
+def error_dialog(main_text: str, *, info_text: str='', parent: Optional[QWidget]=None) -> None:
     dialog = QMessageBox(QMessageBox.Critical, '', main_text,
                          buttons=QMessageBox.Ok, parent=parent)
     dialog.setInformativeText(info_text)

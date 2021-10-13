@@ -3,53 +3,55 @@ from enum import IntEnum
 from functools import partial, lru_cache
 import os
 import sys
-import time
 import traceback
-from typing import Any, Callable, cast, Iterable, List, Optional, Set, TYPE_CHECKING, TypeVar, \
-    Union
+from typing import Any, Callable, cast, Iterable, Generator, List, Optional, Protocol, Set, \
+    Tuple, TYPE_CHECKING, TypeVar, Union
 import weakref
 
 from aiorpcx import RPCError
 
-from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QLocale, QProcess,
-    QModelIndex, QSize, QTimer)
-from PyQt5.QtGui import QFont, QCursor, QIcon, QKeyEvent, QColor, QPalette, QPixmap, QResizeEvent
+from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QEvent, QLocale, QPoint,
+    QProcess, QModelIndex, QSize, QTimer)
+from PyQt5.QtGui import QColor, QCursor, QFont, QIcon, QKeyEvent, QMouseEvent, QPalette, QPixmap, \
+    QResizeEvent
 from PyQt5.QtWidgets import (
     QAbstractButton, QButtonGroup, QDialog, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
     QHeaderView, QLabel, QLayout, QLineEdit, QMessageBox, QFrame, QPlainTextEdit, QProgressBar,
-    QPushButton, QRadioButton, QSizePolicy, QStyle, QStyledItemDelegate, QTableWidget,
-    QToolButton, QToolTip, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget, QWizard
+    QPushButton, QRadioButton, QSizePolicy, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
+    QTableWidget, QToolButton, QToolTip, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QWizard
 )
 from PyQt5.uic import loadUi
 
 from electrumsv.app_state import app_state, get_app_state_qt
+from electrumsv.simple_config import SimpleConfig
 from electrumsv.constants import CredentialPolicyFlag, DATABASE_EXT
 from electrumsv.exceptions import WaitingTaskCancelled
 from electrumsv.i18n import _, languages
 from electrumsv.logs import logs
-from electrumsv.types import WaitingUpdateCallback
 from electrumsv.util import resource_path
 
 if TYPE_CHECKING:
-    from ...credentials import CredentialCache
     from .app import SVApplication
     from .main_window import ElectrumWindow
 
+
+WT = TypeVar('WT')
 D1 = TypeVar('D1', bound=Callable[..., Any])
 
 
 logger = logs.get_logger("qt-util")
 
-dialogs = []
+# dialogs = []
 
 
 class EnterButton(QPushButton):
-    def __init__(self, text, func, parent: Optional[QWidget]=None):
+    def __init__(self, text: str, func: Callable[..., None], parent: Optional[QWidget]=None):
         super().__init__(text, parent)
         self.func = func
         self.clicked.connect(func)
 
-    def keyPressEvent(self, e: QKeyEvent):
+    def keyPressEvent(self, e: QKeyEvent) -> None:
         if e.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             self.func()
 
@@ -80,33 +82,36 @@ class WWLabel(QLabel):
 
 
 class HelpLabel(QLabel):
-    def __init__(self, text, help_text, parent: Optional[QWidget]=None) -> None:
+    def __init__(self, text: str, help_text: str, parent: Optional[QWidget]=None) -> None:
         super().__init__(text, parent)
-        self.app = QCoreApplication.instance()
+        app = QCoreApplication.instance()
+        assert app is not None
+        self.app = app
         self._font = QFont()
         self.set_help_text(help_text)
 
-    def set_help_text(self, help_text):
+    def set_help_text(self, help_text: str) -> None:
         self.help_text = help_text
 
-    def mouseReleaseEvent(self, x):
+    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         QMessageBox.information(self, 'Help', self.help_text)
 
-    def enterEvent(self, event):
+    def enterEvent(self, event: QEvent) -> None:
         self._font.setUnderline(True)
         self.setFont(self._font)
         self.app.setOverrideCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        return QLabel.enterEvent(self, event)
+        QLabel.enterEvent(self, event)
 
-    def leaveEvent(self, event):
+    def leaveEvent(self, event: QEvent) -> None:
         self._font.setUnderline(False)
         self.setFont(self._font)
         self.app.setOverrideCursor(QCursor(Qt.CursorShape.ArrowCursor))
-        return QLabel.leaveEvent(self, event)
+        QLabel.leaveEvent(self, event)
 
 
 class HelpButton(QPushButton):
-    def __init__(self, text, textFormat=Qt.TextFormat.AutoText, title="Help", button_text="?"):
+    def __init__(self, text: str, textFormat: Qt.TextFormat=Qt.TextFormat.AutoText,
+            title: str="Help", button_text: str="?") -> None:
         self.textFormat = textFormat
         self.title = title
         QPushButton.__init__(self, button_text)
@@ -163,12 +168,13 @@ class CloseButton(QPushButton):
 
 
 class CopyButton(QPushButton):
-    def __init__(self, text_getter, app):
+    def __init__(self, text_getter: Callable[[], str], app: QCoreApplication) -> None:
         QPushButton.__init__(self, _("Copy"))
         self.clicked.connect(lambda: app.clipboard().setText(text_getter()))
 
 class CopyCloseButton(QPushButton):
-    def __init__(self, text_getter, app, dialog) -> None:
+    def __init__(self, text_getter: Callable[[], str], app: QCoreApplication,
+            dialog: QDialog) -> None:
         QPushButton.__init__(self, _("Copy and Close"))
         self.clicked.connect(lambda: app.clipboard().setText(text_getter()))
         self.clicked.connect(dialog.close)
@@ -202,9 +208,28 @@ class HelpDialogButton(QPushButton):
         h.run()
 
 
-def query_choice(win, msg: str, choices: Iterable[str]) -> Optional[int]:
-    # Needed by QtHandler for hardware wallets
-    dialog = WindowModalDialog(win.top_level_window())
+class WindowProtocol(Protocol):
+    def top_level_window(self) -> QWidget:
+        raise NotImplementedError
+
+    def question(self, msg: str, parent: Optional[QWidget]=None, title: Optional[str]=None,
+            icon: Optional[QMessageBox.Icon]=None) -> bool:
+        raise NotImplementedError
+
+    def query_choice(self, msg: str, choices: Iterable[str], parent: Optional[QWidget]=None) \
+            -> Optional[int]:
+        raise NotImplementedError
+
+    def show_error(self, msg: str, parent: Optional[QWidget]=None) -> int:
+        raise NotImplementedError
+
+    def show_warning(self, msg: str, parent: Optional[QWidget]=None,
+            title: Optional[str]=None) -> int:
+        raise NotImplementedError
+
+
+def window_query_choice(window: QWidget, msg: str, choices: Iterable[str]) -> Optional[int]:
+    dialog = WindowModalDialog(window)
     clayout = ChoicesLayout(msg, choices)
     vbox = QVBoxLayout(dialog)
     vbox.addLayout(clayout.layout())
@@ -214,7 +239,7 @@ def query_choice(win, msg: str, choices: Iterable[str]) -> Optional[int]:
     return clayout.selected_index()
 
 
-def top_level_window_recurse(window) -> QWidget:
+def top_level_window_recurse(window: QWidget) -> QWidget:
     classes = (WindowModalDialog, QMessageBox, QWizard)
     for n, child in enumerate(window.children()):
         # Test for visibility as old closed dialogs may not be GC-ed
@@ -224,73 +249,91 @@ def top_level_window_recurse(window) -> QWidget:
 
 
 class MessageBoxMixin(object):
-    def top_level_window(self):
-        return top_level_window_recurse(self)
+    def top_level_window(self) -> QWidget:
+        return top_level_window_recurse(cast(QWidget, self))
 
-    def question(self, msg: str, parent=None, title=None, icon=None) -> bool:
+    def question(self, msg: str, parent: Optional[QWidget]=None, title: Optional[str]=None,
+            icon: Optional[QMessageBox.Icon]=None) -> bool:
         Yes, No = QMessageBox.Yes, QMessageBox.No
         return self.msg_box(icon or QMessageBox.Question,
                             parent, title or '',
                             msg, buttons=Yes|No, defaultButton=No) == Yes
 
-    def show_warning(self, msg: str, parent=None, title=None) -> int:
-        return self.msg_box(QMessageBox.Warning, parent,
-                            title or _('Warning'), msg)
+    def query_choice(self, msg: str, choices: Iterable[str], parent: Optional[QWidget]=None) \
+            -> Optional[int]:
+        parent = parent or self.top_level_window()
+        return window_query_choice(parent, msg, choices)
 
-    def show_error(self, msg: str, parent=None) -> int:
+    def show_error(self, msg: str, parent: Optional[QWidget]=None) -> int:
         return self.msg_box(QMessageBox.Warning, parent,
                             _('Error'), msg)
 
-    def show_critical(self, msg: str, parent=None, title=None) -> int:
+    def show_warning(self, msg: str, parent: Optional[QWidget]=None,
+            title: Optional[str]=None) -> int:
+        return self.msg_box(QMessageBox.Warning, parent,
+                            title or _('Warning'), msg)
+
+    def show_critical(self, msg: str, parent: Optional[QWidget]=None,
+            title: Optional[str]=None) -> int:
         return self.msg_box(QMessageBox.Critical, parent,
                             title or _('Critical Error'), msg)
 
-    def show_message(self, msg: str, parent=None, title=None) -> int:
+    def show_message(self, msg: str, parent: Optional[QWidget]=None,
+            title: Optional[str]=None) -> int:
         return self.msg_box(QMessageBox.Information, parent,
                             title or _('Information'), msg)
 
-    def msg_box(self, icon, parent, title, text, buttons=QMessageBox.Ok,
-                defaultButton=QMessageBox.NoButton) -> int:
+    def msg_box(self, icon: QMessageBox.Icon, parent: Optional[QWidget], title: str,
+            text: str,
+            buttons: QMessageBox.StandardButtons=QMessageBox.StandardButtons(QMessageBox.Ok),
+            defaultButton: QMessageBox.StandardButton=QMessageBox.NoButton) -> int:
         parent = parent or self.top_level_window()
         d = QMessageBox(icon, title, str(text), buttons, parent)
         if not app_state.config.get('ui_disable_modal_dialogs', False):
             d.setWindowModality(Qt.WindowModality.WindowModal)
-        d.setWindowFlags(d.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        window_flags = int(d.windowFlags()) & ~Qt.WindowType.WindowContextHelpButtonHint
+        d.setWindowFlags(Qt.WindowType(window_flags))
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
 
+
 class MessageBox:
     @classmethod
-    def show_message(cls, msg, parent=None, title=None):
+    def show_message(cls, msg: str, parent: Optional[QWidget]=None,
+            title: Optional[str]=None) -> int:
         return cls.msg_box(QMessageBox.Information, parent, title or _('Information'), msg)
 
     @classmethod
-    def question(cls, msg, parent=None, title=None, icon=None):
+    def question(cls, msg: str, parent: Optional[QWidget]=None, title: Optional[str]=None,
+            icon: Optional[QMessageBox.Icon]=None) -> int:
         Yes, No = QMessageBox.Yes, QMessageBox.No
         return cls.msg_box(icon or QMessageBox.Question, parent, title or '',
                            msg, buttons=Yes|No, defaultButton=No) == Yes
 
     @classmethod
-    def show_warning(cls, msg, parent=None, title=None):
+    def show_warning(cls, msg: str, parent: Optional[QWidget]=None,
+            title: Optional[str]=None) -> int:
         return cls.msg_box(QMessageBox.Warning, parent, title or _('Warning'), msg)
 
     @classmethod
-    def show_error(cls, msg, parent=None, title=None):
+    def show_error(cls, msg: str, parent: Optional[QWidget]=None, title: Optional[str]=None) -> int:
         return cls.msg_box(QMessageBox.Warning, parent, title or _('Error'), msg)
 
     @classmethod
-    def msg_box(cls, icon, parent, title, text, buttons=QMessageBox.Ok,
-                defaultButton=QMessageBox.NoButton):
+    def msg_box(cls, icon: QMessageBox.Icon, parent: Optional[QWidget], title: str, text: str,
+            buttons: QMessageBox.StandardButtons=QMessageBox.StandardButtons(QMessageBox.Ok),
+            defaultButton: QMessageBox.StandardButton=QMessageBox.NoButton) -> int:
         d = QMessageBox(icon, title, str(text), buttons, parent)
-        d.setWindowFlags(d.windowFlags() & ~Qt.WindowType.WindowContextHelpButtonHint)
+        window_flags = int(d.windowFlags()) & ~Qt.WindowType.WindowContextHelpButtonHint
+        d.setWindowFlags(Qt.WindowType(window_flags))
         d.setDefaultButton(defaultButton)
         return d.exec_()
 
 
 class UntrustedMessageDialog(QDialog):
-    def __init__(self, parent, title, description, exception: Optional[Exception]=None,
-            untrusted_text: str="") -> None:
+    def __init__(self, parent: QWidget, title: str, description: str,
+            exception: Optional[Exception]=None, untrusted_text: str="") -> None:
         QDialog.__init__(self, parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint |
             Qt.WindowType.WindowCloseButtonHint))
@@ -324,7 +367,8 @@ class UntrustedMessageDialog(QDialog):
 class WindowModalDialog(QDialog, MessageBoxMixin):
     '''Handy wrapper; window modal dialogs are better for our multi-window
     daemon model as other wallet windows can still be accessed.'''
-    def __init__(self, parent: QWidget, title: Optional[str]=None, hide_close_button: bool=False):
+    def __init__(self, parent: Optional[QWidget], title: Optional[str]=None,
+            hide_close_button: bool=False) -> None:
         flags = Qt.WindowType.WindowSystemMenuHint | Qt.WindowType.WindowTitleHint
         # This is the window close button, not any one we add ourselves.
         if not hide_close_button:
@@ -365,12 +409,11 @@ class WaitingDialog(WindowModalDialog):
 
     _title: Optional[str] = None
 
-    _future: Optional[concurrent.futures.Future] = None
     _on_done_callback: WaitingCompletionCallback = None
     _was_accepted: bool = False
     _was_rejected: bool = False
 
-    def __init__(self, parent: QWidget, message: str, func, *args,
+    def __init__(self, parent: QWidget, message: str, func: Callable[..., WT],
             on_done: WaitingCompletionCallback=None, title: Optional[str]=None,
             watch_events: bool=False, progress_steps: int=0, close_delay: int=0,
             allow_cancel: bool=False) -> None:
@@ -424,10 +467,11 @@ class WaitingDialog(WindowModalDialog):
         button_box_1.addWidget(self._dismiss_button, False, Qt.AlignmentFlag.AlignHCenter)
         vbox.addLayout(button_box_1)
 
-        args = (*args, self._step_progress)
+        args = (self._step_progress,)
         # NOTE: `run_in_thread` ensures the `on_done` callback runs in the GUI thread.
         self._on_done_callback = on_done
-        self._future = cast("SVApplication", app_state.app).run_in_thread(func, *args,
+        self._future: Optional[concurrent.futures.Future[WT]] = \
+            cast("SVApplication", app_state.app).run_in_thread(func, args,
             on_done=self._on_run_done)
 
         self.accepted.connect(self._on_accepted)
@@ -462,7 +506,7 @@ class WaitingDialog(WindowModalDialog):
             # "RuntimeError: wrapped C/C++ object of type WaitingDialog has been deleted"
             raise WaitingTaskCancelled()
 
-    def _on_run_done(self, future: concurrent.futures.Future) -> None:
+    def _on_run_done(self, future: concurrent.futures.Future[Any]) -> None:
         self._advance_dismissal_process(self._close_delay)
 
     def _advance_dismissal_process(self, remaining_steps: int) -> None:
@@ -501,39 +545,6 @@ class WaitingDialog(WindowModalDialog):
         if message is not None:
             self.update_message(message)
 
-    @classmethod
-    def test(cls, window: 'ElectrumWindow', delay: int=5) -> "WaitingDialog":
-        title = "title"
-        message = "message"
-        steps = 5
-
-        def func(update_cb: WaitingUpdateCallback) -> Optional[bool]:
-            nonlocal delay, steps
-            interval = delay / steps
-            for i in range(steps):
-                update_message = "Working on it (even).." if i % 2 else "Working on it (odd).."
-                update_cb(False, update_message)
-                time.sleep(interval)
-                try:
-                    update_cb(True)
-                except WaitingTaskCancelled:
-                    return None
-            update_cb(False, "Done")
-            return True
-
-        def completed(future: concurrent.futures.Future) -> None:
-            try:
-                data = future.result()
-            except concurrent.futures.CancelledError:
-                logger.debug(f"{cls.__name__} cancelled")
-            except Exception as exc:
-                logger.exception(f"{cls.__name__} errored with: {exc}")
-            else:
-                logger.debug(f"{cls.__name__} completed with: {data}")
-
-        return cls(window, message, func, title=title, progress_steps=steps, on_done=completed,
-            allow_cancel=True, close_delay=5)
-
 
 def line_dialog(parent: QWidget, title: str, label: str, ok_label: str,
         default: Optional[str]=None) -> Optional[str]:
@@ -559,6 +570,7 @@ def line_dialog(parent: QWidget, title: str, label: str, ok_label: str,
     l.addLayout(Buttons(CancelButton(dialog), ok_button))
     if dialog.exec_():
         return txt.text().strip()
+    return None
 
 
 def text_dialog(parent: QWidget, title: str, label: str, ok_label: str, default: Optional[str]=None,
@@ -580,7 +592,8 @@ def text_dialog(parent: QWidget, title: str, label: str, ok_label: str, default:
 
 
 class ChoicesLayout(object):
-    def __init__(self, msg: str, choices, on_clicked=None, checked_index=0):
+    def __init__(self, msg: str, choices: Iterable[str],
+            on_clicked: Optional[Callable[..., None]]=None, checked_index: int=0) -> None:
         vbox = QVBoxLayout()
         if len(msg) > 50:
             vbox.addWidget(WWLabel(msg))
@@ -606,14 +619,15 @@ class ChoicesLayout(object):
 
         self.vbox = vbox
 
-    def layout(self):
+    def layout(self) -> QVBoxLayout:
         return self.vbox
 
     def selected_index(self) -> int:
         return self.group.checkedId()
 
 
-def filename_field(config, defaultname, select_msg):
+def filename_field(config: SimpleConfig, defaultname: str, select_msg: str) \
+        -> Tuple[QVBoxLayout, QLineEdit, QRadioButton]:
     vbox = QVBoxLayout()
     gb = QGroupBox(_("Format"))
     gbox = QHBoxLayout()
@@ -629,12 +643,12 @@ def filename_field(config, defaultname, select_msg):
 
     hbox = QHBoxLayout()
 
-    directory = config.get('io_dir', os.path.expanduser('~'))
+    directory = config.get_explicit_type(str, 'io_dir', os.path.expanduser('~'))
     path = os.path.join( directory, defaultname )
     filename_e = QLineEdit()
     filename_e.setText(path)
 
-    def func():
+    def func() -> None:
         text = filename_e.text()
         _filter = ("*.csv" if text.endswith(".csv") else
                    "*.json" if text.endswith(".json") else
@@ -650,7 +664,7 @@ def filename_field(config, defaultname, select_msg):
     hbox.addWidget(filename_e)
     vbox.addLayout(hbox)
 
-    def set_csv(v):
+    def set_csv(v: bool) -> None:
         text = filename_e.text()
         text = text.replace(".json",".csv") if v else text.replace(".csv",".json")
         filename_e.setText(text)
@@ -662,14 +676,18 @@ def filename_field(config, defaultname, select_msg):
 
 
 class ElectrumItemDelegate(QStyledItemDelegate):
-    def createEditor(self, parent, option, index):
-        return self.parent().createEditor(parent, option, index)
+    def createEditor(self, parent: QWidget, style_option: QStyleOptionViewItem,
+            index: QModelIndex) -> QWidget:
+        return cast("MyTreeWidget", self.parent()).createEditor(parent, style_option, index)
 
 
 class MyTreeWidget(QTreeWidget):
+    filter_columns: List[int]
+    editable_columns: List[int]
 
-    def __init__(self, parent: QWidget, main_window: 'ElectrumWindow', create_menu, headers,
-            stretch_column=None, editable_columns=None):
+    def __init__(self, parent: QWidget, main_window: 'ElectrumWindow',
+            create_menu: Callable[[QPoint], None], headers: List[str],
+            stretch_column: Optional[int]=None, editable_columns: Optional[List[int]]=None) -> None:
         QTreeWidget.__init__(self, parent)
 
         self.setAlternatingRowColors(True)
@@ -685,17 +703,19 @@ class MyTreeWidget(QTreeWidget):
         self.insertChild = self.insertTopLevelItem
 
         # Control which columns are editable
-        self.editor = None
+        self.editor: Optional[QWidget] = None
         self.pending_update = False
-        if editable_columns is None:
-            editable_columns = [stretch_column]
-        self.editable_columns = editable_columns
+        if stretch_column is None:
+            self.editable_columns = []
+        else:
+            self.editable_columns = \
+                [stretch_column] if editable_columns is None else editable_columns
         self.setItemDelegate(ElectrumItemDelegate(self))
         self.itemDoubleClicked.connect(self.on_doubleclick)
         self.update_headers(headers)
         self.current_filter = ""
 
-    def update_headers(self, headers):
+    def update_headers(self, headers: List[str]) -> None:
         self.setColumnCount(len(headers))
         self.setHeaderLabels(headers)
         self.header().setStretchLastSection(False)
@@ -704,38 +724,39 @@ class MyTreeWidget(QTreeWidget):
                   else QHeaderView.ResizeToContents)
             self.header().setSectionResizeMode(col, sm)
 
-    def editItem(self, item, column):
+    def editItem(self, item: QTreeWidgetItem, column: int=0) -> None:
         if column in self.editable_columns:
             self.editing_itemcol = (item, column, item.text(column))
             # Calling setFlags causes on_changed events for some reason
-            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
+            item.setFlags(Qt.ItemFlag(int(item.flags()) | Qt.ItemFlag.ItemIsEditable))
             QTreeWidget.editItem(self, item, column)
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            item.setFlags(Qt.ItemFlag(int(item.flags()) & ~Qt.ItemFlag.ItemIsEditable))
 
-    def keyPressEvent(self, event: QKeyEvent):
+    def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in [ Qt.Key.Key_F2, Qt.Key.Key_Return ] and self.editor is None:
             self.on_activated(self.currentItem(), self.currentColumn())
         else:
             QTreeWidget.keyPressEvent(self, event)
 
-    def permit_edit(self, item, column):
+    def permit_edit(self, item: QTreeWidgetItem, column: int) -> bool:
         return (column in self.editable_columns
                 and self.on_permit_edit(item, column))
 
-    def on_permit_edit(self, item, column):
+    def on_permit_edit(self, item: QTreeWidgetItem, column: int) -> bool:
         return True
 
-    def on_doubleclick(self, item, column):
+    def on_doubleclick(self, item: QTreeWidgetItem, column: int) -> None:
         if self.permit_edit(item, column):
             self.editItem(item, column)
 
-    def on_activated(self, item, column):
+    def on_activated(self, item: QTreeWidgetItem, column: int) -> None:
         # on 'enter' we show the menu
         pt = self.visualItemRect(item).bottomLeft()
         pt.setX(50)
         self.customContextMenuRequested.emit(pt)
 
-    def createEditor(self, parent, option, index):
+    def createEditor(self, parent: QWidget, option: QStyleOptionViewItem,
+            index: QModelIndex) -> QWidget:
         self.editor = QStyledItemDelegate.createEditor(
             cast(QStyledItemDelegate, self.itemDelegate()),
             parent, option, index)
@@ -765,8 +786,9 @@ class MyTreeWidget(QTreeWidget):
                 self.pending_update = False
                 self.on_update()
 
-    def on_edited(self, item, column, prior) -> None:
+    def on_edited(self, item: QTreeWidgetItem, column: int, prior_text: str) -> None:
         '''Called only when the text actually changes'''
+        text: Optional[str]
         text = item.text(column).strip()
         if text == "":
             text = None
@@ -775,7 +797,8 @@ class MyTreeWidget(QTreeWidget):
         assert account is not None
         account.set_transaction_label(tx_hash, text)
 
-    def update(self) -> None:
+    # NOTE(typing) This is complained about even though it is a method signature in QWidget.
+    def update(self) -> None: # type: ignore
         # Defer updates if editing
         if self.editor:
             self.pending_update = True
@@ -784,10 +807,10 @@ class MyTreeWidget(QTreeWidget):
         if self.current_filter:
             self.filter(self.current_filter)
 
-    def on_update(self):
+    def on_update(self) -> None:
         pass
 
-    def get_leaves(self, root):
+    def get_leaves(self, root: QTreeWidgetItem) -> Generator[QTreeWidgetItem, None, None]:
         child_count = root.childCount()
         if child_count == 0:
             yield root
@@ -796,7 +819,7 @@ class MyTreeWidget(QTreeWidget):
             for x in self.get_leaves(item):
                 yield x
 
-    def filter(self, p):
+    def filter(self, p: str) -> None:
         columns = self.__class__.filter_columns
         p = p.lower()
         self.current_filter = p
@@ -847,7 +870,7 @@ class ButtonsWidget(QWidget):
                     x += sz.width()
                 button.move(x, y - sz.height())
 
-    def addButton(self, icon_name: str, on_click: Callable[[], None], tooltip: str,
+    def addButton(self, icon_name: str, on_click: Callable[..., Any], tooltip: str,
             insert: bool=False) -> QToolButton:
         button = QToolButton(self)
         button.setIcon(read_QIcon(icon_name))
@@ -894,7 +917,7 @@ class ButtonsWidget(QWidget):
 class ButtonsLineEdit(KeyEventLineEdit, ButtonsWidget):
     qt_css_class = "QLineEdit"
 
-    def __init__(self, text=''):
+    def __init__(self, text: str='') -> None:
         KeyEventLineEdit.__init__(self, None, text, {Qt.Key.Key_Return, Qt.Key.Key_Enter})
         self.buttons: List[QAbstractButton] = []
 
@@ -929,7 +952,7 @@ class ButtonsTableWidget(QTableWidget, ButtonsWidget):
             buttons_mode: ButtonsMode=ButtonsMode.TOOLBAR_RIGHT) -> None:
         self.buttons_mode = buttons_mode
         QTableWidget.__init__(self, parent)
-        self.buttons: Iterable[QAbstractButton] = []
+        self.buttons: List[QAbstractButton] = []
 
     def resizeEvent(self, event: QResizeEvent) -> None:
         QTableWidget.resizeEvent(self, event)
@@ -937,10 +960,10 @@ class ButtonsTableWidget(QTableWidget, ButtonsWidget):
 
 
 class ColorSchemeItem:
-    def __init__(self, fg_color, bg_color):
+    def __init__(self, fg_color: str, bg_color: str) -> None:
         self.colors = (fg_color, bg_color)
 
-    def _get_color(self, background):
+    def _get_color(self, background: bool) -> str:
         return self.colors[(int(background) + int(ColorScheme.dark_scheme)) % 2]
 
     def as_stylesheet(self, background: bool=False, class_name: str="QWidget", id_name: str="") \
@@ -952,7 +975,7 @@ class ColorSchemeItem:
             key_name += "#"+ id_name
         return "{} {{ {}color:{}; }}".format(key_name, css_prefix, color)
 
-    def as_color(self, background=False):
+    def as_color(self, background: bool=False) -> QColor:
         color = self._get_color(background)
         return QColor(color)
 
@@ -967,12 +990,12 @@ class ColorScheme:
     YELLOW = ColorSchemeItem("yellow", "yellow")
 
     @staticmethod
-    def has_dark_background(widget):
+    def has_dark_background(widget: QWidget) -> bool:
         brightness = sum(widget.palette().color(QPalette.Background).getRgb()[0:3])
         return brightness < (255*3/2)
 
     @staticmethod
-    def update_from_widget(widget):
+    def update_from_widget(widget: QWidget) -> None:
         if ColorScheme.has_dark_background(widget):
             ColorScheme.dark_scheme = True
 
@@ -980,13 +1003,15 @@ class ColorScheme:
 class SortableTreeWidgetItem(QTreeWidgetItem):
     DataRole = Qt.ItemDataRole.UserRole + 1
 
-    def __lt__(self, other):
+    def __lt__(self, other: object) -> bool:
+        assert isinstance(other, QTreeWidgetItem)
         column = self.treeWidget().sortColumn()
         self_data = self.data(column, self.DataRole)
         other_data = other.data(column, self.DataRole)
         if None not in (self_data, other_data):
             # We have set custom data to sort by
-            return self_data < other_data
+            return cast(bool, self_data < other_data)
+
         try:
             # Is the value something numeric?
             self_text = self.text(column).replace(',', '')
@@ -997,7 +1022,7 @@ class SortableTreeWidgetItem(QTreeWidgetItem):
             return self.text(column) < other.text(column)
 
 
-def update_fixed_tree_height(tree: QTreeWidget, maximum_height=None):
+def update_fixed_tree_height(tree: QTreeWidget, maximum_height: Optional[int]=None) -> None:
     # We can't always rely on the manually set maximum height sticking.
     # It's possible the setting of the fixed height explicitly replaces it.
     if maximum_height is None:
@@ -1022,13 +1047,14 @@ def protected(func: D1) -> D1:
     as the 'password' named argument.  "None" indicates either an
     unencrypted wallet, or the user cancelled the password request.
     An empty input is passed as the empty string.'''
-    def request_password(self, *args: Any, **kwargs: Any) -> Any:
+    def request_password(self: "ElectrumWindow", *args: Any, **kwargs: Any) -> Any:
         main_window = self
         if 'main_window' in kwargs:
             main_window = kwargs['main_window']
         elif 'wallet_id' in kwargs:
-            main_window = app_state.app_qt.get_wallet_window_by_id(kwargs['wallet_id'])
-            assert main_window is not None
+            main_window2 = app_state.app_qt.get_wallet_window_by_id(kwargs['wallet_id'])
+            assert main_window2 is not None
+            main_window = main_window2
 
         parent = main_window.top_level_window()
         password: Optional[str] = None
@@ -1049,24 +1075,25 @@ def protected(func: D1) -> D1:
     return cast(D1, request_password)
 
 
-def icon_path(icon_basename):
+def icon_path(icon_basename: str) -> str:
     return resource_path('icons', icon_basename)
 
-def read_qt_ui(ui_name):
-    return loadUi(resource_path("ui", ui_name))
+def read_qt_ui(ui_name: str) -> QWidget:
+    # NOTE(typing) This is not typed by PyQt5-stubs.
+    return cast(QWidget, loadUi(resource_path("ui", ui_name))) # type: ignore
 
 @lru_cache()
-def read_QIcon(icon_basename):
+def read_QIcon(icon_basename: str) -> QIcon:
     return QIcon(icon_path(icon_basename))
 
-def get_source_index(model_index: QModelIndex, klass: Any):
+def get_source_index(model_index: QModelIndex, klass: Any) -> QModelIndex:
     model = model_index.model()
     while model is not None and not isinstance(model, klass):
         model_index = model.mapToSource(model_index)
         model = model_index.model()
     return model_index
 
-def get_default_language():
+def get_default_language() -> str:
     name = QLocale.system().name()
     return name if name in languages else 'en_UK'
 
@@ -1130,7 +1157,7 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
         fields, # type: ignore
         kind=PasswordAction.NEW)
     success, _old_password, new_password = d.run()
-    if not success or not new_password.strip():
+    if not success or not cast(str, new_password).strip():
         return None
 
     assert new_password is not None
@@ -1141,7 +1168,7 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
     storage.close()
     # Store the credential in case we most likely are going to open it immediately and do not
     # want to prompt for the password immediately after the user just specififed it.
-    cast("CredentialCache", app_state.credentials).set_wallet_password(wallet_path, new_password,
+    app_state.credentials.set_wallet_password(wallet_path, new_password,
         CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD | CredentialPolicyFlag.IS_BEING_ADDED)
     return create_filepath
 
@@ -1263,12 +1290,11 @@ class FramedTextWidget(QLabel):
 class ClickableLabel(QLabel):
     clicked = pyqtSignal()
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-    def mousePressEvent(self, _event):
+    def mousePressEvent(self, event: QMouseEvent) -> None:
         self.clicked.emit()
 
 
@@ -1310,6 +1336,8 @@ class ExpandableSection(QWidget):
 
         self._child = child
 
+        expand_details_button = QPushButton("+")
+
         def on_clicked_button_expand_details() -> None:
             nonlocal expand_details_button, self
             is_expanded = expand_details_button.text() == "-"
@@ -1320,7 +1348,6 @@ class ExpandableSection(QWidget):
                 expand_details_button.setText("-")
                 self._child.setVisible(True)
 
-        expand_details_button = QPushButton("+")
         expand_details_button.setStyleSheet("padding: 2px;")
         expand_details_button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
         expand_details_button.clicked.connect(on_clicked_button_expand_details)

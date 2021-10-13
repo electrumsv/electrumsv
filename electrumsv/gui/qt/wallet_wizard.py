@@ -31,11 +31,11 @@ import os
 import shutil
 import sys
 import threading
-from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
+from typing import Any, cast, Dict, List, NamedTuple, Optional, TYPE_CHECKING
 
 from bitcoinx import DecryptionError
 from PyQt5.QtCore import pyqtSignal, Qt, QItemSelection, QModelIndex
-from PyQt5.QtGui import QPixmap
+from PyQt5.QtGui import QContextMenuEvent, QKeyEvent, QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView, QAction, QDialog,
     QFileDialog, QHeaderView, QHBoxLayout, QLabel, QMenu,
@@ -55,6 +55,7 @@ from electrumsv.util import get_wallet_name_from_path, read_resource_text
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import Wallet
 
+from .password_dialog import LayoutFields
 from .util import (AspectRatioPixmapLabel, can_show_in_file_explorer, create_new_wallet, icon_path,
     MessageBox, show_in_file_explorer)
 from .wizard_common import BaseWizard, HelpContext
@@ -181,13 +182,13 @@ def request_password(parent: Optional[QWidget], storage: WalletStorage, entry: F
         credential_policy: CredentialPolicyFlag=CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1) \
             -> Optional[str]:
     wallet_path = storage.get_path()
-    password = cast("CredentialCache", app_state.credentials).get_wallet_password(wallet_path)
+    password = app_state.credentials.get_wallet_password(wallet_path)
     if password is not None and storage.is_password_valid(password):
         return password
 
     name_edit = QLabel(entry.name)
     name_edit.setAlignment(Qt.AlignmentFlag.AlignTop)
-    fields: List[Tuple[str, QWidget]] = [
+    fields: LayoutFields = [
         (_("Wallet"), name_edit),
     ]
 
@@ -197,23 +198,22 @@ def request_password(parent: Optional[QWidget], storage: WalletStorage, entry: F
             password_check_fn = lambda v: True
         else:
             password_check_fn = storage.is_password_valid
-        dialog = PasswordDialog(parent, PASSWORD_REQUEST_TEXT,
-            fields=fields, password_check_fn=password_check_fn)
-        dialog.setMaximumWidth(200)
-        password = dialog.run()
+        dialog1 = PasswordDialog(parent, PASSWORD_REQUEST_TEXT, password_check_fn,
+            fields=fields)
+        dialog1.setMaximumWidth(200)
+        password = dialog1.run()
         if password is not None and credential_policy != CredentialPolicyFlag.NONE:
-            cast("CredentialCache", app_state.credentials).set_wallet_password(wallet_path,
-                password, credential_policy)
+            app_state.credentials.set_wallet_password(wallet_path, password, credential_policy)
         return password
 
     from .password_dialog import ChangePasswordDialog, PasswordAction
-    dialog = ChangePasswordDialog(parent, PASSWORD_MISSING_TEXT,
+    dialog2 = ChangePasswordDialog(parent, PASSWORD_MISSING_TEXT,
             _("Add Password") +" - "+ _("Wallet Migration"), fields, kind=PasswordAction.NEW)
-    success, _old_password, password = dialog.run()
-    if success and len(password.strip()):
+    success, _old_password, password = dialog2.run()
+    if success and password and len(password.strip()):
         password = password.strip()
         if credential_policy != CredentialPolicyFlag.NONE:
-            cast("CredentialCache", app_state.credentials).set_wallet_password(wallet_path,
+            app_state.credentials.set_wallet_password(wallet_path,
                 password, credential_policy | CredentialPolicyFlag.IS_BEING_ADDED)
         return password
     return None
@@ -299,7 +299,7 @@ class WalletWizard(BaseWizard):
                     if entry.requires_upgrade:
                         migration_context = MigrationContext(entry, storage)
                         # We hand off the storage reference to the wallet wizard to close.
-                        storage = None
+                        del storage
                         return WalletOpenResult(True, wizard=cls(migration_data=migration_context))
                     return WalletOpenResult(True)
 
@@ -362,7 +362,7 @@ class SplashScreenPage(QWizardPage):
     def _on_reset_next_page(self) -> None:
         self._next_page_id = WalletPage.CHOOSE_WALLET
 
-    def _on_release_notes_clicked(self, *checked) -> None:
+    def _on_release_notes_clicked(self, checked: bool=False) -> None:
         # Change the page to the release notes page by intercepting nextId.
         self._next_page_id = WalletPage.RELEASE_NOTES
         self.wizard().next()
@@ -432,14 +432,14 @@ class ChooseWalletPage(QWizardPage):
 
         page = self
         class TableWidget(QTableWidget):
-            def keyPressEvent(self, event):
+            def keyPressEvent(self, event: QKeyEvent) -> None:
                 key = event.key()
                 if key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
                     page._event_key_selection()
                 else:
                     super(TableWidget, self).keyPressEvent(event)
 
-            def contextMenuEvent(self, event):
+            def contextMenuEvent(self, event: QContextMenuEvent) -> None:
                 if not can_show_in_file_explorer():
                     return
 
@@ -580,7 +580,7 @@ class ChooseWalletPage(QWizardPage):
                     migration_page = wizard.page(WalletPage.MIGRATE_OLDER_WALLET)
                     migration_page.set_migration_data(entry, storage)
                     # Give the storage object to the migration page, which we are going to.
-                    storage = None
+                    del storage
                     wizard.next()
                 else:
                     assert entry.storage_kind == StorageKind.DATABASE, \
@@ -696,8 +696,10 @@ class ChooseWalletPage(QWizardPage):
 
         self._gui_list_reset()
         self._recent_wallet_paths.extend(
-            [ candidate_path for candidate_path in [ os.path.normpath(candidate_path)
-            for candidate_path in app_state.config.get('recently_open', []) ]
+            [ candidate_path for candidate_path in
+                [ os.path.normpath(candidate_path2) for candidate_path2 in
+                    app_state.config.get_explicit_type(List[str], 'recently_open',
+                        cast(List[str], [])) ]
             if os.path.exists(candidate_path) ])
 
         self._list_thread = threading.Thread(target=self._populate_list_in_thread,
@@ -750,8 +752,8 @@ class ChooseWalletPage(QWizardPage):
         return create_file_state(wallet_path)
 
     def _gui_list_reset(self) -> None:
-        self._recent_wallet_paths: List[str] = []
-        self._recent_wallet_entries: Dict[str, FileState] = {}
+        self._recent_wallet_paths = []
+        self._recent_wallet_entries = {}
 
         while self._wallet_table.rowCount():
             self._wallet_table.removeRow(self._wallet_table.rowCount()-1)
@@ -778,6 +780,7 @@ class ChooseWalletPage(QWizardPage):
             Qt.AlignmentFlag.AlignVCenter))
         row_icon_label.setMaximumWidth(80)
 
+        assert entry.name is not None
         row_desc_label = QLabel(entry.name +
             "<br/><font color='grey'>"+ os.path.dirname(entry.path) +"</font>")
         row_desc_label.setTextFormat(Qt.TextFormat.RichText)
@@ -798,7 +801,7 @@ class OlderWalletMigrationPage(QWizardPage):
     _migration_error_text: str = _("Unexpected migration failure.")
 
     _migration_entry: Optional[FileState] = None
-    _migration_storage: Optional[WalletStorage] = None
+    _migration_storage: WalletStorage
 
     set_progress_stages = pyqtSignal(int)
     begin_progress_stage = pyqtSignal(int)
@@ -904,18 +907,18 @@ class OlderWalletMigrationPage(QWizardPage):
         self._migration_completed = False
         self._migration_successful = False
         self._migration_error_text = self.__class__._migration_error_text
-        self._future = app_state.app.run_in_thread(self._migrate_wallet,
+        self._future = app_state.app_qt.run_in_thread(self._migrate_wallet,
             on_done=self._on_migration_completed)
 
         wizard.button(QWizard.HelpButton).setFocus(Qt.FocusReason.OtherFocusReason)
 
     def on_leave(self) -> None:
         self._future.cancel()
-        self._future = None
+        del self._future
 
         self._migration_entry = None
         self._migration_storage.close()
-        self._migration_storage = None
+        del self._migration_storage
 
     def _migrate_wallet(self) -> None:
         try:
@@ -949,8 +952,7 @@ class OlderWalletMigrationPage(QWizardPage):
             # password would not be in the credential cache. Ideally instead of calling
             # the credential manager here, we would call `request_password` but we are not
             # in the UI thread so are unable to do that.
-            wallet_password = cast("CredentialCache", app_state.credentials).get_wallet_password(
-                storage.get_path())
+            wallet_password = app_state.credentials.get_wallet_password(storage.get_path())
             if wallet_password is None:
                 self._migration_error_text = _("Something took too long and ElectrumSV has "
                     "forgotten what password you entered.")
@@ -1024,6 +1026,8 @@ class OlderWalletMigrationPage(QWizardPage):
             self._stages_progress_bar.setStyleSheet(style_sheet)
             self._stage_progress_bar.setStyleSheet(style_sheet)
             self._progress_label.setText(self._migration_error_text)
+
+        assert self._migration_entry is not None
 
         wizard = cast(WalletWizard, self.wizard())
         wizard.set_completed_migration_entry(self._migration_entry)

@@ -26,7 +26,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget, QWizard
@@ -62,6 +62,7 @@ class HelpContext(NamedTuple):
 
 class BaseWizard(QWizard):
     HELP_DIRNAME: str
+    _last_page_id: Any
 
     def __init__(self, parent: Optional[QWidget]=None) -> None:
         super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |

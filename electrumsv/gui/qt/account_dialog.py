@@ -1,5 +1,5 @@
 from typing import cast, Optional
-import weakref
+from weakref import ProxyType
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QComboBox, QDialog, QLabel, QLineEdit, QSizePolicy, QSpacerItem, \
@@ -20,12 +20,12 @@ from .util import Buttons, CloseButton, FormSectionWidget
 class AccountDialog(QDialog):
     _list: Optional[CosignerList] = None
 
-    def __init__(self, main_window: ElectrumWindow, wallet: Wallet, account_id: int,
+    def __init__(self, main_window: ProxyType[ElectrumWindow], wallet: Wallet, account_id: int,
             parent: QWidget) -> None:
         super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
-        assert type(main_window) is weakref.ProxyType
+        assert type(main_window) is ProxyType
         self._main_window = main_window
         self._wallet = wallet
 
