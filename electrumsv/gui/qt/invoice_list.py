@@ -222,7 +222,7 @@ class InvoiceList(MyTreeWidget):
                 lambda: self._main_window.app.clipboard().setText(column_data))
         menu.addAction(_("Details"), partial(self._show_invoice_window, row))
         if flags & PaymentFlag.UNPAID:
-            menu.addAction(_("Pay Now"), partial(self._pay_invoice, row.invoice_id))
+            menu.addAction(_("Pay Now"), partial(self.pay_invoice, row.invoice_id))
         menu.addAction(_("Delete"), lambda: self._delete_invoice(invoice_id))
         menu.exec_(self.viewport().mapToGlobal(position))
 
@@ -230,7 +230,7 @@ class InvoiceList(MyTreeWidget):
         assert self._send_view._account is not None
         self._main_window.show_invoice(self._send_view._account, row)
 
-    def _pay_invoice(self, invoice_id: int) -> None:
+    def pay_invoice(self, invoice_id: int) -> None:
         assert self._send_view._account is not None
         row = self._send_view._account._wallet.read_invoice(invoice_id=invoice_id)
         if row is None:
