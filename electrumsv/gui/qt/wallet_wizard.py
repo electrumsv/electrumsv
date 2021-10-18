@@ -696,7 +696,6 @@ class ChooseWalletPage(QWizardPage):
         commit_button.pressed.connect(self._event_press_open_selected_file)
 
         self._gui_list_reset()
-        print("ZZZZ")
         self._recent_wallet_paths.extend(
             [ candidate_path for candidate_path in
                 [ os.path.normpath(candidate_path2) for candidate_path2 in
