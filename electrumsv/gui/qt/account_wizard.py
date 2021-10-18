@@ -27,6 +27,9 @@
 # THE SOFTWARE.
 #
 
+# Required in 3.9 to allow `ProxyType[ElectrumWindow]` generic form to execute and not just pass
+# typing checks.
+from __future__ import annotations
 import concurrent.futures
 import enum
 from typing import Any, Callable, cast, Dict, List, Optional, Set, Tuple, TYPE_CHECKING, \

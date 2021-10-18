@@ -1,3 +1,6 @@
+# Required in 3.9 to allow `ProxyType[ElectrumWindow]` generic form to execute and not just pass
+# typing checks.
+from __future__ import annotations
 from typing import cast, Optional
 from weakref import ProxyType
 

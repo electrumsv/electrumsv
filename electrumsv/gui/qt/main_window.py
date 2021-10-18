@@ -678,7 +678,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def update_recently_visited(self, filename: str) -> None:
         default_recent: List[str] = []
-        recent = self.config.get_explicit_type(List[str], 'recently_open', default_recent)
+        recent = self.config.get_explicit_type(list, 'recently_open', default_recent)
         if filename in recent:
             recent.remove(filename)
         filename = os.path.normpath(filename)
