@@ -696,11 +696,11 @@ class ChooseWalletPage(QWizardPage):
         commit_button.pressed.connect(self._event_press_open_selected_file)
 
         self._gui_list_reset()
+        print("ZZZZ")
         self._recent_wallet_paths.extend(
             [ candidate_path for candidate_path in
                 [ os.path.normpath(candidate_path2) for candidate_path2 in
-                    app_state.config.get_explicit_type(List[str], 'recently_open',
-                        cast(List[str], [])) ]
+                    app_state.config.get_explicit_type(list, 'recently_open', []) ]
             if os.path.exists(candidate_path) ])
 
         self._list_thread = threading.Thread(target=self._populate_list_in_thread,
