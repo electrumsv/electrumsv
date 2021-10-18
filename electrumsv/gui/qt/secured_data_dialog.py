@@ -14,8 +14,9 @@
 # can only be used on the Bitcoin SV blockchains. The Bitcoin SV blockchains are defined,
 # for purposes of this license, as the Bitcoin blockchain containing block height #556767
 # with the hash "000000000000000001d956714215d96ffc00e0afda4cd0a96c96f8d802b1662b" and
-# that contains the longest persistent chain of blocks that are accepted by the un-modified Software,
-# as well as the test blockchains that contain blocks that are accepted by the un-modified Software.
+# that contains the longest persistent chain of blocks that are accepted by the un-modified
+# Software, as well as the test blockchains that contain blocks that are accepted by the
+# un-modified Software.
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
