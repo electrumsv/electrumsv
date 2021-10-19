@@ -551,7 +551,7 @@ def read_key_list(db: sqlite3.Connection, account_id: int,
     keys.
     """
     sql = (
-        "SELECT KI.keyinstance_id, KI.masterkey_id, KI.derivation_type, "
+        "SELECT KI.account_id, KI.keyinstance_id, KI.masterkey_id, KI.derivation_type, "
             "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description, KI.date_updated, "
             "TOTAL(CASE WHEN TXO.flags&?=0 THEN TXO.value ELSE 0 END), "
             "TOTAL(CASE WHEN TXO.flags IS NULL THEN 0 ELSE 1 END) "
@@ -569,7 +569,7 @@ def read_key_list(db: sqlite3.Connection, account_id: int,
     cursor = db.execute(sql, sql_values)
     rows = cursor.fetchall()
     cursor.close()
-    return [ KeyListRow(account_id, *t) for t in rows ]
+    return [ KeyListRow(*t) for t in rows ]
 
 
 @replace_db_context_with_connection
