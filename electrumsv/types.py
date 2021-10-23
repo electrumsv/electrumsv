@@ -113,15 +113,23 @@ class SubscriptionEntry(NamedTuple):
     owner_context: Optional[SubscriptionOwnerContextType]
 
 
-class ScriptHashSubscriptionEntry(NamedTuple):
+class HashSubscriptionEntry(NamedTuple):
     entry_id: int
-    script_hash: bytes
+    hash_value: bytes
 
 
-ScriptHashSubscriptionCallback = Callable[[List[ScriptHashSubscriptionEntry]],
+HashSubscriptionCallback = Callable[[List[HashSubscriptionEntry]],
     Coroutine[Any, Any, None]]
 ScriptHashResultCallback = Callable[[SubscriptionKey, SubscriptionOwnerContextType,
     ElectrumXHistoryList], Coroutine[Any, Any, None]]
+PushdataHashResultCallback = Callable[[SubscriptionKey, SubscriptionOwnerContextType,
+    bytes], Coroutine[Any, Any, None]]
+
+
+@dataclasses.dataclass
+class SubscriptionCallbacks:
+    script_hash_result_callback: Optional[ScriptHashResultCallback] = None
+    pushdata_hash_result_callback: Optional[PushdataHashResultCallback] = None
 
 
 class Outpoint(NamedTuple):

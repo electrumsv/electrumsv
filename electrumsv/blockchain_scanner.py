@@ -9,24 +9,30 @@ Further work
   incorrect state. Better to focus on presumably unavoidably correct state for a start.
 """
 
+from __future__ import annotations
 import concurrent.futures
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Callable, cast, Dict, List, NamedTuple, Optional, Sequence, TYPE_CHECKING
+from typing import Callable, cast, Dict, List, NamedTuple, Optional, Protocol, \
+    Sequence, Tuple, TYPE_CHECKING, TypeVar
 
-from bitcoinx import (bip32_key_from_string, BIP32PublicKey, P2PKH_Address, P2SH_Address,
-    PublicKey, sha256)
+from bitcoinx import (bip32_key_from_string, BIP32PublicKey, hash160, P2MultiSig_Output,
+    P2PKH_Address, P2SH_Address, PublicKey, sha256)
 
 from .app_state import app_state
+from .bitcoin import ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH, DerivationType,
     DerivationPath, RECEIVING_SUBPATH, ScriptType, SubscriptionOwnerPurpose, SubscriptionType)
 from .exceptions import SubscriptionStale, UnsupportedAccountTypeError
 from .logs import logs
 from .keys import get_single_signer_script_template, get_multi_signer_script_template
+from .network_support.general_api import post_restoration_filter_request_binary, \
+    RestorationFilterRequest, RestorationFilterResult, unpack_binary_restoration_entry
 from .networks import Net
 from .types import (ElectrumXHistoryList, SubscriptionEntry, ScriptHashResultCallback,
     SubscriptionKey, SubscriptionScannerScriptHashOwnerContext, SubscriptionOwner)
 from .wallet import AbstractAccount
+from .wallet_database.types import KeyListRow
 
 
 if TYPE_CHECKING:
@@ -35,14 +41,10 @@ if TYPE_CHECKING:
 
 logger = logs.get_logger("scanner")
 
-# TODO(no-checkin) Network disconnection.
+# TODO Network disconnection.
 
 ExtendRangeCallback = Callable[[int], None]
 
-
-# How many scripts to aim to keep subscribed at a time. This will flow over a little depending on
-# how may script types there are for a given key, not that it matters.
-MINIMUM_ACTIVE_SCRIPTS = 100
 
 # How far above the last used key to look for more key usage, per derivation subpath.
 DEFAULT_GAP_LIMITS = {
@@ -88,22 +90,23 @@ class BIP32ParentPath:
             self.parent_public_keys[i] = xpub
 
 
-class ScriptEntryKind(IntEnum):
+class SearchEntryKind(IntEnum):
     NONE = 0
     EXPLICIT = 1
     BIP32 = 2
 
 
-class ScriptEntry(NamedTuple):
+class SearchEntry(NamedTuple):
     """
     Mixed state for both fixed scripts and BIP32 derivation paths.
 
     We are concerned about optimal memory usage.
     """
-    kind: ScriptEntryKind = ScriptEntryKind.NONE
+    kind: SearchEntryKind = SearchEntryKind.NONE
     keyinstance_id: Optional[int] = None
     script_type: ScriptType = ScriptType.NONE
-    script_hash: bytes = b''
+    # We currently support only having one hash for looking up this item.
+    item_hash: bytes = b''
     parent_path: Optional[BIP32ParentPath] = None
     parent_index: int = -1
 
@@ -118,221 +121,92 @@ class ScriptHashHistory:
     bip32_subpath_index: int = -1
 
 
+ScanResultType = TypeVar("ScanResultType")
+WrappedScanType = TypeVar("WrappedScanType")
 
-class Scanner:
-    """
-    NOTE(rt12) At this time, only one `Scanner` instance is supported. The main reason for this
-    is that.. I do not remember! Work out why this should be the case or not before using more.
-    """
-    def __init__(self, network: "Network", wallet_id: int=0, account_id: int=0,
-            settings: Optional[AdvancedSettings]=None,
-            extend_range_cb: Optional[ExtendRangeCallback]=None) -> None:
+
+# NOTE(rt12) I don't know what the best name for this is yet.
+class ScannerHandlerProtocol(Protocol[ScanResultType]):
+    _results: ScanResultType
+
+    def setup(self, scanner: BlockchainScanner) -> None:
+        raise NotImplementedError
+
+    def shutdown(self) -> None:
+        raise NotImplementedError
+
+    async def wait_until_ready(self) -> None:
+        """
+        Wait until at least one result has been come in.
+        """
+        raise NotImplementedError
+
+    def get_required_count(self) -> int:
+        """
+        How many results we can ask for this attempt.
+        """
+        raise NotImplementedError
+
+    def has_ongoing_activity(self) -> bool:
+        raise NotImplementedError
+
+    def get_results(self) -> ScanResultType:
+        raise NotImplementedError
+
+    def get_item_hash_for_script(self, script_type: ScriptType, script: ScriptTemplate) -> bytes:
+        raise NotImplementedError
+
+    async def search_entries(self, entries: List[SearchEntry]) -> None:
+        raise NotImplementedError
+
+
+class ScriptHashHandler(ScannerHandlerProtocol[Dict[bytes, ScriptHashHistory]]):
+    def __init__(self, network: Network, wallet_id: int=0, account_id: int=0) -> None:
         self._network = network
-        self._started = False
-        self._scan_entry_count = 0
-        self._extend_range_cb = extend_range_cb
-
-        if settings is None:
-            settings = AdvancedSettings()
-        self._settings = settings
-
-        self._pending_scripts: List[ScriptEntry] = []
-        self._active_scripts: Dict[bytes, ScriptEntry] = {}
-        self._script_hash_histories: Dict[bytes, ScriptHashHistory] = {}
-        self._bip32_paths: List[BIP32ParentPath] = []
+        self._active_subscriptions: Dict[bytes, SearchEntry] = {}
+        self._results: Dict[bytes, ScriptHashHistory] = {}
 
         self._event = app_state.async_.event()
-        self._should_exit = False
-
         self._subscription_owner = SubscriptionOwner(wallet_id, account_id,
             SubscriptionOwnerPurpose.SCANNER)
         self._network.subscriptions.set_owner_callback(self._subscription_owner,
-            cast(ScriptHashResultCallback, self._on_script_hash_result))
+            script_hash_callback=cast(ScriptHashResultCallback, self._on_script_hash_result))
+
+    def setup(self, scanner: BlockchainScanner) -> None:
+        self._scanner = scanner
 
     def shutdown(self) -> None:
-        """
-        Required shutdown handling that any external context must invoke.
-        """
-        if self._should_exit:
-            logger.debug("shutdown scanner, duplicate call ignored")
-            return
-        logger.debug("shutdown scanner")
-        self._should_exit = True
         self._network.subscriptions.remove_owner(self._subscription_owner)
+        del self._scanner
+        del self._network
 
-    @classmethod
-    def from_account(cls, account: AbstractAccount, settings: Optional[AdvancedSettings]=None,
-            extend_range_cb: Optional[ExtendRangeCallback]=None) -> 'Scanner':
-        """
-        Create a scanner that will search for usage of the keys belonging to the account.
-        """
-        account_type = account.type()
-        account_id = account.get_id()
-        wallet = account.get_wallet()
-        wallet_id = wallet.get_id()
-        script_types = ACCOUNT_SCRIPT_TYPES[account_type]
-        assert wallet._network is not None
-        scanner = cls(wallet._network, wallet_id, account_id, settings, extend_range_cb)
+    async def wait_until_ready(self) -> None:
+        # This should block until a script hash is satisfied, then generate another.
+        await self._event.wait()
+        self._event.clear()
 
-        if account.is_deterministic():
-            threshold = account.get_threshold()
-            master_public_keys = cast(List[BIP32PublicKey], [ # type: ignore
-                bip32_key_from_string(mpk)
-                for mpk in account.get_master_public_keys() ])
-            for subpath in (CHANGE_SUBPATH, RECEIVING_SUBPATH):
-                scanner.add_bip32_subpath(subpath, master_public_keys, threshold, script_types)
-        elif account_type == AccountType.IMPORTED_ADDRESS:
-            # The derivation data is the address or hash160 that relates to the script type.
-            for key_data in wallet.read_key_list(account_id):
-                if key_data.derivation_type == DerivationType.PUBLIC_KEY_HASH:
-                    script_template = P2PKH_Address(key_data.derivation_data2, Net.COIN)
-                    script_hash = sha256(script_template.to_script_bytes())
-                    scanner.add_script(key_data.keyinstance_id, ScriptType.P2PKH, script_hash)
-                elif key_data.derivation_type == DerivationType.SCRIPT_HASH:
-                    script_template = P2SH_Address(key_data.derivation_data2, Net.COIN)
-                    script_hash = sha256(script_template.to_script_bytes())
-                    scanner.add_script(key_data.keyinstance_id, ScriptType.MULTISIG_P2SH,
-                        script_hash)
-        elif account_type == AccountType.IMPORTED_PRIVATE_KEY:
-            # The derivation data is the public key for the private key.
-            for key_data in wallet.read_key_list(account_id):
-                assert key_data.derivation_type == DerivationType.PRIVATE_KEY
-                public_key = PublicKey.from_bytes(key_data.derivation_data2)
-                for script_type in script_types:
-                    script_template = get_single_signer_script_template(public_key, script_type)
-                    script_hash = sha256(script_template.to_script_bytes())
-                    scanner.add_script(key_data.keyinstance_id, script_type, script_hash)
-        else:
-            raise UnsupportedAccountTypeError()
+    def get_required_count(self) -> int:
+        return 100 - len(self._active_subscriptions)
 
-        return scanner
+    def has_ongoing_activity(self) -> bool:
+        return len(self._active_subscriptions) > 0
 
-    def get_result_count(self) -> int:
-        return len(self._script_hash_histories)
+    def get_results(self) -> Dict[bytes, ScriptHashHistory]:
+        return self._results
 
-    def add_bip32_subpath(self, subpath: DerivationPath, master_public_keys: List[BIP32PublicKey],
-            threshold: int, script_types: Sequence[ScriptType]) -> BIP32ParentPath:
-        assert not self._started
-        data = BIP32ParentPath(subpath, threshold, master_public_keys, script_types)
-        self._bip32_paths.append(data)
-        return data
+    def get_item_hash_for_script(self, script_type: ScriptType, script: ScriptTemplate) -> bytes:
+        return cast(bytes, sha256(script.to_script_bytes()))
 
-    def add_script(self, keyinstance_id: int, script_type: ScriptType, script_hash: bytes) -> None:
-        self._pending_scripts.append(ScriptEntry(ScriptEntryKind.EXPLICIT,
-            keyinstance_id, script_type, script_hash))
-
-    def start_scanning_for_usage(self,
-            on_done: Optional[Callable[[concurrent.futures.Future[None]], None]]=None) -> None:
-        logger.debug("Starting blockchain scan process")
-        assert app_state.app is not None
-        self._future = app_state.app.run_coro(self.scan_for_usage, on_done=on_done)
-
-    async def scan_for_usage(self) -> None:
-        """
-        Enumerate and scan keys until all key sources are exhausted.
-        """
-        logger.debug("Starting blockchain scan")
-        while len(self._active_scripts) or len(self._pending_scripts) or len(self._bip32_paths):
-            if self._should_exit:
-                logger.debug("Blockchain scan exit reason, manual interruption")
-                break
-
-            new_entries: List[ScriptEntry] = []
-            required_entries = MINIMUM_ACTIVE_SCRIPTS - len(self._active_scripts)
-
-            # Populate any required entries from the pending scripts first.
-            if required_entries > 0 and len(self._pending_scripts):
-                how_many = min(required_entries, len(self._pending_scripts))
-                new_entries.extend(self._pending_scripts[:how_many])
-                del self._pending_scripts[:how_many]
-                required_entries -= how_many
-
-            # Populate any required entries from any unconsumed dynamic derivation sequences.
-            candidates = self._obtain_any_bip32_entries(required_entries)
-            if len(candidates):
-                required_entries -= len(candidates)
-                new_entries.extend(candidates)
-
-            if len(new_entries) > 0:
-                subscribe_entries: List[SubscriptionEntry] = []
-                for entry in new_entries:
-                    # Track the outstanding subscription locally.
-                    self._active_scripts[entry.script_hash] = entry
-                    # Subscribe to the entry.
-                    subscribe_entries.append(SubscriptionEntry(
-                        SubscriptionKey(SubscriptionType.SCRIPT_HASH, entry.script_hash),
-                        SubscriptionScannerScriptHashOwnerContext(entry)))
-                self._extend_range(len(new_entries))
-                self._network.subscriptions.create_entries(subscribe_entries,
-                    self._subscription_owner)
-            elif len(self._active_scripts) == 0 and len(self._pending_scripts) == 0:
-                # BIP32 paths do not get removed, but they can be exhausted of candidates.
-                if all(self._get_bip32_path_count(pp) == 0 for pp in self._bip32_paths):
-                    logger.debug("Blockchain scan exit reason, BIP32 exhaustion")
-                    break
-
-            # This should block until a script hash is satisfied, then generate another.
-            await self._event.wait()
-            self._event.clear()
-        logger.debug("Ending blockchain scan")
-        self.shutdown()
-
-    def get_scan_results(self) -> Dict[bytes, ScriptHashHistory]:
-        return self._script_hash_histories
-
-    def _obtain_any_bip32_entries(self, maximim_candidates: int) -> List[ScriptEntry]:
-        """
-        Examine each BIP32 path in turn looking for candidates.
-        """
-        new_entries: List[ScriptEntry] = []
-        parent_path_index = 0
-        while maximim_candidates > 0 and parent_path_index < len(self._bip32_paths):
-            candidates = self._obtain_entries_from_bip32_path(maximim_candidates,
-                self._bip32_paths[parent_path_index])
-            new_entries.extend(candidates)
-            maximim_candidates -= len(candidates)
-            parent_path_index += 1
-        return new_entries
-
-    def _obtain_entries_from_bip32_path(self, maximum_candidates: int,
-            parent_path: BIP32ParentPath) -> List[ScriptEntry]:
-        new_entries: List[ScriptEntry] = []
-        while maximum_candidates > 0 and self._get_bip32_path_count(parent_path) > 0:
-            current_index = parent_path.last_index + 1
-
-            public_keys = [ public_key.child_safe(current_index)
-                for public_key in parent_path.parent_public_keys ]
-            public_keys_hex = [ public_key.to_hex() for public_key in public_keys ]
-            for script_type in parent_path.script_types:
-                if len(public_keys) == 1:
-                    script = get_single_signer_script_template(public_keys[0], script_type)
-                else:
-                    script = get_multi_signer_script_template(public_keys_hex,
-                        parent_path.threshold, script_type)
-                script_hash = sha256(script.to_script_bytes())
-                new_entries.append(ScriptEntry(ScriptEntryKind.BIP32, None, script_type,
-                    script_hash, parent_path, current_index))
-
-            parent_path.last_index = current_index
-            maximum_candidates -= len(parent_path.script_types)
-        return new_entries
-
-    def _get_bip32_path_count(self, parent_path: BIP32ParentPath) -> int:
-        """
-        How many keys we can still examine for this BIP32 path given the gap limit.
-        """
-        gap_limit = self._settings.gap_limits[parent_path.subpath]
-        key_count = parent_path.last_index + 1
-        # If we have used keys, we aim for the gap limit between highest index and highest used.
-        if parent_path.highest_used_index > -1:
-            gap_current = parent_path.last_index - parent_path.highest_used_index
-            return gap_limit - gap_current
-
-        # # Have we received results for all generated candidates?
-        # expected_result_count = (parent_path.last_index + 1) * len(parent_path.script_types)
-        # if expected_result_count == parent_path.result_count:
-        # Otherwise we are just aiming for the gap limit.
-        return gap_limit - key_count
+    async def search_entries(self, search_entries: List[SearchEntry]) -> None:
+        # Track the outstanding subscriptions locally.
+        subscription_entries: List[SubscriptionEntry] = []
+        for search_entry in search_entries:
+            subscription_entries.append(SubscriptionEntry(
+                SubscriptionKey(SubscriptionType.SCRIPT_HASH, search_entry.item_hash),
+                SubscriptionScannerScriptHashOwnerContext(search_entry)))
+            self._active_subscriptions[search_entry.item_hash] = search_entry
+        # Subscribe to the entries.
+        self._network.subscriptions.create_entries(subscription_entries, self._subscription_owner)
 
     async def _on_script_hash_result(self, subscription_key: SubscriptionKey,
             context: SubscriptionScannerScriptHashOwnerContext,
@@ -358,11 +232,9 @@ class Scanner:
         script_hash = cast(bytes, subscription_key.value)
 
         # Signal that we have a result for this script hash and have finished with it.
-        history_entry = self._script_hash_histories[script_hash] = ScriptHashHistory(history)
-        del self._active_scripts[script_hash]
-
-        entry = cast(ScriptEntry, context.value)
-        if entry.kind == ScriptEntryKind.BIP32:
+        history_entry = self._results[script_hash] = ScriptHashHistory(history)
+        entry = cast(SearchEntry, context.value)
+        if entry.kind == SearchEntryKind.BIP32:
             assert entry.parent_path is not None
             assert entry.parent_index > -1
             entry.parent_path.result_count += 1
@@ -373,9 +245,132 @@ class Scanner:
             history_entry.bip32_subpath = entry.parent_path.subpath
             history_entry.bip32_subpath_index = entry.parent_index
 
+        del self._active_subscriptions[script_hash]
         self._event.set()
         # Trigger the unsubscription for this script hash.
         raise SubscriptionStale()
+
+
+class PushDataHashHandler(ScannerHandlerProtocol[List[RestorationFilterResult]]):
+    def __init__(self, network: Network, account: AbstractAccount) -> None:
+        self._network = network
+        self._account = account
+        self._results: List[RestorationFilterResult] = []
+
+    def setup(self, scanner: BlockchainScanner) -> None:
+        self._scanner = scanner
+
+    def shutdown(self) -> None:
+        del self._scanner
+        del self._account
+        del self._network
+
+    async def wait_until_ready(self) -> None:
+        # There is no background activity to wait for.
+        pass
+
+    def get_required_count(self) -> int:
+        # Look for 50 push data hashes at a time.
+        return 50
+
+    def has_ongoing_activity(self) -> bool:
+        # The searching is done within the `search_entries` call, there is no background activity.
+        return False
+
+    def get_results(self) -> List[RestorationFilterResult]:
+        return self._results
+
+    async def search_entries(self, entries: List[SearchEntry]) -> None:
+        """
+        This will block and get all the results for the given search entries. If there are any
+        exceptions due to connection errors and perhaps incomplete results, these should raise
+        up out of the containing future to the managing logic.
+
+        Raises `FilterResponseInvalidError` if the response content type does not match what we
+            accept.
+        Raises `FilterResponseIncompleteError` if a response packet is incomplete. This likely
+            means that the connection was closed mid-transmission.
+        Raises `aiohttp.client_exceptions.ClientConnectorError` if the remote computer does not
+            accept the connection.
+        """
+        url = "http://127.0.0.1:49241/api/v1/restoration/search"
+        # all_candidates = self._network.get_api_servers_for_account(
+        #     self._account, NetworkServerType.GENERAL)
+        # restoration_candidates = select_servers(ServerCapability.RESTORATION, all_candidates)
+        # # TODO Get the URL of the service we are trying from the network.
+
+        # These are the pushdata hashes that have been passed along.
+        request_data: RestorationFilterRequest = {
+            "filterKeys": [
+                entry.item_hash.hex() for entry in entries
+            ]
+        }
+        async for payload_bytes in post_restoration_filter_request_binary(url, request_data):
+            self._results.append(unpack_binary_restoration_entry(payload_bytes))
+
+
+class BlockchainScanner:
+    """
+    NOTE(rt12) At this time, only one `Scanner` instance is supported. The main reason for this
+    is that.. I do not remember! Work out why this should be the case or not before using more.
+    """
+    def __init__(self,
+            handler: ScannerHandlerProtocol[ScanResultType],
+            enumerator: SearchKeyEnumerator,
+            extend_range_cb: Optional[ExtendRangeCallback]=None) -> None:
+        self._handler = handler
+        self._enumerator = enumerator
+        self._started = False
+        self._scan_entry_count = 0
+        self._extend_range_cb = extend_range_cb
+
+        self._should_exit = False
+
+        self._handler.setup(self)
+
+    def shutdown(self) -> None:
+        """
+        Required shutdown handling that any external context must invoke.
+        """
+        if self._should_exit:
+            logger.debug("shutdown scanner, duplicate call ignored")
+            return
+        logger.debug("shutdown scanner")
+        self._should_exit = True
+        self._handler.shutdown()
+
+    def start_scanning_for_usage(self,
+            on_done: Optional[Callable[[concurrent.futures.Future[None]], None]]=None) -> None:
+        logger.debug("Starting blockchain scan process")
+        assert app_state.app is not None
+        self._future = app_state.app.run_coro(self.scan_for_usage, on_done=on_done)
+
+    async def scan_for_usage(self) -> None:
+        """
+        Enumerate and scan all relevant keys.
+        """
+        logger.debug("Starting blockchain scan")
+        while True:
+            if self._should_exit:
+                logger.debug("Blockchain scan exit reason, manual interruption")
+                break
+
+            key_count = self._handler.get_required_count()
+            additional_entries: List[SearchEntry] = self._enumerator.create_new_entries(key_count)
+            if len(additional_entries) > 0:
+                # Search for the additional entries.
+                self._extend_range(len(additional_entries))
+                await self._handler.search_entries(additional_entries)
+            else:
+                # Exit if the handler is done and the keys are all enumerated.
+                if not self._handler.has_ongoing_activity() and self._enumerator.is_done():
+                    logger.debug("Blockchain scan exit reason, BIP32 exhaustion")
+                    break
+
+            # If the search process is happening in the background, wait for results.
+            await self._handler.wait_until_ready()
+        logger.debug("Ending blockchain scan")
+        self.shutdown()
 
     def _extend_range(self, number: int) -> None:
         """
@@ -388,3 +383,251 @@ class Scanner:
         self._scan_entry_count += number
         if self._extend_range_cb is not None:
             self._extend_range_cb(self._scan_entry_count)
+
+
+class ItemHashProtocol(Protocol):
+    """
+    This provides an interface which can be used for typing of item hashers. There is no need
+    to inherit it, the type checker will verify that any passed instances match.
+    """
+
+    def get_item_hash_for_public_keys(self, script_type: ScriptType, public_keys: List[PublicKey],
+            threshold: int=1) -> bytes:
+        """
+        At this time, all output scripts are generated based on featured public keys in some
+        form used in standard script templates. In the longer run this may not be the case.
+
+        Can cover:
+        - P2PK.
+        - P2PKH.
+        - P2SH multi-signature.
+        - Bare multi-signature.
+        """
+        raise NotImplementedError
+
+    def get_item_hash_for_key_data(self, key_data: KeyListRow) -> Tuple[ScriptType, bytes]:
+        """
+        This is primarily for imported addresses. The way an address works, and there are two
+        types we inherited from Bitcoin Core, is that the hash goes in a standard script opcode
+        template. We store the hash in the database for easy matching, and we can use it to
+        create the output script without a lot of work.
+
+        Can cover:
+        - P2SH.
+        - P2PKH.
+        """
+        raise NotImplementedError
+
+
+class ScriptHasher:
+    """
+    The script hash based indexing done by ElectrumX tracks the SHA256 hash of every output
+    script that is spendable. This means that you have to know exactly how your key was used
+    to find your transactions, which in the world of Bitcoin Core where regular people are
+    restricted to standard scripts works fine.
+    """
+
+    def get_item_hash_for_public_keys(self, script_type: ScriptType,
+            public_keys: List[PublicKey], threshold: int=1) -> bytes:
+        if len(public_keys) == 1:
+            # P2PK
+            # P2PKH
+            script_template = get_single_signer_script_template(public_keys[0], script_type)
+        else:
+            # Bare multi-signature.
+            # P2SH multi-signature.
+            public_keys_hex = [ public_key.to_hex() for public_key in public_keys ]
+            script_template = get_multi_signer_script_template(public_keys_hex,
+                threshold, script_type)
+        return cast(bytes, sha256(script_template.to_script_bytes()))
+
+    def get_item_hash_for_key_data(self, key_data: KeyListRow) -> Tuple[ScriptType, bytes]:
+        if key_data.derivation_type == DerivationType.PUBLIC_KEY_HASH:
+            script_template = P2PKH_Address(key_data.derivation_data2, Net.COIN)
+            item_hash = cast(bytes, sha256(script_template.to_script_bytes()))
+            return ScriptType.P2PKH, item_hash
+        elif key_data.derivation_type == DerivationType.SCRIPT_HASH:
+            script_template = P2SH_Address(key_data.derivation_data2, Net.COIN)
+            item_hash = cast(bytes, sha256(script_template.to_script_bytes()))
+            return ScriptType.MULTISIG_P2SH, item_hash
+        raise NotImplementedError
+
+
+class PushDataHasher:
+    """
+    This is currently only used for account restoration. The restoration indexing that ElectrumSV
+    hopes to support is currently based on SHA256 pushdata indexing. The wallet provides a list
+    of pushdata hashes and asks the indexer if it has any matching data. This will only work for
+    capped restoration indexing, it is not reasonable to assume that any indexer will be able
+    to provide full blockchain indexes of hashes for arbitrary data (given that future transaction
+    outputs are not forced into a limited set of standard script templates).
+    """
+
+    def get_item_hash_for_public_keys(self, script_type: ScriptType,
+            public_keys: List[PublicKey], threshold: int=1) -> bytes:
+        hashable_item: bytes = b''
+        if script_type == ScriptType.P2PK:
+            # We are looking for this public key.
+            assert len(public_keys) == 1
+            hashable_item = public_keys[0].to_bytes()
+        elif script_type == ScriptType.P2PKH:
+            # We are looking for the hash160 of this public key.
+            assert len(public_keys) == 1
+            hashable_item = public_keys[0].hash160()
+        elif script_type == ScriptType.MULTISIG_BARE:
+            # We are looking for any one of the featured cosigner public keys used in this.
+            hashable_item = public_keys[0].to_bytes()
+        elif script_type == ScriptType.MULTISIG_P2SH:
+            # We are looking for the hash160 of the redeem script.
+            public_keys_hex = [ public_key.to_hex() for public_key in public_keys ]
+            redeem_script = P2MultiSig_Output(sorted(public_keys_hex), threshold).to_script_bytes()
+            hashable_item = hash160(redeem_script)
+        assert len(hashable_item)
+        return cast(bytes, sha256(hashable_item))
+
+    def get_item_hash_for_key_data(self, key_data: KeyListRow) -> Tuple[ScriptType, bytes]:
+        if key_data.derivation_type == DerivationType.PUBLIC_KEY_HASH:
+            # We are looking for this hash160 in a P2PKH script output.
+            item_hash = cast(bytes, sha256(key_data.derivation_data2))
+            return ScriptType.P2PKH, item_hash
+        elif key_data.derivation_type == DerivationType.SCRIPT_HASH:
+            # We are looking for this hash160 in a P2SH script output.
+            item_hash = cast(bytes, sha256(key_data.derivation_data2))
+            return ScriptType.MULTISIG_P2SH, item_hash
+        raise NotImplementedError
+
+
+class SearchKeyEnumerator:
+    """
+    This provides a way to iterate through the possible things we want to match on, or search keys
+    to enumerate.
+    """
+    def __init__(self, item_hasher: ItemHashProtocol,
+            settings: Optional[AdvancedSettings]=None) -> None:
+        self._item_hasher = item_hasher
+        if settings is None:
+            settings = AdvancedSettings()
+        self._settings = settings
+
+        self._pending_subscriptions: List[SearchEntry] = []
+        self._bip32_paths: List[BIP32ParentPath] = []
+
+    def use_account(self, account: AbstractAccount) -> None:
+        """
+        Create a scanner that will search for usage of the keys belonging to the account.
+        """
+        wallet = account.get_wallet()
+        assert wallet._network is not None
+
+        account_id = account.get_id()
+        account_type = account.type()
+        script_types = ACCOUNT_SCRIPT_TYPES[account_type]
+        if account.is_deterministic():
+            threshold = account.get_threshold()
+            master_public_keys = cast(List[BIP32PublicKey], [ # type: ignore
+                bip32_key_from_string(mpk)
+                for mpk in account.get_master_public_keys() ])
+            for subpath in (CHANGE_SUBPATH, RECEIVING_SUBPATH):
+                self.add_bip32_subpath(subpath, master_public_keys, threshold, script_types)
+        elif account_type == AccountType.IMPORTED_ADDRESS:
+            # The derivation data is the address or hash160 that relates to the script type.
+            for key_data in wallet.read_key_list(account_id):
+                script_type, item_hash = self._item_hasher.get_item_hash_for_key_data(key_data)
+                self.add_explicit_item(key_data.keyinstance_id, script_type, item_hash)
+        elif account_type == AccountType.IMPORTED_PRIVATE_KEY:
+            # The derivation data is the public key for the private key.
+            for key_data in wallet.read_key_list(account_id):
+                assert key_data.derivation_type == DerivationType.PRIVATE_KEY
+                public_key = PublicKey.from_bytes(key_data.derivation_data2)
+                for script_type in script_types:
+                    item_hash = self._item_hasher.get_item_hash_for_public_keys(script_type,
+                        [ public_key ])
+                    self.add_explicit_item(key_data.keyinstance_id, script_type, item_hash)
+        else:
+            raise UnsupportedAccountTypeError()
+
+    def add_bip32_subpath(self, subpath: DerivationPath, master_public_keys: List[BIP32PublicKey],
+            threshold: int, script_types: Sequence[ScriptType]) -> BIP32ParentPath:
+        data = BIP32ParentPath(subpath, threshold, master_public_keys, script_types)
+        self._bip32_paths.append(data)
+        return data
+
+    def add_explicit_item(self, keyinstance_id: int, script_type: ScriptType,
+            item_hash: bytes) -> None:
+        self._pending_subscriptions.append(SearchEntry(SearchEntryKind.EXPLICIT,
+            keyinstance_id, script_type, item_hash))
+
+    def has_sources(self) -> bool:
+        return len(self._bip32_paths) > 0 or len(self._pending_subscriptions) > 0
+
+    def is_done(self) -> bool:
+        if len(self._pending_subscriptions) == 0:
+            # BIP32 paths do not get removed, but they can be exhausted of candidates.
+            if all(self._get_bip32_path_count(pp) == 0 for pp in self._bip32_paths):
+                return True
+        return False
+
+    def create_new_entries(self, required_entries: int) -> List[SearchEntry]:
+        new_entries: List[SearchEntry] = []
+        # Populate any required entries from the pending scripts first.
+        if required_entries > 0 and len(self._pending_subscriptions):
+            how_many = min(required_entries, len(self._pending_subscriptions))
+            new_entries.extend(self._pending_subscriptions[:how_many])
+            del self._pending_subscriptions[:how_many]
+            required_entries -= how_many
+
+        # Populate any required entries from any unconsumed dynamic derivation sequences.
+        candidates = self._obtain_any_bip32_entries(required_entries)
+        if len(candidates):
+            required_entries -= len(candidates)
+            new_entries.extend(candidates)
+        return new_entries
+
+    def _obtain_any_bip32_entries(self, maximum_candidates: int) -> List[SearchEntry]:
+        """
+        Examine each BIP32 path in turn looking for candidates.
+        """
+        new_entries: List[SearchEntry] = []
+        parent_path_index = 0
+        while maximum_candidates > 0 and parent_path_index < len(self._bip32_paths):
+            candidates = self._obtain_entries_from_bip32_path(maximum_candidates,
+                self._bip32_paths[parent_path_index])
+            new_entries.extend(candidates)
+            maximum_candidates -= len(candidates)
+            parent_path_index += 1
+        return new_entries
+
+    def _obtain_entries_from_bip32_path(self, maximum_candidates: int,
+            parent_path: BIP32ParentPath) -> List[SearchEntry]:
+        new_entries: List[SearchEntry] = []
+        while maximum_candidates > 0 and self._get_bip32_path_count(parent_path) > 0:
+            current_index = parent_path.last_index + 1
+
+            public_keys: List[PublicKey] = [ public_key.child_safe(current_index)
+                for public_key in parent_path.parent_public_keys ]
+            for script_type in parent_path.script_types:
+                item_hash = self._item_hasher.get_item_hash_for_public_keys(script_type,
+                    public_keys)
+                new_entries.append(SearchEntry(SearchEntryKind.BIP32, None, script_type,
+                    item_hash, parent_path, current_index))
+
+            parent_path.last_index = current_index
+            maximum_candidates -= len(parent_path.script_types)
+        return new_entries
+
+    def _get_bip32_path_count(self, parent_path: BIP32ParentPath) -> int:
+        """
+        How many keys we can still examine for this BIP32 path given the gap limit.
+        """
+        gap_limit = self._settings.gap_limits[parent_path.subpath]
+        key_count = parent_path.last_index + 1
+        # If we have used keys, we aim for the gap limit between highest index and highest used.
+        if parent_path.highest_used_index > -1:
+            gap_current = parent_path.last_index - parent_path.highest_used_index
+            return gap_limit - gap_current
+
+        # # Have we received results for all generated candidates?
+        # expected_result_count = (parent_path.last_index + 1) * len(parent_path.script_types)
+        # if expected_result_count == parent_path.result_count:
+        # Otherwise we are just aiming for the gap limit.
+        return gap_limit - key_count

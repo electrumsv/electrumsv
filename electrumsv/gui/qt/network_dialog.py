@@ -52,7 +52,8 @@ from ...i18n import _
 from ...logs import logs
 from ...wallet import Wallet
 from ...network import Network, SVServerKey, SVUserAuth, SVProxy, SVSession, SVServer
-from ...network_support.api_server import CapabilitySupport, NewServer, SERVER_CAPABILITIES
+from ...network_support.api_server import APIServerDefinition, CapabilitySupport, NewServer, \
+    SERVER_CAPABILITIES
 from ...types import ServerAccountKey
 from ...util.network import DEFAULT_SCHEMES, UrlValidationError, validate_url
 from ...wallet_database.types import NetworkServerRow, NetworkServerAccountRow
@@ -950,7 +951,7 @@ class EditServerDialog(WindowModalDialog):
         date_now_utc = int(datetime.datetime.now(datetime.timezone.utc).timestamp())
         wallets_by_path = { w.get_storage_path(): w for w in app_state.app_qt.get_wallets() }
         saveable_states: List[WalletSaveState] = []
-        saveable_application_state: Dict[str, Any] = {}
+        saveable_application_state: APIServerDefinition = cast(APIServerDefinition, {})
         for item_index in range(self._access_tree.topLevelItemCount()):
             wallet_item = self._access_tree.topLevelItem(item_index)
             wallet_item_path = wallet_item.data(0, Qt.ItemDataRole.UserRole)

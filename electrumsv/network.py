@@ -1,4 +1,4 @@
- # ElectrumSV - lightweight Bitcoin SV client
+# ElectrumSV - lightweight Bitcoin SV client
 # Copyright (C) 2019-2020 The ElectrumSV Developers
 # Copyright (c) 2011-2016 Thomas Voegtlin
 #
@@ -51,12 +51,12 @@ from .app_state import app_state, attempt_exception_reporting
 from .constants import API_SERVER_TYPES, NetworkServerType, TransactionImportFlag, TxFlags
 from .i18n import _
 from .logs import logs
-from .network_support.api_server import NewServer, NewServerAPIContext
+from .network_support.api_server import APIServerDefinition, NewServer, NewServerAPIContext, \
+    SelectionCandidate
 from .networks import Net
 from .subscription import SubscriptionManager
 from .transaction import Transaction
-from .types import ElectrumXHistoryList, IndefiniteCredentialId, NetworkServerState, \
-    ScriptHashSubscriptionEntry, ServerAccountKey
+from .types import ElectrumXHistoryList, NetworkServerState, HashSubscriptionEntry, ServerAccountKey
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
 
@@ -912,7 +912,7 @@ class SVSession(RPCSession): # type: ignore
         item = (script_hash_hex, status)
         self._network._on_status_queue.put_nowait(item)
 
-    async def subscribe_to_script_hashes(self, entries: List[ScriptHashSubscriptionEntry],
+    async def subscribe_to_script_hashes(self, entries: List[HashSubscriptionEntry],
             initial_subscription: bool=False) -> None:
         '''Raises: RPCError, TaskTimeout'''
         # Ensure that we ignore the subscription requests that happen before we get the initial
@@ -928,12 +928,12 @@ class SVSession(RPCSession): # type: ignore
 
         async with TaskGroup() as group:
             for entry in entries:
-                self._script_hash_ids[entry.script_hash] = entry.entry_id
+                self._script_hash_ids[entry.hash_value] = entry.entry_id
 
-                script_hash_hex = hash_to_hex_str(entry.script_hash)
+                script_hash_hex = hash_to_hex_str(entry.hash_value)
                 await group.spawn(self._subscribe_to_script_hash(script_hash_hex))
 
-    async def unsubscribe_from_script_hashes(self, entries: List[ScriptHashSubscriptionEntry]) \
+    async def unsubscribe_from_script_hashes(self, entries: List[HashSubscriptionEntry]) \
             -> None:
         """
         Unsubscribe from the given script hashes.
@@ -949,9 +949,9 @@ class SVSession(RPCSession): # type: ignore
 
         async with TaskGroup() as group:
             for entry in entries:
-                del self._script_hash_ids[entry.script_hash]
+                del self._script_hash_ids[entry.hash_value]
 
-                script_hash_hex = hash_to_hex_str(entry.script_hash)
+                script_hash_hex = hash_to_hex_str(entry.hash_value)
                 await group.spawn(self._unsubscribe_from_script_hash(script_hash_hex))
 
 
@@ -978,10 +978,11 @@ class Network(TriggeredCallbacks):
         # per-wallet/account servers from each wallet database.
         self._api_servers: Dict[ServerAccountKey, NewServer] = {}
         # Track the application API servers from the config and add them to the usable set.
-        self._api_servers_config: Dict[NetworkServerType, List[Dict[str, Any]]] = {
+        self._api_servers_config: Dict[NetworkServerType, List[APIServerDefinition]] = {
             server_type: [] for server_type in API_SERVER_TYPES
         }
         self._read_config_api_server_mapi()
+        self._read_config_api_server()
 
         # Events
         async_ = app_state.async_
@@ -1001,16 +1002,43 @@ class Network(TriggeredCallbacks):
         self.subscriptions.set_script_hash_callbacks(
             self._on_subscribe_script_hashes, self._on_unsubscribe_script_hashes)
 
+    def _read_config_api_server(self) -> None:
+        api_servers = cast(List[APIServerDefinition], app_state.config.get("api_servers", []))
+        if api_servers:
+            logger.info("read %d api servers from config file", len(api_servers))
+
+        servers_by_uri = { api_server['url']: api_server for api_server in api_servers }
+        for api_server in Net.DEFAULT_SERVERS_API:
+            server = servers_by_uri.get(api_server['url'], None)
+            if server is None:
+                server = cast(APIServerDefinition, api_server.copy())
+                server["modified_date"] = server["static_data_date"]
+                api_servers.append(server)
+
+        # Register the API server for visibility and maybe even usage. We pass in the reference
+        # to the config entry dictionary, which will be saved via `_api_servers_config`.
+        for api_server in api_servers:
+            server_type = cast(Optional[NetworkServerType],
+                getattr(NetworkServerType, api_server["type"]))
+            if server_type is None:
+                logger.error("skipping api server '%s' missing server 'type'", api_server["url"])
+                continue
+            server_key = ServerAccountKey(api_server["url"], server_type)
+            self._api_servers[server_key] = self._create_config_api_server(server_key, api_server)
+            # This is the collection of application level servers and it is primarily used to group
+            # them for persistence.
+            self._api_servers_config[server_type].append(api_server)
+
     def _read_config_api_server_mapi(self) -> None:
-        mapi_servers = cast(List[Dict[str, Any]], app_state.config.get("mapi_servers", []))
+        mapi_servers = cast(List[APIServerDefinition], app_state.config.get("mapi_servers", []))
         if mapi_servers:
             logger.info("read %d merchant api servers from config file", len(mapi_servers))
 
         servers_by_uri = { mapi_server['url']: mapi_server for mapi_server in mapi_servers }
-        for mapi_server in Net.DEFAULT_MAPI_SERVERS:
+        for mapi_server in Net.DEFAULT_SERVERS_MAPI:
             server = servers_by_uri.get(mapi_server['url'], None)
             if server is None:
-                server = mapi_server.copy()
+                server = cast(APIServerDefinition, mapi_server.copy())
                 server["modified_date"] = server["static_data_date"]
                 mapi_servers.append(server)
             self._migrate_config_mapi_entry(server)
@@ -1025,7 +1053,7 @@ class Network(TriggeredCallbacks):
         # them for persistence.
         self._api_servers_config[NetworkServerType.MERCHANT_API] = mapi_servers
 
-    def _migrate_config_mapi_entry(self, server: Dict[str, Any]) -> None:
+    def _migrate_config_mapi_entry(self, server: APIServerDefinition) -> None:
         ## Ensure all the default field values are present if they are not already.
         server.setdefault("api_key", "")
         # Whether the API key is supported for the given server from entry presence.
@@ -1036,7 +1064,7 @@ class Network(TriggeredCallbacks):
         server.setdefault("last_good", 0.0)
         server.setdefault("last_try", 0.0)
         # If we request an anonymous fee quote for this server, keep the last one.
-        server.setdefault("anonymous_fee_quote", {})
+        # server.setdefault("anonymous_fee_quote", None)
 
     async def _main_task_loop(self) -> None:
         self._main_task_active = True
@@ -1169,7 +1197,7 @@ class Network(TriggeredCallbacks):
                 await self.sessions_changed_event.wait()
             await self._maybe_switch_main_server(SwitchReason.lagging)
 
-    async def _on_subscribe_script_hashes(self, entries: List[ScriptHashSubscriptionEntry]) -> None:
+    async def _on_subscribe_script_hashes(self, entries: List[HashSubscriptionEntry]) -> None:
         """
         Process wallet script hash subscription requests.
 
@@ -1182,7 +1210,7 @@ class Network(TriggeredCallbacks):
             session.logger.debug('Subscribing to %d script hashes', len(entries))
             await session.subscribe_to_script_hashes(entries)
 
-    async def _on_unsubscribe_script_hashes(self, entries: List[ScriptHashSubscriptionEntry]) \
+    async def _on_unsubscribe_script_hashes(self, entries: List[HashSubscriptionEntry]) \
             -> None:
         """
         Process wallet script hash unsubscription requests.
@@ -1350,7 +1378,7 @@ class Network(TriggeredCallbacks):
         logger.info('Read %d electrumx servers from config file', len(SVServer.all_servers))
         # Add default servers if not present. If we add the ability for users to delete servers
         # and they want to delete default serves, then this will override that.
-        for host, data in Net.DEFAULT_SERVERS.items():
+        for host, data in Net.DEFAULT_SERVERS_ELECTRUMX.items():
             for protocol in 'st':
                 if protocol in data:
                     SVServer.unique(host, data[protocol], protocol)
@@ -1608,7 +1636,7 @@ class Network(TriggeredCallbacks):
         """
         return SVServer.all_servers[key]
 
-    def get_config_mapi_servers(self) -> List[Dict[str, Any]]:
+    def get_config_mapi_servers(self) -> List[APIServerDefinition]:
         """
         Update the mapi server config entries and return them.
 
@@ -1627,14 +1655,14 @@ class Network(TriggeredCallbacks):
         return self._api_servers_config[NetworkServerType.MERCHANT_API]
 
     def create_config_api_server(self, server_type: NetworkServerType,
-            server_data: Dict[str, Any]) -> None:
+            server_data: APIServerDefinition) -> None:
         """
         Register a new application-level API server entry.
 
         This will set up the standard default fields, so it is not necessary for any caller to
         provide a 100% complete entry.
         """
-        server_url = cast(str, server_data["url"])
+        server_url = server_data["url"]
         assert server_url not in [ d["url"] for d in self._api_servers_config[server_type] ]
         if server_type == NetworkServerType.MERCHANT_API:
             self._migrate_config_mapi_entry(server_data)
@@ -1646,7 +1674,7 @@ class Network(TriggeredCallbacks):
         self._api_servers[server_key] = self._create_config_api_server(server_key)
 
     def update_config_api_server(self, server_url: str, server_type: NetworkServerType,
-            update_data: Dict[str, Any]) -> None:
+            update_data: APIServerDefinition) -> None:
         """
         Update fields in an existing application-level API server entry.
 
@@ -1658,7 +1686,9 @@ class Network(TriggeredCallbacks):
                 server_key = ServerAccountKey(server_url, server_type)
                 server = self._api_servers[server_key]
                 server.on_pending_config_change(update_data)
-                config.update(update_data)
+                # NOTE(typing) This appears to be a mypy bug, where it considers the type of
+                #   config to be some raw instance of `TypedDict` and not `APIServerDefinition`.
+                config.update(update_data) # type: ignore
                 break
         else:
             self.create_config_api_server(server_type, update_data)
@@ -1676,17 +1706,18 @@ class Network(TriggeredCallbacks):
         # These are all the available API servers registered within the application.
         return self._api_servers
 
-    def get_api_servers_for_account(self, account: "AbstractAccount") \
-            -> List[Tuple[NewServer, Optional[IndefiniteCredentialId]]]:
+    def get_api_servers_for_account(self, account: "AbstractAccount",
+            server_type: NetworkServerType) -> List[SelectionCandidate]:
         wallet = account.get_wallet()
         client_key = NewServerAPIContext(wallet.get_storage_path(), account.get_id())
 
-        results: List[Tuple[NewServer, Optional[IndefiniteCredentialId]]] = []
+        results: List[SelectionCandidate] = []
         for api_server in self._api_servers.values():
-            have_credential, credential_id = api_server.get_credential_id(client_key)
-            # TODO(API) What about putting the client api context in the result.
-            if have_credential:
-                results.append((api_server, credential_id))
+            if api_server.server_type == server_type:
+                have_credential, credential_id = api_server.get_credential_id(client_key)
+                # TODO(API) What about putting the client api context in the result.
+                if have_credential:
+                    results.append(SelectionCandidate(server_type, credential_id, api_server))
         return results
 
     def is_server_disabled(self, url: str, server_type: NetworkServerType) -> bool:
@@ -1698,7 +1729,7 @@ class Network(TriggeredCallbacks):
         return self._api_servers[ServerAccountKey(url, server_type)].is_unusable()
 
     def _create_config_api_server(self, server_key: ServerAccountKey,
-            config: Optional[Dict[str,Any]]=None, allow_no_config: bool=False) -> NewServer:
+            config: Optional[APIServerDefinition]=None, allow_no_config: bool=False) -> NewServer:
         if config is None:
             # The config entry should exist except when an external wallet database is brought
             # to this installation and loaded, with unknown servers in it.

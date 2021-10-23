@@ -321,8 +321,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             _("&Keys"), "keys")
         self._add_optional_tab(tabs, self.utxo_tab, read_QIcon("tab_coins.png"),
             _("Co&ins"), "utxo")
-        # self._add_optional_tab(tabs, self.contacts_tab, read_QIcon("tab_contacts.png"),
-        #     _("Con&tacts"), "contacts")
+        self._add_optional_tab(tabs, self.contacts_tab, read_QIcon("tab_contacts.png"),
+            _("Con&tacts"), "contacts")
         self._add_optional_tab(tabs, self.console_tab, read_QIcon("tab_console.png"),
             _("Con&sole"), "console")
         self._add_optional_tab(tabs, self.coinsplitting_tab, read_QIcon("tab_coins.png"),

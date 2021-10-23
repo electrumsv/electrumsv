@@ -1,0 +1,11 @@
+[
+    {
+        "id": 21001,
+        "url": "http://127.0.0.1:49241/",
+        "type": "GENERAL",
+        "capabilities": [
+            "RESTORATION"
+        ],
+        "static_data_date": "2021-11-15T04:45:05+0000"
+    }
+]

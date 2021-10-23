@@ -247,6 +247,9 @@ class KeyInstanceFlag(IntFlag):
 class SubscriptionType(IntEnum):
     NONE = 0
     SCRIPT_HASH = 1
+    PUSHDATA_HASH = 2
+
+BYTE_SUBSCRIPTION_TYPES = { SubscriptionType.SCRIPT_HASH, SubscriptionType.PUSHDATA_HASH }
 
 
 class SubscriptionOwnerPurpose(IntEnum):
@@ -361,6 +364,9 @@ class WalletSettings:
     ADD_SV_OUTPUT = 'sv_output'
 
 
+EMPTY_HASH = b"\0" * 32
+
+
 class NetworkEventNames:
     HISTORICAL_EXCHANGE_RATES = "on_history"
     EXCHANGE_RATE_QUOTES = "on_quotes"
@@ -378,10 +384,12 @@ API_SERVER_TYPES = { NetworkServerType.MERCHANT_API, NetworkServerType.GENERAL }
 class ServerCapability(IntEnum):
     TRANSACTION_BROADCAST = 1
     FEE_QUOTE = 2
+    # The ElectrumX script hash notification API.
     SCRIPTHASH_HISTORY = 3
     MERKLE_PROOF_REQUEST = 4
-    MERKLE_PROOF_NOTIFICATION = 4
-    BLOCKCHAIN_SCAN = 5
+    MERKLE_PROOF_NOTIFICATION = 5
+    # The "General API" restoration sub-API.
+    RESTORATION = 6
 
 
 PREFIX_ASM_SCRIPT = "asm:"

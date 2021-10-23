@@ -24,7 +24,7 @@ TODO At this time the subscriptions state is shared for all wallets using the ne
   But this is the wrong model for the future. If each account may have different credentials for
   using a service, then these will all need to use that service independently.
 
-TODO Entries in `_subscription_results` need to be purged using some heuristic. This might be
+TODO Entries in `_scripthash_result_cache` need to be purged using some heuristic. This might be
   possible after all active subscriptions for the given hashes are known to be deleted.
 
 """
@@ -37,20 +37,23 @@ from typing import Dict, List, Optional, Set, Tuple
 from bitcoinx import hash_to_hex_str
 
 from .app_state import app_state
-from .constants import SubscriptionType
+from .constants import BYTE_SUBSCRIPTION_TYPES, SubscriptionType
 from .exceptions import SubscriptionStale
 from .logs import logs
 from .types import (ElectrumXHistoryList, SubscriptionEntry, SubscriptionKey,
-    ScriptHashSubscriptionCallback, ScriptHashSubscriptionEntry, ScriptHashResultCallback,
-    SubscriptionOwner, SubscriptionOwnerContextType)
+    HashSubscriptionCallback, HashSubscriptionEntry, PushdataHashResultCallback,
+    ScriptHashResultCallback, SubscriptionCallbacks, SubscriptionOwner,
+    SubscriptionOwnerContextType)
 
 
 logger = logs.get_logger("subscriptions")
 
 
 class SubscriptionManager:
-    _script_hashes_added_callback: Optional[ScriptHashSubscriptionCallback] = None
-    _script_hashes_removed_callback: Optional[ScriptHashSubscriptionCallback] = None
+    _script_hashes_added_callback: Optional[HashSubscriptionCallback] = None
+    _script_hashes_removed_callback: Optional[HashSubscriptionCallback] = None
+    _pushdata_hashes_added_callback: Optional[HashSubscriptionCallback] = None
+    _pushdata_hashes_removed_callback: Optional[HashSubscriptionCallback] = None
 
     def __init__(self) -> None:
         # The network needs to be sure that it will not miss events, and any creation events
@@ -66,12 +69,13 @@ class SubscriptionManager:
         self._subscriptions: Dict[SubscriptionKey, Set[SubscriptionOwner]] = {}
         # The current result arrives as a response to an initial subcription, any subscriber for
         # another purpose who arrives later will miss it. For this reason we store the last result
-        # for a subscription entry and give it to later concurrent subscribers.
-        self._subscription_results: Dict[SubscriptionKey, ElectrumXHistoryList] = {}
+        # for a subscription entry and give it to later subscribers for one of those initial
+        # subscriptione entries.
+        self._scripthash_result_cache: Dict[SubscriptionKey, ElectrumXHistoryList] = {}
         self._owner_subscriptions: Dict[SubscriptionOwner, Set[SubscriptionKey]] = {}
         self._owner_subscription_context: Dict[Tuple[SubscriptionOwner, SubscriptionKey],
             SubscriptionOwnerContextType] = {}
-        self._owner_callbacks: Dict[SubscriptionOwner, ScriptHashResultCallback] = {}
+        self._owner_callbacks: Dict[SubscriptionOwner, SubscriptionCallbacks] = {}
 
         self._script_hash_notification_queue: \
             asyncio.Queue[Tuple[int, bytes, ElectrumXHistoryList]] = app_state.async_.queue()
@@ -81,12 +85,15 @@ class SubscriptionManager:
     def stop(self) -> None:
         self._script_hash_notification_future.cancel()
 
-    def set_owner_callback(self, owner: SubscriptionOwner, callback: ScriptHashResultCallback) \
-            -> None:
-        self._owner_callbacks[owner] = callback
+    def set_owner_callback(self, owner: SubscriptionOwner, /,
+            script_hash_callback: Optional[ScriptHashResultCallback]=None,
+            pushdata_hash_callback: Optional[PushdataHashResultCallback]=None) -> None:
+        self._owner_callbacks[owner] = SubscriptionCallbacks(
+            script_hash_result_callback=script_hash_callback,
+            pushdata_hash_result_callback=pushdata_hash_callback)
 
-    def remove_owner(self, owner: SubscriptionOwner) -> Optional[concurrent.futures.Future[None]]:
-        future: Optional[concurrent.futures.Future[None]] = None
+    def remove_owner(self, owner: SubscriptionOwner) -> List[concurrent.futures.Future[None]]:
+        futures: List[concurrent.futures.Future[None]] = []
         with self._lock:
             if owner in self._owner_callbacks:
                 del self._owner_callbacks[owner]
@@ -94,12 +101,12 @@ class SubscriptionManager:
             if owner in self._owner_subscriptions:
                 subscribed_entries = [ SubscriptionEntry(key, None)
                     for key in self._owner_subscriptions[owner] ]
-                future = self.delete_entries(subscribed_entries, owner)
+                futures = self.delete_entries(subscribed_entries, owner)
                 del self._owner_subscriptions[owner]
-        return future
+        return futures
 
-    def set_script_hash_callbacks(self, added_callback: ScriptHashSubscriptionCallback,
-            removed_callback: ScriptHashSubscriptionCallback) -> None:
+    def set_script_hash_callbacks(self, added_callback: HashSubscriptionCallback,
+            removed_callback: HashSubscriptionCallback) -> None:
         self._script_hashes_added_callback = added_callback
         self._script_hashes_removed_callback = removed_callback
 
@@ -107,13 +114,22 @@ class SubscriptionManager:
         self._script_hashes_added_callback = None
         self._script_hashes_removed_callback = None
 
+    def set_pushdata_hash_callbacks(self, added_callback: HashSubscriptionCallback,
+            removed_callback: HashSubscriptionCallback) -> None:
+        self._pushdata_hashes_added_callback = added_callback
+        self._pushdata_hashes_removed_callback = removed_callback
+
+    def clear_pushdata_hash_callbacks(self) -> None:
+        self._pushdata_hashes_added_callback = None
+        self._pushdata_hashes_removed_callback = None
+
     def _add_subscription(self, entry: SubscriptionEntry, owner: SubscriptionOwner) \
             -> Tuple[int, bool]:
         """
         Add the owner's subscription for the given subscription key.
         """
         key = entry.key
-        if key.value_type == SubscriptionType.SCRIPT_HASH:
+        if key.value_type in BYTE_SUBSCRIPTION_TYPES:
             assert type(key.value) is bytes, "subscribed script hashes must be bytes"
         assert entry.owner_context is not None
         if (owner, key) in self._owner_subscription_context:
@@ -148,7 +164,7 @@ class SubscriptionManager:
         it.
         """
         key = entry.key
-        if key.value_type == SubscriptionType.SCRIPT_HASH:
+        if key.value_type in BYTE_SUBSCRIPTION_TYPES:
             assert type(key.value) is bytes, "subscribed script hashes must be bytes"
         subscription_id = self._subscription_ids[key]
         subscriptions = self._subscriptions[key]
@@ -162,19 +178,23 @@ class SubscriptionManager:
         return None
 
     def create_entries(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) \
-            -> Optional[concurrent.futures.Future[None]]:
+            -> List[concurrent.futures.Future[None]]:
         """
         Add subscriptions from the given owner.
         """
-        future: Optional[concurrent.futures.Future[None]] = None
+        futures: List[concurrent.futures.Future[None]] = []
         with self._lock:
-            script_hash_entries: List[ScriptHashSubscriptionEntry] = []
+            script_hash_entries: List[HashSubscriptionEntry] = []
+            pushdata_hash_entries: List[HashSubscriptionEntry] = []
             for entry in entries:
                 subscription_id, is_new = self._add_subscription(entry, owner)
                 if is_new:
                     if entry.key.value_type == SubscriptionType.SCRIPT_HASH:
                         script_hash_entries.append(
-                            ScriptHashSubscriptionEntry(subscription_id, entry.key.value))
+                            HashSubscriptionEntry(subscription_id, entry.key.value))
+                    elif entry.key.value_type == SubscriptionType.PUSHDATA_HASH:
+                        pushdata_hash_entries.append(
+                            HashSubscriptionEntry(subscription_id, entry.key.value))
                     else:
                         raise NotImplementedError(f"{entry.key.value_type} not supported")
                 elif self._script_hashes_added_callback is not None:
@@ -185,9 +205,14 @@ class SubscriptionManager:
             if self._script_hashes_added_callback is not None and len(script_hash_entries):
                 future = app_state.app.run_coro(
                     self._script_hashes_added_callback, script_hash_entries)
-        return future
+                futures.append(future)
+            if self._pushdata_hashes_added_callback is not None and len(pushdata_hash_entries):
+                future = app_state.app.run_coro(
+                    self._pushdata_hashes_added_callback, pushdata_hash_entries)
+                futures.append(future)
+        return futures
 
-    def read_script_hashes(self) -> List[ScriptHashSubscriptionEntry]:
+    def read_script_hashes(self) -> List[HashSubscriptionEntry]:
         """
         Get all the existing script hash subscriptions.
 
@@ -195,26 +220,30 @@ class SubscriptionManager:
         subscriptions need to be remade.
         """
         with self._lock:
-            script_hash_entries: List[ScriptHashSubscriptionEntry] = []
+            script_hash_entries: List[HashSubscriptionEntry] = []
             for key, subscription_id in self._subscription_ids.items():
-                script_hash_entries.append(ScriptHashSubscriptionEntry(subscription_id, key.value))
+                script_hash_entries.append(HashSubscriptionEntry(subscription_id, key.value))
             return script_hash_entries
 
     def delete_entries(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) \
-            -> Optional[concurrent.futures.Future[None]]:
+            -> List[concurrent.futures.Future[None]]:
         """
         Remove subscriptions from the given owner.
         """
-        future: Optional[concurrent.futures.Future[None]] = None
+        futures: List[concurrent.futures.Future[None]] = []
         with self._lock:
-            script_hash_entries: List[ScriptHashSubscriptionEntry] = []
+            script_hash_entries: List[HashSubscriptionEntry] = []
+            pushdata_hash_entries: List[HashSubscriptionEntry] = []
             for entry in entries:
                 subscription_id = self._remove_subscription(entry, owner)
                 if subscription_id is not None:
                     # All subscriptions for this key are removed, notify unsubscribing is possible.
                     if entry.key.value_type == SubscriptionType.SCRIPT_HASH:
                         script_hash_entries.append(
-                            ScriptHashSubscriptionEntry(subscription_id, entry.key.value))
+                            HashSubscriptionEntry(subscription_id, entry.key.value))
+                    elif entry.key.value_type == SubscriptionType.PUSHDATA_HASH:
+                        pushdata_hash_entries.append(
+                            HashSubscriptionEntry(subscription_id, entry.key.value))
                     else:
                         raise NotImplementedError(f"{entry.key.value_type} not supported")
             if self._script_hashes_removed_callback is not None and len(script_hash_entries):
@@ -223,7 +252,15 @@ class SubscriptionManager:
                 #   it would block it indefinitely.
                 future = app_state.app.run_coro(
                     self._script_hashes_removed_callback, script_hash_entries)
-        return future
+                futures.append(future)
+            if self._pushdata_hashes_removed_callback is not None and len(pushdata_hash_entries):
+                # TODO This used to be spawn and wait but was changed to `spawn`/`run_coro` to not
+                #   block the caller where the caller would sometimes be the network thread and
+                #   it would block it indefinitely.
+                future = app_state.app.run_coro(
+                    self._pushdata_hashes_removed_callback, pushdata_hash_entries)
+                futures.append(future)
+        return futures
 
     async def on_script_hash_history(self, subscription_id: int, script_hash: bytes,
             result: ElectrumXHistoryList) -> None:
@@ -251,10 +288,12 @@ class SubscriptionManager:
                 hash_to_hex_str(script_hash), subscription_id, existing_subscription_id)
             return
 
-        self._subscription_results[subscription_key] = result
+        self._scripthash_result_cache[subscription_key] = result
 
-        for owner, callback in list(self._owner_callbacks.items()):
-            await self._notify_script_hash_history(subscription_key, owner, callback, result)
+        for owner, callbacks in list(self._owner_callbacks.items()):
+            if callbacks.script_hash_result_callback is not None:
+                await self._notify_script_hash_history(subscription_key, owner,
+                    callbacks.script_hash_result_callback, result)
 
     async def _notify_script_hash_history(self, subscription_key: SubscriptionKey,
             owner: SubscriptionOwner, callback: ScriptHashResultCallback,
@@ -276,14 +315,19 @@ class SubscriptionManager:
 
     def check_notify_script_hash_history(self, subscription_key: SubscriptionKey,
             owner: SubscriptionOwner) -> None:
-        result = self._subscription_results.get(subscription_key)
+        result = self._scripthash_result_cache.get(subscription_key)
         if result is None:
             return
 
-        callback = self._owner_callbacks.get(owner)
-        if callback is None:
+        callbacks = self._owner_callbacks.get(owner)
+        # It is possible for script hash events to come in late and encounter the race condition
+        # where the owner callback has already been cleared.
+        if callbacks is None:
             return
+        # We want to error if this happens. It should be something that never happens and if it
+        # does happen, things are so broken that we should give up.
+        assert callbacks.script_hash_result_callback is not None
 
         app_state.app.run_coro(self._notify_script_hash_history,
-            subscription_key, owner, callback, result)
+            subscription_key, owner, callbacks.script_hash_result_callback, result)
 

@@ -1,3 +1,42 @@
+# Open BSV License version 3
+# Copyright (c) 2021 Bitcoin Association
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# 1 - The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# 2 - The Software, and any software that is derived from the Software or parts thereof,
+# can only be used on the Bitcoin SV blockchains. The Bitcoin SV blockchains are defined,
+# for purposes of this license, as the Bitcoin blockchain containing block height #556767
+# with the hash "000000000000000001d956714215d96ffc00e0afda4cd0a96c96f8d802b1662b" and
+# that contains the longest persistent chain of blocks that are accepted by the un-modified
+# Software, as well as the test blockchains that contain blocks that are accepted by the
+# un-modified Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
+# This user interface currently supports two different types of scan:
+#
+# 1. Legacy ElectrumX scans.
+# 2. Restoration indexer scans.
+#
+# The user cannot choose which one to use. The idea is that we will replace the legacy scans
+# when services supporting the restoration scans are available. Until the legacy scanning is
+# no longer needed we will retain the code, but the user will have to use the type we decide
+# is active. There will be no user interface for them to choose between the types.
+
 from collections import defaultdict
 import concurrent.futures
 from dataclasses import dataclass, field
@@ -16,9 +55,12 @@ from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, 
     QWidget)
 
 from ...app_state import app_state
-from ...constants import CHANGE_SUBPATH, DerivationPath, RECEIVING_SUBPATH, TransactionImportFlag, \
-    TxFlags
-from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, Scanner
+from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, RECEIVING_SUBPATH, \
+    SubscriptionType, TransactionImportFlag, TxFlags
+from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, BlockchainScanner, \
+    ItemHashProtocol, PushDataHasher, PushDataHashHandler, ScriptHasher, ScriptHashHandler, \
+    SearchKeyEnumerator
+from ...network_support.general_api import MatchFlags
 from ...i18n import _
 from ...logs import logs
 from ...wallet import Wallet
@@ -34,6 +76,12 @@ if TYPE_CHECKING:
 
 
 logger = logs.get_logger("scanner-ui")
+
+
+# As a developer you can change the currently active scanning type here.
+
+HARDCODED_SUBSCRIPTION_TYPE = SubscriptionType.SCRIPT_HASH
+# HARDCODED_SUBSCRIPTION_TYPE = SubscriptionType.PUSHDATA_HASH
 
 
 TEXT_TITLE = _("Blockchain scanner")
@@ -103,9 +151,9 @@ class ScanDialogStage(IntEnum):
 
 @dataclass
 class TransactionScanState:
-    tx_id: str
-    script_hashes: Set[bytes]
-    block_height: int
+    tx_hash: bytes
+    item_hashes: Set[bytes]
+    block_height: Optional[int]
     fee_hint: Optional[int]
     is_missing = True
     already_imported = False
@@ -136,6 +184,9 @@ class BlockchainScanDialog(WindowModalDialog):
 
     update_progress_signal = pyqtSignal(int)
     import_step_signal = pyqtSignal(bytes, object)
+
+    _pushdata_handler: Optional[PushDataHashHandler] = None
+    _scripthash_handler: Optional[ScriptHashHandler] = None
 
     def __init__(self, main_window_proxy: 'ElectrumWindow', wallet: Wallet, account_id: int,
             role: ScanDialogRole) -> None:
@@ -171,21 +222,52 @@ class BlockchainScanDialog(WindowModalDialog):
         self._progress_bar.setFormat("%p% scanned")
         self._progress_bar.setVisible(False)
 
-        if not main_window_proxy.has_connected_main_server():
-            self._about_label = QLabel(TEXT_NO_SERVERS)
-            self._about_label.setWordWrap(True)
-            self._about_label.setAlignment(Qt.AlignmentFlag(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop))
-            self._about_label.setMinimumHeight(60)
+        account = self._wallet.get_account(account_id)
+        assert account is not None
 
-            self._scan_button.setVisible(False)
-            self._advanced_button.setVisible(False)
+        item_hasher: Optional[ItemHashProtocol] = None
+
+        assert self._wallet._network is not None
+        if HARDCODED_SUBSCRIPTION_TYPE == SubscriptionType.SCRIPT_HASH:
+            # The subscription model for ElectrumX servers designates one of the servers as a main
+            # server, and all subscriptions are made with this server.
+            if main_window_proxy.has_connected_main_server():
+                # ElectrumX API.
+                item_hasher = ScriptHasher()
+                wallet_id = account.get_wallet().get_id()
+                account_id = account.get_id()
+                self._scripthash_handler = ScriptHashHandler(self._wallet._network, wallet_id,
+                    account_id)
+            else:
+                self._about_label = QLabel(TEXT_NO_SERVERS)
+                self._about_label.setWordWrap(True)
+                self._about_label.setAlignment(Qt.AlignmentFlag(
+                    Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop))
+                self._about_label.setMinimumHeight(60)
+
+                self._scan_button.setVisible(False)
+                self._advanced_button.setVisible(False)
+        elif HARDCODED_SUBSCRIPTION_TYPE == SubscriptionType.PUSHDATA_HASH:
+            # Capped restoration API.
+            item_hasher = PushDataHasher()
+            self._pushdata_handler = PushDataHashHandler(self._wallet._network, account)
         else:
-            account = self._wallet.get_account(account_id)
-            assert account is not None
-            self._scanner = Scanner.from_account(account,
-                settings=self._advanced_settings,
-                extend_range_cb=self._on_scanner_range_extended)
+            raise NotImplementedError("Unexpected subscription type")
+
+        if item_hasher is not None:
+            search_enumerator = SearchKeyEnumerator(item_hasher, self._advanced_settings)
+            search_enumerator.use_account(account)
+
+            if HARDCODED_SUBSCRIPTION_TYPE == SubscriptionType.SCRIPT_HASH:
+                assert self._scripthash_handler is not None
+                self._scanner = BlockchainScanner(self._scripthash_handler, search_enumerator,
+                    extend_range_cb=self._on_scanner_range_extended)
+            elif HARDCODED_SUBSCRIPTION_TYPE == SubscriptionType.PUSHDATA_HASH:
+                assert self._pushdata_handler is not None
+                self._scanner = BlockchainScanner(self._pushdata_handler, search_enumerator,
+                    extend_range_cb=self._on_scanner_range_extended)
+            else:
+                raise NotImplementedError("Unexpected subscription type")
 
             # We do not have to forceably stop this timer if the dialog is closed. It's lifecycle
             # is directly tied to the life of this dialog.
@@ -193,7 +275,7 @@ class BlockchainScanDialog(WindowModalDialog):
 
             self.import_step_signal.connect(self._update_for_import_step)
 
-            self.attempt_import_icon = read_QIcon("icons8-add-green-48-ui.png")
+            self._attempt_import_icon = read_QIcon("icons8-add-green-48-ui.png")
             self._conflicted_tx_icon = read_QIcon("icons8-error-48-ui.png")
             self._imported_tx_icon = read_QIcon("icons8-add-grey-48-ui.png")
 
@@ -324,6 +406,7 @@ class BlockchainScanDialog(WindowModalDialog):
                     continue
                 if import_entry.is_missing:
                     missing_tx_hashes.append(tx_hash)
+                    assert isinstance(import_entry.block_height, int)
                     missing_tx_heights[tx_hash] = import_entry.block_height
                     missing_tx_fee_hints[tx_hash] = import_entry.fee_hint
                 else:
@@ -347,11 +430,15 @@ class BlockchainScanDialog(WindowModalDialog):
                 future.add_done_callback(self._on_import_obtain_transactions_started)
 
             if len(link_tx_hashes):
+                # We store these to track what we are waiting for.
                 self._import_link_hashes = link_tx_hashes
-                self._import_link_future = app_state.async_.spawn(
-                    self._import_immediately_linkable_transactions, link_tx_hashes)
+                app_state.async_.spawn(self._import_immediately_linkable_transactions,
+                    link_tx_hashes)
 
     async def _import_immediately_linkable_transactions(self, link_tx_hashes: Set[bytes]) -> None:
+        """
+        Worker task to link each transaction that is already present in the wallet.
+        """
         # Cannot hurt to verify that our action is still viable.
         if link_tx_hashes != self._import_link_hashes:
             return
@@ -470,11 +557,29 @@ class BlockchainScanDialog(WindowModalDialog):
         if self._stage in (ScanDialogStage.SCAN, ScanDialogStage.PRE_IMPORT):
             # Continual updates for `DISCOVERY` stage.
             # Initial update for `PRE_IMPORT` stage.
-            tx_hashes: Dict[str, int] = defaultdict(int)
-            for history_item in self._scanner.get_scan_results().values():
-                for result in history_item.history:
-                    tx_hashes[cast(str, result["tx_hash"])] += 1
-            transaction_count = len(tx_hashes)
+            result_count: int = 0
+            transaction_count: int = 0
+            if HARDCODED_SUBSCRIPTION_TYPE == SubscriptionType.PUSHDATA_HASH:
+                tx_hashes: Dict[bytes, int] = defaultdict(int)
+                assert self._pushdata_handler is not None
+                for result1 in self._pushdata_handler.get_results():
+                    result_count += 1
+                    tx_hashes[result1.transaction_hash] += 1
+                    if result1.spend_transaction_hash != EMPTY_HASH:
+                        tx_hashes[result1.spend_transaction_hash] += 1
+                # TODO(no-checkin) Is this count correct? Is it true that we want every matched
+                #   receive transaction and every matched spend transaction?
+                transaction_count = len(tx_hashes)
+            elif HARDCODED_SUBSCRIPTION_TYPE == SubscriptionType.SCRIPT_HASH:
+                assert self._scripthash_handler is not None
+                tx_ids: Dict[str, int] = defaultdict(int)
+                for history_item in self._scripthash_handler.get_results().values():
+                    result_count += 1
+                    for result2 in history_item.history:
+                        tx_ids[cast(str, result2["tx_hash"])] += 1
+                transaction_count = len(tx_ids)
+            else:
+                raise NotImplementedError("Unexpected subscription type")
 
             if self._stage == ScanDialogStage.SCAN:
                 end_time = self._scan_end_time if self._scan_end_time > -1 else int(time.time())
@@ -482,7 +587,7 @@ class BlockchainScanDialog(WindowModalDialog):
                 self._about_label.setText(TEXT_SCAN.format(transaction_count,
                     seconds_passed))
                 if self._last_range > 0:
-                    self._progress_bar.setValue(self._scanner.get_result_count())
+                    self._progress_bar.setValue(result_count)
             elif self._stage == ScanDialogStage.PRE_IMPORT:
                 self._about_label.setText(TEXT_PRE_IMPORT.format(transaction_count))
         elif self._stage == ScanDialogStage.NO_IMPORT:
@@ -501,11 +606,20 @@ class BlockchainScanDialog(WindowModalDialog):
                 self._about_label.setText(TEXT_FINAL_FAILURE.format(failed_import))
 
     def _on_scan_complete(self, future: concurrent.futures.Future[None]) -> None:
+        """
+        The callback the blockchain scanner calls when the scanning process is completed.
+        """
         if future.cancelled():
             logger.debug("_on_scan_complete.cancelled")
             return
 
-        assert future.done()
+        try:
+            future.result()
+        except Exception:
+            # TODO This should be the types of exceptions that represent failures in the scanning
+            #   process.
+            pass
+
         logger.debug("_on_scan_complete")
 
         # Switch to the post-scan analysis holding stage until we determine what the results mean.
@@ -519,50 +633,93 @@ class BlockchainScanDialog(WindowModalDialog):
         all_tx_hashes: List[bytes] = []
         subpath_indexes: Dict[DerivationPath, int] = defaultdict(int)
         self._import_state = {}
-        for script_hash, script_history in self._scanner.get_scan_results().items():
-            # TODO Look into why there are empty script history lists. This seems like a minor
-            #     thing that could be fixed.
-            if len(script_history.history) == 0:
-                continue
 
-            key_subpath = script_history.bip32_subpath
-            assert key_subpath is not None
-            subpath_indexes[key_subpath] = max(subpath_indexes[key_subpath],
-                script_history.bip32_subpath_index)
+        if HARDCODED_SUBSCRIPTION_TYPE == SubscriptionType.SCRIPT_HASH:
+            assert self._scripthash_handler is not None
+            for script_hash, script_history in self._scripthash_handler.get_results().items():
+                # TODO Look into why there are empty script history lists. This seems like a minor
+                #     thing that could be fixed.
+                if len(script_history.history) == 0:
+                    continue
 
-            for result in script_history.history:
-                tx_id = cast(str, result["tx_hash"])
-                tx_hash = hex_str_to_hash(tx_id)
-                tx_block_height = cast(int, result["height"])
-                fee_hint = cast(Optional[int], result.get("fee"))
+                key_subpath = script_history.bip32_subpath
+                assert key_subpath is not None
+                subpath_indexes[key_subpath] = max(subpath_indexes[key_subpath],
+                    script_history.bip32_subpath_index)
 
-                state = self._import_state.get(tx_hash)
-                if state is None:
-                    state = self._import_state[tx_hash] = TransactionScanState(tx_id,
-                        { script_hash }, tx_block_height, fee_hint)
-                    all_tx_hashes.append(tx_hash)
+                for result1 in script_history.history:
+                    tx_id = cast(str, result1["tx_hash"])
+                    tx_hash = hex_str_to_hash(tx_id)
+                    tx_block_height1 = cast(int, result1["height"])
+                    fee_hint = cast(Optional[int], result1.get("fee"))
+
+                    state = self._import_state.get(tx_hash)
+                    if state is None:
+                        state = self._import_state[tx_hash] = TransactionScanState(tx_hash,
+                            { script_hash }, tx_block_height1, fee_hint)
+                        all_tx_hashes.append(tx_hash)
+                    else:
+                        state.item_hashes.add(script_hash)
+                        # TODO Work out the repercussions of this. The import process is modal and
+                        # it is expected a reorg being encountered during the process is unlikely.
+                        # Beyond the differences encountered within the indexer state that is
+                        # located in the scan, it is also possible for the state to change after
+                        # the scan.
+                        if state.block_height is None:
+                            state.block_height = tx_block_height1
+                        else:
+                            state.block_height = max(tx_block_height1, state.block_height)
+        elif HARDCODED_SUBSCRIPTION_TYPE == SubscriptionType.PUSHDATA_HASH:
+            assert self._pushdata_handler is not None
+            fee_hint = None
+            tx_block_height2 = None
+            for result2 in self._pushdata_handler.get_results():
+                tx_hashes: List[bytes] = []
+                if result2.flags & MatchFlags.IN_OUTPUT:
+                    # This is the transaction with the output script.
+                    tx_hashes.append(result2.transaction_hash)
+                    # It is expected to have been mined so this should not be empty.
+                    if result2.spend_transaction_hash != EMPTY_HASH:
+                        tx_hashes.append(result2.spend_transaction_hash)
+                elif result2.flags & MatchFlags.IN_INPUT:
+                    # This is the transaction with the input script.
+                    tx_hashes.append(result2.transaction_hash)
+                    # We do not expect to encounter this as all our matching is done on pushdata
+                    # that will be in the output. The only place where historically we should
+                    # encounter it is P2SH.
                 else:
-                    state.script_hashes.add(script_hash)
-                    # TODO Work out the repercussions of this. The import process is modal and
-                    # it is expected a reorg being encountered during the process is unlikely.
-                    # Beyond the differences encountered within the indexer state that is located
-                    # in the scan, it is also possible for the state to change after the scan.
-                    state.block_height = max(tx_block_height, state.block_height)
+                    raise NotImplementedError
+
+                # TODO(no-checkin) Get the indexes on the matches into this.
+                for tx_hash in tx_hashes:
+                    state = self._import_state.get(tx_hash)
+                    if state is None:
+                        state = self._import_state[tx_hash] = TransactionScanState(tx_hash,
+                            { result2.push_data_hash }, tx_block_height2, fee_hint)
+                        all_tx_hashes.append(result2.push_data_hash)
+                    else:
+                        state.item_hashes.add(result2.push_data_hash)
+        else:
+            raise NotImplementedError("")
 
         # The linking of transaction to accounts cannot be done unless the keys exist with their
         # script hashes.
         account = self._wallet.get_account(self._account_id)
         assert account is not None
-        last_scripthash_future: Optional[concurrent.futures.Future[None]] = None
+        derivation_completion_future: Optional[concurrent.futures.Future[None]] = None
         for subpath, subpath_index in subpath_indexes.items():
-            scripthash_future, keyinstance_rows = account.derive_new_keys_until(
+            # TODO This derives script hashes which are used to map key usage to the imported
+            #   transactions. At some point in the future, this will not be sufficient to cover
+            #   mapping key usage to transaction importation, when we no longer have known script
+            #   hashes.
+            derivation_completion_future, keyinstance_rows = account.derive_new_keys_until(
                 tuple(subpath) + (subpath_index,))
-            if scripthash_future is not None:
-                last_scripthash_future = scripthash_future
+            if derivation_completion_future is not None:
+                derivation_completion_future = derivation_completion_future
         # All the key creation writes get queued in the database dispatcher. We can wait on the
         # last one if we want to be sure they are created and ready for use.
-        if last_scripthash_future is not None:
-            last_scripthash_future.result()
+        if derivation_completion_future is not None:
+            derivation_completion_future.result()
 
         all_are_imported = True
         conflicts_were_found = False
@@ -604,23 +761,13 @@ class BlockchainScanDialog(WindowModalDialog):
         self._progress_bar.setValue(-1)
         self._progress_bar.setFormat("%p% imported")
 
-        def sort_height(sort_entry: Tuple[bytes, TransactionScanState]) -> int:
-            if sort_entry[1].block_height == 0:
-                return MEMPOOL_SORT_HEIGHT
-            elif sort_entry[1].block_height == -1:
-                return MEMPOOL_PARENT_SORT_HEIGHT
-            return sort_entry[1].block_height
-
-        tx_state_items = sorted(self._import_state.items(), key=sort_height)
+        tx_state_items = list(self._import_state.items())
         tree_items: List[QTreeWidgetItem] = []
         for entry_index, (tx_hash, entry) in enumerate(tx_state_items):
-            if entry.block_height in (MEMPOOL_SORT_HEIGHT, MEMPOOL_PARENT_SORT_HEIGHT):
-                height_text = "Pending"
-            else:
-                height_text = str(entry.block_height)
             # NOTE(typing) It accepts `None` in an iterable of strings. Need to test if it can
             #   be replaced by an empty string.
-            column_values = [ None, entry.tx_id, height_text ]
+            tx_id = hash_to_hex_str(tx_hash)
+            column_values = [ None, tx_id ]
             tree_item = QTreeWidgetItem(column_values) # type: ignore[arg-type]
             if entry.already_conflicting:
                 tree_item.setIcon(Columns.STATUS, self._conflicted_tx_icon)
@@ -632,7 +779,7 @@ class BlockchainScanDialog(WindowModalDialog):
                 tree_item.setToolTip(Columns.STATUS, _("This transaction is already imported."))
             else:
                 # This is both missing and present and not associated with account transactions.
-                tree_item.setIcon(Columns.STATUS, self.attempt_import_icon)
+                tree_item.setIcon(Columns.STATUS, self._attempt_import_icon)
                 tree_item.setToolTip(Columns.STATUS, _("An attempt can be made to import this "
                     "transaction."))
             tree_item.setData(Columns.STATUS, ImportRoles.ENTRY, entry)
@@ -683,19 +830,18 @@ class BlockchainScanDialog(WindowModalDialog):
     def _on_menu_copy_entry_json_to_clipboard(self, entries: List[TransactionScanState]) -> None:
         entries_text = json.dumps(list(
             {
-                "tx_id": entry.tx_id,
-                "script_hashes": list(hash_to_hex_str(hash) for hash in entry.script_hashes),
-                "block_height": entry.block_height,
+                "tx_id": hash_to_hex_str(entry.tx_hash),
+                "item_hashes": list(hash_to_hex_str(hash) for hash in entry.item_hashes)
             } for entry in entries))
         self._main_window.app.clipboard().setText(entries_text)
 
     def _on_menu_copy_tx_ids_json_to_clipboard(self, entries: List[TransactionScanState]) -> None:
-        tx_ids_text = json.dumps(list(entry.tx_id for entry in entries))
+        tx_ids_text = json.dumps(list(hash_to_hex_str(entry.tx_hash) for entry in entries))
         self._main_window.app.clipboard().setText(tx_ids_text)
 
     def _on_menu_view_on_block_explorer(self, entries: List[TransactionScanState]) -> None:
         for entry in entries:
-            tx_URL = BE_URL(app_state.config, 'tx', entry.tx_id)
+            tx_URL = BE_URL(app_state.config, 'tx', hash_to_hex_str(entry.tx_hash))
             assert tx_URL is not None
             webbrowser.open(tx_URL)
 

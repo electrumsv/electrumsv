@@ -1,3 +1,33 @@
+# Open BSV License version 3
+# Copyright (c) 2021 Bitcoin Association
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# 1 - The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# 2 - The Software, and any software that is derived from the Software or parts thereof,
+# can only be used on the Bitcoin SV blockchains. The Bitcoin SV blockchains are defined,
+# for purposes of this license, as the Bitcoin blockchain containing block height #556767
+# with the hash "000000000000000001d956714215d96ffc00e0afda4cd0a96c96f8d802b1662b" and
+# that contains the longest persistent chain of blocks that are accepted by the un-modified
+# Software, as well as the test blockchains that contain blocks that are accepted by the
+# un-modified Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
+from __future__ import annotations
 import concurrent.futures
 import json
 from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING, Tuple, TypedDict
@@ -8,20 +38,17 @@ from aiohttp import ClientConnectorError
 from aiorpcx import SOCKSError, TaskGroup
 
 from ..app_state import app_state
+from ..constants import NetworkServerType
 from ..logs import logs
 from ..types import TransactionSize
 
 
 if TYPE_CHECKING:
-    from .api_server import NewServer
-    from ..async_ import ASync
+    from .api_server import NewServer, SelectionCandidate
     from ..network import Network
     from ..transaction import Transaction
     from ..types import IndefiniteCredentialId
     from ..wallet import AbstractAccount
-
-
-__all__ = [ "MAPI" ]
 
 
 logger = logs.get_logger("network-mapi")
@@ -117,9 +144,11 @@ def poll_servers(network: "Network", account: "AbstractAccount") \
     we return `None`.
     """
     server_entries: List[Tuple["NewServer", Optional["IndefiniteCredentialId"]]] = []
-    for server, credential_id in network.get_api_servers_for_account(account):
-        if server.should_request_fee_quote(credential_id):
-            server_entries.append((server, credential_id))
+    for candidate in network.get_api_servers_for_account(account, NetworkServerType.MERCHANT_API):
+        assert candidate.api_server is not None
+        assert candidate.credential_id is not None
+        if candidate.api_server.should_request_fee_quote(candidate.credential_id):
+            server_entries.append((candidate.api_server, candidate.credential_id))
 
     if not len(server_entries):
         return None

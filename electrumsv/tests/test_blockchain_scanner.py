@@ -8,7 +8,7 @@ import pytest
 
 from electrumsv.bitcoin import scripthash_bytes
 from electrumsv.blockchain_scanner import (BIP32ParentPath, DEFAULT_GAP_LIMITS,
-    Scanner, ScriptEntryKind)
+    BlockchainScanner, ScriptHasher, ScriptHashHandler, SearchEntryKind, SearchKeyEnumerator)
 from electrumsv.constants import (CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType,
     SINGLE_SIGNER_SCRIPT_TYPES, SubscriptionType)
 from electrumsv.exceptions import SubscriptionStale
@@ -30,11 +30,13 @@ def create_event() -> asyncio.Event:
 
 
 # This is our helper task to awaken the blocked `scan_for_usage` call.
-async def post_event(scanner: Scanner, entry: SubscriptionEntry, history: ElectrumXHistoryList) \
+async def post_event(scanner: BlockchainScanner, entry: SubscriptionEntry, history: ElectrumXHistoryList) \
         -> None:
     assert entry.owner_context is not None
-    await scanner._on_script_hash_result(entry.key,
-        cast(SubscriptionScannerScriptHashOwnerContext, entry.owner_context), history)
+    await cast(ScriptHashHandler, scanner._handler)._on_script_hash_result(
+        entry.key,
+        cast(SubscriptionScannerScriptHashOwnerContext, entry.owner_context),
+        history)
 
 
 class InputLine(NamedTuple):
@@ -115,7 +117,7 @@ async def test_scanner_pump_mixed(app_state):
 
     range_index = -1
     expected_ranges = [
-        3 + (2 * 49),   # 101 which is MINIMUM_ACTIVE_SCRIPTS with one extra for a script type set
+        3 + (2 * 49),   # 101 which is MINIMUM_ACTIVE_SUBSCRIPTIONS with one extra for a script type set
                         # where it should be 2 (script type count) * 50 (receiving gap) if there
                         # were no minimum limit.
         103 + (2 * 10), # The extra 2 scripts from the base gap limit, plus 10 more keys to fill
@@ -126,10 +128,15 @@ async def test_scanner_pump_mixed(app_state):
         range_index += 1
         assert new_range == expected_ranges[range_index]
 
-    scanner = Scanner(network, extend_range_cb=extend_range_cb)
+    item_hasher = ScriptHasher()
+    search_enumerator = SearchKeyEnumerator(item_hasher)
     for input_line in input_lines_script:
-        scanner.add_script(input_line.keyinstance_id, ScriptType.P2PKH, input_line.script_hash)
-    scanner.add_bip32_subpath(RECEIVING_SUBPATH, [ xpub1 ], 1, SINGLE_SIGNER_SCRIPT_TYPES)
+        search_enumerator.add_explicit_item(input_line.keyinstance_id, ScriptType.P2PKH,
+            input_line.script_hash)
+    search_enumerator.add_bip32_subpath(RECEIVING_SUBPATH, [ xpub1 ], 1, SINGLE_SIGNER_SCRIPT_TYPES)
+    scan_handler = ScriptHashHandler(network)
+    scanner = BlockchainScanner(scan_handler, search_enumerator,
+        extend_range_cb=extend_range_cb)
 
     await scanner.scan_for_usage()
 
@@ -138,7 +145,7 @@ async def test_scanner_pump_mixed(app_state):
 
     # Verify that the scanner has the expected script hash histories.
     for input_line in input_lines:
-        assert scanner._script_hash_histories[input_line.script_hash].history == input_line.history
+        assert scan_handler._results[input_line.script_hash].history == input_line.history
 
     # Clean up and verify that all the worker tasks exited with the expected result.
     for task in worker_tasks:
@@ -189,9 +196,14 @@ async def test_scanner_pump_bip32(app_state):
         range_index += 1
         assert new_range == expected_ranges[range_index]
 
-    scanner = Scanner(network, extend_range_cb=extend_range_cb)
-    receiving_path = scanner.add_bip32_subpath(RECEIVING_SUBPATH, [ xpub1 ], 1,
+    item_hasher = ScriptHasher()
+    search_enumerator = SearchKeyEnumerator(item_hasher)
+    receiving_path = search_enumerator.add_bip32_subpath(RECEIVING_SUBPATH, [ xpub1 ], 1,
         SINGLE_SIGNER_SCRIPT_TYPES)
+    scan_handler = ScriptHashHandler(network)
+    scanner = BlockchainScanner(scan_handler, search_enumerator,
+        extend_range_cb=extend_range_cb)
+
     await scanner.scan_for_usage()
 
     # Ensure the range callback was called.
@@ -201,7 +213,7 @@ async def test_scanner_pump_bip32(app_state):
 
     # Verify that the scanner has the expected script hash histories.
     for input_line in input_lines:
-        assert scanner._script_hash_histories[input_line.script_hash].history == input_line.history
+        assert scan_handler._results[input_line.script_hash].history == input_line.history
 
     # Clean up and verify that all the worker tasks exited with the expected result.
     for task in worker_tasks:
@@ -242,9 +254,13 @@ async def test_scanner_pump_script(app_state):
         extend_range_called = True
         assert new_range == len(input_lines)
 
-    scanner = Scanner(network, extend_range_cb=extend_range_cb)
+    item_hasher = ScriptHasher()
+    search_enumerator = SearchKeyEnumerator(item_hasher)
     for input_line in input_lines:
-        scanner.add_script(input_line.keyinstance_id, ScriptType.P2PKH, input_line.script_hash)
+        search_enumerator.add_explicit_item(input_line.keyinstance_id, ScriptType.P2PKH, input_line.script_hash)
+    scan_handler = ScriptHashHandler(network)
+    scanner = BlockchainScanner(scan_handler, search_enumerator,
+        extend_range_cb=extend_range_cb)
 
     await scanner.scan_for_usage()
 
@@ -252,7 +268,7 @@ async def test_scanner_pump_script(app_state):
 
     # Verify that the scanner has the expected script hash histories.
     for input_line in input_lines:
-        assert scanner._script_hash_histories[input_line.script_hash].history == input_line.history
+        assert scan_handler._results[input_line.script_hash].history == input_line.history
 
     # Clean up and verify that all the worker tasks exited with the expected result.
     for task in worker_tasks:
@@ -266,7 +282,10 @@ def test_scanner_bip32_correctness(app_state):
     app_state.subscriptions = unittest.mock.Mock()
     assert isinstance(xpub1, BIP32PublicKey)
 
-    scanner = Scanner(network)
+    item_hasher = ScriptHasher()
+    search_enumerator = SearchKeyEnumerator(item_hasher)
+    scan_handler = ScriptHashHandler(network)
+    scanner = BlockchainScanner(scan_handler, search_enumerator)
 
     receiving_xpub = xpub1.child_safe(RECEIVING_SUBPATH[0])
     receiving_path = BIP32ParentPath(RECEIVING_SUBPATH, 1, [ xpub1 ], (ScriptType.P2PKH,))
@@ -275,44 +294,44 @@ def test_scanner_bip32_correctness(app_state):
     assert receiving_path.parent_public_keys == [ receiving_xpub ]
     assert receiving_path.script_types == (ScriptType.P2PKH,)
 
-    assert not scanner._get_bip32_path_count(receiving_path) == 0
+    assert not search_enumerator._get_bip32_path_count(receiving_path) == 0
 
     # Verify that the first entry provides the correct key and script.. and other stuff.
-    entries = scanner._obtain_entries_from_bip32_path(1, receiving_path)
+    entries = search_enumerator._obtain_entries_from_bip32_path(1, receiving_path)
     assert len(entries) == 1
     assert receiving_path.last_index == 0
     assert receiving_path.result_count == 0
     assert receiving_path.highest_used_index == -1
 
     entry = entries[0]
-    assert entry.kind == ScriptEntryKind.BIP32
+    assert entry.kind == SearchEntryKind.BIP32
     assert entry.keyinstance_id is None
     assert entry.script_type == ScriptType.P2PKH
     assert entry.parent_path == receiving_path
     assert entry.parent_index == 0
-    assert hash_to_hex_str(entry.script_hash) == xpub1_scripthash_0_0
+    assert hash_to_hex_str(entry.item_hash) == xpub1_scripthash_0_0
 
     # Verify that the second entry is not the first entry.
-    entries = scanner._obtain_entries_from_bip32_path(1, receiving_path)
+    entries = search_enumerator._obtain_entries_from_bip32_path(1, receiving_path)
     assert len(entries) == 1
     assert receiving_path.last_index == 1
     assert receiving_path.result_count == 0
     assert receiving_path.highest_used_index == -1
     entry = entries[0]
-    assert entry.kind == ScriptEntryKind.BIP32
+    assert entry.kind == SearchEntryKind.BIP32
     assert entry.keyinstance_id is None
     assert entry.script_type == ScriptType.P2PKH
     assert entry.parent_path == receiving_path
     assert entry.parent_index == 1
-    assert hash_to_hex_str(entry.script_hash) != xpub1_scripthash_0_0
+    assert hash_to_hex_str(entry.item_hash) != xpub1_scripthash_0_0
 
     # Just verify that the first change entry is correct where it counts.
     change_path = BIP32ParentPath(CHANGE_SUBPATH, 1, [ xpub1 ], (ScriptType.P2PKH,))
-    entries = scanner._obtain_entries_from_bip32_path(1, change_path)
+    entries = search_enumerator._obtain_entries_from_bip32_path(1, change_path)
     assert len(entries) == 1
     assert change_path.last_index == 0
     entry = entries[0]
     assert entry.parent_path == change_path
     assert entry.parent_index == 0
-    assert hash_to_hex_str(entry.script_hash) == xpub1_scripthash_1_0
+    assert hash_to_hex_str(entry.item_hash) == xpub1_scripthash_1_0
 

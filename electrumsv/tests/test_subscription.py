@@ -6,8 +6,8 @@ import pytest
 
 from electrumsv.constants import ScriptType
 from electrumsv.subscription import SubscriptionManager, SubscriptionOwner
-from electrumsv.types import ElectrumXHistoryList, ScriptHashSubscriptionCallback, \
-    ScriptHashSubscriptionEntry, \
+from electrumsv.types import ElectrumXHistoryList, HashSubscriptionCallback, \
+    HashSubscriptionEntry, \
     SubscriptionEntry, SubscriptionKey, SubscriptionKeyScriptHashOwnerContext, \
     SubscriptionOwnerContextType, SubscriptionOwnerPurpose, SubscriptionType
 
@@ -22,8 +22,8 @@ def test_stop(app_state) -> None:
 def test_set_clear_script_callbacks(app_state) -> None:
     async def callback1(*args: Any): pass
     async def callback2(*args: Any): pass
-    typed_callback1 = cast(ScriptHashSubscriptionCallback, callback1)
-    typed_callback2 = cast(ScriptHashSubscriptionCallback, callback2)
+    typed_callback1 = cast(HashSubscriptionCallback, callback1)
+    typed_callback2 = cast(HashSubscriptionCallback, callback2)
 
     manager = SubscriptionManager()
     manager.set_script_hash_callbacks(typed_callback1, typed_callback2)
@@ -116,8 +116,8 @@ async def test_history_event_processing(app_state) -> None:
     async def remove_callback(*args: Any) -> None:
         pass
 
-    typed_add_callback = cast(ScriptHashSubscriptionCallback, add_callback)
-    typed_remove_callback = cast(ScriptHashSubscriptionCallback, remove_callback)
+    typed_add_callback = cast(HashSubscriptionCallback, add_callback)
+    typed_remove_callback = cast(HashSubscriptionCallback, remove_callback)
     manager.set_script_hash_callbacks(typed_add_callback, typed_remove_callback)
 
     subscription_entries1: List[SubscriptionEntry] = [
@@ -134,8 +134,8 @@ async def test_history_event_processing(app_state) -> None:
             SubscriptionKeyScriptHashOwnerContext(KEYINSTANCE_ID+20, ScriptType.P2PKH)),
     ]
 
-    collected_additions: List[List[ScriptHashSubscriptionEntry]] = []
-    def collect_additions(func: Any, entries: List[ScriptHashSubscriptionEntry]) -> MagicMock:
+    collected_additions: List[List[HashSubscriptionEntry]] = []
+    def collect_additions(func: Any, entries: List[HashSubscriptionEntry]) -> MagicMock:
         collected_additions.append(entries)
         return MagicMock()
 
@@ -147,37 +147,37 @@ async def test_history_event_processing(app_state) -> None:
     assert len(collected_additions) == 1
     additions = collected_additions.pop()
     assert additions[0].entry_id == 1
-    assert additions[0].script_hash == SCRIPT_HASH_A
+    assert additions[0].hash_value == SCRIPT_HASH_A
 
     future = manager.create_entries(subscription_entries2, SUBSCRIPTION_OWNER2)
     assert future is not None
     assert len(collected_additions) == 1
     additions = collected_additions.pop()
     assert additions[0].entry_id == 2
-    assert additions[0].script_hash == SCRIPT_HASH_B
+    assert additions[0].hash_value == SCRIPT_HASH_B
 
     async def queue_get_1() -> Tuple[int, bytes, ElectrumXHistoryList]:
         return SUBSCRIPTION_ID_A, SCRIPT_HASH_A, RESULTS_A
     manager._script_hash_notification_queue.get.side_effect = queue_get_1
 
     await manager._process_scripthash_notifications()
-    assert len(manager._subscription_results) == 1
-    assert manager._subscription_results == {
+    assert len(manager._scripthash_result_cache) == 1
+    assert manager._scripthash_result_cache == {
         SubscriptionKey(SubscriptionType.SCRIPT_HASH, SCRIPT_HASH_A): RESULTS_A }
     assert owner_callback1_called
     assert owner_callback2_called
 
     owner_callback1_entered = owner_callback2_entered = False
     owner_callback1_called = owner_callback2_called = False
-    manager._subscription_results.clear()
+    manager._scripthash_result_cache.clear()
 
     async def queue_get_2() -> Tuple[int, bytes, ElectrumXHistoryList]:
         return SUBSCRIPTION_ID_B, SCRIPT_HASH_B, RESULTS_B
     manager._script_hash_notification_queue.get.side_effect = queue_get_2
 
     await manager._process_scripthash_notifications()
-    assert len(manager._subscription_results) == 1
-    assert manager._subscription_results == {
+    assert len(manager._scripthash_result_cache) == 1
+    assert manager._scripthash_result_cache == {
         SubscriptionKey(SubscriptionType.SCRIPT_HASH, SCRIPT_HASH_B): RESULTS_B }
     # If the irrelevant first callback is called it will error and the exception will be swallowed
     # and logged, and we will not know.

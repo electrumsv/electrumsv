@@ -66,7 +66,7 @@ class KeyDataProtocol(Protocol):
     # Overlapping common output/spendable type field.
     @property
     def keyinstance_id(self) -> int:
-        pass
+        ...
     # Spendable type fields.
     @property
     def account_id(self) -> int:

@@ -207,7 +207,7 @@ class FundsSelectionWidget(QWidget):
         old_showPopup = combo.showPopup
 
         # Detect when the combobox popup view is shown by rebinding and wrapping the method.
-        def _new_showPopup(_self: QComboBox) -> None:
+        def _new_showPopup() -> None:
             nonlocal old_showPopup, tableView
             old_showPopup()
             tableView.resizeColumnsToContents()

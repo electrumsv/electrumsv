@@ -1,7 +1,36 @@
+# Open BSV License version 3
+# Copyright (c) 2021 Bitcoin Association
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# 1 - The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# 2 - The Software, and any software that is derived from the Software or parts thereof,
+# can only be used on the Bitcoin SV blockchains. The Bitcoin SV blockchains are defined,
+# for purposes of this license, as the Bitcoin blockchain containing block height #556767
+# with the hash "000000000000000001d956714215d96ffc00e0afda4cd0a96c96f8d802b1662b" and
+# that contains the longest persistent chain of blocks that are accepted by the un-modified
+# Software, as well as the test blockchains that contain blocks that are accepted by the
+# un-modified Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
 import dataclasses
 import datetime
 import json
-from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple, TYPE_CHECKING
+from typing import cast, Dict, List, NamedTuple, Optional, Tuple, TypedDict, TYPE_CHECKING
 
 import dateutil.parser
 
@@ -24,6 +53,23 @@ __all__ = [ "NewServerAPIContext", "NewServerAccessState", "NewServer" ]
 STALE_PERIOD_SECONDS = 60 * 60 * 24
 
 
+class APIServerDefinition(TypedDict):
+    id: int
+    url: str
+    type: str
+    api_key: str
+    api_key_required: bool
+    api_key_supported: bool
+    enabled_for_all_wallets: bool
+    last_good: float
+    last_try: float
+    capabilities: List[str]
+    static_data_date: str
+    modified_date: str
+    # MAPI
+    anonymous_fee_quote: Optional[JSONEnvelope]
+
+
 @dataclasses.dataclass
 class CapabilitySupport:
     name: str
@@ -34,7 +80,7 @@ class CapabilitySupport:
 
 SERVER_CAPABILITIES = {
     NetworkServerType.GENERAL: [
-        CapabilitySupport(_("Blockchain scanning"), ServerCapability.BLOCKCHAIN_SCAN),
+        CapabilitySupport(_("Account restoration"), ServerCapability.RESTORATION),
     ],
     NetworkServerType.MERCHANT_API: [
         CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST,
@@ -44,7 +90,7 @@ SERVER_CAPABILITIES = {
             is_unsupported=True),
     ],
     NetworkServerType.ELECTRUMX: [
-        CapabilitySupport(_("Blockchain scanning"), ServerCapability.BLOCKCHAIN_SCAN),
+        CapabilitySupport(_("Blockchain scanning"), ServerCapability.SCRIPTHASH_HISTORY),
         CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST),
         CapabilitySupport(_("Transaction proofs"), ServerCapability.MERKLE_PROOF_REQUEST),
     ]
@@ -100,11 +146,10 @@ class NewServerAccessState:
 
 class NewServer:
     def __init__(self, url: str, server_type: NetworkServerType,
-            config: Optional[Dict[str, Any]]=None) -> None:
+            config: Optional[APIServerDefinition]=None) -> None:
         self.url = url
         self.server_type = server_type
-        # TODO(typing) `config` should be `TypedDict`.
-        self.config: Optional[Dict[str, Any]] = config
+        self.config: Optional[APIServerDefinition] = config
         self.config_credential_id: Optional[IndefiniteCredentialId] = None
 
         # These are the enabled clients, whether they use an API key and the id if so.
@@ -180,7 +225,7 @@ class NewServer:
             results.append(server_state)
         return results
 
-    def on_pending_config_change(self, config_update: Dict[str, Any]) -> None:
+    def on_pending_config_change(self, config_update: APIServerDefinition) -> None:
         """
         Process a change to the config entry for this server.
 
@@ -208,10 +253,9 @@ class NewServer:
         if len(self.client_api_keys) == 0:
             if self.config is None:
                 return True
-            # TODO(typing) This `config` should be a TypedDict.
             # TODO(rt12) This needs to be documented. How is an enabled server unusable? Wouldn't
             #   it be the other way around?
-            return cast(bool, self.config["enabled_for_all_wallets"])
+            return self.config["enabled_for_all_wallets"]
         return False
 
     def is_unused(self) -> bool:
