@@ -77,7 +77,7 @@ stages:
   - job: TestFunctionalPy39
     displayName: Functional tests (Python 3.9)
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
