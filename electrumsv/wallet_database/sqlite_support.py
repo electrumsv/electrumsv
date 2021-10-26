@@ -20,7 +20,8 @@ from ..logs import logs
 
 
 class DatabaseFunction(Protocol):
-    def __call__(self, db: sqlite3.Connection, *args: Any, **kwargs: Any) -> Any: ...
+    def __call__(self, db: sqlite3.Connection, *args: Any, **kwargs: Any) -> Any:
+        ...
 
 
 T1 = TypeVar("T1")
@@ -201,8 +202,9 @@ class DatabaseContext:
         # pylint: disable=line-too-long
         # `isolation_level` is set to `None` in order to disable the automatic transaction
         # management in :mod:`sqlite3`. See the `Python documentation <https://docs.python.org/3/library/sqlite3.html#controlling-transactions>`_
+        is_special_path = self.is_special_path(self._db_path)
         connection = sqlite3.connect(self._db_path, check_same_thread=False,
-            isolation_level=None)
+            isolation_level=None, uri=is_special_path)
         connection.execute("PRAGMA busy_timeout=5000;")
         connection.execute("PRAGMA foreign_keys=ON;")
         # We do not enable journaling for in-memory databases. It resulted in 'database is locked'
