@@ -34,7 +34,7 @@ import threading
 from typing import Any, Dict, List, NamedTuple, Optional, Tuple
 
 from bitcoinx import DecryptionError
-from PyQt5.QtCore import pyqtSignal, Qt, QItemSelection, QModelIndex
+from PyQt5.QtCore import pyqtSignal, Qt, QItemSelection, QModelIndex, QObject
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QAbstractItemView, QAction,
@@ -361,16 +361,21 @@ class ReleaseNotesPage(QWizardPage):
         return WalletPage.CHOOSE_WALLET
 
 
+class ListPopulationContext(QObject):
+    update_list_entry = pyqtSignal(object)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stale = False
+
+
 class ChooseWalletPage(QWizardPage):
     HELP_CONTEXT = HelpContext("choose-wallet")
 
     _force_completed = False
+    _list_thread_context: Optional[ListPopulationContext] = None
     _list_thread: Optional[threading.Thread] = None
-    _list_thread_id: int = 0
     _commit_pressed = False
-
-    update_list_entry = pyqtSignal(int, object)
-    remove_list_entry = pyqtSignal(int, object)
 
     def __init__(self, parent: WalletWizard) -> None:
         super().__init__(parent)
@@ -451,8 +456,6 @@ class ChooseWalletPage(QWizardPage):
 
         self._unlocked_pixmap = QPixmap(icon_path("icons8-lock-80.png")).scaledToWidth(
             40, Qt.SmoothTransformation)
-
-        self.update_list_entry.connect(self._gui_list_update)
 
         vlayout.addWidget(self._wallet_table)
 
@@ -651,8 +654,10 @@ class ChooseWalletPage(QWizardPage):
             for candidate_path in app_state.config.get('recently_open', []) ]
             if os.path.exists(candidate_path) ])
 
+        self._list_thread_context = ListPopulationContext()
+        self._list_thread_context.update_list_entry.connect(self._gui_list_update)
         self._list_thread = threading.Thread(target=self._populate_list_in_thread,
-            args=(self._list_thread_id,))
+            args=(self._list_thread_context,))
         self._list_thread.setDaemon(True)
         self._list_thread.start()
 
@@ -661,7 +666,9 @@ class ChooseWalletPage(QWizardPage):
     # Qt default QWizardPage event when page is exited.
     def on_leave(self) -> None:
         if self._list_thread is not None:
-            self._list_thread_id += 1
+            assert self._list_thread_context is not None
+            self._list_thread_context.update_list_entry.disconnect()
+            self._list_thread_context.stale = True
             self._list_thread = None
 
         wizard: WalletWizard = self.wizard()
@@ -672,19 +679,19 @@ class ChooseWalletPage(QWizardPage):
         commit_button = wizard.button(QWizard.CommitButton)
         commit_button.clicked.disconnect(self._event_click_open_selected_file)
 
-    def _populate_list_in_thread(self, list_thread_id: int) -> None:
+    def _populate_list_in_thread(self, context: ListPopulationContext) -> None:
         for file_path in self._recent_wallet_paths:
-            if list_thread_id != self._list_thread_id:
+            if context.stale:
                 return
             # We can assume that the state does not exist because we doing initial population.
             entry = create_file_state(file_path)
-            if list_thread_id != self._list_thread_id:
+            if context.stale:
                 return
             # This should filter out invalid wallets. But if there's an Sqlite error it will
             # skip them. In theory the retrying in the Sqlite support code should prevent
             # this from happening.
             if entry is not None:
-                self.update_list_entry.emit(list_thread_id, entry)
+                context.update_list_entry.emit(entry)
 
     def _get_file_state(self, wallet_path: str) -> Optional[FileState]:
         if not os.path.exists(wallet_path):
@@ -706,9 +713,8 @@ class ChooseWalletPage(QWizardPage):
         while self._wallet_table.rowCount():
             self._wallet_table.removeRow(self._wallet_table.rowCount()-1)
 
-    def _gui_list_update(self, thread_id: int, entry: FileState) -> None:
-        if thread_id != self._list_thread_id:
-            return
+    def _gui_list_update(self, entry: FileState) -> None:
+        assert entry.path is not None
 
         row_index = self._wallet_table.rowCount()
         if entry.path in self._recent_wallet_entries:
