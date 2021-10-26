@@ -265,8 +265,9 @@ class DatabaseContext:
         self.SQLITE_CONN_POOL_SIZE += 1
 
         # debug_text = traceback.format_stack()
+        is_special_path = self.is_special_path(self._db_path)
         connection = sqlite3.connect(self._db_path, check_same_thread=False,
-            isolation_level=None)
+            isolation_level=None, uri=is_special_path)
         connection.execute("PRAGMA busy_timeout=5000;")
         connection.execute("PRAGMA foreign_keys=ON;")
         # We do not enable journaling for in-memory databases. It resulted in 'database is locked'
