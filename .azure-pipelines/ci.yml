@@ -28,7 +28,7 @@ stages:
   - job: Pylint
     displayName: Pylint Static Analysis
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
     - template: prepare-general-environment.yml
       parameters:
@@ -41,7 +41,7 @@ stages:
   - job: Mypy
     displayName: Mypy Static Analysis
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
@@ -53,7 +53,7 @@ stages:
   - job: MainUnittestsPy39
     displayName: Main Unittests (Python 3.9)
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
@@ -65,7 +65,7 @@ stages:
   - job: RESTAPIUnittestsPy39
     displayName: REST API tests (Python 3.9)
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
@@ -89,7 +89,7 @@ stages:
   - job: MainUnittestsPy38
     displayName: Main Unittests (Python 3.8)
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
@@ -101,7 +101,7 @@ stages:
   - job: RESTAPIUnittestsPy38
     displayName: REST API tests (Python 3.8)
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
@@ -113,7 +113,7 @@ stages:
   - job: TestFunctionalPy38
     displayName: Functional tests (Python 3.8)
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
@@ -129,7 +129,7 @@ stages:
   jobs:
   - job: Preparation
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
     - script: |
         COMMIT_REVISION=$(Build.SourceVersion)
@@ -199,7 +199,7 @@ stages:
     dependsOn:
     - Preparation
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
     - task: UsePythonVersion@0
       inputs:
@@ -229,7 +229,7 @@ stages:
     dependsOn:
     - Preparation
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     steps:
     - task: UsePythonVersion@0
       inputs:
@@ -257,7 +257,7 @@ stages:
     dependsOn:
     - Preparation
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     variables:
       RELEASE_KEY: $[dependencies.Preparation.outputs['exportVars.RELEASE_KEY']]
     steps:
@@ -319,7 +319,7 @@ stages:
         targetPath: $(Build.ArtifactStagingDirectory)
   - job: ProcessArtifacts
     pool:
-      vmImage: 'ubuntu-16.04'
+      vmImage: 'ubuntu-latest'
     dependsOn:
       - BuildLinuxBasedWindows
       - BuildSourceArchive
