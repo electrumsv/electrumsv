@@ -4,4 +4,5 @@ PyQt5>=5.15.4
 pycryptodomex
 websocket-client
 dmgbuild
-psutil
+# NOTE(psutil-py3.10-pending) psutil removed due to lack of 3.10 wheels.
+# psutil

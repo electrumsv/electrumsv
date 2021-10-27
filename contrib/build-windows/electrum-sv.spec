@@ -39,7 +39,8 @@ datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')
 datas += collect_data_files('keepkeylib')
 datas += collect_data_files('electrumsv_secp256k1')
-binaries += collect_dynamic_libs('psutil')
+# NOTE(psutil-py3.10-pending) psutil removed due to lack of 3.10 wheels.
+# binaries += collect_dynamic_libs('psutil')
 
 a = Analysis([ os.path.join("Scripts", 'electrum-sv') ],
              pathex=[],

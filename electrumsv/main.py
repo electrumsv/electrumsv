@@ -351,13 +351,14 @@ def set_restapi_credentials(config: SimpleConfig, config_options: Dict[str, Any]
 
 def main() -> None:
     enforce_requirements()
-    if sys.platform == "win32" and getattr(sys, "frozen", False):
-        # NOTE(shoddy-windows-getpass-support) This replaces `sys.stdin` and a side effect is
-        # that `getpass.getpass` bails out of the Windows support to the fallback support which
-        # does not hide the input and shows a confusing warning. The Windows support does work
-        # with this replacement, but we need to replace `getpass.getpass` to ensure it is used.
-        from electrumsv.winconsole import setup_windows_console
-        setup_windows_console()
+    # NOTE(psutil-py3.10-pending) psutil removed due to lack of 3.10 wheels.
+    # if sys.platform == "win32" and getattr(sys, "frozen", False):
+    #     # NOTE(shoddy-windows-getpass-support) This replaces `sys.stdin` and a side effect is
+    #     # that `getpass.getpass` bails out of the Windows support to the fallback support which
+    #     # does not hide the input and shows a confusing warning. The Windows support does work
+    #     # with this replacement, but we need to replace `getpass.getpass` to ensure it is used.
+    #     from electrumsv.winconsole import setup_windows_console
+    #     setup_windows_console()
 
     # The hook will only be used in the Qt GUI right now
     setup_thread_excepthook()
