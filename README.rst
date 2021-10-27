@@ -21,7 +21,7 @@ ElectrumSV - Lightweight Bitcoin SV client
   Licence: Open BSV
   Maintainers: Neil Booth, Roger Taylor, AustEcon
   Project Lead: Roger Taylor
-  Language: Python (>=3.9.5)
+  Language: Python (>=3.10.0)
   Homepage: https://electrumsv.io/
 
 Getting started on Linux/MacOS
@@ -38,15 +38,15 @@ which at this time is `releases/1.3`. The `master` branch is used for the latest
 changes and is not guaranteed to be as stable, or to have guaranteed long term support for some of
 the more advanced features we may have added and later remove.
 
-Ensuring you have at least Python 3.9.5
+Ensuring you have at least Python 3.10.0
 ---------------------------------------
 
-You need to ensure you can use Python 3.9.5, ensure the following command looks like this::
+You need to ensure you can use Python 3.10.0, ensure the following command looks like this::
 
     $ python3 --version
-    Python 3.9.5
+    Python 3.10.0
 
-If you see a lower version, you can use pyenv to install Python 3.9.5. First install pyenv::
+If you see a lower version, you can use pyenv to install Python 3.10.0. First install pyenv::
 
     curl -L https://raw.githubusercontent.com/pyenv/pyenv-installer/master/bin/pyenv-installer | bash
 
@@ -54,22 +54,22 @@ Edit your .bashrc file as described, and then ensure the changes are put into ef
 
     $ source ~/.profile
 
-Now you can install Python 3.9.5 using pyenv::
+Now you can install Python 3.10.0 using pyenv::
 
-    $ pyenv install 3.9.5
+    $ pyenv install 3.10.0
 
 If you encounter errors during that process, you can refer to the
 `pyenv common problems <https://github.com/pyenv/pyenv/wiki/common-build-problems>`_.
 
-At this point, you should be able to make Python 3.9.5 the default Python on your computer::
+At this point, you should be able to make Python 3.10.0 the default Python on your computer::
 
-    $ pyenv global 3.9.5
+    $ pyenv global 3.10.0
 
-And you can check that your `python3` version is indeed 3.9.5, by confirming the following command
+And you can check that your `python3` version is indeed 3.10.0, by confirming the following command
 now looks like this::
 
     $ python3 --version
-    Python 3.9.5
+    Python 3.10.0
 
 Ensuring you have at least Sqlite 3.35.4
 ----------------------------------------
@@ -181,7 +181,7 @@ it's SHA-256 hash to the hash we provide for the same file name.
 You can also run from the Git repository directly, which is useful if you wish to customise
 ElectrumSV or help us develop it.
 
-You need to be sure that you are using a version of Python either 3.9.5 or higher. And that the
+You need to be sure that you are using a version of Python either 3.10.0 or higher. And that the
 version you are using has a version of Sqlite either 3.35.4 or higher. If you are for instance
 using a version of Python 3.8 that has a lower version of Sqlite, then update your Python 3.8
 installation.

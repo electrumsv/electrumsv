@@ -3,7 +3,7 @@ parameters:
     default: true
     type: boolean
   - name: 'pythonVersion'
-    default: 3.7
+    default: 3.10
     type: string
 
 steps:

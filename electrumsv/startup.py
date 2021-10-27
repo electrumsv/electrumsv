@@ -44,7 +44,7 @@ try:
     import pysqlite3 as sqlite3
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
-    # Windows builds use the official Python 3.9.5 builds and bundled version of 3.35.5.
+    # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore
 
 

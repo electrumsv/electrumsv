@@ -16,7 +16,7 @@ PYINSTALLER_REPO="https://github.com/SomberNight/pyinstaller.git"
 PYINSTALLER_COMMIT="80ee4d613ecf75a1226b960a560ee01459e65ddb"
 # ^ tag 4.2, plus a custom commit that fixes cross-compilation with MinGW
 
-PYTHON_VERSION=3.9.5
+PYTHON_VERSION=3.10.0
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64

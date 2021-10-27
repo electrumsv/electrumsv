@@ -38,10 +38,10 @@ stages:
     steps:
     - template: prepare-general-environment.yml
       parameters:
-        pythonVersion: '3.9'
+        pythonVersion: '3.10'
     - template: run_pylint_static_analysis.yml
       parameters:
-        pythonVersion: '3.9'
+        pythonVersion: '3.10'
         onlyPullRequests: true
 
   - job: Mypy
@@ -51,46 +51,46 @@ stages:
     steps:
       - template: prepare-general-environment.yml
         parameters:
-          pythonVersion: '3.9'
+          pythonVersion: '3.10'
       - template: run_mypy_static_analysis.yml
         parameters:
-          pythonVersion: '3.9'
+          pythonVersion: '3.10'
 
   - job: MainUnittestsPy39
-    displayName: Main Unittests (Python 3.9)
+    displayName: Main Unittests (Python 3.10)
     pool:
       vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
-          pythonVersion: '3.9'
+          pythonVersion: '3.10'
       - template: run_main_unittests.yml
         parameters:
-          pythonVersion: '3.9'
+          pythonVersion: '3.10'
 
   - job: RESTAPIUnittestsPy39
-    displayName: REST API tests (Python 3.9)
+    displayName: REST API tests (Python 3.10)
     pool:
       vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
-          pythonVersion: '3.9'
+          pythonVersion: '3.10'
       - template: run_restapi_unittests.yml
         parameters:
-          pythonVersion: '3.9'
+          pythonVersion: '3.10'
 
   - job: TestFunctionalPy39
-    displayName: Functional tests (Python 3.9)
+    displayName: Functional tests (Python 3.10)
     pool:
       vmImage: 'ubuntu-latest'
     steps:
       - template: prepare-general-environment.yml
         parameters:
-          pythonVersion: '3.9'
+          pythonVersion: '3.10'
       - template: run_functional_tests.yml
         parameters:
-          pythonVersion: '3.9'
+          pythonVersion: '3.10'
 
 
 - stage: 'Build'
@@ -173,7 +173,7 @@ stages:
     steps:
     - task: UsePythonVersion@0
       inputs:
-        versionSpec: 3.9
+        versionSpec: 3.10
         addToPath: true
         architecture: x64
     - script: |
@@ -201,7 +201,7 @@ stages:
     steps:
     - task: UsePythonVersion@0
       inputs:
-        versionSpec: 3.9
+        versionSpec: 3.10
         addToPath: true
         architecture: x64
     - script: |
@@ -231,7 +231,7 @@ stages:
     steps:
     - task: UsePythonVersion@0
       inputs:
-        versionSpec: 3.9
+        versionSpec: 3.10
         addToPath: true
         architecture: x64
     - script: |
@@ -262,7 +262,7 @@ stages:
     steps:
     - task: UsePythonVersion@0
       inputs:
-        versionSpec: 3.9
+        versionSpec: 3.10
         addToPath: true
         architecture: x64
     - script: |

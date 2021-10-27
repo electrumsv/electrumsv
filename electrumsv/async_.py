@@ -54,14 +54,14 @@ class ASync(object):
 
     def event(self) -> Event:
         '''Return an asyncio.Event for our event loop.'''
-        return Event(loop=self.loop)
+        return Event()
 
     def lock(self) -> Lock:
-        return Lock(loop=self.loop)
+        return Lock()
 
     def queue(self, maxsize: int=0) -> Queue[Any]:
         '''Return an asyncio.Event for our event loop.'''
-        return Queue(maxsize, loop=self.loop)
+        return Queue(maxsize)
 
     def __enter__(self) -> "ASync":
         logger.debug('starting async thread')
