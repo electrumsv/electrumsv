@@ -288,11 +288,10 @@ class SVApplication(QApplication):
                 return w
         return None
 
-    def get_wallet_window_by_id(self, account_id: int) -> Optional[ElectrumWindow]:
+    def get_wallet_window_by_id(self, wallet_id: int) -> Optional[ElectrumWindow]:
         for w in self.windows:
-            for account in w._wallet.get_accounts():
-                if account.get_id() == account_id:
-                    return w
+            if w._wallet.get_id() == wallet_id:
+                return w
         return None
 
     def start_new_window(self, wallet_path: Optional[str], uri: Optional[str]=None,

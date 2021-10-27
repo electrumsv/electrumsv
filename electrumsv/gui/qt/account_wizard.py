@@ -731,7 +731,7 @@ class ImportWalletTextPage(QWizardPage):
         wizard = cast(AccountWizard, self.wizard())
         if self._next_page_id == AccountPage.UNKNOWN:
             # Create the account with no customisation
-            if not self._create_account():
+            if not self._create_account(wallet_id=wizard.get_wallet().get_id()):
                 return False
         else:
             assert self._checked_match_type is not None
@@ -763,8 +763,11 @@ class ImportWalletTextPage(QWizardPage):
         button.setVisible(False)
         self._next_page_id = AccountPage.UNKNOWN
 
+    # The `protected` method needs to know the "main window", we give it the `wallet_id` which
+    # it can use to get the correct object. It is not used in this method, so we just ignore it.
     @protected
-    def _create_account(self, password: Optional[str]=None) -> bool:
+    def _create_account(self, password: Optional[str]=None,
+            wallet_id: Optional[int]=None) -> bool:
         wizard = cast(AccountWizard, self.wizard())
         assert self._checked_match_type is not None
         entries = self._matches[self._checked_match_type]
@@ -831,7 +834,8 @@ class ImportWalletTextCustomPage(QWizardPage):
         # Called when 'Next' or 'Finish' is clicked for last-minute validation.
         assert self.isComplete()
 
-        if not self._create_account():
+        wizard = cast(AccountWizard, self.wizard())
+        if not self._create_account(wallet_id=wizard.get_wallet().get_id()):
             return False
         return True
 
@@ -870,8 +874,11 @@ class ImportWalletTextCustomPage(QWizardPage):
         return self._text_type in (KeystoreTextType.BIP39_SEED_WORDS,
             KeystoreTextType.ELECTRUM_SEED_WORDS, KeystoreTextType.EXTENDED_PRIVATE_KEY)
 
+    # The `protected` method needs to know the "main window", we give it the `wallet_id` which
+    # it can use to get the correct object. It is not used in this method, so we just ignore it.
     @protected
-    def _create_account(self, password: Optional[str]=None) -> bool:
+    def _create_account(self, password: Optional[str]=None,
+            wallet_id: Optional[int]=None) -> bool:
         passphrase = (self._passphrase_edit.text().strip()
             if self._allow_passphrase_usage() else "")
         derivation_text = self._derivation_text if self._allow_derivation_path_usage() else None
@@ -1141,7 +1148,8 @@ class SetupHardwareWalletAccountPage(QWizardPage):
 
     # Qt method called when 'Next' or 'Finish' is clicked for last-minute validation.
     def validatePage(self) -> bool:
-        if self._create_account():
+        wizard = cast(AccountWizard, self.wizard())
+        if self._create_account(wallet_id=wizard.get_wallet().get_id()):
             return True
         return False
 
@@ -1300,8 +1308,10 @@ class SetupHardwareWalletAccountPage(QWizardPage):
             self._derivation_user = None
         self.completeChanged.emit()
 
+    # The `protected` method needs to know the "main window", we give it the `wallet_id` which
+    # it can use to get the correct object. It is not used in this method, so we just ignore it.
     @protected
-    def _create_account(self) -> bool:
+    def _create_account(self, wallet_id: Optional[int]=None) -> bool:
         assert self._plugin is not None
         # The derivation path is valid, proceed to create the account.
         wizard = cast(AccountWizard, self.wizard())
