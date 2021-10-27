@@ -12,9 +12,8 @@ ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 LIBUSB_REPO='https://github.com/libusb/libusb.git'
 LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 
-PYINSTALLER_REPO="https://github.com/SomberNight/pyinstaller.git"
-PYINSTALLER_COMMIT="80ee4d613ecf75a1226b960a560ee01459e65ddb"
-# ^ tag 4.2, plus a custom commit that fixes cross-compilation with MinGW
+PYINSTALLER_REPO="https://github.com/pyinstaller/pyinstaller.git"
+PYINSTALLER_COMMIT="8cd1a68fbde24935d3638850c025d0fb26c5ae8c"
 
 PYTHON_VERSION=3.10.0
 
@@ -120,6 +119,7 @@ mkdir pyinstaller
     fi
     pushd bootloader
     # If switching to 64-bit Windows, edit CC= below
+    export WINRC=`which x86_64-w64-mingw32-windres`
     python3 ./waf all CC=x86_64-w64-mingw32-gcc CFLAGS="-Wno-stringop-overflow -static"
     # Note: it's possible for the EXE to not be there if the build
     # failed but didn't return exit status != 0 to the shell (waf bug?);

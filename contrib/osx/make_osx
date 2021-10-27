@@ -57,7 +57,8 @@ source $BUILDDIR/venv/bin/activate
 python3 -m pip install -U pip
 
 info "Installing pyinstaller"
-python3 -m pip install pyinstaller -I || fail "Could not install pyinstaller"
+python3 -m pip install git+https://github.com/pyinstaller/pyinstaller.git@8cd1a68fbde24935d3638850c025d0fb26c5ae8c || fail "Could not install pyinstaller"
+# python3 -m pip install pyinstaller -I || fail "Could not install pyinstaller"
 
 info "Using these versions for building $PACKAGE:"
 sw_vers
@@ -100,7 +101,7 @@ RAW_VERSION=`git describe --tags --dirty --always --match sv-*`
 VERSION=${RAW_VERSION:3}
 
 info "Using Pyinstaller to build $PACKAGE version $VERSION"
-pyinstaller --noconfirm --ascii contrib/osx/osx.spec || fail "Could not build binary"
+pyinstaller --noconfirm --exclude-module _bootlocale --ascii contrib/osx/osx.spec || fail "Could not build binary"
 
 info "Adding bitcoin URI types to Info.plist"
 plutil -insert 'CFBundleURLTypes' \
