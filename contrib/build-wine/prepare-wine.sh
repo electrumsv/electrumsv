@@ -87,8 +87,8 @@ KEYRING_PYTHON_DEV=keyring-electrumsv-build-python-dev.gpg
 gpg --no-default-keyring --keyring $KEYRING_PYTHON_DEV --import $here/python-pubkeys.txt
 for msifile in core dev exe lib pip tools; do
     echo "Installing $msifile..."
-    wget -N -c "https://www.python.org/ftp/python/$PYTHON_VERSION/win32/${msifile}.msi"
-    wget -N -c "https://www.python.org/ftp/python/$PYTHON_VERSION/win32/${msifile}.msi.asc"
+    wget -N -c "https://www.python.org/ftp/python/$PYTHON_VERSION/amd64/${msifile}.msi"
+    wget -N -c "https://www.python.org/ftp/python/$PYTHON_VERSION/amd64/${msifile}.msi.asc"
     verify_signature "${msifile}.msi.asc" $KEYRING_PYTHON_DEV
     wine msiexec /i "${msifile}.msi" /qb TARGETDIR=$PYHOME
 done
@@ -120,13 +120,13 @@ mkdir pyinstaller
     fi
     pushd bootloader
     # If switching to 64-bit Windows, edit CC= below
-    python3 ./waf all CC=i686-w64-mingw32-gcc CFLAGS="-Wno-stringop-overflow -static"
+    python3 ./waf all CC=x86_64-w64-mingw32-gcc CFLAGS="-Wno-stringop-overflow -static"
     # Note: it's possible for the EXE to not be there if the build
     # failed but didn't return exit status != 0 to the shell (waf bug?);
     # So we need to do this to make sure the EXE is actually there.
     # If we switch to 64-bit, edit this path below.
     popd
-    [ -e PyInstaller/bootloader/Windows-32bit/runw.exe ] || { echo "Could not find runw.exe in target dir!" ; exit 1; }
+    [ -e PyInstaller/bootloader/Windows-64bit/runw.exe ] || { echo "Could not find runw.exe in target dir!" ; exit 1; }
 ) || { echo "PyInstaller bootloader build failed" ; exit 1; }
 echo "Installing PyInstaller ..."
 $PYTHON -m pip install ./pyinstaller || { echo "PyInstaller install failed" ; exit 1; }
@@ -158,7 +158,7 @@ mkdir libusb
     export SOURCE_DATE_EPOCH=1530212462
     echo "libusb_1_0_la_LDFLAGS += -Wc,-static" >> libusb/Makefile.am
     ./bootstrap.sh || { echo "Could not bootstrap libusb" ; exit 1; }
-    host="i686-w64-mingw32"
+    host="x86_64-w64-mingw32"
     LDFLAGS="-Wl,--no-insert-timestamp" ./configure \
         --host=$host \
         --build=x86_64-pc-linux-gnu || { echo "Could not run ./configure for libusb" ; exit 1; }
