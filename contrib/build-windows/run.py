@@ -1,3 +1,32 @@
+# Open BSV License version 3
+# Copyright (c) 2021 Bitcoin Association
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# 1 - The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+# 2 - The Software, and any software that is derived from the Software or parts thereof,
+# can only be used on the Bitcoin SV blockchains. The Bitcoin SV blockchains are defined,
+# for purposes of this license, as the Bitcoin blockchain containing block height #556767
+# with the hash "000000000000000001d956714215d96ffc00e0afda4cd0a96c96f8d802b1662b" and
+# that contains the longest persistent chain of blocks that are accepted by the un-modified
+# Software, as well as the test blockchains that contain blocks that are accepted by the
+# un-modified Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+#
+
 # TODO: Add the missing QR code dependencies.
 # TODO: Verify the Python source archive GPG signature.
 #       - It might actually be better to do download and verification as a developer who is
@@ -8,17 +37,6 @@
 # NOTE: The whole point of specifying what pip, setuptools and wheel versions to use when
 #       bootstrapping pip, is to make sure they match the versions in the deterministic
 #       requirements.
-"""
-Build artifacts
--r
-sds
-ds
-d
-sds
-d
-"""
-
-
 
 # NOTE: For the PyInstaller build artifact, look for the `Python-3.7.9\dist\electrumsv` directory.
 # NOTE: To run ElectrumSV as installed in the embedded Python, enter the `Python-3.7.9` directory
@@ -53,9 +71,9 @@ ZBAR_DLL_PATH = BASE_PATH / "prebuilt" / LIBZBAR_DLL_NAME
 
 HASH_CHUNK_SIZE = 65536
 
-PYTHON_VERSION = "3.9.7"
-PYTHON_ARCH = "amd64" # win32
-PYTHON_ABI = "cp39"
+PYTHON_VERSION = "3.10.0"
+PYTHON_ARCH = "amd64"
+PYTHON_ABI = "cp310"
 
 BUILD_ARCH = {
     "amd64": "x64",
@@ -204,8 +222,7 @@ def run_pyinstaller(executable_path: pathlib.Path, build_path: pathlib.Path,
         "--distpath", str(output_path / "dist-pyinstaller"),
         cwd=build_path, preserve_env=False)
 
-    _run_command(str(executable_path), "-m", "pip", "uninstall", "pyinstaller", "pip",
-        "--no-warn-script-location",
+    _run_command(str(executable_path), "-m", "pip", "uninstall", "-y", "pyinstaller", "pip",
         cwd=build_path, preserve_env=False)
 
 

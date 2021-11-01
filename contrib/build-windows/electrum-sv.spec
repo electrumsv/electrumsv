@@ -12,6 +12,7 @@ if "*.pyd" not in PY_DYLIB_PATTERNS:
     PY_DYLIB_PATTERNS.append("*.pyd")
 
 block_cipher = None
+cmdline_name = "ElectrumSV"
 
 import electrumsv
 home = pathlib.Path(electrumsv.__path__[0])
@@ -110,3 +111,53 @@ coll = COLLECT(exe,
     upx=True,
     upx_exclude=[],
     name='ElectrumSV')
+
+exe_standalone = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas,
+    name=cmdline_name + ".exe",
+    debug=False,
+    strip=None,
+    upx=False,
+    icon=str(home / "data" / "icons" / "electrum-sv.ico"),
+    console=False)
+
+exe_portable = EXE(
+    pyz,
+    a.scripts,
+    a.binaries,
+    a.datas + [ ('is_portable', 'README.rst', 'DATA' ) ],
+    name=cmdline_name + "-portable.exe",
+    debug=False,
+    strip=None,
+    upx=False,
+    icon=str(home / "data" / "icons" / "electrum-sv.ico"),
+    console=False)
+
+#####
+# exe and separate files that NSIS uses to build installer "setup" exe
+
+exe_dependent = EXE(
+    pyz,
+    a.scripts,
+    exclude_binaries=True,
+    name=cmdline_name,
+    debug=False,
+    strip=None,
+    upx=False,
+    icon=str(home / "data" / "icons" / "electrum-sv.ico"),
+    console=False)
+
+coll = COLLECT(
+    exe_dependent,
+    a.binaries,
+    a.zipfiles,
+    a.datas,
+    strip=None,
+    upx=True,
+    debug=False,
+    icon=str(home / "data" / "icons" / "electrum-sv.ico"),
+    console=False,
+    name=cmdline_name +"-setup.exe")

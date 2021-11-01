@@ -27,6 +27,8 @@ datas += collect_data_files('trezorlib')
 datas += collect_data_files('btchip')
 datas += collect_data_files('keepkeylib')
 datas += collect_data_files('electrumsv_secp256k1')
+# NOTE(psutil-py3.10-pending) psutil removed due to lack of 3.10 wheels.
+# binaries += collect_dynamic_libs('psutil')
 
 # We don't put these files in to actually include them in the script but to make the
 # Analysis method scan them for imports
