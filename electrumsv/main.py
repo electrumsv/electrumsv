@@ -290,6 +290,9 @@ def run_app_with_daemon(fd: int, is_gui: bool=False) -> None:
 
 
 def enforce_requirements() -> None:
+    if sys.version_info[:3] < (3, 10, 0):
+        sys.exit("Error: ElectrumSV requires Python version >= 3.10.0...")
+
     # Are we running from source, and do we have the requirements?  If not we do not apply.
     requirement_path = os.path.join(
         startup.base_dir, "contrib", "requirements", "requirements.txt")
