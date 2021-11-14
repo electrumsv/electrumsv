@@ -1926,7 +1926,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         else:
             public_key = account.get_public_keys_for_derivation(
                 key_data.derivation_type, key_data.derivation_data2)[0]
-            address = public_key.to_address(coin=Net.COIN)
+            address = public_key.to_address(network=Net.COIN)
 
         message_text = message_widget.toPlainText().strip()
         try:

@@ -526,11 +526,11 @@ def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) 
 #     def test_pubkeys_to_a_ddress(self, tmp_storage, network):
 #         coin = network.COIN
 #         privkey = PrivateKey.from_random()
-#         WIF = privkey.to_WIF(coin=coin)
+#         WIF = privkey.to_WIF(network=coin)
 #         wallet = _TestableWallet(tmp_storage)
 #         account = ImportedPrivkeyAccount.from_text(wallet, WIF)
 #         public_key = privkey.public_key
-#         address = public_key.to_address(coin=coin).to_string()
+#         address = public_key.to_address(network=coin).to_string()
 #         assert account.pubkeys_to_a_ddress(public_key) == address_from_string(address)
 
 

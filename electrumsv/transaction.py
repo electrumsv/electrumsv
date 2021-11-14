@@ -353,7 +353,7 @@ class XPublicKey:
         return self._pubkey_bytes
 
     def to_address(self) -> Address:
-        return self.to_public_key().to_address(coin=Net.COIN)
+        return self.to_public_key().to_address(network=Net.COIN)
 
     def is_compressed(self) -> bool:
         if self._bip32_xpub:

@@ -290,8 +290,8 @@ class TestXPublicKey:
         # assert x_pubkey.to_hex() == raw_hex
         assert not x_pubkey.is_bip32_key()
         assert x_pubkey.to_public_key() == public_key
-        assert x_pubkey.to_address() == public_key.to_address(coin=coin)
-        assert x_pubkey.to_address().coin() is coin
+        assert x_pubkey.to_address() == public_key.to_address(network=coin)
+        assert x_pubkey.to_address().network() is coin
 
     @pytest.mark.parametrize("raw_hex, path", (
         (
@@ -318,8 +318,8 @@ class TestXPublicKey:
         assert x_pubkey.is_bip32_key()
         assert x_pubkey.bip32_extended_key_and_path() == (xpub, path)
         assert x_pubkey.to_public_key() == True_10_public_key
-        assert x_pubkey.to_address() == True_10_public_key.to_address(coin=coin)
-        assert x_pubkey.to_address().coin() is coin
+        assert x_pubkey.to_address() == True_10_public_key.to_address(network=coin)
+        assert x_pubkey.to_address().network() is coin
 
     @pytest.mark.parametrize("raw_hex, public_key_hex", (
         ('fee9d4b7866dd1e91c862aebf62a49548c7dbf7bcc6e4b7b8c9da820c7737968df9c09d'
@@ -342,8 +342,8 @@ class TestXPublicKey:
         assert not x_pubkey.is_bip32_key()
         assert x_pubkey.to_public_key() == public_key
         assert x_pubkey.to_public_key().is_compressed() is False
-        assert x_pubkey.to_address() == public_key.to_address(coin=coin)
-        assert x_pubkey.to_address().coin() is coin
+        assert x_pubkey.to_address() == public_key.to_address(network=coin)
+        assert x_pubkey.to_address().network() is coin
 
     def test_fd_read_write(self):
         tx_hex = ('010000000111111111111111111111111111111111111111111111111111111111111111111b'

@@ -713,7 +713,7 @@ class TextStore(AbstractStore):
                 d: Dict[str, List[str]] = {'change': []}
                 receiving_addresses = []
                 for pubkey in pubkeys:
-                    addr = PublicKey.from_hex(pubkey).to_address(coin=Net.COIN).to_string()
+                    addr = PublicKey.from_hex(pubkey).to_address(network=Net.COIN).to_string()
                     receiving_addresses.append(addr)
                 d['receiving'] = receiving_addresses
                 self.put('addresses', d)
@@ -738,7 +738,7 @@ class TextStore(AbstractStore):
                 assert len(addresses) == len(pubkeys)
                 d = {}
                 for pubkey in pubkeys:
-                    addr = PublicKey.from_hex(pubkey).to_address(coin=Net.COIN).to_string()
+                    addr = PublicKey.from_hex(pubkey).to_address(network=Net.COIN).to_string()
                     assert addr in addresses
                     d[addr] = {
                         'pubkey': pubkey,
@@ -1125,7 +1125,7 @@ class TextStore(AbstractStore):
 
                 for pubkey_hex, enc_prvkey in keypairs.items():
                     pubkey = PublicKey.from_hex(pubkey_hex)
-                    address_string = pubkey.to_address(coin=Net.COIN).to_string()
+                    address_string = pubkey.to_address(network=Net.COIN).to_string()
                     description = labels.pop(address_string, None)
                     address_states[address_string] = _AddressState(next_keyinstance_id,
                         len(keyinstance_rows), ScriptType.P2PKH)

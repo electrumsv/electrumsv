@@ -24,9 +24,9 @@ def extract_public_key_hash(row: KeyInstanceRow) -> str:
 def get_single_signer_script_template(public_key: PublicKey, script_type: ScriptType) \
         -> ScriptTemplate:
     if script_type == ScriptType.P2PK:
-        return P2PK_Output(public_key, coin=Net.COIN)
+        return P2PK_Output(public_key, network=Net.COIN)
     elif script_type == ScriptType.P2PKH:
-        return public_key.to_address(coin=Net.COIN)
+        return public_key.to_address(network=Net.COIN)
     else:
         raise UnsupportedScriptTypeError("unsupported script type", script_type)
 

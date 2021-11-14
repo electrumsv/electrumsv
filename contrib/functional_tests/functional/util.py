@@ -17,7 +17,7 @@ BITCOIN_NODE_URI = f"http://{BITCOIN_NODE_RPCUSER}:{BITCOIN_NODE_RPCPASSWORD}" \
 # Node mining wallet.
 REGTEST_FUNDS_PRIVATE_KEY: PrivateKey = PrivateKey(
     bytes.fromhex('a2d9803c912ab380c1491d3bd1aaab34ca06742d7885a224ec8d386182d26ed2'),
-    coin=BitcoinRegtest)
+    network=BitcoinRegtest)
 REGTEST_FUNDS_PRIVATE_KEY_WIF = REGTEST_FUNDS_PRIVATE_KEY.to_WIF()
 
 
@@ -31,7 +31,7 @@ def mining_address_generator(parent_path: Sequence[int]) -> str:
         xpubkey = xpubkey.child_safe(n)
     idx = 0
     while True:
-        yield xpubkey.child_safe(idx).to_address(coin=BitcoinRegtest).to_string()
+        yield xpubkey.child_safe(idx).to_address(network=BitcoinRegtest).to_string()
         idx += 1
 
 

@@ -79,10 +79,10 @@ def node_rpc_call(method_name: str, *args: Any) -> Any:
 # - Pubkey hash:        mfs8Y8gAwC2vJHCeSXkHs6LF5nu5PA7nxc
 REGTEST_FUNDS_PRIVATE_KEY = bitcoinx.PrivateKey(
     bytes.fromhex('a2d9803c912ab380c1491d3bd1aaab34ca06742d7885a224ec8d386182d26ed2'),
-    coin=BitcoinRegtest)
+    network=BitcoinRegtest)
 REGTEST_FUNDS_PRIVATE_KEY_WIF = REGTEST_FUNDS_PRIVATE_KEY.to_WIF()
 REGTEST_FUNDS_PUBLIC_KEY: bitcoinx.PublicKey = REGTEST_FUNDS_PRIVATE_KEY.public_key
-REGTEST_P2PKH_ADDRESS: str = REGTEST_FUNDS_PUBLIC_KEY.to_address(coin=Net.COIN).to_string()
+REGTEST_P2PKH_ADDRESS: str = REGTEST_FUNDS_PUBLIC_KEY.to_address(network=Net.COIN).to_string()
 
 
 def regtest_get_mined_balance() -> int:

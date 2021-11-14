@@ -42,8 +42,9 @@ from aiorpcx import (
     TaskTimeout, TaskGroup, handler_invocation, Request, sleep, ignore_after, timeout_after,
     SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth, NetAddress, NewlineFramer
 )
-from bitcoinx import BitcoinRegtest, Chain, CheckPoint, Coin, double_sha256, Header, Headers, \
+from bitcoinx import BitcoinRegtest, Chain, CheckPoint, double_sha256, Header, Headers, \
     IncorrectBits, InsufficientPoW, MissingHeader, hash_to_hex_str, hex_str_to_hash, sha256
+from bitcoinx import Network as BitcoinXNetwork
 import certifi
 
 from .app_state import app_state, attempt_exception_reporting
@@ -515,7 +516,7 @@ class SVSession(RPCSession): # type: ignore
         '''
         headers_obj = cast(Headers, app_state.headers)
         checkpoint = cast(CheckPoint, headers_obj.checkpoint)
-        coin = cast(Coin, headers_obj.coin)
+        x_network = cast(BitcoinXNetwork, headers_obj.coin)
         end_height = start_height + len(raw_chunk) // HEADER_SIZE
 
         def extract_header(height: int) -> bytes:
@@ -526,7 +527,7 @@ class SVSession(RPCSession): # type: ignore
             # Set headers backwards from a proven header, verifying the prev_hash links.
             for height in reversed(range(start_height, to_height)):
                 raw_header = extract_header(height)
-                if coin.header_prev_hash(next_raw_header) != coin.header_hash(raw_header):
+                if x_network.header_prev_hash(next_raw_header) != x_network.header_hash(raw_header):
                     raise MissingHeader('prev_hash does not connect')
                 headers_obj.set_one(height, raw_header)
                 next_raw_header = raw_header

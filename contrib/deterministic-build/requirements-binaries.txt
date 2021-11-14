@@ -8,9 +8,9 @@ attrs==21.2.0 \
     --hash=sha256:149e90d6d8ac20db7a955ad60cf0e6881a3f20d37096140088356da6c716b0b1 \
     --hash=sha256:ef6aaac3ca6cd92904cdd0d83f629a15f18053ec84e6432106f7a4d04ae4f5fb
     # via bitcoinx
-bitcoinx==0.5.0 \
-    --hash=sha256:08c8e42ecab5616bb99cb1af564278d979703f36635591c125cbcbbfd6a6e0df \
-    --hash=sha256:18a0b8a10f01d1aacdd44174b5f3b2a243e88b63111da37c85358e9eb16c26ec
+bitcoinx==0.6.0 \
+    --hash=sha256:2575d068bdb42863190287889e9f947ba7cce2b9f9543dc4fb33218d2450987b \
+    --hash=sha256:ed67f9f2dba344388130cd497d663bea8dbdaf981193252dbaf1bb3dbc6d70d4
     # via -r C:\Data\Git\electrumsv\contrib\requirements\requirements-binaries.txt
 cffi==1.15.0 \
     --hash=sha256:00c878c90cb53ccfaae6b8bc18ad05d2036553e6d9d1d9dbcf323bbe83854ca3 \

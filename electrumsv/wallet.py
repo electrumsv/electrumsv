@@ -548,7 +548,7 @@ class AbstractAccount:
         assert keydata.derivation_data2 is not None
         derivation_path = unpack_derivation_path(keydata.derivation_data2)
         secret, compressed = keystore.get_private_key(derivation_path, password)
-        return cast(str, PrivateKey(secret).to_WIF(compressed=compressed, coin=Net.COIN))
+        return cast(str, PrivateKey(secret).to_WIF(compressed=compressed, network=Net.COIN))
 
     def get_frozen_balance(self) -> WalletBalance:
         return self._wallet.read_account_balance(self._id, self._wallet.get_local_height(),
