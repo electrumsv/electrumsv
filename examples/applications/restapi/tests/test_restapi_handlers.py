@@ -1,5 +1,4 @@
 import asyncio
-import concurrent.futures
 import json
 import logging
 import tempfile
@@ -9,7 +8,7 @@ import bitcoinx
 from aiohttp import web
 from aiohttp.test_utils import make_mocked_request
 from bitcoinx import BitcoinTestnet, hex_str_to_hash
-from typing import List, Union, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple
 from concurrent.futures.thread import ThreadPoolExecutor
 
 from electrumsv.constants import ScriptType, TransactionOutputFlag, TxFlags
@@ -588,6 +587,12 @@ class TestDefaultEndpoints:
             def get_debug(self):
                 return
 
+            def is_running(self) -> bool:
+                return True
+
+            def time(self) -> float:
+                return 1.0
+
         def _fake_get_event_loop():
             return MockEventLoop()
 
@@ -617,9 +622,14 @@ class TestDefaultEndpoints:
     async def test_create_tx_insufficient_coins(self, monkeypatch, cli):
         """ensure that exception handling works even if no tx was successfully created"""
         class MockEventLoop:
-
             def get_debug(self):
                 return
+
+            def is_running(self) -> bool:
+                return True
+
+            def time(self) -> float:
+                return 1.0
 
         def _fake_get_event_loop():
             return MockEventLoop()
