@@ -89,12 +89,27 @@ mac-alias==2.2.0 \
     # via
     #   dmgbuild
     #   ds-store
+psutil-wheels==5.8.0 \
+    --hash=sha256:05a4b136c395273066ecd63d64200868fc57561c65f6dda988b28d08f4a60f69 \
+    --hash=sha256:2cfbb317f3ee0c8ac9dd5d82e6913b0216222d2b22ea65cbc2f8072dabb167d4 \
+    --hash=sha256:3f0ca7c4c9031e04b18e52cd4c6f17e196bb7896071dd1eacaeb352948b47517 \
+    --hash=sha256:5dd57fb06b081bf2e3cebe89ca92f6ef606ecc5e50ac7ecb2dc7a68262d6cd91 \
+    --hash=sha256:84bb63b669aa918b4a62226276b1c1f952e57a461debfb7b9eed848c41e7cbda \
+    --hash=sha256:902ab2a221529cd7c0d9fa2f865fdd22bc45df87db825437aeee0dcaeed9b787 \
+    --hash=sha256:933c4079c8121f8f0d3d1525671e3b6182d804d54c7819b6a7dddeac5605ba69 \
+    --hash=sha256:96838ad949609621e369d327834ade3b3e1b0fa3f450e0a7460855a3cf41a6d6 \
+    --hash=sha256:9fb80725195402a66e5db947f239d032500cde75ca5d8625326d797a65341d6f \
+    --hash=sha256:b07890d22db82a135b8d5149ba1736e0fde998605cfa73c4d030bbfc77e890b6 \
+    --hash=sha256:c7c13e8264fa26f0bde4ddc15f2959d04c2a8f7537c41541d1503dd159b01a86 \
+    --hash=sha256:d13d705fb5026d3ae476c7988601430dfaa6143e695058a3182146adc0457b7f \
+    --hash=sha256:ea1f7f6bcc536669a22c07429dde993bc707f45339137b085394faada25fc813
+    # via -r C:\Data\Git\electrumsv\contrib\requirements\requirements-binaries.txt
 pyaes==1.6.1 \
     --hash=sha256:02c1b1405c38d3c370b085fb952dd8bea3fadcee6411ad99f312cc129c536d8f
     # via bitcoinx
-pycparser==2.20 \
-    --hash=sha256:2d475327684562c3a96cc71adf7dc8c4f0565175cf86b6d7a404ff4c771f15f0 \
-    --hash=sha256:7582ad22678f0fcd81102833f60ef8d0e57288b6b5fb00323d101be910e35705
+pycparser==2.21 \
+    --hash=sha256:8ee45429555515e1f6b185e78100aea234072576aa43ab53aefcae078162fca9 \
+    --hash=sha256:e644fdec12f7872f86c58ff790da456218b10f863970249516d60a5eaca77206
     # via cffi
 pycryptodomex==3.11.0 \
     --hash=sha256:0398366656bb55ebdb1d1d493a7175fc48ade449283086db254ac44c7d318d6d \
@@ -157,12 +172,12 @@ pyqt5-sip==12.9.0 \
     --hash=sha256:dd05c768c2b55ffe56a9d49ce6cc77cdf3d53dbfad935258a9e347cbfd9a5850 \
     --hash=sha256:fc43f2d7c438517ee33e929e8ae77132749c15909afab6aeece5fcf4147ffdb5
     # via pyqt5
-pyqt5==5.15.5 \
-    --hash=sha256:521130eea1eaac55cc6867b1dc627d292b6468fb8e525ce2a015cdf39028d6e8 \
-    --hash=sha256:5966fb291f316f8e35bc8775dda63acf1bb9855baeb5af3e33d3e7c4f1cd98d4 \
-    --hash=sha256:85e76b7a96995b9da12083850bf2a9f4f0aeba2b0b99461b3337ad7e44f428c3 \
-    --hash=sha256:b411b7a8fa03901c9feb1dcbac7ea1fc3ce20b9ae682762b777cd5398749ca2b \
-    --hash=sha256:b8e23c1a3fe1b7749c9106f36fba0bd4676dc77bcacca95304c6b840b782e24d
+pyqt5==5.15.6 \
+    --hash=sha256:33ced1c876f6a26e7899615a5a4efef2167c263488837c7beed023a64cebd051 \
+    --hash=sha256:80343bcab95ffba619f2ed2467fd828ffeb0a251ad7225be5fc06dcc333af452 \
+    --hash=sha256:9d2dcdaf82263ae56023410a7af15d1fd746c8e361733a7d0d1bd1f004ec2793 \
+    --hash=sha256:9d6efad0377aa78bf081a20ac752ce86096ded18f04c592d98f5b92dc879ad0a \
+    --hash=sha256:f411ecda52e488e1d3c5cce7563e1b2ca9cf0b7531e3c25b03d9a7e56e07e7fc
     # via -r C:\Data\Git\electrumsv\contrib\requirements\requirements-binaries.txt
 websocket-client==1.2.1 \
     --hash=sha256:0133d2f784858e59959ce82ddac316634229da55b498aac311f1620567a710ec \
