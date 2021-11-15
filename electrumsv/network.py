@@ -516,7 +516,7 @@ class SVSession(RPCSession): # type: ignore
         '''
         headers_obj = cast(Headers, app_state.headers)
         checkpoint = cast(CheckPoint, headers_obj.checkpoint)
-        x_network = cast(BitcoinXNetwork, headers_obj.coin)
+        x_network = cast(BitcoinXNetwork, headers_obj.network)
         end_height = start_height + len(raw_chunk) // HEADER_SIZE
 
         def extract_header(height: int) -> bytes:
