@@ -88,7 +88,8 @@ class UTXOList(MyTreeWidget):
         self._account_id = new_account_id
         self._account = self._main_window._wallet.get_account(new_account_id)
 
-    def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
+    def _on_account_change(self, new_account_id: Optional[int],
+            new_account: Optional[AbstractAccount]) -> None:
         self.clear()
         self._account_id = new_account_id
         self._account = new_account

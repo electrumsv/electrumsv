@@ -37,6 +37,7 @@
 # no longer needed we will retain the code, but the user will have to use the type we decide
 # is active. There will be no user interface for them to choose between the types.
 
+from __future__ import annotations
 from collections import defaultdict
 import concurrent.futures
 from dataclasses import dataclass, field
@@ -45,6 +46,7 @@ from functools import partial
 import json
 import time
 from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_CHECKING
+from weakref import ProxyType
 import webbrowser
 
 from bitcoinx import hash_to_hex_str, hex_str_to_hash
@@ -188,8 +190,8 @@ class BlockchainScanDialog(WindowModalDialog):
     _pushdata_handler: Optional[PushDataHashHandler] = None
     _scripthash_handler: Optional[ScriptHashHandler] = None
 
-    def __init__(self, main_window_proxy: 'ElectrumWindow', wallet: Wallet, account_id: int,
-            role: ScanDialogRole) -> None:
+    def __init__(self, main_window_proxy: ProxyType[ElectrumWindow], wallet: Wallet,
+            account_id: int, role: ScanDialogRole) -> None:
         super().__init__(main_window_proxy.reference(), TEXT_TITLE)
 
         self.setMinimumWidth(500)

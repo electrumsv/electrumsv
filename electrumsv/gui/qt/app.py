@@ -342,32 +342,33 @@ class SVApplication(QApplication):
 
         return w
 
-    def update_check(self) -> None:
-        if (not app_state.config.get('check_updates', True) or
-                app_state.config.get("offline", False)):
-            return
+    # TODO(no-checkin) Make sure this is integrated into the notifications.
+    # def update_check(self) -> None:
+    #     if (not app_state.config.get('check_updates', True) or
+    #             app_state.config.get("offline", False)):
+    #         return
 
-        def f() -> None:
-            import requests
-            try:
-                response = requests.request(
-                    'GET', "https://electrumsv.io/release.json",
-                    headers={'User-Agent' : 'ElectrumSV'}, timeout=10)
-                result = response.json()
-                self._on_update_check(True, result)
-            except Exception:
-                self._on_update_check(False, cast(ExceptionInfoType, sys.exc_info()))
+    #     def f() -> None:
+    #         import requests
+    #         try:
+    #             response = requests.request(
+    #                 'GET', "https://electrumsv.io/release.json",
+    #                 headers={'User-Agent' : 'ElectrumSV'}, timeout=10)
+    #             result = response.json()
+    #             self._on_update_check(True, result)
+    #         except Exception:
+    #             self._on_update_check(False, cast(ExceptionInfoType, sys.exc_info()))
 
-        t = threading.Thread(target=f)
-        t.setDaemon(True)
-        t.start()
+    #     t = threading.Thread(target=f)
+    #     t.setDaemon(True)
+    #     t.start()
 
-    def _on_update_check(self, success: bool, result: UpdateCheckResultType) -> None:
-        if success:
-            when_checked = datetime.datetime.now().astimezone().isoformat()
-            app_state.config.set_key('last_update_check', result)
-            app_state.config.set_key('last_update_check_time', when_checked, True)
-        self.update_check_signal.emit(success, result)
+    # def _on_update_check(self, success: bool, result: UpdateCheckResultType) -> None:
+    #     if success:
+    #         when_checked = datetime.datetime.now().astimezone().isoformat()
+    #         app_state.config.set_key('last_update_check', result)
+    #         app_state.config.set_key('last_update_check_time', when_checked, True)
+    #     self.update_check_signal.emit(success, result)
 
     def initial_dialogs(self) -> None:
         '''Suppressible dialogs that are shown when first opening the app.'''
@@ -389,7 +390,7 @@ class SVApplication(QApplication):
         when_started = datetime.datetime.now().astimezone().isoformat()
         app_state.config.set_key('previous_start_time', app_state.config.get("start_time"))
         app_state.config.set_key('start_time', when_started, True)
-        self.update_check()
+        # self.update_check()
 
         threading.current_thread().setName('GUI')
         self.timer.setSingleShot(False)

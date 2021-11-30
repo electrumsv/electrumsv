@@ -63,7 +63,8 @@ class NotificationIndicator(XToolButton):
         self.set_notification_state(0)
         self.setMinimumWidth(32)
 
-        self.clicked.connect(self._on_notifications_clicked)
+        # TODO(no-checkin)
+        # self.clicked.connect(self._on_notifications_clicked)
 
     def set_notification_state(self, how_many: int=0, is_urgent: bool=False) -> None:
         if is_urgent and how_many > 0:
@@ -79,8 +80,9 @@ class NotificationIndicator(XToolButton):
         self.setIcon(icon)
         self.setToolTip(text)
 
-    def _on_notifications_clicked(self) -> None:
-        self._main_window.toggle_tab(self._main_window.notifications_tab, True, to_front=True)
+    # TODO(no-checkin)
+    # def _on_notifications_clicked(self) -> None:
+    #     self._main_window.toggle_tab(self._main_window.notifications_tab, True, to_front=True)
 
 
 class BalancePopup(QWidget):
@@ -194,12 +196,8 @@ class StatusBar(QStatusBar):
         network_widget.setMinimumWidth(150)
         self.addPermanentWidget(network_widget)
 
-        self._notification_default_icon = read_QIcon("icons8-topic-32.png")
-        self._notification_urgent_icon = read_QIcon("icons8-topic-32-windows-urgent.png")
-        self._notification_many_icon = read_QIcon("icons8-topic-32-windows-plus.png")
-
-        self.notification_widget = NotificationIndicator(main_window)
-        self.addPermanentWidget(self.notification_widget)
+        # self.notification_widget = NotificationIndicator(main_window)
+        # self.addPermanentWidget(self.notification_widget)
 
     def set_balance_status(self, bsv_text: str, fiat_text: Optional[str]) -> None:
         have_fiat_text = bool(fiat_text)

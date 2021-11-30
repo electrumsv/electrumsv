@@ -1,5 +1,6 @@
 import os
 from typing import List
+from weakref import ProxyType
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QLabel, QSpinBox, QVBoxLayout, QWidget
@@ -14,13 +15,13 @@ from .util import (Buttons, ButtonsTableWidget, CloseButton, FormSectionWidget, 
 
 
 class PaymentDestinationsDialog(QDialog):
-    def __init__(self, main_window: ElectrumWindow, wallet: Wallet, account_id: int,
+    def __init__(self, main_window: ProxyType[ElectrumWindow], wallet: Wallet, account_id: int,
             parent: QWidget) -> None:
         # NOTE(typing) How you combine flags into a Qt.WindowFlags is beyond me.
         super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
-        self._main_window = main_window
+        self._main_window: ProxyType[ElectrumWindow] = main_window
         self._wallet = wallet
 
         self._account = account = self._wallet.get_account(account_id)

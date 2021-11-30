@@ -124,7 +124,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     history_updated_signal = pyqtSignal()
     network_status_signal = pyqtSignal()
     account_created_signal = pyqtSignal(int, object)
-    account_change_signal = pyqtSignal(int, object)
+    account_change_signal = pyqtSignal(object, object)
     keys_updated_signal = pyqtSignal(object, object)
     keys_created_signal = pyqtSignal(object, object)
     notifications_created_signal = pyqtSignal(object, object)
@@ -298,11 +298,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.send_tab = self._create_send_tab()
         self.receive_tab = self._create_receive_tab()
-        self.notifications_tab = self.create_notifications_tab()
         self.keys_tab = self.create_keys_tab()
         self.utxo_tab = self.create_utxo_tab()
         self.console_tab = self.create_console_tab()
-        self.contacts_tab = self.create_contacts_tab()
         self.coinsplitting_tab = self.create_coinsplitting_tab()
 
         history_view = self.create_history_tab()
@@ -315,15 +313,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tabs.setTabToolTip(1, _("Create a transaction"))
         tabs.setTabToolTip(2, _("Receive a transaction"))
 
-        self._add_optional_tab(tabs, self.notifications_tab,
-            read_QIcon("icons8-event-64-cute-clipart.png"), _("Notifications"), "notifications",
-            True)
         self._add_optional_tab(tabs, self.keys_tab, read_QIcon("tab_keys.png"),
             _("&Keys"), "keys")
         self._add_optional_tab(tabs, self.utxo_tab, read_QIcon("tab_coins.png"),
             _("Co&ins"), "utxo")
-        self._add_optional_tab(tabs, self.contacts_tab, read_QIcon("tab_contacts.png"),
-            _("Con&tacts"), "contacts")
         self._add_optional_tab(tabs, self.console_tab, read_QIcon("tab_console.png"),
             _("Con&sole"), "console")
         self._add_optional_tab(tabs, self.coinsplitting_tab, read_QIcon("tab_coins.png"),
@@ -418,8 +411,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if flags & AccountInstantiationFlags.NEW == 0 and account.is_deterministic():
             self.scan_active_account(ScanDialogRole.ACCOUNT_CREATION)
 
-    def set_active_account(self, account: AbstractAccount) -> None:
-        account_id = account.get_id()
+    def set_active_account(self, account: Optional[AbstractAccount]) -> None:
+        account_id: Optional[int] = None
+        if account is not None:
+            account_id = account.get_id()
         self._account_id = account_id
         self._account = account
 
@@ -440,12 +435,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             assert self._receive_view is not None
             self._receive_view.update_contents()
 
-        self._update_scan_active_account_button()
-
-        # NOTE(wallet-event-race-condition) For now we block creating the rows before the account
-        #   is created, in order to be sure that when we look here they will be present.
-        if not self.notifications_tab.is_empty():
-            self.toggle_tab(self.notifications_tab, True, to_front=True)
+        # TODO(no-checkin) Reconcile what is interrelated with this and clean it up.
+        # # NOTE(wallet-event-race-condition) For now we block creating the rows before the account
+        # #   is created, in order to be sure that when we look here they will be present.
+        # if not self.notifications_tab.is_empty():
+        #     self.toggle_tab(self.notifications_tab, True, to_front=True)
 
         # Update the status bar, and maybe the tab contents. If we are mid-synchronisation the
         # tab contents will be skipped, but that's okay as the synchronisation completion takes
@@ -459,16 +453,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._add_account_action.setToolTip("Accounts are limited to one at this time.")
         else:
             self._add_account_action.setToolTip("Experimental multiple account creation enabled.")
-
-    def _update_scan_active_account_button(self) -> None:
-        # The scanner only works for deterministic accounts. Accounts that contain individual
-        # imported keys currently have all their keys imported in "user forced active" state and
-        # it should not be necessary for them to scan.
-        assert self._account is not None
-        if self._account.is_deterministic():
-            self._scan_account_action.setEnabled(True)
-        else:
-            self._scan_account_action.setEnabled(False)
 
     def _on_show_secured_data(self, account_id: int) -> None:
         self._navigation_view._view_secured_data(main_window=self, account_id=account_id)
@@ -770,15 +754,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         view_menu = menubar.addMenu(_("&View"))
         add_toggle_action(view_menu, self.keys_tab)
         add_toggle_action(view_menu, self.utxo_tab)
-        # add_toggle_action(view_menu, self.contacts_tab)
         add_toggle_action(view_menu, self.coinsplitting_tab)
         add_toggle_action(view_menu, self.console_tab)
-        add_toggle_action(view_menu, self.notifications_tab)
 
         tools_menu = menubar.addMenu(_("&Tools"))
 
         tools_menu.addAction(_("Preferences"), self.preferences_dialog)
         tools_menu.addAction(_("&Network"), self._show_network_dialog)
+        tools_menu.addAction(_("&Log viewer"), self.app.show_log_viewer)
+
         tools_menu.addSeparator()
         tools_menu.addAction(_("&Sign/verify message"), self.sign_verify_message)
         tools_menu.addAction(_("&Encrypt/decrypt message"), self.encrypt_message)
@@ -824,10 +808,17 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._paytomany_menu.setEnabled(enable_spending_menus)
 
+        # TODO(no-checkin) There should be no active account unless an account is selected in
+        #     the navigation, and so these menus should only be present if that is the case.
+        #     In fact the parent menu should be disabled.
         if account_id is not None:
+            self._account_menu.setEnabled(True)
             assert self._account is not None
             weakself = weakref.proxy(self)
             self._navigation_view.add_menu_items(self._account_menu, self._account, weakself)
+        else:
+            self._account_menu.clear()
+            self._account_menu.setEnabled(False)
 
     def _show_network_dialog(self) -> None:
         self.app.show_network_dialog(self)
@@ -849,12 +840,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._add_account_action.setEnabled(
             self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS))
 
-        self._scan_account_action = QAction(read_QIcon("icons8-blockchain-technology-80-scan.png"),
-            _("Scan Account"), self)
-        self._scan_account_action.triggered.connect(self.scan_active_account_manual)
-        toolbar.addAction(self._scan_account_action)
-        self._scan_account_action.setEnabled(False)
-
         # make_payment_action = QAction(read_QIcon("icons8-initiate-money-transfer-80.png"),
         #     _("Make Payment"), self)
         # make_payment_action.triggered.connect(self.new_payment)
@@ -865,27 +850,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         spacer.setVisible(True)
         self.spacer_action = toolbar.addWidget(spacer)
 
-        log_action = QAction(read_QIcon("icons8-moleskine-80.png"), _("Log Viewer"), self)
-        log_action.triggered.connect(self.app.show_log_viewer)
-        toolbar.addAction(log_action)
+        # self._update_check_state = "default"
+        # update_action = QAction(
+        #     read_QIcon("icons8-available-updates-80-blue"), _("Update Check"), self)
+        # update_action.triggered.connect(self._update_show_menu)
+        # self._update_action = update_action
+        # toolbar.addAction(update_action)
+        # self._update_check_toolbar_update()
 
-        network_action = QAction(read_QIcon("network.png"), _("Network"), self)
-        network_action.triggered.connect(self._show_network_dialog)
-        toolbar.addAction(network_action)
-
-        preferences_action = QAction(read_QIcon("preferences.png"), _("Preferences"), self)
-        preferences_action.triggered.connect(self.preferences_dialog)
-        toolbar.addAction(preferences_action)
-
-        self._update_check_state = "default"
-        update_action = QAction(
-            read_QIcon("icons8-available-updates-80-blue"), _("Update Check"), self)
-        update_action.triggered.connect(self._update_show_menu)
-        self._update_action = update_action
-        toolbar.addAction(update_action)
-        self._update_check_toolbar_update()
-
-        toolbar.insertSeparator(update_action)
+        # toolbar.insertSeparator(update_action)
 
         self.addToolBar(toolbar)
         self.setUnifiedTitleAndToolBarOnMac(True)
@@ -896,83 +869,85 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _update_show_menu(self, checked: bool = False) -> None:
         self._update_menu.exec(QCursor.pos())
 
-    def _update_check_toolbar_update(self) -> None:
-        update_check_state = "default"
-        check_result: Optional[ReleaseDocumentType] = self.config.get('last_update_check')
-        stable_version = "?"
-        release_date: Optional[datetime.datetime] = None
-        if check_result is not None:
-            # The latest stable release date, the date of the build we are using.
-            stable_result = check_result["stable"]
-            stable_signers = get_identified_release_signers(stable_result)
-            if stable_signers:
-                release_date, current_date = get_update_check_dates(stable_result["date"])
-                if release_date > current_date:
-                    if time.time() - release_date.timestamp() < 24 * 60 * 60:
-                        update_check_state = "update-present-immediate"
-                    else:
-                        update_check_state = "update-present-prolonged"
-                stable_version = stable_result["version"]
+    # TODO(no-checkin) Make sure this is integrated into the notifications.
+    # def _update_check_toolbar_update(self) -> None:
+    #     update_check_state = "default"
+    #     check_result: Optional[ReleaseDocumentType] = self.config.get('last_update_check')
+    #     stable_version = "?"
+    #     release_date: Optional[datetime.datetime] = None
+    #     if check_result is not None:
+    #         # The latest stable release date, the date of the build we are using.
+    #         stable_result = check_result["stable"]
+    #         stable_signers = get_identified_release_signers(stable_result)
+    #         if stable_signers:
+    #             release_date, current_date = get_update_check_dates(stable_result["date"])
+    #             if release_date > current_date:
+    #                 if time.time() - release_date.timestamp() < 24 * 60 * 60:
+    #                     update_check_state = "update-present-immediate"
+    #                 else:
+    #                     update_check_state = "update-present-prolonged"
+    #             stable_version = stable_result["version"]
 
-        def _on_view_pending_update(checked: bool=False) -> None:
-            QDesktopServices.openUrl(QUrl("https://electrumsv.io/download.html"))
+    #     def _on_view_pending_update(checked: bool=False) -> None:
+    #         QDesktopServices.openUrl(QUrl("https://electrumsv.io/download.html"))
 
-        menu = QMenu()
-        self._update_menu = menu
-        self._update_check_action = menu.addAction(
-            _("Check for Updates"), self._on_check_for_updates)
+    #     menu = QMenu()
+    #     self._update_menu = menu
+    #     self._update_check_action = menu.addAction(
+    #         _("Check for Updates"), self._on_check_for_updates)
 
-        if update_check_state == "default":
-            icon_path = "icons8-available-updates-80-blue"
-            icon_text = _("Updates")
-            tooltip = _("Check for Updates")
-            menu.setDefaultAction(self._update_check_action)
-        elif update_check_state == "update-present-immediate":
-            icon_path = "icons8-available-updates-80-yellow"
-            icon_text = f"{stable_version}"
-            tooltip = _("A newer version of ElectrumSV is available, and "+
-                "was released on {0:%c}").format(release_date)
-            self._update_view_pending_action = menu.addAction(
-                _("View Pending Update"), _on_view_pending_update)
-            menu.setDefaultAction(self._update_view_pending_action)
-        elif update_check_state == "update-present-prolonged":
-            icon_path = "icons8-available-updates-80-red"
-            icon_text = f"{stable_version}"
-            tooltip = _("A newer version of ElectrumSV is available, and "+
-                "was released on {0:%c}").format(release_date)
-            self._update_view_pending_action = menu.addAction(
-                _("View Pending Update"), _on_view_pending_update)
-            menu.setDefaultAction(self._update_view_pending_action)
-        else:
-            raise NotImplementedError("Unknown check state")
+    #     if update_check_state == "default":
+    #         icon_path = "icons8-available-updates-80-blue"
+    #         icon_text = _("Updates")
+    #         tooltip = _("Check for Updates")
+    #         menu.setDefaultAction(self._update_check_action)
+    #     elif update_check_state == "update-present-immediate":
+    #         icon_path = "icons8-available-updates-80-yellow"
+    #         icon_text = f"{stable_version}"
+    #         tooltip = _("A newer version of ElectrumSV is available, and "+
+    #             "was released on {0:%c}").format(release_date)
+    #         self._update_view_pending_action = menu.addAction(
+    #             _("View Pending Update"), _on_view_pending_update)
+    #         menu.setDefaultAction(self._update_view_pending_action)
+    #     elif update_check_state == "update-present-prolonged":
+    #         icon_path = "icons8-available-updates-80-red"
+    #         icon_text = f"{stable_version}"
+    #         tooltip = _("A newer version of ElectrumSV is available, and "+
+    #             "was released on {0:%c}").format(release_date)
+    #         self._update_view_pending_action = menu.addAction(
+    #             _("View Pending Update"), _on_view_pending_update)
+    #         menu.setDefaultAction(self._update_view_pending_action)
+    #     else:
+    #         raise NotImplementedError("Unknown check state")
 
-        # Apply the update state.
-        self._update_action.setMenu(menu)
-        self._update_action.setIcon(read_QIcon(icon_path))
-        self._update_action.setText(icon_text)
-        self._update_action.setToolTip(tooltip)
-        self._update_check_state = update_check_state
+    #     # Apply the update state.
+    #     self._update_action.setMenu(menu)
+    #     self._update_action.setIcon(read_QIcon(icon_path))
+    #     self._update_action.setText(icon_text)
+    #     self._update_action.setToolTip(tooltip)
+    #     self._update_check_state = update_check_state
 
     def _on_check_for_updates(self, checked: bool=False) -> None:
         self.show_update_check()
 
-    def on_update_check(self, success: bool, result: UpdateCheckResultType) -> None:
-        if success:
-            assert isinstance(result, dict)
-            stable_result = result["stable"]
-            stable_signers = get_identified_release_signers(stable_result)
-            if stable_signers:
-                # The latest stable release date, the date of the build we are using.
-                stable_date_string = stable_result["date"]
-                release_date, current_date = get_update_check_dates(stable_date_string)
-                if release_date > current_date:
-                    self.app.tray.showMessage(
-                        "ElectrumSV",
-                        _("A new version of ElectrumSV, version {}, is available for download")
-                            .format(stable_result["version"]),
-                        read_QIcon("electrum_dark_icon"), 20000)
+    # TODO(no-checkin) Make sure this is integrated into the notifications.
+    # def on_update_check(self, success: bool, result: UpdateCheckResultType) -> None:
+    #     if success:
+    #         assert isinstance(result, dict)
+    #         stable_result = result["stable"]
+    #         stable_signers = get_identified_release_signers(stable_result)
+    #         if stable_signers:
+    #             # The latest stable release date, the date of the build we are using.
+    #             stable_date_string = stable_result["date"]
+    #             release_date, current_date = get_update_check_dates(stable_date_string)
+    #             if release_date > current_date:
+    #                 self.app.tray.showMessage(
+    #                     "ElectrumSV",
+    #                     _("A new version of ElectrumSV, version {}, is available for download")
+    #                         .format(stable_result["version"]),
+    #                     read_QIcon("electrum_dark_icon"), 20000)
 
-        self._update_check_toolbar_update()
+    #     self._update_check_toolbar_update()
 
     def show_account_creation_wizard(self) -> None:
         from . import account_wizard
@@ -1000,8 +975,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         from . import blockchain_scan_dialog
         from importlib import reload # TODO(dev-helper) Remove at some point.
         reload(blockchain_scan_dialog)
-        dialog = blockchain_scan_dialog.BlockchainScanDialog(self, self._wallet, self._account_id,
-            scan_role)
+        dialog = blockchain_scan_dialog.BlockchainScanDialog(weakref.proxy(self), self._wallet,
+            self._account_id, scan_role)
         dialog.show()
 
     def new_payment(self) -> None:
@@ -1195,10 +1170,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _on_keys_updated(self, account_id: int, keyinstance_ids: List[int]) -> None:
         self.update_status_bar()
+        self._navigation_view.refresh_account_balances()
 
     @profiler
     def refresh_wallet_display(self) -> None:
         self.update_status_bar()
+        self._navigation_view.refresh_account_balances()
         if self._wallet.is_synchronized() or not self.network or not self.network.is_connected():
             self.update_tabs()
 
@@ -1618,7 +1595,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         from .coinsplitting_tab import CoinSplittingTab
         return CoinSplittingTab(self)
 
-    def create_notifications_tab(self) -> QWidget:
+    def create_notifications_view(self) -> View:
         return View(self._api, self)
 
     def create_list_tab(self, list_widget: QWidget) -> QWidget:
@@ -1658,9 +1635,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.utxo_list = l = UTXOList(self._navigation_view, self)
         return self.create_list_tab(l)
 
-    def create_contacts_tab(self) -> QWidget:
+    def create_contacts_list(self) -> ContactList:
+        """
+        Called by the wallet navigation view to create and obtain this element.
+        """
         self.contact_list = l = ContactList(self._api, self)
-        return self.create_list_tab(l)
+        return l
 
     def spend_coins(self, coins: Iterable[TransactionOutputSpendableProtocol]) -> None:
         assert self._send_view is not None

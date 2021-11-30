@@ -78,9 +78,13 @@ class CoinSplittingTab(QWidget):
         self._account: Optional[AbstractAccount] = None
         self._account_id: Optional[int] = None
 
-    def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
+    def _on_account_change(self, new_account_id: Optional[int],
+            new_account: Optional[AbstractAccount]) -> None:
         self._account_id = new_account_id
         self._account = new_account
+
+        if new_account_id is None or new_account is None:
+            return
 
         script_type = new_account.get_default_script_type()
 

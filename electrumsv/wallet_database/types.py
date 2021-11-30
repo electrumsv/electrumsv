@@ -494,6 +494,10 @@ class WalletBalance(NamedTuple):
         return WalletBalance(self.confirmed + other.confirmed, self.unconfirmed + other.unconfirmed,
             self.unmatured + other.unmatured, self.allocated + other.allocated)
 
+    @property
+    def available(self) -> int:
+        return (self.confirmed + self.unconfirmed) - (self.unmatured + self.allocated)
+
 
 class WalletDataRow(NamedTuple):
     key: str

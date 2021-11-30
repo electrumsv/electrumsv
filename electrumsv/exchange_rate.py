@@ -354,6 +354,7 @@ class FxTask:
                 self.ccy in self.exchange.history_ccys())
 
     def trigger_history_refresh(self) -> None:
+        logger.debug("trigger_history_refresh")
         self.fetch_history = True
         self.refresh_event.set()
 

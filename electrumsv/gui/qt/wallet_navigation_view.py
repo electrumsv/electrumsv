@@ -43,18 +43,22 @@ import os
 import threading
 import time
 from typing import Any, cast, Dict, Optional, Sequence
-import weakref
+from weakref import proxy, ProxyType
 
 from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, QPoint, pyqtSignal, QSize, Qt
-from PyQt5.QtWidgets import (QGroupBox, QHBoxLayout, QLabel, QTreeWidget, QTreeWidgetItem, QMenu,
-    QSplitter, QStackedWidget, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import (QGroupBox, QHBoxLayout, QHeaderView, QLabel, QTreeWidget,
+    QTreeWidgetItem, QMenu, QSplitter, QStackedWidget, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
+from ...app_state import app_state
 from ...bitcoin import address_from_string, script_template_to_string
 from ...constants import AccountType, DerivationType, KeystoreType
 from ...i18n import _
 from ...logs import logs
+from ...platform import platform
 from ...wallet import (AbstractAccount, ImportedAddressAccount, ImportedPrivkeyAccount,
     MultisigAccount, Wallet)
+from ...wallet_database.types import WalletBalance
 
 from .account_dialog import AccountDialog
 from .constants import ScanDialogRole
@@ -66,6 +70,11 @@ from .util import (Buttons, CancelButton, filename_field, line_dialog, MessageBo
 
 class TreeColumns(IntEnum):
     MAIN = 0
+    BSV_VALUE = 1
+    FIAT_VALUE = 2
+
+
+BASE_TREE_HEADERS = [ '' ]
 
 
 class WalletNavigationView(QSplitter):
@@ -79,11 +88,15 @@ class WalletNavigationView(QSplitter):
         super().__init__(main_window)
 
         self._logger = logs.get_logger("navigation-view")
-        self._main_window = weakref.proxy(main_window)
+        self._main_window: ProxyType[ElectrumWindow] = proxy(main_window)
         self._wallet = wallet
 
         self._main_window.account_created_signal.connect(self._on_account_created)
         self._main_window.account_change_signal.connect(self._on_account_changed)
+        self._main_window.new_fx_quotes_signal.connect(self.refresh_account_balances)
+
+        app_state.app_qt.base_unit_changed.connect(self.refresh_account_balances)
+        app_state.app_qt.fiat_ccy_changed.connect(self.refresh_account_balances)
 
         # We subclass QListWidget so accounts cannot be deselected.
         class CustomTreeWidget(QTreeWidget):
@@ -101,11 +114,15 @@ class WalletNavigationView(QSplitter):
 
         self._home_widget = QWidget()
         self._accounts_widget = QWidget()
+        self._contacts_widget = self._main_window.create_contacts_list()
+        self._notifications_widget = self._main_window.create_notifications_view()
         self._tab_widget = QTabWidget()
 
         self._pane_view = QStackedWidget()
         self._pane_view.addWidget(self._tab_widget)
         self._pane_view.addWidget(self._accounts_widget)
+        self._pane_view.addWidget(self._notifications_widget)
+        self._pane_view.addWidget(self._contacts_widget)
         # Sigh. We can set the current widget all we want after this point in this call stack,
         # but Qt5 ignores the call and just shows the last added widget. It does not appear
         # possible to initialise the stacked widget then tell it immediately which to display.
@@ -114,12 +131,12 @@ class WalletNavigationView(QSplitter):
         self._initialize_home()
 
         self._selection_tree = CustomTreeWidget()
-        self._selection_tree.setHeaderHidden(True)
         self._selection_tree.setMinimumWidth(150)
         self._selection_tree.setIconSize(QSize(20, 20))
         self._selection_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._selection_tree.customContextMenuRequested.connect(self._show_account_menu)
         self._selection_tree.currentItemChanged.connect(self._on_current_item_changed)
+        self._monospace_font = QFont(platform.monospace_font)
 
         self._current_account_id: Optional[int] = None
 
@@ -129,7 +146,7 @@ class WalletNavigationView(QSplitter):
         self.setChildrenCollapsible(False)
 
     def on_wallet_loaded(self) -> None:
-        self._initialize_account_list()
+        self._initialize_tree()
 
     def init_geometry(self, sizes: Optional[Sequence[int]]=None) -> None:
         self._logger.debug("init_geometry.1 %r", sizes)
@@ -140,11 +157,12 @@ class WalletNavigationView(QSplitter):
 
     def _on_account_created(self, new_account_id: int, new_account: AbstractAccount) -> None:
         # It should be made the active wallet account and followed up with the change event.
-        self._add_account_to_list(new_account)
+        self._add_account_to_tree(new_account)
 
-    def _on_account_changed(self, new_account_id: int, new_account: AbstractAccount) -> None:
+    def _on_account_changed(self, new_account_id: Optional[int],
+            new_account: Optional[AbstractAccount]) -> None:
         # The list is being told what to focus on.
-        if self._update_active_account(new_account_id):
+        if new_account_id is not None and self._update_active_account(new_account_id):
             account_item = self._account_tree_items[new_account_id]
             self._selection_tree.setCurrentItem(account_item)
 
@@ -152,15 +170,40 @@ class WalletNavigationView(QSplitter):
         # if self._import_invoices_action is not None:
         #     self._import_invoices_action.setEnabled(self._main_window.is_send_view_active())
 
+    def refresh_account_balances(self) -> None:
+        """
+        Update the headers and account balances.
+
+        This is called when:
+        - The user enables or disables fiat display.
+        - The quotes we have for the given currency change.
+        - The user changes the base unit for BSV value display.
+
+        Note that we may not have a quote when the user first enables fiat display, but we
+        should update the empty balances when the first quote arrives.
+        """
+        self._update_tree_headers()
+        self._update_tree_balances()
+
     def _on_current_item_changed(self, item: QTreeWidgetItem, last_item: QTreeWidgetItem) -> None:
         if item is self._home_item:
-            self._select_home()
+            self._pane_view.setCurrentWidget(self._home_widget)
+        elif item is self._contacts_item:
+            self._pane_view.setCurrentWidget(self._contacts_widget)
+        elif item is self._notifications_item:
+            self._pane_view.setCurrentWidget(self._notifications_widget)
         elif item is self._accounts_item:
-            self._select_accounts_parent()
+            # Display the accounts widget in the pane view.
+            # TODO(no-checkin) Not sure what this does yet. In theory it could be show all account
+            #   content, but that might be messy for balances.
+            self._pane_view.setCurrentWidget(self._accounts_widget)
         else:
             account_id = item.data(TreeColumns.MAIN, Qt.ItemDataRole.UserRole)
             # This should update the internal tracking, and also the active wallet account.
             self._select_account(account_id)
+            return
+
+        self._update_window_account(None)
 
     def _update_active_account(self, account_id: int) -> bool:
         if account_id == self._current_account_id:
@@ -168,7 +211,7 @@ class WalletNavigationView(QSplitter):
         self._current_account_id = account_id
         return True
 
-    def _update_window_account(self, account: AbstractAccount) -> None:
+    def _update_window_account(self, account: Optional[AbstractAccount]) -> None:
         self._main_window.set_active_account(account)
 
     def get_tab_widget(self) -> QTabWidget:
@@ -181,7 +224,10 @@ class WalletNavigationView(QSplitter):
         summary_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
         summary_box.setLayout(summary_layout)
 
-        summary_label = QLabel(_("SUMMARY"))
+        summary_label = QLabel(_("This might give an overview of all your account balances "
+            "and the committed and available funds within them."))
+        summary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        summary_label.setWordWrap(True)
         summary_layout.addWidget(summary_label)
 
         backup_layout = QHBoxLayout()
@@ -190,7 +236,11 @@ class WalletNavigationView(QSplitter):
         backup_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
         backup_box.setLayout(backup_layout)
 
-        backup_label = QLabel(_("BACKUP"))
+        backup_label = QLabel(_("This will describe your backup state and prompt you to "
+            "do any outstanding tasks to ensure your remotely stored backups are set up "
+            "and up to date."))
+        backup_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        backup_label.setWordWrap(True)
         backup_layout.addWidget(backup_label)
 
         notification_layout = QHBoxLayout()
@@ -199,7 +249,10 @@ class WalletNavigationView(QSplitter):
         notification_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
         notification_box.setLayout(notification_layout)
 
-        notification_label = QLabel(_("NOTIFICATIONS"))
+        notification_label = QLabel(_("This will contain all the outstanding notifications "
+            "received for any account in the wallet."))
+        notification_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        notification_label.setWordWrap(True)
         notification_layout.addWidget(notification_label)
 
         row_layout = QVBoxLayout()
@@ -221,7 +274,7 @@ class WalletNavigationView(QSplitter):
         column1_layout.addWidget(summary_box)
         column2_layout.addWidget(backup_box)
 
-    def _initialize_account_list(self) -> None:
+    def _initialize_tree(self) -> None:
         self._selection_tree.clear()
         self._account_tree_items.clear()
 
@@ -233,21 +286,80 @@ class WalletNavigationView(QSplitter):
         # self._home_item.setData(TreeColumns.MAIN, Qt.FontRole, QFont("", 16));
         self._selection_tree.addTopLevelItem(self._home_item)
 
+        self._contacts_item = QTreeWidgetItem()
+        self._contacts_item.setIcon(TreeColumns.MAIN,
+            read_QIcon("icons8-contacts-80-blueui.png"))
+        self._contacts_item.setText(TreeColumns.MAIN, _("Contacts"))
+        self._contacts_item.setToolTip(TreeColumns.MAIN, _("Your wallet contacts"))
+        self._selection_tree.addTopLevelItem(self._contacts_item)
+
+        self._notifications_item = QTreeWidgetItem()
+        self._notifications_item.setIcon(TreeColumns.MAIN,
+            read_QIcon("icons8-notification-80-blueui.png"))
+        self._notifications_item.setText(TreeColumns.MAIN, _("Notifications"))
+        self._notifications_item.setToolTip(TreeColumns.MAIN, _("Your wallet notifications"))
+        self._selection_tree.addTopLevelItem(self._notifications_item)
+
         self._accounts_item = QTreeWidgetItem()
         self._accounts_item.setIcon(TreeColumns.MAIN,
             read_QIcon("icons8-merchant-account-80-blueui.png"))
         self._accounts_item.setText(TreeColumns.MAIN, _("Accounts"))
+        self._accounts_item.setText(TreeColumns.BSV_VALUE, "")
         self._accounts_item.setToolTip(TreeColumns.MAIN,
             _("Your wallet accounts"))
         self._selection_tree.addTopLevelItem(self._accounts_item)
 
         for account in self._wallet.get_accounts():
-            self._add_account_to_list(account)
+            self._add_account_to_tree(account)
 
         self._accounts_item.setExpanded(True)
         self._selection_tree.setCurrentItem(self._home_item)
 
-    def _add_account_to_list(self, account: AbstractAccount) -> None:
+        self._update_tree_headers()
+        self._update_tree_balances()
+
+    def _update_tree_headers(self) -> None:
+        headers = BASE_TREE_HEADERS[:]
+        headers.append(app_state.base_unit())
+        fx = app_state.fx
+        if fx and fx.is_enabled():
+            headers.append(fx.ccy)
+
+        self._selection_tree.setColumnCount(len(headers))
+        self._selection_tree.setHeaderLabels(headers)
+        self._selection_tree.header().setStretchLastSection(False)
+        self._selection_tree.header().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self._selection_tree.header().setSectionResizeMode(TreeColumns.MAIN, QHeaderView.Stretch)
+        for column in range(1, len(headers)):
+            self._selection_tree.header().setSectionResizeMode(column, QHeaderView.ResizeToContents)
+
+    def _update_tree_balances(self) -> None:
+        fx = app_state.fx
+        align_flags = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+
+        def update_tree_item(item: QTreeWidgetItem, balance: int) -> None:
+            nonlocal fx
+            item.setText(TreeColumns.BSV_VALUE,
+                app_state.format_amount(balance, whitespaces=True))
+            item.setTextAlignment(TreeColumns.BSV_VALUE, align_flags)
+            item.setFont(TreeColumns.BSV_VALUE, self._monospace_font)
+
+            if fx and fx.is_enabled():
+                item.setText(TreeColumns.FIAT_VALUE, fx.format_amount(balance))
+                item.setTextAlignment(TreeColumns.FIAT_VALUE, align_flags)
+                item.setFont(TreeColumns.FIAT_VALUE, self._monospace_font)
+
+        wallet_balance = WalletBalance()
+        for account in self._main_window._wallet.get_accounts():
+            account_id = account.get_id()
+            account_balance = account.get_balance()
+            wallet_balance += account_balance
+            update_tree_item(self._account_tree_items[account_id], account_balance.available)
+
+        update_tree_item(self._accounts_item, wallet_balance.available)
+
+    def _add_account_to_tree(self, account: AbstractAccount) -> None:
         account_id = account.get_id()
         item = QTreeWidgetItem()
         keystore = account.get_keystore()
@@ -280,6 +392,7 @@ class WalletNavigationView(QSplitter):
         item.setIcon(TreeColumns.MAIN, read_QIcon(icon_filename.format(icon_state)))
         item.setData(TreeColumns.MAIN, Qt.ItemDataRole.UserRole, account_id)
         item.setText(TreeColumns.MAIN, account.display_name())
+        item.setText(TreeColumns.BSV_VALUE, "0")
         item.setToolTip(TreeColumns.MAIN, tooltip_text)
         self._accounts_item.addChild(item)
         self._account_tree_items[account_id] = item
@@ -287,6 +400,9 @@ class WalletNavigationView(QSplitter):
     def _show_account_menu(self, position: QPoint) -> None:
         item = self._selection_tree.currentItem()
         if not item:
+            return
+
+        if item.parent() is not self._accounts_item:
             return
 
         account_id = item.data(TreeColumns.MAIN, Qt.ItemDataRole.UserRole)
@@ -297,8 +413,8 @@ class WalletNavigationView(QSplitter):
         self.add_menu_items(menu, account, self._main_window)
         menu.exec_(self._selection_tree.viewport().mapToGlobal(position))
 
-    def add_menu_items(self, menu: QMenu, account: AbstractAccount, main_window: ElectrumWindow) \
-            -> None:
+    def add_menu_items(self, menu: QMenu, account: AbstractAccount,
+            main_window: ProxyType[ElectrumWindow]) -> None:
         menu.clear()
 
         # This expects a reference to the main window, not the weakref.
@@ -306,11 +422,15 @@ class WalletNavigationView(QSplitter):
 
         menu.addAction(_("&Information"),
             partial(self._show_account_information, account_id))
-        seed_menu = menu.addAction(_("View &Secured Data"),
+        seed_menu = menu.addAction(_("View &secured data"),
             partial(self._view_secured_data, main_window=main_window, account_id=account_id))
         seed_menu.setEnabled(self._can_view_secured_data(account))
         menu.addAction(_("&Rename"),
             partial(self._rename_account, account_id))
+        menu.addSeparator()
+
+        scan_action = menu.addAction(_("Scan account"), main_window.scan_active_account_manual)
+        scan_action.setEnabled(account.is_deterministic())
         menu.addSeparator()
 
         private_keys_menu = menu.addMenu(_("&Private keys"))
@@ -559,16 +679,6 @@ class WalletNavigationView(QSplitter):
                     transaction.writerow([key_text, pk])
             else:
                 f.write(json.dumps(pklist, indent = 4))
-
-    def _select_home(self) -> None:
-        # Display the dashboard / home widget in the pane view.
-        self._pane_view.setCurrentWidget(self._home_widget)
-
-    def _select_accounts_parent(self) -> None:
-        # Display the accounts widget in the pane view.
-        # TODO(no-checkin) Not sure what this does yet. In theory it could be show all account
-        #   content, but that might be messy for balances.
-        self._pane_view.setCurrentWidget(self._accounts_widget)
 
     def _select_account(self, account_id: int) -> bool:
         self._pane_view.setCurrentWidget(self._tab_widget)
