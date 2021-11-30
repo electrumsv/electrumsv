@@ -22,6 +22,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import annotations
 import asyncio
 import base64
 from collections import Counter
@@ -101,9 +102,9 @@ from .util import (Buttons, CancelButton, CloseButton, ColorScheme,
 from .wallet_api import WalletAPI
 
 if TYPE_CHECKING:
-    from .accounts_view import AccountsView
     from .history_list import HistoryView
     from .transaction_dialog import TxDialog
+    from .wallet_navigation_view import WalletNavigationView
 
 
 logger = logs.get_logger("mainwindow")
@@ -171,18 +172,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.fee_unit = self.config.get('fee_unit', 0)
 
-        self._accounts_view = self._create_accounts_view()
+        self._navigation_view = self._create_navigation_view()
         self._send_views: Dict[int, SendViewTypes] = {}
         self._send_view: Optional[SendViewTypes] = None
         self._receive_views: Dict[int, ReceiveViewTypes] = {}
         self._receive_view: Optional[ReceiveViewTypes] = None
 
-        self._tab_widget = tabs = self._accounts_view.get_tab_widget()
+        self._tab_widget = tabs = self._navigation_view.get_tab_widget()
 
         self._create_tabs()
 
         tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setCentralWidget(self._accounts_view)
+        self.setCentralWidget(self._navigation_view)
 
         self._tab_widget.currentChanged.connect(self._on_tab_changed)
 
@@ -257,7 +258,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.load_wallet()
 
-        self._accounts_view.on_wallet_loaded()
+        self._navigation_view.on_wallet_loaded()
 
         use_multiple_accounts = self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
         self._update_add_account_button(use_multiple_accounts)
@@ -470,7 +471,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._scan_account_action.setEnabled(False)
 
     def _on_show_secured_data(self, account_id: int) -> None:
-        self._accounts_view._view_secured_data(main_window=self, account_id=account_id)
+        self._navigation_view._view_secured_data(main_window=self, account_id=account_id)
 
     def _on_historical_exchange_rates(self, _event_name: str) -> None:
         # Notify the UI thread.
@@ -618,7 +619,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.setGeometry(100, 100, 840, 400)
 
         splitter_sizes = self._wallet.get_storage().get("split-sizes-qt")
-        self._accounts_view.init_geometry(splitter_sizes)
+        self._navigation_view.init_geometry(splitter_sizes)
 
     def _update_window_title(self) -> None:
         title = f'ElectrumSV {PACKAGE_VERSION} ({Net.NAME}) - {self._wallet.name()}'
@@ -757,7 +758,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._account_menu = menubar.addMenu(_("&Account"))
         if self._account_id is not None:
             assert self._account is not None
-            self._accounts_view.add_menu_items(self._account_menu, self._account, weakself)
+            self._navigation_view.add_menu_items(self._account_menu, self._account, weakself)
 
         # Make sure the lambda reference does not prevent garbage collection.
         def add_toggle_action(view_menu: QMenu, tab: QWidget) -> None:
@@ -826,7 +827,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if account_id is not None:
             assert self._account is not None
             weakself = weakref.proxy(self)
-            self._accounts_view.add_menu_items(self._account_menu, self._account, weakself)
+            self._navigation_view.add_menu_items(self._account_menu, self._account, weakself)
 
     def _show_network_dialog(self) -> None:
         self.app.show_network_dialog(self)
@@ -1255,13 +1256,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.contact_list.update()
         self.update_history_view()
 
-    def _create_accounts_view(self) -> "AccountsView":
-        from .accounts_view import AccountsView
-        return AccountsView(self, self._wallet)
+    def _create_navigation_view(self) -> WalletNavigationView:
+        from .wallet_navigation_view import WalletNavigationView
+        return WalletNavigationView(self, self._wallet)
 
-    def create_history_tab(self) -> "HistoryView":
+    def create_history_tab(self) -> HistoryView:
         from .history_list import HistoryView
-        self.history_view = HistoryView(self._accounts_view, self)
+        self.history_view = HistoryView(self._navigation_view, self)
         return self.history_view
 
     def show_key(self, account: AbstractAccount, key_data: KeyDataProtocol,
@@ -1274,7 +1275,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def show_transaction(self, account: Optional[AbstractAccount], tx: Transaction,
             context: Optional[TransactionContext]=None, prompt_if_unsaved: bool=False,
-            pr: Optional[paymentrequest.PaymentRequest]=None) -> "TxDialog":
+            pr: Optional[paymentrequest.PaymentRequest]=None) -> TxDialog:
         self._wallet.ensure_incomplete_transaction_keys_exist(tx)
         from . import transaction_dialog
         # from importlib import reload
@@ -1654,7 +1655,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def create_utxo_tab(self) -> QWidget:
         from .utxo_list import UTXOList
-        self.utxo_list = l = UTXOList(self._accounts_view, self)
+        self.utxo_list = l = UTXOList(self._navigation_view, self)
         return self.create_list_tab(l)
 
     def create_contacts_tab(self) -> QWidget:
@@ -1676,7 +1677,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.contact_list.update()
         self.update_history_view()
 
-    def create_console_tab(self) -> "Console":
+    def create_console_tab(self) -> Console:
         self.console = console = Console()
         return console
 
@@ -2376,7 +2377,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if not self.isMaximized():
             try:
                 self._wallet.get_storage().put("winpos-qt", self.geometry().getRect())
-                self._wallet.get_storage().put("split-sizes-qt", self._accounts_view.sizes())
+                self._wallet.get_storage().put("split-sizes-qt", self._navigation_view.sizes())
             except (OSError, PermissionError):
                 self._logger.exception("unable to write to wallet storage (directory removed?)")
 
