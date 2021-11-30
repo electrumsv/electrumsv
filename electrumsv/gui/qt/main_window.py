@@ -260,8 +260,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._navigation_view.on_wallet_loaded()
 
-        use_multiple_accounts = self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
-        self._update_add_account_button(use_multiple_accounts)
+        self._update_add_account_button(True)
 
         # This is what should normally happen when the window is ready, and multiple-accounts
         # are allowed.
@@ -333,8 +332,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _on_wallet_setting_changed(self, event_name: str, setting_name: str, setting_value: Any) \
             -> None:
-        if setting_name == WalletSettings.MULTIPLE_ACCOUNTS:
-            self._update_add_account_button(setting_value)
         self.wallet_setting_changed_signal.emit(setting_name, setting_value)
 
     def _on_transaction_heights_updated(self, args: Tuple[int, List[TransactionBlockRow]]) -> None:
@@ -399,9 +396,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         account = self._wallet.get_account(new_account_id)
         assert account is not None
 
-        # NOTE(rt12) single-account At this time we disallow more than one account.
-        setting_value = self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
-        self._update_add_account_button(setting_value)
+        self._update_add_account_button(True)
 
         self._wallet.create_gui_handler(self, account)
 
@@ -837,8 +832,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             _("Add Account"), self)
         self._add_account_action.triggered.connect(self.show_account_creation_wizard)
         toolbar.addAction(self._add_account_action)
-        self._add_account_action.setEnabled(
-            self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS))
+        self._add_account_action.setEnabled(True)
 
         # make_payment_action = QAction(read_QIcon("icons8-initiate-money-transfer-80.png"),
         #     _("Make Payment"), self)

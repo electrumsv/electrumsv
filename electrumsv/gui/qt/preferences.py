@@ -438,26 +438,6 @@ class PreferencesDialog(QDialog):
         options_vbox.addWidget(multiple_change_cb)
         options_vbox.addWidget(coinsplitting_option_cb)
 
-        multiple_accounts_cb = QCheckBox(_('Enable multiple accounts'))
-        multiple_accounts_cb.setChecked(
-            wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS))
-        multiple_accounts_cb.setToolTip('\n'.join([
-            _('Multiple accounts are to a large degree ready for use, but not tested to the level '
-              'where they are enabled for general use. Users who may wish to use these are warned '
-              'that they are in the experimental section for a reason.')
-        ]))
-        def on_multiple_accounts_toggled(state: int) -> None:
-            should_enable = state == Qt.CheckState.Checked
-            is_enabled = wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
-            if should_enable != is_enabled:
-                wallet.set_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS, should_enable)
-        multiple_accounts_cb.stateChanged.connect(on_multiple_accounts_toggled)
-
-        experimental_box = QGroupBox()
-        experimental_vbox = QVBoxLayout()
-        experimental_box.setLayout(experimental_vbox)
-        experimental_vbox.addWidget(multiple_accounts_cb)
-
         # Todo - add ability here to toggle deactivation of used keys - AustEcon
         transaction_cache_size = wallet.get_cache_size_for_tx_bytedata()
         # nz_label = HelpLabel(_('Transaction Cache Size (MB)') + ':',
@@ -485,7 +465,6 @@ class PreferencesDialog(QDialog):
 
         form = FormSectionWidget()
         form.add_row(_('General options'), options_box)
-        form.add_row(_('Experimental options'), experimental_box)
         form.add_row(_('Transaction Cache Size'), tx_cache_layout)
 
         vbox = QVBoxLayout()
