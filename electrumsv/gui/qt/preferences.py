@@ -386,7 +386,7 @@ class PreferencesDialog(QDialog):
     def _wallet_widgets(self, wallet: Wallet, tab: QWidget) -> None:
         app_state_qt = get_app_state_qt()
 
-        use_change_addresses_cb = QCheckBox(_('Use change addresses'))
+        use_change_addresses_cb = QCheckBox(_('Use change outputs'))
         use_change_addresses_cb.setChecked(
             wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True))
         use_change_addresses_cb.setEnabled(
@@ -402,14 +402,14 @@ class PreferencesDialog(QDialog):
                 multiple_change_cb.setEnabled(should_enable)
         use_change_addresses_cb.stateChanged.connect(on_usechange)
 
-        multiple_change_cb = QCheckBox(_('Use multiple change addresses'))
+        multiple_change_cb = QCheckBox(_('Use multiple change outputs'))
         multiple_change_cb.setChecked(
             wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True))
         multiple_change_cb.setEnabled(wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True))
         multiple_change_cb.setToolTip('\n'.join([
             _('In some cases, use up to 3 change keys in order to break '
               'up large coin amounts and obfuscate the recipient key.'),
-            _('This may result in higher transactions fees.')
+            _('This will result in a nominally increased fee.')
         ]))
         def on_multiple_change_toggled(state: Qt.CheckState) -> None:
             multiple = state == Qt.CheckState.Checked
