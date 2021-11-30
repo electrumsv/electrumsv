@@ -290,14 +290,14 @@ class WalletNavigationView(QSplitter):
         self._contacts_item.setIcon(TreeColumns.MAIN,
             read_QIcon("icons8-contacts-80-blueui.png"))
         self._contacts_item.setText(TreeColumns.MAIN, _("Contacts"))
-        self._contacts_item.setToolTip(TreeColumns.MAIN, _("Your wallet contacts"))
+        self._contacts_item.setToolTip(TreeColumns.MAIN, _("The contacts in this wallet"))
         self._selection_tree.addTopLevelItem(self._contacts_item)
 
         self._notifications_item = QTreeWidgetItem()
         self._notifications_item.setIcon(TreeColumns.MAIN,
             read_QIcon("icons8-notification-80-blueui.png"))
         self._notifications_item.setText(TreeColumns.MAIN, _("Notifications"))
-        self._notifications_item.setToolTip(TreeColumns.MAIN, _("Your wallet notifications"))
+        self._notifications_item.setToolTip(TreeColumns.MAIN, _("The notifications in this wallet"))
         self._selection_tree.addTopLevelItem(self._notifications_item)
 
         self._accounts_item = QTreeWidgetItem()
@@ -306,7 +306,7 @@ class WalletNavigationView(QSplitter):
         self._accounts_item.setText(TreeColumns.MAIN, _("Accounts"))
         self._accounts_item.setText(TreeColumns.BSV_VALUE, "")
         self._accounts_item.setToolTip(TreeColumns.MAIN,
-            _("Your wallet accounts"))
+            _("The accounts in this wallet"))
         self._selection_tree.addTopLevelItem(self._accounts_item)
 
         for account in self._wallet.get_accounts():
@@ -336,17 +336,18 @@ class WalletNavigationView(QSplitter):
 
     def _update_tree_balances(self) -> None:
         fx = app_state.fx
+        only_confirmed = app_state.config.get_explicit_type(bool, 'confirmed_only', False)
         align_flags = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
 
-        def update_tree_item(item: QTreeWidgetItem, balance: int) -> None:
-            nonlocal fx
-            item.setText(TreeColumns.BSV_VALUE,
-                app_state.format_amount(balance, whitespaces=True))
+        def update_tree_item(item: QTreeWidgetItem, balance: WalletBalance) -> None:
+            nonlocal fx, only_confirmed
+            value = balance.confirmed if only_confirmed else balance.confirmed + balance.unconfirmed
+            item.setText(TreeColumns.BSV_VALUE, app_state.format_amount(value, whitespaces=True))
             item.setTextAlignment(TreeColumns.BSV_VALUE, align_flags)
             item.setFont(TreeColumns.BSV_VALUE, self._monospace_font)
 
             if fx and fx.is_enabled():
-                item.setText(TreeColumns.FIAT_VALUE, fx.format_amount(balance))
+                item.setText(TreeColumns.FIAT_VALUE, fx.format_amount(balance.confirmed))
                 item.setTextAlignment(TreeColumns.FIAT_VALUE, align_flags)
                 item.setFont(TreeColumns.FIAT_VALUE, self._monospace_font)
 
@@ -355,9 +356,9 @@ class WalletNavigationView(QSplitter):
             account_id = account.get_id()
             account_balance = account.get_balance()
             wallet_balance += account_balance
-            update_tree_item(self._account_tree_items[account_id], account_balance.available)
+            update_tree_item(self._account_tree_items[account_id], account_balance)
 
-        update_tree_item(self._accounts_item, wallet_balance.available)
+        update_tree_item(self._accounts_item, wallet_balance)
 
     def _add_account_to_tree(self, account: AbstractAccount) -> None:
         account_id = account.get_id()

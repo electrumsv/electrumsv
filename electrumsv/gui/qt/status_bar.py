@@ -122,11 +122,6 @@ class BalancePopupAction(QWidgetAction):
 
 
 class StatusBar(QStatusBar):
-    _balance_bsv_label: QLabel
-    _balance_equals_label: QLabel
-    _balance_fiat_label: QLabel
-    _balance_widget: QToolButton
-
     _fiat_bsv_label: QLabel
     _fiat_value_label: QLabel
     _fiat_widget: QWidget
@@ -136,29 +131,6 @@ class StatusBar(QStatusBar):
     def __init__(self, main_window: 'ElectrumWindow') -> None:
         super().__init__(None)
         self._main_window = weakref.proxy(main_window)
-
-        balance_widget = QToolButton()
-        balance_widget.setAutoRaise(True)
-        balance_widget.setPopupMode(QToolButton.MenuButtonPopup)
-        balance_icon_label = QLabel("")
-        balance_icon_label.setPixmap(QPixmap(icon_path("sb_balance.png")))
-        hbox = QHBoxLayout()
-        hbox.setSpacing(2)
-        hbox.setSizeConstraint(hbox.SetFixedSize)
-        hbox.addWidget(balance_icon_label)
-        self._balance_bsv_label = QLabel("")
-        hbox.addWidget(self._balance_bsv_label)
-        self._balance_equals_label = QLabel("")
-        self._balance_equals_label.setPixmap(QPixmap(icon_path("sb_approximate")))
-        hbox.addWidget(self._balance_equals_label)
-        self._balance_fiat_label = QLabel("")
-        hbox.addWidget(self._balance_fiat_label)
-        # This is to pad out the text on the RHS so that the menu indicator does not overlay it.
-        hbox.addWidget(QLabel(" "))
-        balance_widget.setLayout(hbox)
-        balance_widget.addAction(BalancePopupAction(main_window, self, balance_widget))
-        self._balance_widget = balance_widget
-        self.addPermanentWidget(balance_widget)
 
         self._fiat_widget = QWidget()
         self._fiat_widget.setVisible(False)
@@ -198,19 +170,6 @@ class StatusBar(QStatusBar):
 
         # self.notification_widget = NotificationIndicator(main_window)
         # self.addPermanentWidget(self.notification_widget)
-
-    def set_balance_status(self, bsv_text: str, fiat_text: Optional[str]) -> None:
-        have_fiat_text = bool(fiat_text)
-
-        self._balance_bsv_label.setText(bsv_text)
-
-        self._balance_equals_label.setVisible(have_fiat_text)
-        self._balance_fiat_label.setVisible(have_fiat_text)
-        if have_fiat_text:
-            assert fiat_text is not None
-            self._balance_fiat_label.setText(fiat_text)
-        else:
-            self._balance_fiat_label.setText('')
 
     def set_fiat_status(self, status: Optional[Tuple[Optional[str], Optional[str]]]) -> None:
         # None: Fiat is disabled.

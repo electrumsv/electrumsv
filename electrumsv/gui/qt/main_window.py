@@ -1192,7 +1192,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     balance += account.get_balance().confirmed
                 fiat_status = app_state.fx.get_fiat_status(
                     balance, app_state.base_unit(), app_state.decimal_point)
-        self.set_status_bar_balance(True)
         self._status_bar.set_fiat_status(fiat_status)
         self._update_network_status()
 
@@ -1696,25 +1695,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def create_status_bar(self) -> None:
         from .status_bar import StatusBar
         self._status_bar = StatusBar(self)
-        self.set_status_bar_balance(True)
-        self._update_network_status()
+        self.update_status_bar()
         self.setStatusBar(self._status_bar)
-
-    def set_status_bar_balance(self, shown: bool) -> None:
-        spend_confirmed_only = cast(bool, app_state.config.get('confirmed_only', False))
-        bsv_status: str
-        fiat_status: Optional[str]
-        if shown:
-            balance = 0
-            for account in self._wallet.get_accounts():
-                account_balance = account.get_balance()
-                if not spend_confirmed_only:
-                    balance += account_balance.unconfirmed
-                balance += account_balance.confirmed
-            bsv_status, fiat_status = app_state.get_amount_and_units(balance)
-        else:
-            bsv_status, fiat_status = _("Unknown"), None
-        self._status_bar.set_balance_status(bsv_status, fiat_status)
 
     def change_password_dialog(self) -> None:
         from .password_dialog import ChangePasswordDialog
