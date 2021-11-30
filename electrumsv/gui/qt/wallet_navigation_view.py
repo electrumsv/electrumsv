@@ -116,6 +116,8 @@ class WalletNavigationView(QSplitter):
         self._accounts_widget = QWidget()
         self._contacts_widget = self._main_window.create_contacts_list()
         self._notifications_widget = self._main_window.create_notifications_view()
+        self._advanced_widget = QWidget()
+        self._console_widget = self._main_window.create_console()
         self._tab_widget = QTabWidget()
 
         self._pane_view = QStackedWidget()
@@ -123,6 +125,8 @@ class WalletNavigationView(QSplitter):
         self._pane_view.addWidget(self._accounts_widget)
         self._pane_view.addWidget(self._notifications_widget)
         self._pane_view.addWidget(self._contacts_widget)
+        self._pane_view.addWidget(self._advanced_widget)
+        self._pane_view.addWidget(self._console_widget)
         # Sigh. We can set the current widget all we want after this point in this call stack,
         # but Qt5 ignores the call and just shows the last added widget. It does not appear
         # possible to initialise the stacked widget then tell it immediately which to display.
@@ -192,6 +196,10 @@ class WalletNavigationView(QSplitter):
             self._pane_view.setCurrentWidget(self._contacts_widget)
         elif item is self._notifications_item:
             self._pane_view.setCurrentWidget(self._notifications_widget)
+        elif item is self._advanced_item:
+            self._pane_view.setCurrentWidget(self._advanced_widget)
+        elif item is self._console_item:
+            self._pane_view.setCurrentWidget(self._console_widget)
         elif item is self._accounts_item:
             # Display the accounts widget in the pane view.
             # TODO(no-checkin) Not sure what this does yet. In theory it could be show all account
@@ -300,6 +308,7 @@ class WalletNavigationView(QSplitter):
         self._notifications_item.setToolTip(TreeColumns.MAIN, _("The notifications in this wallet"))
         self._selection_tree.addTopLevelItem(self._notifications_item)
 
+        # Accounts sub-tree.
         self._accounts_item = QTreeWidgetItem()
         self._accounts_item.setIcon(TreeColumns.MAIN,
             read_QIcon("icons8-merchant-account-80-blueui.png"))
@@ -313,10 +322,25 @@ class WalletNavigationView(QSplitter):
             self._add_account_to_tree(account)
 
         self._accounts_item.setExpanded(True)
-        self._selection_tree.setCurrentItem(self._home_item)
 
-        self._update_tree_headers()
-        self._update_tree_balances()
+        # Advanced sub-tree.
+        self._advanced_item = QTreeWidgetItem()
+        self._advanced_item.setIcon(TreeColumns.MAIN,
+            read_QIcon("icons8-administrative-tools-80-blueui.png"))
+        self._advanced_item.setText(TreeColumns.MAIN, _("Developer tools"))
+        self._advanced_item.setToolTip(TreeColumns.MAIN, _("Developer tools"))
+        self._selection_tree.addTopLevelItem(self._advanced_item)
+
+        self._console_item = QTreeWidgetItem()
+        self._console_item.setIcon(TreeColumns.MAIN,
+            read_QIcon("icons8-console-80-blueui.png"))
+        self._console_item.setText(TreeColumns.MAIN, _("Console"))
+        self._console_item.setToolTip(TreeColumns.MAIN, _("An embedded Python console"))
+        self._advanced_item.addChild(self._console_item)
+
+        # Final updates.
+        self._selection_tree.setCurrentItem(self._home_item)
+        self.refresh_account_balances()
 
     def _update_tree_headers(self) -> None:
         headers = BASE_TREE_HEADERS[:]
@@ -680,6 +704,9 @@ class WalletNavigationView(QSplitter):
                     transaction.writerow([key_text, pk])
             else:
                 f.write(json.dumps(pklist, indent = 4))
+
+    def show_developer_tools(self) -> None:
+        self._selection_tree.setCurrentItem(self._advanced_item)
 
     def _select_account(self, account_id: int) -> bool:
         self._pane_view.setCurrentWidget(self._tab_widget)

@@ -299,7 +299,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.receive_tab = self._create_receive_tab()
         self.keys_tab = self.create_keys_tab()
         self.utxo_tab = self.create_utxo_tab()
-        self.console_tab = self.create_console_tab()
         self.coinsplitting_tab = self.create_coinsplitting_tab()
 
         history_view = self.create_history_tab()
@@ -316,8 +315,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             _("&Keys"), "keys")
         self._add_optional_tab(tabs, self.utxo_tab, read_QIcon("tab_coins.png"),
             _("Co&ins"), "utxo")
-        self._add_optional_tab(tabs, self.console_tab, read_QIcon("tab_console.png"),
-            _("Con&sole"), "console")
         self._add_optional_tab(tabs, self.coinsplitting_tab, read_QIcon("tab_coins.png"),
             _("Coin Splitting"), "coinsplitter", True)
 
@@ -750,13 +747,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         add_toggle_action(view_menu, self.keys_tab)
         add_toggle_action(view_menu, self.utxo_tab)
         add_toggle_action(view_menu, self.coinsplitting_tab)
-        add_toggle_action(view_menu, self.console_tab)
 
         tools_menu = menubar.addMenu(_("&Tools"))
 
         tools_menu.addAction(_("Preferences"), self.preferences_dialog)
         tools_menu.addAction(_("&Network"), self._show_network_dialog)
         tools_menu.addAction(_("&Log viewer"), self.app.show_log_viewer)
+        devtools_action = tools_menu.addAction(_("Developer tools"),
+            self._navigation_view.show_developer_tools)
+        devtools_action.setShortcut(Qt.SHIFT + Qt.CTRL + Qt.Key_I)
 
         tools_menu.addSeparator()
         tools_menu.addAction(_("&Sign/verify message"), self.sign_verify_message)
@@ -1650,7 +1649,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.contact_list.update()
         self.update_history_view()
 
-    def create_console_tab(self) -> Console:
+    def create_console(self) -> Console:
         self.console = console = Console()
         return console
 
