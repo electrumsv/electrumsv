@@ -161,7 +161,7 @@ def profiler(func: Callable[..., T1]) -> Callable[..., T1]:
         t0 = time.time()
         o = func(*args, **kw_args)
         t = time.time() - t0
-        logger.debug("%s %.4f", n, t)
+        logger.debug("%s %.8f", n, t)
         return o
     return lambda *args, **kw_args: do_profile(func, args, kw_args)
 
@@ -174,18 +174,6 @@ def assert_datadir_available(config_path: str) -> None:
         raise FileNotFoundError(
             'ElectrumSV datadir does not exist. Was it deleted while running?' + '\n' +
             'Should be at {}'.format(path))
-
-
-def assert_bytes(*args: Any) -> None:
-    """
-    porting helper, assert args type
-    """
-    try:
-        for x in args:
-            assert isinstance(x, (bytes, bytearray))
-    except AssertionError:
-        logs.root.error('assert bytes failed %s', [type(arg) for arg in args])
-        raise
 
 
 def make_dir(path: str) -> None:

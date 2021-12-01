@@ -89,11 +89,11 @@ class CoinSplittingTab(QWidget):
         script_type = new_account.get_default_script_type()
 
         # Hardware wallets will not sign OP_FALSE OP_RETURN.
-        self._direct_splitting_enabled = self._account.is_deterministic() and \
+        self._direct_splitting_enabled = new_account.is_deterministic() and \
             new_account.can_spend() and \
             not new_account.involves_hardware_wallet()
         # The faucet requires an address to send to. There are only P2PKH addresses.
-        self._faucet_splitting_enabled = self._account.is_deterministic() and \
+        self._faucet_splitting_enabled = new_account.is_deterministic() and \
           script_type == ScriptType.P2PKH
         self.update_layout()
 

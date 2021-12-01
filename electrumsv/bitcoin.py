@@ -31,7 +31,6 @@ from bitcoinx import (hash_to_hex_str, sha256, Address, classify_output_script,
 
 from .bip276 import bip276_decode, bip276_encode, PREFIX_BIP276_SCRIPT
 from .networks import Net
-from .util import assert_bytes
 
 ################################## transactions
 
@@ -46,7 +45,6 @@ assert len(__b43chars) == 43
 
 def base_encode(v: bytes, base: int) -> str:
     """ encode v, which is a string of bytes, to base58."""
-    assert_bytes(v)
     assert base == 43
     chars = __b43chars
     long_value: int = 0

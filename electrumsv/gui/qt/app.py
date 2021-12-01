@@ -28,7 +28,6 @@ import datetime
 import os
 from functools import partial
 import signal
-import sys
 import threading
 from typing import Any, Callable, cast, Coroutine, Iterable, List, Optional, TypeVar
 
@@ -42,8 +41,6 @@ from electrumsv.app_state import app_state, ExceptionHandlerABC
 from electrumsv.contacts import ContactEntry, ContactIdentity
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.types import ExceptionInfoType
-from electrumsv.util import UpdateCheckResultType
 from electrumsv.wallet import AbstractAccount, Wallet
 
 from . import dialogs, network_dialog

@@ -28,7 +28,6 @@ import base64
 from collections import Counter
 import concurrent.futures
 import csv
-import datetime
 from decimal import Decimal
 from functools import partial
 import gzip
@@ -48,8 +47,8 @@ import aiorpcx
 from bitcoinx import PublicKey
 from mypy_extensions import Arg, DefaultNamedArg, KwArg, VarArg
 
-from PyQt5.QtCore import pyqtSignal, Qt, QSize, QTimer, QUrl, QRect
-from PyQt5.QtGui import QCloseEvent, QCursor, QDesktopServices, QKeySequence, QIcon
+from PyQt5.QtCore import pyqtSignal, Qt, QSize, QTimer, QRect
+from PyQt5.QtGui import QCloseEvent, QCursor, QKeySequence, QIcon
 from PyQt5.QtWidgets import (
     QAction, QDialog, QFileDialog, QGridLayout, QHBoxLayout, QInputDialog, QLabel,
     QLineEdit, QMainWindow, QMenu, QMenuBar, QMessageBox, QPushButton, QSizePolicy, QShortcut,
@@ -64,8 +63,7 @@ from ...app_state import app_state
 from ...bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT,
-    NetworkEventNames, ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags,
-    WalletSettings)
+    NetworkEventNames, ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags)
 from ...exceptions import UserCancelled
 from ...i18n import _
 from ...logs import logs
@@ -74,9 +72,7 @@ from ...networks import Net
 from ...storage import WalletStorage
 from ...transaction import Transaction, TransactionContext
 from ...types import ExceptionInfoType, Outpoint, WaitingUpdateCallback
-from ...util import (format_fee_satoshis, get_update_check_dates,
-    get_identified_release_signers, get_wallet_name_from_path, profiler, ReleaseDocumentType,
-    UpdateCheckResultType)
+from ...util import format_fee_satoshis, get_wallet_name_from_path, profiler
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, AccountInstantiationFlags, Wallet
 from ...wallet_database.types import (InvoiceRow, KeyDataProtocol, TransactionBlockRow,

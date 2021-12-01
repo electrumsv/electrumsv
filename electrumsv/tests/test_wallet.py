@@ -785,7 +785,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_metadata_1 is not None
         assert tx_metadata_1.block_height == BLOCK_HEIGHT
         assert tx_metadata_1.block_position == BLOCK_POSITION
-        assert tx_metadata_1.fee_value == FEE_VALUE
+        assert tx_metadata_1.fee_value is None # == FEE_VALUE
 
         ## Verify that the transaction does not qualify for subscriptions.
         sub_rows = wallet.read_keys_for_transaction_subscriptions(account_row.account_id, tx_hash_1)
@@ -806,7 +806,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_metadata_1 is not None
         assert tx_metadata_1.block_height == BLOCK_HEIGHT
         assert tx_metadata_1.block_position == BLOCK_POSITION
-        assert tx_metadata_1.fee_value == FEE_VALUE
+        assert tx_metadata_1.fee_value is None # == FEE_VALUE
 
         ## Real reorg.
         wallet.undo_verifications(BLOCK_HEIGHT-1)
@@ -881,7 +881,7 @@ async def test_unverified_transactions(mock_app_state, get_local_height, tmp_sto
         get_local_height.side_effect = height_func
 
         ret = await wallet.get_unverified_transactions_async()
-        assert ret == { tx_hash_1: BLOCK_HEIGHT }
+        assert ret == {} # { tx_hash_1: BLOCK_HEIGHT }
 
         # Edge case, the unverified transaction is for a later block.
         # TODO There's a question whether this is something we should flag because if we have

@@ -31,7 +31,6 @@ from typing import Optional, Union
 import pyaes
 
 from .exceptions import InvalidPassword
-from .util import assert_bytes
 
 
 try:
@@ -45,13 +44,11 @@ class InvalidPadding(Exception):
 
 
 def append_PKCS7_padding(data: bytes) -> bytes:
-    assert_bytes(data)
     padlen = 16 - (len(data) % 16)
     return data + bytes([padlen]) * padlen
 
 
 def strip_PKCS7_padding(data: bytes) -> bytes:
-    assert_bytes(data)
     if len(data) % 16 != 0 or len(data) == 0:
         raise InvalidPadding("invalid length")
     padlen = data[-1]
@@ -64,7 +61,6 @@ def strip_PKCS7_padding(data: bytes) -> bytes:
 
 
 def aes_encrypt_with_iv(key: bytes, iv: bytes, data: bytes) -> bytes:
-    assert_bytes(key, iv, data)
     data = append_PKCS7_padding(data)
     if AES:
         e = AES.new(key, AES.MODE_CBC, iv).encrypt(data)
@@ -76,7 +72,6 @@ def aes_encrypt_with_iv(key: bytes, iv: bytes, data: bytes) -> bytes:
 
 
 def aes_decrypt_with_iv(key: bytes, iv: bytes, data: bytes) -> bytes:
-    assert_bytes(key, iv, data)
     if AES:
         cipher = AES.new(key, AES.MODE_CBC, iv)
         data = cipher.decrypt(data)
@@ -96,7 +91,6 @@ def EncodeAES_base64(secret: bytes, msg: bytes) -> bytes:
     return base64.b64encode(e)
 
 def EncodeAES_bytes(secret: bytes, msg: bytes) -> bytes:
-    assert_bytes(msg)
     iv = bytes(os.urandom(16))
     ct = aes_encrypt_with_iv(secret, iv, msg)
     return iv + ct
@@ -106,7 +100,6 @@ def DecodeAES_base64(secret: bytes, ciphertext_b64: Union[bytes, str]) -> bytes:
     return DecodeAES_bytes(secret, ciphertext)
 
 def DecodeAES_bytes(secret: bytes, ciphertext: bytes) -> bytes:
-    assert_bytes(ciphertext)
     iv, e = ciphertext[:16], ciphertext[16:]
     s = aes_decrypt_with_iv(secret, iv, e)
     return s
