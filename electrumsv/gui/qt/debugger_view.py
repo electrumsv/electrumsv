@@ -482,8 +482,7 @@ class UIInterpreterState(InterpreterState): # type: ignore
     stack: UILimitedStack
     alt_stack: UILimitedStack
 
-    def create_stack(self, size_limit: int) -> UILimitedStack:
-        return UILimitedStack(size_limit)
+    STACK_CLS = UILimitedStack
 
 
 class ScriptView(BaseTableWidget):
@@ -859,7 +858,7 @@ class DebuggerView(QWidget):
         return vbox
 
     def is_enabled(self) -> bool:
-        return hasattr(InterpreterState, "create_stack")
+        return hasattr(InterpreterState, "STACK_CLS")
 
     def set_scratch_mode(self, script: Optional[Script]=None) -> None:
         if not self.is_enabled():
