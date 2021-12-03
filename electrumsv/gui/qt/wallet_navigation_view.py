@@ -62,6 +62,7 @@ from ...wallet_database.types import WalletBalance
 
 from .account_dialog import AccountDialog
 from .constants import ScanDialogRole
+from .debugger_view import DebuggerView
 from .main_window import ElectrumWindow
 from .util import (Buttons, CancelButton, filename_field, line_dialog, MessageBox, OkButton,
     protected, read_QIcon, WindowModalDialog)
@@ -118,6 +119,7 @@ class WalletNavigationView(QSplitter):
         self._notifications_widget = self._main_window.create_notifications_view()
         self._advanced_widget = QWidget()
         self._console_widget = self._main_window.create_console()
+        self._debugger_widget = DebuggerView()
         self._tab_widget = QTabWidget()
 
         self._pane_view = QStackedWidget()
@@ -127,6 +129,7 @@ class WalletNavigationView(QSplitter):
         self._pane_view.addWidget(self._contacts_widget)
         self._pane_view.addWidget(self._advanced_widget)
         self._pane_view.addWidget(self._console_widget)
+        self._pane_view.addWidget(self._debugger_widget)
         # Sigh. We can set the current widget all we want after this point in this call stack,
         # but Qt5 ignores the call and just shows the last added widget. It does not appear
         # possible to initialise the stacked widget then tell it immediately which to display.
@@ -200,6 +203,8 @@ class WalletNavigationView(QSplitter):
             self._pane_view.setCurrentWidget(self._advanced_widget)
         elif item is self._console_item:
             self._pane_view.setCurrentWidget(self._console_widget)
+        elif item is self._debugger_item:
+            self._pane_view.setCurrentWidget(self._debugger_widget)
         elif item is self._accounts_item:
             # Display the accounts widget in the pane view.
             # TODO(no-checkin) Not sure what this does yet. In theory it could be show all account
@@ -337,6 +342,13 @@ class WalletNavigationView(QSplitter):
         self._console_item.setText(TreeColumns.MAIN, _("Console"))
         self._console_item.setToolTip(TreeColumns.MAIN, _("An embedded Python console"))
         self._advanced_item.addChild(self._console_item)
+
+        self._debugger_item = QTreeWidgetItem()
+        self._debugger_item.setIcon(TreeColumns.MAIN,
+            read_QIcon("icons8-bug-80-blueui.png"))
+        self._debugger_item.setText(TreeColumns.MAIN, _("Debugger"))
+        self._debugger_item.setToolTip(TreeColumns.MAIN, _("An Bitcoin script debugger"))
+        self._advanced_item.addChild(self._debugger_item)
 
         # Final updates.
         self._selection_tree.setCurrentItem(self._home_item)
@@ -707,6 +719,9 @@ class WalletNavigationView(QSplitter):
 
     def show_developer_tools(self) -> None:
         self._selection_tree.setCurrentItem(self._advanced_item)
+
+    def show_debugger(self) -> None:
+        self._selection_tree.setCurrentItem(self._debugger_item)
 
     def _select_account(self, account_id: int) -> bool:
         self._pane_view.setCurrentWidget(self._tab_widget)

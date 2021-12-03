@@ -57,11 +57,12 @@ from ...wallet import AbstractAccount
 from ... import web
 
 from .constants import UIBroadcastSource
-if TYPE_CHECKING:
-    from .main_window import ElectrumWindow
+from .debugger_view import TransactionSpendContext
 from .util import (Buttons, ButtonsLineEdit, ColorScheme, FormSectionWidget, MessageBox,
     MessageBoxMixin, MyTreeWidget, read_QIcon, WaitingDialog)
 
+if TYPE_CHECKING:
+    from .main_window import ElectrumWindow
 
 logger = logs.get_logger("tx-dialog")
 
@@ -975,6 +976,13 @@ class InputTreeWidget(MyTreeWidget):
             account_id = item.data(OutputColumn.INDEX, Role.ACCOUNT_ID)
             menu.addAction(_("Select coins in Coins tab"),
                 partial(parent.select_in_coins_tab, account_id, txo_keys))
+
+        devtools_menu = menu.addMenu(_("Developer tools"))
+        if keyinstance_id and have_tx:
+            spent_input_index = cast(int, item.data(OutputColumn.INDEX, Role.PUT_INDEX))
+            devtools_menu.addAction(_("Debug this spend"),
+                partial(self._event_debug_spend, tx_hash, spent_input_index))
+
         menu.exec_(self.viewport().mapToGlobal(position))
 
     def _event_menu_open_url(self, url: str) -> None:
@@ -988,6 +996,17 @@ class InputTreeWidget(MyTreeWidget):
         else:
             MessageBox.show_error(_("The data for this  transaction is not yet present in "
                 "your wallet. Please try again when it has been obtained from the network."))
+
+    def _event_debug_spend(self, prev_hash: bytes, spent_input_index: int) -> None:
+        tx_dialog = cast(TxDialog, self.parent())
+        child_tx = tx_dialog.tx
+        parent_tx = tx_dialog._wallet.get_transaction(prev_hash)
+        assert parent_tx is not None
+
+        context = TransactionSpendContext(parent_tx, child_tx, spent_input_index)
+        debugger_pane = self._main_window._navigation_view._debugger_widget
+        debugger_pane.set_transaction_spend_mode(context)
+        self._main_window._navigation_view.show_debugger()
 
 
 class OutputTreeWidget(MyTreeWidget):
