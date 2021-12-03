@@ -45,9 +45,9 @@ from bitcoinx import classify_output_script, InterpreterLimits, InterpreterState
 from bitcoinx.limited_stack import LimitedStack
 
 from PyQt5.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, QPoint, Qt
-from PyQt5.QtGui import QBrush, QColor, QColorConstants, QFont
-from PyQt5.QtWidgets import QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QPushButton, \
-    QStackedWidget, QTableView, QVBoxLayout, QWidget
+from PyQt5.QtGui import QBrush, QColor, QColorConstants, QFont, QKeyEvent
+from PyQt5.QtWidgets import QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QMenu, \
+    QPushButton, QStackedWidget, QTableView, QVBoxLayout, QWidget
 
 from ...i18n import _
 from ...networks import Net
@@ -68,10 +68,12 @@ class ScriptControls(ButtonLayout):
         self.addStretch(1)
 
         self._reset_button = self.add_button("icons8-skip-to-start-96-windows.png",
-            self.step_forward_signal.emit, _("Reset to start"))
+            self.restart_signal.emit, _("Reset to start"))
+
         self._step_forward_button = self.add_button("icons8-forward-96-windows.png",
             self.step_forward_signal.emit, _("Step forward"))
         self._step_forward_button.setShortcut(Qt.Key_F10)
+
         self._continue_button = self.add_button("icons8-play-96-windows.png",
             self.continue_signal.emit, _("Continue"))
         self._continue_button.setShortcut(Qt.Key_F5)
@@ -81,7 +83,7 @@ class ScriptControls(ButtonLayout):
     def enable_debugging_ui(self) -> None:
         self._reset_button.setEnabled(False)
         self._step_forward_button.setEnabled(True)
-        self._continue_button.setEnabled(False)
+        self._continue_button.setEnabled(True)
 
     def disable_debugging_ui(self) -> None:
         self._reset_button.setEnabled(False)
@@ -388,7 +390,6 @@ class TableView(QTableView):
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._event_create_menu)
 
         self._model = TableModel(self, Columns.COLUMN_COUNT, first_line_number)
         self._model.set_data(lines)
@@ -414,10 +415,6 @@ class TableView(QTableView):
     def append_lines(self, lines: List[TableLine]) -> None:
         for line in lines:
             self._model.append_line(line)
-
-    def _event_create_menu(self, position: QPoint) -> None:
-        # TODO: Consider replacing with the higher level widget connecting to the signal.
-        pass
 
 
 class BaseTableWidget(QWidget):
@@ -506,6 +503,10 @@ class ScriptView(BaseTableWidget):
         self.toolbar = ScriptControls()
         self._vbox.insertLayout(1, self.toolbar)
 
+        self._table_view.clicked.connect(self._event_clicked)
+        self._table_view.customContextMenuRequested.connect(
+            self._event_custom_context_menu_requested)
+
     def set_enable_edit(self, flag: bool) -> None:
         self.editing_enabled = flag
 
@@ -564,8 +565,8 @@ class ScriptView(BaseTableWidget):
             if isinstance(classify_output_script(locking_script, Net.COIN), P2SH_Address):
                 lines.append(TableLine(_("Locking script (P2SH)"),
                     LineFlags.IS_TITLE | LineFlags.SECTION3))
-            p2sh_locking_script = self._get_p2sh_script_from_script(unlocking_script)
-            self._extend_lines_from_script(lines, p2sh_locking_script, LineFlags.SECTION3)
+                p2sh_locking_script = self._get_p2sh_script_from_script(unlocking_script)
+                self._extend_lines_from_script(lines, p2sh_locking_script, LineFlags.SECTION3)
 
         self._table_view.set_lines(lines)
 
@@ -626,6 +627,7 @@ class ScriptView(BaseTableWidget):
         current_section = current_line.flags & LineFlags.SECTION_MASK
         if current_section != self._active_section:
             current_script = self.get_script_for_line(current_line)
+
             if self._active_script is None:
                 self._active_script = current_script
                 self._active_section = current_section
@@ -664,6 +666,13 @@ class ScriptView(BaseTableWidget):
 
         return evaluation_incomplete
 
+    def at_breakpoint(self):
+        if self.current_row == -1:
+            return False
+        current_line = self._table_view.get_line(self.current_row)
+        return current_line.flags & LineFlags.HAS_BREAKPOINT != 0
+
+
     def get_script_for_line(self, line: TableLine) -> Script:
         if line.flags & LineFlags.SECTION1:
             return self._section_scripts[0]
@@ -672,6 +681,35 @@ class ScriptView(BaseTableWidget):
         elif line.flags & LineFlags.SECTION3:
             return self._section_scripts[2]
         raise NotImplementedError(f"line has not detectable section {line}")
+
+    def _event_custom_context_menu_requested(self, position: QPoint) -> None:
+        item = self.currentItem()
+        if not item:
+            return
+
+        row = self.currentColumn()
+        menu = QMenu()
+        menu.addAction(_("Toggle breakpoint"), partial(self._toggle_breakpoint, row))
+
+    def _event_clicked(self, index: QModelIndex) -> None:
+        row = index.row()
+        column = index.column()
+        if column == Columns.ICON:
+            self._toggle_breakpoint(row)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() == Qt.Key_F9:
+            index = self._table_view.currentIndex()
+            self._toggle_breakpoint(index.row())
+        else:
+            super().keyPressEvent(event)
+
+    def _toggle_breakpoint(self, row: int) -> None:
+        line = self._table_view.get_line(row)
+        if line.flags & LineFlags.HAS_NUMBER:
+            line.flags ^= LineFlags.HAS_BREAKPOINT
+            self._table_view.refresh_row(row)
+
 
 class StackView(BaseTableWidget):
     FIRST_LINE_NUMBER = 0
@@ -688,6 +726,8 @@ class StackView(BaseTableWidget):
         stack.replace_signal.connect(self._on_stack_replace)
         stack.pop_signal.connect(self._on_stack_pop)
         stack.refresh_signal.connect(self._on_stack_refresh)
+
+        self._on_stack_refresh(stack._items)
 
     def reset(self) -> None:
         self._table_view.set_lines([])
@@ -778,7 +818,8 @@ class DebuggerView(QWidget):
 
     def create_layout(self) -> QVBoxLayout:
         self._script_view = ScriptView([])
-        self._script_view.toolbar.step_forward_signal.connect(self._on_step_script_event)
+        self._script_view.toolbar.step_forward_signal.connect(self._event_step_script)
+        self._script_view.toolbar.continue_signal.connect(self._event_run_script)
 
         self._setup_view = DebugSetupView()
         self._setup_view.setup_template_signal.connect(self._on_setup_template_choice)
@@ -788,6 +829,7 @@ class DebuggerView(QWidget):
             self._stacked_widget.addWidget(self._setup_view)
             self._stacked_widget.addWidget(self._script_view)
         else:
+            # TODO: Remove this if bitcoinx gets some similar support integrated.
             disabled_label = QLabel(_("Install a compatible version of bitcoinx"))
             disabled_view = QWidget()
             disabled_hbox = QHBoxLayout()
@@ -829,8 +871,6 @@ class DebuggerView(QWidget):
         interpreter = self._script_view.get_interpreter()
         self._main_stack_view.bind_stack(interpreter.stack)
         self._alt_stack_view.bind_stack(interpreter.alt_stack)
-        self._main_stack_view.reset()
-        self._alt_stack_view.reset()
 
         self.enable_ui()
 
@@ -844,8 +884,6 @@ class DebuggerView(QWidget):
         interpreter = self._script_view.get_interpreter()
         self._main_stack_view.bind_stack(interpreter.stack)
         self._alt_stack_view.bind_stack(interpreter.alt_stack)
-        self._main_stack_view.reset()
-        self._alt_stack_view.reset()
 
         self.enable_ui()
 
@@ -867,7 +905,15 @@ class DebuggerView(QWidget):
             raise NotImplementedError
         self._stacked_widget.setCurrentWidget(self._script_view)
 
-    def _on_step_script_event(self) -> None:
+    def _event_run_script(self) -> None:
+        while self._script_view.step_script_evaluation():
+            if self._script_view.at_breakpoint():
+                # The execution is not finished.
+                return
+        # The execution is finished.
+        self.disable_state_ui()
+
+    def _event_step_script(self) -> None:
         evaluation_incomplete = self._script_view.step_script_evaluation()
         if not evaluation_incomplete:
             self.disable_state_ui()
