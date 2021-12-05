@@ -23,7 +23,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import cast, Union
+from __future__ import annotations
+from typing import cast, Generator, Optional, Union
 
 from bitcoinx import (hash_to_hex_str, sha256, Address, classify_output_script,
     OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_Address, P2SH_Address,
@@ -135,3 +136,188 @@ def is_address_valid(address: str) -> bool:
         return True
     except ValueError:
         return False
+
+############## start bitcoinx related functions ######################
+
+import dataclasses
+from typing import List, TYPE_CHECKING
+
+from bitcoinx import DisabledOpcode, InterpreterState, OpReturnError, Ops, pack_byte, \
+    ScriptTooLarge, TruncatedScriptError, TxInputContext, UnbalancedConditional, \
+    unpack_le_uint16, unpack_le_uint32
+from bitcoinx.limited_stack import LimitedStack
+from bitcoinx.script import (OP_1, OP_16, OP_1NEGATE, # pylint: disable=no-name-in-module
+    OP_CODESEPARATOR, OP_ENDIF, OP_IF, # pylint: disable=no-name-in-module
+    OP_PUSHDATA1, OP_PUSHDATA2, OP_PUSHDATA4, OP_RESERVED, # pylint: disable=no-name-in-module
+    OP_RETURN) # pylint: disable=no-name-in-module
+
+if TYPE_CHECKING:
+    from bitcoinx import InterpreterLimits
+    from bitcoinx.interpreter import Condition
+
+
+# NOTE(typing) Untyped base class 'Class cannot subclass .. has type Any'
+class CustomLimitedStack(LimitedStack): # type: ignore
+    # This is provided so that type checking works for the inheriting class.
+    def __init__(self, size_limit: int) -> None: # pylint: disable=useless-super-delegation
+        super().__init__(size_limit)
+
+    def make_child_stack(self) -> CustomLimitedStack:
+        result = self.__class__(0)
+        result.parent = self
+        return result
+
+    def make_copy(self) -> CustomLimitedStack:
+        assert self.parent is None
+        result = self.__class__(self.size_limit)
+        result._size = self._size
+        result._items = self._items.copy()
+        return result
+
+
+@dataclasses.dataclass
+class ScriptMatch:
+    op: int
+    data: Optional[bytes]
+    data_offset: Optional[int]
+    data_length: Optional[int]
+    code_separator: Optional[int]
+
+
+def generate_matches(raw: bytes) -> Generator[ScriptMatch, None, None]:
+    '''A generator.  Iterates over the script yielding (op, item) pairs, stopping when the end
+    of the script is reached.
+
+    op is an integer as it might not be a member of Ops.  Data is the data pushed as
+    bytes, or None if the op does not push data.
+
+    Raises TruncatedScriptError if the script was truncated.
+    '''
+    limit = len(raw)
+    n = 0
+    last_code_separator_offset = 0
+
+    while n < limit:
+        op = raw[n]
+        n += 1
+        data = None
+        data_offset = None
+        data_length = None
+
+        if op <= OP_16:
+            if op <= OP_PUSHDATA4:
+                try:
+                    if op < OP_PUSHDATA1:
+                        dlen = op
+                    elif op == OP_PUSHDATA1:
+                        dlen = raw[n]
+                        n += 1
+                    elif op == OP_PUSHDATA2:
+                        dlen, = unpack_le_uint16(raw[n: n + 2])
+                        n += 2
+                    else:
+                        dlen, = unpack_le_uint32(raw[n: n + 4])
+                        n += 4
+                    data = raw[n: n + dlen]
+                    n += dlen
+                    assert len(data) == dlen
+                except Exception:
+                    raise TruncatedScriptError from None
+            elif op >= OP_1:
+                data = pack_byte(op - OP_1 + 1)
+            elif op == OP_1NEGATE:
+                data = b'\x81'
+            else:
+                assert op == OP_RESERVED
+
+        if op == OP_CODESEPARATOR:
+            last_code_separator_offset = n
+
+        yield ScriptMatch(op, data, data_offset, data_length, last_code_separator_offset)
+
+
+class NotReallyAnIterator:
+    current_match: Optional[ScriptMatch] = None
+
+    def __init__(self, script: Script) -> None:
+        self._raw = bytes(script)
+
+    def on_code_separator(self) -> None:
+        '''Call when an OP_CODESEPARATOR is executed.'''
+        # This is now tracked in `generate_matches`. The iterator is not in sync with execution.
+        pass
+        # self._cs = self._n
+
+    def script_code(self) -> Script:
+        '''Return the subscript that should be checked by OP_CHECKSIG et al.'''
+        assert self.current_match is not None and self.current_match.code_separator is not None
+        return Script(self._raw[self.current_match.code_separator:])
+
+
+# NOTE(typing) Untyped base class 'Class cannot subclass .. has type Any'
+class CustomInterpreterState(InterpreterState): # type: ignore
+    STACK_CLS = CustomLimitedStack
+
+    def __init__(self, limits: InterpreterLimits,
+            tx_context: Optional[TxInputContext]=None) -> None:
+        super().__init__(limits, tx_context)
+
+        # This overrides the default way `InterpreterState` works.
+        self.stack = self.STACK_CLS(self.limits.stack_memory_usage)
+        self.alt_stack = self.stack.make_child_stack()
+
+    def begin_evaluate_script(self, script: Script) -> None:
+        if len(script) > self.limits.script_size:
+            raise ScriptTooLarge(f'script length {len(script):,d} exceeds the limit of '
+                                 f'{self.limits.script_size:,d} bytes')
+
+        self.conditions: List[Condition] = []
+        self.op_count = 0
+        self.iterator = NotReallyAnIterator(script)
+        self.non_top_level_return_after_genesis = False
+
+    def step_evaluate_script(self, match: ScriptMatch) -> bool:
+        # Check pushitem size first
+        if match.data is not None:
+            self.limits.validate_item_size(len(match.data))
+
+        self.execute = (all(condition.execute for condition in self.conditions)
+                        and (not self.non_top_level_return_after_genesis or match.op == OP_RETURN))
+
+        # Pushitem and OP_RESERVED do not count towards op count.
+        if match.op > OP_16:
+            self.bump_op_count(1)
+
+        # Some op codes are disabled.  For pre-genesis UTXOs these were an error in
+        # unevaluated branches; for post-genesis UTXOs only if evaluated.
+        if match.op in {Ops.OP_2MUL, Ops.OP_2DIV} and (self.execute or
+                                                    not self.limits.is_utxo_after_genesis):
+            raise DisabledOpcode(f'{Ops(match.op).name} is disabled')
+
+        if self.execute and match.data is not None:
+            self.limits.validate_minimal_push_opcode(match.op, match.data)
+            self.stack.append(match.data)
+        elif self.execute or OP_IF <= match.op <= OP_ENDIF:
+            self.iterator.current_match = match
+            try:
+                self._handlers[match.op](self)
+            except OpReturnError:
+                if not self.limits.is_utxo_after_genesis:
+                    raise
+                # A top-level post-geneis OP_RETURN terminates successfully, ignoring
+                # the rest of the script even in the presence of unbalanced IFs,
+                # invalid opcodes etc.  Otherwise the grammar is checked.
+                if not self.conditions:
+                    return False
+                self.non_top_level_return_after_genesis = True
+
+        self.validate_stack_size()
+        return True
+
+    def end_evaluate_script(self) -> None:
+        if self.conditions:
+            raise UnbalancedConditional(f'unterminated {self.conditions[-1].opcode.name} '
+                                        'at end of script')
+
+
+############## end bitcoinx related functions ########################

@@ -38,17 +38,17 @@ from __future__ import annotations
 import dataclasses
 from enum import IntEnum, IntFlag
 from functools import partial
-from typing import Any, cast, List, NamedTuple, Optional, Tuple
+from typing import Any, cast, List, NamedTuple, Optional
 
-from bitcoinx import classify_output_script, InterpreterLimits, InterpreterState, MinerPolicy, \
+from bitcoinx import classify_output_script, InterpreterLimits, MinerPolicy, \
     P2SH_Address, Script, TruncatedScriptError, Tx, TxInputContext, TxOutput
-from bitcoinx.limited_stack import LimitedStack
 
 from PyQt5.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, QPoint, Qt
 from PyQt5.QtGui import QBrush, QColor, QColorConstants, QFont, QKeyEvent
 from PyQt5.QtWidgets import QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QMenu, \
     QPushButton, QStackedWidget, QTableView, QVBoxLayout, QWidget
 
+from ...bitcoin import CustomInterpreterState, CustomLimitedStack, generate_matches, ScriptMatch
 from ...i18n import _
 from ...networks import Net
 from ...platform import platform
@@ -128,7 +128,7 @@ class TableLine:
     text: str
     flags: LineFlags
     number: int = -1
-    match: Optional[Tuple[int, Optional[bytes]]] = dataclasses.field(default=None)
+    match: Optional[ScriptMatch] = dataclasses.field(default=None)
 
 
 class TableModel(QAbstractItemModel):
@@ -447,15 +447,15 @@ def create_default_script_evaluation_limits() -> InterpreterLimits:
         is_transaction_in_block)
 
 
-# NOTE(typing) The bullshit cannot subclass Any nonsense.
-class UILimitedStack(LimitedStack, QObject): # type: ignore
+# # NOTE(typing) The bullshit cannot subclass Any nonsense.
+class UILimitedStack(CustomLimitedStack, QObject):
     append_signal = pyqtSignal(object)
     replace_signal = pyqtSignal(object, int)
     pop_signal = pyqtSignal(object, int)
     refresh_signal = pyqtSignal(object)
 
     def __init__(self, size_limit: int) -> None:
-        LimitedStack.__init__(self, size_limit)
+        CustomLimitedStack.__init__(self, size_limit)
         QObject.__init__(self)
 
     # Covers `extend` as well.
@@ -477,8 +477,7 @@ class UILimitedStack(LimitedStack, QObject): # type: ignore
         self.refresh_signal.emit(stack._items)
 
 
-# NOTE(typing) The bullshit cannot subclass Any nonsense.
-class UIInterpreterState(InterpreterState): # type: ignore
+class UIInterpreterState(CustomInterpreterState):
     stack: UILimitedStack
     alt_stack: UILimitedStack
 
@@ -584,17 +583,17 @@ class ScriptView(BaseTableWidget):
         lines: List[TableLine] = []
         self._extend_lines_from_script(lines, script, LineFlags.NONE)
         match = lines[-1].match
-        assert match is not None and match[1] is not None
-        return Script(match[1])
+        assert match is not None and match.data is not None
+        return Script(match.data)
 
     def _extend_lines_from_script(self, lines: List[TableLine], script: Script,
             flags: LineFlags) -> None:
         try:
-            for t in script.ops_and_items():
-                value = t[1]
+            for match in generate_matches(bytes(script)):
+                value = match.data
                 text = ""
                 if value is None:
-                    text = Script.op_to_asm_word(t[0], False)
+                    text = Script.op_to_asm_word(match.op, False)
                 elif isinstance(value, bytes):
                     text = value[:16].hex()
                     if len(value) > 4:
@@ -602,7 +601,7 @@ class ScriptView(BaseTableWidget):
                 else:
                     text = value
                 lines.append(TableLine(text, LineFlags.HAS_NUMBER | LineFlags.IS_EDITABLE | flags,
-                    match=t))
+                    match=match))
         except TruncatedScriptError:
             pass
 
@@ -636,9 +635,8 @@ class ScriptView(BaseTableWidget):
                 assert self._active_script == current_script
 
         evaluation_incomplete: bool
-        op, item = current_line.match
         try:
-            evaluation_incomplete = cast(bool, self._interpreter.step_evaluate_script(op, item))
+            evaluation_incomplete = self._interpreter.step_evaluate_script(current_line.match)
         except Exception:
             current_line.flags |= LineFlags.HAS_ERROR
             self._table_view.refresh_row(current_row)
@@ -665,7 +663,7 @@ class ScriptView(BaseTableWidget):
 
         return evaluation_incomplete
 
-    def at_breakpoint(self):
+    def at_breakpoint(self) -> bool:
         if self.current_row == -1:
             return False
         current_line = self._table_view.get_line(self.current_row)
@@ -824,23 +822,8 @@ class DebuggerView(QWidget):
         self._setup_view.setup_template_signal.connect(self._on_setup_template_choice)
 
         self._stacked_widget = QStackedWidget()
-        if self.is_enabled():
-            self._stacked_widget.addWidget(self._setup_view)
-            self._stacked_widget.addWidget(self._script_view)
-        else:
-            # TODO: Remove this if bitcoinx gets some similar support integrated.
-            disabled_label = QLabel(_("Install a compatible version of bitcoinx"))
-            disabled_view = QWidget()
-            disabled_hbox = QHBoxLayout()
-            disabled_hbox.addStretch(1)
-            disabled_hbox.addWidget(disabled_label)
-            disabled_hbox.addStretch(1)
-            disabled_vbox = QVBoxLayout()
-            disabled_vbox.addStretch(1)
-            disabled_vbox.addLayout(disabled_hbox)
-            disabled_vbox.addStretch(1)
-            disabled_view.setLayout(disabled_vbox)
-            self._stacked_widget.addWidget(disabled_view)
+        self._stacked_widget.addWidget(self._setup_view)
+        self._stacked_widget.addWidget(self._script_view)
 
         self._main_stack_view = StackView(_("Main stack"), [])
         self._alt_stack_view = StackView(_("Alt stack"), [])
@@ -857,13 +840,7 @@ class DebuggerView(QWidget):
         vbox.addLayout(hbox, 1)
         return vbox
 
-    def is_enabled(self) -> bool:
-        return hasattr(InterpreterState, "STACK_CLS")
-
     def set_scratch_mode(self, script: Optional[Script]=None) -> None:
-        if not self.is_enabled():
-            return
-
         self._stacked_widget.setCurrentWidget(self._script_view)
         self._script_view.setup_standalone_script(script)
 
@@ -874,9 +851,6 @@ class DebuggerView(QWidget):
         self.enable_ui()
 
     def set_transaction_spend_mode(self, context: Optional[TransactionSpendContext]=None) -> None:
-        if not self.is_enabled():
-            return
-
         self._stacked_widget.setCurrentWidget(self._script_view)
         self._script_view.setup_transaction_spend(context)
 
