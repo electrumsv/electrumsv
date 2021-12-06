@@ -274,11 +274,12 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
             create_filepath = str(Path(self.wallets_path).joinpath(vars[VNAME.WALLET_NAME]))
             self.check_if_wallet_exists(create_filepath)
 
-            storage = WalletStorage.create(create_filepath, vars[VNAME.PASSWORD])
-            storage.close()
+            password_token = app_state.credentials.set_wallet_password(create_filepath,
+                vars[VNAME.PASSWORD], CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
+            assert password_token is not None
 
-            app_state.credentials.set_wallet_password(create_filepath, vars[VNAME.PASSWORD],
-                CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
+            storage = WalletStorage.create(create_filepath, password_token)
+            storage.close()
 
             parent_wallet = self.app_state.daemon.load_wallet(create_filepath)
             assert parent_wallet is not None

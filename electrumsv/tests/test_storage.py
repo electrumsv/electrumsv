@@ -8,7 +8,7 @@ from electrumsv.constants import MIGRATION_CURRENT, MIGRATION_FIRST, DATABASE_EX
 from electrumsv.storage import (backup_wallet_file, categorise_file, get_categorised_files,
     DatabaseStore, TextStore, WalletStorageInfo, IncompatibleWalletError, WalletStorage)
 
-from .util import TEST_WALLET_PATH
+from .util import PasswordToken, TEST_WALLET_PATH
 
 
 FILE_SUFFIXES = [ "", DATABASE_EXT ]
@@ -163,11 +163,12 @@ def test_store__write(tmp_path) -> None:
 )
 def test_database_store_from_text_store_initial_version(tmp_path, data) -> None:
     wallet_path = os.path.join(tmp_path, "database")
+    password_token = PasswordToken("123456")
     text_store = TextStore(wallet_path, data=data)
     try:
         # Verify that the seed version is rejected (the assertion is hit).
         with pytest.raises(AssertionError):
-            DatabaseStore.from_text_store(text_store)
+            DatabaseStore.from_text_store(text_store, password_token)
     finally:
         text_store.close()
 
@@ -181,11 +182,12 @@ def _check_database_store_version_init_set(db_store, version) -> None:
 
 def test_database_store_from_text_store_version_init_set(tmp_path) -> None:
     wallet_path = os.path.join(tmp_path, "database")
+    password_token = PasswordToken("123456")
     try:
         text_store = TextStore(wallet_path,
             data={ "seed_version": MIGRATION_FIRST })
         # Verify that the seed version is accepted (no assertion hit).
-        db_store = DatabaseStore.from_text_store(text_store)
+        db_store = DatabaseStore.from_text_store(text_store, password_token)
         _check_database_store_version_init_set(db_store, MIGRATION_CURRENT)
     finally:
         db_store.close()
@@ -193,7 +195,8 @@ def test_database_store_from_text_store_version_init_set(tmp_path) -> None:
 
 def test_database_store_version_init_set(tmp_path) -> None:
     wallet_path = os.path.join(tmp_path, "database")
-    db_store = DatabaseStore(wallet_path)
+    password_token = PasswordToken("123456")
+    db_store = DatabaseStore(wallet_path, password_token=password_token)
     try:
         _check_database_store_version_init_set(db_store, MIGRATION_CURRENT)
     finally:
@@ -201,7 +204,8 @@ def test_database_store_version_init_set(tmp_path) -> None:
 
 def test_database_store_requires_split(tmp_path) -> None:
     wallet_path = os.path.join(tmp_path, "database")
-    db_store = DatabaseStore(wallet_path)
+    password_token = PasswordToken("123456")
+    db_store = DatabaseStore(wallet_path, password_token=password_token)
     try:
         assert not db_store.requires_split()
     finally:
@@ -209,7 +213,8 @@ def test_database_store_requires_split(tmp_path) -> None:
 
 def test_database_store_new_never_requires_upgrade(tmp_path) -> None:
     wallet_path = os.path.join(tmp_path, "database")
-    db_store = DatabaseStore(wallet_path)
+    password_token = PasswordToken("123456")
+    db_store = DatabaseStore(wallet_path, password_token=password_token)
     try:
         # At this time this is not linked to anything as database storage upgrades internally.
         # However, we may need to extend it as the JSON lump contents change.
@@ -219,7 +224,8 @@ def test_database_store_new_never_requires_upgrade(tmp_path) -> None:
 
 def test_database_store_version_requires_upgrade(tmp_path) -> None:
     wallet_path = os.path.join(tmp_path, "database")
-    db_store = DatabaseStore(wallet_path)
+    password_token = PasswordToken("123456")
+    db_store = DatabaseStore(wallet_path, password_token=password_token)
     try:
         db_store.put("migration", MIGRATION_FIRST - 1)
         assert db_store.requires_upgrade()
@@ -289,7 +295,8 @@ def test_wallet_storage_json_path_nonexistent_errors(tmp_path) -> None:
 
 def test_wallet_storage_database_nonexistent_creates(tmp_path) -> None:
     wallet_filepath = os.path.join(tmp_path, "walletfile")
-    storage = WalletStorage(wallet_filepath)
+    password_token = PasswordToken("123456")
+    storage = WalletStorage(wallet_filepath, password_token=password_token)
     try:
         assert type(storage._store) is DatabaseStore
         assert storage.get("migration") == MIGRATION_CURRENT

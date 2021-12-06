@@ -9,9 +9,10 @@ except ModuleNotFoundError:
     import sqlite3 # type: ignore
 from typing import cast, Optional
 
-from electrumsv.constants import DATABASE_EXT, MIGRATION_CURRENT, MIGRATION_FIRST
-from electrumsv.exceptions import DatabaseMigrationError
-from electrumsv.util.misc import ProgressCallbacks
+from ..constants import DATABASE_EXT, MIGRATION_CURRENT, MIGRATION_FIRST
+from ..credentials import PasswordTokenProtocol
+from ..exceptions import DatabaseMigrationError
+from ..util.misc import ProgressCallbacks
 
 
 def _get_migration(db: sqlite3.Connection) -> int:
@@ -55,7 +56,8 @@ def create_database_file(wallet_path: str) -> None:
     db.close()
 
 
-def update_database(conn: sqlite3.Connection, callbacks: Optional[ProgressCallbacks]=None) -> None:
+def update_database(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
+        callbacks: Optional[ProgressCallbacks]=None) -> None:
     # This will error if the database has not been created correctly with the metadata.
     version = _get_migration(conn)
 
@@ -91,6 +93,10 @@ def update_database(conn: sqlite3.Connection, callbacks: Optional[ProgressCallba
             callbacks.begin_stage(27)
             migrations.migration_0028_mapi.execute(conn, callbacks)
             version = 28
+        # if version == 28:
+        #     callbacks.begin_stage(28)
+        #     migrations.migration_0029_reference_server.execute(conn, password_token, callbacks)
+        #     version = 29
 
         if version != MIGRATION_CURRENT:
             # This will cause the context manager to rollback its transaction.
@@ -98,7 +104,7 @@ def update_database(conn: sqlite3.Connection, callbacks: Optional[ProgressCallba
 
     _ensure_matching_migration(conn, MIGRATION_CURRENT)
 
-def update_database_file(wallet_path: str) -> None:
+def update_database_file(wallet_path: str, password_token: PasswordTokenProtocol) -> None:
     if wallet_path.endswith(DATABASE_EXT):
         raise DatabaseMigrationError("wallet path is not base path")
 
@@ -110,5 +116,5 @@ def update_database_file(wallet_path: str) -> None:
     # data in the database to work from, when using that data requires it be read into
     # memory for Python to operate on.
     conn = sqlite3.connect(db_path)
-    update_database(conn)
+    update_database(conn, password_token)
     conn.close()

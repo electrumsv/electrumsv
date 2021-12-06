@@ -31,7 +31,7 @@ from ...util.misc import ProgressCallbacks
 
 from ..storage_migration import (AccountRow1, convert_masterkey_derivation_data1,
     KeyInstanceDataBIP32SubPath1, KeyInstanceDataTypes1, KeyInstanceFlag1, KeyInstanceRow1,
-    MasterKeyDataBIP321, MasterKeyDataTypes1, MasterKeyRow1, TransactionOutputFlag1, TxFlags1,
+    MasterKeyDataBIP32_27, MasterKeyDataTypes1, MasterKeyRow1, TransactionOutputFlag1, TxFlags1,
     upgrade_masterkey1)
 from ..util import create_derivation_data2
 
@@ -331,7 +331,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             # hashes up to the point we have already generated keys. We do this instead of just
             # generating them for used keys, as we do not know which the user has given out.
             mk_row = mk_rows[masterkey_id]
-            mk_derivation_data = cast(MasterKeyDataBIP321, json.loads(mk_row.derivation_data))
+            mk_derivation_data = cast(MasterKeyDataBIP32_27, json.loads(mk_row.derivation_data))
             mk_watermarks: Dict[DerivationPath, int] = defaultdict(int)
             for derivation_path, next_index in mk_derivation_data["subpaths"]:
                 mk_watermarks[tuple(derivation_path)] = next_index

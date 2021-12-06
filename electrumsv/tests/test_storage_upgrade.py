@@ -10,7 +10,7 @@ from electrumsv.wallet import Wallet, MultisigAccount, ImportedAddressAccount
 
 from electrumsv.tests.test_wallet import WalletTestCase
 
-from .util import setup_async, tear_down_async
+from .util import setup_async, tear_down_async, PasswordToken
 
 
 def setUpModule():
@@ -401,6 +401,8 @@ class TestStorageUpgrade(WalletTestCase):
         shutil.rmtree(cls.electrum_sv_path)
 
     def _upgrade_storage(self, wallet_json, accounts=1):
+        password_token = PasswordToken("123456")
+
         storage = self._load_storage_from_json_string(wallet_json)
         storage.write()
 
@@ -408,11 +410,11 @@ class TestStorageUpgrade(WalletTestCase):
             self.assertFalse(storage._store.requires_split())
             if storage.requires_upgrade():
                 original_path = storage.get_path()
-                storage.upgrade(False, 'password')
+                storage.upgrade(False, password_token)
                 self._sanity_check_upgraded_storage(storage, original_path, expect_backup=True)
         else:
             self.assertTrue(storage._store.requires_split())
-            new_paths = storage.split_accounts(False, 'password')
+            new_paths = storage.split_accounts(False, password_token)
             self.assertEqual(accounts, len(new_paths))
             for new_path in new_paths:
                 new_storage = WalletStorage(new_path)

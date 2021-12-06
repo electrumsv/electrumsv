@@ -19,7 +19,7 @@ MIGRATION = 28
 def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     date_updated = get_posix_timestamp()
 
-    callbacks.progress(0, _("Reading existing data"))
+    callbacks.progress(0, _("Creating new database tables"))
 
     conn.execute("CREATE TABLE IF NOT EXISTS Servers ("
         "server_type INTEGER NOT NULL,"
@@ -53,8 +53,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS "
         "idx_ServerAccounts_unique ON ServerAccounts(server_type, url, account_id)")
 
-    callbacks.progress(100, _("Rechecking work done"))
+    callbacks.progress(100, _("New database tables created"))
 
-    date_updated = get_posix_timestamp()
     conn.execute("UPDATE WalletData SET value=?, date_updated=? WHERE key=?",
         [json.dumps(MIGRATION),date_updated,"migration"])

@@ -1161,15 +1161,18 @@ def create_new_wallet(parent: QWidget, initial_dirpath: str) -> Optional[str]:
         return None
 
     assert new_password is not None
+
     from electrumsv.storage import WalletStorage
-    storage = WalletStorage.create(create_filepath, new_password)
-    # This path is guaranteed to be the full file path with file extension.
-    wallet_path = storage.get_path()
-    storage.close()
+    wallet_path = WalletStorage.canonical_path(create_filepath)
     # Store the credential in case we most likely are going to open it immediately and do not
     # want to prompt for the password immediately after the user just specififed it.
-    app_state.credentials.set_wallet_password(wallet_path, new_password,
+    password_token = app_state.credentials.set_wallet_password(wallet_path, new_password,
         CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD | CredentialPolicyFlag.IS_BEING_ADDED)
+    assert password_token is not None
+    storage = WalletStorage.create(create_filepath, password_token)
+    # This path is guaranteed to be the full file path with file extension.
+    assert storage.get_path() == wallet_path
+    storage.close()
     return create_filepath
 
 

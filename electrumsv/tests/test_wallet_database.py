@@ -6,6 +6,8 @@ from electrumsv.wallet_database.migration import create_database, update_databas
 from electrumsv.wallet_database.sqlite_support import DatabaseContext
 from electrumsv.wallet_database.types import WalletDataRow
 
+from .util import PasswordToken
+
 logs.set_level("debug")
 
 
@@ -14,13 +16,14 @@ class TestWalletDataTable:
     @classmethod
     def setup_class(cls):
         unique_name = os.urandom(8).hex()
+        password_token = PasswordToken("123456")
         cls.db_filename = DatabaseContext.shared_memory_uri(unique_name)
         cls.db_context = DatabaseContext(cls.db_filename)
         # We hold onto an open connection to ensure that the database persists for the
         # lifetime of the tests.
         cls.db = cls.db_context.acquire_connection()
         create_database(cls.db)
-        update_database(cls.db)
+        update_database(cls.db, password_token)
 
     @classmethod
     def teardown_class(cls):

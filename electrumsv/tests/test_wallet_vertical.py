@@ -15,7 +15,7 @@ from electrumsv.wallet import MultisigAccount, StandardAccount, Wallet
 from electrumsv.wallet_database.sqlite_support import DatabaseContext
 from electrumsv.wallet_database.types import AccountRow
 
-from .util import setup_async, tear_down_async
+from .util import PasswordToken, setup_async, tear_down_async
 
 
 def setUpModule():
@@ -33,10 +33,11 @@ class _Wallet(Wallet):
 class MockStorage:
     def __init__(self) -> None:
         self.path = tempfile.mktemp()
+        password_token = PasswordToken("123456")
 
         from electrumsv.wallet_database.migration import create_database_file, update_database_file
         create_database_file(self.path)
-        update_database_file(self.path)
+        update_database_file(self.path, password_token)
 
         self._data = {}
 

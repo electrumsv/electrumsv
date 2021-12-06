@@ -1,8 +1,8 @@
 import os
-import tempfile
 
-from electrumsv.simple_config import SimpleConfig
 from electrumsv.app_state import AppStateProxy
+from electrumsv.credentials import PasswordTokenProtocol
+from electrumsv.simple_config import SimpleConfig
 from electrumsv.wallet_database.sqlite_support import DatabaseContext
 
 
@@ -29,6 +29,16 @@ TEST_DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"
 TEST_WALLET_PATH = os.path.join(TEST_DATA_PATH, "wallets")
 
 
+class PasswordToken(PasswordTokenProtocol):
+    def __init__(self, password: str) -> None:
+        self._password = password
+
+    @property
+    def password(self) -> str:
+        return self._password
+
+
+
 class MockStorage:
     def __init__(self) -> None:
         self.unique_name = os.urandom(8).hex()
@@ -38,9 +48,10 @@ class MockStorage:
         # lifetime of the tests.
         self.db = self.db_context.acquire_connection()
 
+        password_token = PasswordToken("123456")
         from electrumsv.wallet_database.migration import create_database, update_database
         create_database(self.db)
-        update_database(self.db)
+        update_database(self.db, password_token)
 
         self._data = {}
 

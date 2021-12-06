@@ -771,6 +771,8 @@ def private_key_from_bip32_seed(bip32_seed: bytes, derivation_text: str) -> BIP3
     return private_key
 
 
+# NOTE(migration) If this is changed any migration steps that use it should be changed to use
+#     a historically correct version (e.g. `migration_0029_reference_server.py`).
 def bip32_master_key_data_from_seed(seed_phrase: str, passphrase: str, bip32_seed: bytes,
         derivation_text: str, password: Optional[str]) -> MasterKeyDataBIP32:
     private_key = private_key_from_bip32_seed(bip32_seed, derivation_text)

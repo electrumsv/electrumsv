@@ -23,7 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-
+from __future__ import annotations
 import ast
 import base64
 import binascii
@@ -37,15 +37,15 @@ import shutil
 import stat
 import threading
 from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Set, Sequence, Tuple,
-    Type, TypeVar)
+    Type, TYPE_CHECKING, TypeVar)
 import zlib
 
 from bitcoinx import DecryptionError, hash_to_hex_str, hex_str_to_hash, PrivateKey, PublicKey
 from bitcoinx.address import P2PKH_Address, P2SH_Address
 
 from .bitcoin import is_address_valid, address_from_string
-from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType, DerivationPath,
-    MIGRATION_CURRENT, MIGRATION_FIRST, RECEIVING_SUBPATH, ScriptType, StorageKind,
+from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType,
+    DerivationPath, MIGRATION_CURRENT, MIGRATION_FIRST, RECEIVING_SUBPATH, ScriptType, StorageKind,
     KeyInstanceFlag)
 from .crypto import pw_encode, pw_decode
 from .exceptions import IncompatibleWalletError, InvalidPassword
@@ -65,6 +65,10 @@ from .wallet_database.storage_migration import (create_accounts1, create_keys1,
     TxFlags1, read_wallet_data1, update_wallet_datas1, WalletDataRow1)
 from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import WalletDataRow
+
+
+if TYPE_CHECKING:
+    from .credentials import PasswordTokenProtocol
 
 
 T1 = TypeVar("T1")
@@ -264,13 +268,14 @@ class AbstractStore:
     def requires_split(self) -> bool:
         raise NotImplementedError
 
-    def split_accounts(self, has_password: bool, new_password: str) -> Optional[List[str]]:
+    def split_accounts(self, has_password: bool,
+            new_password_token: PasswordTokenProtocol) -> Optional[List[str]]:
         raise NotImplementedError
 
     def requires_upgrade(self) -> bool:
         raise NotImplementedError
 
-    def upgrade(self, has_password: bool, new_password: str,
+    def upgrade(self, has_password: bool, new_password_token: PasswordTokenProtocol,
             callbacks: Optional[ProgressCallbacks]=None) -> Optional['AbstractStore']:
         raise NotImplementedError
 
@@ -281,17 +286,18 @@ class AbstractStore:
 class DatabaseStore(AbstractStore):
     _db_context: DatabaseContext
 
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, password_token: Optional[PasswordTokenProtocol]=None) -> None:
         super().__init__(path)
 
         database_already_exists = os.path.exists(self.get_path())
         if not database_already_exists:
+            assert password_token is not None
             # The database does not exist. Create it with the latest schema.
             # Note that the migration process will have pre-created it through in
             # `_convert_to_database`.
             from .wallet_database.migration import create_database_file, update_database_file
             create_database_file(path)
-            update_database_file(path)
+            update_database_file(path, password_token)
         self.open_database()
         self.attempt_load_data()
 
@@ -313,11 +319,12 @@ class DatabaseStore(AbstractStore):
         self._db_context.close()
 
     @classmethod
-    def from_text_store(cls: Type['DatabaseStore'], text_store: 'TextStore') -> 'DatabaseStore':
+    def from_text_store(cls: Type['DatabaseStore'], text_store: TextStore,
+            password_token: PasswordTokenProtocol) -> DatabaseStore:
         # Only fully updated text stores can upgrade to a database store.
         data = text_store._data.copy()
         assert text_store._data.pop("seed_version", -1) == MIGRATION_FIRST
-        return cls(text_store._path)
+        return cls(text_store._path, password_token=password_token)
 
     def get_path(self) -> str:
         return self._path + DATABASE_EXT
@@ -352,12 +359,13 @@ class DatabaseStore(AbstractStore):
     def requires_upgrade(self) -> bool:
         return self.get_explicit_type(int, "migration", 0) < MIGRATION_CURRENT
 
-    def upgrade(self: 'DatabaseStore', has_password: bool, new_password: str,
+    def upgrade(self: 'DatabaseStore', has_password: bool,
+            new_password_token: PasswordTokenProtocol,
             callbacks: Optional[ProgressCallbacks]=None) -> Optional['DatabaseStore']:
         from .wallet_database.migration import update_database
         connection = self._db_context.acquire_connection()
         try:
-            update_database(connection, callbacks)
+            update_database(connection, new_password_token, callbacks)
         finally:
             self._db_context.release_connection(connection)
         # Refresh the cached data.
@@ -477,7 +485,8 @@ class TextStore(AbstractStore):
         d = self.get('accounts', {})
         return len(d) > 1
 
-    def split_accounts(self, has_password: bool, new_password: str) -> Optional[List[str]]:
+    def split_accounts(self, has_password: bool,
+            new_password_token: PasswordTokenProtocol) -> Optional[List[str]]:
         result: List[str] = []
         # backward compatibility with old wallets
         d = self.get('accounts', {})
@@ -489,7 +498,7 @@ class TextStore(AbstractStore):
             data1 = copy.deepcopy(self._data)
             storage1 = WalletStorage.from_file_data(self._path + '.deterministic', data1)
             storage1.put('accounts', {'0': d['0']})
-            storage1.upgrade(has_password, new_password)
+            storage1.upgrade(has_password, new_password_token)
             storage1.write()
             storage1.close()
 
@@ -501,7 +510,7 @@ class TextStore(AbstractStore):
             storage2.put('master_public_key', None)
             storage2.put('wallet_type', 'imported')
             storage2.write()
-            storage2.upgrade(has_password, new_password)
+            storage2.upgrade(has_password, new_password_token)
             storage2.write()
             storage2.close()
 
@@ -522,7 +531,7 @@ class TextStore(AbstractStore):
                 storage2.put('master_public_keys', {"x/0'": xpub})
                 storage2.put('derivation', bip44_derivation(k))
                 storage2.write()
-                storage2.upgrade(has_password, new_password)
+                storage2.upgrade(has_password, new_password_token)
                 storage2.write()
                 storage2.close()
 
@@ -546,7 +555,7 @@ class TextStore(AbstractStore):
             raise IncompatibleWalletError("Not an ElectrumSV wallet")
         return False
 
-    def upgrade(self, has_password: bool, new_password: str,
+    def upgrade(self, has_password: bool, new_password_token: PasswordTokenProtocol,
             callbacks: Optional[ProgressCallbacks]=None) -> Optional[AbstractStore]:
         self._convert_imported()
         self._convert_wallet_type()
@@ -556,7 +565,7 @@ class TextStore(AbstractStore):
         self._convert_version_15()
         self._convert_version_16()
         self._convert_version_17()
-        self._convert_to_database(has_password, new_password)
+        self._convert_to_database(has_password, new_password_token)
         assert self.get("seed_version") == MIGRATION_FIRST, ("expected "
             f"{MIGRATION_FIRST}, got {self.get('seed_version')}")
 
@@ -564,7 +573,7 @@ class TextStore(AbstractStore):
         assert os.path.exists(database_wallet_path)
         assert not os.path.exists(self._path)
 
-        return DatabaseStore.from_text_store(self)
+        return DatabaseStore.from_text_store(self, new_password_token)
 
     def _is_upgrade_method_needed(self, min_version: int, max_version: int) -> bool:
         cur_version = self._get_version()
@@ -810,7 +819,8 @@ class TextStore(AbstractStore):
 
         self.put('seed_version', 17)
 
-    def _convert_to_database(self, has_password: bool, new_password: str) -> None:
+    def _convert_to_database(self, has_password: bool,
+            new_password_token: PasswordTokenProtocol) -> None:
         if not self._is_upgrade_method_needed(17, 17):
             return
 
@@ -819,6 +829,8 @@ class TextStore(AbstractStore):
 
         # Create the latest database structure with only initial populated data.
         migration.create_database_file(self._path)
+
+        new_password = new_password_token.password
 
         # Take the old style JSON data and add it to the latest database structure.
         # This code should be updated as the structure and wallet workings changes to ensure
@@ -1297,7 +1309,8 @@ class WalletStorage:
     _is_closed: bool = False
     _backup_filepaths: Optional[Tuple[str, str]] = None
 
-    def __init__(self, path: str, storage_kind: StorageKind=StorageKind.UNKNOWN) -> None:
+    def __init__(self, path: str, storage_kind: StorageKind=StorageKind.UNKNOWN,
+            password_token: Optional[PasswordTokenProtocol]=None) -> None:
         logger.debug("wallet path '%s'", path)
         dirname = os.path.dirname(path)
         if not os.path.exists(dirname):
@@ -1317,25 +1330,26 @@ class WalletStorage:
 
         store: Optional[AbstractStore] = None
         if storage_kind == StorageKind.UNKNOWN:
-            self._set_store(DatabaseStore(path))
+            self._set_store(DatabaseStore(path, password_token))
         else:
             if storage_kind == StorageKind.FILE:
                 store = TextStore(path)
                 if os.path.exists(path):
                     store.attempt_load_data()
             else:
-                store = DatabaseStore(path)
+                store = DatabaseStore(path, password_token)
             self._set_store(store)
 
     @classmethod
-    def create(cls, wallet_path: str, password: str) -> 'WalletStorage':
-        storage = cls(wallet_path)
-        storage.put("password-token", pw_encode(os.urandom(32).hex(), password))
+    def create(cls, wallet_path: str, password_token: PasswordTokenProtocol) -> WalletStorage:
+        storage = cls(wallet_path, password_token=password_token)
+        # This is a random value that we are using to record what the password is.
+        storage.put("password-token", pw_encode(os.urandom(32).hex(), password_token.password))
         return storage
 
     @classmethod
-    def from_file_data(cls, path: str, data: Dict[str, Any]) -> 'WalletStorage':
-        storage = WalletStorage(path=path, storage_kind=StorageKind.FILE)
+    def from_file_data(cls, path: str, data: Dict[str, Any]) -> WalletStorage:
+        storage = cls(path=path, storage_kind=StorageKind.FILE)
         text_store = storage.get_text_store()
         text_store._set_data(data)
         return storage
@@ -1434,7 +1448,7 @@ class WalletStorage:
     def get_backup_filepaths(self) -> Optional[Tuple[str, str]]:
         return self._backup_filepaths
 
-    def upgrade(self, has_password: bool, new_password: str,
+    def upgrade(self, has_password: bool, new_password_token: PasswordTokenProtocol,
             callbacks: Optional[ProgressCallbacks]=None) -> None:
         logger.debug('upgrading wallet format')
         self._backup_filepaths = backup_wallet_file(self._path)
@@ -1442,7 +1456,7 @@ class WalletStorage:
         # The store can change if the old kind of store was obsoleted. We upgrade through
         # obsoleted kinds of stores to the final in-use kind of store.
         while True:
-            new_store = self._store.upgrade(has_password, new_password, callbacks)
+            new_store = self._store.upgrade(has_password, new_password_token, callbacks)
             if new_store is not None:
                 self._set_store(new_store)
                 if new_store.requires_upgrade():

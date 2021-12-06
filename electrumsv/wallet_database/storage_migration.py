@@ -163,13 +163,22 @@ class WalletDataRow1(NamedTuple):
     value: Any
 
 
-class MasterKeyDataBIP321(TypedDict):
+class MasterKeyDataBIP32_27(TypedDict):
     xpub: str
     seed: Optional[str]
     passphrase: Optional[str]
     label: Optional[str]
     xprv: Optional[str]
     subpaths: List[Tuple[DerivationPath, int]]
+
+
+# The current definition of `electrumsv.types.MasterKeyDataBIP32` at the 29th migration.
+class MasterKeyDataBIP32_29(TypedDict):
+    xpub: str
+    seed: Optional[str]
+    passphrase: Optional[str]
+    label: Optional[str]
+    xprv: Optional[str]
 
 
 class MasterKeyDataElectrumOld1(TypedDict):
@@ -192,7 +201,7 @@ class MasterKeyDataHardware1(TypedDict):
     subpaths: List[Tuple[DerivationPath, int]]
 
 
-MultiSignatureMasterKeyDataTypes1 = Union[MasterKeyDataBIP321, MasterKeyDataElectrumOld1,
+MultiSignatureMasterKeyDataTypes1 = Union[MasterKeyDataBIP32_27, MasterKeyDataElectrumOld1,
     MasterKeyDataHardware1]
 CosignerListType1 = List[Tuple[DerivationType, MultiSignatureMasterKeyDataTypes1]]
 
@@ -208,7 +217,7 @@ class MasterKeyDataMultiSignature1(_MasterKeyDataMultiSignature1):
     n: int
 
 
-MasterKeyDataTypes1 = Union[MasterKeyDataBIP321, MasterKeyDataElectrumOld1,
+MasterKeyDataTypes1 = Union[MasterKeyDataBIP32_27, MasterKeyDataElectrumOld1,
     MasterKeyDataHardware1, MasterKeyDataMultiSignature1]
 
 
@@ -382,7 +391,7 @@ def convert_masterkey_derivation_data1(derivation_type: DerivationType,
         old_derivation_data: MasterKeyDataTypes1, is_multisig: bool=False) -> MasterKeyDataTypes:
     data_dict = cast(Dict[str, Any], old_derivation_data)
     if derivation_type == DerivationType.BIP32:
-        data_bip32_in = cast(MasterKeyDataBIP321, old_derivation_data)
+        data_bip32_in = cast(MasterKeyDataBIP32_27, old_derivation_data)
         data_bip32_in.setdefault("label", None)
         data_bip32_in.setdefault("passphrase", None)
         data_bip32_in.setdefault("seed", None)

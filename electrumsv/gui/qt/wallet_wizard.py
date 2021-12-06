@@ -1,5 +1,6 @@
-# Open BSV License version 3
-# Copyright (c) 2021 Bitcoin Association
+# Open BSV License version 4
+#
+# Copyright (c) 2021 Bitcoin Association for BSV ("Bitcoin Association")
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -10,13 +11,20 @@
 #
 # 1 - The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
+#
 # 2 - The Software, and any software that is derived from the Software or parts thereof,
 # can only be used on the Bitcoin SV blockchains. The Bitcoin SV blockchains are defined,
 # for purposes of this license, as the Bitcoin blockchain containing block height #556767
 # with the hash "000000000000000001d956714215d96ffc00e0afda4cd0a96c96f8d802b1662b" and
-# that contains the longest persistent chain of blocks that are accepted by the un-modified
-# Software, as well as the test blockchains that contain blocks that are accepted by the
-# un-modified Software.
+# that contains the longest persistent chain of blocks accepted by this Software and which
+# are valid under the rules set forth in the Bitcoin white paper (S. Nakamoto, Bitcoin: A
+# Peer-to-Peer Electronic Cash System, posted online October 2008) and the latest version
+# of this Software available in this repository or another repository designated by Bitcoin
+# Association, as well as the test blockchains that contain the longest persistent chains
+# of blocks accepted by this Software and which are valid under the rules set forth in the
+# Bitcoin whitepaper (S. Nakamoto, Bitcoin: A Peer-to-Peer Electronic Cash System, posted
+# online October 2008) and the latest version of this Software available in this repository,
+# or another repository designated by Bitcoin Association
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -25,7 +33,6 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
-#
 
 import enum
 import os
@@ -570,7 +577,8 @@ class ChooseWalletPage(QWizardPage):
         assert entry.path is not None
         password: Optional[str] = None
         wizard = cast(WalletWizard, self.wizard())
-        storage = WalletStorage(entry.path)
+        storage: Optional[WalletStorage] = WalletStorage(entry.path)
+        assert storage is not None
         try:
             password = request_password(self, storage, entry)
             if password is None:
@@ -584,7 +592,7 @@ class ChooseWalletPage(QWizardPage):
                     migration_page = wizard.page(WalletPage.MIGRATE_OLDER_WALLET)
                     migration_page.set_migration_data(entry, storage)
                     # Give the storage object to the migration page, which we are going to.
-                    del storage
+                    storage = None
                     wizard.next()
                 else:
                     assert entry.storage_kind == StorageKind.DATABASE, \
@@ -957,8 +965,8 @@ class OlderWalletMigrationPage(QWizardPage):
             # password would not be in the credential cache. Ideally instead of calling
             # the credential manager here, we would call `request_password` but we are not
             # in the UI thread so are unable to do that.
-            wallet_password = app_state.credentials.get_wallet_password(storage.get_path())
-            if wallet_password is None:
+            password_token = app_state.credentials.get_wallet_password_token(storage.get_path())
+            if password_token is None:
                 self._migration_error_text = _("Something took too long and ElectrumSV has "
                     "forgotten what password you entered.")
                 return
@@ -972,7 +980,7 @@ class OlderWalletMigrationPage(QWizardPage):
                     # whether the wallet is encrypted or not.
                     if entry.password_state & PasswordState.ENCRYPTED == PasswordState.ENCRYPTED:
                         try:
-                            data = text_store.decrypt(wallet_password)
+                            data = text_store.decrypt(password_token.password)
                         except DecryptionError:
                             # To get to this point the password had already been checked.
                             self._migration_error_text = _("Unexpected wallet migration failure "
@@ -987,7 +995,7 @@ class OlderWalletMigrationPage(QWizardPage):
 
             callbacks = MigrationCallbacks()
             try:
-                storage.upgrade(has_password, wallet_password, callbacks)
+                storage.upgrade(has_password, password_token, callbacks)
             except (IncompatibleWalletError, DatabaseMigrationError) as e:
                 logger.exception("wallet migration error '%s'", entry.path)
                 self._migration_error_text += "\n"+ e.args[0]

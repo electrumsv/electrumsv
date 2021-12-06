@@ -1,5 +1,6 @@
-# Open BSV License version 3
-# Copyright (c) 2021 Bitcoin Association
+# Open BSV License version 4
+#
+# Copyright (c) 2021 Bitcoin Association for BSV ("Bitcoin Association")
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -10,13 +11,20 @@
 #
 # 1 - The above copyright notice and this permission notice shall be included in
 # all copies or substantial portions of the Software.
+#
 # 2 - The Software, and any software that is derived from the Software or parts thereof,
 # can only be used on the Bitcoin SV blockchains. The Bitcoin SV blockchains are defined,
 # for purposes of this license, as the Bitcoin blockchain containing block height #556767
 # with the hash "000000000000000001d956714215d96ffc00e0afda4cd0a96c96f8d802b1662b" and
-# that contains the longest persistent chain of blocks that are accepted by the un-modified
-# Software, as well as the test blockchains that contain blocks that are accepted by the
-# un-modified Software.
+# that contains the longest persistent chain of blocks accepted by this Software and which
+# are valid under the rules set forth in the Bitcoin white paper (S. Nakamoto, Bitcoin: A
+# Peer-to-Peer Electronic Cash System, posted online October 2008) and the latest version
+# of this Software available in this repository or another repository designated by Bitcoin
+# Association, as well as the test blockchains that contain the longest persistent chains
+# of blocks accepted by this Software and which are valid under the rules set forth in the
+# Bitcoin whitepaper (S. Nakamoto, Bitcoin: A Peer-to-Peer Electronic Cash System, posted
+# online October 2008) and the latest version of this Software available in this repository,
+# or another repository designated by Bitcoin Association
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 # IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -25,7 +33,6 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
-#
 
 # TODO(Future directions)
 # - Allow users to set long expiry durations so they do not have to re-enter their password.
@@ -40,10 +47,11 @@
 #   Just hashing a credential value wouldn't be enough, as the user might reuse a password for
 #   instance for different contexts, so maybe hashing b"ESV.api.key"+ unencrypted_bytes.
 
+from __future__ import annotations
 import dataclasses
 import threading
 import time
-from typing import cast, Dict, NamedTuple, Optional, Tuple
+from typing import cast, Dict, NamedTuple, Optional, Protocol, Tuple
 import uuid
 
 from bitcoinx import PrivateKey
@@ -104,10 +112,10 @@ class CredentialCache:
             self._wallet_credentials = {}
 
     def set_wallet_password(self, wallet_path: str, password: str,
-            policy: Optional[CredentialPolicyFlag]=None) -> None:
+            policy: Optional[CredentialPolicyFlag]=None) -> Optional[WalletPasswordToken]:
         if self.fatal_error:
             logger.error("Ignoring request to store credential due to fatal error")
-            return
+            return None
         # We ensure all the wallet paths have database extensions so that legacy wallets
         # passwords are applied to the migrated database paths.
         if not wallet_path.endswith(DATABASE_EXT):
@@ -121,13 +129,15 @@ class CredentialCache:
             else:
                 credential = WalletCredential(encrypted_value, creation_time, policy)
             if credential.policy & CredentialPolicyFlag.DISCARD_IMMEDIATELY:
-                return
+                return None
             assert not self.closed
             self._wallet_credentials[wallet_path] = credential
 
             if self._check_thread is None:
                 self._check_thread = threading.Thread(target=self._check_credentials_thread_main)
                 self._check_thread.start()
+
+            return WalletPasswordToken(self, wallet_path)
 
     def get_wallet_password_and_policy(self, wallet_path: str) \
             -> Tuple[Optional[str], CredentialPolicyFlag]:
@@ -148,6 +158,17 @@ class CredentialCache:
     def get_wallet_password(self, wallet_path: str) -> Optional[str]:
         password, _policy = self.get_wallet_password_and_policy(wallet_path)
         return password
+
+    def get_wallet_password_token(self, wallet_path: str) -> Optional[WalletPasswordToken]:
+        # We ensure all the wallet paths have database extensions so that legacy wallets
+        # passwords are applied to the migrated database paths.
+        if not wallet_path.endswith(DATABASE_EXT):
+            wallet_path += DATABASE_EXT
+        with self._credential_lock:
+            credential = self._wallet_credentials.get(wallet_path)
+            if credential is not None:
+                return WalletPasswordToken(self, wallet_path)
+        return None
 
     def _check_credentials_thread_main(self) -> None:
         logger.debug("Entering thread to check credential expiry")
@@ -224,3 +245,24 @@ class CredentialCache:
                     else:
                         closest_expiration_time = min(closest_expiration_time, expiration_time)
             sleep_seconds = closest_expiration_time - current_time
+
+
+class PasswordTokenProtocol(Protocol):
+    @property
+    def password(self) -> str:
+        raise NotImplementedError
+
+
+class WalletPasswordToken(PasswordTokenProtocol):
+    """
+    It is intended that this can be passed around instead of the password, so that the password
+    is only held in memory at the point of use.
+    """
+    def __init__(self, cache: CredentialCache, wallet_path: str) -> None:
+        self._cache = cache
+        self._wallet_path = wallet_path
+
+    @property
+    def password(self) -> str:
+        # TODO We cannot guarantee that this will still have the password.
+        return cast(str, self._cache.get_wallet_password(self._wallet_path))

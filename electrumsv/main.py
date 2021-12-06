@@ -1,5 +1,5 @@
 # ElectrumSV - lightweight Bitcoin SV client
-# Copyright (C) 2018-2020 The ElectrumSV Developers
+# Copyright (C) 2018-2021 The ElectrumSV Developers
 #
 # Electrum Cash - lightweight Bitcoin Cash client
 # Copyright (C) 2017-2018 The Electron Cash Developers
@@ -38,7 +38,7 @@ import bitcoinx
 from . import daemon, web
 from .app_state import app_state, AppStateProxy, DefaultApp
 from .commands import Command, Commands, config_variables, get_parser, known_commands
-from .constants import AccountCreationType, KeystoreTextType
+from .constants import AccountCreationType, CredentialPolicyFlag, KeystoreTextType
 from .exceptions import IncompatibleWalletError, InvalidPassword
 from .keystore import instantiate_keystore_from_text
 from .logs import logs
@@ -98,14 +98,20 @@ def run_non_RPC(config: SimpleConfig) -> None:
 
         if cmdname == 'create_wallet':
             wallet_path = get_wallet_path()
-            storage = WalletStorage.create(wallet_path, password)
+            password_token = app_state.credentials.set_wallet_password(wallet_path, password,
+                CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
+            assert password_token is not None
+            storage = WalletStorage.create(wallet_path, password_token)
             storage.close()
             print(f"Wallet saved in '{wallet_path}'")
             sys.exit(0)
 
         elif cmdname == 'create_account':
             wallet_path = cast(str, config.get_cmdline_wallet_filepath())
-            storage = WalletStorage.create(wallet_path, password)
+            password_token = app_state.credentials.set_wallet_password(wallet_path, password,
+                CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
+            assert password_token is not None
+            storage = WalletStorage.create(wallet_path, password_token)
             parent_wallet = Wallet(storage, password)
 
             # create an account for the Wallet (only random new seeds supported - no importing)
@@ -121,6 +127,7 @@ def run_non_RPC(config: SimpleConfig) -> None:
             keystore = instantiate_keystore_from_text(text_type, text_match, password,
                 derivation_text=None, passphrase="", watch_only=False)
             parent_wallet.create_account_from_keystore(AccountCreationType.IMPORTED, keystore)
+            parent_wallet.stop()
             print(f"New standard (bip32) account created for: '{wallet_path}'")
             sys.exit(0)
 

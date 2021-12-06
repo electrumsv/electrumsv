@@ -1,6 +1,6 @@
 import os
 import tempfile
-from typing import List
+from typing import Generator, List
 import unittest.mock
 
 import bitcoinx
@@ -29,6 +29,9 @@ from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow,
     TransactionRow, TransactionOutputShortRow, TxProof, WalletBalance, WalletEventRow)
 from electrumsv.wallet_database.util import pack_proof, unpack_proof
 
+from .util import PasswordToken
+
+
 logs.set_level("debug")
 
 
@@ -48,14 +51,15 @@ tx_hex_2 = ("010000000113529b6e34ceebfa3911c569b568ef48b95cc25d4c5c6a5b2435d30c9
 
 
 def _db_context():
+    password_token = PasswordToken("123456")
     wallet_path = os.path.join(tempfile.mkdtemp(), "wallet_create")
     assert not os.path.exists(wallet_path)
     migration.create_database_file(wallet_path)
-    migration.update_database_file(wallet_path)
+    migration.update_database_file(wallet_path, password_token)
     return DatabaseContext(wallet_path)
 
 @pytest.fixture
-def db_context() -> None:
+def db_context() -> Generator[DatabaseContext, None, None]:
     value = _db_context()
     yield value
     value.close()

@@ -29,7 +29,7 @@ from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, TransactionLinkState, \
     WalletBalance
 
-from .util import setup_async, MockStorage, tear_down_async, TEST_WALLET_PATH
+from .util import MockStorage, PasswordToken, setup_async, tear_down_async, TEST_WALLET_PATH
 
 
 class _TestableWallet(Wallet):
@@ -423,6 +423,7 @@ class TestLegacyWalletCreation:
 @unittest.mock.patch('electrumsv.wallet.app_state')
 def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) -> None:
     password = initial_password = "123456"
+    password_token = PasswordToken(password)
     mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
     # When a wallet is composed of multiple files, we need to know which to load.
@@ -465,7 +466,7 @@ def test_legacy_wallet_loading(mock_app_state, storage_info: WalletStorageInfo) 
     else:
         has_password = False
 
-    storage.upgrade(has_password, initial_password)
+    storage.upgrade(has_password, password_token)
 
     try:
         wallet = Wallet(storage)
@@ -936,6 +937,7 @@ def test_transaction_locks(mock_app_state, tmp_storage) -> None:
 @unittest.mock.patch('electrumsv.wallet.app_state')
 def test_wallet_migration_database_script_metadata(mock_app_state) -> None:
     password = initial_password = "123456"
+    password_token = PasswordToken(password)
     mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
     wallet_filename = "17_testnet_imported_address_2"
@@ -948,7 +950,7 @@ def test_wallet_migration_database_script_metadata(mock_app_state) -> None:
     Net.set_to(SVTestnet)
     try:
         storage = WalletStorage(wallet_path)
-        storage.upgrade(has_password, initial_password)
+        storage.upgrade(has_password, password_token)
 
         wallet = Wallet(storage)
         try:

@@ -123,6 +123,12 @@ class TxFlags(IntFlag):
         return f"TxFlags({'|'.join(names)})"
 
 
+class AccountFlags(IntFlag):
+    NONE = 0
+
+    IS_PETTY_CASH = 1 << 0
+
+
 class AccountTxFlags(IntFlag):
     NONE = 0
 
@@ -195,6 +201,7 @@ class DerivationType(IntEnum):
     PUBLIC_KEY = 8
     PRIVATE_KEY = 9
     SCRIPT_HASH = 10
+    WALLET = 11
 
 
 RECEIVING_SUBPATH: DerivationPath = (0,)
