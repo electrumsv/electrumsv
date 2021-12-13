@@ -220,8 +220,8 @@ class TestRestAPI:
             raise requests.exceptions.HTTPError(result.text)
 
         assert result.json()['parent_wallet'] == 'worker1.sqlite'
-        assert result.json()['accounts']['1']['default_script_type'] == 'P2PKH'
-        assert result.json()['accounts']['1']['wallet_type'] == 'Standard account'
+        assert result.json()['accounts']['2']['default_script_type'] == 'P2PKH'
+        assert result.json()['accounts']['2']['wallet_type'] == 'Standard account'
 
     def test_get_all_wallets(self) -> None:
         expected_json = {
@@ -238,8 +238,8 @@ class TestRestAPI:
     def test_load_wallet(self):
         result1 = self._load_wallet()
         assert result1.json()['parent_wallet'] == 'worker1.sqlite'
-        assert result1.json()['accounts']['1']['default_script_type'] == 'P2PKH'
-        assert result1.json()['accounts']['1']['wallet_type'] == 'Standard account'
+        assert result1.json()['accounts']['2']['default_script_type'] == 'P2PKH'
+        assert result1.json()['accounts']['2']['wallet_type'] == 'Standard account'
 
     @pytest.mark.asyncio
     @with_timeout(10)
@@ -271,7 +271,7 @@ class TestRestAPI:
         expected_json = {
             "parent_wallet": "worker1.sqlite",
             "accounts": {
-                "1": {
+                "2": {
                     "wallet_type": "Standard account",
                     "default_script_type": "P2PKH",
                     "is_wallet_ready": True
@@ -286,7 +286,7 @@ class TestRestAPI:
 
     def test_get_account(self):
         expected_json = {
-            '1':
+            '2':
                 {'wallet_type': 'Standard account',
                  'default_script_type': 'P2PKH',
                  'is_wallet_ready': True}
