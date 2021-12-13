@@ -271,6 +271,11 @@ class TestRestAPI:
         expected_json = {
             "parent_wallet": "worker1.sqlite",
             "accounts": {
+                '1': {
+                    'default_script_type': 'P2PKH',
+                    'is_wallet_ready': True,
+                    'wallet_type': 'Petty cash'
+                },
                 "2": {
                     "wallet_type": "Standard account",
                     "default_script_type": "P2PKH",
