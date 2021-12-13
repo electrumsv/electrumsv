@@ -135,14 +135,14 @@ class TestRestAPI:
     #         "message": "Mining destination",
     #     }
     #     result = requests.post(
-    #         f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/{wallet_id}/1/payment_request',
+    #         f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/{wallet_id}/2/payment_request',
     #         json=payload)
     #     if result.status_code != 200:
     #         raise requests.exceptions.HTTPError(result.text)
     #     return result.json()
 
     def _fetch_transaction(self, txid: str):
-        url = f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/1/txs/fetch'
+        url = f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/2/txs/fetch'
         payload = {"txid": txid}
         result = requests.post(url, data=json.dumps(payload))
         if result.status_code != 200:
@@ -152,7 +152,7 @@ class TestRestAPI:
     def _generate_blocks(self, nblocks: int):
         payload = {"nblocks": nblocks}
         result4 = requests.post(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/'
-                               f'{self.TEST_WALLET_NAME}/1/generate_blocks',
+                               f'{self.TEST_WALLET_NAME}/2/generate_blocks',
             data=json.dumps(payload))
         if result4.status_code != 200:
             raise requests.exceptions.HTTPError(result4.text)
@@ -160,14 +160,14 @@ class TestRestAPI:
 
     def _get_coin_state(self):
         result = requests.get(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/'
-                               f'{self.TEST_WALLET_NAME}/1/utxos/coin_state')
+                               f'{self.TEST_WALLET_NAME}/2/utxos/coin_state')
         if result.status_code != 200:
             raise requests.exceptions.HTTPError(result.text)
         return result
 
     def _get_utxos(self):
         url = f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/' \
-              f'{self.TEST_WALLET_NAME}/1/utxos'
+              f'{self.TEST_WALLET_NAME}/2/utxos'
         result = requests.get(url)
         if result.status_code != 200:
             raise requests.exceptions.HTTPError(result.text)
@@ -175,7 +175,7 @@ class TestRestAPI:
 
     async def _create_and_send(self, session, payload):
         url = f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/' \
-              f'{self.TEST_WALLET_NAME}/1/txs/create_and_broadcast'
+              f'{self.TEST_WALLET_NAME}/2/txs/create_and_broadcast'
         async with session.post(url, data=json.dumps(payload)) as resp:
             if resp != 200:
                 return await resp.json()
@@ -183,7 +183,7 @@ class TestRestAPI:
 
     def _get_tx_history(self):
         url = f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/' \
-              f'{self.TEST_WALLET_NAME}/1/txs/history'
+              f'{self.TEST_WALLET_NAME}/2/txs/history'
         result = requests.get(url)
         if result.status_code != 200:
             raise requests.exceptions.HTTPError(result.text)
@@ -196,7 +196,7 @@ class TestRestAPI:
             "password": "test"
         }
         url = f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/' \
-              f'{self.TEST_WALLET_NAME}/1/txs/split_utxos'
+              f'{self.TEST_WALLET_NAME}/2/txs/split_utxos'
 
         result = requests.post(url, json=payload)
         if result.status_code != 200:
@@ -292,7 +292,7 @@ class TestRestAPI:
                  'is_wallet_ready': True}
         }
         result = requests.get(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/'
-                              f'{self.TEST_WALLET_NAME}/1')
+                              f'{self.TEST_WALLET_NAME}/2')
         if result.status_code != 200:
             raise requests.exceptions.HTTPError(result.text)
 
@@ -331,7 +331,7 @@ class TestRestAPI:
 
     def test_get_balance(self):
         result = requests.get(f'http://127.0.0.1:9999/v1/regtest/dapp/wallets/'
-                              f'{self.TEST_WALLET_NAME}/1/utxos/balance')
+                              f'{self.TEST_WALLET_NAME}/2/utxos/balance')
         if result.status_code != 200:
             raise requests.exceptions.HTTPError(result.text)
 
