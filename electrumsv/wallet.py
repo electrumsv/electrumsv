@@ -2529,7 +2529,7 @@ class Wallet(TriggeredCallbacks):
         if keystore_result.account_creation_type == AccountCreationType.NEW:
             creation_flags |= AccountInstantiationFlags.NEW
 
-        basic_row = AccountRow(KeyStoreResult.account_id, masterkey_row.masterkey_id, script_type,
+        basic_row = AccountRow(keystore_result.account_id, masterkey_row.masterkey_id, script_type,
             account_name, AccountFlags.NONE)
         rows = self.add_accounts([ basic_row ])
         return self._create_account_from_data(rows[0], creation_flags)
