@@ -47,6 +47,7 @@ from .platform import platform
 from .simple_config import SimpleConfig
 from . import startup
 from .storage import WalletStorage
+from .types import KeyStoreResult
 from .util import json_encode, json_decode, setup_thread_excepthook
 from .wallet import Wallet
 
@@ -126,7 +127,8 @@ def run_non_RPC(config: SimpleConfig) -> None:
             assert text_match is not None # typing bug
             keystore = instantiate_keystore_from_text(text_type, text_match, password,
                 derivation_text=None, passphrase="", watch_only=False)
-            parent_wallet.create_account_from_keystore(AccountCreationType.IMPORTED, keystore)
+            parent_wallet.create_account_from_keystore(
+                KeyStoreResult(AccountCreationType.IMPORTED, keystore))
             parent_wallet.stop()
             print(f"New standard (bip32) account created for: '{wallet_path}'")
             sys.exit(0)

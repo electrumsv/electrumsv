@@ -27,6 +27,7 @@
 #   - StandardAccount: one keystore, P2PKH
 #   - MultisigAccount: several keystores, P2SH
 
+from __future__ import annotations
 from collections import defaultdict
 import concurrent.futures
 import dataclasses
@@ -42,23 +43,23 @@ from typing import (Any, cast, Dict, Iterable, List, Optional, Sequence, Set, Tu
 import weakref
 
 import aiorpcx
-from bitcoinx import (Address, bip32_build_chain_string,
-    double_sha256, hash_to_hex_str, Header, hex_str_to_hash,
+from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
+    BIP32PrivateKey, double_sha256, hash_to_hex_str, Header, hex_str_to_hash,
     MissingHeader, P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Ops, pack_byte, push_item,
     Script)
 
 from . import coinchooser
 from .app_state import app_state
 from .bitcoin import scripthash_bytes, ScriptTemplate
-from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountType, BlockHeight,
-    CHANGE_SUBPATH, DatabaseKeyDerivationType,
+from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
+    BlockHeight, CHANGE_SUBPATH, DatabaseKeyDerivationType,
     DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath, TransactionImportFlag,
-    KeyInstanceFlag, KeystoreTextType, KeystoreType, MAX_VALUE,
+    KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags, MAX_VALUE,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerType,
     pack_derivation_path, PaymentFlag, RECEIVING_SUBPATH,
     SubscriptionOwnerPurpose, SubscriptionType, ScriptType, TransactionInputFlag,
-    TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag, WalletEventType,
-    WalletSettings)
+    TransactionOutputFlag, TxFlags, unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT,
+    WalletEventFlag, WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
@@ -77,7 +78,7 @@ from .transaction import (HardwareSigningMetadata, Transaction, TransactionConte
 from .types import (SubscriptionDerivationData, ElectrumXHistoryList,
     IndefiniteCredentialId,
     KeyInstanceDataBIP32SubPath,
-    KeyInstanceDataHash, KeyInstanceDataPrivateKey, MasterKeyDataTypes,
+    KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult, MasterKeyDataTypes,
     MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
     NetworkServerState, ServerAccountKey, SubscriptionEntry,
     SubscriptionKey, SubscriptionDerivationScriptHashOwnerContext,
@@ -192,8 +193,6 @@ class AbstractAccount:
         self._logger = logs.get_logger("account[{}]".format(self.name()))
         self._network: Optional["Network"] = None
 
-        self.last_poll_time: Optional[float] = None
-
         self._gap_limit_observer_event_async = app_state.async_.event()
 
         # locks: if you need to take several, acquire them in the order they are defined here!
@@ -205,6 +204,9 @@ class AbstractAccount:
 
     def get_wallet(self) -> 'Wallet':
         return self._wallet
+
+    def is_petty_cash(self) -> bool:
+        return self._row.flags & AccountFlags.IS_PETTY_CASH != 0
 
     def requires_input_transactions(self) -> bool:
         return any(k.requires_input_transactions() for k in self.get_keystores())
@@ -447,7 +449,7 @@ class AbstractAccount:
         self._wallet.update_account_names([ (name, self._row.account_id) ])
 
         self._row = AccountRow(self._row.account_id, self._row.default_masterkey_id,
-            self._row.default_script_type, name)
+            self._row.default_script_type, name, self._row.flags)
 
         self._wallet.trigger_callback('on_account_renamed', self._id, name)
 
@@ -547,8 +549,8 @@ class AbstractAccount:
         keystore = self._wallet.get_keystore(keydata.masterkey_id)
         assert keydata.derivation_data2 is not None
         derivation_path = unpack_derivation_path(keydata.derivation_data2)
-        secret, compressed = keystore.get_private_key(derivation_path, password)
-        return cast(str, PrivateKey(secret).to_WIF(compressed=compressed, network=Net.COIN))
+        private_key = keystore.get_private_key(derivation_path, password)
+        return cast(str, private_key.to_WIF())
 
     def get_frozen_balance(self) -> WalletBalance:
         return self._wallet.read_account_balance(self._id, self._wallet.get_local_height(),
@@ -1211,10 +1213,14 @@ class AbstractAccount:
             self.obtain_previous_transactions(tx, tx_context)
 
         for k in signing_keystores:
-            try:
-                k.sign_transaction(tx, password, tx_context)
-            except UserCancelled:
-                continue
+            if self.is_petty_cash():
+                bip32_keystore = cast(BIP32_KeyStore, k)
+                bip32_keystore.sign_transaction_with_credentials(tx, tx_context)
+            else:
+                try:
+                    k.sign_transaction(tx, password, tx_context)
+                except UserCancelled: # Hardware wallets.
+                    continue
 
         # Incomplete transactions are multi-signature transactions that have not passed the
         # required signature threshold. We do not currently store these until they are fully signed.
@@ -2007,8 +2013,26 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
 
 
 class StandardAccount(SimpleDeterministicAccount):
+    def __init__(self, wallet: Wallet, row: AccountRow) -> None:
+        super().__init__(wallet, row)
+
+        if self.is_petty_cash():
+            # We cache the xprv for the petty cash account as an indefinitely stored credential
+            # encrypted in the credential manager. It can be decrypted for use on demand.
+            password = app_state.credentials.get_wallet_password(wallet.get_storage_path())
+            assert password is not None
+            bip32_keystore = cast(BIP32_KeyStore, self.get_keystore())
+            bip32_keystore.cache_xprv_as_indefinite_credential(password)
+
     def type(self) -> AccountType:
         return AccountType.STANDARD
+
+    def stop(self) -> None:
+        super().stop()
+
+        if self.is_petty_cash():
+            bip32_keystore = cast(BIP32_KeyStore, self.get_keystore())
+            bip32_keystore.clear_credentials()
 
 
 class MultisigAccount(DeterministicAccount):
@@ -2130,6 +2154,8 @@ class Wallet(TriggeredCallbacks):
 
         self._accounts: Dict[int, AbstractAccount] = {}
         self._keystores: Dict[int, KeyStore] = {}
+        self._wallet_master_keystore: Optional[BIP32_KeyStore] = None
+
         self._missing_transactions: Dict[bytes, MissingTransactionEntry] = {}
 
         # Guards `transaction_locks`.
@@ -2206,12 +2232,16 @@ class Wallet(TriggeredCallbacks):
 
         self._keystores.clear()
         self._accounts.clear()
+        self._wallet_master_keystore = None
 
         masterkey_rows = db_functions.read_masterkeys(self.get_db_context())
         # Create the keystores for masterkeys without parent masterkeys first.
         for mk_row in sorted(masterkey_rows,
                 key=lambda t: 0 if t.parent_masterkey_id is None else t.parent_masterkey_id):
-            self._realize_keystore(mk_row)
+            keystore = self._realize_keystore(mk_row)
+            if mk_row.flags & MasterKeyFlags.WALLET_SEED:
+                self._wallet_master_keystore = cast(BIP32_KeyStore, keystore)
+        assert self._wallet_master_keystore is not None, "migration 29 master keystore missing"
 
         account_flags: Dict[int, AccountInstantiationFlags] = \
             defaultdict(lambda: AccountInstantiationFlags.NONE)
@@ -2234,6 +2264,8 @@ class Wallet(TriggeredCallbacks):
                 keyinstance_rows = keyinstances_by_account_id[account_row.account_id]
                 assert keyinstance_rows
                 cast(ImportedPrivkeyAccount, account).set_initial_state(keyinstance_rows)
+            if account.is_petty_cash():
+                self._petty_cash_account = account
 
     def register_account(self, account_id: int, account: AbstractAccount) -> None:
         self._accounts[account_id] = account
@@ -2351,7 +2383,7 @@ class Wallet(TriggeredCallbacks):
             return list(self._accounts.values())[0]
         return None
 
-    def _realize_keystore(self, row: MasterKeyRow) -> None:
+    def _realize_keystore(self, row: MasterKeyRow) -> KeyStore:
         data = cast(MasterKeyDataTypes, json.loads(row.derivation_data))
         parent_keystore: Optional[KeyStore] = None
         if row.parent_masterkey_id is not None:
@@ -2359,6 +2391,7 @@ class Wallet(TriggeredCallbacks):
         keystore = instantiate_keystore(row.derivation_type, data, parent_keystore, row)
         self._keystores[row.masterkey_id] = keystore
         self._masterkey_rows[row.masterkey_id] = row
+        return keystore
 
     def _instantiate_account(self, account_row: AccountRow, flags: AccountInstantiationFlags) \
             -> AbstractAccount:
@@ -2424,21 +2457,59 @@ class Wallet(TriggeredCallbacks):
 
     # Accounts.
 
+    def _preallocate_account_id(self) -> int:
+        """
+        Sometimes we need an account id to refer to before we create the account.
+        `add_accounts` will respect this being pre-provided and not allocate a new one as it does
+        otherwise.
+        """
+        account_id = cast(int, self._storage.get("next_account_id", 1))
+        self._storage.put("next_account_id", account_id + 1)
+        return account_id
+
     def add_accounts(self, entries: List[AccountRow]) -> List[AccountRow]:
-        account_id = self._storage.get("next_account_id", 1)
+        account_id = initial_account_id = self._storage.get("next_account_id", 1)
         rows = entries[:]
         for i, row in enumerate(rows):
-            rows[i] = row._replace(account_id=account_id)
-            account_id += 1
+            if row.account_id < 1:
+                rows[i] = row._replace(account_id=account_id)
+                account_id += 1
+        if account_id != initial_account_id:
+            self._storage.put("next_account_id", account_id)
 
-        self._storage.put("next_account_id", account_id)
         future = db_functions.create_accounts(self.get_db_context(), rows)
         future.result()
         return rows
 
-    def create_account_from_keystore(self, creation_type: AccountCreationType, keystore: KeyStore) \
-            -> AbstractAccount:
-        masterkey_row = self.create_masterkey_from_keystore(keystore)
+    # Called by `account_wizard.py:AddAccountWizardPage._create_new_account` to create new
+    # standard accounts which are now derived from the wallet seed.
+    def derive_child_keystore(self, for_account: bool=False,
+            password: Optional[str]=None) -> KeyStoreResult:
+        if for_account:
+            assert password is not None, "this code path should always have a password"
+            assert self._wallet_master_keystore is not None
+            preallocated_account_id = self._preallocate_account_id()
+            derivation_text = f"{WALLET_ACCOUNT_PATH_TEXT}/{preallocated_account_id}'"
+            derivation_path: DerivationPath = tuple(bip32_decompose_chain_string(derivation_text))
+            private_key = cast(BIP32PrivateKey,
+                self._wallet_master_keystore.get_private_key(derivation_path, password))
+            encrypted_xprv = pw_encode(private_key.to_extended_key_string(), password)
+            derivation_data: MasterKeyDataBIP32 = {
+                "seed": None,
+                "label": None,
+                "passphrase": None,
+                "xpub": private_key.public_key.to_extended_key_string(),
+                "derivation": derivation_text,
+                "xprv": encrypted_xprv,
+            }
+            keystore = BIP32_KeyStore(derivation_data,
+                parent_keystore=self._wallet_master_keystore)
+            return KeyStoreResult(AccountCreationType.NEW, keystore, preallocated_account_id)
+        raise NotImplementedError
+
+    def create_account_from_keystore(self, keystore_result: KeyStoreResult) -> AbstractAccount:
+        assert keystore_result.keystore is not None
+        masterkey_row = self.create_masterkey_from_keystore(keystore_result.keystore)
         if masterkey_row.derivation_type == DerivationType.ELECTRUM_OLD:
             account_name = "Outdated Electrum account"
             script_type = ScriptType.P2PKH
@@ -2449,16 +2520,17 @@ class Wallet(TriggeredCallbacks):
             account_name = "Multi-signature account"
             script_type = ScriptType.MULTISIG_BARE
         elif masterkey_row.derivation_type == DerivationType.HARDWARE:
-            account_name = keystore.label or "Hardware wallet"
+            account_name = keystore_result.keystore.label or "Hardware wallet"
             script_type = ScriptType.P2PKH
         else:
             raise WalletLoadError(f"Unhandled derivation type {masterkey_row.derivation_type}")
 
         creation_flags = AccountInstantiationFlags.NONE
-        if creation_type == AccountCreationType.NEW:
+        if keystore_result.account_creation_type == AccountCreationType.NEW:
             creation_flags |= AccountInstantiationFlags.NEW
 
-        basic_row = AccountRow(-1, masterkey_row.masterkey_id, script_type, account_name)
+        basic_row = AccountRow(KeyStoreResult.account_id, masterkey_row.masterkey_id, script_type,
+            account_name, AccountFlags.NONE)
         rows = self.add_accounts([ basic_row ])
         return self._create_account_from_data(rows[0], creation_flags)
 
@@ -2503,7 +2575,7 @@ class Wallet(TriggeredCallbacks):
                     create_derivation_data2(DerivationType.PRIVATE_KEY, derivation_data_dict),
                     KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None))
 
-        basic_account_row = AccountRow(-1, None, script_type, account_name)
+        basic_account_row = AccountRow(-1, None, script_type, account_name, AccountFlags.NONE)
         account_row = self.add_accounts([ basic_account_row ])[0]
         account = self._create_account_from_data(account_row, account_flags)
 

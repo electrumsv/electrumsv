@@ -93,10 +93,10 @@ def update_database(conn: sqlite3.Connection, password_token: PasswordTokenProto
             callbacks.begin_stage(27)
             migrations.migration_0028_mapi.execute(conn, callbacks)
             version = 28
-        # if version == 28:
-        #     callbacks.begin_stage(28)
-        #     migrations.migration_0029_reference_server.execute(conn, password_token, callbacks)
-        #     version = 29
+        if version == 28:
+            callbacks.begin_stage(28)
+            migrations.migration_0029_reference_server.execute(conn, password_token, callbacks)
+            version = 29
 
         if version != MIGRATION_CURRENT:
             # This will cause the context manager to rollback its transaction.

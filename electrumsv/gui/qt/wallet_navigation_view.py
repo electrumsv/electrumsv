@@ -42,7 +42,7 @@ import json
 import os
 import threading
 import time
-from typing import Any, cast, Dict, Optional, Sequence
+from typing import Any, cast, Dict, List, Optional, Sequence
 from weakref import proxy, ProxyType
 
 from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, QPoint, pyqtSignal, QSize, Qt
@@ -323,7 +323,11 @@ class WalletNavigationView(QSplitter):
             _("The accounts in this wallet"))
         self._selection_tree.addTopLevelItem(self._accounts_item)
 
-        for account in self._wallet.get_accounts():
+        # We order the accounts in order of creation, except for petty cash which should always
+        # come last.
+        accounts = sorted(self._wallet.get_accounts(),
+            key=lambda a: (a.is_petty_cash(), a.get_id()))
+        for account in accounts:
             self._add_account_to_tree(account)
 
         self._accounts_item.setExpanded(True)
@@ -398,6 +402,9 @@ class WalletNavigationView(QSplitter):
 
     def _add_account_to_tree(self, account: AbstractAccount) -> None:
         account_id = account.get_id()
+
+        other_conflicting_accounts = self._get_conflicting_accounts(account.display_name())
+
         item = QTreeWidgetItem()
         keystore = account.get_keystore()
         derivation_type = keystore.derivation_type if keystore is not None \
@@ -431,8 +438,25 @@ class WalletNavigationView(QSplitter):
         item.setText(TreeColumns.MAIN, account.display_name())
         item.setText(TreeColumns.BSV_VALUE, "0")
         item.setToolTip(TreeColumns.MAIN, tooltip_text)
-        self._accounts_item.addChild(item)
+
+        # Accounts are by default ordered in the order of creation, with the exception of petty
+        # cash which comes last.
+        for child_index in range(self._accounts_item.childCount()):
+            child_item = self._accounts_item.child(child_index)
+            child_account_id = cast(int,
+                child_item.data(TreeColumns.MAIN, Qt.ItemDataRole.UserRole))
+            child_account = self._wallet.get_account(child_account_id)
+            assert child_account is not None
+            if account_id > child_account_id or child_account.is_petty_cash():
+                self._accounts_item.insertChild(child_index, item)
+                break
+        else:
+            self._accounts_item.addChild(item)
+
         self._account_tree_items[account_id] = item
+
+        if len(other_conflicting_accounts) > 1:
+            self._rename_conflicting_accounts(other_conflicting_accounts)
 
     def _show_account_menu(self, position: QPoint) -> None:
         item = self._selection_tree.currentItem()
@@ -519,13 +543,29 @@ class WalletNavigationView(QSplitter):
         assert self._current_account_id is not None
         account = self._main_window._wallet.get_account(self._current_account_id)
         assert account is not None
+
+        conflicting_accounts_before = self._get_conflicting_accounts(account.display_name())
+        if len(conflicting_accounts_before) > 1:
+            pass
+
         new_account_name = line_dialog(self, _("Rename account"), _("Account name"), _("OK"),
             account.get_name())
         if new_account_name is None:
             return
         account.set_name(new_account_name)
-        account_item = self._account_tree_items[account_id]
-        account_item.setText(TreeColumns.MAIN, new_account_name)
+
+        # Ensure the new name is qualified if there are now duplicate entries.
+        conflicting_accounts_after = self._get_conflicting_accounts(account.display_name())
+        if len(conflicting_accounts_after) > 1:
+            self._rename_conflicting_accounts(conflicting_accounts_after)
+        else:
+            account_item = self._account_tree_items[account_id]
+            account_item.setText(TreeColumns.MAIN, new_account_name)
+
+        # Work out if we need to unqualify any now non-duplicated entries.
+        conflicting_accounts_before.remove(account)
+        if len(conflicting_accounts_before) == 1:
+            self._unrename_conflicting_accounts(conflicting_accounts_before)
 
     def _show_account_information(self, account_id: int) -> None:
         dialog = AccountDialog(self._main_window, self._wallet, account_id, self)
@@ -732,3 +772,35 @@ class WalletNavigationView(QSplitter):
             self._update_window_account(account)
             return True
         return False
+
+    def _get_conflicting_accounts(self, display_name: str) -> List[AbstractAccount]:
+        display_name = display_name.lower()
+        accounts: List[AbstractAccount] = []
+        for other_account in self._wallet.get_accounts():
+            if other_account.display_name().lower() == display_name:
+                accounts.append(other_account)
+        return accounts
+
+    def _rename_conflicting_accounts(self, accounts: List[AbstractAccount]) -> None:
+        account_ids = { account.get_id() for account in accounts }
+        for child_index in range(self._accounts_item.childCount()):
+            child_item = self._accounts_item.child(child_index)
+            child_account_id = cast(int,
+                child_item.data(TreeColumns.MAIN, Qt.ItemDataRole.UserRole))
+            if child_account_id in account_ids:
+                child_account = self._wallet.get_account(child_account_id)
+                assert child_account is not None
+                display_name = f"{child_account.display_name()} #{child_account_id}"
+                child_item.setText(TreeColumns.MAIN, display_name)
+
+    def _unrename_conflicting_accounts(self, accounts: List[AbstractAccount]) -> None:
+        account_ids = { account.get_id() for account in accounts }
+        for child_index in range(self._accounts_item.childCount()):
+            child_item = self._accounts_item.child(child_index)
+            child_account_id = cast(int,
+                child_item.data(TreeColumns.MAIN, Qt.ItemDataRole.UserRole))
+            if child_account_id in account_ids:
+                child_account = self._wallet.get_account(child_account_id)
+                assert child_account is not None
+                child_item.setText(TreeColumns.MAIN, child_account.display_name())
+

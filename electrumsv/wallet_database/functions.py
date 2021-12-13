@@ -53,7 +53,7 @@ def create_accounts(db_context: DatabaseContext, entries: Iterable[AccountRow]) 
     timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
-        "account_name, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?)")
+        "account_name, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
     def _write(db: sqlite3.Connection) -> None:
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
@@ -117,7 +117,7 @@ def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyR
     timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     sql = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
-        "derivation_data, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?)")
+        "derivation_data, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
     def _write(db: sqlite3.Connection) -> None:
         db.executemany(sql, datas)
     return db_context.post_to_thread(_write)
@@ -384,7 +384,7 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
 @replace_db_context_with_connection
 def read_accounts(db: sqlite3.Connection) -> List[AccountRow]:
     sql = (
-        "SELECT account_id, default_masterkey_id, default_script_type, account_name "
+        "SELECT account_id, default_masterkey_id, default_script_type, account_name, flags "
         "FROM Accounts")
     return [ AccountRow(*row) for row in db.execute(sql).fetchall() ]
 
@@ -716,7 +716,7 @@ def read_keyinstances_for_derivations(db: sqlite3.Connection, account_id: int,
 @replace_db_context_with_connection
 def read_masterkeys(db: sqlite3.Connection) -> List[MasterKeyRow]:
     sql = (
-        "SELECT masterkey_id, parent_masterkey_id, derivation_type, derivation_data "
+        "SELECT masterkey_id, parent_masterkey_id, derivation_type, derivation_data, flags "
         "FROM MasterKeys")
     return [ MasterKeyRow(*row) for row in db.execute(sql).fetchall() ]
 

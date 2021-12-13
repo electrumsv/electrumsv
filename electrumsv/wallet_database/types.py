@@ -3,9 +3,9 @@ from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Sequence, Se
 
 from bitcoinx import hash_to_hex_str
 
-from ..constants import (AccountTxFlags, DerivationType, KeyInstanceFlag, NetworkServerFlag,
-    NetworkServerType, PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag,
-    WalletEventType)
+from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
+    MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag, ScriptType,
+    TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 from ..types import MasterKeyDataTypes
 
 
@@ -14,6 +14,7 @@ class AccountRow(NamedTuple):
     default_masterkey_id: Optional[int]
     default_script_type: ScriptType
     account_name: str
+    flags: AccountFlags
 
 
 class AccountTransactionDescriptionRow(NamedTuple):
@@ -143,6 +144,7 @@ class MasterKeyRow(NamedTuple):
     parent_masterkey_id: Optional[int]
     derivation_type: DerivationType
     derivation_data: bytes
+    flags: MasterKeyFlags
 
 
 # WARNING The order of the fields in this data structure are implicitly linked to the query.

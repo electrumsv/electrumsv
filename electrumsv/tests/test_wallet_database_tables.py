@@ -15,8 +15,8 @@ except ModuleNotFoundError:
 else:
     sqlite3 = pysqlite3
 
-from electrumsv.constants import (AccountTxFlags, DerivationType, KeyInstanceFlag,
-    NetworkServerFlag, NetworkServerType,
+from electrumsv.constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
+    MasterKeyFlags, NetworkServerFlag, NetworkServerType,
     PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 from electrumsv.logs import logs
 from electrumsv.types import ServerAccountKey, Outpoint
@@ -107,10 +107,18 @@ def test_database_context() -> None:
 
 def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
     masterkey_rows = db_functions.read_masterkeys(db_context)
-    assert len(masterkey_rows) == 0
+    assert len(masterkey_rows) == 2
+    wallet_row = [ row for row in masterkey_rows if row.parent_masterkey_id is None ][0]
+    petty_cash_row = [ row for row in masterkey_rows if row.parent_masterkey_id is not None ][0]
+    assert wallet_row.flags == MasterKeyFlags.WALLET_SEED | MasterKeyFlags.ELECTRUM_SEED
+    assert petty_cash_row.flags == MasterKeyFlags.NONE
+    assert petty_cash_row.parent_masterkey_id == wallet_row.masterkey_id
 
-    line1 = MasterKeyRow(1, None, DerivationType.ELECTRUM_MULTISIG, b'111')
-    line2 = MasterKeyRow(2, None, DerivationType.BIP32_SUBPATH, b'222')
+    line1 = MasterKeyRow(3, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+        MasterKeyFlags.NONE)
+    # Ensure that all fields persist.
+    line2 = MasterKeyRow(4, None, DerivationType.BIP32_SUBPATH, b'222',
+        MasterKeyFlags.ELECTRUM_SEED)
 
     future = db_functions.create_master_keys(db_context, [ line1 ])
     future.result(timeout=5)
@@ -124,9 +132,9 @@ def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
         future.result(timeout=5)
 
     lines = db_functions.read_masterkeys(db_context)
-    assert 2 == len(lines)
-    line1_db = [ line for line in lines if line[0] == 1 ][0]
-    line2_db = [ line for line in lines if line[0] == 2 ][0]
+    assert 4 == len(lines)
+    line1_db = [ line for line in lines if line[0] == 3 ][0]
+    line2_db = [ line for line in lines if line[0] == 4 ][0]
     assert line1 == line1_db
     assert line2 == line2_db
 
@@ -140,13 +148,16 @@ def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
 
 def test_table_accounts_crud(db_context: DatabaseContext) -> None:
     rows = db_functions.read_accounts(db_context)
-    assert len(rows) == 0
+    assert len(rows) == 1
+    assert rows[0].flags == AccountFlags.IS_PETTY_CASH
 
     ACCOUNT_ID = 10
     MASTERKEY_ID = 20
 
-    line1 = AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name1')
-    line2 = AccountRow(ACCOUNT_ID+2, MASTERKEY_ID+1, ScriptType.P2PK, 'name2')
+    line1 = AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name1',
+        AccountFlags.NONE)
+    line2 = AccountRow(ACCOUNT_ID+2, MASTERKEY_ID+1, ScriptType.P2PK, 'name2',
+        AccountFlags(1 << 20))
 
     # No effect: The masterkey foreign key constraint will fail as the masterkey does not exist.
     with pytest.raises(sqlite3.IntegrityError):
@@ -154,7 +165,8 @@ def test_table_accounts_crud(db_context: DatabaseContext) -> None:
         future.result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
-    mk_row1 = MasterKeyRow(MASTERKEY_ID+1, None, DerivationType.ELECTRUM_MULTISIG, b'111')
+    mk_row1 = MasterKeyRow(MASTERKEY_ID+1, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+        MasterKeyFlags.NONE)
     future = db_functions.create_master_keys(db_context, [ mk_row1 ])
     future.result(timeout=5)
 
@@ -171,7 +183,7 @@ def test_table_accounts_crud(db_context: DatabaseContext) -> None:
         future.result()
 
     db_lines = db_functions.read_accounts(db_context)
-    assert 2 == len(db_lines)
+    assert 3 == len(db_lines)
     db_line1 = [ db_line for db_line in db_lines if db_line[0] == line1[0] ][0]
     assert line1 == db_line1
     db_line2 = [ db_line for db_line in db_lines if db_line[0] == line2[0] ][0]
@@ -184,7 +196,7 @@ def test_table_accounts_crud(db_context: DatabaseContext) -> None:
     future2.result()
 
     db_lines = db_functions.read_accounts(db_context)
-    assert 2 == len(db_lines)
+    assert 3 == len(db_lines)
     db_line1 = [ db_line for db_line in db_lines if db_line[0] == line1.account_id ][0]
     assert ScriptType.P2PKH == db_line1.default_script_type
     db_line2 = [ db_line for db_line in db_lines if db_line[0] == line2.account_id ][0]
@@ -200,15 +212,19 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     MASTERKEY_ID_2 = 21
 
     # Create master keys.
-    masterkey1 = MasterKeyRow(MASTERKEY_ID_1, None, DerivationType.BIP32, b'111')
-    masterkey2 = MasterKeyRow(MASTERKEY_ID_2, None, DerivationType.BIP32, b'222')
+    masterkey1 = MasterKeyRow(MASTERKEY_ID_1, None, DerivationType.BIP32, b'111',
+        MasterKeyFlags.NONE)
+    masterkey2 = MasterKeyRow(MASTERKEY_ID_2, None, DerivationType.BIP32, b'222',
+        MasterKeyFlags.NONE)
 
     future = db_functions.create_master_keys(db_context, [ masterkey1, masterkey2 ])
     future.result(timeout=5)
 
     # Create the accounts.
-    account1 = AccountRow(ACCOUNT_ID_1, MASTERKEY_ID_1, ScriptType.P2PKH, 'name1')
-    account2 = AccountRow(ACCOUNT_ID_2, MASTERKEY_ID_2, ScriptType.P2PK, 'name2')
+    account1 = AccountRow(ACCOUNT_ID_1, MASTERKEY_ID_1, ScriptType.P2PKH, 'name1',
+        AccountFlags.NONE)
+    account2 = AccountRow(ACCOUNT_ID_2, MASTERKEY_ID_2, ScriptType.P2PK, 'name2',
+        AccountFlags.NONE)
 
     future = db_functions.create_accounts(db_context, [ account1, account2 ])
     future.result()
@@ -295,7 +311,8 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context,
-        [ MasterKeyRow(MASTERKEY_ID+1, None, DerivationType.ELECTRUM_MULTISIG, b'111') ])
+        [ MasterKeyRow(MASTERKEY_ID+1, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+            MasterKeyFlags.NONE) ])
     future.result(timeout=5)
 
     # No effect: The account foreign key constraint will fail as the account does not exist.
@@ -304,7 +321,8 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
         future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
-    account_row = AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name')
+    account_row = AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name',
+        AccountFlags.NONE)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -566,11 +584,13 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context, [
-        MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111') ])
+        MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+            MasterKeyFlags.NONE) ])
     future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
-    account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name')
+    account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
+        AccountFlags.NONE)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -906,11 +926,13 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context, [
-        MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111') ])
+        MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+            MasterKeyFlags.NONE) ])
     future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
-    account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name')
+    account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
+        AccountFlags.NONE)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -1041,8 +1063,8 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
 
 
 def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
-    MASTERKEY_ID = 1
-    ACCOUNT_ID = 1
+    MASTERKEY_ID = 10
+    ACCOUNT_ID = 10
 
     line1 = WalletEventRow(1, WalletEventType.SEED_BACKUP_REMINDER, ACCOUNT_ID,
         WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, 1)
@@ -1057,11 +1079,13 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context,
-        [ MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111') ])
+        [ MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+            MasterKeyFlags.NONE) ])
     future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
-    account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name')
+    account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
+        AccountFlags.NONE)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -1140,12 +1164,15 @@ def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContex
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
     future = db_functions.create_master_keys(db_context, [
-        MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111') ])
+        MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+            MasterKeyFlags.NONE) ])
     future.result(timeout=5)
 
     # Satisfy the account foreign key constraint by creating the account.
-    account_row1 = AccountRow(ACCOUNT_ID_1, MASTERKEY_ID, ScriptType.P2PKH, 'name1')
-    account_row2 = AccountRow(ACCOUNT_ID_2, MASTERKEY_ID, ScriptType.P2PKH, 'name2')
+    account_row1 = AccountRow(ACCOUNT_ID_1, MASTERKEY_ID, ScriptType.P2PKH, 'name1',
+        AccountFlags.NONE)
+    account_row2 = AccountRow(ACCOUNT_ID_2, MASTERKEY_ID, ScriptType.P2PKH, 'name2',
+        AccountFlags.NONE)
     future = db_functions.create_accounts(db_context, [ account_row1, account_row2 ])
     future.result()
 
@@ -1270,7 +1297,7 @@ def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContex
 
 
 def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
-    ACCOUNT_ID = 1
+    ACCOUNT_ID = 10
     SERVER_TYPE = NetworkServerType.ELECTRUMX
     UNUSED_SERVER_TYPE = NetworkServerType.MERCHANT_API
     date_updated = 1
@@ -1303,11 +1330,13 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
         MASTERKEY_ID = 20
 
         # Satisfy the masterkey foreign key constraint by creating the masterkey.
-        mk_row1 = MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111')
+        mk_row1 = MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+            MasterKeyFlags.NONE)
         future = db_functions.create_master_keys(db_context, [ mk_row1 ])
         future.result(timeout=5)
 
-        line1 = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name1')
+        line1 = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name1',
+            AccountFlags.NONE)
         future = db_functions.create_accounts(db_context, [ line1 ])
         future.result(timeout=5)
 
@@ -1432,7 +1461,7 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
 
         # Verify that deleting an unmatched ServerAccounts row does not delete the existing row.
         future = db_functions.update_network_servers(db_context,
-            deleted_server_account_keys=[ ServerAccountKey(URL, UNUSED_SERVER_TYPE, 1) ])
+            deleted_server_account_keys=[ ServerAccountKey(URL, UNUSED_SERVER_TYPE, ACCOUNT_ID) ])
         future.result(timeout=5)
 
         read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
@@ -1441,7 +1470,7 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
 
         # Verify that deleting an matched ServerAccounts row does delete the existing row.
         future = db_functions.update_network_servers(db_context,
-            deleted_server_account_keys=[ ServerAccountKey(URL, SERVER_TYPE, 1) ])
+            deleted_server_account_keys=[ ServerAccountKey(URL, SERVER_TYPE, ACCOUNT_ID) ])
         future.result(timeout=5)
 
         read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)

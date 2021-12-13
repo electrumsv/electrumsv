@@ -66,7 +66,7 @@ from ...keystore import (bip44_derivation_cointype, instantiate_keystore,
 from ...logs import logs
 from ...networks import Net
 from ...storage import WalletStorage
-from ...types import MasterKeyDataHardware
+from ...types import KeyStoreResult, MasterKeyDataHardware
 from ...wallet import Wallet
 
 from .cosigners_view import CosignerState, CosignerList
@@ -223,29 +223,28 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
         return self._text_import_matches
 
     def has_result(self) -> bool:
-        return self._keystore_type != AccountCreationType.UNKNOWN
+        return self._keystore_result.account_creation_type != AccountCreationType.UNKNOWN
 
+    # Only called by `electrumsv.gui.qt.cosigners_view.py`.
     def get_keystore(self) -> KeyStore:
-        assert self._keystore is not None
-        return self._keystore
+        assert self._keystore_result.keystore is not None
+        return self._keystore_result.keystore
 
-    def set_keystore_result(self, result_type: AccountCreationType, keystore: Optional[KeyStore]) \
-            -> None:
-        self._keystore_type = result_type
-        self._keystore = keystore
+    def set_keystore_result(self, keystore_result: KeyStoreResult) -> None:
+        self._keystore_result = keystore_result
 
-        if keystore is None:
+        if keystore_result.keystore is None:
             return
 
         # For now, all other result types are expected to be collected by the invoking logic of
         # this account wizard instance.
         if self.flags & WizardFlags.ACCOUNT_RESULT:
-            self._wallet.create_account_from_keystore(result_type, keystore)
+            self._wallet.create_account_from_keystore(keystore_result)
 
-    def set_text_entry_account_result(self, result_type: AccountCreationType,
+    def set_text_entry_account_result(self, keystore_result: KeyStoreResult,
             text_type: KeystoreTextType, text_matches: KeystoreMatchType,
             password: Optional[str]) -> None:
-        self._keystore_type = result_type
+        self._keystore_result = keystore_result
 
         if self.flags & WizardFlags.ACCOUNT_RESULT:
             assert password is not None
@@ -323,7 +322,7 @@ class AddAccountWizardPage(QWizardPage):
         wizard = cast(AccountWizard, self.wizard())
         # Clear the result. This shouldn't be needed except in the case of an unexpected error
         # where the wizard does not exit and the user returns back to this page.
-        wizard.set_keystore_result(AccountCreationType.UNKNOWN, None)
+        wizard.set_keystore_result(KeyStoreResult(AccountCreationType.UNKNOWN))
         # The click event arrives after the standard wizard next page handling. We use it to
         # perform actions that finish on the current page.
         next_button = wizard.button(QWizard.NextButton)
@@ -401,16 +400,14 @@ class AddAccountWizardPage(QWizardPage):
 
     def _create_new_account(self) -> None:
         wizard = cast(AccountWizard, self.wizard())
-        wallet_storage = wizard.get_main_window()._wallet.get_storage()
-        password = request_password(self, wallet_storage)
+        wallet = wizard.get_main_window()._wallet
+        password = request_password(self, wallet.get_storage())
         if password is None:
             return
 
-        seed_phrase = ElectrumMnemonic.generate_new(Wordlists.bip39_wordlist("english.txt"))
-        keystore = instantiate_keystore_from_text(KeystoreTextType.ELECTRUM_SEED_WORDS, seed_phrase,
-            password)
-
-        wizard.set_keystore_result(AccountCreationType.NEW, keystore)
+        keystore_result = wallet.derive_child_keystore(for_account=True)
+        assert keystore_result.account_creation_type == AccountCreationType.NEW
+        wizard.set_keystore_result(keystore_result)
         wizard.accept()
 
     def _get_entry_detail(self, entry: Optional[Dict[str, Any]]=None) -> str:
@@ -773,18 +770,19 @@ class ImportWalletTextPage(QWizardPage):
     # The `protected` method needs to know the "main window", we give it the `wallet_id` which
     # it can use to get the correct object. It is not used in this method, so we just ignore it.
     @protected
-    def _create_account(self, password: Optional[str]=None,
-            wallet_id: Optional[int]=None) -> bool:
+    def _create_account(self,
+            password: Optional[str]=None,               # Output value from the decorator.
+            wallet_id: Optional[int]=None) -> bool:     # Input value for the decorator.
         wizard = cast(AccountWizard, self.wizard())
         assert self._checked_match_type is not None
         entries = self._matches[self._checked_match_type]
         if self._checked_match_type in (KeystoreTextType.ADDRESSES, KeystoreTextType.PRIVATE_KEYS):
-            wizard.set_text_entry_account_result(AccountCreationType.IMPORTED,
+            wizard.set_text_entry_account_result(KeyStoreResult(AccountCreationType.IMPORTED),
                 self._checked_match_type, entries, password)
         else:
             _keystore = instantiate_keystore_from_text(self._checked_match_type,
                 self._matches[self._checked_match_type], password)
-            wizard.set_keystore_result(AccountCreationType.IMPORTED, _keystore)
+            wizard.set_keystore_result(KeyStoreResult(AccountCreationType.IMPORTED, _keystore))
         return True
 
 
@@ -884,8 +882,9 @@ class ImportWalletTextCustomPage(QWizardPage):
     # The `protected` method needs to know the "main window", we give it the `wallet_id` which
     # it can use to get the correct object. It is not used in this method, so we just ignore it.
     @protected
-    def _create_account(self, password: Optional[str]=None,
-            wallet_id: Optional[int]=None) -> bool:
+    def _create_account(self,
+            password: Optional[str]=None,               # Output value from the decorator.
+            wallet_id: Optional[int]=None) -> bool:     # Input value for the decorator.
         passphrase = (self._passphrase_edit.text().strip()
             if self._allow_passphrase_usage() else "")
         derivation_text = self._derivation_text if self._allow_derivation_path_usage() else None
@@ -898,7 +897,7 @@ class ImportWalletTextCustomPage(QWizardPage):
             self._text_matches,
             password, derivation_text, passphrase, watch_only)
         wizard = cast(AccountWizard, self.wizard())
-        wizard.set_keystore_result(AccountCreationType.IMPORTED, _keystore)
+        wizard.set_keystore_result(KeyStoreResult(AccountCreationType.IMPORTED, _keystore))
         return True
 
 
@@ -1318,7 +1317,9 @@ class SetupHardwareWalletAccountPage(QWizardPage):
     # The `protected` method needs to know the "main window", we give it the `wallet_id` which
     # it can use to get the correct object. It is not used in this method, so we just ignore it.
     @protected
-    def _create_account(self, wallet_id: Optional[int]=None) -> bool:
+    def _create_account(self,
+            password: Optional[str]=None,               # Output value from the decorator.
+            wallet_id: Optional[int]=None) -> bool:     # Input value for the decorator.
         assert self._plugin is not None
         # The derivation path is valid, proceed to create the account.
         wizard = cast(AccountWizard, self.wizard())
@@ -1342,7 +1343,7 @@ class SetupHardwareWalletAccountPage(QWizardPage):
             'cfg': None,
         }
         keystore = instantiate_keystore(DerivationType.HARDWARE, data)
-        wizard.set_keystore_result(AccountCreationType.HARDWARE, keystore)
+        wizard.set_keystore_result(KeyStoreResult(AccountCreationType.HARDWARE, keystore))
 
         return True
 
@@ -1655,7 +1656,7 @@ class MultisigAccountCosignerListPage(QWizardPage):
             keystore.add_cosigner_keystore(state.keystore)
 
         wizard = cast(AccountWizard, self.wizard())
-        wizard.set_keystore_result(AccountCreationType.MULTISIG, keystore)
+        wizard.set_keystore_result(KeyStoreResult(AccountCreationType.MULTISIG, keystore))
         return True
 
     # Qt method called to get the Id of the next page.

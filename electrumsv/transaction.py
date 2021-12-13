@@ -946,7 +946,7 @@ class Transaction(Tx): # type: ignore[misc]
             r += txin.threshold
         return s, r
 
-    def sign(self, keypairs: Dict[XPublicKey, Tuple[bytes, bool]]) -> None:
+    def sign(self, keypairs: Dict[XPublicKey, PrivateKey]) -> None:
         assert all(isinstance(key, XPublicKey) for key in keypairs)
         for txin in self.inputs:
             if txin.is_complete():
@@ -954,14 +954,12 @@ class Transaction(Tx): # type: ignore[misc]
             for j, x_pubkey in enumerate(txin.x_pubkeys):
                 if x_pubkey in keypairs:
                     logger.debug("adding signature for %s", x_pubkey)
-                    sec, compressed = keypairs[x_pubkey]
-                    txin.signatures[j] = self._sign_txin(txin, sec)
+                    txin.signatures[j] = self._sign_txin(txin, keypairs[x_pubkey])
         logger.debug("is_complete %s", self.is_complete())
 
-    def _sign_txin(self, txin: XTxInput, privkey_bytes: bytes) -> bytes:
+    def _sign_txin(self, txin: XTxInput, private_key: PrivateKey) -> bytes:
         pre_hash = self.preimage_hash(txin)
-        privkey = PrivateKey(privkey_bytes)
-        sig = cast(bytes, privkey.sign(pre_hash, None))
+        sig = cast(bytes, private_key.sign(pre_hash, None))
         return sig + cast(bytes, pack_byte(self.nHashType()))
 
     @classmethod

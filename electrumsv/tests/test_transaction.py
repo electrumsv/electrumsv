@@ -137,8 +137,7 @@ class TestTransaction2:
 
     def sign_tx(self, unsigned_tx_hex, priv_keys):
         keypairs = {XPublicKey.from_hex(priv_key.public_key.to_hex()):
-                    (priv_key.to_bytes(), priv_key.is_compressed())
-                    for priv_key in priv_keys}
+                    priv_key for priv_key in priv_keys}
         tx = Transaction.from_extended_bytes(bytes.fromhex(unsigned_tx_hex))
         tx.sign(keypairs)
         return tx

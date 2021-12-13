@@ -1,4 +1,4 @@
-import tempfile
+import json
 from typing import cast
 import unittest
 import unittest.mock
@@ -6,7 +6,9 @@ import unittest.mock
 from bitcoinx import BIP39Mnemonic, ElectrumMnemonic, Wordlists
 
 from electrumsv.bitcoin import address_from_string
-from electrumsv.constants import KeystoreTextType, ScriptType, SEED_PREFIX
+from electrumsv.constants import AccountFlags, DerivationType, KeystoreTextType, MasterKeyFlags, \
+    ScriptType, SEED_PREFIX
+from electrumsv.crypto import pw_decode
 from electrumsv import keystore
 from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text, Multisig_KeyStore,\
     Old_KeyStore
@@ -15,7 +17,7 @@ from electrumsv.wallet import MultisigAccount, StandardAccount, Wallet
 from electrumsv.wallet_database.sqlite_support import DatabaseContext
 from electrumsv.wallet_database.types import AccountRow
 
-from .util import PasswordToken, setup_async, tear_down_async
+from .util import MockStorage, setup_async, tear_down_async
 
 
 def setUpModule():
@@ -30,38 +32,13 @@ class _Wallet(Wallet):
     def name(self):
         return self.__class__.__name__
 
-class MockStorage:
-    def __init__(self) -> None:
-        self.path = tempfile.mktemp()
-        password_token = PasswordToken("123456")
-
-        from electrumsv.wallet_database.migration import create_database_file, update_database_file
-        create_database_file(self.path)
-        update_database_file(self.path, password_token)
-
-        self._data = {}
-
-    def get(self, attr_name, default=None):
-        return self._data.get(attr_name, default)
-
-    def get_explicit_type(self, discard, attr_name, default=None):
-        return self._data.get(attr_name, default)
-
-    def put(self, attr_name, value) -> None:
-        self._data[attr_name] = value
-
-    def get_path(self):
-        return self.path
-
-    def get_db_context(self):
-        return DatabaseContext(self.path)
 
 
 class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
     def setUp(self) -> None:
         Net.set_to(SVMainnet)
 
-        self.storage = MockStorage()
+        self.storage = MockStorage("password")
         with unittest.mock.patch("electrumsv.wallet.app_state") as mock_app_state:
             mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
             self.wallet = _Wallet(self.storage) # type: ignore
@@ -80,7 +57,8 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
 
     def _create_standard_wallet(self, ks: keystore.KeyStore) -> StandardAccount:
         masterkey_row = self.wallet.create_masterkey_from_keystore(ks)
-        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...')
+        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
+            AccountFlags.NONE)
         account_row = self.wallet.add_accounts([ account_row ])[0]
         account = StandardAccount(self.wallet, account_row)
         return account
@@ -90,13 +68,14 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         keystore.add_cosigner_keystore(ks1)
         keystore.add_cosigner_keystore(ks2)
         masterkey_row = self.wallet.create_masterkey_from_keystore(keystore)
-        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_P2SH, 'text')
+        account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.MULTISIG_P2SH, 'text',
+            AccountFlags.NONE)
         account_row = self.wallet.add_accounts([ account_row ])[0]
         account = MultisigAccount(self.wallet, account_row)
         self.wallet.register_account(account.get_id(), account)
         return account
 
-    def test_electrum_seed_standard(self):
+    def test_electrum_seed_standard(self) -> None:
         password = "zzz"
         seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
         self.assertTrue(ElectrumMnemonic.is_valid_new(seed_words, SEED_PREFIX))
@@ -116,9 +95,24 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         self.assertEqual(w.derive_script_template((1, 0)),
                          address_from_string('1KSezYMhAJMWqFbVFB2JshYg69UpmEXR4D'))
 
-    def test_electrum_seed_old(self):
+        masterkey_row = ks.to_masterkey_row()
+        assert masterkey_row.parent_masterkey_id is None
+        assert masterkey_row.derivation_type == DerivationType.BIP32
+        assert masterkey_row.flags == MasterKeyFlags.ELECTRUM_SEED
+        data = json.loads(masterkey_row.derivation_data)
+        assert pw_decode(data["seed"], password) == seed_words
+        assert data["seed"] is not None and data["seed"] == ks.seed
+        assert data["passphrase"] is None and data["passphrase"] == ks.passphrase
+        assert data["xpub"] == "xpub661MyMwAqRbcFWohJWt7PHsFEJfZAvw9ZxwQoDa4SoMgsDDM1T7WK3u" \
+            "9E4edkC4ugRnZ8E4xDZRpk8Rnts3Nbt97dPwT52CwBdDWroaZf8U"
+        assert data["xprv"] is not None and data["xprv"] == ks.xprv
+        assert data["derivation"] == "m" and data["derivation"] == ks.derivation
+        assert data["label"] is None and data["label"] == ks.label
+
+    def test_electrum_seed_old(self) -> None:
         password = "zzz"
-        seed_words = 'powerful random nobody notice nothing important anyway look away hidden message over'
+        seed_words = 'powerful random nobody notice nothing important anyway look away hidden ' \
+            'message over'
         self.assertTrue(ElectrumMnemonic.is_valid_old(seed_words))
 
         ks = cast(Old_KeyStore, instantiate_keystore_from_text(
@@ -135,6 +129,14 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
                          address_from_string('1FJEEB8ihPMbzs2SkLmr37dHyRFzakqUmo'))
         self.assertEqual(w.derive_pubkeys((1, 0)).to_address(),
                          address_from_string('1KRW8pH6HFHZh889VDq6fEKvmrsmApwNfe'))
+
+        masterkey_row = ks.to_masterkey_row()
+        assert masterkey_row.parent_masterkey_id is None
+        assert masterkey_row.derivation_type == DerivationType.ELECTRUM_OLD
+        assert masterkey_row.flags == MasterKeyFlags.NONE
+        data = json.loads(masterkey_row.derivation_data)
+        assert data["seed"] is not None and data["seed"] == ks.seed
+        assert data["mpk"] is not None and data["mpk"] == ks.mpk
 
     def test_bip39_seed_bip44_standard(self):
         password = "yyy"
@@ -154,6 +156,19 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
                          address_from_string('16j7Dqk3Z9DdTdBtHcCVLaNQy9MTgywUUo'))
         self.assertEqual(w.derive_script_template((1, 0)),
                          address_from_string('1GG5bVeWgAp5XW7JLCphse14QaC4qiHyWn'))
+
+        masterkey_row = ks.to_masterkey_row()
+        assert masterkey_row.parent_masterkey_id is None
+        assert masterkey_row.derivation_type == DerivationType.BIP32
+        assert masterkey_row.flags == MasterKeyFlags.BIP39_SEED
+        data = json.loads(masterkey_row.derivation_data)
+        assert pw_decode(data["seed"], password) == seed_words
+        assert data["seed"] is not None and data["seed"] == ks.seed
+        assert data["passphrase"] is None and data["passphrase"] == ks.passphrase
+        assert data["xpub"] is not None and data["xpub"] == ks.xpub
+        assert data["xprv"] is not None and data["xprv"] == ks.xprv
+        assert data["derivation"] == "m/44'/0'/0'" and data["derivation"] == ks.derivation
+        assert data["label"] is None and data["label"] == ks.label
 
     def test_electrum_multisig_seed_standard(self):
         password = "rrrr"

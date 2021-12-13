@@ -38,7 +38,7 @@ from electrumsv.logs import logs
 from electrumsv.networks import BitcoinRegtest, Net
 from electrumsv.restapi import Fault, good_response, fault_to_http_response
 from electrumsv.startup import base_dir
-from electrumsv.types import TransactionSize
+from electrumsv.types import KeyStoreResult, TransactionSize
 
 from .errors import Errors
 from .handler_utils import ExtendedHandlerUtils, VNAME, InsufficientCoinsError, \
@@ -291,7 +291,8 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
 
             keystore = instantiate_keystore_from_text(text_type, text_match, vars[VNAME.PASSWORD],
                 derivation_text=None, passphrase='')
-            parent_wallet.create_account_from_keystore(AccountCreationType.IMPORTED, keystore)
+            parent_wallet.create_account_from_keystore(
+                KeyStoreResult(AccountCreationType.IMPORTED, keystore))
             await self._load_wallet(vars[VNAME.WALLET_NAME], vars[VNAME.PASSWORD])
             response = {"new_wallet": create_filepath}
             return good_response(response)

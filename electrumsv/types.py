@@ -1,3 +1,4 @@
+from __future__ import annotations
 import dataclasses
 from types import TracebackType
 from typing import Any, Callable, cast, Coroutine, Dict, List, NamedTuple, Optional, Tuple, \
@@ -7,12 +8,13 @@ import uuid
 from bitcoinx import hash_to_hex_str
 from mypy_extensions import Arg, DefaultArg
 
-from .constants import DatabaseKeyDerivationType, DerivationType, DerivationPath, \
-    NetworkServerType, ScriptType, SubscriptionOwnerPurpose, SubscriptionType, \
+from .constants import AccountCreationType, DatabaseKeyDerivationType, DerivationType, \
+    DerivationPath, NetworkServerType, ScriptType, SubscriptionOwnerPurpose, SubscriptionType, \
     unpack_derivation_path
 
 
 if TYPE_CHECKING:
+    from .keystore import KeyStore
     from .wallet_database.types import KeyDataProtocol, NetworkServerRow, NetworkServerAccountRow, \
         TransactionSubscriptionRow
 
@@ -184,6 +186,10 @@ class NetworkServerState(NamedTuple):
 class MasterKeyDataBIP32(TypedDict):
     xpub: str
     seed: Optional[str]
+    # If there is a seed / no parent masterkey, the xpub/xprv are derived from the seed using this.
+    # - For master keys with Electrum seeds this will always be 'm'
+    # If there is no seed, the xpub/xprv are derived from the parent masterkey using this.
+    derivation: Optional[str]
     passphrase: Optional[str]
     label: Optional[str]
     xprv: Optional[str]
@@ -244,6 +250,12 @@ KeyInstanceDataTypes = Union[KeyInstanceDataBIP32SubPath, KeyInstanceDataHash,
 
 
 DerivationDataTypes = Union[KeyInstanceDataTypes, MasterKeyDataTypes]
+
+
+class KeyStoreResult(NamedTuple):
+    account_creation_type: AccountCreationType
+    keystore: Optional[KeyStore] = None
+    account_id: int = -1
 
 
 class TransactionSize(NamedTuple):

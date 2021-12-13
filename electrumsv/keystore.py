@@ -21,9 +21,10 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import annotations
 import hashlib
 import json
-from typing import Any, cast, Dict, List, Optional, Sequence, Set, Tuple, TYPE_CHECKING, Union
+from typing import Any, cast, Dict, List, Optional, Sequence, Set, TYPE_CHECKING, Union
 
 from bitcoinx import (
     PrivateKey, PublicKey, BIP32PrivateKey,
@@ -34,14 +35,16 @@ from bitcoinx import (
 
 from .i18n import _
 from .app_state import app_state
-from .constants import DerivationType, DerivationPath, KeystoreTextType, KeystoreType
+from .constants import DerivationType, DerivationPath, KeystoreTextType, KeystoreType, \
+    MasterKeyFlags
 from .crypto import sha256d, pw_encode, pw_decode
 from .exceptions import InvalidPassword, OverloadedMultisigKeystore, IncompatibleWalletError
 from .logs import logs
 from .networks import Net
 from .transaction import Transaction, TransactionContext, XPublicKey, XPublicKeyKind
-from .types import MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataHardware, \
-    MasterKeyDataMultiSignature, MasterKeyDataTypes, DatabaseKeyDerivationData
+from .types import IndefiniteCredentialId, MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
+    MasterKeyDataHardware, MasterKeyDataMultiSignature, MasterKeyDataTypes, \
+    DatabaseKeyDerivationData
 from .wallet_database.types import KeyInstanceRow, MasterKeyRow
 
 
@@ -129,11 +132,10 @@ class KeyStore:
     def get_master_public_key(self) -> Optional[str]:
         raise NotImplementedError
 
-    def get_private_key(self, key_data: Any, password: str) -> Tuple[bytes, bool]:
+    def get_private_key(self, key_data: Any, password: str) -> PrivateKey:
         raise NotImplementedError
 
-    def get_private_key_from_xpubkey(self, x_pubkey: XPublicKey,
-            password: str) -> Tuple[bytes, bool]:
+    def get_private_key_from_xpubkey(self, x_pubkey: XPublicKey, password: str) -> PrivateKey:
         raise NotImplementedError
 
     def is_signature_candidate(self, x_pubkey: XPublicKey) -> bool:
@@ -161,14 +163,12 @@ class Software_KeyStore(KeyStore):
         return KeystoreType.SOFTWARE
 
     def sign_message(self, derivation_path: DerivationPath, message: bytes, password: str) -> bytes:
-        privkey, compressed = self.get_private_key(derivation_path, password)
-        key = PrivateKey(privkey, compressed)
-        return cast(bytes, key.sign_message(message))
+        private_key = self.get_private_key(derivation_path, password)
+        return cast(bytes, private_key.sign_message(message))
 
     def decrypt_message(self, sequence: DerivationPath, message: bytes, password: str) -> bytes:
-        privkey, compressed = self.get_private_key(sequence, password)
-        key = PrivateKey(privkey)
-        return cast(bytes, key.decrypt_message(message))
+        private_key = self.get_private_key(sequence, password)
+        return cast(bytes, private_key.decrypt_message(message))
 
     def check_password(self, password: Optional[str]) -> None:
         raise NotImplementedError
@@ -180,7 +180,7 @@ class Software_KeyStore(KeyStore):
         # Raise if password is not correct.
         self.check_password(password)
         # Add private keys
-        keypairs: Dict[XPublicKey, Tuple[bytes, bool]] = {}
+        keypairs: Dict[XPublicKey, PrivateKey] = {}
         for txin in tx.inputs:
             for x_pubkey in txin.unused_x_pubkeys():
                 if self.is_signature_candidate(x_pubkey):
@@ -240,13 +240,11 @@ class Imported_KeyStore(Software_KeyStore):
         return True
 
     def sign_message(self, public_key: PublicKey, message: bytes, password: str) -> bytes:
-        private_key_bytes, is_compressed = self.get_private_key(public_key, password)
-        private_key = PrivateKey(private_key_bytes, is_compressed)
+        private_key = self.get_private_key(public_key, password)
         return cast(bytes, private_key.sign_message(message))
 
     def decrypt_message(self, public_key: PublicKey, message: bytes, password: str) -> bytes:
-        private_key_bytes, is_compressed = self.get_private_key(public_key, password)
-        private_key = PrivateKey(private_key_bytes, is_compressed)
+        private_key = self.get_private_key(public_key, password)
         return cast(bytes, private_key.decrypt_message(message))
 
     def remove_key(self, keyinstance_id: int) -> None:
@@ -274,14 +272,12 @@ class Imported_KeyStore(Software_KeyStore):
     def can_export(self) -> bool:
         return True
 
-    def get_private_key(self, public_key: PublicKey, password: str) -> Tuple[bytes, bool]:
+    def get_private_key(self, public_key: PublicKey, password: str) -> PrivateKey:
         '''Returns a (32 byte privkey, is_compressed) pair.'''
         private_key_text = self.export_private_key(public_key, password)
-        private_key = PrivateKey.from_text(private_key_text)
-        return private_key.to_bytes(), private_key.is_compressed()
+        return PrivateKey.from_text(private_key_text)
 
-    def get_private_key_from_xpubkey(self, x_public_key: XPublicKey,
-            password: str) -> Tuple[bytes, bool]:
+    def get_private_key_from_xpubkey(self, x_public_key: XPublicKey, password: str) -> PrivateKey:
         public_key = x_public_key.to_public_key()
         return self.get_private_key(public_key, password)
 
@@ -370,23 +366,52 @@ class Xpub:
 class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
     derivation_type = DerivationType.BIP32
 
+    _xprv_credential_id: Optional[IndefiniteCredentialId] = None
+
     def __init__(self, data: MasterKeyDataBIP32, row: Optional[MasterKeyRow]=None,
-            parent_keystore: Optional[KeyStore]=None) -> None:
+            parent_keystore: Optional[KeyStore]=None,
+            masterkey_flags: Optional[MasterKeyFlags]=None) -> None:
         Xpub.__init__(self)
         Deterministic_KeyStore.__init__(self, row)
         self._parent_keystore = parent_keystore
 
+        if row is not None:
+            self._masterkey_flags = row.flags
+        elif masterkey_flags is not None:
+            self._masterkey_flags = masterkey_flags
+        else:
+            self._masterkey_flags = MasterKeyFlags.NONE
+
+        # Either BIP39 or Electrum seed words.
         self.seed: Optional[str] = data.get('seed')
+        # The full textual derivation path of the xpub and xprv from whatever.
+        self.derivation: Optional[str] = data.get('derivation')
         self.passphrase: Optional[str] = data.get('passphrase')
         self.label: Optional[str] = data.get('label')
+        # The BIP32 master public key.
         self.xpub: Optional[str] = data.get('xpub')
+        # The BIP32 master private key (encrypted with the wallet password).
         self.xprv: Optional[str] = data.get('xprv')
+
+    def cache_xprv_as_indefinite_credential(self, password: str) -> None:
+        xprv = self.get_master_private_key(password)
+        self._xprv_credential_id = app_state.credentials.add_indefinite_credential(xprv)
+
+    def clear_credentials(self) -> None:
+        assert self._xprv_credential_id is not None
+        app_state.credentials.remove_indefinite_credential(self._xprv_credential_id)
 
     def type(self) -> KeystoreType:
         return KeystoreType.BIP32
 
     def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
         Deterministic_KeyStore.set_row(self, row)
+
+    def get_parent_keystore(self) -> Optional[KeyStore]:
+        return self._parent_keystore
+
+    def get_masterkey_flags(self) -> MasterKeyFlags:
+        return self._masterkey_flags
 
     def get_fingerprint(self) -> bytes:
         return Xpub.get_fingerprint(self)
@@ -395,6 +420,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         assert self.xpub is not None
         return {
             "seed": self.seed,
+            "derivation": self.derivation,
             "passphrase": self.passphrase,
             "label": self.label,
             "xpub": self.xpub,
@@ -403,7 +429,10 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
 
     def to_masterkey_row(self) -> MasterKeyRow:
         derivation_data = json.dumps(self.to_derivation_data()).encode()
-        return MasterKeyRow(-1, None, DerivationType.BIP32, derivation_data)
+        parent_masterkey_id = self._parent_keystore.get_id() if self._parent_keystore is not None \
+            else None
+        return MasterKeyRow(-1, parent_masterkey_id, DerivationType.BIP32, derivation_data,
+            self._masterkey_flags)
 
     def get_master_public_key(self) -> Optional[str]:
         return Xpub.get_master_public_key(self)
@@ -432,20 +461,43 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
     def can_export(self) -> bool:
         return True
 
-    def get_private_key(self, derivation_path: DerivationPath, password: str) -> Tuple[bytes, bool]:
+    def get_private_key(self, derivation_path: DerivationPath, password: str) -> PrivateKey:
         xprv = self.get_master_private_key(password)
-        privkey = bip32_key_from_string(xprv)
+        return self._get_private_key_from_xprv(xprv, derivation_path)
+
+    def _get_private_key_from_xprv(self, xprv: str, derivation_path: DerivationPath) -> PrivateKey:
+        privkey = cast(BIP32PrivateKey, bip32_key_from_string(xprv))
         for n in derivation_path:
             privkey = privkey.child_safe(n)
-        return privkey.to_bytes(), True
+        return privkey
 
-    def get_private_key_from_xpubkey(self, x_pubkey: XPublicKey,
-            password: str) -> Tuple[bytes, bool]:
+    def get_private_key_from_xpubkey(self, x_pubkey: XPublicKey, password: str) -> PrivateKey:
         return self.get_private_key(x_pubkey.derivation_path, password)
 
     # If we do not do this it falls through to the the base KeyStore method, not Xpub.
     def is_signature_candidate(self, x_pubkey: XPublicKey) -> bool:
         return Xpub.is_signature_candidate(self, x_pubkey)
+
+    def sign_transaction_with_credentials(self, tx: Transaction,
+            context: TransactionContext) -> None:
+        """
+        Some keystores do not require the user to manually approve the signing by entering their
+        password, which is then used in turn to decrypt their signing key. They store the
+        decrypted value in the credential store instead, and can pull it out and decrypt it to
+        use it when needed.
+        """
+        assert self._xprv_credential_id is not None
+        # Add private keys
+        keypairs: Dict[XPublicKey, PrivateKey] = {}
+        for txin in tx.inputs:
+            for x_pubkey in txin.unused_x_pubkeys():
+                if self.is_signature_candidate(x_pubkey):
+                    xprv = app_state.credentials.get_indefinite_credential(self._xprv_credential_id)
+                    keypairs[x_pubkey] = self._get_private_key_from_xprv(xprv,
+                        x_pubkey.derivation_path)
+        # Sign
+        if keypairs:
+            tx.sign(keypairs)
 
     def set_encrypted_seed(self, encrypted_seed: str) -> None:
         assert self.seed is not None
@@ -498,7 +550,8 @@ class Old_KeyStore(Deterministic_KeyStore):
 
     def to_masterkey_row(self) -> MasterKeyRow:
         derivation_lump = json.dumps(self.to_derivation_data()).encode()
-        return MasterKeyRow(-1, None, DerivationType.ELECTRUM_OLD, derivation_lump)
+        return MasterKeyRow(-1, None, DerivationType.ELECTRUM_OLD, derivation_lump,
+            MasterKeyFlags.NONE)
 
     def get_seed(self, password: Optional[str]) -> str:
         """
@@ -544,15 +597,14 @@ class Old_KeyStore(Deterministic_KeyStore):
     def can_export(self) -> bool:
         return True
 
-    def get_private_key(self, derivation_path: DerivationPath, password: str) -> Tuple[bytes, bool]:
+    def get_private_key(self, derivation_path: DerivationPath, password: str) -> PrivateKey:
         seed = self._get_hex_seed_bytes(password)
         self.check_seed(seed)
         secexp = self.stretch_key(seed)
-        pk = self.get_private_key_from_stretched_exponent(derivation_path, secexp)
-        return pk, False
+        private_key_bytes = self.get_private_key_from_stretched_exponent(derivation_path, secexp)
+        return PrivateKey(private_key_bytes, False)
 
-    def get_private_key_from_xpubkey(self, x_pubkey: XPublicKey,
-            password: str) -> Tuple[bytes, bool]:
+    def get_private_key_from_xpubkey(self, x_pubkey: XPublicKey, password: str) -> PrivateKey:
         mpk, path = x_pubkey.old_keystore_mpk_and_path()
         assert self.mpk == mpk.hex()
         return self.get_private_key(path, password)
@@ -656,7 +708,8 @@ class Hardware_KeyStore(Xpub, KeyStore):
 
     def to_masterkey_row(self) -> MasterKeyRow:
         derivation_lump = json.dumps(self.to_derivation_data()).encode()
-        return MasterKeyRow(-1, None, DerivationType.HARDWARE, derivation_lump)
+        return MasterKeyRow(-1, None, DerivationType.HARDWARE, derivation_lump,
+            MasterKeyFlags.NONE)
 
     def unpaired(self) -> None:
         '''A device paired with the wallet was diconnected.  This can be
@@ -731,7 +784,8 @@ class Multisig_KeyStore(KeyStore):
 
     def to_masterkey_row(self) -> MasterKeyRow:
         derivation_lump = json.dumps(self.to_derivation_data()).encode()
-        return MasterKeyRow(-1, None, DerivationType.ELECTRUM_MULTISIG, derivation_lump)
+        return MasterKeyRow(-1, None, DerivationType.ELECTRUM_MULTISIG, derivation_lump,
+            MasterKeyFlags.NONE)
 
     def is_watching_only(self) -> bool:
         return all(k.is_watching_only() for k in self.get_cosigner_keystores())
@@ -773,7 +827,7 @@ def private_key_from_bip32_seed(bip32_seed: bytes, derivation_text: str) -> BIP3
 
 # NOTE(migration) If this is changed any migration steps that use it should be changed to use
 #     a historically correct version (e.g. `migration_0029_reference_server.py`).
-def bip32_master_key_data_from_seed(seed_phrase: str, passphrase: str, bip32_seed: bytes,
+def bip32_master_key_data_from_seed(seed_phrase: Optional[str], passphrase: str, bip32_seed: bytes,
         derivation_text: str, password: Optional[str]) -> MasterKeyDataBIP32:
     private_key = private_key_from_bip32_seed(bip32_seed, derivation_text)
     optional_encrypted_seed = None
@@ -781,13 +835,15 @@ def bip32_master_key_data_from_seed(seed_phrase: str, passphrase: str, bip32_see
     optional_encrypted_xprv = None
     # If the key is not watch only, we store it but always encrypted.
     if password is not None:
-        optional_encrypted_seed = pw_encode(seed_phrase, password)
+        if seed_phrase is not None:
+            optional_encrypted_seed = pw_encode(seed_phrase, password)
         if len(passphrase):
             optional_encrypted_passphrase = pw_encode(passphrase, password)
         optional_encrypted_xprv = pw_encode(private_key.to_extended_key_string(), password)
     return {
         "seed": optional_encrypted_seed,
         "passphrase": optional_encrypted_passphrase,
+        "derivation": derivation_text,
         "label": None,
         "xprv": optional_encrypted_xprv,
         "xpub": private_key.public_key.to_extended_key_string(),
@@ -799,12 +855,12 @@ def _public_key_from_private_key_text(text: str) -> PublicKey:
 
 
 def instantiate_keystore(derivation_type: DerivationType, data: MasterKeyDataTypes,
-        parent_keystore: Optional[KeyStore]=None,
-        row: Optional[MasterKeyRow]=None) -> KeyStore:
+        parent_keystore: Optional[KeyStore]=None, row: Optional[MasterKeyRow]=None,
+        masterkey_flags: Optional[MasterKeyFlags]=None) -> KeyStore:
     keystore: KeyStore
     if derivation_type == DerivationType.BIP32:
         keystore = BIP32_KeyStore(cast(MasterKeyDataBIP32, data),
-            row, parent_keystore)
+            row, parent_keystore, masterkey_flags)
     elif derivation_type == DerivationType.HARDWARE:
         assert parent_keystore is None
         keystore = app_state.device_manager.create_keystore(cast(MasterKeyDataHardware, data), row)
@@ -836,6 +892,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
         bip32_data = {
             "xpub": text_match,
             "seed": None,
+            "derivation": None,
             "passphrase": None,
             "label": None,
             "xprv": None,
@@ -855,6 +912,7 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
         bip32_data = {
             "xpub": private_key.public_key.to_extended_key_string(),
             "seed": None,
+            "derivation": None,
             "passphrase": None,
             "label": None,
             "xprv": optional_encrypted_xprv,
@@ -877,7 +935,8 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
         bip32_seed = BIP39Mnemonic.to_seed(text_match, passphrase)
         data = bip32_master_key_data_from_seed(text_match, passphrase, bip32_seed, derivation_text,
             password)
-        return instantiate_keystore(derivation_type, data)
+        return instantiate_keystore(derivation_type, data,
+            masterkey_flags=MasterKeyFlags.BIP39_SEED)
     elif text_type == KeystoreTextType.ELECTRUM_SEED_WORDS:
         derivation_type = DerivationType.BIP32
         assert not derivation_text
@@ -887,7 +946,8 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
         bip32_seed = ElectrumMnemonic.new_to_seed(text_match, passphrase, compatible=True)
         data = bip32_master_key_data_from_seed(text_match, passphrase, bip32_seed, derivation_text,
             password)
-        return instantiate_keystore(derivation_type, data)
+        return instantiate_keystore(derivation_type, data,
+            masterkey_flags=MasterKeyFlags.ELECTRUM_SEED)
     elif text_type == KeystoreTextType.ELECTRUM_OLD_SEED_WORDS:
         derivation_type = DerivationType.ELECTRUM_OLD
         assert isinstance(text_match, str)

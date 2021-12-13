@@ -44,7 +44,7 @@ class StorageKind(IntEnum):
 
 DATABASE_EXT = ".sqlite"
 MIGRATION_FIRST = 22
-MIGRATION_CURRENT = 28
+MIGRATION_CURRENT = 29
 
 
 # The hash of the mnemonic seed must begin with this
@@ -129,6 +129,17 @@ class AccountFlags(IntFlag):
     IS_PETTY_CASH = 1 << 0
 
 
+class MasterKeyFlags(IntFlag):
+    NONE = 0
+
+    # The generated seed phrase / master private key for backup.
+    WALLET_SEED                         = 1 << 0
+    # If we know it is an Electrum seed (which we didn't always track).
+    ELECTRUM_SEED                       = 1 << 1
+    # If we know it is an BIP39 seed (which we didn't always track).
+    BIP39_SEED                          = 1 << 2
+
+
 class AccountTxFlags(IntFlag):
     NONE = 0
 
@@ -191,6 +202,7 @@ class DatabaseKeyDerivationType(IntEnum):
 
 class DerivationType(IntEnum):
     NONE = 0
+    # Old-style electrum seed words.
     ELECTRUM_OLD = 1
     ELECTRUM_MULTISIG = 2
     BIP32 = 3
@@ -201,7 +213,6 @@ class DerivationType(IntEnum):
     PUBLIC_KEY = 8
     PRIVATE_KEY = 9
     SCRIPT_HASH = 10
-    WALLET = 11
 
 
 RECEIVING_SUBPATH: DerivationPath = (0,)
@@ -210,6 +221,8 @@ CHANGE_SUBPATH: DerivationPath = (1,)
 CHANGE_SUBPATH_BYTES = pack_derivation_path(CHANGE_SUBPATH)
 
 DEFAULT_FEE = 500
+
+WALLET_ACCOUNT_PATH_TEXT: str = "m/50'"
 
 
 class KeystoreTextType(IntEnum):

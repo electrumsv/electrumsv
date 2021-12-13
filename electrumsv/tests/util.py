@@ -4,6 +4,7 @@ from electrumsv.app_state import AppStateProxy
 from electrumsv.credentials import PasswordTokenProtocol
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.wallet_database.sqlite_support import DatabaseContext
+from electrumsv.wallet_database import functions as db_functions
 
 
 class AppStateProxyTest(AppStateProxy):
@@ -40,7 +41,7 @@ class PasswordToken(PasswordTokenProtocol):
 
 
 class MockStorage:
-    def __init__(self) -> None:
+    def __init__(self, password: str) -> None:
         self.unique_name = os.urandom(8).hex()
         self.path = DatabaseContext.shared_memory_uri(self.unique_name)
         self.db_context = DatabaseContext(self.path)
@@ -48,12 +49,14 @@ class MockStorage:
         # lifetime of the tests.
         self.db = self.db_context.acquire_connection()
 
-        password_token = PasswordToken("123456")
+        password_token = PasswordToken(password)
         from electrumsv.wallet_database.migration import create_database, update_database
         create_database(self.db)
         update_database(self.db, password_token)
 
         self._data = {}
+        for row in db_functions.read_wallet_datas(self.db_context):
+            self._data[row[0]] = row[1]
 
     def get(self, attr_name, default=None):
         return self._data.get(attr_name, default)

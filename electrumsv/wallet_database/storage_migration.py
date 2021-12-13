@@ -18,7 +18,8 @@ from typing import Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequen
 
 from bitcoinx import bip32_build_chain_string
 
-from ..constants import DerivationPath, DerivationType, KeyInstanceFlag, PaymentFlag, ScriptType
+from ..constants import DerivationPath, DerivationType, KeyInstanceFlag, MasterKeyFlags, \
+    PaymentFlag, ScriptType
 from ..types import MasterKeyDataBIP32, \
     MasterKeyDataHardware, MasterKeyDataMultiSignature, MultiSignatureMasterKeyDataTypes, \
     MasterKeyDataTypes
@@ -176,6 +177,10 @@ class MasterKeyDataBIP32_27(TypedDict):
 class MasterKeyDataBIP32_29(TypedDict):
     xpub: str
     seed: Optional[str]
+    # If there is a seed / no parent masterkey, the xpub/xprv are derived from the seed using this.
+    # - For master keys with Electrum seeds this will always be 'm'
+    # If there is no seed, the xpub/xprv are derived from the parent masterkey using this.
+    derivation: Optional[str]
     passphrase: Optional[str]
     label: Optional[str]
     xprv: Optional[str]
@@ -439,5 +444,6 @@ def convert_masterkey_derivation_data1(derivation_type: DerivationType,
 
 def upgrade_masterkey1(row: MasterKeyRow1) -> MasterKeyRow:
     return MasterKeyRow(masterkey_id=row.masterkey_id, parent_masterkey_id=row.parent_masterkey_id,
-        derivation_type=row.derivation_type, derivation_data=row.derivation_data)
+        derivation_type=row.derivation_type, derivation_data=row.derivation_data,
+        flags=MasterKeyFlags.NONE)
 

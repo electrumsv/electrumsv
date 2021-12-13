@@ -61,7 +61,7 @@ class TestOld_KeyStore:
         keystore = cast(Old_KeyStore, instantiate_keystore_from_text(
             KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, seed, password=password))
         result = keystore.get_private_key((0, 10), password)
-        assert result == (bytes.fromhex(
+        assert result == PrivateKey(bytes.fromhex(
             '81279e4fe405363eb56e686726d450fe4a76a1d83b64311d7618b845683aab4a'), False)
 
     def test_check_seed(self):
@@ -211,7 +211,7 @@ class TestImported_KeyStore:
     def test_get_private_key(self, index, hex_str, is_compressed):
         pubkey = list(imported_keystore._keypairs.keys())[index]
         assert imported_keystore.get_private_key(pubkey, 'password') == (
-            bytes.fromhex(hex_str), is_compressed)
+            PrivateKey(bytes.fromhex(hex_str), is_compressed))
 
     def test_is_signature_candidate(self):
         x_pubkey_1 = XPublicKey.from_hex(
@@ -245,8 +245,7 @@ class TestBIP32_KeyStore:
         xprv = pw_encode(xprv, password)
         keystore = BIP32_KeyStore({'xprv': xprv})
         privkey = keystore.get_private_key((1, 2, 3), password)
-        assert privkey == (bytes.fromhex('985e4b09a0b05702c073b5086fcbb4b7dde4625bb98'
-                                         '9ec51ce4c3337a7de2a13'), True)
+        assert privkey.to_WIF() == 'L2Kts4emyxQeUdooMWexuFiZWvDKhpsvcGiXftMRXSf7HGwJX6sT'
 
 
     @pytest.mark.parametrize("password", ('Password', None))
