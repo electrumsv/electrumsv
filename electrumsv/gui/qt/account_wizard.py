@@ -405,7 +405,7 @@ class AddAccountWizardPage(QWizardPage):
         if password is None:
             return
 
-        keystore_result = wallet.derive_child_keystore(for_account=True)
+        keystore_result = wallet.derive_child_keystore(for_account=True, password=password)
         assert keystore_result.account_creation_type == AccountCreationType.NEW
         wizard.set_keystore_result(keystore_result)
         wizard.accept()
