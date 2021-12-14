@@ -493,6 +493,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
             for x_pubkey in txin.unused_x_pubkeys():
                 if self.is_signature_candidate(x_pubkey):
                     xprv = app_state.credentials.get_indefinite_credential(self._xprv_credential_id)
+                    assert xprv is not None
                     keypairs[x_pubkey] = self._get_private_key_from_xprv(xprv,
                         x_pubkey.derivation_path)
         # Sign

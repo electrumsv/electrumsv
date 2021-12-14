@@ -157,23 +157,28 @@ class NewServer:
         self.url = url
         self.server_type = server_type
         self.config: Optional[APIServerDefinition] = config
-        self.config_credential_id: Optional[IndefiniteCredentialId] = None
 
         # These are the enabled clients, whether they use an API key and the id if so.
-        self.client_api_keys: Dict[NewServerAPIContext, Optional[IndefiniteCredentialId]] = {}
+        self.client_api_keys: Dict[NewServerAPIContext, IndefiniteCredentialId] = {}
         # We keep per-API key state for a reason. An API key can be considered to be a distinct
         # account with the service, and it makes sense to keep the statistics/metadata for the
         # service separated by API key for this reason. We intentionally leave these in place
         # at least for now as they are kind of relative to the given key value.
-        self.api_key_state: Dict[Optional[IndefiniteCredentialId], NewServerAccessState] = {}
+        self.api_key_state: Dict[IndefiniteCredentialId, NewServerAccessState] = {}
 
         # We need to put any config credential in the credential cache. The only time that there
         # will not be an application config entry, is where the server is from an external wallet.
         if config is not None:
+            # Even if the server does not require an API key, it will still be assigned a credential
+            # uuid lookup key but the cached result will be null indicating no Auth required
             if config.get("api_key"):
                 decrypted_api_key = pw_decode(config["api_key"], TOKEN_PASSWORD)
-                self.config_credential_id = \
-                    app_state.credentials.add_indefinite_credential(decrypted_api_key)
+                self.config_credential_id = app_state.credentials.add_indefinite_credential(
+                    decrypted_api_key)
+            else:  # No api_key required
+                self.config_credential_id = app_state.credentials.add_indefinite_credential(
+                    None)
+
             if self.config_credential_id not in self.api_key_state:
                 self.api_key_state[self.config_credential_id] = NewServerAccessState()
 
@@ -238,20 +243,23 @@ class NewServer:
 
         The instance variable `config` is a reference to the config entry that is tracked by
         the network. We get this event before it is updated, so that we can interpret the changes
-        againt it.
+        against it.
         """
         assert self.config is not None
         if self.config_credential_id is not None:
             app_state.credentials.remove_indefinite_credential(self.config_credential_id)
-            self.config_credential_id = None
 
         new_encrypted_api_key = config_update.get("api_key")
         if new_encrypted_api_key:
             decrypted_api_key = pw_decode(new_encrypted_api_key, TOKEN_PASSWORD)
             self.config_credential_id = \
                 app_state.credentials.add_indefinite_credential(decrypted_api_key)
-            if self.config_credential_id not in self.api_key_state:
-                self.api_key_state[self.config_credential_id] = NewServerAccessState()
+        else:  # api_key_required=False
+            self.config_credential_id = app_state.credentials.add_indefinite_credential(None)
+
+        if self.config_credential_id not in self.api_key_state:
+            self.api_key_state[self.config_credential_id] = NewServerAccessState()
+
 
     def is_unusable(self) -> bool:
         """
@@ -270,14 +278,10 @@ class NewServer:
             would have a config object) and it no longer has any loaded wallets using it. """
         return len(self.client_api_keys) == 0 and self.config is None
 
-    def should_request_fee_quote(self, credential_id: Optional[IndefiniteCredentialId]) -> bool:
+    def should_request_fee_quote(self, credential_id: IndefiniteCredentialId) -> bool:
         """
         Work out if we have a valid fee quote, and if not whether we can get one.
         """
-        if self.config is not None:
-            if self.config.get("api_key_required") and credential_id is None:
-                return False
-
         key_state = self.api_key_state[credential_id]
         if key_state.last_fee_quote is None:
             return True
@@ -294,12 +298,12 @@ class NewServer:
         return (now_date - retrieved_date).total_seconds() > STALE_PERIOD_SECONDS
 
     def get_credential_id(self, client_key: NewServerAPIContext) \
-            -> Tuple[bool, Optional[IndefiniteCredentialId]]:
+            -> Tuple[bool, IndefiniteCredentialId]:
         """
         Indicate whether the given client can use this server.
 
-        Returns a flag and an optional credential id. The flag indicates whether the client can
-        use the given server, and the credential id which can be `None` for no credential.
+        Returns a flag and a credential id. The flag indicates whether the client can
+        use the given server.
         """
         # Look up the account.
         if client_key in self.client_api_keys:
@@ -316,7 +320,7 @@ class NewServer:
             return True, self.config_credential_id
 
         # This client is not configured to use this server.
-        return False, None
+        return False, self.config_credential_id
 
     def get_authorization_headers(self, credential_id: Optional[IndefiniteCredentialId]) \
             -> Dict[str, str]:
@@ -336,7 +340,7 @@ class NewServer:
 
 class SelectionCandidate(NamedTuple):
     server_type: NetworkServerType
-    credential_id: Optional[IndefiniteCredentialId]
+    credential_id: IndefiniteCredentialId
     api_server: Optional[NewServer] = None
     electrumx_server: Optional["SVServer"] = None
 

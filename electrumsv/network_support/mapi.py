@@ -150,7 +150,7 @@ def poll_servers(network: "Network", account: "AbstractAccount") \
     If there is work to be done, a `concurrent.futures.Future` instance is returned. Otherwise
     we return `None`.
     """
-    server_entries: List[Tuple["NewServer", Optional["IndefiniteCredentialId"]]] = []
+    server_entries: List[Tuple["NewServer", "IndefiniteCredentialId"]] = []
     for candidate in network.get_api_servers_for_account(account, NetworkServerType.MERCHANT_API):
         assert candidate.api_server is not None
         assert candidate.credential_id is not None
@@ -169,8 +169,7 @@ async def _poll_servers_async(
             await group.spawn(get_fee_quote, server, credential_id)
 
 
-async def get_fee_quote(server: "NewServer",
-        credential_id: Optional["IndefiniteCredentialId"]) -> None:
+async def get_fee_quote(server: "NewServer", credential_id: "IndefiniteCredentialId") -> None:
     """The last_good and last_try timestamps will be used to include/exclude the mAPI for
     selection"""
     server_state = server.api_key_state[credential_id]
@@ -220,7 +219,7 @@ def validate_json_envelope(json_response: JSONEnvelope) -> None:
 
 
 async def broadcast_transaction(tx: "Transaction", server: "NewServer",
-        credential_id: Optional["IndefiniteCredentialId"]) -> None:
+        credential_id: "IndefiniteCredentialId") -> None:
     server_state = server.api_key_state[credential_id]
     server_state.record_attempt()
 

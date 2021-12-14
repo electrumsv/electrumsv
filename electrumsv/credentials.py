@@ -90,7 +90,8 @@ class CredentialCache:
     fatal_error = False
 
     def __init__(self) -> None:
-        self._indefinite_credentials: Dict[IndefiniteCredentialId, IndefiniteCredential] = {}
+        self._indefinite_credentials: \
+            Dict[IndefiniteCredentialId, Optional[IndefiniteCredential]] = {}
         self._wallet_credentials: Dict[str, WalletCredential] = {}
 
         self._check_thread: Optional[threading.Thread] = None
@@ -178,26 +179,32 @@ class CredentialCache:
             logger.debug("Exiting thread to check credential expiry (closed: %s, count: %d)",
                 self.closed, len(self._wallet_credentials))
 
-    def add_indefinite_credential(self, credential_value: str) \
+    def add_indefinite_credential(self, credential_value: Optional[str]=None) \
             -> IndefiniteCredentialId:
+        """credential can be null for services that do not require an API key"""
+        credential: Optional[IndefiniteCredential] = None
         with self._credential_lock:
             credential_id = uuid.uuid4()
-            encrypted_value = cast(bytes, self._public_key.encrypt_message(credential_value))
-            credential = IndefiniteCredential(encrypted_value)
+            if credential_value is not None:
+                encrypted_value = cast(bytes, self._public_key.encrypt_message(credential_value))
+                credential = IndefiniteCredential(encrypted_value)
             self._indefinite_credentials[credential_id] = credential
         return credential_id
 
     def update_indefinite_credential(self, credential_id: IndefiniteCredentialId,
-            credential_value: str) -> None:
+            credential_value: Optional[str]=None) -> None:
         with self._credential_lock:
-            encrypted_value = cast(bytes, self._public_key.encrypt_message(credential_value))
-            self._indefinite_credentials[credential_id].encrypted_value = encrypted_value
+            credential = None
+            if credential_value is not None:
+                encrypted_value = cast(bytes, self._public_key.encrypt_message(credential_value))
+                credential = IndefiniteCredential(encrypted_value)
+            self._indefinite_credentials[credential_id] = credential
 
     def remove_indefinite_credential(self, credential_id: IndefiniteCredentialId) -> None:
         with self._credential_lock:
             self._indefinite_credentials.pop(credential_id)
 
-    def get_indefinite_credential(self, credential_id: IndefiniteCredentialId) -> str:
+    def get_indefinite_credential(self, credential_id: IndefiniteCredentialId) -> Optional[str]:
         """
         This is a credential that is cached as long as it's use is desired.
 
@@ -206,9 +213,11 @@ class CredentialCache:
         """
         with self._credential_lock:
             credential = self._indefinite_credentials[credential_id]
-            credential_bytes = cast(bytes,
-                self._private_key.decrypt_message(credential.encrypted_value))
-            return credential_bytes.decode('utf-8')
+            if credential is not None:
+                credential_bytes = cast(bytes,
+                    self._private_key.decrypt_message(credential.encrypted_value))
+                return credential_bytes.decode('utf-8')
+            return credential
 
     def _check_credentials_thread_body(self) -> None:
         sleep_seconds = MAXIMUM_SLEEP_SECONDS

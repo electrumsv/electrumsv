@@ -2189,11 +2189,13 @@ class Wallet(TriggeredCallbacks):
         self._registered_api_keys: Dict[ServerAccountKey, IndefiniteCredentialId] = {}
         server_rows, server_account_rows = self.read_network_servers()
         for server_row in server_rows:
+            server_key = ServerAccountKey(server_row.url, server_row.server_type, -1)
             if server_row.encrypted_api_key is not None:
-                server_key = ServerAccountKey(server_row.url, server_row.server_type, -1)
-                self._registered_api_keys[server_key] = \
-                    app_state.credentials.add_indefinite_credential(
+                credential = app_state.credentials.add_indefinite_credential(
                         pw_decode(server_row.encrypted_api_key, password))
+            else:  # No auth required for this server
+                credential = app_state.credentials.add_indefinite_credential(None)
+            self._registered_api_keys[server_key] = credential
 
         for account_row in server_account_rows:
             if account_row.encrypted_api_key is not None:
@@ -3021,19 +3023,19 @@ class Wallet(TriggeredCallbacks):
         server_rows, account_rows = self.read_network_servers()
         for server_row in server_rows:
             server_key = ServerAccountKey.for_server_row(server_row)
-            results.append(NetworkServerState(server_key, self._registered_api_keys.get(server_key),
+            results.append(NetworkServerState(server_key, self._registered_api_keys[server_key],
                 server_row.mapi_fee_quote_json, server_row.date_last_try,
                 server_row.date_last_good))
         for account_row in account_rows:
             server_key = ServerAccountKey.for_account_row(account_row)
-            results.append(NetworkServerState(server_key, self._registered_api_keys.get(server_key),
+            results.append(NetworkServerState(server_key, self._registered_api_keys[server_key],
                 account_row.mapi_fee_quote_json, account_row.date_last_try,
                 account_row.date_last_good))
         return results
 
     def get_credential_id_for_server_key(self, key: ServerAccountKey) \
-            -> Optional[IndefiniteCredentialId]:
-        return self._registered_api_keys.get(key)
+            -> IndefiniteCredentialId:
+        return self._registered_api_keys[key]
 
     def update_network_servers(self,
             added_server_rows: List[NetworkServerRow],
@@ -3062,6 +3064,7 @@ class Wallet(TriggeredCallbacks):
 
             # Need to delete, add and update cached credentials. This should happen regardless of
             # whether the network is activated.
+            # Todo - this probably needs updating to allow for indefinite_credentials to be Null
             for server_key, (encrypted_api_key, new_key_state) in updated_api_keys.items():
                 if encrypted_api_key is not None:
                     credential_id = self._registered_api_keys[server_key]
@@ -3086,24 +3089,24 @@ class Wallet(TriggeredCallbacks):
                 for server_row in added_server_rows:
                     server_key = ServerAccountKey.for_server_row(server_row)
                     added_keys.append(NetworkServerState(server_key,
-                        self._registered_api_keys.get(server_key)))
+                        self._registered_api_keys[server_key]))
 
                 for account_row in added_server_account_rows:
                     server_key = ServerAccountKey.for_account_row(account_row)
                     added_keys.append(NetworkServerState(server_key,
-                        self._registered_api_keys.get(server_key)))
+                        self._registered_api_keys[server_key]))
 
                 for server_row in updated_server_rows:
                     server_key = ServerAccountKey.for_server_row(server_row)
                     if server_key in updated_api_keys:
                         updated_keys.append(NetworkServerState(server_key,
-                            self._registered_api_keys.get(server_key)))
+                            self._registered_api_keys[server_key]))
 
                 for account_row in updated_server_account_rows:
                     server_key = ServerAccountKey.for_account_row(account_row)
                     if server_key in updated_api_keys:
                         updated_keys.append(NetworkServerState(server_key,
-                            self._registered_api_keys.get(server_key)))
+                            self._registered_api_keys[server_key]))
 
                 deleted_keys.extend(deleted_server_keys)
                 deleted_keys.extend(deleted_server_account_keys)

@@ -63,7 +63,7 @@ def strip_PKCS7_padding(data: bytes) -> bytes:
 def aes_encrypt_with_iv(key: bytes, iv: bytes, data: bytes) -> bytes:
     data = append_PKCS7_padding(data)
     if AES:
-        e = AES.new(key, AES.MODE_CBC, iv).encrypt(data)
+        e: bytes = AES.new(key, AES.MODE_CBC, iv).encrypt(data)
     else:
         aes_cbc = pyaes.AESModeOfOperationCBC(key, iv=iv)
         aes = pyaes.Encrypter(aes_cbc, padding=pyaes.PADDING_NONE)
