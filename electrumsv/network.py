@@ -1014,6 +1014,7 @@ class Network(TriggeredCallbacks):
                 server = cast(APIServerDefinition, api_server.copy())
                 server["modified_date"] = server["static_data_date"]
                 api_servers.append(server)
+            self._migrate_config_entry(server)
 
         # Register the API server for visibility and maybe even usage. We pass in the reference
         # to the config entry dictionary, which will be saved via `_api_servers_config`.
@@ -1041,7 +1042,7 @@ class Network(TriggeredCallbacks):
                 server = cast(APIServerDefinition, mapi_server.copy())
                 server["modified_date"] = server["static_data_date"]
                 mapi_servers.append(server)
-            self._migrate_config_mapi_entry(server)
+            self._migrate_config_entry(server)
 
         # Register the MAPI server for visibility and maybe even usage. We pass in the reference
         # to the config entry dictionary, which will be saved via `_api_servers_config`.
@@ -1053,7 +1054,7 @@ class Network(TriggeredCallbacks):
         # them for persistence.
         self._api_servers_config[NetworkServerType.MERCHANT_API] = mapi_servers
 
-    def _migrate_config_mapi_entry(self, server: APIServerDefinition) -> None:
+    def _migrate_config_entry(self, server: APIServerDefinition) -> None:
         ## Ensure all the default field values are present if they are not already.
         server.setdefault("api_key", "")
         # Whether the API key is supported for the given server from entry presence.
@@ -1665,7 +1666,7 @@ class Network(TriggeredCallbacks):
         server_url = server_data["url"]
         assert server_url not in [ d["url"] for d in self._api_servers_config[server_type] ]
         if server_type == NetworkServerType.MERCHANT_API:
-            self._migrate_config_mapi_entry(server_data)
+            self._migrate_config_entry(server_data)
         self._api_servers_config[server_type].append(server_data)
 
         server_key = ServerAccountKey(server_url, server_type)
