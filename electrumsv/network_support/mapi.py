@@ -153,7 +153,6 @@ def poll_servers(network: "Network", account: "AbstractAccount") \
     server_entries: List[Tuple["NewServer", Optional["IndefiniteCredentialId"]]] = []
     for candidate in network.get_api_servers_for_account(account, NetworkServerType.MERCHANT_API):
         assert candidate.api_server is not None
-        assert candidate.credential_id is not None
         if candidate.api_server.should_request_fee_quote(candidate.credential_id):
             server_entries.append((candidate.api_server, candidate.credential_id))
 
