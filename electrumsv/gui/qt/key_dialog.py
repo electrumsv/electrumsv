@@ -25,9 +25,11 @@
 
 from typing import Optional, Sequence
 
+from bitcoinx import Header
+
 from PyQt5.QtWidgets import QComboBox, QLabel, QVBoxLayout
 
-from ...bitcoin import script_template_to_string
+from ...bitcoin import script_template_to_string, TSCMerkleProof
 from ...constants import ACCOUNT_SCRIPT_TYPES, ScriptType
 from ...i18n import _
 from ...wallet_database.types import KeyDataProtocol
@@ -132,10 +134,9 @@ class KeyDialog(WindowModalDialog):
         script_type = getattr(ScriptType, script_type_name)
         self._update_script_type(script_type)
 
-    def _on_transaction_verified(self, tx_hash: bytes, block_height: int, block_position: int,
-            confirmations: int, timestamp: int) -> None:
-        self._history_list.update_tx_item(tx_hash, block_height, block_position, confirmations,
-            timestamp)
+    def _on_transaction_verified(self, tx_hash: bytes, header: Header,
+            tsc_proof: TSCMerkleProof) -> None:
+        self._history_list.update_tx_item(tx_hash, header, tsc_proof)
 
     def _update_address(self) -> None:
         assert self._account is not None

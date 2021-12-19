@@ -442,7 +442,7 @@ class ExtendedHandlerUtils(HandlerUtils):
         entries = account.get_transaction_value_entries(mask=tx_flags)
         for entry in entries:
             result.append({"txid": hash_to_hex_str(entry.tx_hash),
-                           "height": entry.block_height,
+                           "block_hash": entry.block_hash,
                            "tx_flags": entry.flags,
                            "value": entry.value})
         return result
@@ -564,7 +564,7 @@ class ExtendedHandlerUtils(HandlerUtils):
             get_metadata = account._wallet.get_transaction_metadata
             spendable_coins = [coin for coin in all_coins
                 if coin.value > (INPUT_COST + OUTPUT_COST)
-                and cast(TransactionMetadata, get_metadata(coin.tx_hash)).block_height > 0]
+                and cast(TransactionMetadata, get_metadata(coin.tx_hash)).block_hash is not None]
         else:
             spendable_coins = [coin for coin in all_coins if
                                 coin.value > (INPUT_COST + OUTPUT_COST)]

@@ -206,9 +206,6 @@ class WalletNavigationView(QSplitter):
         elif item is self._debugger_item:
             self._pane_view.setCurrentWidget(self._debugger_widget)
         elif item is self._accounts_item:
-            # Display the accounts widget in the pane view.
-            # TODO(no-checkin) Not sure what this does yet. In theory it could be show all account
-            #   content, but that might be messy for balances.
             self._pane_view.setCurrentWidget(self._accounts_widget)
         else:
             account_id = item.data(TreeColumns.MAIN, Qt.ItemDataRole.UserRole)

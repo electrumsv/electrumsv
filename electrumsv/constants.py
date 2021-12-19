@@ -54,17 +54,17 @@ class TxFlags(IntFlag):
 
     # The transaction has been "removed" and is no longer linked to any account.
     REMOVED = 1 << 0
+
     # The transaction spends conflict with other transactions and it is not linked to any account.
     CONFLICTING = 1 << 7
+    EXPOSED = 1 << 8
 
-    # Complete transactions must always be added with bytedata. We no longer use this flag.
-    # There will be incomplete transactions which may allow b'' perhaps, and which should be
-    # updateable, but we're not there yet.
-    HAS_BYTEDATA = 1 << 12
-    # HasProofData = 1 << 13 # Deprecated.
     # Not currently used.
     INCOMPLETE = 1 << 14
 
+    # TODO(technical-debt) Flatten down these flags to a set of packed values as they are all
+    #     separate states of which a transaction can only be one. This should be able to be done
+    #     in a database migration.
     # A transaction known to the p2p network which is unconfirmed and in the mempool.
     STATE_CLEARED = 1 << 20
     # A transaction known to the p2p network which is confirmed and known to be in a block.
@@ -270,7 +270,6 @@ class SubscriptionOwnerPurpose(IntEnum):
     SCANNER = 1
     GAP_LIMIT_OBSERVER = 2
     ACTIVE_KEYS = 3
-    TRANSACTION_STATE = 4
 
 
 class TransactionImportFlag(IntFlag):
@@ -287,25 +286,26 @@ class TransactionInputFlag(IntFlag):
 
 
 class TransactionOutputFlag(IntFlag):
-    NONE = 0
+    NONE                = 0
 
     # If the UTXO is in a local or otherwise unconfirmed transaction.
-    ALLOCATED = 1 << 1
+    ALLOCATED           = 1 << 1
     # If the UTXO is in a confirmed transaction.
-    SPENT = 1 << 2
+    SPENT               = 1 << 2
     # If the UTXO is marked as not to be used. It should not be allocated if unallocated, and
     # if allocated then ideally we might extend this to prevent further dispatch in any form.
-    FROZEN = 1 << 3
-    COINBASE = 1 << 4
+    FROZEN              = 1 << 3
+    COINBASE            = 1 << 4
+    COINBASE_IMMATURE   = 1 << 5
 
 
 class PaymentFlag(IntFlag):
-    NONE =     0
-    UNPAID  =  1 << 0
-    EXPIRED =  1 << 1     # deprecated
-    UNKNOWN =  1 << 2     # sent but not propagated
-    PAID    =  1 << 3     # send and propagated
-    ARCHIVED = 1 << 4     # unused until we have ui support for filtering
+    NONE                = 0
+    UNPAID              = 1 << 0
+    EXPIRED             = 1 << 1     # deprecated
+    UNKNOWN             = 1 << 2     # sent but not propagated
+    PAID                = 1 << 3     # send and propagated
+    ARCHIVED            = 1 << 4     # unused until we have UI support for filtering
 
     MASK_STATE = (UNPAID | EXPIRED | PAID | ARCHIVED)
     CLEARED_MASK_STATE = ~MASK_STATE
@@ -403,6 +403,9 @@ class ServerCapability(IntEnum):
     MERKLE_PROOF_NOTIFICATION = 5
     # The "General API" restoration sub-API.
     RESTORATION = 6
+    TRANSACTION_REQUEST = 7
+    HEADERS = 8
+    PEER_CHANNELS = 9
 
 
 PREFIX_ASM_SCRIPT = "asm:"
@@ -466,3 +469,11 @@ class CredentialPolicyFlag(IntFlag):
 
 # Where the user is spending all the satoshis and not a specific amount.
 MAX_VALUE = -1
+
+
+class PendingHeaderWorkKind(IntEnum):
+    # We have a merkle proof for a transaction but no synchronised chain including it.
+    MERKLE_PROOF = 1
+    # A new header arrived.
+    NEW_HEADER = 2
+

@@ -44,7 +44,7 @@ import weakref
 import webbrowser
 
 import aiorpcx
-from bitcoinx import PublicKey
+from bitcoinx import Header, PublicKey
 from mypy_extensions import Arg, DefaultNamedArg, KwArg, VarArg
 
 from PyQt5.QtCore import pyqtSignal, Qt, QSize, QTimer, QRect
@@ -61,7 +61,7 @@ import electrumsv
 from ... import bitcoin, commands, paymentrequest, qrscanner, util
 from ...app_state import app_state
 from ...bitcoin import (COIN, is_address_valid, address_from_string,
-    script_template_to_string)
+    script_template_to_string, TSCMerkleProof)
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT,
     NetworkEventNames, ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags)
 from ...exceptions import UserCancelled
@@ -127,7 +127,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     transaction_state_signal = pyqtSignal(object, object, object)
     transaction_added_signal = pyqtSignal(object, object, object)
     transaction_deleted_signal = pyqtSignal(object, object)
-    transaction_verified_signal = pyqtSignal(object, object, object, object, object)
+    transaction_verified_signal = pyqtSignal(object, object, object)
     transaction_labels_updated_signal = pyqtSignal(object)
     payment_requests_paid_signal = pyqtSignal()
     show_secured_data_signal = pyqtSignal(object)
@@ -371,15 +371,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.transaction_deleted_signal.emit(account_id, tx_hash)
 
     # Map the wallet event to a Qt UI signal.
-    def _on_transaction_verified(self, event_name: str, tx_hash: bytes, block_height: int,
-            block_position: int, confirmations: int, timestamp: int) -> None:
+    def _on_transaction_verified(self, event_name: str, tx_hash: bytes, header: Header,
+            tsc_proof: TSCMerkleProof) -> None:
         self.need_update.set()
-        self.transaction_verified_signal.emit(tx_hash, block_height, block_position, confirmations,
-            timestamp)
+        self.transaction_verified_signal.emit(tx_hash, header, tsc_proof)
         # NOTE(rt12): Disabled due to fact we can't update individual rows and their order due
         # to the balance column being dependent on order. Redirected to the `need_update` flow.
-        # self.history_view.update_tx_item(tx_hash, block_height, block_position, confirmations,
-        #     timestamp)
+        # self.history_view.update_tx_item(tx_hash, header, tsc_proof)
 
     def _on_payment_requests_paid(self, event_name: str) -> None:
         self.payment_requests_paid_signal.emit()
@@ -423,7 +421,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             assert self._receive_view is not None
             self._receive_view.update_contents()
 
-        # TODO(no-checkin) Reconcile what is interrelated with this and clean it up.
+        # TODO(1.4.0) Reconcile what is interrelated with this and clean it up.
         # # NOTE(wallet-event-race-condition) For now we block creating the rows before the account
         # #   is created, in order to be sure that when we look here they will be present.
         # if not self.notifications_tab.is_empty():
@@ -798,7 +796,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._paytomany_menu.setEnabled(enable_spending_menus)
 
-        # TODO(no-checkin) There should be no active account unless an account is selected in
+        # TODO(1.4.0) There should be no active account unless an account is selected in
         #     the navigation, and so these menus should only be present if that is the case.
         #     In fact the parent menu should be disabled.
         if account_id is not None:
@@ -858,7 +856,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _update_show_menu(self, checked: bool = False) -> None:
         self._update_menu.exec(QCursor.pos())
 
-    # TODO(no-checkin) Make sure this is integrated into the notifications.
+    # TODO(1.4.0) Make sure this is integrated into the notifications.
     # def _update_check_toolbar_update(self) -> None:
     #     update_check_state = "default"
     #     check_result: Optional[ReleaseDocumentType] = self.config.get('last_update_check')
@@ -919,7 +917,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _on_check_for_updates(self, checked: bool=False) -> None:
         self.show_update_check()
 
-    # TODO(no-checkin) Make sure this is integrated into the notifications.
+    # TODO(1.4.0) Make sure this is integrated into the notifications.
     # def on_update_check(self, success: bool, result: UpdateCheckResultType) -> None:
     #     if success:
     #         assert isinstance(result, dict)

@@ -27,6 +27,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import IntEnum, IntFlag
 from io import BufferedIOBase, BytesIO
+import struct
 from typing import cast, Generator, Optional, Tuple, Union
 
 from bitcoinx import double_sha256, hash_to_hex_str, sha256, Address, classify_output_script, \
@@ -448,7 +449,13 @@ class TSCMerkleProof:
 
     @classmethod
     def from_stream(cls, stream: BufferedIOBase) -> TSCMerkleProof:
-        flags = ord(stream.read(1))
+        """
+        Raises `TSCMerkleProofError` for all known error cases.
+        """
+        flag_byte = stream.read(1)
+        if len(flag_byte) != 1:
+            raise TSCMerkleProofError("Proof is clipped and missing data")
+        flags = ord(flag_byte)
         validate_proof_flags(flags)
 
         transaction_index = read_varint(stream.read)
@@ -461,6 +468,8 @@ class TSCMerkleProof:
         if flags & ProofTransactionFlags.MASK == ProofTransactionFlags.TRANSACTION_HASH:
             # The serialised form is the transaction id (which is the reversed hash).
             transaction_hash = stream.read(32)
+            if len(transaction_hash) != 32:
+                raise TSCMerkleProofError("Proof is clipped and missing data")
         else:
             transaction_length = read_varint(stream.read)
             if transaction_length == 0:
@@ -468,27 +477,42 @@ class TSCMerkleProof:
             # TODO This will need a different model if we are ever dealing with really large
             #      transactions.
             transaction_bytes = stream.read(transaction_length)
+            if len(transaction_bytes) != transaction_length:
+                raise TSCMerkleProofError("Proof is clipped and missing data")
 
         if flags & ProofTargetFlags.MASK == ProofTargetFlags.BLOCK_HEADER:
             block_header_bytes = stream.read(80)
+            if len(block_header_bytes) != 80:
+                raise TSCMerkleProofError("Proof is clipped and missing data")
         elif flags & ProofTargetFlags.MASK == ProofTargetFlags.MERKLE_ROOT:
             merkle_root_bytes = stream.read(32)
+            if len(merkle_root_bytes) != 32:
+                raise TSCMerkleProofError("Proof is clipped and missing data")
         else:
+            # This is the default.
             block_hash = stream.read(32)
+            if len(block_hash) != 32:
+                raise TSCMerkleProofError("Proof is clipped and missing data")
 
-        node_count = read_varint(stream.read)
-        nodes: List[TSCMerkleNode] = []
-        for i in range(node_count):
-            node_type = ord(stream.read(1))
-            value_bytes = b''
-            value_int = 0
-            if node_type == TSCMerkleNodeKind.HASH:
-                value_bytes = stream.read(32)
-            elif node_type == TSCMerkleNodeKind.DUPLICATE:
-                pass
-            elif node_type == TSCMerkleNodeKind.INDEX:
-                value_int = read_varint(stream.read)
-            nodes.append(TSCMerkleNode(node_type, value_bytes, value_int))
+        try:
+            node_count = read_varint(stream.read)
+            nodes: List[TSCMerkleNode] = []
+            for i in range(node_count):
+                node_type = ord(stream.read(1))
+                value_bytes = b''
+                value_int = 0
+                if node_type == TSCMerkleNodeKind.HASH:
+                    value_bytes = stream.read(32)
+                    if len(value_bytes) != 32:
+                        raise TSCMerkleProofError("Proof is clipped and missing data")
+                elif node_type == TSCMerkleNodeKind.DUPLICATE:
+                    pass
+                elif node_type == TSCMerkleNodeKind.INDEX:
+                    value_int = read_varint(stream.read)
+                nodes.append(TSCMerkleNode(node_type, value_bytes, value_int))
+        except struct.error:
+            # bitcoinx `read_varint` unexpectedly encountered clipped buffer.
+            raise TSCMerkleProofError("Proof is clipped and missing data")
 
         return cls(flags, transaction_index, transaction_hash, transaction_bytes, block_hash,
             block_header_bytes, merkle_root_bytes, nodes)
@@ -537,20 +561,22 @@ class TSCMerkleProof:
 
 
 # TODO unit test this.
-def separate_proof_and_embedded_transaction(proof_bytes: bytes, expected_transaction_hash: bytes) \
-        -> Tuple[bytes, TSCMerkleProof]:
-    proof = TSCMerkleProof.from_bytes(proof_bytes)
-
+def separate_proof_and_embedded_transaction(proof: TSCMerkleProof,
+        expected_transaction_hash: bytes) -> Tuple[bytes, TSCMerkleProof]:
     transaction_bytes = proof.transaction_bytes
     assert transaction_bytes is not None
     transaction_hash = double_sha256(transaction_bytes)
     assert expected_transaction_hash == transaction_hash
     proof.transaction_bytes = None
     proof.transaction_hash = transaction_hash
-    proof.flags &= ProofTransactionFlags.MASK
+    proof.flags &= ~ProofTransactionFlags.MASK
     proof.flags |= ProofTransactionFlags.TRANSACTION_HASH
-
     return transaction_bytes, proof
+
+def separate_proof_and_embedded_transaction_from_bytes(proof_bytes: bytes,
+        expected_transaction_hash: bytes) -> Tuple[bytes, TSCMerkleProof]:
+    proof = TSCMerkleProof.from_bytes(proof_bytes)
+    return separate_proof_and_embedded_transaction(proof, expected_transaction_hash)
 
 
 ############## end TSC standard related functions ##################

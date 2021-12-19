@@ -1,6 +1,3 @@
-class DataPackingError(Exception):
-    pass
-
 
 class DatabaseUpdateError(Exception):
     pass

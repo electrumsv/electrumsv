@@ -142,7 +142,7 @@ class WalletAPI(QObject):
         self.wallet_window.show_secured_data_signal.emit(account_id)
 
     def update_displayed_notification_count(self, entry_count: int) -> None:
-        # TODO(no-checkin) This should set it on the wallet navigation view entry.
+        # TODO(1.4.0) This should set it on the wallet navigation view entry.
         pass
         # self.wallet_window._status_bar.notification_widget.set_notification_state(entry_count)
 

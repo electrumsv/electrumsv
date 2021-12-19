@@ -6,7 +6,7 @@ import pytest
 
 from electrumsv.constants import ScriptType
 from electrumsv.subscription import SubscriptionManager, SubscriptionOwner
-from electrumsv.types import ElectrumXHistoryList, HashSubscriptionCallback, \
+from electrumsv.types import ScriptHashHistoryList, HashSubscriptionCallback, \
     HashSubscriptionEntry, \
     SubscriptionEntry, SubscriptionKey, SubscriptionKeyScriptHashOwnerContext, \
     SubscriptionOwnerContextType, SubscriptionOwnerPurpose, SubscriptionType
@@ -46,7 +46,7 @@ async def test_history_event_delivery(app_state) -> None:
 
     SUBSCRIPTION_ID = 1
     SCRIPT_HASH = b'123456'
-    RESULTS: ElectrumXHistoryList = [{ "A": "z" }]
+    RESULTS: ScriptHashHistoryList = [{ "A": "z" }]
 
     manager = SubscriptionManager()
     await manager.on_script_hash_history(SUBSCRIPTION_ID, SCRIPT_HASH, RESULTS)
@@ -62,8 +62,8 @@ async def test_history_event_processing(app_state) -> None:
     SUBSCRIPTION_ID_B = 2
     SCRIPT_HASH_A = b'AAAAAA'
     SCRIPT_HASH_B = b'BBBBBB'
-    RESULTS_A: ElectrumXHistoryList = [{ "A": "z" }]
-    RESULTS_B: ElectrumXHistoryList = [{ "A": "z" }]
+    RESULTS_A: ScriptHashHistoryList = [{ "A": "z" }]
+    RESULTS_B: ScriptHashHistoryList = [{ "A": "z" }]
 
     WALLET_ID = 1000
     ACCOUNT_ID = 2000
@@ -76,7 +76,7 @@ async def test_history_event_processing(app_state) -> None:
     owner_callback1_called = False
     owner_callback1_entered = False
     async def owner_callback1(key: SubscriptionKey, context_type: SubscriptionOwnerContextType,
-            results: ElectrumXHistoryList) -> None:
+            results: ScriptHashHistoryList) -> None:
         nonlocal owner_callback1_called, owner_callback1_entered
         owner_callback1_entered = True
         assert key.value_type == SubscriptionType.SCRIPT_HASH
@@ -92,7 +92,7 @@ async def test_history_event_processing(app_state) -> None:
     owner_callback2_called = False
     owner_callback2_entered = False
     async def owner_callback2(key: SubscriptionKey, context_type: SubscriptionOwnerContextType,
-            results: ElectrumXHistoryList) -> None:
+            results: ScriptHashHistoryList) -> None:
         nonlocal owner_callback2_called, owner_callback2_entered
         owner_callback2_entered = True
         assert key.value_type == SubscriptionType.SCRIPT_HASH
@@ -156,7 +156,7 @@ async def test_history_event_processing(app_state) -> None:
     assert additions[0].entry_id == 2
     assert additions[0].hash_value == SCRIPT_HASH_B
 
-    async def queue_get_1() -> Tuple[int, bytes, ElectrumXHistoryList]:
+    async def queue_get_1() -> Tuple[int, bytes, ScriptHashHistoryList]:
         return SUBSCRIPTION_ID_A, SCRIPT_HASH_A, RESULTS_A
     manager._script_hash_notification_queue.get.side_effect = queue_get_1
 
@@ -171,7 +171,7 @@ async def test_history_event_processing(app_state) -> None:
     owner_callback1_called = owner_callback2_called = False
     manager._scripthash_result_cache.clear()
 
-    async def queue_get_2() -> Tuple[int, bytes, ElectrumXHistoryList]:
+    async def queue_get_2() -> Tuple[int, bytes, ScriptHashHistoryList]:
         return SUBSCRIPTION_ID_B, SCRIPT_HASH_B, RESULTS_B
     manager._script_hash_notification_queue.get.side_effect = queue_get_2
 

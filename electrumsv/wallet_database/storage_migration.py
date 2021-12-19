@@ -1,5 +1,11 @@
 """
 Keeps backwards compatible logic for storage migration.
+
+Every structure in here should be versioned according to the first migration that the structure
+was introduced for, e.g. "SomeStruct_22", where 22 was the first database migration.
+
+TODO Currently this contains structures named "SomeStruct1" instead of "SomeStruct_22". This should
+     be rectified at some point, but is not being rectified yet in order to reduce merge burden.
 """
 import concurrent.futures
 from enum import IntFlag
@@ -70,6 +76,7 @@ class TxFlags_22(IntFlag):
     HasHeight = 1 << 5
     HasPosition = 1 << 6
     HasByteData = 1 << 12
+    HasProofData = 1 << 13 # Deprecated.
 
     # A transaction received over the p2p network which is unconfirmed and in the mempool.
     STATE_CLEARED = 1 << 20
