@@ -6,6 +6,10 @@
         "capabilities": [
             "RESTORATION"
         ],
+        "enabled_for_all_wallets": true,
+        "api_key_supported": false,
+        "last_try": 0.0,
+        "last_good": 0.0,
         "static_data_date": "2021-11-15T04:45:05+0000"
     }
 ]
