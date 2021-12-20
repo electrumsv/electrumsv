@@ -410,6 +410,11 @@ class ServerCapability(IntEnum):
     MERKLE_PROOF_NOTIFICATION = 5
     # The "General API" restoration sub-API.
     RESTORATION = 6
+    HEADERS = 7
+    PEER_CHANNELS = 8
+    TRANSACTION_REQUEST = 9
+    SPEND_NOTIFICATIONS = 10
+    PAYMENT_CHANNEL = 11
 
 
 PREFIX_ASM_SCRIPT = "asm:"

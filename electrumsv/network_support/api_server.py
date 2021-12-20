@@ -88,18 +88,25 @@ class CapabilitySupport:
 SERVER_CAPABILITIES = {
     NetworkServerType.GENERAL: [
         CapabilitySupport(_("Account restoration"), ServerCapability.RESTORATION),
+        CapabilitySupport(_("Merkle proof notification"), ServerCapability.MERKLE_PROOF_NOTIFICATION,
+            is_unsupported=True),
+        CapabilitySupport(_("Merkle proof request"), ServerCapability.MERKLE_PROOF_REQUEST),
+        CapabilitySupport(_("Headers"), ServerCapability.HEADERS),
+        CapabilitySupport(_("Peer channels"), ServerCapability.PEER_CHANNELS),
+        CapabilitySupport(_("Transaction request"), ServerCapability.TRANSACTION_REQUEST),
+        CapabilitySupport(_("Spend notifications"), ServerCapability.SPEND_NOTIFICATIONS),
+        CapabilitySupport(_("Fee quote"), ServerCapability.FEE_QUOTE),
+        CapabilitySupport(_("Payment channel"), ServerCapability.PAYMENT_CHANNEL),
     ],
     NetworkServerType.MERCHANT_API: [
         CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST,
             can_disable=True),
         CapabilitySupport(_("Transaction fee quotes"), ServerCapability.FEE_QUOTE),
-        CapabilitySupport(_("Transaction proofs"), ServerCapability.MERKLE_PROOF_NOTIFICATION,
-            is_unsupported=True),
     ],
     NetworkServerType.ELECTRUMX: [
         CapabilitySupport(_("Blockchain scanning"), ServerCapability.SCRIPTHASH_HISTORY),
         CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST),
-        CapabilitySupport(_("Transaction proofs"), ServerCapability.MERKLE_PROOF_REQUEST),
+        CapabilitySupport(_("Merkle proof request"), ServerCapability.MERKLE_PROOF_REQUEST),
     ]
 }
 
