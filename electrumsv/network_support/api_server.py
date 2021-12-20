@@ -333,6 +333,19 @@ class NewServer:
         header_key, _separator, header_value = authorization_header.partition(": ")
         return { header_key: header_value.format(API_KEY=decrypted_api_key) }
 
+    @property
+    def capabilities(self) -> List[ServerCapability]:
+        results: List[ServerCapability] = []
+        if self.config is not None:
+            for capability_name in self.config.get("capabilities", []):
+                capability_value = getattr(ServerCapability, capability_name, None)
+                if capability_value is not None:
+                    results.append(capability_value)
+        return results
+
+    def __repr__(self) -> str:
+        return f"<NewServer url={self.url} server_type={self.server_type} config={self.config}/>"
+
 
 class SelectionCandidate(NamedTuple):
     server_type: NetworkServerType
@@ -354,8 +367,18 @@ def select_servers(capability_type: ServerCapability, candidates: List[Selection
     """
     filtered_servers: List[SelectionCandidate] = []
     for candidate in candidates:
-        for server_capability in SERVER_CAPABILITIES[candidate.server_type]:
-            if server_capability.type == capability_type:
+        # TODO There is some clean up and final decisions that need to be made here with respect
+        #      to `SERVER_CAPABILITIES`. For now for MAPI servers it is probably good enough to
+        #      have this hard-coded selection of services, but it is possible in the longer term
+        #      that different MAPI servers will have different endpoints and no-one but ESV
+        #      reference server will be supporting our "endpoints" declarations. This might mean
+        #      that MAPI servers we offer as defaults might have "capabilities" entries in their
+        #      `config`.
+        capabilities = [ c.type for c in SERVER_CAPABILITIES[candidate.server_type] ]
+        if candidate.api_server is not None:
+            capabilities = candidate.api_server.capabilities
+        for server_capability_type in capabilities:
+            if server_capability_type == capability_type:
                 filtered_servers.append(candidate)
                 break
     return filtered_servers
