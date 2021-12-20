@@ -376,7 +376,9 @@ def select_servers(capability_type: ServerCapability, candidates: List[Selection
         #      `config`.
         capabilities = [ c.type for c in SERVER_CAPABILITIES[candidate.server_type] ]
         if candidate.api_server is not None:
-            capabilities = candidate.api_server.capabilities
+            config_capabilities = candidate.api_server.capabilities
+            if config_capabilities:
+                capabilities = config_capabilities
         for server_capability_type in capabilities:
             if server_capability_type == capability_type:
                 filtered_servers.append(candidate)
