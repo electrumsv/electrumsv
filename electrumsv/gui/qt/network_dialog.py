@@ -419,7 +419,7 @@ class EditServerDialog(WindowModalDialog):
         if entry is not None:
             self._edit_state.enabled = entry.enabled_for_all_wallets
             if entry.data_api is not None and entry.data_api.config is not None and \
-                    entry.data_api.config["api_key"]:
+                    entry.data_api.config.get("api_key"):
                 encrypted_api_key = entry.data_api.config["api_key"]
                 self._edit_state.encrypted_api_key = encrypted_api_key
                 self._edit_state.decrypted_api_key = pw_decode(encrypted_api_key, TOKEN_PASSWORD)
