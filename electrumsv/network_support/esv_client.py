@@ -1,76 +1,18 @@
 import aiohttp
-from aiohttp import web
+from aiohttp import web, WSServerHandshakeError
 import asyncio
 import base64
-from enum import IntFlag
-from typing import List, NamedTuple, TypedDict, Union, Dict, Optional, Any
+import json
+from typing import List, Union, Optional, AsyncGenerator, AsyncIterable, Dict
 
+from electrumsv.bitcoin import TSCMerkleProof
+from electrumsv.logs import logs
+from electrumsv.network_support.esv_client_types import PeerChannelToken, TokenPermissions, \
+    MessageViewModelGetBinary, GenericJSON, MessageViewModelGetJSON, APITokenViewModelGet, \
+    PeerChannelViewModelGet, RetentionViewModel, TipResponse, Error, GeneralNotification, ChannelId, \
+    WebsocketUnauthorizedException, PeerChannelMessage, MAPICallbackResponse
 
-class TokenPermissions(IntFlag):
-    NONE = 0
-    READ_ACCESS = 1 << 1
-    WRITE_ACCESS = 1 << 2
-
-
-class PeerChannelToken(NamedTuple):
-    permissions: TokenPermissions
-    api_key: str
-
-
-ChannelId = str
-GenericJSON = Dict[Any, Any]
-
-
-# NOTE(AustEcon) Many of the following types are copied from the ESVReferenceServer
-# msg_box/models.py
-class RetentionViewModel(TypedDict):
-    min_age_days: int
-    max_age_days: int
-    auto_prune: bool
-
-
-class PeerChannelAPITokenViewModelGet(TypedDict):
-    id: int
-    token: str
-    description: str
-    can_read: bool
-    can_write: bool
-
-
-class PeerChannelViewModelGet(TypedDict):
-    id: str
-    href: str
-    public_read: bool
-    public_write: bool
-    sequenced: bool
-    locked: bool
-    head_sequence: int
-    retention: RetentionViewModel
-    access_tokens: List[PeerChannelAPITokenViewModelGet]
-
-
-class APITokenViewModelGet(TypedDict):
-    id: str
-    token: str
-    description: str
-    can_read: bool
-    can_write: bool
-
-
-# These are both for json but they represent an
-# underlying json vs binary payload
-class MessageViewModelGetJSON(TypedDict):
-    sequence: int
-    received: str
-    content_type: str
-    payload: GenericJSON
-
-
-class MessageViewModelGetBinary(TypedDict):
-    sequence: int
-    received: str
-    content_type: str
-    payload: str  # hex
+logger = logs.get_logger("esv-client")
 
 
 class PeerChannel:
@@ -102,13 +44,13 @@ class PeerChannel:
                 return token
         raise ValueError("Read token not found")
 
-    async def get_messages(self) -> List[MessageViewModelGetBinary]:
+    async def get_messages(self) -> List[PeerChannelMessage]:
         url = self.base_url + "api/v1/channel/{channelid}".format(channelid=self.channel_id)
         read_token = self._get_read_token()
         headers = {"Authorization": f"Bearer {read_token.api_key}"}
         async with self.session.get(url, headers=headers) as resp:
             resp.raise_for_status()
-            result: List[MessageViewModelGetBinary] = await resp.json()
+            result: List[PeerChannelMessage] = await resp.json()
             return result
 
     async def get_max_sequence_number(self) -> int:
@@ -182,7 +124,11 @@ class PeerChannel:
             return result
 
 
-class PeerChannelManager:
+class ESVClient:
+    """This is a lightweight client for the ElectrumSVReferenceServer.
+
+    The only state is the base_url and master_token. Therefore instances of ESVClient can be
+    re-generated on-demand - no need for caching of ESVClient instances."""
 
     def __init__(self, base_url: str, session: aiohttp.ClientSession, master_token: str):
         self.base_url = base_url
@@ -190,7 +136,19 @@ class PeerChannelManager:
         self.master_token = master_token
         self.headers = {"Authorization": f"Bearer {self.master_token}"}
 
-    def _parse_peer_channel_json_to_obj(self, peer_channel_json: PeerChannelViewModelGet) \
+        self._message_fetcher_is_alive = False
+        self._FETCH_JOBS_COUNT = 4
+        self._merkle_proofs_queue: asyncio.Queue[MAPICallbackResponse] = asyncio.Queue()
+        self._peer_channel_cache: Dict[ChannelId, PeerChannel] = {}
+
+    def _replace_http_with_ws(self, url: str) -> str:
+        if url.startswith("http://"):
+            url = self.base_url.replace("http://", "ws://")
+        if self.base_url.startswith("https://"):
+            url = url.replace("https://", "wss://")
+        return url
+
+    def _peer_channel_json_to_obj(self, peer_channel_json: PeerChannelViewModelGet) \
             -> PeerChannel:
         access_tokens = peer_channel_json['access_tokens']
         tokens = []
@@ -205,6 +163,134 @@ class PeerChannelManager:
         return PeerChannel(channel_id=peer_channel_json['id'], tokens=tokens,
             base_url=self.base_url, session=self.session, master_token=self.master_token)
 
+    # ----- General Websocket ----- #
+    async def _fetch_peer_channel_message_job(self,
+            peer_channel_notification_queue: asyncio.Queue) -> None:
+        """Can run multiple of these concurrently to fetch new peer channel messages"""
+        message: GeneralNotification = await peer_channel_notification_queue.get()
+        channel_id: ChannelId = message['result']['id']
+
+        peer_channel = await self.get_single_peer_channel_cached(channel_id)
+        messages: list[PeerChannelMessage] = await peer_channel.get_messages()  # network io
+        for pc_message in messages:
+            if pc_message['content_type'] == 'application/json':
+
+                json_payload: MAPICallbackResponse = pc_message['payload']
+                if json_payload.get("callbackReason") \
+                        and json_payload["callbackReason"] == "merkleProof"\
+                        or json_payload["callbackReason"] == "doubleSpendAttempt":
+                    self._merkle_proofs_queue.put_nowait(json_payload)
+                else:
+                    logger.error(f"PeerChannelMessage not recognised: {pc_message}")
+
+
+            if pc_message['content_type'] == 'application/octet-stream':
+                logger.error(f"Binary format PeerChannelMessage received - not supported yet")
+
+    async def _message_fetcher_job(self):
+        """Idempotent - if spawned twice, the second time will do nothing"""
+        if not self._message_fetcher_is_alive:
+            peer_channel_notification_queue: asyncio.Queue[ChannelId] = asyncio.Queue()
+            for i in range(self._FETCH_JOBS_COUNT):
+                asyncio.create_task(
+                    self._fetch_peer_channel_message_job(peer_channel_notification_queue))
+
+            async for notification in self.subscribe_to_general_notifications():
+                peer_channel_notification_queue.put_nowait(notification)
+
+    async def wait_for_merkle_proofs_and_double_spends(self) -> AsyncIterable[GeneralNotification]:
+        if not self._message_fetcher_is_alive:
+            asyncio.create_task(self._message_fetcher_job())
+
+        # https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
+        while True:
+            # Todo run select query on MAPIBroadcastCallbacks to get libsodium encryption key
+            callback_response = await self._merkle_proofs_queue.get()
+            tsc_merkle_proof: TSCMerkleProof = json.loads(callback_response['callbackPayload'])
+
+            # Todo caller to delete entry in MAPIBroadcastCallbacks when processed
+            yield tsc_merkle_proof
+
+    async def subscribe_to_general_notifications(self) -> AsyncIterable[GeneralNotification]:
+        """Concurrent fetching of peer channel messages is left to the caller in order to keep
+        this class very simple"""
+        ws_base_url = self._replace_http_with_ws(self.base_url)
+        url = ws_base_url + "/api/v1/web-socket"
+
+        async with aiohttp.ClientSession() as session:
+            try:
+                async with session.ws_connect(url + f"?token={self.master_token}", timeout=5.0) as ws:
+                    logger.info(f'Connected to {url}')
+                    async for msg in ws:
+                        msg: aiohttp.WSMessage
+                        if msg.type == aiohttp.WSMsgType.TEXT:
+                            notification: GeneralNotification = json.loads(msg.data)
+                            yield notification
+
+                        if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR,
+                                aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
+                            logger.info("CLOSED")
+                            break
+            except WSServerHandshakeError as e:
+                if e.status == 401:
+                    raise WebsocketUnauthorizedException()
+
+    # ----- HeaderSV APIs ----- #
+    async def get_single_header(self, block_hash: bytes) -> bytes:
+        url = self.base_url + "api/v1/headers/{block_hash}".format(block_hash=block_hash)
+        headers = {}
+        headers.update(self.headers)
+        headers.update({"Accept": "application/octet-stream"})
+        async with self.session.get(url, headers=self.headers) as resp:
+            resp.raise_for_status()
+            raw_header = await resp.read()
+            return raw_header
+
+    async def get_headers_by_height(self, from_height: int, count: Optional[int]=None) \
+            -> bytes:
+        url = self.base_url + "api/v1/headers" + f"?height={from_height}"
+        if count:
+            url += f"&count={count}"
+        headers = {}
+        headers.update(self.headers)
+        headers.update({"Accept": "application/octet-stream"})
+        async with self.session.get(url, headers=self.headers) as resp:
+            resp.raise_for_status()
+            raw_headers_array = await resp.read()
+            return raw_headers_array
+
+    async def get_chain_tips(self) -> TipResponse:
+        url = self.base_url + "api/v1/headers/tips"
+        headers = {}
+        headers.update(self.headers)
+        headers.update({"Accept": "application/json"})
+        async with self.session.get(url, headers=self.headers) as resp:
+            resp.raise_for_status()
+            json_tip_response: TipResponse = await resp.json()
+            return json_tip_response
+
+    async def subscribe_to_headers(self) -> AsyncIterable[TipResponse]:
+        ws_base_url = self._replace_http_with_ws(self.base_url)
+        url = ws_base_url + "/api/v1/headers/tips/websocket"
+
+        async with self.session as session:
+            async with session.ws_connect(url, headers={}, timeout=5.0) as ws:
+                logger.debug(f'Connected to {url}')
+                async for msg in ws:
+                    content: Union[TipResponse, Error] = json.loads(msg.data)
+                    logger.debug('Message new chain tip hash: ', content)
+                    if isinstance(content, dict) and content.get('error'):
+                        error: Error = Error.from_websocket_dict(content)
+                        logger.debug(f"Websocket error: {error}")
+                        if error.status == web.HTTPUnauthorized.status_code:
+                            raise web.HTTPUnauthorized()
+                    else:
+                        yield content
+
+                    if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                        break
+
+    # ----- Peer Channel APIs ----- #
     async def create_peer_channel(self, public_read: bool=True, public_write: bool=True,
             sequenced: bool=True, retention: Optional[RetentionViewModel]=None) -> PeerChannel:
         url = self.base_url + "api/v1/channel/manage"
@@ -224,7 +310,9 @@ class PeerChannelManager:
         async with self.session.post(url, headers=self.headers, json=body) as resp:
             resp.raise_for_status()
             json_response: PeerChannelViewModelGet = await resp.json()
-            return self._parse_peer_channel_json_to_obj(json_response)
+            peer_channel = self._peer_channel_json_to_obj(json_response)
+            self._peer_channel_cache[peer_channel.channel_id] = peer_channel  # cache
+            return self._peer_channel_json_to_obj(json_response)
 
     async def delete_peer_channel(self, peer_channel: PeerChannel) -> None:
         url = self.base_url + "api/v1/channel/manage/{channelid}"
@@ -240,7 +328,8 @@ class PeerChannelManager:
             resp.raise_for_status()
             result = []
             for peer_channel_json in await resp.json():
-                peer_channel_obj = self._parse_peer_channel_json_to_obj(peer_channel_json)
+                peer_channel_obj = self._peer_channel_json_to_obj(peer_channel_json)
+                self._peer_channel_cache[peer_channel_obj.channel_id] = peer_channel_obj  # cache
                 result.append(peer_channel_obj)
             return result
 
@@ -249,7 +338,15 @@ class PeerChannelManager:
         url = base_url + "api/v1/channel/manage/{channelid}".format(channelid=channel_id)
         async with self.session.get(url, headers=self.headers) as resp:
             resp.raise_for_status()
-            return self._parse_peer_channel_json_to_obj(await resp.json())
+            peer_channel = self._peer_channel_json_to_obj(await resp.json())
+            self._peer_channel_cache[channel_id] = peer_channel  # cache
+            return peer_channel
+
+    async def get_single_peer_channel_cached(self, channel_id: str) -> PeerChannel:
+        if self._peer_channel_cache.get(channel_id):
+            return self._peer_channel_cache[channel_id]
+        else:
+            await self.get_single_peer_channel(channel_id)
 
 
 if __name__ == "__main__":
@@ -259,7 +356,7 @@ if __name__ == "__main__":
             BASE_URL = "http://127.0.0.1:47124/"  # ESVReferenceServer
             REGTEST_BEARER_TOKEN = "t80Dp_dIk1kqkHK3P9R5cpDf67JfmNixNscexEYG0_xa" \
                                    "CbYXKGNm4V_2HKr68ES5bytZ8F19IS0XbJlq41accQ=="
-            peer_channel_manager = PeerChannelManager(BASE_URL, session, REGTEST_BEARER_TOKEN)
+            peer_channel_manager = ESVClient(BASE_URL, session, REGTEST_BEARER_TOKEN)
 
             peer_channel = await peer_channel_manager.create_peer_channel()
             assert isinstance(peer_channel, PeerChannel)
