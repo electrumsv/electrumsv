@@ -281,7 +281,10 @@ argparse.ArgumentParser.set_default_subparser = set_default_subparser # type: ig
 # workaround https://bugs.python.org/issue23058
 # see https://github.com/nickstenning/honcho/pull/121
 
-def subparser_call(self: argparse._SubParsersAction, parser: argparse.ArgumentParser,
+# NOTE(AustEcon) Ignore typing due to 'Missing type parameters for generic type
+# "_SubParsersAction"  [type-arg]'
+def subparser_call(self: argparse._SubParsersAction,  # type: ignore[type-arg]
+        parser: argparse.ArgumentParser,
         namespace: Optional[argparse.Namespace], values: List[str],
         option_string: Optional[str]=None) -> None:
     from argparse import ArgumentError, SUPPRESS, _UNRECOGNIZED_ARGS_ATTR
