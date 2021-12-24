@@ -436,8 +436,8 @@ class XTxInput(TxInput): # type: ignore[misc]
 
     def to_bytes(self) -> bytes:
         if self.x_pubkeys:
-            self.script_sig = create_script_sig(self.script_type, self.threshold, self.x_pubkeys,
-                self.signatures)
+            self.script_sig = create_script_sig(self.script_type,  # type: ignore[misc]
+                self.threshold, self.x_pubkeys, self.signatures)
         return cast(bytes, super().to_bytes())
 
     def signatures_present(self) -> List[bytes]:
