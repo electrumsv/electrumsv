@@ -37,6 +37,7 @@ import time
 from typing import Any, Callable, cast, Coroutine, Dict, Iterable, List, NamedTuple, Optional, \
     TYPE_CHECKING, TypedDict, Tuple, Union
 
+from aiohttp import ClientSession
 from aiorpcx import (
     connect_rs, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
     TaskTimeout, TaskGroup, handler_invocation, Request, sleep, ignore_after, timeout_after,
@@ -899,6 +900,20 @@ class Network(TriggeredCallbacks):
         self._wallet_jobs = async_.queue()
 
         self.future = async_.spawn(self._main_task_loop)
+
+        self.aiohttp_session: Optional[ClientSession] = None
+
+    async def get_aiohttp_session(self):
+        """Global client session shared globally for any outbound http requests.
+        Benefits from connection pooling if the same instance is re-used"""
+        if self.aiohttp_session is not None:
+            return self.aiohttp_session
+        self.aiohttp_session = ClientSession()
+        return self.aiohttp_session
+
+    async def close_aiohttp_session(self):
+        if self.aiohttp_session is not None:
+            await self.aiohttp_session.close()
 
     def _read_config_api_server(self) -> None:
         api_servers = cast(List[APIServerDefinition], app_state.config.get("api_servers", []))

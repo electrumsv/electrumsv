@@ -3,16 +3,21 @@ from aiohttp import web, WSServerHandshakeError
 import asyncio
 import base64
 import json
-from typing import List, Union, Optional, AsyncGenerator, AsyncIterable, Dict
+from typing import List, Union, Optional, AsyncIterable, Dict
 
 from electrumsv.bitcoin import TSCMerkleProof
 from electrumsv.logs import logs
-from electrumsv.network_support.esv_client_types import PeerChannelToken, TokenPermissions, \
-    MessageViewModelGetBinary, GenericJSON, MessageViewModelGetJSON, APITokenViewModelGet, \
-    PeerChannelViewModelGet, RetentionViewModel, TipResponse, Error, GeneralNotification, ChannelId, \
-    WebsocketUnauthorizedException, PeerChannelMessage, MAPICallbackResponse
+from electrumsv.network_support.esv_client_types import (
+    PeerChannelToken, TokenPermissions, MessageViewModelGetBinary, GenericJSON,
+    MessageViewModelGetJSON, APITokenViewModelGet, PeerChannelViewModelGet, RetentionViewModel,
+    TipResponse, Error, GeneralNotification,
+    ChannelId, WebsocketUnauthorizedException, PeerChannelMessage, MAPICallbackResponse
+)
 
 logger = logs.get_logger("esv-client")
+
+REGTEST_MASTER_TOKEN = "t80Dp_dIk1kqkHK3P9R5cpDf67JfmNixNscexEYG0_xa" \
+                       "CbYXKGNm4V_2HKr68ES5bytZ8F19IS0XbJlq41accQ=="
 
 
 class PeerChannel:
@@ -32,13 +37,16 @@ class PeerChannel:
     def __repr__(self) -> str:
         return f"<PeerChannel channel_id={self.channel_id}/>"
 
-    def _get_write_token(self) -> PeerChannelToken:
+    def get_callback_url(self) -> str:
+        return self.base_url + f"api/v1/channel/{self.channel_id}"
+
+    def get_write_token(self) -> PeerChannelToken:
         for token in self.tokens:
             if token.permissions & TokenPermissions.WRITE_ACCESS == TokenPermissions.WRITE_ACCESS:
                 return token
         raise ValueError("Write token not found")
 
-    def _get_read_token(self) -> PeerChannelToken:
+    def get_read_token(self) -> PeerChannelToken:
         for token in self.tokens:
             if token.permissions & TokenPermissions.READ_ACCESS == TokenPermissions.READ_ACCESS:
                 return token
@@ -46,7 +54,7 @@ class PeerChannel:
 
     async def get_messages(self) -> List[PeerChannelMessage]:
         url = self.base_url + "api/v1/channel/{channelid}".format(channelid=self.channel_id)
-        read_token = self._get_read_token()
+        read_token = self.get_read_token()
         headers = {"Authorization": f"Bearer {read_token.api_key}"}
         async with self.session.get(url, headers=headers) as resp:
             resp.raise_for_status()
@@ -55,7 +63,7 @@ class PeerChannel:
 
     async def get_max_sequence_number(self) -> int:
         url = self.base_url + "api/v1/channel/{channelid}".format(channelid=self.channel_id)
-        read_token = self._get_read_token()
+        read_token = self.get_read_token()
         headers = {"Authorization": f"Bearer {read_token.api_key}"}
         async with self.session.head(url, headers=headers) as resp:
             resp.raise_for_status()
@@ -66,7 +74,7 @@ class PeerChannel:
                 -> Union[MessageViewModelGetJSON, MessageViewModelGetBinary]:
         """returns sequence number"""
         url = self.base_url + "api/v1/channel/{channelid}".format(channelid=self.channel_id)
-        write_token = self._get_write_token()
+        write_token = self.get_write_token()
         headers = {"Authorization": f"Bearer {write_token.api_key}"}
 
         if mime_type == "application/json":
@@ -215,11 +223,11 @@ class ESVClient:
         """Concurrent fetching of peer channel messages is left to the caller in order to keep
         this class very simple"""
         ws_base_url = self._replace_http_with_ws(self.base_url)
-        url = ws_base_url + "/api/v1/web-socket"
+        url = ws_base_url + "/api/v1/web-socket" + f"?token={self.master_token}"
 
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.ws_connect(url + f"?token={self.master_token}", timeout=5.0) as ws:
+                async with session.ws_connect(url, timeout=5.0) as ws:
                     logger.info(f'Connected to {url}')
                     async for msg in ws:
                         msg: aiohttp.WSMessage
@@ -343,6 +351,8 @@ class ESVClient:
             return peer_channel
 
     async def get_single_peer_channel_cached(self, channel_id: str) -> PeerChannel:
+        # NOTE(AustEcon) - if new channel tokens are subsequently generated, you must remember to
+        # update this cache
         if self._peer_channel_cache.get(channel_id):
             return self._peer_channel_cache[channel_id]
         else:

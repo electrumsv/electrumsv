@@ -43,6 +43,7 @@ from typing import cast, Dict, List, NamedTuple, Optional, Tuple, TypedDict, TYP
 
 import dateutil.parser
 
+from .esv_client import PeerChannel, ESVClient, REGTEST_MASTER_TOKEN
 from ..app_state import app_state
 from ..constants import NetworkServerType, ServerCapability, TOKEN_PASSWORD
 from ..crypto import pw_decode
@@ -50,7 +51,8 @@ from ..i18n import _
 from ..types import IndefiniteCredentialId, NetworkServerState, ServerAccountKey, \
     TransactionFeeEstimator, TransactionSize
 
-from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator
+from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator, BroadcastResponse, get_mapi_servers, \
+    poll_servers_async, broadcast_transaction_mapi_simple
 
 if TYPE_CHECKING:
     from ..network import Network, SVServer
@@ -109,6 +111,52 @@ SERVER_CAPABILITIES = {
     ]
 }
 
+async def broadcast_transaction_auto(tx: "Transaction", network: "Network",
+        account: "AbstractAccount", merkle_proof: bool = False, ds_check: bool = False) \
+            -> BroadcastResponse:
+    """Auto here refers to the fact that this is automating a number of things:
+        - polling the mAPI servers (if need be)
+        - prioritisation of mAPI servers
+        - creating a new peer channel using the best available ESVReferenceServer
+        - ensuring there is a record of attempted broadcast & success or failure in
+        MAPIBroadcastCallbacks.
+        - finally, broadcasting through mAPI
+    """
+    server_entries = get_mapi_servers(network, account)
+    if len(server_entries):
+        await poll_servers_async(server_entries)
+
+    selection_candidates = network.get_api_servers_for_account(account,
+        NetworkServerType.MERCHANT_API)
+
+    broadcast_servers: list[BroadcastCandidate] = prioritise_broadcast_servers(
+        TransactionSize(tx.size()), selection_candidates)
+    broadcast_server = broadcast_servers[0]
+
+    peer_channel: Optional[PeerChannel] = None  # Only working on RegTest at present
+    if app_state.config.get('regtest'):
+        selection_candidates = network.get_api_servers_for_account(account,
+            NetworkServerType.GENERAL)
+
+        esv_reference_servers = select_servers(ServerCapability.PEER_CHANNELS, selection_candidates)
+        esv_reference_server = esv_reference_servers[0]  # Todo - prioritise properly
+        aiohttp_client = await network.get_aiohttp_session()
+        esv_client = ESVClient(esv_reference_server.api_server.url, aiohttp_client,
+            REGTEST_MASTER_TOKEN)
+        peer_channel = await esv_client.create_peer_channel()
+    try:
+        # Todo create db entry in MAPIBroadcastCallbacks to record attempt
+        broadcast_response: BroadcastResponse = await broadcast_transaction_mapi_simple(tx,
+            broadcast_server.candidate.api_server, broadcast_server.candidate.credential_id,
+            peer_channel, merkle_proof, ds_check)
+        return broadcast_response
+    except Exception:
+        # Todo delete db entry MAPIBroadcastCallbacks on error
+        raise
+    finally:
+        # Todo update db entry in MAPIBroadcastCallbacks after broadcast success
+        pass
+
 
 class NewServerAPIContext(NamedTuple):
     wallet_path: str
@@ -127,6 +175,10 @@ class NewServerAccessState:
         self.last_fee_quote_response: Optional[JSONEnvelope] = None
         # The fee quote we locally extracted and deserialised from the fee quote response.
         self.last_fee_quote: Optional[FeeQuote] = None
+
+    def __repr__(self) -> str:
+        return f"<NewServerAccessState last_try={self.last_try} last_good={self.last_good} " \
+               f"last_fee_quote={self.last_fee_quote}/>"
 
     def record_attempt(self) -> None:
         self.last_try = datetime.datetime.now(datetime.timezone.utc).timestamp()
@@ -453,4 +505,3 @@ def prioritise_broadcast_servers(estimated_tx_size: TransactionSize,
         candidates.append(BroadcastCandidate(candidate, fee_estimator, initial_fee))
     candidates.sort(key=lambda entry: entry.initial_fee)
     return candidates
-
