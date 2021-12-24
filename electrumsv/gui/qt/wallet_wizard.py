@@ -570,7 +570,8 @@ class ChooseWalletPage(QWizardPage):
         assert entry.path is not None
         password: Optional[str] = None
         wizard = cast(WalletWizard, self.wizard())
-        storage = WalletStorage(entry.path)
+        storage: Optional[WalletStorage] = WalletStorage(entry.path)
+        assert storage is not None
         try:
             password = request_password(self, storage, entry)
             if password is None:
@@ -584,7 +585,7 @@ class ChooseWalletPage(QWizardPage):
                     migration_page = wizard.page(WalletPage.MIGRATE_OLDER_WALLET)
                     migration_page.set_migration_data(entry, storage)
                     # Give the storage object to the migration page, which we are going to.
-                    del storage
+                    storage = None
                     wizard.next()
                 else:
                     assert entry.storage_kind == StorageKind.DATABASE, \
