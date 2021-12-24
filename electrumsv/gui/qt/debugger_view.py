@@ -40,8 +40,8 @@ from enum import IntEnum, IntFlag
 from functools import partial
 from typing import Any, cast, List, NamedTuple, Optional
 
-from bitcoinx import classify_output_script, InterpreterLimits, MinerPolicy, \
-    P2SH_Address, Script, TruncatedScriptError, Tx, TxInputContext, TxOutput
+from bitcoinx import classify_output_script, InterpreterLimits, MinerPolicy, minimal_push_opcode, \
+    Ops, P2SH_Address, Script, TruncatedScriptError, Tx, TxInputContext, TxOutput
 
 from PyQt5.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, QPoint, Qt
 from PyQt5.QtGui import QBrush, QColor, QColorConstants, QFont, QKeyEvent
@@ -61,13 +61,14 @@ class ScriptControls(ButtonLayout):
     restart_signal = pyqtSignal()
     step_forward_signal = pyqtSignal()
     continue_signal = pyqtSignal()
+    reset_signal = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
 
         self.addStretch(1)
 
-        self._reset_button = self.add_button("icons8-skip-to-start-96-windows.png",
+        self._restart_button = self.add_button("icons8-skip-to-start-96-windows.png",
             self.restart_signal.emit, _("Reset to start"))
 
         self._step_forward_button = self.add_button("icons8-forward-96-windows.png",
@@ -78,17 +79,26 @@ class ScriptControls(ButtonLayout):
             self.continue_signal.emit, _("Continue"))
         self._continue_button.setShortcut(Qt.Key_F5)
 
+        self._reset_button = self.add_button("icons8-close-96-windows.png",
+            self.reset_signal.emit, _("Clear"))
+
         self.addStretch(1)
 
-    def enable_debugging_ui(self) -> None:
-        self._reset_button.setEnabled(False)
-        self._step_forward_button.setEnabled(True)
-        self._continue_button.setEnabled(True)
+        self._movement_enabled = True
+        self.set_enabled(False)
 
-    def disable_debugging_ui(self) -> None:
-        self._reset_button.setEnabled(False)
-        self._step_forward_button.setEnabled(False)
-        self._continue_button.setEnabled(False)
+    def set_enabled(self, is_enabled: bool=True) -> None:
+        self._is_enabled = is_enabled
+
+        self._restart_button.setEnabled(is_enabled)
+        self._step_forward_button.setEnabled(is_enabled and self._movement_enabled)
+        self._continue_button.setEnabled(is_enabled and self._movement_enabled)
+
+    def set_movement_enabled(self, is_enabled: bool=True) -> None:
+        self._movement_enabled = is_enabled
+        if self._is_enabled:
+            self._step_forward_button.setEnabled(is_enabled)
+            self._continue_button.setEnabled(is_enabled)
 
 
 PLACEHOLDER_TEXT = "<add an entry here>"
@@ -302,49 +312,49 @@ class TableModel(QAbstractItemModel):
             role: int=Qt.ItemDataRole.EditRole) -> bool:
         if model_index.isValid() and role == Qt.ItemDataRole.EditRole:
             row = model_index.row()
-            line = self._data[row]
+            existing_line = self._data[row]
             if model_index.column() == Columns.TEXT:
                 text = cast(Optional[str], value)
                 text = "" if text is None else text.strip()
 
-                old_flags = line.flags
-                old_number = line.number
-
-                line.text = text
+                updated_line = dataclasses.replace(existing_line, text=text)
                 if text == "":
-                    line.flags |= LineFlags.IS_PLACEHOLDER
-                    line.flags &= ~LineFlags.HAS_NUMBER
-                    line.number = -1
+                    updated_line.flags |= LineFlags.IS_PLACEHOLDER
+                    updated_line.flags &= ~LineFlags.HAS_NUMBER
+                    updated_line.number = -1
                 else:
-                    line.flags &= ~LineFlags.IS_PLACEHOLDER
-                    line.flags |= LineFlags.HAS_NUMBER
+                    updated_line.flags &= ~LineFlags.IS_PLACEHOLDER
+                    updated_line.flags |= LineFlags.HAS_NUMBER
+
+                if not self._view._widget.process_line_edit(existing_line, updated_line):
+                    return False
 
                 # Force the edited cell for the given line to update.
+                self._data[row] = updated_line
                 self.dataChanged.emit(model_index, model_index)
 
-                if old_flags & LineFlags.HAS_NUMBER != line.flags & LineFlags.HAS_NUMBER:
-                    # Update the line number on the current line.
-                    next_line_number = old_number
-                    if line.flags & LineFlags.IS_PLACEHOLDER:
-                        line.number = -1
-                    else:
-                        line.number = self._get_current_line_number(row)
-                        next_line_number = line.number + 1
+                # Update the line number on the current line.
+                next_line_number = existing_line.number
+                if updated_line.flags & LineFlags.HAS_NUMBER:
+                    updated_line.number = self._get_current_line_number(row)
+                    next_line_number = updated_line.number + 1
 
-                        if row == len(self._data)-1:
-                            self.append_line(TableLine("", LineFlags.IS_PLACEHOLDER))
+                    if row == len(self._data)-1:
+                        self.append_line(TableLine("",
+                            LineFlags.IS_PLACEHOLDER | LineFlags.IS_EDITABLE |
+                                (updated_line.flags & LineFlags.SECTION_MASK)))
 
-                    # Update the line numbers on any following line.
-                    line_index = row + 1
-                    while line_index < len(self._data):
-                        following_line = self._data[line_index]
-                        if following_line.flags & LineFlags.HAS_NUMBER:
-                            following_line.number = next_line_number
-                            next_line_number += 1
-                        line_index += 1
+                # Update the line numbers on any following line.
+                line_index = row + 1
+                while line_index < len(self._data):
+                    following_line = self._data[line_index]
+                    if following_line.flags & LineFlags.HAS_NUMBER:
+                        following_line.number = next_line_number
+                        next_line_number += 1
+                    line_index += 1
 
-                    self.invalidate_column(Columns.LINE)
-            return True
+                self.invalidate_column(Columns.LINE)
+                return True
         return False
 
     def _get_current_line_number(self, row: int) -> int:
@@ -419,7 +429,7 @@ class TableView(QTableView):
 
 class BaseTableWidget(QWidget):
     current_row = -1
-    editing_enabled = False
+    editing_enabled = True
 
     def __init__(self, lines: List[TableLine], first_line_number: int) -> None:
         super().__init__()
@@ -447,7 +457,6 @@ def create_default_script_evaluation_limits() -> InterpreterLimits:
         is_transaction_in_block)
 
 
-# # NOTE(typing) The bullshit cannot subclass Any nonsense.
 class UILimitedStack(CustomLimitedStack, QObject):
     append_signal = pyqtSignal(object)
     replace_signal = pyqtSignal(object, int)
@@ -487,6 +496,8 @@ class UIInterpreterState(CustomInterpreterState):
 class ScriptView(BaseTableWidget):
     FIRST_LINE_NUMBER = 1
 
+    block_state_change_signal = pyqtSignal(bool)
+
     def __init__(self, lines: List[TableLine]) -> None:
         super().__init__(lines, self.FIRST_LINE_NUMBER)
 
@@ -515,7 +526,8 @@ class ScriptView(BaseTableWidget):
         if script is not None:
             self._extend_lines_from_script(lines, script, LineFlags.SECTION1)
         else:
-            lines.append(TableLine("", LineFlags.IS_PLACEHOLDER))
+            lines.append(TableLine("", LineFlags.IS_PLACEHOLDER | LineFlags.IS_EDITABLE |
+                LineFlags.SECTION1))
 
         self._table_view.set_lines(lines)
 
@@ -545,7 +557,7 @@ class ScriptView(BaseTableWidget):
             self._extend_lines_from_script(lines, unlocking_script, LineFlags.SECTION1)
             self._section_scripts.append(unlocking_script)
         else:
-            lines.append(TableLine("", LineFlags.IS_PLACEHOLDER))
+            lines.append(TableLine("", LineFlags.IS_PLACEHOLDER | LineFlags.SECTION1))
             # TODO(empty-script) There's something to be done here to update this if the user edits.
             self._section_scripts.append(Script())
 
@@ -554,7 +566,7 @@ class ScriptView(BaseTableWidget):
             self._extend_lines_from_script(lines, locking_script, LineFlags.SECTION2)
             self._section_scripts.append(locking_script)
         else:
-            lines.append(TableLine("", LineFlags.IS_PLACEHOLDER))
+            lines.append(TableLine("", LineFlags.IS_PLACEHOLDER | LineFlags.SECTION2))
             # TODO(empty-script) There's something to be done here to update this if the user edits.
             self._section_scripts.append(Script())
 
@@ -591,15 +603,13 @@ class ScriptView(BaseTableWidget):
         try:
             for match in generate_matches(bytes(script)):
                 value = match.data
-                text = ""
+                text = "UNEXPECTED ERROR"
                 if value is None:
                     text = Script.op_to_asm_word(match.op, False)
                 elif isinstance(value, bytes):
                     text = value[:16].hex()
                     if len(value) > 4:
                         text += "..."
-                else:
-                    text = value
                 lines.append(TableLine(text, LineFlags.HAS_NUMBER | LineFlags.IS_EDITABLE | flags,
                     match=match))
         except TruncatedScriptError:
@@ -609,20 +619,34 @@ class ScriptView(BaseTableWidget):
         limits = create_default_script_evaluation_limits()
         self._interpreter = UIInterpreterState(limits, input_context)
 
-        next_row = self._table_view._model.get_next_row(-1, LineFlags.HAS_NUMBER)
+        next_row = self._table_view._model.get_next_row(-1,
+            LineFlags.HAS_NUMBER | LineFlags.IS_PLACEHOLDER)
         if next_row != -1:
             self.current_row = next_row
             self._table_view._model.invalidate_row(self.current_row)
+
+            self.block_state_change_signal.emit(self.is_blocked())
         else:
             self.current_row = -1
 
     def step_script_evaluation(self) -> bool:
-        current_row = self.current_row
-        next_row = self._table_view._model.get_next_row(current_row, LineFlags.HAS_NUMBER)
-        current_line = self._table_view.get_line(current_row)
-        assert current_line.match is not None
+        """
+        This is used by both the running and stepping mechanisms.
 
+        A placeholder row will block further stepping.
+        A
+        """
+        current_row = self.current_row
+        current_line = self._table_view.get_line(current_row)
+        next_row = self._table_view._model.get_next_row(current_row,
+            LineFlags.HAS_NUMBER | LineFlags.IS_PLACEHOLDER)
         current_section = current_line.flags & LineFlags.SECTION_MASK
+        assert current_section
+
+        if current_line.flags & LineFlags.IS_PLACEHOLDER:
+            self.block_state_change_signal.emit(True)
+            return True
+
         if current_section != self._active_section:
             current_script = self.get_script_for_line(current_line)
 
@@ -634,18 +658,19 @@ class ScriptView(BaseTableWidget):
             else:
                 assert self._active_script == current_script
 
-        evaluation_incomplete: bool
-        try:
-            evaluation_incomplete = self._interpreter.step_evaluate_script(current_line.match)
-        except Exception:
-            current_line.flags |= LineFlags.HAS_ERROR
-            self._table_view.refresh_row(current_row)
-            raise
+        evaluation_incomplete = True
+        if current_line.flags & LineFlags.HAS_NUMBER:
+            assert current_line.match is not None
+            try:
+                evaluation_incomplete = self._interpreter.step_evaluate_script(current_line.match)
+            except Exception:
+                current_line.flags |= LineFlags.HAS_ERROR
+                self._table_view.refresh_row(current_row)
+                raise
 
         self._table_view.refresh_row(current_row)
         self.current_row = next_row
 
-        end_of_section = False
         if next_row == -1:
             evaluation_incomplete = False
             end_of_section = True
@@ -669,6 +694,11 @@ class ScriptView(BaseTableWidget):
         current_line = self._table_view.get_line(self.current_row)
         return current_line.flags & LineFlags.HAS_BREAKPOINT != 0
 
+    def is_blocked(self) -> bool:
+        if self.current_row == -1:
+            return False
+        current_line = self._table_view.get_line(self.current_row)
+        return current_line.flags & LineFlags.IS_PLACEHOLDER != 0
 
     def get_script_for_line(self, line: TableLine) -> Script:
         if line.flags & LineFlags.SECTION1:
@@ -680,13 +710,22 @@ class ScriptView(BaseTableWidget):
         raise NotImplementedError(f"line has not detectable section {line}")
 
     def _event_custom_context_menu_requested(self, position: QPoint) -> None:
-        item = self.currentItem()
-        if not item:
-            return
+        menu_index = self._table_view.indexAt(position)
+        row = menu_index.row()
 
-        row = self.currentColumn()
         menu = QMenu()
-        menu.addAction(_("Toggle breakpoint"), partial(self._toggle_breakpoint, row))
+
+        current_line = self._table_view.get_line(self.current_row)
+        add_separator = False
+        if current_line.flags & LineFlags.IS_EDITABLE:
+            menu.addAction(_("Edit"), partial(self._toggle_breakpoint, row))
+            add_separator = True
+        if current_line.flags & LineFlags.HAS_NUMBER:
+            if add_separator:
+                menu.addSeparator()
+            menu.addAction(_("Toggle breakpoint"), partial(self._toggle_breakpoint, row))
+
+        menu.exec_(self._table_view.viewport().mapToGlobal(position))
 
     def _event_clicked(self, index: QModelIndex) -> None:
         row = index.row()
@@ -706,6 +745,46 @@ class ScriptView(BaseTableWidget):
         if line.flags & LineFlags.HAS_NUMBER:
             line.flags ^= LineFlags.HAS_BREAKPOINT
             self._table_view.refresh_row(row)
+
+    def process_line_edit(self, old_line: TableLine, new_line: TableLine) -> bool:
+        is_block_state_change = ((old_line.flags & LineFlags.IS_PLACEHOLDER) + \
+            (new_line.flags & LineFlags.IS_PLACEHOLDER)) == LineFlags.IS_PLACEHOLDER
+        if new_line.flags & LineFlags.HAS_NUMBER:
+            text_value = new_line.text
+            upper_text = text_value.upper()
+            if upper_text.startswith("OP_"):
+                op = getattr(Ops, upper_text, None)
+                if op is None:
+                    # This should likely happen in the edit dialog submit.
+                    return False
+                new_line.match = ScriptMatch(op, None, None, None, 0)
+            else:
+                first_character = text_value[0]
+                last_character = text_value[-1]
+                if first_character in { "\"", "'" } and first_character == last_character:
+                    bytes_value = text_value[1:-1].encode()
+                elif text_value.startswith("$") or text_value.startswith("0x"):
+                    text_value = text_value[2:] if first_character == "0" else text_value[1:]
+                    try:
+                        bytes_value = bytes.fromhex(text_value)
+                    except ValueError:
+                        return False
+                else:
+                    try:
+                        int_value = int(text_value)
+                    except ValueError:
+                        return False
+                    else:
+                        bytes_value = int_value.to_bytes((int_value.bit_count() + 7) // 8, 'little')
+
+                op = minimal_push_opcode(bytes_value)
+                new_line.match = ScriptMatch(op, bytes_value, None, None, 0)
+
+        if is_block_state_change:
+            self.block_state_change_signal.emit(
+                (new_line.flags & LineFlags.IS_PLACEHOLDER) == LineFlags.IS_PLACEHOLDER)
+
+        return True
 
 
 class StackView(BaseTableWidget):
@@ -807,8 +886,11 @@ class DebuggerView(QWidget):
         super().__init__()
 
         self._state_ui_enabled = False
+        self._state_movement_ui_enabled = False
 
         self.setLayout(self.create_layout())
+
+        self._script_view.block_state_change_signal.connect(self._event_debugging_movement_blocked)
 
         # script = Script() << 1 << 2 << Ops.OP_ADD
         # self.set_scratch_mode(script)
@@ -817,6 +899,7 @@ class DebuggerView(QWidget):
         self._script_view = ScriptView([])
         self._script_view.toolbar.step_forward_signal.connect(self._event_step_script)
         self._script_view.toolbar.continue_signal.connect(self._event_run_script)
+        self._script_view.toolbar.reset_signal.connect(self._event_clear_script)
 
         self._setup_view = DebugSetupView()
         self._setup_view.setup_template_signal.connect(self._on_setup_template_choice)
@@ -848,7 +931,7 @@ class DebuggerView(QWidget):
         self._main_stack_view.bind_stack(interpreter.stack)
         self._alt_stack_view.bind_stack(interpreter.alt_stack)
 
-        self.enable_ui()
+        self.set_debugging_toolbar_enabled()
 
     def set_transaction_spend_mode(self, context: Optional[TransactionSpendContext]=None) -> None:
         self._stacked_widget.setCurrentWidget(self._script_view)
@@ -858,16 +941,15 @@ class DebuggerView(QWidget):
         self._main_stack_view.bind_stack(interpreter.stack)
         self._alt_stack_view.bind_stack(interpreter.alt_stack)
 
-        self.enable_ui()
+        self.set_debugging_toolbar_enabled()
 
-    def enable_ui(self) -> None:
-        self._state_ui_enabled = True
-        self._script_view.toolbar.enable_debugging_ui()
+    def set_debugging_toolbar_enabled(self, is_enabled: bool=True) -> None:
+        self._state_ui_enabled = is_enabled
+        self._script_view.toolbar.set_enabled(True)
 
-    def disable_state_ui(self) -> None:
-        self._state_ui_enabled = False
-
-        self._script_view.toolbar.disable_debugging_ui()
+    def set_debugging_movement_enabled(self, is_enabled: bool=True) -> None:
+        self._state_movement_ui_enabled = is_enabled
+        self._script_view.toolbar.set_movement_enabled(is_enabled)
 
     def _on_setup_template_choice(self, template_kind: DebugTemplateKind) -> None:
         if template_kind == DebugTemplateKind.SCRIPT_SCRATCHPAD:
@@ -881,13 +963,26 @@ class DebuggerView(QWidget):
     def _event_run_script(self) -> None:
         while self._script_view.step_script_evaluation():
             if self._script_view.at_breakpoint():
-                # The execution is not finished.
+                # The execution is not finished it just reached a breakpoint.
+                return
+            if self._script_view.is_blocked():
+                # The execution is not finished it just reached something like a placeholder.
+                self.set_debugging_movement_enabled(False)
                 return
         # The execution is finished.
-        self.disable_state_ui()
+        self.set_debugging_toolbar_enabled(False)
 
     def _event_step_script(self) -> None:
-        evaluation_incomplete = self._script_view.step_script_evaluation()
-        if not evaluation_incomplete:
-            self.disable_state_ui()
+        if self._script_view.step_script_evaluation():
+            if self._script_view.is_blocked():
+                # The execution is not finished it just reached something like a placeholder.
+                self.set_debugging_movement_enabled(False)
+            return
+        # The execution is finished.
+        self.set_debugging_toolbar_enabled(False)
 
+    def _event_clear_script(self) -> None:
+        pass
+
+    def _event_debugging_movement_blocked(self, is_blocked: bool) -> None:
+        self.set_debugging_movement_enabled(not is_blocked)
