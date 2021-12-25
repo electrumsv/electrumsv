@@ -34,6 +34,16 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+# TODO The iterator is only used to pick out the script ranges for OP_CODESEPARATOR and this
+#      works for executing transaction spends because we have the whole output script at hand.
+#      For edited scripts there is no whole output script and we would need to generate it
+#      on demand. Given that we have all the lines in memory, it should be possible to just
+#      run back and find the code separator to sign relative to. Or more likely correct, run
+#      forward to the signature point and find it (given conditionals).
+
+# TODO Save and load scratchpad scripts, or a general workspace which might be either a
+#      full transaction spend or scratchpad.
+
 from __future__ import annotations
 import dataclasses
 from enum import IntEnum, IntFlag
@@ -88,6 +98,9 @@ class ScriptControls(ButtonLayout):
         self.set_enabled(False)
 
     def set_enabled(self, is_enabled: bool=True) -> None:
+        """
+        Toggle all controls depending on whether the toolbar is enabled or not.
+        """
         self._is_enabled = is_enabled
 
         self._restart_button.setEnabled(is_enabled)
@@ -95,6 +108,9 @@ class ScriptControls(ButtonLayout):
         self._continue_button.setEnabled(is_enabled and self._movement_enabled)
 
     def set_movement_enabled(self, is_enabled: bool=True) -> None:
+        """
+        If execution is blocked then we disable the "movement" related controls.
+        """
         self._movement_enabled = is_enabled
         if self._is_enabled:
             self._step_forward_button.setEnabled(is_enabled)
@@ -326,7 +342,7 @@ class TableModel(QAbstractItemModel):
                     updated_line.flags &= ~LineFlags.IS_PLACEHOLDER
                     updated_line.flags |= LineFlags.HAS_NUMBER
 
-                if not self._view._widget.process_line_edit(existing_line, updated_line):
+                if not self._view._widget.process_line_edit(row, existing_line, updated_line):
                     return False
 
                 # Force the edited cell for the given line to update.
@@ -458,6 +474,9 @@ def create_default_script_evaluation_limits() -> InterpreterLimits:
 
 
 class UILimitedStack(CustomLimitedStack, QObject):
+    """
+    Override all stack operations with signals to prompt keeping the UI synchronised.
+    """
     append_signal = pyqtSignal(object)
     replace_signal = pyqtSignal(object, int)
     pop_signal = pyqtSignal(object, int)
@@ -680,6 +699,9 @@ class ScriptView(BaseTableWidget):
             end_of_section = next_section != self._active_section
             self._table_view.refresh_row(next_row)
 
+            if next_line.flags & LineFlags.IS_PLACEHOLDER:
+                self.block_state_change_signal.emit(True)
+
         if not evaluation_incomplete or end_of_section:
             self._active_script = None
             self._active_section = LineFlags.NONE
@@ -746,9 +768,7 @@ class ScriptView(BaseTableWidget):
             line.flags ^= LineFlags.HAS_BREAKPOINT
             self._table_view.refresh_row(row)
 
-    def process_line_edit(self, old_line: TableLine, new_line: TableLine) -> bool:
-        is_block_state_change = ((old_line.flags & LineFlags.IS_PLACEHOLDER) + \
-            (new_line.flags & LineFlags.IS_PLACEHOLDER)) == LineFlags.IS_PLACEHOLDER
+    def process_line_edit(self, row: int, old_line: TableLine, new_line: TableLine) -> bool:
         if new_line.flags & LineFlags.HAS_NUMBER:
             text_value = new_line.text
             upper_text = text_value.upper()
@@ -779,6 +799,10 @@ class ScriptView(BaseTableWidget):
 
                 op = minimal_push_opcode(bytes_value)
                 new_line.match = ScriptMatch(op, bytes_value, None, None, 0)
+
+        is_block_state_change = row == self.current_row and \
+            ((old_line.flags & LineFlags.IS_PLACEHOLDER) +
+                (new_line.flags & LineFlags.IS_PLACEHOLDER)) == LineFlags.IS_PLACEHOLDER
 
         if is_block_state_change:
             self.block_state_change_signal.emit(
@@ -892,21 +916,14 @@ class DebuggerView(QWidget):
 
         self._script_view.block_state_change_signal.connect(self._event_debugging_movement_blocked)
 
-        # script = Script() << 1 << 2 << Ops.OP_ADD
-        # self.set_scratch_mode(script)
-
     def create_layout(self) -> QVBoxLayout:
-        self._script_view = ScriptView([])
-        self._script_view.toolbar.step_forward_signal.connect(self._event_step_script)
-        self._script_view.toolbar.continue_signal.connect(self._event_run_script)
-        self._script_view.toolbar.reset_signal.connect(self._event_clear_script)
-
         self._setup_view = DebugSetupView()
         self._setup_view.setup_template_signal.connect(self._on_setup_template_choice)
 
         self._stacked_widget = QStackedWidget()
         self._stacked_widget.addWidget(self._setup_view)
-        self._stacked_widget.addWidget(self._script_view)
+
+        self._create_script_view()
 
         self._main_stack_view = StackView(_("Main stack"), [])
         self._alt_stack_view = StackView(_("Alt stack"), [])
@@ -923,6 +940,21 @@ class DebuggerView(QWidget):
         vbox.addLayout(hbox, 1)
         return vbox
 
+    def _create_script_view(self) -> None:
+        self._script_view = ScriptView([])
+        self._script_view.toolbar.step_forward_signal.connect(self._event_step_script)
+        self._script_view.toolbar.continue_signal.connect(self._event_run_script)
+        self._script_view.toolbar.reset_signal.connect(self._event_clear_script)
+
+        self._stacked_widget.addWidget(self._script_view)
+
+    def _reset_script_view(self) -> None:
+        was_current_widget = self._stacked_widget.currentWidget() is self._script_view
+        self._stacked_widget.removeWidget(self._script_view)
+        self._create_script_view()
+        if was_current_widget:
+            self._stacked_widget.setCurrentWidget(self._script_view)
+
     def set_scratch_mode(self, script: Optional[Script]=None) -> None:
         self._stacked_widget.setCurrentWidget(self._script_view)
         self._script_view.setup_standalone_script(script)
@@ -931,7 +963,7 @@ class DebuggerView(QWidget):
         self._main_stack_view.bind_stack(interpreter.stack)
         self._alt_stack_view.bind_stack(interpreter.alt_stack)
 
-        self.set_debugging_toolbar_enabled()
+        self.set_debugging_toolbar_enabled(True)
 
     def set_transaction_spend_mode(self, context: Optional[TransactionSpendContext]=None) -> None:
         self._stacked_widget.setCurrentWidget(self._script_view)
@@ -941,11 +973,13 @@ class DebuggerView(QWidget):
         self._main_stack_view.bind_stack(interpreter.stack)
         self._alt_stack_view.bind_stack(interpreter.alt_stack)
 
-        self.set_debugging_toolbar_enabled()
+        self.set_debugging_toolbar_enabled(True)
 
     def set_debugging_toolbar_enabled(self, is_enabled: bool=True) -> None:
         self._state_ui_enabled = is_enabled
-        self._script_view.toolbar.set_enabled(True)
+        self._script_view.toolbar.set_enabled(is_enabled)
+        if is_enabled:
+            self.set_debugging_movement_enabled(not self._script_view.is_blocked())
 
     def set_debugging_movement_enabled(self, is_enabled: bool=True) -> None:
         self._state_movement_ui_enabled = is_enabled
@@ -967,22 +1001,24 @@ class DebuggerView(QWidget):
                 return
             if self._script_view.is_blocked():
                 # The execution is not finished it just reached something like a placeholder.
-                self.set_debugging_movement_enabled(False)
                 return
         # The execution is finished.
         self.set_debugging_toolbar_enabled(False)
 
     def _event_step_script(self) -> None:
         if self._script_view.step_script_evaluation():
-            if self._script_view.is_blocked():
-                # The execution is not finished it just reached something like a placeholder.
-                self.set_debugging_movement_enabled(False)
             return
         # The execution is finished.
         self.set_debugging_toolbar_enabled(False)
 
     def _event_clear_script(self) -> None:
-        pass
+        self._stacked_widget.setCurrentWidget(self._setup_view)
+        self._reset_script_view()
+
+        self._main_stack_view.reset()
+        self._alt_stack_view.reset()
+
+        self.set_debugging_toolbar_enabled(False)
 
     def _event_debugging_movement_blocked(self, is_blocked: bool) -> None:
         self.set_debugging_movement_enabled(not is_blocked)
