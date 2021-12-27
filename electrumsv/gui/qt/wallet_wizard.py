@@ -52,7 +52,7 @@ from PyQt5.QtWidgets import (
 )
 
 from electrumsv.app_state import app_state
-from electrumsv.constants import CredentialPolicyFlag, DATABASE_EXT, IntFlag, MIGRATION_CURRENT, \
+from electrumsv.constants import CredentialPolicyFlag, DATABASE_EXT, MIGRATION_CURRENT, \
     StorageKind
 from electrumsv.exceptions import DatabaseMigrationError, IncompatibleWalletError, InvalidPassword
 from electrumsv.i18n import _
@@ -105,7 +105,7 @@ class WalletPage(enum.IntEnum):
     CHOOSE_WALLET = 3
     MIGRATE_OLDER_WALLET = 4
 
-class PasswordState(IntFlag):
+class PasswordState(enum.IntFlag):
     UNKNOWN =                   0
     NONE =                      1 << 0
     PASSWORDED =                1 << 1

@@ -34,12 +34,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+from enum import IntFlag
 from typing import Any, NamedTuple, Optional
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget, QWizard
-
-from ...constants import IntFlag
 
 from .help_dialog import HelpDialog
 from .util import FormSectionWidget

@@ -2,7 +2,7 @@
 Keeps backwards compatible logic for storage migration.
 """
 import concurrent.futures
-from enum import IntFlag as _IntFlag
+from enum import IntFlag
 import json
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
@@ -27,12 +27,6 @@ from ..util import get_posix_timestamp
 
 from .sqlite_support import DatabaseContext, replace_db_context_with_connection
 from .types import MasterKeyRow
-
-
-# https://bugs.python.org/issue41907
-class IntFlag(_IntFlag):
-    def __format__(self, spec: str) -> str:
-        return format(self.value, spec)
 
 
 class KeyInstanceFlag1(IntFlag):
