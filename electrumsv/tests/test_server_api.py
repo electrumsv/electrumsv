@@ -84,8 +84,11 @@ def test_prioritise_broadcast_servers_invalid_candidate(app_state) -> None:
     servers = [
         api_server.SelectionCandidate(dummy_server.server_type, None, dummy_server),
     ]
-    with pytest.raises(AssertionError):
-        api_server.prioritise_broadcast_servers(fake_tx_size, servers)
+    count_before = len(servers)
+    servers = api_server.prioritise_broadcast_servers(fake_tx_size, servers)
+    count_after = len(servers)
+    assert count_before == 1
+    assert count_after == 0  # filtered out because it does not have a fee quote
 
 
 FAKE_FEE_QUOTE_1 = {

@@ -3,16 +3,14 @@ from aiohttp import web, WSServerHandshakeError
 import asyncio
 import base64
 import json
-from typing import List, Union, Optional, AsyncIterable, Dict
+from typing import List, Union, Optional, AsyncIterable, Dict, cast
 
 from electrumsv.bitcoin import TSCMerkleProof
 from electrumsv.logs import logs
-from electrumsv.network_support.esv_client_types import (
-    PeerChannelToken, TokenPermissions, MessageViewModelGetBinary, GenericJSON,
-    MessageViewModelGetJSON, APITokenViewModelGet, PeerChannelViewModelGet, RetentionViewModel,
-    TipResponse, Error, GeneralNotification,
-    ChannelId, WebsocketUnauthorizedException, PeerChannelMessage, MAPICallbackResponse
-)
+from electrumsv.network_support.esv_client_types import (PeerChannelToken, TokenPermissions,
+    MessageViewModelGetBinary, GenericJSON, MessageViewModelGetJSON, APITokenViewModelGet,
+    PeerChannelViewModelGet, RetentionViewModel, TipResponse, Error, GeneralNotification, ChannelId,
+    WebsocketUnauthorizedException, PeerChannelMessage, MAPICallbackResponse, WebsocketError)
 
 logger = logs.get_logger("esv-client")
 
@@ -173,7 +171,7 @@ class ESVClient:
 
     # ----- General Websocket ----- #
     async def _fetch_peer_channel_message_job(self,
-            peer_channel_notification_queue: asyncio.Queue) -> None:
+            peer_channel_notification_queue: asyncio.Queue[GeneralNotification]) -> None:
         """Can run multiple of these concurrently to fetch new peer channel messages"""
         message: GeneralNotification = await peer_channel_notification_queue.get()
         channel_id: ChannelId = message['result']['id']
@@ -182,8 +180,9 @@ class ESVClient:
         messages: list[PeerChannelMessage] = await peer_channel.get_messages()  # network io
         for pc_message in messages:
             if pc_message['content_type'] == 'application/json':
-
-                json_payload: MAPICallbackResponse = pc_message['payload']
+                # Todo should probably check for PeerChannelType.MERCHANT_API before type cast
+                json_payload: MAPICallbackResponse = cast(MAPICallbackResponse,
+                    pc_message['payload'])
                 if json_payload.get("callbackReason") \
                         and json_payload["callbackReason"] == "merkleProof"\
                         or json_payload["callbackReason"] == "doubleSpendAttempt":
@@ -195,10 +194,10 @@ class ESVClient:
             if pc_message['content_type'] == 'application/octet-stream':
                 logger.error(f"Binary format PeerChannelMessage received - not supported yet")
 
-    async def _message_fetcher_job(self):
+    async def _message_fetcher_job(self) -> None:
         """Idempotent - if spawned twice, the second time will do nothing"""
         if not self._message_fetcher_is_alive:
-            peer_channel_notification_queue: asyncio.Queue[ChannelId] = asyncio.Queue()
+            peer_channel_notification_queue: asyncio.Queue[GeneralNotification] = asyncio.Queue()
             for i in range(self._FETCH_JOBS_COUNT):
                 asyncio.create_task(
                     self._fetch_peer_channel_message_job(peer_channel_notification_queue))
@@ -206,7 +205,7 @@ class ESVClient:
             async for notification in self.subscribe_to_general_notifications():
                 peer_channel_notification_queue.put_nowait(notification)
 
-    async def wait_for_merkle_proofs_and_double_spends(self) -> AsyncIterable[GeneralNotification]:
+    async def wait_for_merkle_proofs_and_double_spends(self) -> AsyncIterable[TSCMerkleProof]:
         if not self._message_fetcher_is_alive:
             asyncio.create_task(self._message_fetcher_job())
 
@@ -229,8 +228,8 @@ class ESVClient:
             try:
                 async with session.ws_connect(url, timeout=5.0) as ws:
                     logger.info(f'Connected to {url}')
+                    msg: aiohttp.WSMessage
                     async for msg in ws:
-                        msg: aiohttp.WSMessage
                         if msg.type == aiohttp.WSMsgType.TEXT:
                             notification: GeneralNotification = json.loads(msg.data)
                             yield notification
@@ -245,7 +244,7 @@ class ESVClient:
 
     # ----- HeaderSV APIs ----- #
     async def get_single_header(self, block_hash: bytes) -> bytes:
-        url = self.base_url + "api/v1/headers/{block_hash}".format(block_hash=block_hash)
+        url = self.base_url + f"api/v1/headers/{block_hash!r}"
         headers = {}
         headers.update(self.headers)
         headers.update({"Accept": "application/octet-stream"})
@@ -286,14 +285,15 @@ class ESVClient:
                 logger.debug(f'Connected to {url}')
                 async for msg in ws:
                     content: Union[TipResponse, Error] = json.loads(msg.data)
-                    logger.debug('Message new chain tip hash: ', content)
+                    logger.debug(f'Message new chain tip hash: {content}')
                     if isinstance(content, dict) and content.get('error'):
-                        error: Error = Error.from_websocket_dict(content)
+                        error_content = cast(Dict[str, WebsocketError], content)
+                        error: Error = Error.from_websocket_dict(error_content)
                         logger.debug(f"Websocket error: {error}")
                         if error.status == web.HTTPUnauthorized.status_code:
                             raise web.HTTPUnauthorized()
                     else:
-                        yield content
+                        yield cast(TipResponse, content)
 
                     if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                         break
@@ -356,7 +356,7 @@ class ESVClient:
         if self._peer_channel_cache.get(channel_id):
             return self._peer_channel_cache[channel_id]
         else:
-            await self.get_single_peer_channel(channel_id)
+            return await self.get_single_peer_channel(channel_id)
 
 
 if __name__ == "__main__":

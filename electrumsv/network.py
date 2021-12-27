@@ -903,7 +903,7 @@ class Network(TriggeredCallbacks):
 
         self.aiohttp_session: Optional[ClientSession] = None
 
-    async def get_aiohttp_session(self):
+    async def get_aiohttp_session(self) -> ClientSession:
         """Global client session shared globally for any outbound http requests.
         Benefits from connection pooling if the same instance is re-used"""
         if self.aiohttp_session is not None:
@@ -911,7 +911,7 @@ class Network(TriggeredCallbacks):
         self.aiohttp_session = ClientSession()
         return self.aiohttp_session
 
-    async def close_aiohttp_session(self):
+    async def close_aiohttp_session(self) -> None:
         if self.aiohttp_session is not None:
             await self.aiohttp_session.close()
 

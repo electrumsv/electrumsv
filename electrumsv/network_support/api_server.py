@@ -39,6 +39,7 @@ import dataclasses
 import datetime
 import json
 import random
+import logging
 from typing import cast, Dict, List, NamedTuple, Optional, Tuple, TypedDict, TYPE_CHECKING
 
 import dateutil.parser
@@ -47,6 +48,7 @@ from .esv_client import PeerChannel, ESVClient, REGTEST_MASTER_TOKEN
 from ..app_state import app_state
 from ..constants import NetworkServerType, ServerCapability, TOKEN_PASSWORD
 from ..crypto import pw_decode
+from ..exceptions import ServiceUnavailableException
 from ..i18n import _
 from ..types import IndefiniteCredentialId, NetworkServerState, ServerAccountKey, \
     TransactionFeeEstimator, TransactionSize
@@ -55,14 +57,16 @@ from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator, BroadcastResponse, g
     poll_servers_async, broadcast_transaction_mapi_simple
 
 if TYPE_CHECKING:
-    from ..network import Network, SVServer
+    from ..network import SVServer, Network
     from ..wallet import AbstractAccount
-
+    from ..transaction import Transaction
 
 __all__ = [ "NewServerAPIContext", "NewServerAccessState", "NewServer" ]
 
 
 STALE_PERIOD_SECONDS = 60 * 60 * 24
+
+logger = logging.getLogger("api-server")
 
 
 class APIServerDefinition(TypedDict):
@@ -111,10 +115,11 @@ SERVER_CAPABILITIES = {
     ]
 }
 
-async def broadcast_transaction_auto(tx: "Transaction", network: "Network",
+
+async def broadcast_transaction(tx: "Transaction", network: "Network",
         account: "AbstractAccount", merkle_proof: bool = False, ds_check: bool = False) \
             -> BroadcastResponse:
-    """Auto here refers to the fact that this is automating a number of things:
+    """This is the top-level broadcasting function which automates a number of things:
         - polling the mAPI servers (if need be)
         - prioritisation of mAPI servers
         - creating a new peer channel using the best available ESVReferenceServer
@@ -123,7 +128,7 @@ async def broadcast_transaction_auto(tx: "Transaction", network: "Network",
         - finally, broadcasting through mAPI
     """
     server_entries = get_mapi_servers(network, account)
-    if len(server_entries):
+    if len(server_entries) != 0:
         await poll_servers_async(server_entries)
 
     selection_candidates = network.get_api_servers_for_account(account,
@@ -131,6 +136,10 @@ async def broadcast_transaction_auto(tx: "Transaction", network: "Network",
 
     broadcast_servers: list[BroadcastCandidate] = prioritise_broadcast_servers(
         TransactionSize(tx.size()), selection_candidates)
+    if len(broadcast_servers) == 0:
+        raise ServiceUnavailableException("There are no suitable broadcast servers available")
+
+    # Select the best ranked broadcast server
     broadcast_server = broadcast_servers[0]
 
     peer_channel: Optional[PeerChannel] = None  # Only working on RegTest at present
@@ -141,15 +150,18 @@ async def broadcast_transaction_auto(tx: "Transaction", network: "Network",
         esv_reference_servers = select_servers(ServerCapability.PEER_CHANNELS, selection_candidates)
         esv_reference_server = esv_reference_servers[0]  # Todo - prioritise properly
         aiohttp_client = await network.get_aiohttp_session()
-        esv_client = ESVClient(esv_reference_server.api_server.url, aiohttp_client,
-            REGTEST_MASTER_TOKEN)
+        assert esv_reference_server.api_server is not None
+        url = esv_reference_server.api_server.url
+        esv_client = ESVClient(url, aiohttp_client, REGTEST_MASTER_TOKEN)
         peer_channel = await esv_client.create_peer_channel()
     try:
         # Todo create db entry in MAPIBroadcastCallbacks to record attempt
-        broadcast_response: BroadcastResponse = await broadcast_transaction_mapi_simple(tx,
-            broadcast_server.candidate.api_server, broadcast_server.candidate.credential_id,
-            peer_channel, merkle_proof, ds_check)
-        return broadcast_response
+        api_server = broadcast_server.candidate.api_server
+        credential_id = broadcast_server.candidate.credential_id
+        assert api_server is not None
+        assert credential_id is not None
+        return await broadcast_transaction_mapi_simple(tx,
+            api_server, credential_id, peer_channel, merkle_proof, ds_check)
     except Exception:
         # Todo delete db entry MAPIBroadcastCallbacks on error
         raise
@@ -492,7 +504,9 @@ def prioritise_broadcast_servers(estimated_tx_size: TransactionSize,
         if candidate.server_type == NetworkServerType.MERCHANT_API:
             assert candidate.api_server is not None
             key_state = candidate.api_server.api_key_state[candidate.credential_id]
-            assert key_state.last_fee_quote is not None
+            if key_state.last_fee_quote is None:
+                logger.error(f"No fee quote for {candidate.api_server.url} - server is unavailable")
+                continue  # drop from set of servers
             estimator = MAPIFeeEstimator(key_state.last_fee_quote)
             fee_estimator = estimator.estimate_fee
         elif candidate.server_type == NetworkServerType.ELECTRUMX:

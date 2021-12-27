@@ -67,7 +67,7 @@ from ...exceptions import UserCancelled
 from ...i18n import _
 from ...logs import logs
 from ...network import broadcast_failure_reason
-from ...network_support.api_server import broadcast_transaction_auto
+from ...network_support.api_server import broadcast_transaction
 from ...network_support.mapi import BroadcastResponse
 from ...networks import Net
 from ...storage import WalletStorage
@@ -1460,12 +1460,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if account and not send_view.maybe_send_invoice_payment(tx):
                 return None
 
-            try:
-                broadcast_response: BroadcastResponse = app_state.async_.spawn_and_wait(
-                    broadcast_transaction_auto, tx, self.network, account, True, True)
-                result = broadcast_response['txid']
-            except Exception as e:  # Todo - narrow exceptions
-                raise e
+            broadcast_response: BroadcastResponse = app_state.async_.spawn_and_wait(
+                broadcast_transaction, tx, self.network, account, True, True)
+            result = broadcast_response['txid']
 
             tx_hash = tx.hash()
             # Not all transactions that are broadcast are in the account. Arbitrary transaction

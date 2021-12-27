@@ -47,6 +47,7 @@ from aiorpcx import SOCKSError, TaskGroup
 from .esv_client import PeerChannel
 from ..app_state import app_state
 from ..constants import NetworkServerType
+from ..exceptions import BroadcastFailedException
 from ..logs import logs
 from ..types import TransactionSize
 
@@ -194,8 +195,11 @@ async def get_fee_quote(server: "NewServer",
                     json_response = await decode_response_body(resp)
                 except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
                     logger.error("failed connecting to %s", url)
+                    resp.raise_for_status()
                 else:
                     if resp.status != 200:
+                        # We hope that this service will become available later. Until then it
+                        # should be excluded by prioritisation/server selection algorithms
                         logger.error("feeQuote request to %s failed with: status: %s, reason: %s",
                             url, resp.status, resp.reason)
                     else:
@@ -206,9 +210,8 @@ async def get_fee_quote(server: "NewServer",
                         logger.debug("fee quote received from %s", server.url)
 
                         server.api_key_state[credential_id].update_fee_quote(fee_quote_response)
-                        logger.debug(f"server.api_key_state (after) (url={url}): {server.api_key_state}")
     except Exception as e:
-        logger.exception(f"unexpected exception broadcasting to merchant api")
+        logger.error(f"unexpected exception broadcasting to merchant api")
         raise
 
 
@@ -242,14 +245,16 @@ async def broadcast_transaction_mapi_simple(tx: "Transaction", server: "NewServe
         'merkleProof': 'false' if not merkle_proof else 'true',
         'merkleFormat': "TSC",
         'dsCheck': 'false' if not ds_check else 'true',
-        'callbackURL': peer_channel.get_callback_url(),
-        'callbackToken': f"Bearer {peer_channel.get_write_token().api_key}",
-        # 'callbackEncryption': None  # Todo: add libsodium encryption
     }
+    if peer_channel is not None:
+        params.update({
+            'callbackURL': peer_channel.get_callback_url(),
+            'callbackToken': f"Bearer {peer_channel.get_write_token().api_key}",
+            # 'callbackEncryption': None  # Todo: add libsodium encryption
+        })
     headers = {"Content-Type": "application/octet-stream"}
     headers.update(server.get_authorization_headers(credential_id))
     is_ssl = url.startswith("https")
-
     async with aiohttp.ClientSession() as client:
         async with client.post(url, ssl=is_ssl, headers=headers, params=params,
                 data=tx.to_bytes()) as response:
@@ -276,6 +281,7 @@ async def broadcast_transaction_mapi_simple(tx: "Transaction", server: "NewServe
                     broadcast_response: BroadcastResponse = \
                         json.loads(broadcast_response_envelope['payload'])
                     return broadcast_response
+        raise BroadcastFailedException(f"Broadcast failed for url: {url}, tx: {tx.to_hex()}")
 
 
 class MAPIFeeEstimator:

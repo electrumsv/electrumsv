@@ -127,3 +127,8 @@ class DatabaseWriteError(Exception):
 class ServerConnectionError(Exception):
     pass
 
+class ServiceUnavailableException(Exception):
+    pass
+
+class BroadcastFailedException(Exception):
+    pass
