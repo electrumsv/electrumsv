@@ -1551,7 +1551,8 @@ def update_transaction_block_many(db_context: DatabaseContext,
     def _write(db: sqlite3.Connection) -> int:
         nonlocal sql, rows
         cursor = db.executemany(sql, rows)
-        return cast(int, cursor.rowcount)
+        # NOTE(typing) error: Redundant cast to "int"  [redundant-cast]
+        return cast(int, cursor.rowcount)  # type: ignore
     return db_context.post_to_thread(_write)
 
 
@@ -2229,7 +2230,8 @@ class AsynchronousFunctions:
             "SELECT ?, TA.account_id, ?, ? "
             "FROM transaction_accounts TA",
             (tx_hash, tx_hash, tx_hash, timestamp, timestamp))
-        return cast(int, cursor.rowcount)
+        # NOTE(typing) error: Redundant cast to "int"  [redundant-cast]
+        return cast(int, cursor.rowcount)  # type: ignore
 
     def _reconcile_transaction_output_spends(self, db: sqlite3.Connection, tx_hash: bytes) -> bool:
         """

@@ -200,7 +200,7 @@ class Exception_Hook(QObject):
     def __init__(self, app: "SVApplication") -> None:
         super().__init__()
         self.app = app
-        sys.excepthook = self.handler
+        sys.excepthook = self.handler  # type: ignore[assignment]
         self.uncaught_signal.connect(self.show)
 
     def handler(self, exc_type: Type[BaseException], exc_value: BaseException,
