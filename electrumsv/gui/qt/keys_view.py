@@ -45,8 +45,7 @@ from ...i18n import _
 from ...app_state import app_state
 from ...bitcoin import scripthash_bytes
 from ...constants import (ACCOUNT_SCRIPT_TYPES, AccountType, ADDRESSABLE_SCRIPT_TYPES,
-    DerivationType, IntFlag,
-    KeyInstanceFlag, ScriptType, unpack_derivation_path)
+    DerivationType, KeyInstanceFlag, ScriptType, unpack_derivation_path)
 from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
@@ -84,7 +83,7 @@ BALANCE_COLUMN = 5
 FIAT_BALANCE_COLUMN = 6
 
 
-class EventFlags(IntFlag):
+class EventFlags(enum.IntFlag):
     UNSET = 0 << 0
     KEY_ADDED = 1 << 0
     KEY_UPDATED = 1 << 1
@@ -100,7 +99,7 @@ class ListActions(enum.IntEnum):
     RESET_FIAT_BALANCES = 3
 
 
-class KeyFlags(IntFlag):
+class KeyFlags(enum.IntFlag):
     UNSET = 0
     # State related.
     FROZEN = 1 << 16

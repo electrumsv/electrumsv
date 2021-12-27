@@ -1,15 +1,8 @@
-from enum import Enum, IntEnum
-from enum import IntFlag as _IntFlag
+from enum import Enum, IntEnum, IntFlag
 from typing import Optional, Sequence, Tuple
 
 from bitcoinx import pack_be_uint32, unpack_be_uint32_from
 
-
-## Hacks to deal with standard library bugs.
-# https://bugs.python.org/issue41907
-class IntFlag(_IntFlag):
-    def __format__(self, spec: str) -> str:
-        return format(self.value, spec)
 
 ## Local functions to avoid circular dependencies. This file should be independent
 
