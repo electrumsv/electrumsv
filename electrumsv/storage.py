@@ -59,10 +59,12 @@ from .util.misc import ProgressCallbacks
 from .wallet_database import migration
 from .wallet_database import functions as db_functions
 from .wallet_database.storage_migration import (create_accounts1, create_keys1,
-    create_master_keys1, create_payment_requests1, create_transaction_outputs1,
+    create_master_keys1, create_payment_requests1, create_transaction_deltas_22, \
+    create_transaction_outputs1,
     create_transactions1, create_wallet_datas1, AccountRow1, KeyInstanceRow1, MasterKeyRow1,
-    PaymentRequestRow1, TransactionOutputFlag1, TransactionOutputRow1, TransactionRow1, TxData1,
-    TxFlags1, read_wallet_data1, update_wallet_datas1, WalletDataRow1)
+    PaymentRequestRow1, TransactionDeltaRow_22, TransactionOutputFlag1, TransactionOutputRow1,
+    TransactionRow1, TxData1,
+    TxFlags_22, read_wallet_data1, update_wallet_datas1, WalletDataRow1)
 from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import WalletDataRow
 
@@ -839,6 +841,7 @@ class TextStore(AbstractStore):
             masterkey_rows: List[MasterKeyRow1] = []
             account_rows: List[AccountRow1] = []
             keyinstance_rows: List[KeyInstanceRow1] = []
+            txdelta_rows: List[TransactionDeltaRow_22] = []
             transaction_rows: List[TransactionRow1] = []
             txoutput_rows: List[TransactionOutputRow1] = []
             paymentrequest_rows: List[PaymentRequestRow1] = []
@@ -893,14 +896,14 @@ class TextStore(AbstractStore):
                 fee = tx_fees.get(tx_id)
                 description = labels.pop(tx_id, None)
                 if tx_id in tx_verified:
-                    flags = TxFlags1.STATE_SETTLED
+                    flags = TxFlags_22.STATE_SETTLED
                     height, _timestamp, position = tx_verified[tx_id]
                     tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
                         verified=True, height=height, known_addresses=set(),
                         encountered_addresses=set())
                 else:
                     height = tx_heights.get(tx_id)
-                    flags = TxFlags1.STATE_CLEARED
+                    flags = TxFlags_22.STATE_CLEARED
                     position = None
                     tx_states[tx_id] = _TxState(tx=tx, tx_hash=tx_hash, bytedata=tx_bytedata,
                         verified=False, height=height, known_addresses=set(),
@@ -997,7 +1000,7 @@ class TextStore(AbstractStore):
 
             def process_transactions(*script_classes: Any) -> None:
                 nonlocal _receiving_address_strings, _change_address_strings
-                nonlocal keyinstance_rows, txoutput_rows
+                nonlocal keyinstance_rows, txoutput_rows, txdelta_rows
                 nonlocal address_states, tx_states
 
                 key_deltas: Dict[int, int] = {}
@@ -1066,6 +1069,11 @@ class TextStore(AbstractStore):
                                 orow.tx_hash, orow.tx_index, orow.value, orow.keyinstance_id,
                                 TransactionOutputFlag1.IS_SPENT)
                             tx_state.encountered_addresses.add(address_string)
+
+                # Record all the balance deltas.
+                for (tx_hash, keyinstance_id), delta_value in tx_deltas.items():
+                    txdelta_rows.append(TransactionDeltaRow_22(tx_hash, keyinstance_id,
+                        delta_value))
 
             multsig_mn = multisig_type(wallet_type)
             if multsig_mn is not None:
@@ -1196,6 +1204,8 @@ class TextStore(AbstractStore):
                 futures.append(create_accounts1(db_context, account_rows))
             if len(keyinstance_rows):
                 futures.append(create_keys1(db_context, keyinstance_rows))
+            if len(txdelta_rows):
+                futures.append(create_transaction_deltas_22(db_context, txdelta_rows))
             if len(txoutput_rows):
                 futures.append(create_transaction_outputs1(db_context, txoutput_rows))
             if len(paymentrequest_rows):

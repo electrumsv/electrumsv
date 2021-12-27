@@ -31,7 +31,7 @@ from ...util.misc import ProgressCallbacks
 
 from ..storage_migration import (AccountRow1, convert_masterkey_derivation_data1,
     KeyInstanceDataBIP32SubPath1, KeyInstanceDataTypes1, KeyInstanceFlag1, KeyInstanceRow1,
-    MasterKeyDataBIP321, MasterKeyDataTypes1, MasterKeyRow1, TransactionOutputFlag1, TxFlags1,
+    MasterKeyDataBIP321, MasterKeyDataTypes1, MasterKeyRow1, TransactionOutputFlag1, TxFlags_22,
     upgrade_masterkey1)
 from ..util import create_derivation_data2
 
@@ -577,7 +577,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     logger.debug("adding column Transactions.version")
     conn.execute("ALTER TABLE Transactions ADD COLUMN version INTEGER DEFAULT NULL")
 
-    logger.debug("adding column Transactions.version")
+    logger.debug("adding column Transactions.block_hash")
     conn.execute("ALTER TABLE Transactions ADD COLUMN block_hash BLOB DEFAULT NULL")
 
     conn.execute(f"UPDATE Transactions SET block_height={BlockHeight.LOCAL} "
@@ -598,12 +598,13 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # record until we fetched the bytedata (hence HasByteData). And when we were experimenting
     # with encrypted databases, we used to store packed encrypted data and indicate the presence
     # of fields with values (hence HasFee, HasHeight and HasPosition).
-    tx_clear_bits = ~(TxFlags1.HasByteData|TxFlags1.HasFee|TxFlags1.HasHeight|TxFlags1.HasPosition)
+    tx_clear_bits = ~(TxFlags_22.HasByteData|TxFlags_22.HasFee|TxFlags_22.HasHeight|
+        TxFlags_22.HasPosition)
     cursor = conn.execute("UPDATE Transactions SET flags=(flags&?)", (tx_clear_bits,))
     logger.debug("cleared bytedata flag from %d transactions", cursor.rowcount)
 
     cursor = conn.execute("SELECT COUNT(*) FROM Transactions WHERE flags=(flags&?)!=0",
-        (TxFlags1.HasByteData,))
+        (TxFlags_22.HasByteData,))
     remaining_hasbytedata_count = cursor.fetchone()[0]
     if remaining_hasbytedata_count != 0:
         raise DatabaseMigrationError("Failed to clear HasByteData for "

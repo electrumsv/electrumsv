@@ -70,7 +70,7 @@ class TransactionOutputFlag1(IntFlag):
     FROZEN_MASK = IS_FROZEN | USER_SET_FROZEN
 
 
-class TxFlags1(IntFlag):
+class TxFlags_22(IntFlag):
     HasFee = 1 << 4
     HasHeight = 1 << 5
     HasPosition = 1 << 6
@@ -119,6 +119,12 @@ class PaymentRequestRow1(NamedTuple):
     date_created: int
 
 
+class TransactionDeltaRow_22(NamedTuple):
+    tx_hash: bytes
+    keyinstance_id: int
+    value_delta: int
+
+
 class TransactionOutputRow1(NamedTuple):
     tx_hash: bytes
     tx_index: int
@@ -154,7 +160,7 @@ class TransactionRow1(NamedTuple):
     tx_hash: bytes
     tx_data: TxData1
     tx_bytes: Optional[bytes]
-    flags: TxFlags1
+    flags: TxFlags_22
     description: Optional[str]
 
 
@@ -285,6 +291,19 @@ def create_payment_requests1(db_context: DatabaseContext, entries: Iterable[Paym
     return db_context.post_to_thread(_write)
 
 
+def create_transaction_deltas_22(db_context: DatabaseContext,
+        entries: Iterable[TransactionDeltaRow_22]) -> concurrent.futures.Future[None]:
+    timestamp = get_posix_timestamp()
+    datas = [ (*t, timestamp, timestamp) for t in entries ]
+    query = ("INSERT INTO TransactionDeltas (tx_hash, keyinstance_id, value_delta, "
+        "date_created, date_updated) VALUES (?, ?, ?, ?, ?)")
+
+    def _write(db: sqlite3.Connection) -> None:
+        nonlocal query, datas
+        db.executemany(query, datas)
+    return db_context.post_to_thread(_write)
+
+
 def create_transaction_outputs1(db_context: DatabaseContext,
         entries: Iterable[TransactionOutputRow1]) -> concurrent.futures.Future[None]:
     timestamp = get_posix_timestamp()
@@ -307,14 +326,14 @@ def create_transactions1(db_context: DatabaseContext, entries: Iterable[Transact
     datas = []
     for tx_hash, metadata, bytedata, flags, description in entries:
         assert type(tx_hash) is bytes and bytedata is not None
-        assert (flags & TxFlags1.HasByteData) == 0, "this flag is not applicable"
-        flags &= ~TxFlags1.METADATA_FIELD_MASK
+        assert (flags & TxFlags_22.HasByteData) == 0, "this flag is not applicable"
+        flags &= ~TxFlags_22.METADATA_FIELD_MASK
         if metadata.height is not None:
-            flags |= TxFlags1.HasHeight
+            flags |= TxFlags_22.HasHeight
         if metadata.fee is not None:
-            flags |= TxFlags1.HasFee
+            flags |= TxFlags_22.HasFee
         if metadata.position is not None:
-            flags |= TxFlags1.HasPosition
+            flags |= TxFlags_22.HasPosition
         assert metadata.date_added is not None and metadata.date_updated is not None
         datas.append((tx_hash, bytedata, flags, metadata.height, metadata.position,
             metadata.fee, description, metadata.date_added,
