@@ -142,7 +142,9 @@ async def broadcast_transaction(tx: "Transaction", network: "Network",
     # Select the best ranked broadcast server
     broadcast_server = broadcast_servers[0]
 
-    peer_channel: Optional[PeerChannel] = None  # Only working on RegTest at present
+    # For the peer channel callbacks to work on public networks we will
+    # require at least one public ESV Reference Server instance for each network
+    peer_channel: Optional[PeerChannel] = None
     if app_state.config.get('regtest'):
         selection_candidates = network.get_api_servers_for_account(account,
             NetworkServerType.GENERAL)

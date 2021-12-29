@@ -184,7 +184,6 @@ async def get_fee_quote(server: "NewServer",
 
         url = server.url if server.url.endswith("/") else server.url +"/"
         url += "feeQuote"
-        logger.debug(f"server.api_key_state (before) (url={url}): {server.api_key_state}")
         headers = {'Content-Type': 'application/json'}
         headers.update(server.get_authorization_headers(credential_id))
         is_ssl = url.startswith("https")
@@ -211,6 +210,7 @@ async def get_fee_quote(server: "NewServer",
 
                         server.api_key_state[credential_id].update_fee_quote(fee_quote_response)
     except Exception as e:
+        # without this, exceptions are swallowed by the asyncio task
         logger.error(f"unexpected exception broadcasting to merchant api")
         raise
 

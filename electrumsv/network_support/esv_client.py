@@ -5,6 +5,8 @@ import base64
 import json
 from typing import List, Union, Optional, AsyncIterable, Dict, cast
 
+from bitcoinx import hash_to_hex_str
+
 from electrumsv.bitcoin import TSCMerkleProof
 from electrumsv.logs import logs
 from electrumsv.network_support.esv_client_types import (PeerChannelToken, TokenPermissions,
@@ -222,46 +224,45 @@ class ESVClient:
         """Concurrent fetching of peer channel messages is left to the caller in order to keep
         this class very simple"""
         ws_base_url = self._replace_http_with_ws(self.base_url)
-        url = ws_base_url + "/api/v1/web-socket" + f"?token={self.master_token}"
+        url = ws_base_url + "api/v1/web-socket" + f"?token={self.master_token}"
+        logger.debug(f"URL IS: {url}")
+        try:
+            async with self.session.ws_connect(url, headers={}, timeout=5.0) as ws:
+                logger.info(f'Connected to {url}')
+                msg: aiohttp.WSMessage
+                async for msg in ws:
+                    if msg.type == aiohttp.WSMsgType.TEXT:
+                        notification: GeneralNotification = json.loads(msg.data)
+                        yield notification
 
-        async with aiohttp.ClientSession() as session:
-            try:
-                async with session.ws_connect(url, timeout=5.0) as ws:
-                    logger.info(f'Connected to {url}')
-                    msg: aiohttp.WSMessage
-                    async for msg in ws:
-                        if msg.type == aiohttp.WSMsgType.TEXT:
-                            notification: GeneralNotification = json.loads(msg.data)
-                            yield notification
-
-                        if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR,
-                                aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
-                            logger.info("CLOSED")
-                            break
-            except WSServerHandshakeError as e:
-                if e.status == 401:
-                    raise WebsocketUnauthorizedException()
+                    if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR,
+                            aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
+                        logger.info("CLOSED")
+                        break
+        except WSServerHandshakeError as e:
+            if e.status == 401:
+                raise WebsocketUnauthorizedException()
 
     # ----- HeaderSV APIs ----- #
     async def get_single_header(self, block_hash: bytes) -> bytes:
-        url = self.base_url + f"api/v1/headers/{block_hash!r}"
+        url = self.base_url + f"api/v1/headers/{hash_to_hex_str(block_hash)}"
         headers = {}
         headers.update(self.headers)
         headers.update({"Accept": "application/octet-stream"})
-        async with self.session.get(url, headers=self.headers) as resp:
+        async with self.session.get(url, headers=headers) as resp:
             resp.raise_for_status()
             raw_header = await resp.read()
             return raw_header
 
     async def get_headers_by_height(self, from_height: int, count: Optional[int]=None) \
             -> bytes:
-        url = self.base_url + "api/v1/headers" + f"?height={from_height}"
+        url = self.base_url + "api/v1/headers/by-height" + f"?height={from_height}"
         if count:
             url += f"&count={count}"
         headers = {}
         headers.update(self.headers)
         headers.update({"Accept": "application/octet-stream"})
-        async with self.session.get(url, headers=self.headers) as resp:
+        async with self.session.get(url, headers=headers) as resp:
             resp.raise_for_status()
             raw_headers_array = await resp.read()
             return raw_headers_array
@@ -278,10 +279,11 @@ class ESVClient:
 
     async def subscribe_to_headers(self) -> AsyncIterable[TipResponse]:
         ws_base_url = self._replace_http_with_ws(self.base_url)
-        url = ws_base_url + "/api/v1/headers/tips/websocket"
+        url = ws_base_url + "api/v1/headers/tips/websocket"
 
-        async with self.session as session:
-            async with session.ws_connect(url, headers={}, timeout=5.0) as ws:
+        logger.debug(f"URL IS: {url}")
+        try:
+            async with self.session.ws_connect(url, headers={}, timeout=5.0) as ws:
                 logger.debug(f'Connected to {url}')
                 async for msg in ws:
                     content: Union[TipResponse, Error] = json.loads(msg.data)
@@ -297,6 +299,11 @@ class ESVClient:
 
                     if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
                         break
+        except RuntimeError as e:
+            if "is not registered in runner" in str(e):
+                logger.warning(f"Ignoring a pytest aiohttp bug when closing test session")
+            else:
+                raise
 
     # ----- Peer Channel APIs ----- #
     async def create_peer_channel(self, public_read: bool=True, public_write: bool=True,
@@ -366,9 +373,9 @@ if __name__ == "__main__":
             BASE_URL = "http://127.0.0.1:47124/"  # ESVReferenceServer
             REGTEST_BEARER_TOKEN = "t80Dp_dIk1kqkHK3P9R5cpDf67JfmNixNscexEYG0_xa" \
                                    "CbYXKGNm4V_2HKr68ES5bytZ8F19IS0XbJlq41accQ=="
-            peer_channel_manager = ESVClient(BASE_URL, session, REGTEST_BEARER_TOKEN)
+            esv_client = ESVClient(BASE_URL, session, REGTEST_BEARER_TOKEN)
 
-            peer_channel = await peer_channel_manager.create_peer_channel()
+            peer_channel = await esv_client.create_peer_channel()
             assert isinstance(peer_channel, PeerChannel)
 
             seq = await peer_channel.get_max_sequence_number()
@@ -390,15 +397,15 @@ if __name__ == "__main__":
             assert isinstance(peer_channel_tokens[0], PeerChannelToken)
             assert len(peer_channel_tokens) == 2
 
-            list_peer_channels = await peer_channel_manager.list_peer_channels()
+            list_peer_channels = await esv_client.list_peer_channels()
             assert isinstance(list_peer_channels, list)
             assert isinstance(list_peer_channels[0], PeerChannel)
 
-            fetched_peer_channel = await peer_channel_manager.get_single_peer_channel(
+            fetched_peer_channel = await esv_client.get_single_peer_channel(
                 peer_channel.channel_id)
             assert isinstance(fetched_peer_channel, PeerChannel)
 
-            result = await peer_channel_manager.delete_peer_channel(peer_channel)
+            result = await esv_client.delete_peer_channel(peer_channel)
             assert result is None
         finally:
             if session:
