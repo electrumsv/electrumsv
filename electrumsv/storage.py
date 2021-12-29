@@ -106,7 +106,7 @@ class WalletStorageInfo(NamedTuple):
         raise ValueError(f"Kind {self.kind} should not reach here")
 
 
-def get_categorised_files(wallet_path: str) -> List[WalletStorageInfo]:
+def get_categorised_files(wallet_path: str, exclude_suffix: str='') -> List[WalletStorageInfo]:
     """
     This categorises files based on the three different ways in which we have stored wallets.
 
@@ -119,7 +119,10 @@ def get_categorised_files(wallet_path: str) -> List[WalletStorageInfo]:
     DATABASE - Just the database (version >= 22).
       thiswalletfile.sqlite
     """
-    filenames = { s for s in os.listdir(wallet_path) }
+    filenames = {
+        s for s in os.listdir(wallet_path)
+        if not (exclude_suffix and s.endswith(exclude_suffix))
+    }
     database_filenames = { s for s in filenames if s.endswith(DATABASE_EXT) }
     matches = []
     for database_filename in database_filenames:

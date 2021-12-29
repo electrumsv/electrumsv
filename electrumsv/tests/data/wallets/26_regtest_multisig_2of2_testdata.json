@@ -1,0 +1,23 @@
+{
+    "expected_labels": {
+    },
+    "settled_tx_hashes": [
+    ],
+    "derivation_datas": [
+        {
+            "seed": "junk mass virtual water mixture achieve alarm lounge across husband please since",
+            "derivation": null,
+            "passphrase": null,
+            "label": "Cosigner01",
+            "xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8",
+            "xprv": "tprv8ZgxMBicQKsPeANf1KtvhkBZJ3xo7diPxG9LjPiNr3v4zbegF94pVAT9gTv4xuEDynJGwkKDVTsJZM8Wi3h87uYXpxw3kT3dZFgczkZwRe7"
+        }, {
+            "seed": null,
+            "derivation": null,
+            "passphrase": null,
+            "label": "Cosigner02",
+            "xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC",
+            "xprv": null
+        }
+    ]
+}

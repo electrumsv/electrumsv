@@ -1,0 +1,16 @@
+{
+    "expected_labels": {
+    },
+    "settled_tx_hashes": [
+    ],
+    "derivation_datas": [
+        {
+            "seed": null,
+            "derivation": null,
+            "passphrase": null,
+            "label": null,
+            "xpub": "tpubDDqHcXtH7778cBMgiNGCs8PLiMbHhoFfBXj1GRSdeCJYNJqYTt2Mu5G6HvzEw7ouzg5AjiCUt4E7D2K15qo8ejXk5TBmBqw9t9LNfRjkA6x",
+            "xprv": "tprv8h9FU7r2xjRTiiKtpibcTijE9L5MYU4kcE8DyuQLDvW9XpamqVCmiaeE7nRAmuC6Ee2gCbVsg8ZjUn4FFVkWgMhb6wLS6t3Qd9Ue9aiyzeY"
+        }
+    ]
+}

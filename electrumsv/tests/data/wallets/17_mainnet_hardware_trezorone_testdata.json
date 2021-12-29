@@ -1,0 +1,20 @@
+{
+    "expected_labels": {
+        "c616a3f8bc9a6dd462f0165a287988406ba06332fdf39866355fbb9d9cf72610": "refund test"
+    },
+    "settled_tx_hashes": [
+        "15bf6a11ba2be6afa90e3c9e2044e077ce4603b041d58de2379dd1bf83d2d515",
+        "398a7d03be0e1834f03d7b848a749209cdcd5cc3456822b736ec84c3b813c954",
+        "6f6bae30d43a63c0d12e43ba4869f3e92acde6adedf8138f11e0334f95065409",
+        "c616a3f8bc9a6dd462f0165a287988406ba06332fdf39866355fbb9d9cf72610"
+    ],
+    "derivation_datas": [
+        {
+            "derivation": "m/44'/145'/0'",
+            "hw_type": "trezor",
+            "label": "trezortest",
+            "xpub": "xpub6CzEqW3MvRMV3e6AhHSyRCJN2cBNRxjPmsCEwjrwYrHtnfC3ndDpg2ZkZevcFK5VuzBU9hvPXe4e62xrj3cXP2ZbQXenv2cfRHYSdiXTotR",
+            "cfg": null
+        }
+    ]
+}

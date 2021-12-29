@@ -10,8 +10,12 @@ from electrumsv.wallet_database import functions as db_functions
 class AppStateProxyTest(AppStateProxy):
 
     def __init__(self):
-        config = SimpleConfig()
+        config = UnittestSimpleConfig()
         super().__init__(config, 'qt')
+
+    def _migrate(self) -> None:
+        pass
+
 
 proxy = None
 
@@ -75,4 +79,11 @@ class MockStorage:
 
     def get_db_context(self):
         return self.db_context
+
+
+class UnittestSimpleConfig(SimpleConfig):
+    def electrum_path(self) -> str:
+        # An invalid path as we should never end up using install data nor saving config files!
+        return r"Q:\fluff"
+
 

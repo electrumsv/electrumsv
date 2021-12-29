@@ -791,7 +791,7 @@ class Multisig_KeyStore(KeyStore):
         return all(k.is_watching_only() for k in self.get_cosigner_keystores())
 
     def can_change_password(self) -> bool:
-        return all(k.is_watching_only() for k in self.get_cosigner_keystores())
+        return not all(k.is_watching_only() for k in self.get_cosigner_keystores())
 
     def check_password(self, password: Optional[str]) -> None:
         if self.is_watching_only():

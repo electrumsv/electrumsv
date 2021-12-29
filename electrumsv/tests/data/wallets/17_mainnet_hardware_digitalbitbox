@@ -118,7 +118,7 @@
     "keystore": {
         "derivation": "m/44'/0'/0'",
         "hw_type": "digitalbitbox",
-        "label": " ",
+        "label": "my label",
         "type": "hardware",
         "xpub": "xpub6CEke2P55YdmGL35MdFi8krgZ8G92qppTVGdTffacBpPhnM7QEFNjcSBGovTSjagudprG1exoxFrtynF6pvffnSYR3Bwde7ud1ACJjRXDJq"
     },

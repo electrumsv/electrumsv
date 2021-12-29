@@ -8,9 +8,6 @@ from electrumsv.networks import Net, SVTestnet, SVMainnet
 from electrumsv.wallet_database.sqlite_support import DatabaseContext, JournalModes
 
 
-logging.disable(logging.CRITICAL)
-
-
 def setup_module(module):
     # In Python 3.8 on Windows, the DLL search paths have been constrained for security.
     if sys.version_info[:3] >= (3, 8, 0) and sys.platform == "win32":

@@ -113,7 +113,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         "seed": derivation_data_latest["seed"],
         "derivation": derivation_data_latest["derivation"],
         "passphrase": derivation_data_latest["passphrase"],
-        "label": derivation_data_latest["xpub"],
+        "label": derivation_data_latest["label"],
         "xprv": derivation_data_latest["xprv"],
     }
     derivation_data_bytes = json.dumps(derivation_data2).encode()

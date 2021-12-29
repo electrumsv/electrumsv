@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import sys
@@ -45,8 +46,8 @@ def tearDownModule():
     tear_down_async()
 
 
-def get_categorised_files2(wallet_path: str) -> List[WalletStorageInfo]:
-    matches = get_categorised_files(wallet_path)
+def get_categorised_files2(wallet_path: str, exclude_suffix: str="") -> List[WalletStorageInfo]:
+    matches = get_categorised_files(wallet_path, exclude_suffix)
     # In order to ensure ordering consistency, we sort the files.
     return sorted(matches, key=lambda v: v.filename)
 
@@ -469,9 +470,11 @@ class TestLegacyWalletCreation:
         check_create_keys(wallet, account)
 
 
-@pytest.mark.parametrize("storage_info", get_categorised_files2(TEST_WALLET_PATH))
+@pytest.mark.parametrize("storage_info",
+    get_categorised_files2(TEST_WALLET_PATH, exclude_suffix="_testdata.json"))
 @unittest.mock.patch('electrumsv.wallet.app_state')
-def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorageInfo) -> None:
+def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorageInfo,
+        caplog) -> None:
     password = initial_password = "123456"
     password_token = PasswordToken(password)
     mock_wallet_app_state.credentials.get_wallet_password = lambda wallet_path: password
@@ -554,7 +557,6 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
     future.result(5)
 
     if "standard" == expected_type:
-        print(mock_wallet_app_state.credentials.add_indefinite_credential.mock_calls)
         check_legacy_parent_of_standard_wallet(wallet, password=password,
             add_indefinite_credential_mock=add_indefinite_credential_mock)
     elif "imported" == expected_type:
@@ -573,8 +575,71 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
     else:
         raise Exception(f"unrecognised wallet file {wallet_filename}")
 
+    check_specific_wallets(wallet, password, storage_info)
+
     if expected_network in { "testnet", "regtest" }:
         Net.set_to(SVMainnet)
+
+
+def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletStorageInfo) -> None:
+    """
+    We need to verify that the migrated data in each wallet is correctly migrated for each
+    wallet type. A lot of this it would most likely be enough to check one migrated wallet,
+    but we'll check them all just to be sure, and should consider varying the stored data
+    to ensure more migration cases are checked.
+    """
+    testdata_filename = storage_info.wallet_filepath +"_testdata.json"
+    assert os.path.exists(testdata_filename)
+
+    with open(testdata_filename, "r") as f:
+        testdata = json.load(f)
+
+    expected_labels: Dict[bytes, str] = {
+        hex_str_to_hash(k): v for (k, v) in testdata["expected_labels"].items()
+    }
+    settled_tx_hashes: Set[bytes] = {
+        hex_str_to_hash(k) for k in testdata["settled_tx_hashes"]
+    }
+    expected_derivation_datas: Optional[List[Dict[str, Any]]] = testdata["derivation_datas"]
+
+    if len(expected_labels):
+        rows1 = wallet.read_transaction_descriptions(tx_hashes=list(expected_labels.keys()))
+        assert { row1.tx_hash: row1.description  for row1 in rows1 } == expected_labels
+
+    rows2 = wallet.read_transactions_exist(list(settled_tx_hashes))
+    assert settled_tx_hashes == { row2.tx_hash for row2 in rows2 }
+
+    # Account 1 is the pre-existing account (and predates the petty cash account).
+    account = wallet.get_account(1)
+    assert account is not None
+
+    if account.is_petty_cash():
+        assert not expected_derivation_datas
+    elif expected_derivation_datas is not None:
+        actual_derivation_datas: List[Dict[str, Any]] = []
+        for keystore in account.get_keystores():
+            data1 = keystore.to_derivation_data()
+            if "seed" in data1:
+                data1_typed = cast(MasterKeyDataBIP32, data1)
+                if data1_typed["seed"] is not None:
+                    data1_typed["seed"] = pw_decode(data1_typed["seed"], password)
+                if data1_typed["xprv"] is not None:
+                    data1_typed["xprv"] = pw_decode(data1_typed["xprv"], password)
+                data1 = cast(Dict[str, Any], data1_typed)
+            actual_derivation_datas.append(data1)
+        assert expected_derivation_datas == actual_derivation_datas
+    else:
+        for keystore in account.get_keystores():
+            with pytest.raises(IncompatibleWalletError):
+                data1 = keystore.to_derivation_data()
+                # if "seed" in data1:
+                #     data1_typed = cast(MasterKeyDataBIP32, data1)
+                #     if data1_typed["seed"] is not None:
+                #         data1_typed["seed"] = pw_decode(data1_typed["seed"], password)
+                #     if data1_typed["xprv"] is not None:
+                #         data1_typed["xprv"] = pw_decode(data1_typed["xprv"], password)
+                #     data1 = cast(Dict[str, Any], data1_typed)
+                # print("expected_derivation_data", data1)
 
 
 # class TestImportedPrivkeyAccount:

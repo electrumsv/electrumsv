@@ -1,0 +1,25 @@
+{
+    "expected_labels": {
+        "268feb1bb9e81ca827637b96ee8bec1e7ea214bb2c789de76ddcd26fe8ca22b7": "return funding",
+        "f42d42ac67a16779999af19c0cca8b2181008b7d854a15e700573a08e95b0e56": "return test funding"
+    },
+    "settled_tx_hashes": [
+        "268feb1bb9e81ca827637b96ee8bec1e7ea214bb2c789de76ddcd26fe8ca22b7",
+        "3287d9a7bd4819c4e87c0bc9edd6ff08059abf62a741b2e4cef59bfbce96b949",
+        "68226661e5eb439212c0ed6bc66171e64e7726fd28483d4a61b96955817ee2f0",
+        "7482bb7066b62d2a6a5e04ab105b3b21b977c681743de66d64b689421c065529",
+        "8fc80b5c2b6c48a4d0cec3ec19d129dcdb1372bf26e843e5340cb9a6c5c34c8c",
+        "dbe05968d9f57d25940c2e5df4a907525708653dfb70bff9f79f23a59f788981",
+        "f42d42ac67a16779999af19c0cca8b2181008b7d854a15e700573a08e95b0e56",
+        "fb5e1aafa8a9904c8350c1aaf1cd5a8879024c7707f6c8e3078bd02063c6d9f0"
+    ],
+    "derivation_datas": [
+        {
+            "derivation": "m/44'/0'/0'",
+            "hw_type": "digitalbitbox",
+            "label": "my label",
+            "xpub": "xpub6CEke2P55YdmGL35MdFi8krgZ8G92qppTVGdTffacBpPhnM7QEFNjcSBGovTSjagudprG1exoxFrtynF6pvffnSYR3Bwde7ud1ACJjRXDJq",
+            "cfg": null
+        }
+    ]
+}
