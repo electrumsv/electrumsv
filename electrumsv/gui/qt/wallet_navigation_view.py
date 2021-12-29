@@ -441,17 +441,20 @@ class WalletNavigationView(QSplitter):
 
         # Accounts are by default ordered in the order of creation, with the exception of petty
         # cash which comes last.
-        for child_index in range(self._accounts_item.childCount()):
-            child_item = self._accounts_item.child(child_index)
-            child_account_id = cast(int,
-                child_item.data(TreeColumns.MAIN, Qt.ItemDataRole.UserRole))
-            child_account = self._wallet.get_account(child_account_id)
-            assert child_account is not None
-            if account_id > child_account_id or child_account.is_petty_cash():
-                self._accounts_item.insertChild(child_index, item)
-                break
-        else:
+        if account.is_petty_cash():
             self._accounts_item.addChild(item)
+        else:
+            for child_index in range(self._accounts_item.childCount()):
+                child_item = self._accounts_item.child(child_index)
+                child_account_id = cast(int,
+                    child_item.data(TreeColumns.MAIN, Qt.ItemDataRole.UserRole))
+                child_account = self._wallet.get_account(child_account_id)
+                assert child_account is not None
+                if account_id > child_account_id or child_account.is_petty_cash():
+                    self._accounts_item.insertChild(child_index, item)
+                    break
+            else:
+                self._accounts_item.addChild(item)
 
         self._account_tree_items[account_id] = item
 
