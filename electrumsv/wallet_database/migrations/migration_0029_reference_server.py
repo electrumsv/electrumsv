@@ -144,7 +144,8 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             peer_channel_id             VARCHAR(1024) NOT NULL,
             broadcast_date              INTEGER       NOT NULL,
             encrypted_private_key       BLOB          NOT NULL,
-            server_id                   INTEGER       NOT NULL
+            server_id                   INTEGER       NOT NULL,
+            status_flags                INTEGER       NOT NULL
         )
     """)
 

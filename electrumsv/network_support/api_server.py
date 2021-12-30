@@ -40,6 +40,7 @@ import datetime
 import json
 import random
 import logging
+import os
 from typing import cast, Dict, List, NamedTuple, Optional, Tuple, TypedDict, TYPE_CHECKING
 
 import aiohttp
@@ -56,6 +57,7 @@ from ..types import IndefiniteCredentialId, NetworkServerState, ServerAccountKey
 
 from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator, BroadcastResponse, get_mapi_servers, \
     poll_servers_async, broadcast_transaction_mapi_simple
+from ..wallet_database.types import MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags
 
 if TYPE_CHECKING:
     from ..network import SVServer, Network
@@ -158,18 +160,29 @@ async def broadcast_transaction(tx: "Transaction", network: "Network",
         esv_client = ESVClient(url, aiohttp_client, REGTEST_MASTER_TOKEN)
         peer_channel = await esv_client.create_peer_channel()
     try:
-        # Todo create db entry in MAPIBroadcastCallbacks to record attempt
+        server_id = broadcast_server.candidate.api_server.config.get('id')
+        mapi_callback_row = MAPIBroadcastCallbackRow(
+            tx_hash=tx.hash(),
+            peer_channel_id=peer_channel.channel_id,
+            broadcast_date=datetime.datetime.utcnow().isoformat(),
+            encrypted_private_key=os.urandom(64),  # libsodium encryption not implemented yet
+            server_id=server_id,
+            status_flags=MapiBroadcastStatusFlags.ATTEMPTING
+        )
+        account._wallet.create_mapi_broadcast_callbacks([mapi_callback_row])
         api_server = broadcast_server.candidate.api_server
         credential_id = broadcast_server.candidate.credential_id
         assert api_server is not None
         return await broadcast_transaction_mapi_simple(tx,
             api_server, credential_id, peer_channel, merkle_proof, ds_check)
-    except aiohttp.ClientConnectorError:
-        # Todo delete db entry MAPIBroadcastCallbacks on error
+    except aiohttp.ClientError as e:
+        account._wallet.delete_mapi_broadcast_callbacks(tx_hashes=[tx.hash()])
+        logger.error(f"Error broadcasting to mAPI for tx: {tx.txid()}. Error: {str(e)}")
         raise
     finally:
-        # Todo update db entry in MAPIBroadcastCallbacks after broadcast success
-        pass
+        updates = [(MapiBroadcastStatusFlags.SUCCEEDED, tx.hash())]
+        account._wallet.update_mapi_broadcast_callbacks(updates)
+        # Todo - when the merkle proof is successfully received, delete the MAPIBroadcastCallbackRow
 
 
 class NewServerAPIContext(NamedTuple):

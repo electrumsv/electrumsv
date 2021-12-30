@@ -98,14 +98,13 @@ from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataProtocol, KeyData,
-    KeyInstanceFlagChangeRow,
-    KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
+    KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult, PaymentRequestReadRow,
-    PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
-    TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
-    TransactionMetadata, TransactionOutputAddRow, TransactionOutputShortRow,
-    TransactionOutputSpendableRow, TransactionOutputSpendableProtocol,
-    TransactionValueRow, TransactionRow, WalletBalance, WalletEventRow)
+    PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow, TransactionDeltaSumRow,
+    TransactionExistsRow, TransactionLinkState, TransactionMetadata,
+    TransactionOutputShortRow, TransactionOutputSpendableRow, TransactionOutputSpendableProtocol,
+    TransactionValueRow, TransactionInputAddRow, TransactionOutputAddRow, TransactionRow,
+    WalletBalance, WalletEventRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags)
 from .wallet_database.util import create_derivation_data2
 from .wallet_support import late_header_worker
 
@@ -2815,6 +2814,24 @@ class Wallet(TriggeredCallbacks):
     def update_transaction_block_many(self, entries: Iterable[TransactionBlockRow]) \
             -> concurrent.futures.Future[int]:
         return db_functions.update_transaction_block_many(self.get_db_context(), entries)
+
+    # mAPI broadcast callbacks
+
+    def create_mapi_broadcast_callbacks(self, rows: Iterable[MAPIBroadcastCallbackRow]) -> \
+    concurrent.futures.Future[None]:
+        return db_functions.create_mapi_broadcast_callbacks(self._db_context, rows)
+
+    def read_mapi_broadcast_callbacks(self) -> List[MAPIBroadcastCallbackRow]:
+        return db_functions.read_mapi_broadcast_callbacks(self._db_context)
+
+    def update_mapi_broadcast_callbacks(self,
+            entries: Iterable[Tuple[MapiBroadcastStatusFlags, bytes]]) -> \
+    concurrent.futures.Future[None]:
+        return db_functions.update_mapi_broadcast_callbacks(self._db_context, entries)
+
+    def delete_mapi_broadcast_callbacks(self, tx_hashes: Iterable[bytes]) -> \
+    concurrent.futures.Future[None]:
+        return db_functions.delete_mapi_broadcast_callbacks(self._db_context, tx_hashes)
 
     # Data acquisition.
     async def obtain_transactions_async(self, account_id: int, keys: List[Tuple[bytes, bool]],
