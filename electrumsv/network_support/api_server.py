@@ -42,6 +42,7 @@ import random
 import logging
 from typing import cast, Dict, List, NamedTuple, Optional, Tuple, TypedDict, TYPE_CHECKING
 
+import aiohttp
 import dateutil.parser
 
 from .esv_client import PeerChannel, ESVClient, REGTEST_MASTER_TOKEN
@@ -161,10 +162,9 @@ async def broadcast_transaction(tx: "Transaction", network: "Network",
         api_server = broadcast_server.candidate.api_server
         credential_id = broadcast_server.candidate.credential_id
         assert api_server is not None
-        assert credential_id is not None
         return await broadcast_transaction_mapi_simple(tx,
             api_server, credential_id, peer_channel, merkle_proof, ds_check)
-    except Exception:
+    except aiohttp.ClientConnectorError:
         # Todo delete db entry MAPIBroadcastCallbacks on error
         raise
     finally:

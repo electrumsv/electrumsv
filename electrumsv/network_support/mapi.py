@@ -179,40 +179,35 @@ async def get_fee_quote(server: "NewServer",
         credential_id: Optional["IndefiniteCredentialId"]) -> None:
     """The last_good and last_try timestamps will be used to include/exclude the mAPI for
     selection"""
-    try:
-        server.api_key_state[credential_id].record_attempt()
+    server.api_key_state[credential_id].record_attempt()
 
-        url = server.url if server.url.endswith("/") else server.url +"/"
-        url += "feeQuote"
-        headers = {'Content-Type': 'application/json'}
-        headers.update(server.get_authorization_headers(credential_id))
-        is_ssl = url.startswith("https")
+    url = server.url if server.url.endswith("/") else server.url +"/"
+    url += "feeQuote"
+    headers = {'Content-Type': 'application/json'}
+    headers.update(server.get_authorization_headers(credential_id))
+    is_ssl = url.startswith("https")
 
-        async with aiohttp.ClientSession() as client:
-            async with client.get(url, headers=headers, ssl=is_ssl) as resp:
-                try:
-                    json_response = await decode_response_body(resp)
-                except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
-                    logger.error("failed connecting to %s", url)
-                    resp.raise_for_status()
+    async with aiohttp.ClientSession() as client:
+        async with client.get(url, headers=headers, ssl=is_ssl) as resp:
+            try:
+                json_response = await decode_response_body(resp)
+            except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
+                logger.error("failed connecting to %s", url)
+                resp.raise_for_status()
+            else:
+                if resp.status != 200:
+                    # We hope that this service will become available later. Until then it
+                    # should be excluded by prioritisation/server selection algorithms
+                    logger.error("feeQuote request to %s failed with: status: %s, reason: %s",
+                        url, resp.status, resp.reason)
                 else:
-                    if resp.status != 200:
-                        # We hope that this service will become available later. Until then it
-                        # should be excluded by prioritisation/server selection algorithms
-                        logger.error("feeQuote request to %s failed with: status: %s, reason: %s",
-                            url, resp.status, resp.reason)
-                    else:
-                        assert json_response['encoding'].lower() == 'utf-8'
+                    assert json_response['encoding'].lower() == 'utf-8'
 
-                        fee_quote_response = cast(JSONEnvelope, json_response)
-                        validate_json_envelope(fee_quote_response)
-                        logger.debug("fee quote received from %s", server.url)
+                    fee_quote_response = cast(JSONEnvelope, json_response)
+                    validate_json_envelope(fee_quote_response)
+                    logger.debug("fee quote received from %s", server.url)
 
-                        server.api_key_state[credential_id].update_fee_quote(fee_quote_response)
-    except Exception as e:
-        # without this, exceptions are swallowed by the asyncio task
-        logger.error(f"unexpected exception broadcasting to merchant api")
-        raise
+                    server.api_key_state[credential_id].update_fee_quote(fee_quote_response)
 
 
 def validate_json_envelope(json_response: JSONEnvelope) -> None:

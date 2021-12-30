@@ -80,7 +80,8 @@ class PeerChannel:
         if mime_type == "application/json":
             assert isinstance(message, dict)
             headers.update({"Content-Type": mime_type})
-            async with self.session.post(url, headers=headers, json=message) as resp:
+            json_no_whitespace = json.dumps(message, separators=(",", ":"))
+            async with self.session.post(url, headers=headers, data=json_no_whitespace) as resp:
                 resp.raise_for_status()
                 json_response: MessageViewModelGetJSON = await resp.json()
                 return json_response

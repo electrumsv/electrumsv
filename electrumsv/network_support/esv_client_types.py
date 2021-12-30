@@ -124,6 +124,7 @@ class MAPICallbackResponse(TypedDict):
     timestamp: str
     minerId: str
     blockHash: str
+    blockHeight: int
     callbackTxId: str
     callbackReason: str
 
