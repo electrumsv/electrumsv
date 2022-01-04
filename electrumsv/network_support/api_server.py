@@ -34,9 +34,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+from __future__ import annotations
 import dataclasses
 import datetime
 import json
+import random
 from typing import cast, Dict, List, NamedTuple, Optional, Tuple, TypedDict, TYPE_CHECKING
 
 import dateutil.parser
@@ -51,7 +53,8 @@ from ..types import IndefiniteCredentialId, NetworkServerState, ServerAccountKey
 from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator
 
 if TYPE_CHECKING:
-    from ..network import SVServer
+    from ..network import Network, SVServer
+    from ..wallet import AbstractAccount
 
 
 __all__ = [ "NewServerAPIContext", "NewServerAccessState", "NewServer" ]
@@ -88,6 +91,9 @@ class CapabilitySupport:
 SERVER_CAPABILITIES = {
     NetworkServerType.GENERAL: [
         CapabilitySupport(_("Account restoration"), ServerCapability.RESTORATION),
+        CapabilitySupport(_("Arbitrary proof requests"), ServerCapability.MERKLE_PROOF_REQUEST),
+        CapabilitySupport(_("Arbitrary transaction requests"),
+            ServerCapability.TRANSACTION_REQUEST),
     ],
     NetworkServerType.MERCHANT_API: [
         CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST,
@@ -384,6 +390,26 @@ def select_servers(capability_type: ServerCapability, candidates: List[Selection
                 filtered_servers.append(candidate)
                 break
     return filtered_servers
+
+
+def pick_server_for_account(network: Optional[Network], account: AbstractAccount) -> str:
+    assert network is not None
+    all_candidates = network.get_api_servers_for_account(
+        account, NetworkServerType.GENERAL)
+    restoration_candidates = select_servers(ServerCapability.MERKLE_PROOF_REQUEST,
+        all_candidates)
+    if not len(restoration_candidates):
+        # TODO(1.4.0) needs Exception subclass.
+        raise Exception(_("No servers available."))
+
+    # TODO(1.4.0) better choice of which server to use, probably some centralised approach.
+    candidate = random.choice(restoration_candidates)
+    assert candidate.api_server is not None and candidate.api_server.config is not None
+
+    # TODO(1.4.0) better endpoint url resolution rather than this hard-coding.
+    url = candidate.api_server.config["url"]
+    url = url if url.endswith("/") else url +"/"
+    return url
 
 
 class BroadcastCandidate(NamedTuple):

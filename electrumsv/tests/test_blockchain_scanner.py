@@ -12,7 +12,7 @@ from electrumsv.blockchain_scanner import (BIP32ParentPath, DEFAULT_GAP_LIMITS,
 from electrumsv.constants import (CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType,
     SINGLE_SIGNER_SCRIPT_TYPES, SubscriptionType)
 from electrumsv.exceptions import SubscriptionStale
-from electrumsv.types import (ElectrumXHistoryList, SubscriptionEntry,
+from electrumsv.types import (ScriptHashHistoryList, SubscriptionEntry,
     SubscriptionScannerScriptHashOwnerContext, SubscriptionOwner)
 
 
@@ -30,7 +30,7 @@ def create_event() -> asyncio.Event:
 
 
 # This is our helper task to awaken the blocked `scan_for_usage` call.
-async def post_event(scanner: BlockchainScanner, entry: SubscriptionEntry, history: ElectrumXHistoryList) \
+async def post_event(scanner: BlockchainScanner, entry: SubscriptionEntry, history: ScriptHashHistoryList) \
         -> None:
     assert entry.owner_context is not None
     await cast(ScriptHashHandler, scanner._handler)._on_script_hash_result(
@@ -40,7 +40,7 @@ async def post_event(scanner: BlockchainScanner, entry: SubscriptionEntry, histo
 
 
 class InputLine(NamedTuple):
-    history: ElectrumXHistoryList
+    history: ScriptHashHistoryList
     index: int = -1
     keyinstance_id: int = -1
     script_type: ScriptType = ScriptType.NONE
@@ -101,7 +101,7 @@ async def test_scanner_pump_mixed(app_state):
         for entry in entries:
             assert entry.key.value_type == SubscriptionType.SCRIPT_HASH
             input_line = input_line_map.get(entry.key.value)
-            history: ElectrumXHistoryList = []
+            history: ScriptHashHistoryList = []
             if input_line is not None:
                 assert entry.key.value == input_line.script_hash
                 history = input_line.history
@@ -169,7 +169,7 @@ async def test_scanner_pump_bip32(app_state):
         for entry in entries:
             assert entry.key.value_type == SubscriptionType.SCRIPT_HASH
             input_line = input_line_map.get(entry.key.value)
-            history: ElectrumXHistoryList = []
+            history: ScriptHashHistoryList = []
             if input_line is not None:
                 assert entry.key.value == input_line.script_hash
                 history = input_line.history

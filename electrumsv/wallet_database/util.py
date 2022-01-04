@@ -1,4 +1,3 @@
-from io import BytesIO
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
     import pysqlite3
@@ -11,12 +10,9 @@ else:
 
 from typing import Any, cast, Collection, List, Optional, Sequence, Tuple, Type, TypeVar
 
-import bitcoinx
 from bitcoinx import base58_decode_check, PublicKey
 
-from .exceptions import DataPackingError
 from .sqlite_support import SQLITE_EXPR_TREE_DEPTH, SQLITE_MAX_VARS
-from .types import TxProof
 
 from ..constants import DerivationType, pack_derivation_path
 from ..types import KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataTypes, \
@@ -67,26 +63,6 @@ def flag_clause(column: str, flags: Optional[T], mask: Optional[T]) -> Tuple[str
         return f"({column} & ?) != 0", [flags]
 
     return f"({column} & ?) == ?", [mask, flags]
-
-
-def pack_proof(proof: TxProof) -> bytes:
-    raw = bitcoinx.pack_varint(1)
-    raw += bitcoinx.pack_varint(proof.position)
-    raw += bitcoinx.pack_varint(len(proof.branch))
-    for hash in proof.branch:
-        raw += bitcoinx.pack_varbytes(hash)
-    return cast(bytes, raw)
-
-
-def unpack_proof(raw: bytes) -> TxProof:
-    io = BytesIO(raw)
-    pack_version = bitcoinx.read_varint(io.read)
-    if pack_version == 1:
-        position = bitcoinx.read_varint(io.read)
-        branch_count = bitcoinx.read_varint(io.read)
-        merkle_branch = [ bitcoinx.read_varbytes(io.read) for i in range(branch_count) ]
-        return TxProof(position, merkle_branch)
-    raise DataPackingError(f"Unhandled packing format {pack_version}")
 
 
 def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, params: Sequence[Any],

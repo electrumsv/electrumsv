@@ -12,10 +12,9 @@ except ModuleNotFoundError:
 else:
     sqlite3 = pysqlite3
 from types import TracebackType
-from typing import Any, cast, Iterable, List, Optional, Sequence, Set, Tuple, Type
+from typing import Any, cast, Iterable, List, Optional, Sequence, Set, Tuple, Type, Union
 
-from ..bitcoin import COINBASE_MATURITY
-from ..constants import (BlockHeight, DerivationType, DerivationPath, KeyInstanceFlag,
+from ..constants import (DerivationType, DerivationPath, KeyInstanceFlag,
     NetworkServerType, pack_derivation_path, PaymentFlag, ScriptType, TransactionOutputFlag,
     TxFlags, unpack_derivation_path, WalletEventFlag)
 from ..crypto import pw_decode, pw_encode
@@ -38,11 +37,11 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
     TransactionOutputAddRow, TransactionOutputSpendableRow,
     TransactionValueRow, TransactionMetadata,
-    TransactionOutputFullRow, TransactionOutputShortRow, TransactionRow,
-    TransactionSubscriptionRow, TxProof, TxProofResult,
-    WalletBalance, WalletDataRow, WalletEventRow)
-from .util import (flag_clause, pack_proof, read_rows_by_id, read_rows_by_ids,
-    execute_sql_by_id, update_rows_by_ids)
+    TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow,
+    TxProofData,
+    TxProofResult, TransactionRow, WalletBalance, WalletDataRow, WalletEventRow)
+from .util import flag_clause, read_rows_by_id, read_rows_by_ids, execute_sql_by_id, \
+    update_rows_by_ids
 
 
 logger = logs.get_logger("db-functions")
@@ -56,19 +55,6 @@ def create_accounts(db_context: DatabaseContext, entries: Iterable[AccountRow]) 
         "account_name, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
     def _write(db: sqlite3.Connection) -> None:
         db.executemany(query, datas)
-    return db_context.post_to_thread(_write)
-
-
-def create_account_transactions(db_context: DatabaseContext,
-        entries: Iterable[AccountTransactionRow]) -> concurrent.futures.Future[None]:
-    sql = (
-        "INSERT INTO AccountTransactions "
-        "(account_id, tx_hash, flags, description, date_created, date_updated) "
-        "VALUES (?, ?, ?, ?, ?, ?)")
-    timestamp = get_posix_timestamp()
-    rows = [ (*t, timestamp, timestamp) for t in entries ]
-    def _write(db: sqlite3.Connection) -> None:
-        db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
 
@@ -150,16 +136,30 @@ def create_transaction_outputs(db_context: DatabaseContext,
     return db_context.post_to_thread(_write)
 
 
-def create_transactions(db_context: DatabaseContext, rows: List[TransactionRow]) \
+# This is currently only used from unit tests.
+def create_account_transactions_UNITTEST(db_context: DatabaseContext,
+        rows: List[AccountTransactionRow]) -> concurrent.futures.Future[None]:
+    sql = """
+        INSERT INTO AccountTransactions
+            (account_id, tx_hash, flags, description, date_created, date_updated)
+        VALUES (?,?,?,?,?,?)
+    """
+    def _write(db: sqlite3.Connection) -> None:
+        logger.debug("add %d account transactions", len(rows))
+        db.executemany(sql, rows)
+    return db_context.post_to_thread(_write)
+
+
+# This is currently only used from unit tests.
+def create_transactions_UNITTEST(db_context: DatabaseContext, rows: List[TransactionRow]) \
         -> concurrent.futures.Future[None]:
     sql = ("INSERT INTO Transactions (tx_hash, tx_data, flags, block_hash, "
-        "block_height, block_position, fee_value, description, version, locktime, "
+        "block_position, fee_value, description, version, locktime, proof_data, "
         "date_created, date_updated) "
         "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
 
     for row in rows:
         assert type(row.tx_hash) is bytes and row.tx_bytes is not None
-        assert (row.flags & TxFlags.HAS_BYTEDATA) == 0, "this flag is not applicable"
         assert row.date_created > 0 and row.date_updated > 0
 
     def _write(db: sqlite3.Connection) -> None:
@@ -241,26 +241,23 @@ def delete_wallet_data(db_context: DatabaseContext, key: str) -> concurrent.futu
 #   through. Each case statement would need to filter out frozen UTXOs, and a frozen case
 #   would need to be added.
 @replace_db_context_with_connection
-def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: int,
+def read_account_balance(db: sqlite3.Connection, account_id: int,
         txo_flags: TransactionOutputFlag=TransactionOutputFlag.NONE,
         txo_mask: TransactionOutputFlag=TransactionOutputFlag.SPENT,
         exclude_frozen: bool=True) -> WalletBalance:
-    coinbase_mask = TransactionOutputFlag.COINBASE
     if exclude_frozen:
         txo_mask |= TransactionOutputFlag.FROZEN
     # NOTE(linked-balance-calculations) the general formula is used elsewhere
     sql = (
         "SELECT "
             # Confirmed.
-            "CAST(TOTAL(CASE WHEN TX.block_height>? AND (TXO.flags&?=0 OR TX.block_height+?<=?) "
-                "THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&? AND TXO.flags&?=? THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "CAST(TOTAL(CASE WHEN TX.block_height IN (?,?) THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&? THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
-            "CAST(TOTAL(CASE WHEN TX.block_height>? AND TXO.flags&? AND TX.block_height+?>? "
-                "THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&? AND TXO.flags&?=? THEN TXO.value ELSE 0 END) AS INT), "
             # Allocated total.
-            "CAST(TOTAL(CASE WHEN TX.block_height=? THEN TXO.value ELSE 0 END) AS INT) "
+            "CAST(TOTAL(CASE WHEN TX.flags&? THEN TXO.value ELSE 0 END) AS INT) "
         "FROM AccountTransactions ATX "
         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash ")
     if exclude_frozen:
@@ -268,10 +265,15 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
     sql += ("INNER JOIN Transactions TX ON TX.tx_hash=ATX.tx_hash "
         "WHERE ATX.account_id=? AND TXO.keyinstance_id IS NOT NULL AND "
             "TXO.flags&?=?")
-    sql_values = [ BlockHeight.MEMPOOL, coinbase_mask, COINBASE_MATURITY, local_height,
-        BlockHeight.MEMPOOL, BlockHeight.MEMPOOL_UNCONFIRMED_PARENT, BlockHeight.MEMPOOL,
-        coinbase_mask, COINBASE_MATURITY, local_height, BlockHeight.LOCAL, account_id,
-        txo_mask, txo_flags ]
+    # The `COINBASE_IMMATURE` flag is expected to be set on insert unless it is known the
+    # transaction is mature.
+    coinbase_filter_mask = TransactionOutputFlag.COINBASE_IMMATURE
+    sql_values = [
+        TxFlags.STATE_SETTLED, coinbase_filter_mask, TransactionOutputFlag.NONE,
+        TxFlags.STATE_CLEARED,
+        TxFlags.STATE_SETTLED, coinbase_filter_mask, coinbase_filter_mask,
+        TxFlags.MASK_STATE_UNCLEARED,
+        account_id, txo_mask, txo_flags ]
     if exclude_frozen:
         sql += " AND KI.flags&?=0"
         sql_values.append(KeyInstanceFlag.FROZEN)
@@ -283,14 +285,13 @@ def read_account_balance(db: sqlite3.Connection, account_id: int, local_height: 
 
 @replace_db_context_with_connection
 def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, account_id: int,
-        confirmed_only: bool=False, mature_height: Optional[int]=None, exclude_frozen: bool=False,
+        confirmed_only: bool=False, exclude_immature: bool=False, exclude_frozen: bool=False,
         keyinstance_ids: Optional[List[int]]=None) -> List[AccountTransactionOutputSpendableRow]:
     """
     Get the unspent coins in the given account.
 
     confirmed_only: only return unspent coins in confirmed transactions.
-    mature_height:  if immature coinbase coins should be excluded, then the current blockchain
-                    height (local height) should be provided here.
+    exclude_immature: only return unspent coins that are not coinbase < maturity height.
     exclude_frozen: only return unspent coins that are not frozen.
     """
     # Default to selecting all unallocated unspent transaction outputs.
@@ -303,6 +304,8 @@ def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, accou
     txo_mask = TransactionOutputFlag.SPENT | TransactionOutputFlag.ALLOCATED
     if exclude_frozen:
         txo_mask |= TransactionOutputFlag.FROZEN
+    if exclude_immature:
+        txo_mask |= TransactionOutputFlag.COINBASE_IMMATURE
 
     sql = (
         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
@@ -315,10 +318,6 @@ def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, accou
     if exclude_frozen:
         sql += " AND KI.flags&?=0"
         sql_values.append(KeyInstanceFlag.FROZEN)
-    if mature_height is not None:
-        coinbase_mask = TransactionOutputFlag.COINBASE
-        sql += " AND (TXO.flags&?=0 OR TX.block_height+?<=?)"
-        sql_values.extend([ coinbase_mask, COINBASE_MATURITY, mature_height ])
     if keyinstance_ids is not None:
         sql += " AND TXO.keyinstance_id IN ({})"
         rows = read_rows_by_id(AccountTransactionOutputSpendableRow, db, sql, sql_values,
@@ -332,15 +331,14 @@ def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, accou
 
 @replace_db_context_with_connection
 def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection, account_id: int,
-        confirmed_only: bool=False, mature_height: Optional[int]=None, exclude_frozen: bool=False,
+        confirmed_only: bool=False, exclude_immature: bool=False, exclude_frozen: bool=False,
         keyinstance_ids: Optional[List[int]]=None) \
             -> List[AccountTransactionOutputSpendableRowExtended]:
     """
     Get the unspent coins in the given account extended with transaction fields.
 
     confirmed_only: only return unspent coins in confirmed transactions.
-    mature_height:  if immature coinbase coins should be excluded, then the current blockchain
-                    height (local height) should be provided here.
+    exclude_immature: only return unspent coins that are not coinbase < maturity height.
     exclude_frozen: only return unspent coins that are not frozen.
     """
     # Default to selecting all unallocated unspent transaction outputs.
@@ -353,11 +351,13 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
     txo_mask = TransactionOutputFlag.SPENT | TransactionOutputFlag.ALLOCATED
     if exclude_frozen:
         txo_mask |= TransactionOutputFlag.FROZEN
+    if exclude_immature:
+        txo_mask |= TransactionOutputFlag.COINBASE_IMMATURE
 
     sql = (
         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
             "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2, "
-            "TX.flags, TX.block_height "
+            "TX.flags, TX.block_hash "
         "FROM TransactionOutputs TXO "
         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
@@ -366,10 +366,6 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
     if exclude_frozen:
         sql += " AND KI.flags&?=0"
         sql_values.append(KeyInstanceFlag.FROZEN)
-    if mature_height is not None:
-        coinbase_mask = TransactionOutputFlag.COINBASE
-        sql += f" AND (TXO.flags&{coinbase_mask}=0 OR TX.block_height+{COINBASE_MATURITY}<=?)"
-        sql_values.append(mature_height)
     if keyinstance_ids is not None:
         sql += " AND TXO.keyinstance_id IN ({})"
         rows = read_rows_by_id(AccountTransactionOutputSpendableRowExtended, db, sql, sql_values,
@@ -394,7 +390,7 @@ def read_history_list(db: sqlite3.Connection, account_id: int,
         keyinstance_ids: Optional[Sequence[int]]=None) -> List[HistoryListRow]:
     if keyinstance_ids:
         # Used for the address dialog.
-        sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_height, TX.block_position, "
+        sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_hash, TX.block_position, "
                 "ATX.description, TOTAL(TXV.value), TX.date_created "
             "FROM TransactionValues TXV "
             "INNER JOIN Transactions AS TX ON TX.tx_hash=TXV.tx_hash "
@@ -405,7 +401,7 @@ def read_history_list(db: sqlite3.Connection, account_id: int,
             keyinstance_ids)
 
     # Used for the history list and export.
-    sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_height, TX.block_position,"
+    sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_hash, TX.block_position,"
             "ATX.description, TOTAL(TXV.value), TX.date_created "
         "FROM TransactionValues TXV "
         "INNER JOIN Transactions AS TX ON TX.tx_hash=TXV.tx_hash "
@@ -473,67 +469,28 @@ def read_invoices_for_account(db: sqlite3.Connection, account_id: int, flags: Op
         for t in rows ]
 
 
+# TODO(1.4.0) Find all the transactions we need merkle proofs but are not getting them
+#      via other avenues (i.e. MAPI), order in terms of priority and take the
+#      first. Is this sufficient? No, it is not, in fact we may not even want to do this
+#      case.
 @replace_db_context_with_connection
-def read_keys_for_transaction_subscriptions(db: sqlite3.Connection, account_id: int,
-        tx_hash: Optional[bytes]=None) \
-        -> List[TransactionSubscriptionRow]:
+def read_proofless_transactions(db: sqlite3.Connection) -> List[TransactionProoflessRow]:
+    # TODO: We associate the proofless transaction with the first account that it was linked to.
+    # This is not ideal, but in reality it is unlikely many users will care about the nuances
+    # and we can change the behaviour later.
+    sql_values: List[Any] = [ TxFlags.STATE_SETTLED ]
+    sql = """
+    WITH matches AS (
+        SELECT TX.tx_hash, ATX.account_id,
+            row_number() OVER (PARTITION BY TX.tx_hash ORDER BY ATX.date_created) as rank
+        FROM Transactions TX
+        LEFT JOIN AccountTransactions ATX ON ATX.tx_hash=TX.tx_hash
+        WHERE TX.flags&?!=0 AND TX.proof_data IS NULL
+    )
+    SELECT tx_hash, account_id FROM matches WHERE account_id IS NOT NULL AND rank=1
     """
-    Find all script hashes we need to monitor for our transaction-related script hash subscriptions.
-
-    For any account-related transaction we would want the script hash of the first output to
-    be a canary for events related to this transaction whether it was malleated or not. However:
-    - ElectrumX does not index OP_FALSE OP_RETURN and we do not have a way to tell if the first
-      output is or is not that, if the output is not ours.
-    - We may not have any outputs in the transaction, and may solely be spending in it.
-    - There may not be any non-OP_FALSE OP_RETURN outputs in the transaction at all, regardless of
-      whose they are.
-    For these reasons we stick to our outputs (whether spends or receives) related to any given
-    transaction.
-
-    We are not concerned about reorgs here, the reorg processing should happen independently and
-    even on account/wallet load before these subscriptions are made. We do not need to worry
-    about mined transactions even if we do not have the proof, because these can be picked up
-    by the network transaction/proof fetching as long as it is awakened.
-    """
-    sql_values: List[Any] = [account_id, BlockHeight.BLOCK1, TxFlags.REMOVED, account_id,
-        BlockHeight.BLOCK1, TxFlags.REMOVED]
-    sql = ("""
-        WITH summary AS (
-            SELECT TXO.tx_hash,
-                1 AS put_type,
-                TXO.keyinstance_id,
-                TXO.script_hash,
-                ROW_NUMBER() OVER(PARTITION BY TXO.tx_hash
-                                      ORDER BY TXO.txo_index ASC) AS rk
-            FROM TransactionOutputs TXO
-            INNER JOIN AccountTransactions ATX ON ATX.tx_hash = TXO.tx_hash
-            INNER JOIN Transactions TX ON TX.tx_hash = TXO.tx_hash
-            WHERE TXO.keyinstance_id IS NOT NULL AND ATX.account_id=? AND TX.proof_data IS NULL
-                AND TX.block_height<? AND TX.flags&?=0
-            UNION
-            SELECT TXI.tx_hash,
-                2 AS put_type,
-                TXO.keyinstance_id,
-                TXO.script_hash,
-                ROW_NUMBER() OVER(PARTITION BY TXI.tx_hash
-                                      ORDER BY TXI.txi_index ASC) AS rk
-            FROM TransactionInputs TXI
-            INNER JOIN AccountTransactions ATX ON ATX.tx_hash = TXI.tx_hash
-            INNER JOIN Transactions TX ON TX.tx_hash = TXI.tx_hash
-            INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash
-                AND TXO.txo_index=TXI.spent_txo_index
-            WHERE TXO.keyinstance_id IS NOT NULL AND ATX.account_id=? AND TX.proof_data IS NULL
-                AND TX.block_height<? AND TX.flags&?=0)
-        SELECT s.tx_hash, s.put_type, s.keyinstance_id, s.script_hash
-        FROM summary s
-        WHERE s.rk = 1""")
-    if tx_hash is not None:
-        sql += " AND tx_hash=?"
-        sql_values.append(tx_hash)
-    sql += " ORDER BY s.put_type"
-
     rows = db.execute(sql, sql_values).fetchall()
-    return [ TransactionSubscriptionRow(*t) for t in rows ]
+    return [ TransactionProoflessRow(*row) for row in rows ]
 
 
 @replace_db_context_with_connection
@@ -702,14 +659,8 @@ def read_keyinstances_for_derivations(db: sqlite3.Connection, account_id: int,
         sql_values.append(masterkey_id)
     else:
         sql += " AND masterkey_id IS NULL"
-    sql2 = ("SELECT KI.keyinstance_id, KI.account_id, KI.masterkey_id, KI.derivation_type, "
-            "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description "
-        "FROM KeyInstances AS KI "
-        "WHERE account_id=?")
-    print("AAAA", db.execute(sql2, (account_id,)).fetchall())
     # This needs to be last as the batch read message appends the "id" values after the sql values.
     sql += " AND derivation_data2 IN ({})"
-    print("ZZZZ", sql, sql_values, derivation_data2s)
     return read_rows_by_id(KeyInstanceRow, db, sql, sql_values, derivation_data2s)
 
 
@@ -820,21 +771,22 @@ def read_payment_requests(db: sqlite3.Connection, account_id: int,
         for t in db.execute(sql, sql_values).fetchall() ]
 
 
-@replace_db_context_with_connection
-def read_reorged_transactions(db: sqlite3.Connection, reorg_height: int) -> List[bytes]:
-    """
-    Identify all transactions that were verified in the orphaned chain as part of a reorg.
-    """
-    sql = (
-        "SELECT tx_hash "
-        "FROM Transactions "
-        f"WHERE block_height>? AND flags&{TxFlags.STATE_SETTLED}!=0"
-    )
-    sql_values = (reorg_height,)
-    cursor = db.execute(sql, sql_values)
-    rows = [ tx_hash for (tx_hash,) in cursor.fetchall() ]
-    cursor.close()
-    return rows
+# TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
+# @replace_db_context_with_connection
+# def read_reorged_transactions(db: sqlite3.Connection, reorg_height: int) -> List[bytes]:
+#     """
+#     Identify all transactions that were verified in the orphaned chain as part of a reorg.
+#     """
+#     sql = (
+#         "SELECT tx_hash "
+#         "FROM Transactions "
+#         f"WHERE block_height>? AND flags&{TxFlags.STATE_SETTLED}!=0"
+#     )
+#     sql_values = (reorg_height,)
+#     cursor = db.execute(sql, sql_values)
+#     rows = [ tx_hash for (tx_hash,) in cursor.fetchall() ]
+#     cursor.close()
+#     return rows
 
 
 @replace_db_context_with_connection
@@ -844,18 +796,6 @@ def read_transaction_bytes(db: sqlite3.Connection, tx_hash: bytes) -> Optional[b
     if row is not None:
         return cast(bytes, row[0])
     return None
-
-
-@replace_db_context_with_connection
-def read_transaction_block_info(db: sqlite3.Connection, tx_hash: bytes) -> Tuple[Optional[int],
-        Optional[int]]:
-    sql = "SELECT block_height, block_position FROM Transactions WHERE tx_hash=?"
-    cursor = db.execute(sql, (tx_hash,))
-    row = cursor.fetchone()
-    cursor.close()
-    if row is None:
-        return None, None
-    return cast(Tuple[int, int], row)
 
 
 @replace_db_context_with_connection
@@ -883,12 +823,12 @@ def read_transactions_exist(db: sqlite3.Connection, tx_hashes: Sequence[bytes],
     Return the subset of transactions that are already present in the database.
     """
     if account_id is None:
-        sql = ("SELECT tx_hash, flags, block_height, NULL "
+        sql = ("SELECT tx_hash, flags, NULL "
             "FROM Transactions "
             "WHERE tx_hash IN ({})")
         return read_rows_by_id(TransactionExistsRow, db, sql, [ ], tx_hashes)
 
-    sql = ("SELECT T.tx_hash, T.flags, T.block_height, ATX.account_id "
+    sql = ("SELECT T.tx_hash, T.flags, ATX.account_id "
         "FROM Transactions T "
         "LEFT JOIN AccountTransactions ATX ON ATX.tx_hash=T.tx_hash AND ATX.account_id=? "
         "WHERE T.tx_hash IN ({})")
@@ -920,7 +860,7 @@ def read_transaction_hashes(db: sqlite3.Connection, account_id: Optional[int]=No
 @replace_db_context_with_connection
 def read_transaction_metadata(db: sqlite3.Connection, tx_hash: bytes) \
         -> Optional[TransactionMetadata]:
-    sql = ("SELECT block_height, block_position, fee_value, date_created "
+    sql = ("SELECT block_hash, block_position, fee_value, date_created "
         "FROM Transactions WHERE tx_hash=?")
     row = db.execute(sql, (tx_hash,)).fetchone()
     return None if row is None else TransactionMetadata(*row)
@@ -1056,7 +996,7 @@ def read_transaction_value_entries(db: sqlite3.Connection, account_id: int, *,
         tx_hashes: Optional[List[bytes]]=None, mask: Optional[TxFlags]=None) \
             -> List[TransactionValueRow]:
     if tx_hashes is None:
-        sql = ("SELECT TXV.tx_hash, TOTAL(TXV.value), TX.flags, TX.block_height, "
+        sql = ("SELECT TXV.tx_hash, TOTAL(TXV.value), TX.flags, TX.block_hash, "
                 "TX.date_created, TX.date_updated "
             "FROM TransactionValues TXV "
             "INNER JOIN Transactions TX ON TX.tx_hash=TXV.tx_hash "
@@ -1069,7 +1009,7 @@ def read_transaction_value_entries(db: sqlite3.Connection, account_id: int, *,
         cursor.close()
         return [ TransactionValueRow(*v) for v in rows ]
 
-    sql = ("SELECT TXV.tx_hash, TOTAL(TXV.value), TX.flags, TX.block_height, "
+    sql = ("SELECT TXV.tx_hash, TOTAL(TXV.value), TX.flags, TX.block_hash, "
             "TX.date_created, TX.date_updated "
         "FROM TransactionValues TXV "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXV.tx_hash "
@@ -1190,57 +1130,35 @@ def read_network_servers(db: sqlite3.Connection,
 
 
 @replace_db_context_with_connection
-def read_unverified_transactions(db: sqlite3.Connection, local_height: int) \
-        -> List[Tuple[bytes, int]]:
-    """
-    Obtain a batch of unverified transactions.
-
-    Remembering that transactions are not settled until we obtain the merkle proof and verify
-    that it is correct for our local blockchain headers, we get a batch of transactions that
-    need to be verified and settled for the caller.
-    """
-    sql = (
-        "SELECT tx_hash, block_height "
-        "FROM Transactions "
-        "WHERE (flags&?)=? AND block_height>? AND block_height<=? AND proof_data IS NULL "
-        "ORDER BY date_created "
-        "LIMIT 200"
-    )
-    cursor = db.execute(sql, (TxFlags.MASK_STATE|TxFlags.MASK_UNLINKED, TxFlags.STATE_CLEARED,
-        BlockHeight.MEMPOOL, local_height))
-    results = list(cursor.fetchall())
-    cursor.close()
-    return results
-
-
-@replace_db_context_with_connection
-def read_wallet_balance(db: sqlite3.Connection, local_height: int,
+def read_wallet_balance(db: sqlite3.Connection,
         txo_flags: TransactionOutputFlag=TransactionOutputFlag.NONE,
         txo_mask: TransactionOutputFlag=TransactionOutputFlag.SPENT,
         exclude_frozen: bool=True) -> WalletBalance:
-    coinbase_mask = TransactionOutputFlag.COINBASE
     if exclude_frozen:
         txo_mask |= TransactionOutputFlag.FROZEN
     # NOTE(linked-balance-calculations) the general formula is used elsewhere
     sql = (
         "SELECT "
             # Confirmed.
-            "CAST(TOTAL(CASE WHEN TX.block_height>? AND (TXO.flags&?=0 OR TX.block_height+?<=?) "
-                "THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&? AND TXO.flags&?=? THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "CAST(TOTAL(CASE WHEN TX.block_height IN (?,?) THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&? THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
-            "CAST(TOTAL(CASE WHEN TX.block_height>? AND TXO.flags&? AND TX.block_height+?>? "
-                "THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&? AND TXO.flags&?=? THEN TXO.value ELSE 0 END) AS INT), "
             # Allocated total.
-            "CAST(TOTAL(CASE WHEN TX.block_height=? THEN TXO.value ELSE 0 END) AS INT) "
+            "CAST(TOTAL(CASE WHEN TX.flags&? THEN TXO.value ELSE 0 END) AS INT) "
         "FROM TransactionOutputs TXO "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
         "WHERE TXO.flags&?=?")
-    sql_values = [ BlockHeight.MEMPOOL, coinbase_mask, COINBASE_MATURITY, local_height,
-        BlockHeight.MEMPOOL, BlockHeight.MEMPOOL_UNCONFIRMED_PARENT, BlockHeight.MEMPOOL,
-        coinbase_mask, COINBASE_MATURITY, local_height, BlockHeight.LOCAL,
+    # The `COINBASE_IMMATURE` flag is expected to be set on insert unless it is known the
+    # transaction is mature.
+    coinbase_filter_mask = TransactionOutputFlag.COINBASE_IMMATURE
+    sql_values = [
+        TxFlags.STATE_SETTLED, coinbase_filter_mask, TransactionOutputFlag.NONE,
+        TxFlags.STATE_CLEARED,
+        TxFlags.STATE_SETTLED, coinbase_filter_mask, coinbase_filter_mask,
+        TxFlags.MASK_STATE_UNCLEARED,
         txo_mask, txo_flags ]
     if exclude_frozen:
         sql += " AND KI.flags&?=0"
@@ -1475,30 +1393,31 @@ def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxF
     return db_context.post_to_thread(_write)
 
 
-def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]) \
-        -> concurrent.futures.Future[bool]:
-    """
-    Reset transactions back to unverified state as a batch.
+# TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
+# def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]) \
+#         -> concurrent.futures.Future[bool]:
+#     """
+#     Reset transactions back to unverified state as a batch.
 
-    NOTE This may not restore the correct block height, which is prohibitive. 0 is unconfirmed,
-    and -1 is unconfirmed parents. We do not have the information to know if it has unconfirmed
-    parents.
-    """
-    timestamp = get_posix_timestamp()
-    sql = (
-        "UPDATE Transactions "
-        "SET date_updated=?, flags=(flags&?)|?, block_height=?, block_hash=NULL, "
-            "block_position=NULL, fee_value=NULL, proof_data=NULL "
-        "WHERE tx_hash IN ({})")
-    sql_values = [ timestamp, ~TxFlags.STATE_SETTLED, TxFlags.STATE_CLEARED, BlockHeight.MEMPOOL ]
+#     NOTE This may not restore the correct block height, which is prohibitive. 0 is unconfirmed,
+#     and -1 is unconfirmed parents. We do not have the information to know if it has unconfirmed
+#     parents.
+#     """
+#     timestamp = get_posix_timestamp()
+#     sql = (
+#         "UPDATE Transactions "
+#         "SET date_updated=?, flags=(flags&?)|?, block_hash=NULL, block_position=NULL, "
+#             "fee_value=NULL, proof_data=NULL "
+#         "WHERE tx_hash IN ({})")
+#     sql_values = [ timestamp, ~TxFlags.MASK_STATE, TxFlags.STATE_CLEARED ]
 
-    def _write(db: sqlite3.Connection) -> bool:
-        rows_updated = execute_sql_by_id(db, sql, sql_values, tx_hashes)[0]
-        if rows_updated < len(tx_hashes):
-            # Rollback the database transaction (nothing to rollback but upholding the convention).
-            raise DatabaseUpdateError("Rollback as nothing updated")
-        return True
-    return db_context.post_to_thread(_write)
+#     def _write(db: sqlite3.Connection) -> bool:
+#         rows_updated = execute_sql_by_id(db, sql, sql_values, tx_hashes)[0]
+#         if rows_updated < len(tx_hashes):
+#             # Rollback the database transaction (nothing to rollback but upholding the convention)
+#             raise DatabaseUpdateError("Rollback as nothing updated")
+#         return True
+#     return db_context.post_to_thread(_write)
 
 
 def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[Outpoint],
@@ -1507,10 +1426,9 @@ def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[
     if mask is None:
         # NOTE(typing) There is no gain in casting to TransactionOutputFlag.
         mask = ~flags # type: ignore
-    sql = ("UPDATE TransactionOutputs "
-        f"SET date_updated=?, flags=(flags&{mask})|{flags}")
+    sql = "UPDATE TransactionOutputs SET date_updated=?, flags=(flags&?)|?"
     sql_id_expression = "tx_hash=? AND txo_index=?"
-    sql_values = [ get_posix_timestamp() ]
+    sql_values = [ get_posix_timestamp(), mask, flags ]
 
     def _write(db: sqlite3.Connection) -> bool:
         nonlocal sql, sql_id_expression, sql_values, txo_keys
@@ -1539,14 +1457,14 @@ def set_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDataRo
 def update_transaction_block_many(db_context: DatabaseContext,
         entries: Iterable[TransactionBlockRow]) -> concurrent.futures.Future[int]:
     timestamp = get_posix_timestamp()
-    rows: List[Tuple[int, int, Optional[bytes], bytes, int, Optional[bytes]]] = []
+    rows: List[Tuple[int, Optional[bytes], bytes]] = []
     for entry in entries:
-        rows.append((timestamp, *entry, entry.block_height, entry.block_hash))
+        rows.append((timestamp, entry.block_hash, entry.tx_hash))
     sql = (
         "UPDATE Transactions "
-        "SET date_updated=?, block_height=?, block_hash=?, proof_data=NULL, "
+        "SET date_updated=?, block_hash=?, proof_data=NULL, "
             f"flags=flags&{~TxFlags.MASK_STATE}|{TxFlags.STATE_CLEARED} "
-        "WHERE tx_hash=? AND (block_height!=? OR block_hash!=?)")
+        "WHERE tx_hash=?")
 
     def _write(db: sqlite3.Connection) -> int:
         nonlocal sql, rows
@@ -1554,35 +1472,6 @@ def update_transaction_block_many(db_context: DatabaseContext,
         # NOTE(typing) error: Redundant cast to "int"  [redundant-cast]
         return cast(int, cursor.rowcount)  # type: ignore
     return db_context.post_to_thread(_write)
-
-
-def update_transaction_proof(db_context: DatabaseContext, tx_hash: bytes, block_height: int,
-        block_position: int, proof: TxProof) -> concurrent.futures.Future[bool]:
-    def _write(db: sqlite3.Connection) -> bool:
-        nonlocal tx_hash, block_height, block_position, proof
-        _update_transaction_proof(db, tx_hash, block_height, block_position, proof)
-        return True
-    return db_context.post_to_thread(_write)
-
-
-def _update_transaction_proof(db: sqlite3.Connection, tx_hash: bytes, block_height: int,
-        block_position: int, proof: TxProof) -> None:
-    """
-    Execute the query that sets the proof data for a transaction.
-
-    This should only be called in the context of the writer thread.
-    """
-    timestamp = get_posix_timestamp()
-    clear_bits = ~TxFlags.MASK_STATE
-    set_bits = TxFlags.STATE_SETTLED
-    sql = ("UPDATE Transactions "
-        "SET date_updated=?, proof_data=?, block_height=?, block_position=?, flags=(flags&?)|? "
-        "WHERE tx_hash=?")
-    sql_values = [ timestamp, pack_proof(proof), block_height, block_position, clear_bits,
-        set_bits, tx_hash ]
-    # NOTE(rt12) at some later point we will have a standard binary packed proof format
-    # that we can use, i.e. bitcoin association's specification.
-    db.execute(sql, sql_values)
 
 
 def update_account_names(db_context: DatabaseContext, entries: Iterable[Tuple[str, int]]) \
@@ -2072,8 +1961,6 @@ class AsynchronousFunctions:
         # to the database, this had `tx_data=None`. Now all transactions inserted must be parsed
         # with inputs and outputs.
         assert tx_row.tx_bytes is not None
-        assert (tx_row.flags & TxFlags.HAS_BYTEDATA) == 0, "this flag is not applicable"
-        assert isinstance(tx_row.block_height, (int, BlockHeight)), "all heights should be integers"
         for input in txi_rows:
             assert input.script_offset != 0
             assert input.script_length != 0
@@ -2084,7 +1971,7 @@ class AsynchronousFunctions:
         # Constraint: tx_hash should be unique.
         try:
             db.execute("INSERT INTO Transactions (tx_hash, tx_data, flags, block_hash, "
-                "block_height, block_position, fee_value, description, version, locktime, "
+                "block_position, fee_value, description, version, locktime, proof_data, "
                 "date_created, date_updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tx_row)
         except sqlite3.IntegrityError as e:
             if e.args[0] == "UNIQUE constraint failed: Transactions.tx_hash":
@@ -2306,7 +2193,85 @@ class AsynchronousFunctions:
 
         return True
 
-    async def update_transaction_proof_async(self, tx_hash: bytes, block_height: int,
-            block_position: int, proof: TxProof) -> None:
-        await self._db_context.run_in_thread_async(_update_transaction_proof, tx_hash,
-            block_height, block_position, proof)
+    async def read_pending_header_transactions_async(self) -> List[Tuple[bytes, Optional[bytes]]]:
+        """
+        Transactions that are in state CLEARED and have proof are guaranteed to be those who
+        we obtained proof for, but lacked the header to verify the proof. We need to
+        reconcile these with headers as the headers arrive, and verify them when that happens.
+        """
+        return await self._db_context.run_in_thread_async(
+            self._read_pending_header_transactions)
+
+    def _read_pending_header_transactions(self, db: sqlite3.Connection) \
+            -> List[Tuple[bytes, Optional[bytes]]]:
+        sql = """
+            SELECT tx_hash, block_hash
+            FROM Transactions
+            WHERE flags&?!=0 AND proof_data IS NOT NULL
+        """
+        sql_values = (TxFlags.STATE_CLEARED,)
+        rows = db.execute(sql, sql_values).fetchall()
+        return [ (row[0], row[1]) for row in rows ]
+
+    async def read_transaction_proof_data_async(self, tx_hashes: List[bytes]) -> List[TxProofData]:
+        return await self._db_context.run_in_thread_async(self._read_transaction_proof_data,
+            tx_hashes)
+
+    def _read_transaction_proof_data(self, db: sqlite3.Connection, tx_hashes: List[bytes]) \
+            -> List[TxProofData]:
+        sql = """
+            SELECT tx_hash, flags, block_hash, proof_data FROM Transactions WHERE tx_hash IN ({})
+        """
+        sql_values = ()
+        return read_rows_by_id(TxProofData, db, sql, sql_values, tx_hashes)
+
+    async def update_transaction_flags_async(self, tx_hash: bytes, flags: TxFlags,
+            mask: Union[int, TxFlags]) -> bool:
+        return await self._db_context.run_in_thread_async(self._update_transaction_flags, tx_hash,
+            flags, mask)
+
+    def _update_transaction_flags(self, db: sqlite3.Connection, tx_hash: bytes,
+            flags: TxFlags, mask: Union[int, TxFlags]) -> bool:
+        sql = "UPDATE Transactions SET flags=(flags&?)|? WHERE tx_hash=?"
+        sql_values: List[Any] = [ tx_hash, flags, mask ]
+        cursor = db.execute(sql, sql_values)
+        return cursor.rowcount == 1
+
+    async def update_transaction_proof_async(self, tx_hash: bytes, block_hash: Optional[bytes],
+            block_position: Optional[int], proof_data: Optional[bytes],
+            tx_flags: TxFlags=TxFlags.STATE_SETTLED) -> None:
+        await self._db_context.run_in_thread_async(self._update_transaction_proof, tx_hash,
+            block_hash, block_position, proof_data, tx_flags)
+
+    def _update_transaction_proof(self, db: sqlite3.Connection, tx_hash: bytes,
+            block_hash: Optional[bytes], block_position: Optional[int],
+            proof_data: Optional[bytes], tx_flags: TxFlags) -> None:
+        """
+        Set the proof related fields for a transaction.
+
+        There are two cases where this is called.
+        - We have a CLEARED transaction and have just obtained and verified the proof, where
+          we should set it to SETTLED.
+        - We have a CLEARED transaction and have just obtained but could not verify the proof,
+          where we leave it as CLEARED (or set it to CLEARED if it is in another state).
+
+        One case where it may be in SETTLED but not have proof data, and then get proof data that
+        cannot be verified yet, is after migration 29 where we cleared all the legacy pre-TSC
+        proof data but left the transactions as SETTLED in order for a better user experience
+        (see the migration for further detail).
+
+        This should only be called in the context of the writer thread.
+        """
+        assert tx_flags & ~TxFlags.MASK_STATE == 0      # No non-state flags should be set.
+        assert tx_flags & TxFlags.MASK_STATE != 0       # A state flag should be set.
+
+        timestamp = get_posix_timestamp()
+        clear_state_mask = ~TxFlags.MASK_STATE
+        sql = ("UPDATE Transactions "
+            "SET date_updated=?, proof_data=?, block_hash=?, block_position=?, flags=(flags&?)|? "
+            "WHERE tx_hash=?")
+        sql_values = [ timestamp, proof_data, block_hash, block_position, clear_state_mask,
+            tx_flags, tx_hash ]
+        db.execute(sql, sql_values)
+
+

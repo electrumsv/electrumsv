@@ -339,7 +339,7 @@ class SVApplication(QApplication):
 
         return w
 
-    # TODO(no-checkin) Make sure this is integrated into the notifications.
+    # TODO(1.4.0) Make sure this is integrated into the notifications.
     # def update_check(self) -> None:
     #     if (not app_state.config.get('check_updates', True) or
     #             app_state.config.get("offline", False)):

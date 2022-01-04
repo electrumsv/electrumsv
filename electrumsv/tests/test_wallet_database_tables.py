@@ -26,8 +26,7 @@ from electrumsv.wallet_database.sqlite_support import DatabaseContext, LeakedSQL
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MasterKeyRow, NetworkServerRow, NetworkServerAccountRow,
     PaymentRequestReadRow, PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
-    TransactionRow, TransactionOutputShortRow, TxProof, WalletBalance, WalletEventRow)
-from electrumsv.wallet_database.util import pack_proof, unpack_proof
+    TransactionRow, TransactionOutputShortRow, WalletBalance, WalletEventRow)
 
 from .util import PasswordToken
 
@@ -248,7 +247,7 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
         tx_hash=TX_HASH_1,
         tx_bytes=TX_BYTES_1,
         flags=TxFlags.STATE_SETTLED, block_hash=b'11',
-        block_height=1, block_position=1, fee_value=250,
+        block_position=1, fee_value=250,
         description=None, version=None, locktime=None, date_created=1, date_updated=2)
     TX_BYTES_2 = os.urandom(10)
     TX_HASH_2 = bitcoinx.double_sha256(TX_BYTES_2)
@@ -256,16 +255,17 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
         tx_hash=TX_HASH_2,
         tx_bytes=TX_BYTES_2,
         flags=TxFlags.STATE_SETTLED, block_hash=b'11',
-        block_height=1, block_position=1, fee_value=250,
+        block_position=1, fee_value=250,
         description=None, version=None, locktime=None, date_created=1, date_updated=2)
-    future = db_functions.create_transactions(db_context, [ tx1, tx2 ])
+    future = db_functions.create_transactions_UNITTEST(db_context, [ tx1, tx2 ])
     future.result(timeout=5)
 
     account_transaction_entries = [
-        AccountTransactionRow(ACCOUNT_ID_1, TX_HASH_1, AccountTxFlags.NONE, None),
-        AccountTransactionRow(ACCOUNT_ID_2, TX_HASH_2, AccountTxFlags.NONE, None),
+        AccountTransactionRow(ACCOUNT_ID_1, TX_HASH_1, AccountTxFlags.NONE, None, 1, 1),
+        AccountTransactionRow(ACCOUNT_ID_2, TX_HASH_2, AccountTxFlags.NONE, None, 1, 1),
     ]
-    future = db_functions.create_account_transactions(db_context, account_transaction_entries)
+    future = db_functions.create_account_transactions_UNITTEST(db_context,
+        account_transaction_entries)
     future.result()
 
     ## Test `read_transaction_hashes`.
@@ -441,13 +441,6 @@ class TestTransactionTable:
         assert self.db_context is not None
         return db_functions.read_transaction_hashes(self.db_context)
 
-    def test_proof_serialization(self):
-        proof1 = TxProof(position=10, branch=[ os.urandom(32) for i in range(10) ])
-        raw = pack_proof(proof1)
-        proof2 = unpack_proof(raw)
-        assert proof1.position == proof2.position
-        assert proof1.branch == proof2.branch
-
     def test_create_read_various(self) -> None:
         assert self.db_context is not None
 
@@ -455,9 +448,9 @@ class TestTransactionTable:
         tx_hash = bitcoinx.double_sha256(tx_bytes_1)
         tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes_1,
             flags=TxFlags.STATE_DISPATCHED,
-            block_hash=b'11', block_height=222, block_position=None, fee_value=None,
+            block_hash=b'11', block_position=None, fee_value=None,
             description=None, version=None, locktime=None, date_created=1, date_updated=1)
-        future = db_functions.create_transactions(self.db_context, [ tx_row ])
+        future = db_functions.create_transactions_UNITTEST(self.db_context, [ tx_row ])
         future.result(timeout=5)
 
         # Check the state is correct, all states should be the same code path.
@@ -468,7 +461,6 @@ class TestTransactionTable:
         tx_metadata = db_functions.read_transaction_metadata(self.db_context, tx_hash)
         assert tx_metadata is not None
         block_height, block_position, fee_value, date_created = tx_metadata
-        assert tx_row.block_height == block_height
         assert tx_row.block_position == block_position
         assert tx_row.fee_value == fee_value
         assert tx_row.date_created == date_created
@@ -486,9 +478,9 @@ class TestTransactionTable:
             to_add.append(
                 TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
                     block_hash=b'11',
-                    block_height=1, block_position=None, fee_value=2, description=None,
+                    block_position=None, fee_value=2, description=None,
                     version=None, locktime=None, date_created=1, date_updated=1))
-        future = db_functions.create_transactions(self.db_context, to_add)
+        future = db_functions.create_transactions_UNITTEST(self.db_context, to_add)
         future.result(timeout=5)
 
         existing_tx_hashes = set(self._get_store_hashes())
@@ -503,47 +495,51 @@ class TestTransactionTable:
             tx_bytes = bytes.fromhex(tx_hex)
             tx_hash = bitcoinx.double_sha256(tx_bytes)
             tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
-                block_hash=b'11', block_height=1, block_position=None, fee_value=2,
+                block_hash=b'11', block_position=None, fee_value=2,
                 description=None, version=None, locktime=None, date_created=1, date_updated=1)
-            future = db_functions.create_transactions(self.db_context, [ tx_row ])
+            future = db_functions.create_transactions_UNITTEST(self.db_context, [ tx_row ])
             future.result(timeout=5)
             get_tx_hashes.add(tx_hash)
 
         result_tx_hashes = set(self._get_store_hashes())
         assert get_tx_hashes == result_tx_hashes
 
-    def test_proof(self) -> None:
-        assert self.db_context is not None
+    # TODO(1.4.0) Need to update for the new TSC proof storage.
+    # @pytest.mark.asyncio
+    # async def test_proof(self) -> None:
+    #     assert self.db_context is not None
 
-        tx_bytes = os.urandom(10)
-        tx_hash = bitcoinx.double_sha256(tx_bytes)
-        tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
-            block_hash=b'11', block_height=1, block_position=None, fee_value=2, description=None,
-            version=None, locktime=None, date_created=1, date_updated=1)
-        future = db_functions.create_transactions(self.db_context, [ tx_row ])
-        future.result(timeout=5)
+    #     tx_bytes = os.urandom(10)
+    #     tx_hash = bitcoinx.double_sha256(tx_bytes)
+    #     tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
+    #         block_hash=b'11', block_position=None, fee_value=2, description=None,
+    #         version=None, locktime=None, date_created=1, date_updated=1)
+    #     future = db_functions.create_transactions_UNITTEST(self.db_context, [ tx_row ])
+    #     future.result(timeout=5)
 
-        position1 = 10
-        merkle_branch1 = [ os.urandom(32) for i in range(10) ]
-        proof = TxProof(position1, merkle_branch1)
-        future = db_functions.update_transaction_proof(self.db_context, tx_hash, 1, 10, proof)
-        future.result()
+    #     with db_functions.AsynchronousFunctions(self.db_context) as db_functions_async:
+    #         position1 = 10
+    #         merkle_branch1 = [ os.urandom(32) for i in range(10) ]
+    #         proof = TxProof(position1, merkle_branch1)
+    #         block_hash = os.urandom(32)
+    #         await db_functions_async.update_transaction_proof_async(tx_hash, block_hash, position1,
+    #             proof)
 
-        rows = db_functions.read_transaction_proof(self.db_context, [ self.tx_hash ])
-        assert len(rows) == 0
+    #         rows = db_functions.read_transaction_proof(self.db_context, [ self.tx_hash ])
+    #         assert len(rows) == 0
 
-        rows = db_functions.read_transaction_proof(self.db_context, [ tx_hash ])
-        assert len(rows) == 1
-        assert rows[0].tx_hash == tx_hash
-        proof = rows[0].unpack_proof()
-        assert proof.position == position1
-        assert proof.branch == merkle_branch1
+    #         rows = db_functions.read_transaction_proof(self.db_context, [ tx_hash ])
+    #         assert len(rows) == 1
+    #         assert rows[0].tx_hash == tx_hash
+    #         proof = rows[0].unpack_proof()
+    #         assert proof.position == position1
+    #         assert proof.branch == merkle_branch1
 
 
 def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
-    TX_BYTES_COINBASE = os.urandom(10)
+    TX_BYTES_COINBASE = os.urandom(100)
     TX_HASH_COINBASE = bitcoinx.double_sha256(TX_BYTES_COINBASE)
-    TX_BYTES = os.urandom(10)
+    TX_BYTES = os.urandom(100)
     TX_HASH = bitcoinx.double_sha256(TX_BYTES)
     TX_INDEX = 1
     TXOUT_FLAGS = TransactionOutputFlag.NONE
@@ -555,9 +551,11 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     DERIVATION_DATA1 = b'111'
     DERIVATION_DATA2 = b'222'
     DERIVATION_DATA3 = b'333'
+    BLOCK_HASH=b'bab'
 
     row1 = TransactionOutputShortRow(TX_HASH_COINBASE, TX_INDEX, 50, KEYINSTANCE_ID_1,
-        TXOUT_FLAGS | TransactionOutputFlag.COINBASE, ScriptType.P2PKH, b'')
+        TXOUT_FLAGS | TransactionOutputFlag.COINBASE | TransactionOutputFlag.COINBASE_IMMATURE,
+        ScriptType.P2PKH, b'')
     row2 = TransactionOutputShortRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID_2, TXOUT_FLAGS,
         ScriptType.P2PKH, b'')
     row3 = TransactionOutputShortRow(TX_HASH, TX_INDEX+1, 200, KEYINSTANCE_ID_3, TXOUT_FLAGS,
@@ -573,13 +571,13 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     tx_rows = [
         TransactionRow(tx_hash=TX_HASH_COINBASE, tx_bytes=TX_BYTES_COINBASE,
             flags=TxFlags.STATE_SETTLED,
-            block_hash=b'111', block_height=20, block_position=None, fee_value=2, description=None,
+            block_hash=BLOCK_HASH, block_position=None, fee_value=2, description=None,
             version=None, locktime=None, date_created=1, date_updated=1),
         TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlags.STATE_CLEARED,
-            block_hash=None, block_height=0, block_position=None, fee_value=2, description=None,
+            block_hash=None, block_position=None, fee_value=2, description=None,
             version=None, locktime=None, date_created=1, date_updated=1)
     ]
-    future = db_functions.create_transactions(db_context, tx_rows)
+    future = db_functions.create_transactions_UNITTEST(db_context, tx_rows)
     future.result(timeout=5)
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
@@ -594,9 +592,9 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
-    future = db_functions.create_account_transactions(db_context, [
-        AccountTransactionRow(ACCOUNT_ID, TX_HASH, AccountTxFlags.NONE, None),
-        AccountTransactionRow(ACCOUNT_ID, TX_HASH_COINBASE, AccountTxFlags.NONE, None),
+    future = db_functions.create_account_transactions_UNITTEST(db_context, [
+        AccountTransactionRow(ACCOUNT_ID, TX_HASH, AccountTxFlags.NONE, None, 1, 1),
+        AccountTransactionRow(ACCOUNT_ID, TX_HASH_COINBASE, AccountTxFlags.NONE, None, 1, 1),
     ])
     future.result(timeout=5)
 
@@ -660,31 +658,69 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     ## Test `read_account_transaction_outputs_with_key_data`.
     # Verify that the `mature_height` parameter works for this method.
     txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
-        mature_height=119)
+        exclude_immature=True)
     assert len(txos_rows) == 2
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
     assert txos_rows[0].tx_hash == TX_HASH and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX+1
+
+    # Manually clear the COINBASE_IMMATURE flag on the transaction output.
+    future = db_functions.update_transaction_output_flags(db_context,
+        [ Outpoint(TX_HASH_COINBASE, TX_INDEX) ], TransactionOutputFlag.NONE,
+        TransactionOutputFlag(~TransactionOutputFlag.COINBASE_IMMATURE))
+    future.result()
+
     txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
-        mature_height=120)
+        exclude_immature=True)
     assert len(txos_rows) == 3
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
 
+    # Manually set the COINBASE_IMMATURE flag on the transaction output again.
+    future = db_functions.update_transaction_output_flags(db_context,
+        [ Outpoint(TX_HASH_COINBASE, TX_INDEX) ], TransactionOutputFlag.COINBASE_IMMATURE)
+    future.result()
+
     # Verify that the `mature_height` parameter works for this method.
     txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
-        ACCOUNT_ID, mature_height=119)
+        ACCOUNT_ID, exclude_immature=True)
     assert len(txos_rows) == 2
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
     assert txos_rows[0].tx_hash == TX_HASH and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX+1
+
     txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
-        ACCOUNT_ID, mature_height=120)
+        ACCOUNT_ID)
     assert len(txos_rows) == 3
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
+
+    # Manually clear the COINBASE_IMMATURE flag on the transaction output.
+    future = db_functions.update_transaction_output_flags(db_context,
+        [ Outpoint(TX_HASH_COINBASE, TX_INDEX) ], TransactionOutputFlag.NONE,
+        TransactionOutputFlag(~TransactionOutputFlag.COINBASE_IMMATURE))
+    future.result()
+
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
+        ACCOUNT_ID)
+    assert len(txos_rows) == 3
+    assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
+    assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
+    assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
+
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
+        ACCOUNT_ID, exclude_immature=True)
+    assert len(txos_rows) == 3
+    assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
+    assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
+    assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
+
+    # Manually set the COINBASE_IMMATURE flag on the transaction output again.
+    future = db_functions.update_transaction_output_flags(db_context,
+        [ Outpoint(TX_HASH_COINBASE, TX_INDEX) ], TransactionOutputFlag.COINBASE_IMMATURE)
+    future.result()
 
     # Verify that the `confirmed_only` parameter works for this method.
     txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
@@ -713,27 +749,33 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
 
     # Balances WRT mature_height.
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, 119)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID)
     assert balance == WalletBalance(0, row2.value + row3.value, row1.value, 0)
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, 120)
-    assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
+    balance = db_functions.read_wallet_balance(db_context)
+    assert balance == WalletBalance(0, row2.value + row3.value, row1.value, 0)
 
-    balance = db_functions.read_wallet_balance(db_context, 119)
-    assert balance == WalletBalance(0, row2.value + row3.value, row1.value, 0)
-    balance = db_functions.read_wallet_balance(db_context, 120)
+    # Manually clear the COINBASE_IMMATURE flag on the transaction output.
+    future = db_functions.update_transaction_output_flags(db_context,
+        [ Outpoint(TX_HASH_COINBASE, TX_INDEX) ], TransactionOutputFlag.NONE,
+        TransactionOutputFlag(~TransactionOutputFlag.COINBASE_IMMATURE))
+    future.result()
+
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID)
+    assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
+    balance = db_functions.read_wallet_balance(db_context)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
 
     ## We are going to freeze the output we do not plan to spend, and verify that it is factored
     ## into account and wallet balances.
     # Balances with no frozen TXO.
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, 1000, exclude_frozen=False)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, 1000, exclude_frozen=True)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
 
-    balance = db_functions.read_wallet_balance(db_context, 1000, exclude_frozen=False)
+    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_wallet_balance(db_context, 1000, exclude_frozen=True)
+    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
 
     # Add a key flag. In this case `FROZEN`.
@@ -742,14 +784,14 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     # Balances with a frozen TXO present.
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, 1000, exclude_frozen=False)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, 1000, exclude_frozen=True)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row3.value, 0, 0)
 
-    balance = db_functions.read_wallet_balance(db_context, 1000, exclude_frozen=False)
+    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_wallet_balance(db_context, 1000, exclude_frozen=True)
+    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row3.value, 0, 0)
 
     # `read_account_transaction_outputs_with_key_data`. Spendable TXOs based on `FROZEN` flag.
@@ -794,14 +836,14 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     # Balances with a frozen TXO present.
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, 1000, exclude_frozen=False)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, 1000, exclude_frozen=True)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row3.value, 0, 0)
 
-    balance = db_functions.read_wallet_balance(db_context, 1000, exclude_frozen=False)
+    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_wallet_balance(db_context, 1000, exclude_frozen=True)
+    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row3.value, 0, 0)
 
     # `read_account_transaction_outputs_with_key_data`. Spendable TXOs based on `FROZEN` flag.
@@ -881,19 +923,9 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert db_rows[0].flags == TransactionOutputFlag.SPENT
 
     future = db_functions.update_transaction_block_many(db_context,
-        [ TransactionBlockRow(21, b'111', TX_HASH) ])
+        [ TransactionBlockRow(BLOCK_HASH, TX_HASH) ])
     update_count = future.result(5)
     assert update_count == 1
-
-    # Edge case, we are looking at a block height less than the transaction height.
-    unverified_entries = db_functions.read_unverified_transactions(db_context, 20)
-    assert len(unverified_entries) == 0
-
-    # Edge case, we are looking at a block height less than the transaction height.
-    unverified_entries = db_functions.read_unverified_transactions(db_context, 21)
-    assert len(unverified_entries) == 1
-    assert unverified_entries[0][0] == TX_HASH
-    assert unverified_entries[0][1] == 21
 
 
 @pytest.mark.asyncio
@@ -1004,9 +1036,9 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     ## Pay the payment request.
     # Create the transaction and outputs.
     tx_rows = [ TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlags.UNSET,
-        block_hash=b'11', block_height=1, block_position=None, fee_value=2, description=None,
+        block_hash=b'11', block_position=None, fee_value=2, description=None,
         version=None, locktime=None, date_created=1, date_updated=1) ]
-    future = db_functions.create_transactions(db_context, tx_rows)
+    future = db_functions.create_transactions_UNITTEST(db_context, tx_rows)
     future.result(timeout=5)
 
     txo_row1 = TransactionOutputShortRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID+1, TXOUT_FLAGS,
@@ -1016,9 +1048,9 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     account_transaction_entries = [
-        AccountTransactionRow(ACCOUNT_ID, TX_HASH, AccountTxFlags.NONE, None),
+        AccountTransactionRow(ACCOUNT_ID, TX_HASH, AccountTxFlags.NONE, None, 1, 1),
     ]
-    future = db_functions.create_account_transactions(db_context, account_transaction_entries)
+    future = db_functions.create_account_transactions_UNITTEST(db_context, account_transaction_entries)
     future.result()
 
     db = db_context.acquire_connection()
@@ -1179,10 +1211,10 @@ def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContex
     txs = []
     for txh, txb in ((TX_HASH_1, TX_BYTES_1), (TX_HASH_2, TX_BYTES_2), (TX_HASH_3, TX_BYTES_3)):
         tx = TransactionRow(tx_hash=txh, tx_bytes=txb, flags=TxFlags.STATE_SETTLED,
-            block_height=1, block_hash=b'11', block_position=1, fee_value=250,
+            block_hash=b'11', block_position=1, fee_value=250,
             description=None, version=None, locktime=None, date_created=1, date_updated=2)
         txs.append(tx)
-    future = db_functions.create_transactions(db_context, txs)
+    future = db_functions.create_transactions_UNITTEST(db_context, txs)
     future.result(timeout=5)
 
     future = db_functions.create_invoices(db_context, [ line1_1, line2_1, line3_2 ])
@@ -1265,6 +1297,7 @@ def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContex
 
     # Verify the invoice is now marked with no associated tx.
     row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
+    assert row is not None
     assert row.tx_hash is None
 
     future = db_functions.update_invoice_descriptions(db_context,
@@ -1273,6 +1306,7 @@ def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContex
 
     # Verify the invoice now has the new description.
     row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
+    assert row is not None
     assert row.description == "newdesc3.2"
 
     future = db_functions.update_invoice_flags(db_context,
@@ -1281,6 +1315,7 @@ def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContex
 
     # Verify the invoice now has the new description.
     row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
+    assert row is not None
     assert row.flags == PaymentFlag.ARCHIVED | PaymentFlag.UNPAID
 
     duplicate_row1 = db_functions.read_invoice_duplicate(db_context, 111, "ddd")
@@ -1294,6 +1329,81 @@ def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContex
     db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1)
     assert 1 == len(db_lines)
     assert db_lines[0].invoice_id == line1_1.invoice_id
+
+
+def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
+    ACCOUNT1_ID = 10
+    ACCOUNT2_ID = 11
+    ACCOUNT3_ID = 12
+    MASTERKEY1_ID = 20
+    MASTERKEY2_ID = 21
+    MASTERKEY3_ID = 22
+
+    # Do the preparation so we can create accounts / satisfy the related foreign keys.
+    mk_row1 = MasterKeyRow(MASTERKEY1_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+        MasterKeyFlags.NONE)
+    mk_row2 = MasterKeyRow(MASTERKEY2_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+        MasterKeyFlags.NONE)
+    mk_row3 = MasterKeyRow(MASTERKEY3_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+        MasterKeyFlags.NONE)
+    future = db_functions.create_master_keys(db_context, [ mk_row1, mk_row2, mk_row3 ])
+    future.result(timeout=5)
+
+    account_row1 = AccountRow(ACCOUNT1_ID, MASTERKEY1_ID, ScriptType.P2PKH, 'name1',
+        AccountFlags.NONE)
+    account_row2 = AccountRow(ACCOUNT2_ID, MASTERKEY2_ID, ScriptType.P2PK, 'name2',
+        AccountFlags.NONE)
+    account_row3 = AccountRow(ACCOUNT3_ID, MASTERKEY3_ID, ScriptType.P2PK, 'name2',
+        AccountFlags.NONE)
+    future = db_functions.create_accounts(db_context, [ account_row1, account_row2, account_row3 ])
+    future.result()
+
+    # Create the transactions.
+    TX_BYTES_1 = os.urandom(10)
+    TX_HASH_1 = bitcoinx.double_sha256(TX_BYTES_1)
+    tx1 = TransactionRow(
+        tx_hash=TX_HASH_1,
+        tx_bytes=TX_BYTES_1,
+        flags=TxFlags.STATE_SETTLED, block_hash=None,
+        block_position=None, fee_value=None,
+        description=None, version=None, locktime=None, date_created=1, date_updated=2)
+    TX_BYTES_2 = os.urandom(10)
+    TX_HASH_2 = bitcoinx.double_sha256(TX_BYTES_2)
+    tx2 = TransactionRow(
+        tx_hash=TX_HASH_2,
+        tx_bytes=TX_BYTES_2,
+        flags=TxFlags.STATE_SETTLED, block_hash=None,
+        block_position=None, fee_value=None,
+        description=None, version=None, locktime=None, date_created=2, date_updated=2)
+    TX_BYTES_3 = os.urandom(10)
+    TX_HASH_3 = bitcoinx.double_sha256(TX_BYTES_3)
+    tx3 = TransactionRow(
+        tx_hash=TX_HASH_3,
+        tx_bytes=TX_BYTES_3,
+        flags=TxFlags.STATE_SETTLED, block_hash=None,
+        block_position=None, fee_value=None,
+        description=None, version=None, locktime=None, date_created=2, date_updated=2)
+    future = db_functions.create_transactions_UNITTEST(db_context, [ tx1, tx2, tx3 ])
+    future.result(timeout=5)
+
+    # Link the first transaction to both accounts.
+    tx1a1 = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_1, AccountTxFlags.NONE, None, 10, 10)
+    tx1a2 = AccountTransactionRow(ACCOUNT2_ID, TX_HASH_1, AccountTxFlags.NONE, None, 1, 1)
+    tx1a3 = AccountTransactionRow(ACCOUNT3_ID, TX_HASH_1, AccountTxFlags.NONE, None, 5, 5)
+    tx2a1 = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_2, AccountTxFlags.NONE, None, 5, 5)
+    future = db_functions.create_account_transactions_UNITTEST(db_context, [ tx1a1, tx1a2, tx1a3,
+        tx2a1 ])
+    future.result(timeout=5)
+
+    # tx1 is linked to accounts 2, 3, 1 in that order, so should be associated with 2.
+    # tx2 is linked to account 1 only, so should be associated with 1.
+    # tx3 is not linked to any account, so should be not be matched.
+    rows = db_functions.read_proofless_transactions(db_context)
+    assert len(rows) == 2
+    tx1_result = [ row for row in rows if row.tx_hash == TX_HASH_1 ][0]
+    assert tx1_result.account_id == ACCOUNT2_ID
+    tx2_result = [ row for row in rows if row.tx_hash == TX_HASH_2 ][0]
+    assert tx2_result.account_id == ACCOUNT1_ID
 
 
 def test_table_servers_CRUD(db_context: DatabaseContext) -> None:

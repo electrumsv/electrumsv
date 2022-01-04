@@ -1,7 +1,5 @@
 import dataclasses
-from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Sequence, Set, Tuple, Union
-
-from bitcoinx import hash_to_hex_str
+from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Set, Tuple, Union
 
 from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
     MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag, ScriptType,
@@ -28,12 +26,14 @@ class AccountTransactionRow(NamedTuple):
     tx_hash: bytes
     flags: AccountTxFlags
     description: Optional[str]
+    date_created: int
+    date_updated: int
 
 
 class HistoryListRow(NamedTuple):
     tx_hash: bytes
     tx_flags: TxFlags
-    block_height: Optional[int]
+    block_hash: Optional[int]
     block_position: Optional[int]
     description: Optional[str]
     value_delta: int
@@ -71,16 +71,16 @@ class KeyDataProtocol(Protocol):
     # Spendable type fields.
     @property
     def account_id(self) -> int:
-        pass
+        ...
     @property
     def masterkey_id(self) -> Optional[int]:
-        pass
+        ...
     @property
     def derivation_type(self) -> DerivationType:
-        pass
+        ...
     @property
     def derivation_data2(self) -> Optional[bytes]:
-        pass
+        ...
 
 
 @dataclasses.dataclass
@@ -212,7 +212,6 @@ SpendConflictType = Tuple[bytes, int, bytes, int]
 
 
 class TransactionBlockRow(NamedTuple):
-    block_height: int
     block_hash: Optional[bytes]
     tx_hash: bytes
 
@@ -231,7 +230,6 @@ class TransactionDescriptionResult(NamedTuple):
 class TransactionExistsRow(NamedTuple):
     tx_hash: bytes
     flags: TxFlags
-    block_height: int
     account_id: Optional[int]
 
 
@@ -257,7 +255,7 @@ class TransactionLinkState:
 
 
 class TransactionMetadata(NamedTuple):
-    block_height: int
+    block_hash: Optional[bytes]
     block_position: Optional[int]
     fee_value: Optional[int]
     date_created: int
@@ -347,7 +345,7 @@ class AccountTransactionOutputSpendableRowExtended(NamedTuple):
     derivation_data2: Optional[bytes]           # Spendable type field.
     # Extension fields for this type.
     tx_flags: TxFlags
-    block_height: Optional[int]
+    block_hash: Optional[bytes]
 
 
 class TransactionOutputSpendableRow(NamedTuple):
@@ -397,31 +395,31 @@ class TransactionOutputSpendableProtocol(Protocol):
     # Standard transaction output fields.
     @property
     def tx_hash(self) -> bytes:
-        pass
+        ...
     @property
     def txo_index(self) -> int:
-        pass
+        ...
     @property
     def value(self) -> int:
-        pass
+        ...
     @property
     def script_type(self) -> ScriptType:
-        pass
+        ...
     @property
     def keyinstance_id(self) -> Optional[int]:
-        pass
+        ...
     @property
     def account_id(self) ->  int:
-        pass
+        ...
     @property
     def masterkey_id(self) ->  Optional[int]:
-        pass
+        ...
     @property
     def derivation_type(self) ->  DerivationType:
-        pass
+        ...
     @property
     def derivation_data2(self) -> Optional[bytes]:
-        pass
+        ...
 
 
 class TransactionRow(NamedTuple):
@@ -429,53 +427,40 @@ class TransactionRow(NamedTuple):
     tx_bytes: Optional[bytes]
     flags: TxFlags
     block_hash: Optional[bytes]
-    block_height: int
     block_position: Optional[int]
     fee_value: Optional[int]
     description: Optional[str]
     version: Optional[int]
     locktime: Optional[int]
-    date_created: int=-1
-    date_updated: int=-1
+    proof_data: Optional[bytes]     = None
+    date_created: int               = -1
+    date_updated: int               = -1
 
 
-class TransactionSubscriptionRow(NamedTuple):
+class TransactionProoflessRow(NamedTuple):
     tx_hash: bytes
-    # 1 = Transaction output, 2 = Transaction output.
-    put_type: int
-    # TODO Document why this is present.
-    keyinstance_id: int
-    # TODO Document why this is present.
-    script_hash: bytes
-
-    def __repr__(self) -> str:
-        return f"TransactionSubscriptionRow(tx_hash='{hash_to_hex_str(self.tx_hash)}' " \
-            f"put_type={self.put_type} keyinstance_id={self.keyinstance_id} " \
-            f"script_hash='{hash_to_hex_str(self.script_hash)}')"
+    account_id: int
 
 
 class TransactionValueRow(NamedTuple):
     tx_hash: bytes
     value: int
     flags: TxFlags
-    block_height: Optional[int]
+    block_hash: Optional[bytes]
     date_created: int
     date_updated: int
-
-
-class TxProof(NamedTuple):
-    position: int
-    branch: Sequence[bytes]
 
 
 class TxProofResult(NamedTuple):
     tx_hash: bytes
     proof: Optional[bytes]
 
-    def unpack_proof(self) -> TxProof:
-        assert self.proof is not None
-        from .util import unpack_proof
-        return unpack_proof(self.proof)
+
+class TxProofData(NamedTuple):
+    tx_hash: bytes
+    flags: TxFlags
+    block_hash: Optional[bytes]
+    proof_bytes: Optional[bytes]
 
 
 class WalletBalance(NamedTuple):

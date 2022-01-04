@@ -123,3 +123,7 @@ class DatabaseWriteError(Exception):
                 "outputs.")
         return _("Fallthrough database write error, code={}").format(self.error_code)
 
+
+class ServerConnectionError(Exception):
+    pass
+

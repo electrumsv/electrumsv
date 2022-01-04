@@ -498,29 +498,32 @@ class TestStorageUpgrade(WalletTestCase):
         # We're going to verify that the parent wrapped legacy wallet has migrated it's
         # keystores to the right place, and it's references are valid.
         wallet = Wallet(storage)
-        accounts = wallet.get_accounts()
+        # We mock `app_state` so that any coroutines are not created via `async_.spawn`.
+        with unittest.mock.patch("electrumsv.wallet.app_state"):
+            wallet.start(None)
+            accounts = wallet.get_accounts()
 
-        # These are all legacy wallets, so one account wrapped in the parent wallet, plus the
-        # new petty cash account.
-        self.assertEqual(len(accounts), 2)
+            # These are all legacy wallets, so one account wrapped in the parent wallet, plus the
+            # new petty cash account.
+            self.assertEqual(len(accounts), 2)
 
-        petty_cash_count = 0
-        for account in accounts:
-            if account.is_petty_cash():
-                petty_cash_count += 1
+            petty_cash_count = 0
+            for account in accounts:
+                if account.is_petty_cash():
+                    petty_cash_count += 1
 
-            # Verify that the wallet has the expected number of keystores.
-            keystores = account.get_keystores()
-            if isinstance(account, MultisigAccount):
-                self.assertEqual(len(keystores), account.n)
-            elif isinstance(account, ImportedAddressAccount):
-                self.assertEqual(len(keystores), 0)
-            else:
-                self.assertEqual(len(keystores), 1)
+                # Verify that the wallet has the expected number of keystores.
+                keystores = account.get_keystores()
+                if isinstance(account, MultisigAccount):
+                    self.assertEqual(len(keystores), account.n)
+                elif isinstance(account, ImportedAddressAccount):
+                    self.assertEqual(len(keystores), 0)
+                else:
+                    self.assertEqual(len(keystores), 1)
 
-        self.assertEqual(petty_cash_count, 1)
+            self.assertEqual(petty_cash_count, 1)
 
-        wallet.stop()
+            wallet.stop()
 
     def _load_storage_from_json_string(self, wallet_json):
         with open(self.wallet_path, "w") as f:

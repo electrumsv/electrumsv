@@ -1,7 +1,7 @@
 from __future__ import annotations
 import dataclasses
 from types import TracebackType
-from typing import Any, Callable, cast, Coroutine, Dict, List, NamedTuple, Optional, Tuple, \
+from typing import Any, Callable, Coroutine, List, NamedTuple, Optional, Tuple, \
     Type, TYPE_CHECKING, TypedDict, Union
 import uuid
 
@@ -15,12 +15,7 @@ from .constants import AccountCreationType, DatabaseKeyDerivationType, Derivatio
 
 if TYPE_CHECKING:
     from .keystore import KeyStore
-    from .wallet_database.types import KeyDataProtocol, NetworkServerRow, NetworkServerAccountRow, \
-        TransactionSubscriptionRow
-
-
-ElectrumXHistoryEntry = Dict[str, Union[int, str]]
-ElectrumXHistoryList = List[ElectrumXHistoryEntry]
+    from .wallet_database.types import KeyDataProtocol, NetworkServerRow, NetworkServerAccountRow
 
 
 @dataclasses.dataclass(frozen=True)
@@ -71,21 +66,6 @@ class SubscriptionKeyScriptHashOwnerContext(NamedTuple):
         raise NotImplementedError
 
 
-class SubscriptionTransactionScriptHashOwnerContext(NamedTuple):
-    tx_rows: List["TransactionSubscriptionRow"]
-
-    def merge(self, other_object: object) -> None:
-        """
-        This will happen for reused keys, where there are multiple transactions using those keys
-        for the same scripts.
-        """
-        assert type(self) is type(other_object)
-        other = cast(SubscriptionTransactionScriptHashOwnerContext, other_object)
-        for tx_row in other.tx_rows:
-            if tx_row not in self.tx_rows:
-                self.tx_rows.append(tx_row)
-
-
 class SubscriptionScannerScriptHashOwnerContext(NamedTuple):
     value: Any
 
@@ -106,7 +86,6 @@ class SubscriptionDerivationScriptHashOwnerContext(NamedTuple):
 SubscriptionOwnerContextType = Union[
     SubscriptionKeyScriptHashOwnerContext,
     SubscriptionScannerScriptHashOwnerContext,
-    SubscriptionTransactionScriptHashOwnerContext,
     SubscriptionDerivationScriptHashOwnerContext]
 
 
@@ -120,10 +99,16 @@ class HashSubscriptionEntry(NamedTuple):
     hash_value: bytes
 
 
+class ScriptHashHistoryEntry(NamedTuple):
+    something: int
+
+ScriptHashHistoryList = List[ScriptHashHistoryEntry]
+
+
 HashSubscriptionCallback = Callable[[List[HashSubscriptionEntry]],
     Coroutine[Any, Any, None]]
 ScriptHashResultCallback = Callable[[SubscriptionKey, SubscriptionOwnerContextType,
-    ElectrumXHistoryList], Coroutine[Any, Any, None]]
+    ScriptHashHistoryList], Coroutine[Any, Any, None]]
 PushdataHashResultCallback = Callable[[SubscriptionKey, SubscriptionOwnerContextType,
     bytes], Coroutine[Any, Any, None]]
 

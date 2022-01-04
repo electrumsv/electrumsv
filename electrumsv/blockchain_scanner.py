@@ -13,6 +13,7 @@ from __future__ import annotations
 import concurrent.futures
 from dataclasses import dataclass, field
 from enum import IntEnum
+import random
 from typing import Callable, cast, Dict, List, NamedTuple, Optional, Protocol, \
     Sequence, Tuple, TYPE_CHECKING, TypeVar
 
@@ -22,15 +23,19 @@ from bitcoinx import (bip32_key_from_string, BIP32PublicKey, hash160, P2MultiSig
 from .app_state import app_state
 from .bitcoin import ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH, DerivationType,
-    DerivationPath, RECEIVING_SUBPATH, ScriptType, SubscriptionOwnerPurpose, SubscriptionType)
+    DerivationPath, NetworkServerType, RECEIVING_SUBPATH, ScriptType, ServerCapability,
+    SubscriptionOwnerPurpose, SubscriptionType)
 from .exceptions import SubscriptionStale, UnsupportedAccountTypeError
+from .i18n import _
 from .logs import logs
 from .keys import get_single_signer_script_template, get_multi_signer_script_template
+from .network_support.api_server import select_servers
 from .network_support.general_api import post_restoration_filter_request_binary, \
     RestorationFilterRequest, RestorationFilterResult, unpack_binary_restoration_entry
 from .networks import Net
-from .types import (ElectrumXHistoryList, SubscriptionEntry, ScriptHashResultCallback,
-    SubscriptionKey, SubscriptionScannerScriptHashOwnerContext, SubscriptionOwner)
+from .types import (ScriptHashHistoryList, SubscriptionEntry,
+    ScriptHashResultCallback, SubscriptionKey, SubscriptionScannerScriptHashOwnerContext,
+    SubscriptionOwner)
 from .wallet import AbstractAccount
 from .wallet_database.types import KeyListRow
 
@@ -44,6 +49,10 @@ logger = logs.get_logger("scanner")
 # TODO Network disconnection.
 
 ExtendRangeCallback = Callable[[int], None]
+
+
+class PushDataSearchError(Exception):
+    pass
 
 
 # How far above the last used key to look for more key usage, per derivation subpath.
@@ -116,7 +125,7 @@ class ScriptHashHistory:
     """
     The sub-context for the history and the history itself.
     """
-    history: ElectrumXHistoryList
+    history: ScriptHashHistoryList
     bip32_subpath: Optional[DerivationPath] = None
     bip32_subpath_index: int = -1
 
@@ -210,7 +219,7 @@ class ScriptHashHandler(ScannerHandlerProtocol[Dict[bytes, ScriptHashHistory]]):
 
     async def _on_script_hash_result(self, subscription_key: SubscriptionKey,
             context: SubscriptionScannerScriptHashOwnerContext,
-            history: ElectrumXHistoryList) -> None:
+            history: ScriptHashHistoryList) -> None:
         """
         Receive an event related to a scanned script hash from the subscription manager.
 
@@ -251,11 +260,18 @@ class ScriptHashHandler(ScannerHandlerProtocol[Dict[bytes, ScriptHashHistory]]):
         raise SubscriptionStale()
 
 
-class PushDataHashHandler(ScannerHandlerProtocol[List[RestorationFilterResult]]):
+
+@dataclass
+class PushDataMatchResult:
+    filter_result: RestorationFilterResult
+    search_entry: SearchEntry
+
+
+class PushDataHashHandler(ScannerHandlerProtocol[List[PushDataMatchResult]]):
     def __init__(self, network: Network, account: AbstractAccount) -> None:
         self._network = network
         self._account = account
-        self._results: List[RestorationFilterResult] = []
+        self._results: List[PushDataMatchResult] = []
 
     def setup(self, scanner: BlockchainScanner) -> None:
         self._scanner = scanner
@@ -277,7 +293,7 @@ class PushDataHashHandler(ScannerHandlerProtocol[List[RestorationFilterResult]])
         # The searching is done within the `search_entries` call, there is no background activity.
         return False
 
-    def get_results(self) -> List[RestorationFilterResult]:
+    def get_results(self) -> List[PushDataMatchResult]:
         return self._results
 
     async def search_entries(self, entries: List[SearchEntry]) -> None:
@@ -286,27 +302,39 @@ class PushDataHashHandler(ScannerHandlerProtocol[List[RestorationFilterResult]])
         exceptions due to connection errors and perhaps incomplete results, these should raise
         up out of the containing future to the managing logic.
 
+        Raises `PushDataSearchError` if there is some problem in this function.
         Raises `FilterResponseInvalidError` if the response content type does not match what we
             accept.
         Raises `FilterResponseIncompleteError` if a response packet is incomplete. This likely
             means that the connection was closed mid-transmission.
-        Raises `aiohttp.client_exceptions.ClientConnectorError` if the remote computer does not
-            accept the connection.
+        Raises `ServerConnectionError` if the remote computer cannot be connected to.
         """
-        url = "http://127.0.0.1:49241/api/v1/restoration/search"
-        # all_candidates = self._network.get_api_servers_for_account(
-        #     self._account, NetworkServerType.GENERAL)
-        # restoration_candidates = select_servers(ServerCapability.RESTORATION, all_candidates)
-        # # TODO Get the URL of the service we are trying from the network.
+        all_candidates = self._network.get_api_servers_for_account(
+            self._account, NetworkServerType.GENERAL)
+        restoration_candidates = select_servers(ServerCapability.RESTORATION, all_candidates)
+        if not len(restoration_candidates):
+            raise PushDataSearchError(_("No servers available."))
+
+        # TODO better choice of which server to use, probably some centralised approach.
+        candidate = random.choice(restoration_candidates)
+        assert candidate.api_server is not None and candidate.api_server.config is not None
+
+        # TODO better endpoint url resolution rather than this hard-coding.
+        url = candidate.api_server.config["url"]
+        url = url if url.endswith("/") else url +"/"
+        url = f"{url}api/v1/restoration/search"
 
         # These are the pushdata hashes that have been passed along.
+        entry_mapping: Dict[bytes, SearchEntry] = { entry.item_hash: entry for entry in entries }
         request_data: RestorationFilterRequest = {
             "filterKeys": [
                 entry.item_hash.hex() for entry in entries
             ]
         }
         async for payload_bytes in post_restoration_filter_request_binary(url, request_data):
-            self._results.append(unpack_binary_restoration_entry(payload_bytes))
+            filter_result = unpack_binary_restoration_entry(payload_bytes)
+            search_entry = entry_mapping[filter_result.push_data_hash]
+            self._results.append(PushDataMatchResult(filter_result, search_entry))
 
 
 class BlockchainScanner:

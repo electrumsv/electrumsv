@@ -49,17 +49,21 @@ except ModuleNotFoundError:
 else:
     sqlite3 = pysqlite3
 
-from ...i18n import _
 from ...constants import AccountFlags, DerivationType, MasterKeyFlags, ScriptType, \
     WALLET_ACCOUNT_PATH_TEXT
 from ...credentials import PasswordTokenProtocol
+from ...i18n import _
+from ...logs import logs
 from ...keystore import bip32_master_key_data_from_seed
 from ...util import get_posix_timestamp
 from ...util.misc import ProgressCallbacks
 
-from ..storage_migration import MasterKeyDataBIP32_29
+from ..storage_migration import MasterKeyDataBIP32_29, TxFlags_22
 
 MIGRATION = 29
+
+logger = logs.get_logger(f"migration-{MIGRATION:04d}")
+
 
 def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         callbacks: ProgressCallbacks) -> None:
@@ -128,10 +132,25 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         (account_id, account_masterkey_id, ScriptType.P2PKH, "Petty cash",
         AccountFlags.IS_PETTY_CASH, date_updated, date_updated))
 
-    # We need to persist the updated next identifier for the `Accounts` table.
+    # We need to persist the updated next primary key value for the `Accounts` table.
     conn.executemany("UPDATE WalletData SET value=? WHERE key=?",
         [ (v, k) for (k, v) in wallet_data.items() ])
 
+    ## Database cleanup.
+    # Remove vestigal traces of `HasProofData` transaction flag (we cleared others in migration 22).
+    clear_bits_args = (~TxFlags_22.HasProofData, TxFlags_22.HasProofData)
+    cursor = conn.execute("UPDATE Transactions SET flags=(flags&?) WHERE flags&?", clear_bits_args)
+    logger.debug("cleared HasProofData flag from %d transactions", cursor.rowcount)
+
+    # We are deleting the existing non-TSC proofs for all transaction rows and we will reacquire
+    # TSC versions of them. This is fine as there is no guarantee we have proofs for all legacy
+    # transactions anyway and they would need to be acquired, so acquiring more is just more of
+    # the same. The reason we do not clear the SETTLED flag is that this would be a bad user
+    # experience and they would see all their transactions strangely revert back to CLEARED and
+    # they may not be re-verified until they jump through server hoops.
+    conn.execute("UPDATE Transactions SET proof_data=NULL")
+
+    ## Migration finalisation.
     callbacks.progress(100, _("Update done"))
     conn.execute("UPDATE WalletData SET value=?, date_updated=? WHERE key=?",
         [str(MIGRATION),date_updated,"migration"])

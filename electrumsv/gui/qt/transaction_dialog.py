@@ -40,12 +40,12 @@ from PyQt5.QtGui import QBrush, QCloseEvent, QCursor, QFont
 from PyQt5.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
     QToolTip, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from bitcoinx import hash_to_hex_str, MissingHeader, Unknown_Output
+from bitcoinx import hash_to_hex_str, Header, MissingHeader, Unknown_Output
 
 from ...app_state import app_state
 from ...bitcoin import base_encode
-from ...constants import BlockHeight, CHANGE_SUBPATH, DatabaseKeyDerivationType, \
-    RECEIVING_SUBPATH, ScriptType, TxFlags
+from ...constants import CHANGE_SUBPATH, DatabaseKeyDerivationType, RECEIVING_SUBPATH, \
+    ScriptType, TxFlags
 from ...i18n import _
 from ...logs import logs
 from ...paymentrequest import PaymentRequest
@@ -307,7 +307,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         app_state.app_qt.clipboard().setText(hash_to_hex_str(self._tx_hash))
         QToolTip.showText(QCursor.pos(), _("Transaction ID copied to clipboard"), self)
 
-    def _on_transaction_verified(self, tx_hash: bytes, block_height: int, block_position: int,
+    def _on_transaction_verified(self, tx_hash: bytes, header: Header, block_position: int,
             confirmations: int, timestamp: int) -> None:
         if tx_hash == self._tx_hash:
             self.update()
@@ -797,11 +797,10 @@ class TxDialog(QDialog, MessageBoxMixin):
                 # any accounts. We still need to factor that in.
                 fee = metadata.fee_value
 
-                if metadata.block_height > BlockHeight.MEMPOOL:
+                if metadata.block_hash is not None:
                     assert app_state.headers is not None
-                    chain = app_state.headers.longest_chain()
                     try:
-                        header = app_state.headers.header_at_height(chain, metadata.block_height)
+                        header, _chain = app_state.headers.lookup(metadata.block_hash)
                         date_mined = header.timestamp
                     except MissingHeader:
                         pass
@@ -812,11 +811,9 @@ class TxDialog(QDialog, MessageBoxMixin):
                 tx_flags = cast(TxFlags, wallet.get_transaction_flags(self._tx_hash))
                 state = tx_flags & TxFlags.MASK_STATE
                 if state & TxFlags.STATE_SETTLED:
-                    height = metadata.block_height
-                    conf = max(wallet.get_local_height() - height + 1, 0)
-                    status = _("{:,d} confirmations (in block {:,d})").format(conf, height)
+                    status = _("Verified")
                 elif state & TxFlags.STATE_CLEARED:
-                    if metadata.block_height > BlockHeight.MEMPOOL:
+                    if metadata.block_hash is not None:
                         status = _('Not verified')
                     else:
                         status = _('Unconfirmed')

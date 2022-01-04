@@ -40,7 +40,7 @@ from .app_state import app_state
 from .constants import BYTE_SUBSCRIPTION_TYPES, SubscriptionType
 from .exceptions import SubscriptionStale
 from .logs import logs
-from .types import (ElectrumXHistoryList, SubscriptionEntry, SubscriptionKey,
+from .types import (ScriptHashHistoryList, SubscriptionEntry, SubscriptionKey,
     HashSubscriptionCallback, HashSubscriptionEntry, PushdataHashResultCallback,
     ScriptHashResultCallback, SubscriptionCallbacks, SubscriptionOwner,
     SubscriptionOwnerContextType)
@@ -71,14 +71,14 @@ class SubscriptionManager:
         # another purpose who arrives later will miss it. For this reason we store the last result
         # for a subscription entry and give it to later subscribers for one of those initial
         # subscriptione entries.
-        self._scripthash_result_cache: Dict[SubscriptionKey, ElectrumXHistoryList] = {}
+        self._scripthash_result_cache: Dict[SubscriptionKey, ScriptHashHistoryList] = {}
         self._owner_subscriptions: Dict[SubscriptionOwner, Set[SubscriptionKey]] = {}
         self._owner_subscription_context: Dict[Tuple[SubscriptionOwner, SubscriptionKey],
             SubscriptionOwnerContextType] = {}
         self._owner_callbacks: Dict[SubscriptionOwner, SubscriptionCallbacks] = {}
 
         self._script_hash_notification_queue: \
-            asyncio.Queue[Tuple[int, bytes, ElectrumXHistoryList]] = app_state.async_.queue()
+            asyncio.Queue[Tuple[int, bytes, ScriptHashHistoryList]] = app_state.async_.queue()
         self._script_hash_notification_future = app_state.async_.spawn(
             self._process_scripthash_notifications_loop)
 
@@ -263,7 +263,7 @@ class SubscriptionManager:
         return futures
 
     async def on_script_hash_history(self, subscription_id: int, script_hash: bytes,
-            result: ElectrumXHistoryList) -> None:
+            result: ScriptHashHistoryList) -> None:
         # One of the problems we had in the past was we would process the script hash history
         # under the call stack of the network event. Blocking that network event to do so, would
         # block the processing of many incoming events and result in them timing out (as asyncio
@@ -279,7 +279,7 @@ class SubscriptionManager:
     async def _process_scripthash_notifications(self) -> None:
         subscription_id: int
         script_hash: bytes
-        result: ElectrumXHistoryList
+        result: ScriptHashHistoryList
         subscription_id, script_hash, result = await self._script_hash_notification_queue.get()
         subscription_key = SubscriptionKey(SubscriptionType.SCRIPT_HASH, script_hash)
         existing_subscription_id = self._subscription_ids.get(subscription_key)
@@ -297,7 +297,7 @@ class SubscriptionManager:
 
     async def _notify_script_hash_history(self, subscription_key: SubscriptionKey,
             owner: SubscriptionOwner, callback: ScriptHashResultCallback,
-            result: ElectrumXHistoryList) -> None:
+            result: ScriptHashHistoryList) -> None:
         if subscription_key in self._subscriptions and \
                 owner in self._subscriptions[subscription_key]:
             # This may modify the contents of the owner context for this subscription.

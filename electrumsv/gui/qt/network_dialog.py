@@ -1563,6 +1563,7 @@ class ServersTab(QWidget):
             # An account may have an api key that it uses instead, and it may have it's own
             # last good/last try record.
             if api_server.config is not None:
+                print(api_server)
                 last_try = api_server.config['last_try']
                 last_good = api_server.config['last_good']
                 enabled_for_all_wallets = api_server.config['enabled_for_all_wallets']

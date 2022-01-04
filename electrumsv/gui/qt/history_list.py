@@ -29,14 +29,14 @@ from typing import Callable, cast, Dict, List, Optional, Sequence, Tuple, TYPE_C
 import weakref
 import webbrowser
 
-from bitcoinx import hash_to_hex_str, Headers, MissingHeader
+from bitcoinx import hash_to_hex_str, Header, Headers
 
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QBrush, QIcon, QColor, QFont
 from PyQt5.QtWidgets import QMenu, QMessageBox, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from ...app_state import app_state
-from ...bitcoin import COINBASE_MATURITY
+from ...bitcoin import COINBASE_MATURITY, TSCMerkleProof
 from ...constants import BlockHeight, PaymentFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
@@ -186,31 +186,27 @@ class HistoryList(MyTreeWidget):
         fx = app_state.fx
         if fx:
             fx.history_used_spot = False
+
         local_height = self._wallet.get_local_height()
-        server_height = self._main_window.network.get_server_height() if self._main_window.network \
-            else 0
         headers_obj = cast(Headers, app_state.headers)
-        header_at_height = headers_obj.header_at_height
-        chain = headers_obj.longest_chain()
-        missing_header_heights = []
+        lookup_header = headers_obj.lookup
+
         items = []
         for entry in self._account.get_history(self.get_domain()):
             row = entry.row
-            assert row.block_height is not None
             tx_id = hash_to_hex_str(row.tx_hash)
-            conf = 0 if row.block_height <= 0 else max(local_height - row.block_height + 1, 0)
-            timestamp = False
-            if row.block_height > BlockHeight.MEMPOOL:
-                try:
-                    timestamp = header_at_height(chain, row.block_height).timestamp
-                except MissingHeader:
-                    if row.block_height <= server_height:
-                        missing_header_heights.append(row.block_height)
-                    else:
-                        logger.debug("Unable to backfill header at %d (> %d)",
-                            row.block_height, server_height)
+            if row.block_hash is not None:
+                header, _chain = lookup_header(row.block_hash)
+                conf = 0 if header.height <= 0 else max(local_height - header.height + 1, 0)
+                block_height = header.height
+                timestamp = header.timestamp
+            else:
+                header = None
+                conf = 0
+                block_height = 0
+                timestamp = False
             status = get_tx_status(self._account, row.tx_flags & TxFlags.MASK_STATE,
-                row.block_height, row.block_position, conf)
+                block_height, row.block_position, conf)
             status_str = get_tx_desc(status, timestamp)
             v_str = app_state.format_amount(row.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(entry.balance, whitespaces=True)
@@ -255,9 +251,6 @@ class HistoryList(MyTreeWidget):
 
         self.addTopLevelItems(items)
 
-        if len(missing_header_heights) and self._main_window.network:
-            self._main_window.network.backfill_headers_at_heights(missing_header_heights)
-
     def on_doubleclick(self, item: QTreeWidgetItem, column: int) -> None:
         if self.permit_edit(item, column):
             super(HistoryList, self).on_doubleclick(item, column)
@@ -292,13 +285,15 @@ class HistoryList(MyTreeWidget):
                 item.setText(Columns.DESCRIPTION, description or "")
 
     # From the wallet 'verified' event.
-    def update_tx_item(self, tx_hash: bytes, block_height: int, block_position: int,
-            confirmations: int, timestamp: int) -> None:
+    def update_tx_item(self, tx_hash: bytes, header: Header, tsc_proof: TSCMerkleProof) -> None:
         # External event may be called before the UI element has an account.
         if self._account is None:
             return
 
-        status = get_tx_status(self._account, TxFlags.STATE_SETTLED, block_height, block_position,
+        local_height = self._wallet.get_local_height()
+        confirmations = 0 if header.height <= 0 else max(local_height - header.height + 1, 0)
+        status = get_tx_status(self._account, TxFlags.STATE_SETTLED, header.height,
+            tsc_proof.transaction_index,
             confirmations)
         tx_id = hash_to_hex_str(tx_hash)
         items = self.findItems(tx_id,
@@ -309,7 +304,7 @@ class HistoryList(MyTreeWidget):
             icon = get_tx_icon(status)
             if icon is not None:
                 item.setIcon(Columns.STATUS, icon)
-            item.setText(Columns.DATE, get_tx_desc(status, timestamp))
+            item.setText(Columns.DATE, get_tx_desc(status, header.timestamp))
             item.setToolTip(Columns.STATUS, get_tx_tooltip(status, confirmations))
 
             # NOTE: This is a damned if you do and damned if you don't situation.
@@ -524,9 +519,8 @@ class HistoryView(QWidget):
         self.list.update_tx_headers()
 
     # From the wallet 'verified' event (not actually called see the list method).
-    def update_tx_item(self, tx_hash: bytes, block_height: int, block_position: int,
-            confirmations: int, timestamp: int) -> None:
-        self.list.update_tx_item(tx_hash, block_height, block_position, confirmations, timestamp)
+    def update_tx_item(self, tx_hash: bytes, header: Header, tsc_proof: TSCMerkleProof) -> None:
+        self.list.update_tx_item(tx_hash, header, tsc_proof)
 
     def update_tx_list(self) -> None:
         self.list.update()
