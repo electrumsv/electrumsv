@@ -61,7 +61,7 @@ from ... import bitcoin, commands, paymentrequest, qrscanner, util
 from ...app_state import app_state
 from ...bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string, TSCMerkleProof)
-from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames, 
+from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
     ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags)
 from ...exceptions import UserCancelled
 from ...i18n import _

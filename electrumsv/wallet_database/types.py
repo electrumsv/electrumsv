@@ -1,6 +1,6 @@
 import dataclasses
 from enum import IntEnum
-from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Sequence, Set, Tuple, Union
+from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Set, Tuple, Union
 
 from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
     MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag, ScriptType,

@@ -26,10 +26,10 @@ from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.sqlite_support import DatabaseContext, LeakedSQLiteConnectionError
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
-    InvoiceRow, KeyInstanceRow, MasterKeyRow, NetworkServerRow, NetworkServerAccountRow,
-    PaymentRequestReadRow, PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
-    TransactionRow, TransactionOutputShortRow, WalletBalance, WalletEventRow,
-    MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags)
+    InvoiceRow, KeyInstanceRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
+    NetworkServerRow, NetworkServerAccountRow, PaymentRequestReadRow, PaymentRequestRow,
+    PaymentRequestUpdateRow, TransactionBlockRow, TransactionRow, TransactionOutputShortRow,
+    WalletBalance, WalletEventRow)
 
 from .util import PasswordToken
 

@@ -47,17 +47,15 @@ from aiorpcx import SOCKSError, TaskGroup
 from .esv_client import PeerChannel
 from ..app_state import app_state
 from ..constants import NetworkServerType
-from ..exceptions import BroadcastFailedException
+from ..exceptions import BroadcastFailedException, ServiceUnavailableException
 from ..logs import logs
-from ..types import TransactionSize
-
 
 if TYPE_CHECKING:
-    from .api_server import NewServer
-    from ..network import Network
-    from ..transaction import Transaction
-    from ..types import IndefiniteCredentialId
-    from ..wallet import AbstractAccount
+    from electrumsv.types import IndefiniteCredentialId
+    from electrumsv.network_support.api_server import NewServer, SelectionCandidate
+    from electrumsv.network import Network
+    from electrumsv.wallet import AbstractAccount
+    from electrumsv.types import TransactionSize
 
 
 logger = logs.get_logger("network-mapi")
@@ -154,6 +152,26 @@ def get_mapi_servers(network: "Network", account: "AbstractAccount") -> \
     return server_entries
 
 
+def filter_mapi_servers_for_fee_quote(selection_candidates: List[SelectionCandidate]) \
+        -> List[SelectionCandidate]:
+    """raises `ServiceUnavailableException` if there are no merchant APIs with fee quotes"""
+    filtered = []
+
+    for selection_candidate in selection_candidates:
+        credential_id = selection_candidate.credential_id
+        api_server = selection_candidate.api_server
+        assert api_server is not None
+        if api_server.api_key_state[credential_id].last_fee_quote is None:
+            logger.error("No fee quote for merchant API at: %s", api_server.url)
+            continue
+        filtered.append(selection_candidate)
+
+    if len(filtered) == 0:
+        raise ServiceUnavailableException("There are no suitable merchant API servers available")
+
+    return filtered
+
+
 def poll_servers(network: "Network", account: "AbstractAccount") \
         -> Optional[concurrent.futures.Future[None]]:
     """
@@ -193,7 +211,6 @@ async def get_fee_quote(server: "NewServer",
                 json_response = await decode_response_body(resp)
             except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
                 logger.error("failed connecting to %s", url)
-                resp.raise_for_status()
             else:
                 if resp.status != 200:
                     # We hope that this service will become available later. Until then it
@@ -227,42 +244,42 @@ def validate_json_envelope(json_response: JSONEnvelope) -> None:
             raise ValueError("MAPI signature invalid")
 
 
-async def broadcast_transaction_mapi_simple(tx: "Transaction", server: "NewServer",
-        credential_id: Optional["IndefiniteCredentialId"], peer_channel: Optional[PeerChannel]=None,
+async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: "NewServer",
+        credential_id: Optional["IndefiniteCredentialId"], peer_channel: PeerChannel,
         merkle_proof: bool=False, ds_check: bool=False) -> BroadcastResponse:
     server.api_key_state[credential_id].record_attempt()
 
     url = server.url if server.url.endswith("/") else server.url +"/"
     url += "tx"
-    # It is unclear if we need to pass false values for these, the specification implies that
-    # we should but in theory it won't let us broadcast at all.
+    write_token = peer_channel.get_write_token()
+    assert write_token is not None, "We generated this peer channel ourselves so we should " \
+                                    "definitely possess a valid write token"
     params = {
         'merkleProof': 'false' if not merkle_proof else 'true',
         'merkleFormat': "TSC",
         'dsCheck': 'false' if not ds_check else 'true',
+        'callbackURL': peer_channel.get_callback_url(),
+        'callbackToken': f"Bearer {write_token.api_key}",
+        # 'callbackEncryption': None  # Todo: add libsodium encryption
     }
-    if peer_channel is not None:
-        params.update({
-            'callbackURL': peer_channel.get_callback_url(),
-            'callbackToken': f"Bearer {peer_channel.get_write_token().api_key}",
-            # 'callbackEncryption': None  # Todo: add libsodium encryption
-        })
     headers = {"Content-Type": "application/octet-stream"}
     headers.update(server.get_authorization_headers(credential_id))
     is_ssl = url.startswith("https")
     async with aiohttp.ClientSession() as client:
         async with client.post(url, ssl=is_ssl, headers=headers, params=params,
-                data=tx.to_bytes()) as response:
+                data=transaction_bytes) as response:
             try:
                 json_response = await decode_response_body(response)
             except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
                 logger.error("failed connecting to %s", url)
-                raise
+                raise BroadcastFailedException(f"Broadcast failed for url: {url}, "
+                    f"Unable to connect to the server.")
             else:
                 if response.status != 200:
                     logger.error("Broadcast request to %s failed with: status: %s, reason: %s",
                         url, response.status, response.reason)
-                    response.raise_for_status()
+                    raise BroadcastFailedException(f"Broadcast failed for url: {url}. "
+                        f"status: {response.status}, reason: {response.reason}")
                 else:
                     assert json_response['encoding'].lower() == 'utf-8'
 
@@ -276,7 +293,6 @@ async def broadcast_transaction_mapi_simple(tx: "Transaction", server: "NewServe
                     broadcast_response: BroadcastResponse = \
                         json.loads(broadcast_response_envelope['payload'])
                     return broadcast_response
-        raise BroadcastFailedException(f"Broadcast failed for url: {url}, tx: {tx.to_hex()}")
 
 
 class MAPIFeeEstimator:

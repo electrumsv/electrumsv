@@ -1,5 +1,4 @@
 import base64
-import datetime
 import json
 import logging
 from typing import cast
@@ -12,12 +11,10 @@ from bitcoinx import hash_to_hex_str
 
 from electrumsv.network_support.esv_client import ESVClient, PeerChannel
 from electrumsv.network_support.esv_client_types import PeerChannelToken, TokenPermissions, \
-    GeneralNotification, ChannelNotification, MAPICallbackResponse, MessageViewModelGetJSON
+    GeneralNotification, ChannelNotification, MAPICallbackResponse
 from electrumsv.tests.data.reference_server.headers_data import GENESIS_TIP
 
 logger = logging.getLogger("test-esv-client")
-logging.basicConfig(format='%(asctime)s %(levelname)-8s %(name)-24s %(message)s',
-    level=logging.DEBUG, datefmt='%Y-%m-%d %H:%M:%S')
 
 BASE_URL = "/"  # no host or port for aiohttp pytest framework
 REGTEST_BEARER_TOKEN = "t80Dp_dIk1kqkHK3P9R5cpDf67JfmNixNscexEYG0_xa" \

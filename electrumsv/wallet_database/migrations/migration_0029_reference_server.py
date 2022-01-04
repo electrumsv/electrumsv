@@ -138,8 +138,8 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     #
     # There should be waiting time threshold at which we give up and request the merkle
     # proof directly from an indexer if it still has not arrived e.g. 24 hours since broadcast_date.
-    conn.execute(f"""
-        CREATE TABLE IF NOT EXISTS MAPIBroadcastCallbacks (
+    conn.execute("""
+        CREATE TABLE MAPIBroadcastCallbacks (
             tx_hash                     BLOB          PRIMARY KEY,
             peer_channel_id             VARCHAR(1024) NOT NULL,
             broadcast_date              INTEGER       NOT NULL,

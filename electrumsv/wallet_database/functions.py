@@ -32,15 +32,14 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, MAPIBroadcastCallbackRow,
     MapiBroadcastStatusFlags, NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult,
-    PaymentRequestReadRow, PaymentRequestRow,PaymentRequestUpdateRow, SpendConflictType, 
-    TransactionBlockRow, TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, 
+    PaymentRequestReadRow, PaymentRequestRow,PaymentRequestUpdateRow, SpendConflictType,
+    TransactionBlockRow, TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow,
     TransactionLinkState, TransactionOutputAddRow, TransactionOutputSpendableRow,
-    TransactionValueRow, TransactionMetadata, TransactionOutputFullRow, TransactionOutputShortRow, 
+    TransactionValueRow, TransactionMetadata, TransactionOutputFullRow, TransactionOutputShortRow,
     TransactionProoflessRow, TxProofData, TxProofResult, TransactionRow, WalletBalance,
     WalletDataRow, WalletEventRow)
 from .util import flag_clause, read_rows_by_id, read_rows_by_ids, execute_sql_by_id, \
     update_rows_by_ids
-
 
 logger = logs.get_logger("db-functions")
 
@@ -2275,7 +2274,7 @@ class AsynchronousFunctions:
 
 def create_mapi_broadcast_callbacks(db_context: DatabaseContext,
         rows: Iterable[MAPIBroadcastCallbackRow]) -> concurrent.futures.Future[None]:
-    sql = f"""
+    sql = """
         INSERT INTO MAPIBroadcastCallbacks
         (tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id, status_flags)
         VALUES (?, ?, ?, ?, ?, ?)"""
@@ -2288,7 +2287,8 @@ def create_mapi_broadcast_callbacks(db_context: DatabaseContext,
 @replace_db_context_with_connection
 def read_mapi_broadcast_callbacks(db: sqlite3.Connection) -> List[MAPIBroadcastCallbackRow]:
     sql = f"""
-        SELECT *
+        SELECT tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id,
+            status_flags
         FROM MAPIBroadcastCallbacks
     """
     return [ MAPIBroadcastCallbackRow(*row) for row in db.execute(sql).fetchall() ]
