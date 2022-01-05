@@ -3,8 +3,7 @@ import json
 import logging
 from typing import cast
 
-import pytest
-from aiohttp import web, ClientResponseError
+from aiohttp import web
 from aiohttp import ClientSession
 from aiohttp.web_ws import WebSocketResponse
 from bitcoinx import hash_to_hex_str
@@ -336,209 +335,159 @@ def create_app(loop):
 
 
 async def test_get_single_header(test_client):
-    try:
-        test_session = await test_client(create_app)
-        esv_client: ESVClient = await _get_esv_client(test_session)
-        result = await esv_client.get_single_header(block_hash=bytes.fromhex('deadbeef'))
-        assert result == bytes.fromhex("aa"*80)
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    test_session = await test_client(create_app)
+    esv_client: ESVClient = await _get_esv_client(test_session)
+    result = await esv_client.get_single_header(block_hash=bytes.fromhex('deadbeef'))
+    assert result == bytes.fromhex("aa"*80)
 
 
 async def test_get_headers_by_height(test_client):
-    try:
-        test_session = await test_client(create_app)
-        esv_client: ESVClient = await _get_esv_client(test_session)
-        result = await esv_client.get_headers_by_height(from_height=0, count=2)
-        assert result == bytes.fromhex("aa"*80) + bytes.fromhex("bb"*80)
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    test_session = await test_client(create_app)
+    esv_client: ESVClient = await _get_esv_client(test_session)
+    result = await esv_client.get_headers_by_height(from_height=0, count=2)
+    assert result == bytes.fromhex("aa"*80) + bytes.fromhex("bb"*80)
 
 
 async def test_get_chain_tips(test_client):
     expected_response = [GENESIS_TIP]
-    try:
-        test_session = await test_client(create_app)
-        esv_client: ESVClient = await _get_esv_client(test_session)
-        result = await esv_client.get_chain_tips()
-        assert result == expected_response
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    test_session = await test_client(create_app)
+    esv_client: ESVClient = await _get_esv_client(test_session)
+    result = await esv_client.get_chain_tips()
+    assert result == expected_response
 
 
 async def test_subscribe_to_headers(test_client):
-    try:
-        test_session = await test_client(create_app)
-        esv_client: ESVClient = await _get_esv_client(test_session)
-        async for tip in esv_client.subscribe_to_headers():
-            if tip:
-                logger.debug(tip)
-                assert True
-                return
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    test_session = await test_client(create_app)
+    esv_client: ESVClient = await _get_esv_client(test_session)
+    async for tip in esv_client.subscribe_to_headers():
+        if tip:
+            logger.debug(tip)
+            assert True
+            return
 
 
 async def test_create_peer_channel(test_client):
-    try:
-        test_session = await test_client(create_app)
-        esv_client: ESVClient = await _get_esv_client(test_session)
-        peer_channel: PeerChannel = await esv_client.create_peer_channel()
-        assert isinstance(peer_channel, PeerChannel)
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    test_session = await test_client(create_app)
+    esv_client: ESVClient = await _get_esv_client(test_session)
+    peer_channel: PeerChannel = await esv_client.create_peer_channel()
+    assert isinstance(peer_channel, PeerChannel)
 
 
 async def test_delete_peer_channel(test_client):
-    try:
-        test_session = await test_client(create_app)
-        esv_client: ESVClient = await _get_esv_client(test_session)
-        # Setup Channel for deletion
-        peer_channel = PeerChannel(channel_id=MOCK_CHANNEL_ID, tokens=MOCK_TOKENS,
-            base_url=BASE_URL, session=test_session, master_token=REGTEST_BEARER_TOKEN)
-        await esv_client.delete_peer_channel(peer_channel)
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    test_session = await test_client(create_app)
+    esv_client: ESVClient = await _get_esv_client(test_session)
+    # Setup Channel for deletion
+    peer_channel = PeerChannel(channel_id=MOCK_CHANNEL_ID, tokens=MOCK_TOKENS,
+        base_url=BASE_URL, session=test_session, master_token=REGTEST_BEARER_TOKEN)
+    await esv_client.delete_peer_channel(peer_channel)
 
 
 async def test_list_peer_channels(test_client):
-    try:
-        test_session = await test_client(create_app)
-        esv_client: ESVClient = await _get_esv_client(test_session)
-        peer_channels = await esv_client.list_peer_channels()
-        assert isinstance(peer_channels, list)
-        for peer_channel in peer_channels:
-            assert isinstance(peer_channel, PeerChannel)
-            assert peer_channel.channel_id == MOCK_CHANNEL_ID
-            assert peer_channel.tokens == MOCK_TOKENS
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
-
-
-async def test_get_single_peer_channel(test_client):
-    try:
-        test_session = await test_client(create_app)
-        esv_client: ESVClient = await _get_esv_client(test_session)
-        peer_channel = await esv_client.get_single_peer_channel(MOCK_CHANNEL_ID)
+    test_session = await test_client(create_app)
+    esv_client: ESVClient = await _get_esv_client(test_session)
+    peer_channels = await esv_client.list_peer_channels()
+    assert isinstance(peer_channels, list)
+    for peer_channel in peer_channels:
         assert isinstance(peer_channel, PeerChannel)
         assert peer_channel.channel_id == MOCK_CHANNEL_ID
         assert peer_channel.tokens == MOCK_TOKENS
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+
+
+async def test_get_single_peer_channel(test_client):
+    test_session = await test_client(create_app)
+    esv_client: ESVClient = await _get_esv_client(test_session)
+    peer_channel = await esv_client.get_single_peer_channel(MOCK_CHANNEL_ID)
+    assert isinstance(peer_channel, PeerChannel)
+    assert peer_channel.channel_id == MOCK_CHANNEL_ID
+    assert peer_channel.tokens == MOCK_TOKENS
 
 
 async def test_subscribe_to_general_notifications(test_client):
-    try:
-        test_session = await test_client(create_app)
-        esv_client: ESVClient = await _get_esv_client(test_session)
-        notification: GeneralNotification
-        async for notification in esv_client.subscribe_to_general_notifications():
-            if notification:
-                assert notification['message_type'] == 'bsv.api.channels.notification'
-                assert notification['result']['id'] == MOCK_CHANNEL_ID
-                assert notification['result']['notification'] == 'New message arrived'
-                return
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    test_session = await test_client(create_app)
+    esv_client: ESVClient = await _get_esv_client(test_session)
+    notification: GeneralNotification
+    async for notification in esv_client.subscribe_to_general_notifications():
+        if notification:
+            assert notification['message_type'] == 'bsv.api.channels.notification'
+            assert notification['result']['id'] == MOCK_CHANNEL_ID
+            assert notification['result']['notification'] == 'New message arrived'
+            return
 
 
 # Test PeerChannel class
 async def test_peer_channel_instance_attrs(test_client):
     # All http endpoints are all mocked so that tests execute fast and they are hassle-free to run
-    try:
-        peer_channel = await _create_peer_channel_instance(test_client)
-        assert isinstance(peer_channel, PeerChannel)
-        assert peer_channel.channel_id == MOCK_CHANNEL_ID
-        assert peer_channel.tokens == MOCK_TOKENS
-        callback_url = peer_channel.get_callback_url()
-        assert MOCK_CHANNEL_ID in callback_url
-        logger.debug(f"callback_url={callback_url}")
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    peer_channel = await _create_peer_channel_instance(test_client)
+    assert isinstance(peer_channel, PeerChannel)
+    assert peer_channel.channel_id == MOCK_CHANNEL_ID
+    assert peer_channel.tokens == MOCK_TOKENS
+    callback_url = peer_channel.get_callback_url()
+    assert MOCK_CHANNEL_ID in callback_url
+    logger.debug(f"callback_url={callback_url}")
 
 
 async def test_peer_channel_instance_get_write_token(test_client):
-    try:
-        peer_channel = await _create_peer_channel_instance(test_client)
-        write_token = peer_channel.get_write_token()
-        assert isinstance(write_token, PeerChannelToken)
-        assert write_token.permissions & TokenPermissions.WRITE_ACCESS \
-               == TokenPermissions.WRITE_ACCESS
-        logger.debug(f"write_token={write_token}")
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    peer_channel = await _create_peer_channel_instance(test_client)
+    write_token = peer_channel.get_write_token()
+    assert isinstance(write_token, PeerChannelToken)
+    assert write_token.permissions & TokenPermissions.WRITE_ACCESS \
+           == TokenPermissions.WRITE_ACCESS
+    logger.debug(f"write_token={write_token}")
 
 
 async def test_peer_channel_instance_get_read_token(test_client):
-    try:
-        peer_channel = await _create_peer_channel_instance(test_client)
-        read_token = peer_channel.get_read_token()
-        assert isinstance(read_token, PeerChannelToken)
-        assert read_token.permissions & TokenPermissions.READ_ACCESS \
-               == TokenPermissions.READ_ACCESS
-        logger.debug(f"read_token={read_token}")
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    peer_channel = await _create_peer_channel_instance(test_client)
+    read_token = peer_channel.get_read_token()
+    assert isinstance(read_token, PeerChannelToken)
+    assert read_token.permissions & TokenPermissions.READ_ACCESS \
+           == TokenPermissions.READ_ACCESS
+    logger.debug(f"read_token={read_token}")
 
 
 async def test_peer_channel_instance_get_messages(test_client):
-    try:
-        peer_channel = await _create_peer_channel_instance(test_client)
-        messages = await peer_channel.get_messages()
-        assert len(messages) == 1
-        assert messages[0]['sequence'] == 1
-        assert messages[0]['received'] == '2021-12-30T06:33:40.374Z'
-        assert messages[0]['content_type'] == 'application/json'
-        assert messages[0]['payload'] == MERKLE_PROOF_CALLBACK
-        logger.debug(f"messages={messages}")
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    peer_channel = await _create_peer_channel_instance(test_client)
+    messages = await peer_channel.get_messages()
+    assert len(messages) == 1
+    assert messages[0]['sequence'] == 1
+    assert messages[0]['received'] == '2021-12-30T06:33:40.374Z'
+    assert messages[0]['content_type'] == 'application/json'
+    assert messages[0]['payload'] == MERKLE_PROOF_CALLBACK
+    logger.debug(f"messages={messages}")
 
 
 async def test_peer_channel_instance_get_max_sequence_number(test_client):
-    try:
-        peer_channel = await _create_peer_channel_instance(test_client)
-        seq = await peer_channel.get_max_sequence_number()
-        assert isinstance(seq, int)
-        logger.debug(f"seq={seq}")
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    peer_channel = await _create_peer_channel_instance(test_client)
+    seq = await peer_channel.get_max_sequence_number()
+    assert isinstance(seq, int)
+    logger.debug(f"seq={seq}")
 
 
 async def test_peer_channel_instance_write_message(test_client):
-    try:
-        peer_channel = await _create_peer_channel_instance(test_client)
-        message = await peer_channel.write_message(message=MERKLE_PROOF_CALLBACK,
-            mime_type='application/json')
-        assert isinstance(message, dict)
-        assert message['sequence'] == 1
-        # assert message['received']  # datetime.now()
-        assert message['content_type'] == 'application/json'
-        assert message['payload'] == MERKLE_PROOF_CALLBACK
-        logger.debug(f"written message info={message}")
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    peer_channel = await _create_peer_channel_instance(test_client)
+    message = await peer_channel.write_message(message=MERKLE_PROOF_CALLBACK,
+        mime_type='application/json')
+    assert isinstance(message, dict)
+    assert message['sequence'] == 1
+    # assert message['received']  # datetime.now()
+    assert message['content_type'] == 'application/json'
+    assert message['payload'] == MERKLE_PROOF_CALLBACK
+    logger.debug(f"written message info={message}")
 
 
 async def test_peer_channel_instance_create_api_token(test_client):
-    try:
-        peer_channel = await _create_peer_channel_instance(test_client)
-        api_token: PeerChannelToken = await peer_channel.create_api_token(
-            description="custom description")
-        assert isinstance(api_token.api_key, str)
-        assert isinstance(api_token.permissions, TokenPermissions)
-        logger.debug(f"api_token={api_token}")
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    peer_channel = await _create_peer_channel_instance(test_client)
+    api_token: PeerChannelToken = await peer_channel.create_api_token(
+        description="custom description")
+    assert isinstance(api_token.api_key, str)
+    assert isinstance(api_token.permissions, TokenPermissions)
+    logger.debug(f"api_token={api_token}")
 
 
 async def test_peer_channel_instance_list_api_tokens(test_client):
-    try:
-        peer_channel = await _create_peer_channel_instance(test_client)
-        api_tokens: list[PeerChannelToken] = await peer_channel.list_api_tokens()
-        for api_token in api_tokens:
-            assert isinstance(api_token.api_key, str)
-            assert isinstance(api_token.permissions, TokenPermissions)
-        logger.debug(f"api_tokens={api_tokens}")
-    except ClientResponseError as e:
-        raise pytest.fail(str(e))
+    peer_channel = await _create_peer_channel_instance(test_client)
+    api_tokens: list[PeerChannelToken] = await peer_channel.list_api_tokens()
+    for api_token in api_tokens:
+        assert isinstance(api_token.api_key, str)
+        assert isinstance(api_token.permissions, TokenPermissions)
+    logger.debug(f"api_tokens={api_tokens}")
+
