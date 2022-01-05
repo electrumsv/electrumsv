@@ -30,19 +30,16 @@ from .sqlite_support import DatabaseContext, replace_db_context_with_connection
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
-    KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow,
-    NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult,
-    PaymentRequestReadRow, PaymentRequestRow,
-    PaymentRequestUpdateRow, SpendConflictType, TransactionBlockRow,
-    TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
-    TransactionOutputAddRow, TransactionOutputSpendableRow,
-    TransactionValueRow, TransactionMetadata,
-    TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow,
-    TxProofData,
-    TxProofResult, TransactionRow, WalletBalance, WalletDataRow, WalletEventRow)
+    KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, MAPIBroadcastCallbackRow,
+    MapiBroadcastStatusFlags, NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult,
+    PaymentRequestReadRow, PaymentRequestRow,PaymentRequestUpdateRow, SpendConflictType,
+    TransactionBlockRow, TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow,
+    TransactionLinkState, TransactionOutputAddRow, TransactionOutputSpendableRow,
+    TransactionValueRow, TransactionMetadata, TransactionOutputFullRow, TransactionOutputShortRow,
+    TransactionProoflessRow, TxProofData, TxProofResult, TransactionRow, WalletBalance,
+    WalletDataRow, WalletEventRow)
 from .util import flag_clause, read_rows_by_id, read_rows_by_ids, execute_sql_by_id, \
     update_rows_by_ids
-
 
 logger = logs.get_logger("db-functions")
 
@@ -2275,3 +2272,40 @@ class AsynchronousFunctions:
         db.execute(sql, sql_values)
 
 
+def create_mapi_broadcast_callbacks(db_context: DatabaseContext,
+        rows: Iterable[MAPIBroadcastCallbackRow]) -> concurrent.futures.Future[None]:
+    sql = """
+        INSERT INTO MAPIBroadcastCallbacks
+        (tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id, status_flags)
+        VALUES (?, ?, ?, ?, ?, ?)"""
+
+    def _write(db: sqlite3.Connection) -> None:
+        db.executemany(sql, rows)
+    return db_context.post_to_thread(_write)
+
+
+@replace_db_context_with_connection
+def read_mapi_broadcast_callbacks(db: sqlite3.Connection) -> List[MAPIBroadcastCallbackRow]:
+    sql = f"""
+        SELECT tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id,
+            status_flags
+        FROM MAPIBroadcastCallbacks
+    """
+    return [ MAPIBroadcastCallbackRow(*row) for row in db.execute(sql).fetchall() ]
+
+
+def update_mapi_broadcast_callbacks(db_context: DatabaseContext,
+        entries: Iterable[Tuple[MapiBroadcastStatusFlags, bytes]]) \
+            -> concurrent.futures.Future[None]:
+    sql = "UPDATE MAPIBroadcastCallbacks SET status_flags=? WHERE tx_hash=?"
+    def _write(db: sqlite3.Connection) -> None:
+        db.executemany(sql, entries)
+    return db_context.post_to_thread(_write)
+
+
+def delete_mapi_broadcast_callbacks(db_context: DatabaseContext, tx_hashes: Iterable[bytes]) \
+        -> concurrent.futures.Future[None]:
+    sql = "DELETE FROM MAPIBroadcastCallbacks WHERE tx_hash=?"
+    def _write(db: sqlite3.Connection) -> None:
+        db.executemany(sql, [(tx_hash,) for tx_hash in tx_hashes])
+    return db_context.post_to_thread(_write)

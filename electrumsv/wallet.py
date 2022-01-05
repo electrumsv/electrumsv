@@ -98,14 +98,13 @@ from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataProtocol, KeyData,
-    KeyInstanceFlagChangeRow,
-    KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
+    KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult, PaymentRequestReadRow,
-    PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
-    TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
-    TransactionMetadata, TransactionOutputAddRow, TransactionOutputShortRow,
-    TransactionOutputSpendableRow, TransactionOutputSpendableProtocol,
-    TransactionValueRow, TransactionRow, WalletBalance, WalletEventRow)
+    PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow, TransactionDeltaSumRow,
+    TransactionExistsRow, TransactionLinkState, TransactionMetadata,
+    TransactionOutputShortRow, TransactionOutputSpendableRow, TransactionOutputSpendableProtocol,
+    TransactionValueRow, TransactionInputAddRow, TransactionOutputAddRow, TransactionRow,
+    WalletBalance, WalletEventRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags)
 from .wallet_database.util import create_derivation_data2
 from .wallet_support import late_header_worker
 
@@ -2052,6 +2051,9 @@ class Wallet(TriggeredCallbacks):
 
         # Guards the obtaining and processing of missing transactions from race conditions.
         self._obtain_transactions_async_lock = app_state.async_.lock()
+        self._worker_task_obtain_transactions: Optional[concurrent.futures.Future[None]] = None
+        self._worker_task_obtain_merkle_proofs: Optional[concurrent.futures.Future[None]] = None
+        self._worker_task_late_header_worker: Optional[concurrent.futures.Future[None]] = None
 
         self.load_state()
 
@@ -2815,6 +2817,28 @@ class Wallet(TriggeredCallbacks):
     def update_transaction_block_many(self, entries: Iterable[TransactionBlockRow]) \
             -> concurrent.futures.Future[int]:
         return db_functions.update_transaction_block_many(self.get_db_context(), entries)
+
+    # mAPI broadcast callbacks
+
+    def create_mapi_broadcast_callbacks(self, rows: Iterable[MAPIBroadcastCallbackRow]) -> \
+            concurrent.futures.Future[None]:
+        assert self._db_context is not None
+        return db_functions.create_mapi_broadcast_callbacks(self._db_context, rows)
+
+    def read_mapi_broadcast_callbacks(self) -> List[MAPIBroadcastCallbackRow]:
+        assert self._db_context is not None
+        return db_functions.read_mapi_broadcast_callbacks(self._db_context)
+
+    def update_mapi_broadcast_callbacks(self,
+            entries: Iterable[Tuple[MapiBroadcastStatusFlags, bytes]]) -> \
+                concurrent.futures.Future[None]:
+        assert self._db_context is not None
+        return db_functions.update_mapi_broadcast_callbacks(self._db_context, entries)
+
+    def delete_mapi_broadcast_callbacks(self, tx_hashes: Iterable[bytes]) -> \
+                concurrent.futures.Future[None]:
+        assert self._db_context is not None
+        return db_functions.delete_mapi_broadcast_callbacks(self._db_context, tx_hashes)
 
     # Data acquisition.
     async def obtain_transactions_async(self, account_id: int, keys: List[Tuple[bytes, bool]],
@@ -3789,12 +3813,15 @@ class Wallet(TriggeredCallbacks):
         self._storage.put('stored_height', local_height)
         self._storage.put('last_tip_hash', chain_tip_hash.hex() if chain_tip_hash else None)
 
-        self._worker_task_obtain_transactions.cancel()
-        self._worker_task_obtain_merkle_proofs.cancel()
-        self._worker_task_late_header_worker.cancel()
-        del self._worker_task_obtain_transactions
-        del self._worker_task_obtain_merkle_proofs
-        del self._worker_task_late_header_worker
+        if self._worker_task_obtain_transactions:
+            self._worker_task_obtain_transactions.cancel()
+            del self._worker_task_obtain_transactions
+        if self._worker_task_obtain_merkle_proofs:
+            self._worker_task_obtain_merkle_proofs.cancel()
+            del self._worker_task_obtain_merkle_proofs
+        if self._worker_task_late_header_worker:
+            self._worker_task_late_header_worker.cancel()
+            del self._worker_task_late_header_worker
 
         for credential_id in self._registered_api_keys.values():
             app_state.credentials.remove_indefinite_credential(credential_id)

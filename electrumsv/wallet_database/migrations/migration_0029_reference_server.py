@@ -132,7 +132,25 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         (account_id, account_masterkey_id, ScriptType.P2PKH, "Petty cash",
         AccountFlags.IS_PETTY_CASH, date_updated, date_updated))
 
+    # NOTE(AustEcon) - Track tx_hashes for which we are awaiting a merkle proof callback from mAPI.
+    # This is to safeguard against a missed notification from mAPI as well as to drive the lifetime
+    # management of a given channel.
+    #
+    # There should be waiting time threshold at which we give up and request the merkle
+    # proof directly from an indexer if it still has not arrived e.g. 24 hours since broadcast_date.
+    conn.execute("""
+        CREATE TABLE MAPIBroadcastCallbacks (
+            tx_hash                     BLOB          PRIMARY KEY,
+            peer_channel_id             VARCHAR(1024) NOT NULL,
+            broadcast_date              INTEGER       NOT NULL,
+            encrypted_private_key       BLOB          NOT NULL,
+            server_id                   INTEGER       NOT NULL,
+            status_flags                INTEGER       NOT NULL
+        )
+    """)
+
     # We need to persist the updated next primary key value for the `Accounts` table.
+    # We need to persist the updated next identifier for the `Accounts` table.
     conn.executemany("UPDATE WalletData SET value=? WHERE key=?",
         [ (v, k) for (k, v) in wallet_data.items() ])
 

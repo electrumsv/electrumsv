@@ -1,4 +1,5 @@
 import dataclasses
+from enum import IntEnum
 from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Set, Tuple, Union
 
 from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
@@ -494,3 +495,17 @@ class WalletEventRow(NamedTuple):
     # NOTE(rt12): sqlite3 python module only allows custom typing if the column name is unique.
     event_flags: WalletEventFlag
     date_created: int
+
+
+class MapiBroadcastStatusFlags(IntEnum):
+    ATTEMPTING = 1 << 0
+    SUCCEEDED = 1 << 1
+
+
+class MAPIBroadcastCallbackRow(NamedTuple):
+    tx_hash: bytes
+    peer_channel_id: str
+    broadcast_date: str
+    encrypted_private_key: bytes
+    server_id: int
+    status_flags: MapiBroadcastStatusFlags
