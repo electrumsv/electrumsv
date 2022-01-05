@@ -122,17 +122,18 @@ async def _process_block_transactions(db_functions_async: AsynchronousFunctions,
         # It is possible that the transaction may have changed from under us in the database,
         # we need to check that it hasn't, but if it has skip the transaction.
         if proof_data is None:
-            logger.error("Deferred verification transaction %s block hash now lacks proof data")
+            logger.error("Deferred verification transaction %s block hash now lacks proof data",
+                hash_to_hex_str(tx_hash))
             continue
 
         if flags & TxFlags.MASK_STATE != TxFlags.STATE_CLEARED:
-            logger.error("Deferred verification transaction %s state unexpectedly changed"
+            logger.error("Deferred verification transaction %s state unexpectedly changed "
                 "from %r to %r", hash_to_hex_str(tx_hash), TxFlags.STATE_CLEARED,
                 TxFlags(flags))
             continue
 
         if tx_block_hash != header.hash:
-            logger.error("Deferred verification transaction %s block hash unexpectedly changed"
+            logger.error("Deferred verification transaction %s block hash unexpectedly changed "
                 "from %s to %s", hash_to_hex_str(tx_hash), hash_to_hex_str(header.hash),
                 hash_to_hex_str(tx_block_hash))
             continue
@@ -148,7 +149,7 @@ async def _process_block_transactions(db_functions_async: AsynchronousFunctions,
                     break
                 callback('transaction_verified', tx_hash, header, tsc_proof)
             else:
-                logger.error("Deferred verification failed updating transaction %s state"
+                logger.error("Deferred verification failed updating transaction %s state "
                     "from %r to %r", hash_to_hex_str(tx_hash), TxFlags(flags),
                     TxFlags.STATE_SETTLED)
         else:
