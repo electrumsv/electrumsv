@@ -166,8 +166,15 @@ class SubscriptionManager:
         key = entry.key
         if key.value_type in BYTE_SUBSCRIPTION_TYPES:
             assert type(key.value) is bytes, "subscribed script hashes must be bytes"
-        subscription_id = self._subscription_ids[key]
-        subscriptions = self._subscriptions[key]
+
+        subscription_id = self._subscription_ids.get(key)
+        subscriptions = self._subscriptions.get(key)
+        # When manually importing a transaction from e.g. an exchange (or on RegTest, the node)
+        # there will be no associated subscription and that's okay. However, this should be
+        # the exception rather than the rule with modern wallet usage patterns
+        if not subscription_id or not subscriptions:
+            logger.info("There was no subscription to remove for key: %s", key)
+            return None
         subscriptions.remove(owner)
         self._owner_subscriptions[owner].remove(key)
         del self._owner_subscription_context[(owner, key)]

@@ -43,7 +43,7 @@ from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Set, Tup
 import weakref
 import webbrowser
 
-from bitcoinx import Header, PublicKey
+from bitcoinx import Header, PublicKey, hex_str_to_hash
 from mypy_extensions import Arg, DefaultNamedArg, KwArg, VarArg
 
 from PyQt5.QtCore import pyqtSignal, Qt, QSize, QTimer, QRect
@@ -2109,7 +2109,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if ok and txid:
             txid = str(txid).strip()
             try:
-                hex_str = self.network.request_and_wait('blockchain.transaction.get', [txid])
+                # Feed the missing transaction to the background worker task
+                missing_tx_keys = [(hex_str_to_hash(txid), True)]
+                _future = self.app.run_coro(self._wallet.obtain_transactions_async,
+                    self._account_id, missing_tx_keys, TransactionImportFlag.PROMPTED)
+
+                # Wait until the transaction is fetched
+                self._wallet.transaction_fetched_events[txid] = threading.Event()
+                self._wallet.transaction_fetched_events[txid].wait(timeout=5)
+                del self._wallet.transaction_fetched_events[txid]
+                rawtx = self._wallet.get_transaction_bytes(hex_str_to_hash(txid))
+                if rawtx is None:
+                    raise TimeoutError(f"Timed out requesting transaction: {txid}")
             except Exception as exc:
                 d = UntrustedMessageDialog(
                     self, _("Transaction Lookup Error"),
@@ -2117,7 +2128,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     exc)
                 d.exec()
                 return
-            tx = transaction.Transaction.from_hex(hex_str)
+            tx = transaction.Transaction.from_bytes(rawtx)
             self.show_transaction(self._account, tx)
 
     def do_import_labels(self, account_id: int) -> None:

@@ -2065,6 +2065,9 @@ class Wallet(TriggeredCallbacks):
         # This locates transactions that we have, expect proofs to be available for, but do not
         # have the proof.
         self._check_missing_proofs_event = app_state.async_.event()
+        # So that the Qt UI can feed missing transactions to the _obtain_transactions_worker_async
+        # task and block in the thread until this transaction is available to read from the database
+        self.transaction_fetched_events: Dict[str, threading.Event] = {}   # txid: threading.Event
 
         # TODO(1.4.0) This is all old networking support.
         self.progress_event = app_state.async_.event()
@@ -2927,6 +2930,9 @@ class Wallet(TriggeredCallbacks):
                     tsc_proof_bytes=tsc_proof.to_bytes(),
                     import_flags=TransactionImportFlag.EXTERNAL)
                 assert tx_hash not in self._missing_transactions
+
+                # Notifies GUI thread that this transaction is now available to read and display
+                self.transaction_fetched_events[hash_to_hex_str(tx_hash)].set()
 
             # To get here there must not have been any further missing transactions.
             self._logger.debug("Waiting for more missing transactions")

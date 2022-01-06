@@ -45,6 +45,7 @@ from bitcoinx import hash_to_hex_str, MissingHeader
 
 from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof, TSCMerkleProofError, verify_proof
+from ..constants import ServerCapability
 from ..exceptions import ServerConnectionError
 from ..logs import logs
 from .api_server import pick_server_for_account
@@ -247,7 +248,8 @@ async def request_binary_merkle_proof_async(network: Optional[Network], account:
     assert network is not None
     assert app_state.headers is not None
 
-    base_server_url = pick_server_for_account(network, account)
+    base_server_url = pick_server_for_account(network, account,
+        ServerCapability.MERKLE_PROOF_REQUEST)
     server_url = f"{base_server_url}api/v1/merkle-proof/"
     tsc_proof_bytes = await _request_binary_merkle_proof_async(server_url, tx_hash,
         include_transaction=include_transaction)
@@ -272,4 +274,3 @@ async def request_binary_merkle_proof_async(network: Optional[Network], account:
         raise MerkleProofVerificationError(tsc_proof)
 
     return tsc_proof
-
