@@ -35,32 +35,40 @@
 # THE SOFTWARE.
 
 from __future__ import annotations
-import dataclasses
 import datetime
 import json
 import random
+import dateutil.parser
+import dataclasses
+import os
 from typing import cast, Dict, List, NamedTuple, Optional, Tuple, TypedDict, TYPE_CHECKING
 
-import dateutil.parser
+from electrumsv.wallet_database.types import MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags
+from electrumsv.types import IndefiniteCredentialId, NetworkServerState, ServerAccountKey, \
+    TransactionFeeEstimator, TransactionSize
 
+from .esv_client import ESVClient, REGTEST_MASTER_TOKEN
 from ..app_state import app_state
 from ..constants import NetworkServerType, ServerCapability, TOKEN_PASSWORD
 from ..crypto import pw_decode
+from ..exceptions import BroadcastFailedException
 from ..i18n import _
-from ..types import IndefiniteCredentialId, NetworkServerState, ServerAccountKey, \
-    TransactionFeeEstimator, TransactionSize
+from ..logs import logs
+from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator, BroadcastResponse, get_mapi_servers, \
+    poll_servers_async, broadcast_transaction_mapi_simple, filter_mapi_servers_for_fee_quote
+from ..transaction import Transaction
 
-from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator
 
 if TYPE_CHECKING:
-    from ..network import Network, SVServer
+    from ..network import SVServer, Network
     from ..wallet import AbstractAccount
-
 
 __all__ = [ "NewServerAPIContext", "NewServerAccessState", "NewServer" ]
 
 
 STALE_PERIOD_SECONDS = 60 * 60 * 24
+
+logger = logs.get_logger("api-server")
 
 
 class APIServerDefinition(TypedDict):
@@ -110,6 +118,73 @@ SERVER_CAPABILITIES = {
 }
 
 
+async def broadcast_transaction(tx: Transaction, network: Network,
+        account: "AbstractAccount", merkle_proof: bool = False, ds_check: bool = False) \
+            -> BroadcastResponse:
+    """This is the top-level broadcasting function and it automates a number of things.
+    Polling the mAPI servers (if need be). Prioritisation of mAPI servers; Creating a new peer
+    channel using the best available ESVReferenceServer; Ensuring there is a record of attempted
+    broadcast & success or failure in MAPIBroadcastCallbacks; And finally, broadcasting via the
+    selected merchant API server
+
+    Raises `ServiceUnavailableException` if it cannot connect to the merchant API server
+    Raises `BroadcastFailedException` if it connects but there is some other problem with the
+        broadcast attempt.
+    """
+    server_entries = get_mapi_servers(network, account)
+    if len(server_entries) != 0:
+        await poll_servers_async(server_entries)
+
+    selection_candidates = network.get_api_servers_for_account(account,
+        NetworkServerType.MERCHANT_API)
+    candidates_with_fee_quotes = filter_mapi_servers_for_fee_quote(selection_candidates)
+    broadcast_servers: list[BroadcastCandidate] = prioritise_broadcast_servers(
+        TransactionSize(tx.size()), candidates_with_fee_quotes)
+
+    # Select the best ranked broadcast server
+    broadcast_server = broadcast_servers[0]
+
+    # For the peer channel callbacks to work on public networks we will
+    # require at least one public ESV Reference Server instance for each network
+    selection_candidates = network.get_api_servers_for_account(account,
+        NetworkServerType.GENERAL)
+
+    esv_reference_servers = select_servers(ServerCapability.PEER_CHANNELS, selection_candidates)
+    esv_reference_server = esv_reference_servers[0]  # Todo - prioritise properly
+    aiohttp_client = await network.get_aiohttp_session()
+    assert esv_reference_server.api_server is not None
+    assert broadcast_server.candidate.api_server is not None
+    assert broadcast_server.candidate.api_server.config is not None
+    url = esv_reference_server.api_server.url
+    esv_client = ESVClient(url, aiohttp_client, REGTEST_MASTER_TOKEN)
+    try:
+        peer_channel = await esv_client.create_peer_channel()
+        server_id = broadcast_server.candidate.api_server.config['id']
+        mapi_callback_row = MAPIBroadcastCallbackRow(
+            tx_hash=tx.hash(),
+            peer_channel_id=peer_channel.channel_id,
+            broadcast_date=datetime.datetime.utcnow().isoformat(),
+            encrypted_private_key=os.urandom(64),  # libsodium encryption not implemented yet
+            server_id=server_id,
+            status_flags=MapiBroadcastStatusFlags.ATTEMPTING
+        )
+        account._wallet.create_mapi_broadcast_callbacks([mapi_callback_row])
+        api_server = broadcast_server.candidate.api_server
+        credential_id = broadcast_server.candidate.credential_id
+        assert api_server is not None
+        result = await broadcast_transaction_mapi_simple(tx.to_bytes(),
+            api_server, credential_id, peer_channel, merkle_proof, ds_check)
+        updates = [(MapiBroadcastStatusFlags.SUCCEEDED, tx.hash())]
+        account._wallet.update_mapi_broadcast_callbacks(updates)
+        # Todo - when the merkle proof callback is successfully processed,
+        #  delete the MAPIBroadcastCallbackRow
+        return result
+    except BroadcastFailedException as e:
+        account._wallet.delete_mapi_broadcast_callbacks(tx_hashes=[tx.hash()])
+        logger.error(f"Error broadcasting to mAPI for tx: {tx.txid()}. Error: {str(e)}")
+        raise
+
+
 class NewServerAPIContext(NamedTuple):
     wallet_path: str
     account_id: int
@@ -127,6 +202,10 @@ class NewServerAccessState:
         self.last_fee_quote_response: Optional[JSONEnvelope] = None
         # The fee quote we locally extracted and deserialised from the fee quote response.
         self.last_fee_quote: Optional[FeeQuote] = None
+
+    def __repr__(self) -> str:
+        return f"<NewServerAccessState last_try={self.last_try} last_good={self.last_good} " \
+               f"last_fee_quote={self.last_fee_quote}/>"
 
     def record_attempt(self) -> None:
         self.last_try = datetime.datetime.now(datetime.timezone.utc).timestamp()
@@ -453,4 +532,3 @@ def prioritise_broadcast_servers(estimated_tx_size: TransactionSize,
         candidates.append(BroadcastCandidate(candidate, fee_estimator, initial_fee))
     candidates.sort(key=lambda entry: entry.initial_fee)
     return candidates
-

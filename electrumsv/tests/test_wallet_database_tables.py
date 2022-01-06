@@ -1,3 +1,5 @@
+import base64
+import datetime
 import os
 import tempfile
 from typing import Generator, List
@@ -24,9 +26,10 @@ from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.sqlite_support import DatabaseContext, LeakedSQLiteConnectionError
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
-    InvoiceRow, KeyInstanceRow, MasterKeyRow, NetworkServerRow, NetworkServerAccountRow,
-    PaymentRequestReadRow, PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow,
-    TransactionRow, TransactionOutputShortRow, WalletBalance, WalletEventRow)
+    InvoiceRow, KeyInstanceRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
+    NetworkServerRow, NetworkServerAccountRow, PaymentRequestReadRow, PaymentRequestRow,
+    PaymentRequestUpdateRow, TransactionBlockRow, TransactionRow, TransactionOutputShortRow,
+    WalletBalance, WalletEventRow)
 
 from .util import PasswordToken
 
@@ -1586,3 +1589,45 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
         read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
         assert len(read_server_rows) == 1
         assert len(read_server_account_rows) == 0
+
+
+def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> None:
+    TX_HASH1 = b'abcd'
+    TX_HASH2 = b'efgh'
+    MOCK_CHANNEL_ID = base64.urlsafe_b64encode(bytes.fromhex("aa") * 64).decode()
+    BROADCAST_DATE = datetime.datetime.utcnow().isoformat()
+    ENCRYPTED_PRIVATE_KEY = b"mysecretencryptionkey"
+    SERVER_ID = 1
+    MAPI_STATUS_FLAGS1 = MapiBroadcastStatusFlags.ATTEMPTING
+    MAPI_STATUS_FLAGS2 = MapiBroadcastStatusFlags.SUCCEEDED
+    mapi_broadcast_callback_rows = [
+        MAPIBroadcastCallbackRow(TX_HASH1, MOCK_CHANNEL_ID, BROADCAST_DATE, ENCRYPTED_PRIVATE_KEY,
+            SERVER_ID, MAPI_STATUS_FLAGS1),
+        MAPIBroadcastCallbackRow(TX_HASH2, MOCK_CHANNEL_ID, BROADCAST_DATE, ENCRYPTED_PRIVATE_KEY,
+            SERVER_ID, MAPI_STATUS_FLAGS2),
+    ]
+
+    future = db_functions.create_mapi_broadcast_callbacks(db_context,
+        rows=mapi_broadcast_callback_rows)
+    assert future.result(timeout=5) is None
+
+    if True:
+        rows_after_insert: list[MAPIBroadcastCallbackRow] = db_functions.read_mapi_broadcast_callbacks(db_context)
+        assert rows_after_insert == mapi_broadcast_callback_rows
+        assert len(rows_after_insert) == 2
+
+    if True:
+        future = db_functions.delete_mapi_broadcast_callbacks(db_context, tx_hashes=[TX_HASH2])
+        assert future.result(timeout=5) is None
+
+        rows_after_delete: list[MAPIBroadcastCallbackRow] = db_functions.read_mapi_broadcast_callbacks(db_context)
+        assert len(rows_after_delete) == 1
+        assert rows_after_delete[0].status_flags == MapiBroadcastStatusFlags.ATTEMPTING
+
+    if True:
+        future = db_functions.update_mapi_broadcast_callbacks(db_context,
+            entries=[(MapiBroadcastStatusFlags.SUCCEEDED, TX_HASH1)])
+        assert future.result(timeout=5) is None
+
+        rows_after_update: list[MAPIBroadcastCallbackRow] = db_functions.read_mapi_broadcast_callbacks(db_context)
+        assert rows_after_update[0].status_flags == MapiBroadcastStatusFlags.SUCCEEDED

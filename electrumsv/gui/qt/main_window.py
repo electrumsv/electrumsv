@@ -43,7 +43,6 @@ from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Set, Tup
 import weakref
 import webbrowser
 
-import aiorpcx
 from bitcoinx import Header, PublicKey
 from mypy_extensions import Arg, DefaultNamedArg, KwArg, VarArg
 
@@ -62,12 +61,14 @@ from ... import bitcoin, commands, paymentrequest, qrscanner, util
 from ...app_state import app_state
 from ...bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string, TSCMerkleProof)
-from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT,
-    NetworkEventNames, ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags)
+from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
+    ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags)
 from ...exceptions import UserCancelled
 from ...i18n import _
 from ...logs import logs
 from ...network import broadcast_failure_reason
+from ...network_support.api_server import broadcast_transaction
+from ...network_support.mapi import BroadcastResponse
 from ...networks import Net
 from ...storage import WalletStorage
 from ...transaction import Transaction, TransactionContext
@@ -1452,21 +1453,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         window = window or self
 
         def broadcast_tx(update_cb: WaitingUpdateCallback) -> Optional[str]:
+            """This all gets run in a thread so blocking is acceptable"""
             assert self.network is not None
 
             # non-GUI thread
             if account and not send_view.maybe_send_invoice_payment(tx):
                 return None
 
-            try:
-                result = self.network.broadcast_transaction_and_wait(tx)
-            except aiorpcx.jsonrpc.RPCError as e:
-                # If we sent an invoice payment, or someone else beat us to broadcasting this
-                # transaction we should treat it the same as success.
-                if e.code == 1 and "Transaction already in the mempool" in e.message:
-                    result = cast(str, tx.txid())
-                else:
-                    raise e
+            broadcast_response: BroadcastResponse = app_state.async_.spawn_and_wait(
+                broadcast_transaction, tx, self.network, account, True, True)
+            result = broadcast_response['txid']
 
             tx_hash = tx.hash()
             # Not all transactions that are broadcast are in the account. Arbitrary transaction
