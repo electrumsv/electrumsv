@@ -3103,18 +3103,6 @@ class Wallet(TriggeredCallbacks):
             server_rows, server_account_rows)
         return future
 
-    def _get_header_hash_for_height(self, height: int) -> Optional[bytes]:
-        assert app_state.headers is not None
-        chain = app_state.headers.longest_chain()
-        try:
-            header_bytes = app_state.headers.raw_header_at_height(chain, height)
-        except MissingHeader:
-            # It is possible we could get notified of key usage in a block before we actually
-            # get the header. Does it happen? Probably not. We can remove this case later.
-            return None
-        else:
-            return cast(bytes, double_sha256(header_bytes))
-
     def _obtain_transaction_lock(self, tx_hash: bytes) -> threading.RLock:
         """
         Acquire a lock for working with a given transaction.
