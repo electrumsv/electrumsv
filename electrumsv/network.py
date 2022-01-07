@@ -56,7 +56,6 @@ from .network_support.api_server import APIServerDefinition, NewServer, NewServe
     SelectionCandidate
 from .networks import Net
 from .subscription import SubscriptionManager
-from .transaction import Transaction
 from .types import NetworkServerState, ServerAccountKey
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
@@ -1588,33 +1587,6 @@ class Network(TriggeredCallbacks):
             return await session.send_request(method, args)
 
         return app_state.async_.spawn_and_wait(send_request)
-
-    def broadcast_transaction_and_wait(self, transaction: Transaction) -> str:
-        return cast(str,
-            self.request_and_wait('blockchain.transaction.broadcast', [str(transaction)]))
-
-    def create_checkpoint(self, height: Optional[int]=None) -> None:
-        '''Handy utility to dump a checkpoint for networks.py when preparing a new release.'''
-        headers_obj = cast(Headers, app_state.headers)
-        chain = headers_obj.longest_chain()
-        if height is None:
-            height = max(0, chain.height - 6)
-        prev_work = headers_obj.chainwork_to_height(chain, height - 1)
-        header_info = cast(HeaderProofResponse,
-            self.request_and_wait('blockchain.block.header', [height, height]))
-        header_hex = header_info['header']
-        merkle_root = header_info['root']
-
-        print(
-            f"    CHECKPOINT = CheckPoint(bytes.fromhex(\n"
-            f"        '{header_hex[:80]}'\n"
-            f"        '{header_hex[80:]}'\n"
-            f"    ), height={height}, prev_work={hex(prev_work)})\n"
-            f"\n"
-            f"    VERIFICATION_BLOCK_MERKLE_ROOT = (\n"
-            f"        '{merkle_root}'\n"
-            f"    )\n"
-        )
 
 
 JSON.register(SVServerState, SVServer, SVProxy)

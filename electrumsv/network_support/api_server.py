@@ -51,7 +51,7 @@ from .esv_client import ESVClient, REGTEST_MASTER_TOKEN
 from ..app_state import app_state
 from ..constants import NetworkServerType, ServerCapability, TOKEN_PASSWORD
 from ..crypto import pw_decode
-from ..exceptions import BroadcastFailedException
+from ..exceptions import BroadcastFailedException, ServiceUnavailableException
 from ..i18n import _
 from ..logs import logs
 from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator, BroadcastResponse, get_mapi_servers, \
@@ -471,15 +471,14 @@ def select_servers(capability_type: ServerCapability, candidates: List[Selection
     return filtered_servers
 
 
-def pick_server_for_account(network: Optional[Network], account: AbstractAccount) -> str:
+def pick_server_for_account(network: Optional[Network], account: AbstractAccount,
+        capability: ServerCapability=ServerCapability.MERKLE_PROOF_REQUEST) -> str:
     assert network is not None
     all_candidates = network.get_api_servers_for_account(
         account, NetworkServerType.GENERAL)
-    restoration_candidates = select_servers(ServerCapability.MERKLE_PROOF_REQUEST,
-        all_candidates)
+    restoration_candidates = select_servers(capability, all_candidates)
     if not len(restoration_candidates):
-        # TODO(1.4.0) needs Exception subclass.
-        raise Exception(_("No servers available."))
+        raise ServiceUnavailableException(_("No servers available."))
 
     # TODO(1.4.0) better choice of which server to use, probably some centralised approach.
     candidate = random.choice(restoration_candidates)
