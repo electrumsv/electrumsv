@@ -128,6 +128,8 @@ async def _process_merkle_proof(db_functions_async: AsynchronousFunctions,
         state.block_transactions[tsc_proof.block_hash].add(tsc_proof.transaction_hash)
     else:
         # Process all deferred transaction processing for the header's block.
+        assert tsc_proof.transaction_hash is not None
+        state.block_transactions[tsc_proof.block_hash].add(tsc_proof.transaction_hash)
         await _process_block_transactions(db_functions_async, state, header, chain)
 
 
