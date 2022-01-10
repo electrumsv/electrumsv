@@ -45,7 +45,7 @@ import weakref
 import aiorpcx
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
     BIP32PrivateKey, double_sha256, hash_to_hex_str, hex_str_to_hash,
-    MissingHeader, P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Ops, pack_byte, push_item,
+    P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Ops, pack_byte, push_item,
     Script)
 
 from . import coinchooser
