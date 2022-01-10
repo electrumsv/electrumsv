@@ -181,6 +181,15 @@ class DatabaseContext:
 
         self._logger = logs.get_logger("sqlite-context")
         self._lock = threading.Lock()
+
+        # There is a thing where some people run ElecturmSV in environments that it is not
+        # compatible with, because SQLite is not compatible with them. The reason given by the
+        # SQLite community, is that people are hosting files on network shares and WAL mode
+        # cannot handle it. For this reason, we precreate a database connection on the thread
+        # that constructs the database context, so hopefully this will raise any error up to
+        # the calling logic (see issue #432). We do this before starting the writer thread
+        # rather than letting it happen in the decoupled writer thread.
+        self.increase_connection_pool()
         self._write_dispatcher = SqliteWriteDispatcher(self)
         self._executor = SqliteExecutor(self._write_dispatcher)
 
