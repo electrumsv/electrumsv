@@ -47,7 +47,7 @@ from aiorpcx import SOCKSError, TaskGroup
 from .esv_client import PeerChannel
 from ..app_state import app_state
 from ..constants import NetworkServerType
-from ..exceptions import BroadcastFailedException, ServiceUnavailableException
+from ..exceptions import BroadcastFailedError, ServiceUnavailableError
 from ..logs import logs
 
 if TYPE_CHECKING:
@@ -154,7 +154,7 @@ def get_mapi_servers(network: "Network", account: "AbstractAccount") -> \
 
 def filter_mapi_servers_for_fee_quote(selection_candidates: List[SelectionCandidate]) \
         -> List[SelectionCandidate]:
-    """raises `ServiceUnavailableException` if there are no merchant APIs with fee quotes"""
+    """raises `ServiceUnavailableError` if there are no merchant APIs with fee quotes"""
     filtered = []
 
     for selection_candidate in selection_candidates:
@@ -167,7 +167,7 @@ def filter_mapi_servers_for_fee_quote(selection_candidates: List[SelectionCandid
         filtered.append(selection_candidate)
 
     if len(filtered) == 0:
-        raise ServiceUnavailableException("There are no suitable merchant API servers available")
+        raise ServiceUnavailableError("There are no suitable merchant API servers available")
 
     return filtered
 
@@ -272,13 +272,13 @@ async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: "N
                 json_response = await decode_response_body(response)
             except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
                 logger.error("failed connecting to %s", url)
-                raise BroadcastFailedException(f"Broadcast failed for url: {url}, "
+                raise BroadcastFailedError(f"Broadcast failed for url: {url}, "
                     f"Unable to connect to the server.")
             else:
                 if response.status != 200:
                     logger.error("Broadcast request to %s failed with: status: %s, reason: %s",
                         url, response.status, response.reason)
-                    raise BroadcastFailedException(f"Broadcast failed for url: {url}. "
+                    raise BroadcastFailedError(f"Broadcast failed for url: {url}. "
                         f"status: {response.status}, reason: {response.reason}")
                 else:
                     assert json_response['encoding'].lower() == 'utf-8'
