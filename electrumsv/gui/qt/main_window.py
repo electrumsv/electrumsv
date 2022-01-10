@@ -43,7 +43,7 @@ from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Set, Tup
 import weakref
 import webbrowser
 
-from bitcoinx import Header, PublicKey, hex_str_to_hash
+from bitcoinx import hex_str_to_hash, Header, PublicKey
 from mypy_extensions import Arg, DefaultNamedArg, KwArg, VarArg
 
 from PyQt5.QtCore import pyqtSignal, Qt, QSize, QTimer, QRect
@@ -68,7 +68,6 @@ from ...i18n import _
 from ...logs import logs
 from ...network import broadcast_failure_reason
 from ...network_support.api_server import broadcast_transaction
-from ...network_support.general_api import TransactionNotFoundError
 from ...network_support.mapi import BroadcastResponse
 from ...networks import Net
 from ...storage import WalletStorage
@@ -2112,8 +2111,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             try:
                 rawtx = app_state.async_.spawn_and_wait(self._wallet.fetch_raw_transaction_async,
                     hex_str_to_hash(txid), self._account, timeout=10)
-                if not rawtx:
-                    raise TransactionNotFoundError(f"Transaction with hash: {txid} not found")
             except Exception as exc:
                 d = UntrustedMessageDialog(
                     self, _("Transaction Lookup Error"),

@@ -127,8 +127,8 @@ class DatabaseWriteError(Exception):
 class ServerConnectionError(Exception):
     pass
 
-class ServiceUnavailableException(Exception):
+class ServiceUnavailableError(Exception):
     pass
 
-class BroadcastFailedException(Exception):
+class BroadcastFailedError(Exception):
     pass

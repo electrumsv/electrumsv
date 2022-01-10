@@ -72,9 +72,9 @@ from .keystore import (BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore
     instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, SinglesigKeyStoreTypes,
     SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
-from .network_support.general_api import request_binary_merkle_proof_async, \
-    MerkleProofMissingHeaderError, MerkleProofVerificationError, request_transaction_data_async, \
-    GeneralAPIError
+from .network_support.general_api import GeneralAPIError, MerkleProofMissingHeaderError, \
+    MerkleProofVerificationError, request_binary_merkle_proof_async, \
+    request_transaction_data_async, TransactionNotFoundError
 from .networks import Net
 from .storage import WalletStorage
 from .transaction import (HardwareSigningMetadata, Transaction, TransactionContext,
@@ -1328,10 +1328,7 @@ class AbstractAccount:
         try:
             rawtx = app_state.async_.spawn_and_wait(self._wallet.fetch_raw_transaction_async,
                 tx_hash, self, timeout=10)
-            if not rawtx:
-                self._logger.error(f"transaction with hash: %s not found", txid)
-                return None
-        except (GeneralAPIError, ServerConnectionError):
+        except (GeneralAPIError, ServerConnectionError, TransactionNotFoundError):
             self._logger.exception("failed retrieving transaction")
             return None
         else:
@@ -2999,14 +2996,15 @@ class Wallet(TriggeredCallbacks):
             await self._check_missing_proofs_event.wait()
             self._check_missing_proofs_event.clear()
 
-    async def fetch_raw_transaction_async(self, tx_hash: bytes, account: AbstractAccount) \
-            -> Optional[bytes]:
+    async def fetch_raw_transaction_async(self, tx_hash: bytes, account: AbstractAccount) -> bytes:
         """Selects a suitable server and requests the raw transaction.
 
         Raises `ServerConnectionError` if the remote server is not online (and other networking
             problems).
         Raises `GeneralAPIError` if a connection was established but the request errored.
         """
+        # TODO(1.4.0) We intercept this call because the wallet will be funding it via the petty
+        #  cash account. Therefore we need to wrap the call to apply the checks and handling
         return await request_transaction_data_async(self._network, account, tx_hash)
 
     def read_network_servers(self, server_key: Optional[Tuple[NetworkServerType, str]]=None) \

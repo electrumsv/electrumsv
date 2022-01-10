@@ -51,7 +51,7 @@ from .esv_client import ESVClient, REGTEST_MASTER_TOKEN
 from ..app_state import app_state
 from ..constants import NetworkServerType, ServerCapability, TOKEN_PASSWORD
 from ..crypto import pw_decode
-from ..exceptions import BroadcastFailedException, ServiceUnavailableException
+from ..exceptions import BroadcastFailedError, ServiceUnavailableError
 from ..i18n import _
 from ..logs import logs
 from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator, BroadcastResponse, get_mapi_servers, \
@@ -127,8 +127,8 @@ async def broadcast_transaction(tx: Transaction, network: Network,
     broadcast & success or failure in MAPIBroadcastCallbacks; And finally, broadcasting via the
     selected merchant API server
 
-    Raises `ServiceUnavailableException` if it cannot connect to the merchant API server
-    Raises `BroadcastFailedException` if it connects but there is some other problem with the
+    Raises `ServiceUnavailableError` if it cannot connect to the merchant API server
+    Raises `BroadcastFailedError` if it connects but there is some other problem with the
         broadcast attempt.
     """
     server_entries = get_mapi_servers(network, account)
@@ -179,7 +179,7 @@ async def broadcast_transaction(tx: Transaction, network: Network,
         # Todo - when the merkle proof callback is successfully processed,
         #  delete the MAPIBroadcastCallbackRow
         return result
-    except BroadcastFailedException as e:
+    except BroadcastFailedError as e:
         account._wallet.delete_mapi_broadcast_callbacks(tx_hashes=[tx.hash()])
         logger.error(f"Error broadcasting to mAPI for tx: {tx.txid()}. Error: {str(e)}")
         raise
@@ -472,13 +472,13 @@ def select_servers(capability_type: ServerCapability, candidates: List[Selection
 
 
 def pick_server_for_account(network: Optional[Network], account: AbstractAccount,
-        capability: ServerCapability=ServerCapability.MERKLE_PROOF_REQUEST) -> str:
+        capability: ServerCapability) -> str:
     assert network is not None
     all_candidates = network.get_api_servers_for_account(
         account, NetworkServerType.GENERAL)
     restoration_candidates = select_servers(capability, all_candidates)
     if not len(restoration_candidates):
-        raise ServiceUnavailableException(_("No servers available."))
+        raise ServiceUnavailableError(_("No servers available."))
 
     # TODO(1.4.0) better choice of which server to use, probably some centralised approach.
     candidate = random.choice(restoration_candidates)

@@ -281,7 +281,7 @@ async def request_binary_merkle_proof_async(network: Optional[Network], account:
 
 
 async def request_transaction_data_async(network: Optional[Network], account: AbstractAccount,
-        tx_hash: bytes) -> Optional[bytes]:
+        tx_hash: bytes) -> bytes:
     """Selects a suitable server and requests the raw transaction.
 
     Raises `ServerConnectionError` if the remote server is not online (and other networking
@@ -305,7 +305,7 @@ async def request_transaction_data_async(network: Optional[Network], account: Ab
             if response.status == 404:
                 logger.error(f"Transaction for hash {hash_to_hex_str(tx_hash)} "
                     f"not found")
-                return None
+                raise TransactionNotFoundError()
 
             if response.status != 200:
                 raise GeneralAPIError(
@@ -313,7 +313,7 @@ async def request_transaction_data_async(network: Optional[Network], account: Ab
 
             content_type, *content_type_extra = response.headers["Content-Type"].split(";")
             if content_type != "application/octet-stream":
-                raise GeneralAPIError(f"Invalid response content type, "
+                raise GeneralAPIError("Invalid response content type, "
                     f"got {content_type}, expected 'application/octet-stream'")
 
             return await response.content.read()
