@@ -519,7 +519,11 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
     else:
         has_password = False
 
-    storage.upgrade(has_password, password_token)
+    try:
+        storage.upgrade(has_password, password_token)
+    except IncompatibleWalletError as exc:
+        validate_wallet_migration_failure_message(storage_info, exc.args[0])
+        return
 
     add_indefinite_credential_mock = unittest.mock.Mock()
     with unittest.mock.patch(
@@ -579,6 +583,18 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
 
     if expected_network in { "testnet", "regtest" }:
         Net.set_to(SVMainnet)
+
+
+def validate_wallet_migration_failure_message(storage_info: WalletStorageInfo, text: str) -> None:
+    testdata_filename = storage_info.wallet_filepath +"_testdata.json"
+    assert os.path.exists(testdata_filename)
+
+    with open(testdata_filename, "r") as f:
+        testdata = json.load(f)
+
+    assert len(testdata) == 1
+    assert "failure_message" in testdata
+    assert text == testdata["failure_message"]
 
 
 def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletStorageInfo) -> None:

@@ -1117,7 +1117,19 @@ class TextStore(AbstractStore):
                 process_keyinstances_receiving_change(ScriptType.MULTISIG_P2SH)
                 process_transactions(P2SH_Address)
             elif wallet_type == "imported_addr":
-                for address_string in self.get("addresses"):
+                imported_address_strings = self.get("addresses")
+
+                if not imported_address_strings:
+                    # An imported account's type is defined by the type of keys within it. This
+                    # means that we have no idea what an account of this kind is, if it has no keys.
+                    # This is a structural problem in early migrations and cannot be fixed without
+                    # complicating things given distribution of wallets of later versions out there.
+                    raise IncompatibleWalletError("This imported address wallet has no entries and "
+                        "cannot be imported due to technical limitations of the import process. "
+                        "If there is information you want to access, it is suggested you do so "
+                        "using ElectrumSV 1.2.5.")
+
+                for address_string in imported_address_strings:
                     ia_data = { "hash": address_string }
                     derivation_data = json.dumps(ia_data).encode()
                     description = labels.pop(address_string, None)
@@ -1135,7 +1147,9 @@ class TextStore(AbstractStore):
                             None, DerivationType.SCRIPT_HASH, derivation_data,
                             ScriptType.MULTISIG_P2SH, KeyInstanceFlag.ACTIVE, description))
                     else:
-                        raise IncompatibleWalletError("imported address wallet has non-address")
+                        raise IncompatibleWalletError("This imported address wallet has invalid "
+                            "non-address entries which the migration process has no idea how "
+                            "to handle.")
                     next_keyinstance_id += 1
 
                 account_rows.append(AccountRow1(account_id, None, ScriptType.NONE,
@@ -1145,6 +1159,16 @@ class TextStore(AbstractStore):
                 keystore = self.get("keystore")
                 assert "imported" == keystore.pop("type")
                 keypairs = keystore.get("keypairs")
+
+                if not keypairs:
+                    # An imported account's type is defined by the type of keys within it. This
+                    # means that we have no idea what an account of this kind is, if it has no keys.
+                    # This is a structural problem in early migrations and cannot be fixed without
+                    # complicating things given distribution of wallets of later versions out there.
+                    raise IncompatibleWalletError("This imported private key wallet has no "
+                        "entries and cannot be imported due to technical limitations of the "
+                        "import process. If there is information you want to access, it is "
+                        "suggested you do so using ElectrumSV 1.2.5.")
 
                 for pubkey_hex, enc_prvkey in keypairs.items():
                     pubkey = PublicKey.from_hex(pubkey_hex)

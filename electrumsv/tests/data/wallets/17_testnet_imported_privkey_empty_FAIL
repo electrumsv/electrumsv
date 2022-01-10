@@ -1,0 +1,25 @@
+{
+    "addr_history": {},
+    "keystore": {
+        "keypairs": {
+        },
+        "type": "imported"
+    },
+    "pruned_txo": {},
+    "seed_version": 17,
+    "stored_height": 1317188,
+    "transactions": {},
+    "tx_fees": {},
+    "txi": {},
+    "txo": {},
+    "use_encryption": false,
+    "verified_tx3": {},
+    "wallet_nonce": 1,
+    "wallet_type": "imported_privkey",
+    "winpos-qt": [
+        100,
+        100,
+        840,
+        402
+    ]
+}

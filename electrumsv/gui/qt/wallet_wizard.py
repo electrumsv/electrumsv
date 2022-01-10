@@ -292,7 +292,7 @@ class WalletWizard(BaseWizard):
                 storage.close()
         return result
 
-    def set_completed_migration_entry(self, migration_entry: FileState) -> None:
+    def set_completed_migration_entry(self, migration_entry: Optional[FileState]) -> None:
         self._completed_migration_entry = migration_entry
 
     @classmethod
@@ -811,7 +811,7 @@ class OlderWalletMigrationPage(QWizardPage):
 
     _migration_completed = False
     _migration_successful = False
-    _migration_error_text: str = _("Unexpected migration failure.")
+    _migration_error_text: str = "<b>"+ _("Unexpected migration failure") +"</b>"
 
     _migration_entry: Optional[FileState] = None
     _migration_storage: WalletStorage
@@ -864,12 +864,12 @@ class OlderWalletMigrationPage(QWizardPage):
         vbox = QVBoxLayout()
         vbox.setContentsMargins(0, 0, 20, 0)
         vbox.addStretch(1)
+        vbox.addWidget(self._progress_label)
+        vbox.addSpacerItem(QSpacerItem(10, 40))
         vbox.addWidget(self._stages_label)
         vbox.addWidget(self._stages_progress_bar)
         vbox.addWidget(self._stage_label)
         vbox.addWidget(self._stage_progress_bar)
-        vbox.addSpacerItem(QSpacerItem(10, 40))
-        vbox.addWidget(self._progress_label)
         vbox.addStretch(1)
 
         self.setLayout(vbox)
@@ -998,10 +998,10 @@ class OlderWalletMigrationPage(QWizardPage):
                 storage.upgrade(has_password, password_token, callbacks)
             except (IncompatibleWalletError, DatabaseMigrationError) as e:
                 logger.exception("wallet migration error '%s'", entry.path)
-                self._migration_error_text += "\n"+ e.args[0]
+                self._migration_error_text += "<br/><br/>"+ e.args[0]
             except InvalidPassword:
-                self._migration_error_text += "\n"+ _("Your wallet has encrypted secured data "
-                    "inside it, and the password you entered is not the one which was used to "
+                self._migration_error_text += "<br/><br/>"+ _("Your wallet has encrypted secured "
+                    "data inside it, and the password you entered is not the one which was used to "
                     "encrypt it.")
             else:
                 logger.debug("wallet migration successful")
@@ -1027,23 +1027,32 @@ class OlderWalletMigrationPage(QWizardPage):
             self._stages_progress_bar.setValue(self._stage_count)
             self._stage_progress_bar.setValue(100)
 
+        wizard = cast(WalletWizard, self.wizard())
         if self._migration_successful:
             self._progress_label.setText(_("Your wallet has been backed up and migrated."))
+
+            assert self._migration_entry is not None
+            wizard.set_completed_migration_entry(self._migration_entry)
         else:
+            wizard.set_completed_migration_entry(None)
             self._migration_failure_cleanup()
 
-            style_sheet = ("QProgressBar::chunk {background: QLinearGradient( x1: 0, y1: 0, "+
-                "x2: 1, y2: 0,stop: 0 #FF0350,stop: 0.4999 #FF0020,stop: 0.5 #FF0019,"+
-                "stop: 1 #FF0000 );border-bottom-right-radius: 5px;"+
-                "border-bottom-left-radius: 5px;border: .px solid black;}")
+            style_sheet = """
+            QProgressBar {
+                color: white;
+                font-weight: bold;
+            }
+            QProgressBar::chunk {
+                background: QLinearGradient( x1: 0, y1: 0, x2: 1,
+                    y2: 0,stop: 0 #FF0350,stop: 0.4999 #FF0020,stop: 0.5 #FF0019,stop: 1 #FF0000);
+                border-bottom-right-radius: 5px;
+                border-bottom-left-radius: 5px;
+                border: .px solid black;
+            }
+            """
             self._stages_progress_bar.setStyleSheet(style_sheet)
             self._stage_progress_bar.setStyleSheet(style_sheet)
             self._progress_label.setText(self._migration_error_text)
-
-        assert self._migration_entry is not None
-
-        wizard = cast(WalletWizard, self.wizard())
-        wizard.set_completed_migration_entry(self._migration_entry)
 
         self.completeChanged.emit()
 
