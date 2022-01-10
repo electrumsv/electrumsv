@@ -324,7 +324,10 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                         None, keyinstance, (), script_type,
                         script_hash)
             else:
-                raise DatabaseMigrationError(_("Account corrupt, types: {}").format(found_types))
+                raise DatabaseMigrationError(_("This imported address wallet has no entries and "
+                    "cannot be imported due to technical limitations of the import process. "
+                    "If there is information you want to access, it is suggested you do so "
+                    "using ElectrumSV 1.2.5."))
         else:
             keystore = account_keystores[account_id] = mk_keystores[masterkey_id]
             # Extract the derivation subpath watermarks. We use these to generate the script
