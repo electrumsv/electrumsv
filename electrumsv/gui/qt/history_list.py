@@ -29,7 +29,7 @@ from typing import Callable, cast, Dict, List, Optional, Sequence, Tuple, TYPE_C
 import weakref
 import webbrowser
 
-from bitcoinx import hash_to_hex_str, Header, Headers
+from bitcoinx import hash_to_hex_str, Header, Headers, MissingHeader
 
 from PyQt5.QtCore import Qt, QPoint
 from PyQt5.QtGui import QBrush, QIcon, QColor, QFont
@@ -195,16 +195,20 @@ class HistoryList(MyTreeWidget):
         for entry in self._account.get_history(self.get_domain()):
             row = entry.row
             tx_id = hash_to_hex_str(row.tx_hash)
+
+            header = None
+            conf = 0
+            block_height = 0
+            timestamp = False
             if row.block_hash is not None:
-                header, _chain = lookup_header(row.block_hash)
-                conf = 0 if header.height <= 0 else max(local_height - header.height + 1, 0)
-                block_height = header.height
-                timestamp = header.timestamp
-            else:
-                header = None
-                conf = 0
-                block_height = 0
-                timestamp = False
+                try:
+                    header, _chain = lookup_header(row.block_hash)
+                    block_height = header.height
+                    timestamp = header.timestamp
+                    conf = 0 if block_height <= 0 else max(local_height - block_height + 1, 0)
+                except MissingHeader:
+                    # Most likely a transaction with a merkle proof that is waiting on the header
+                    pass
             status = get_tx_status(self._account, row.tx_flags & TxFlags.MASK_STATE,
                 block_height, row.block_position, conf)
             status_str = get_tx_desc(status, timestamp)
