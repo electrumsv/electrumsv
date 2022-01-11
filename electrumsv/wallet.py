@@ -2911,11 +2911,22 @@ class Wallet(TriggeredCallbacks):
                         "to a server to get arbitrary merkle proofs")
                     return
                 except MerkleProofMissingHeaderError as exc:
-                    # We should already have put the transaction in the database, and stripped
-                    # the proof down to exclude it, which should avoid longer term problems like
-                    # (in the extreme) 4 GiB of transaction data being held in memory.
+                    # Missing header therefore add the transaction as TxFlags.STATE_CLEARED with
+                    # proof data until the late_header_worker_async gets the required header
+                    tx_bytes, tsc_proof = separate_proof_and_embedded_transaction(exc.merkle_proof,
+                        tx_hash)
+                    tx = Transaction.from_bytes(tx_bytes)
+                    await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
+                        block_hash=tsc_proof.block_hash, block_position=tsc_proof.transaction_index,
+                        tsc_proof_bytes=tsc_proof.to_bytes(),
+                        import_flags=TransactionImportFlag.EXTERNAL)
+
                     await self._check_late_header_victims_queue.put(
-                        (PendingHeaderWorkKind.MERKLE_PROOF, exc.merkle_proof))
+                        (PendingHeaderWorkKind.MERKLE_PROOF, tsc_proof))
+
+                    # Pop from queue as we have passed ownership of verifying this transaction to
+                    # the late_header_worker_async
+                    self._missing_transactions.pop(tx_hash)
                     continue
 
                 # Separate the transaction data and the proof data for storage.
