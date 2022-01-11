@@ -37,7 +37,9 @@
 from __future__ import annotations
 import asyncio
 import dataclasses
-from typing import Callable, cast, Tuple, Union
+from collections import defaultdict
+from functools import partial
+from typing import Callable, cast, Tuple, Union, Dict, Set
 import weakref
 
 from bitcoinx import Chain, hash_to_hex_str, Header, MissingHeader
@@ -51,12 +53,15 @@ from ..wallet_database.functions import AsynchronousFunctions
 
 logger = logs.get_logger("late-header-worker")
 
+block_transactions_factory = cast(Callable[[], Dict[bytes, Set[bytes]]], partial(defaultdict, set))
+
 
 @dataclasses.dataclass
 class LateHeaderWorkerState:
     queue: asyncio.Queue[Tuple[PendingHeaderWorkKind, Union[TSCMerkleProof, Tuple[Header, Chain]]]]
     verification_callback: weakref.WeakMethod[Callable[[str, bytes, Header, TSCMerkleProof], None]]
-    block_transactions: dict[bytes, set[bytes]] = dataclasses.field(default_factory=dict)
+    block_transactions: dict[bytes, set[bytes]] = dataclasses.field(
+        default_factory=block_transactions_factory)
 
 
 
