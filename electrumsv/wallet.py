@@ -43,9 +43,8 @@ from typing import Any, cast, Dict, Iterable, List, Optional, Sequence, Set, Tup
 import weakref
 
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
-    BIP32PrivateKey, double_sha256, hash_to_hex_str, hex_str_to_hash,
-    P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Ops, pack_byte, push_item,
-    Script)
+    BIP32PrivateKey, double_sha256, hash_to_hex_str, hex_str_to_hash, MissingHeader,
+    P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Ops, pack_byte, push_item, Script)
 
 from . import coinchooser
 from .app_state import app_state
@@ -635,12 +634,15 @@ class AbstractAccount:
         history_raw: List[HistoryListEntry] = []
         lookup_header = app_state.headers.lookup
         for row in self._wallet.read_history_list(self._id, domain):
+            sort_key = (1000000000, row.date_created)
             if row.block_hash is not None:
-                header, _chain = lookup_header(row.block_hash)
-                sort_key = header.height, row.block_position if row.block_position is not None \
-                    else 1000000000
-            else:
-                sort_key = (1000000000, row.date_created)
+                try:
+                    header, _chain = lookup_header(row.block_hash)
+                    sort_key = header.height, row.block_position if row.block_position is not None \
+                        else 1000000000
+                except MissingHeader:
+                    # Most likely a transaction with a merkle proof that is waiting on the header
+                    pass
             history_raw.append(HistoryListEntry(sort_key, row, 0))
 
         history_raw.sort(key=lambda t: t.sort_key)
@@ -654,9 +656,6 @@ class AbstractAccount:
 
     def export_history(self, from_datetime: Optional[datetime]=None,
             to_datetime: Optional[datetime]=None) -> List[AccountExportEntry]:
-        # TODO If the history is exported and we do not have headers for entries, we try and
-        #   populate the header for a given line as we go. However, if we are offline then there
-        #   will be no network and no way to backfill a header.
         fx = app_state.fx
         assert app_state.headers is not None
         chain = app_state.headers.longest_chain()
@@ -665,13 +664,18 @@ class AbstractAccount:
         out: List[AccountExportEntry] = []
         for entry in self.get_history():
             history_line = entry.row
-            if history_line.block_hash is None:
-                timestamp = datetime.now()
-                block_height = -0
-            else:
-                header, _chain = app_state.headers.lookup(history_line.block_hash)
-                timestamp = posix_timestamp_to_datetime(header.timestamp)
-                block_height = header.height
+
+            timestamp = datetime.utcnow()
+            block_height = -0
+            if history_line.block_hash is not None:
+                try:
+                    header, _chain = app_state.headers.lookup(history_line.block_hash)
+                    block_height = header.height
+                    timestamp = posix_timestamp_to_datetime(header.timestamp)
+                except MissingHeader:
+                    # Most likely a transaction with a merkle proof that is waiting on the header
+                    logger.warning("Missing header for %s in export_history.",
+                        history_line.block_hash)
 
             if from_datetime and timestamp < from_datetime:
                 continue
@@ -2921,12 +2925,10 @@ class Wallet(TriggeredCallbacks):
                         tsc_proof_bytes=tsc_proof.to_bytes(),
                         import_flags=TransactionImportFlag.EXTERNAL)
 
+                    # Transfer ownership of verifying this transaction to late_header_worker_async
                     await self._check_late_header_victims_queue.put(
                         (PendingHeaderWorkKind.MERKLE_PROOF, tsc_proof))
-
-                    # Pop from queue as we have passed ownership of verifying this transaction to
-                    # the late_header_worker_async
-                    self._missing_transactions.pop(tx_hash)
+                    assert tx_hash not in self._missing_transactions
                     continue
 
                 # Separate the transaction data and the proof data for storage.
