@@ -39,7 +39,7 @@ import asyncio
 import dataclasses
 from collections import defaultdict
 from functools import partial
-from typing import Callable, cast, Tuple, Union, Dict, Set
+from typing import Callable, cast, Tuple, Dict, Set
 import weakref
 
 from bitcoinx import Chain, hash_to_hex_str, Header, MissingHeader
@@ -58,7 +58,8 @@ block_transactions_factory = cast(Callable[[], Dict[bytes, Set[bytes]]], partial
 
 @dataclasses.dataclass
 class LateHeaderWorkerState:
-    queue: asyncio.Queue[Tuple[PendingHeaderWorkKind, Union[TSCMerkleProof, Tuple[Header, Chain]]]]
+    late_header_worker_queue: asyncio.Queue[Tuple[PendingHeaderWorkKind,
+        TSCMerkleProof | Tuple[Header, Chain]]]
     verification_callback: weakref.WeakMethod[Callable[[str, bytes, Header, TSCMerkleProof], None]]
     block_transactions: dict[bytes, set[bytes]] = dataclasses.field(
         default_factory=block_transactions_factory)
@@ -77,8 +78,6 @@ async def late_header_worker_async(db_functions_async: AsynchronousFunctions,
         gap between no header and in the list of those known to have no header.
     - A new header is received.
     """
-    # TODO(1.4.0): Read in any cleared transactions with proofs. These are expected to be
-    #     ones that we did not have the header for. Put them in the queue (with no wait).
     await _populate_initial_state(db_functions_async, state)
 
     # TODO(1.4.0): Hook this up to arrival of new headers.
@@ -90,14 +89,13 @@ async def late_header_worker_async(db_functions_async: AsynchronousFunctions,
 async def _populate_initial_state(db_functions_async: AsynchronousFunctions,
         state: LateHeaderWorkerState) -> None:
     rows = await db_functions_async.read_pending_header_transactions_async()
-    for tx_hash, block_hash in rows:
-        # When we set the proof data on a transaction for deferred verication we also set the
+    for tx_hash, block_hash, proof_data in rows:
+        # When we set the proof data on a transaction for deferred verification we also set the
         # block hash among other things. This is guaranteed to be set, so essential to check.
         assert block_hash is not None
-        if block_hash not in state.block_transactions:
-            state.block_transactions[block_hash] = { tx_hash }
-        else:
-            state.block_transactions[block_hash].add(tx_hash)
+        state.block_transactions[block_hash].add(tx_hash)
+        msg = (PendingHeaderWorkKind.MERKLE_PROOF, TSCMerkleProof.from_bytes(proof_data))
+        state.late_header_worker_queue.put_nowait(msg)
 
 
 async def _process_one_item(db_functions_async: AsynchronousFunctions,
@@ -106,7 +104,7 @@ async def _process_one_item(db_functions_async: AsynchronousFunctions,
     Take one item from the work queue and process it, if there are no pending items, block until
     there is.
     """
-    item_kind, item_any = await state.queue.get()
+    item_kind, item_any = await state.late_header_worker_queue.get()
     if item_kind == PendingHeaderWorkKind.MERKLE_PROOF:
         tsc_proof = cast(TSCMerkleProof, item_any)
         await _process_merkle_proof(db_functions_async, state, tsc_proof)
