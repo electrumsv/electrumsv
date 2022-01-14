@@ -43,6 +43,8 @@ from typing import Any, AsyncIterable, List, NamedTuple, Optional, TypedDict, TY
 import aiohttp
 from bitcoinx import hash_to_hex_str, MissingHeader
 
+from .exceptions import FilterResponseInvalidError, FilterResponseIncompleteError, \
+    TransactionNotFoundError, GeneralAPIError
 from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof, TSCMerkleProofError, verify_proof
 from ..constants import ServerCapability
@@ -90,18 +92,6 @@ RESULT_UNPACK_FORMAT = ">B32s32sI32sI"
 FILTER_RESPONSE_SIZE = 1 + 32 + 32 + 4 + 32 + 4
 assert struct.calcsize(RESULT_UNPACK_FORMAT) == FILTER_RESPONSE_SIZE
 
-
-class GeneralAPIError(Exception):
-    pass
-
-class FilterResponseInvalidError(GeneralAPIError):
-    pass
-
-class FilterResponseIncompleteError(GeneralAPIError):
-    pass
-
-class TransactionNotFoundError(GeneralAPIError):
-    pass
 
 async def post_restoration_filter_request_json(url: str, request_data: RestorationFilterRequest) \
         -> AsyncIterable[RestorationFilterJSONResponse]:

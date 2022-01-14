@@ -74,37 +74,6 @@ class MyEncoder(json.JSONEncoder):
         return super(MyEncoder, self).default(o)
 
 
-class JSON:
-    classes: Dict[str, Any] = {}
-
-    @classmethod
-    def register(cls, *classes: Any) -> None:
-        for klass in classes:
-            cls.classes[klass.__name__] = klass
-
-    @classmethod
-    def dumps(cls, obj: Any, **kwargs: Any) -> str:
-        def encode_obj(obj: Any) -> Dict[str, Any]:
-            class_name = obj.__class__.__name__
-            if class_name not in cls.classes:
-                raise TypeError(f'object of type {class_name} is not JSON serializable')
-            return {'_sv': (class_name, obj.to_json())}
-
-        kwargs['default'] = encode_obj
-        return json.dumps(obj, **kwargs)
-
-    @classmethod
-    def loads(cls, s: Union[str, bytes], **kwargs: Any) -> Any:
-        def decode_obj(obj: Dict[str, Any]) -> Any:
-            if '_sv' in obj:
-                class_name, ser = obj['_sv']
-                obj = cls.classes[class_name].from_json(ser)
-            return obj
-
-        kwargs['object_hook'] = decode_obj
-        return json.loads(s, **kwargs)
-
-
 class DaemonThread(threading.Thread):
     """ daemon thread that terminates cleanly """
 

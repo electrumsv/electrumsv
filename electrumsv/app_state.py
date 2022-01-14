@@ -211,6 +211,7 @@ class AppStateProxy(object):
             fiat_text = ''
         return bitcoin_text, fiat_text
 
+    # TODO(1.4.0) Replace with non-electrumx equivalent
     def electrumx_message_size_limit(self) -> int:
         return max(0,
             self.config.get_explicit_type(int, 'electrumx_message_size_limit',

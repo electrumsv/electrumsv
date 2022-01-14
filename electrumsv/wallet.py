@@ -71,9 +71,9 @@ from .keystore import (BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore
     instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, SinglesigKeyStoreTypes,
     SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
-from .network_support.general_api import GeneralAPIError, MerkleProofMissingHeaderError, \
-    MerkleProofVerificationError, request_binary_merkle_proof_async, \
-    request_transaction_data_async, TransactionNotFoundError
+from .network_support.exceptions import GeneralAPIError, TransactionNotFoundError
+from .network_support.general_api import request_binary_merkle_proof_async, \
+    request_transaction_data_async, MerkleProofVerificationError, MerkleProofMissingHeaderError
 from .networks import Net
 from .storage import WalletStorage
 from .transaction import (HardwareSigningMetadata, Transaction, TransactionContext,
@@ -91,6 +91,7 @@ from .types import (SubscriptionDerivationData,
 from .util import (format_satoshis, get_posix_timestamp, get_wallet_name_from_path,
     posix_timestamp_to_datetime, TriggeredCallbacks, ValueLocks)
 from .util.cache import LRUCache
+from .util.misc import fmt_hashes_to_hex_str
 from .wallet_database.exceptions import KeyInstanceNotFoundError
 from .wallet_database import functions as db_functions
 from .wallet_database.sqlite_support import DatabaseContext
@@ -658,8 +659,6 @@ class AbstractAccount:
             to_datetime: Optional[datetime]=None) -> List[AccountExportEntry]:
         fx = app_state.fx
         assert app_state.headers is not None
-        chain = app_state.headers.longest_chain()
-        server_height = self._network.get_server_height() if self._network else 0
 
         out: List[AccountExportEntry] = []
         for entry in self.get_history():
@@ -757,10 +756,8 @@ class AbstractAccount:
         if app_state.config.fee_per_kb() is None:
             raise Exception('Dynamic fee estimates not available')
 
-        # TODO(MAPI) This needs to be replaced with a fee estimator based on whether the server
-        #   is an ElectrumX server, or a MAPI server. If it is a MAPI server, then we need to
-        #   use a per-server fee quote. Really, we might change `estimate_fee` to instead return
-        #   a fee quote.
+        # TODO(MAPI) We need to use a per-server fee quote. Really, we might change `estimate_fee`
+        #  to instead return a fee quote.
         fee_estimator = app_state.config.estimate_fee
 
         tx_context = TransactionContext()
@@ -2032,7 +2029,7 @@ class Wallet(TriggeredCallbacks):
 
         # This manages data that needs to be processed along with a header, but we do not have
         # the chain of headers up to and including that header yet.
-        self._check_late_header_victims_queue = app_state.async_.queue()
+        self._late_header_worker_queue = app_state.async_.queue()
 
         txdata_cache_size = self.get_cache_size_for_tx_bytedata() * (1024 * 1024)
         self._transaction_cache2 = LRUCache(max_size=txdata_cache_size)
@@ -2046,7 +2043,7 @@ class Wallet(TriggeredCallbacks):
 
         self._missing_transactions: Dict[bytes, MissingTransactionEntry] = {}
         self._late_header_worker_state = late_header_worker.LateHeaderWorkerState(
-            self._check_late_header_victims_queue, weakref.WeakMethod(self.trigger_callback))
+            self._late_header_worker_queue, weakref.WeakMethod(self.trigger_callback))
 
         # Guards `transaction_locks`.
         self._transaction_lock = threading.RLock()
@@ -2926,7 +2923,7 @@ class Wallet(TriggeredCallbacks):
                         import_flags=TransactionImportFlag.EXTERNAL)
 
                     # Transfer ownership of verifying this transaction to late_header_worker_async
-                    await self._check_late_header_victims_queue.put(
+                    await self._late_header_worker_queue.put(
                         (PendingHeaderWorkKind.MERKLE_PROOF, tsc_proof))
                     assert tx_hash not in self._missing_transactions
                     continue
@@ -2991,7 +2988,7 @@ class Wallet(TriggeredCallbacks):
                         tsc_proof.block_hash, tsc_proof.transaction_index, tsc_proof.to_bytes(),
                         TxFlags.STATE_CLEARED)
 
-                    await self._check_late_header_victims_queue.put(
+                    await self._late_header_worker_queue.put(
                         (PendingHeaderWorkKind.MERKLE_PROOF, exc.merkle_proof))
                     continue
 
@@ -3713,18 +3710,19 @@ class Wallet(TriggeredCallbacks):
                     return account
         return None
 
-    # TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
-    # def undo_verifications(self, above_height: int) -> None:
-    #     '''Called by network when a reorg has happened'''
-    #     if self._stopped:
-    #         self._logger.debug("undo_verifications on stopped wallet: %d", above_height)
-    #         return
+    def on_reorg(self, orphaned_block_hashes: List[bytes]) -> None:
+        '''Called by network when a reorg has happened'''
+        if self._stopped:
+            self._logger.debug("Cannot undo verifications on a stopped wallet. "
+                "Orphaned block hashes: %s", fmt_hashes_to_hex_str(orphaned_block_hashes))
+            return
 
-    #     tx_hashes = db_functions.read_reorged_transactions(self.get_db_context(), above_height)
-    #     self._logger.info('removing verification of %d transactions above %d',
-    #         len(tx_hashes), above_height)
-    #     future = db_functions.set_transactions_reorged(self.get_db_context(), tx_hashes)
-    #     future.result()
+        tx_hashes = db_functions.read_reorged_transactions(self.get_db_context(),
+            orphaned_block_hashes)
+        self._logger.info('removing verification of %d transactions. "Orphaned block hashes: %s',
+            len(tx_hashes), fmt_hashes_to_hex_str(orphaned_block_hashes))
+        future = db_functions.set_transactions_reorged(self.get_db_context(), tx_hashes)
+        future.result()
 
     def have_transaction(self, tx_hash: bytes) -> bool:
         return self.get_transaction_flags(tx_hash) is not None

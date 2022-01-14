@@ -103,6 +103,7 @@ async def _process_one_item(db_functions_async: AsynchronousFunctions,
     there is.
     """
     item_kind, item_any = await state.late_header_worker_queue.get()
+    logger.debug("Late header worker task got: %s", item_kind)
     if item_kind == PendingHeaderWorkKind.MERKLE_PROOF:
         tsc_proof = cast(TSCMerkleProof, item_any)
         await _process_merkle_proof(db_functions_async, state, tsc_proof)

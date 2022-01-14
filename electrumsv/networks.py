@@ -60,7 +60,6 @@ class SVMainnet(object):
     ADDRTYPE_P2SH = 5
     CASHADDR_PREFIX = "bitcoincash"
     DEFAULT_PORTS = {'t': '50001', 's': '50002'}
-    DEFAULT_SERVERS_ELECTRUMX = read_json_dict('servers.json')
     DEFAULT_SERVERS_MAPI = read_json_dict('mapi_servers.json')
     DEFAULT_SERVERS_API = read_json_dict('api_servers.json')
     GENESIS = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
@@ -115,7 +114,6 @@ class SVTestnet(object):
     ADDRTYPE_P2SH = 196
     CASHADDR_PREFIX = "bchtest"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
-    DEFAULT_SERVERS_ELECTRUMX = read_json_dict('servers_testnet.json')
     DEFAULT_SERVERS_MAPI = read_json_dict('mapi_servers_testnet.json')
     DEFAULT_SERVERS_API = read_json_dict('api_servers_testnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
@@ -178,7 +176,6 @@ class SVScalingTestnet(object):
     ADDRTYPE_P2SH = 196
     CASHADDR_PREFIX = "bchtest"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
-    DEFAULT_SERVERS_ELECTRUMX = read_json_dict('servers_scalingtestnet.json')
     DEFAULT_SERVERS_MAPI = read_json_dict('mapi_servers_scalingtestnet.json')
     DEFAULT_SERVERS_API = read_json_dict('api_servers_scalingtestnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
@@ -248,10 +245,9 @@ class SVRegTestnet(object):
     ADDRTYPE_P2SH = 196
     CASHADDR_PREFIX = "bchtest"
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
-    DEFAULT_SERVERS_ELECTRUMX = read_json_dict('servers_regtest.json')
     DEFAULT_SERVERS_MAPI = read_json_dict('mapi_servers_regtest.json')
     DEFAULT_SERVERS_API = read_json_dict('api_servers_regtest.json')
-    GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
+    GENESIS = "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
     NAME = NetworkName.REGTEST
     BITCOIN_URI_PREFIX = "bitcoin"
     PAY_URI_PREFIX = "pay"

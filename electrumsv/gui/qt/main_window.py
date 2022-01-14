@@ -59,8 +59,7 @@ from PyQt5 import sip
 import electrumsv
 from ... import bitcoin, commands, paymentrequest, qrscanner, util
 from ...app_state import app_state
-from ...bitcoin import (COIN, is_address_valid, address_from_string,
-    script_template_to_string, TSCMerkleProof)
+from ...bitcoin import (address_from_string, COIN, script_template_to_string, TSCMerkleProof)
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
     ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags)
 from ...exceptions import UserCancelled
@@ -221,15 +220,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # network callbacks
         if self.network:
             self.network_signal.connect(self.on_network_qt)
-            interests = ['updated', 'status', 'banner']
+            # interests = ['updated', 'status', 'banner']
+            interests = ['updated', 'status']
+
             # To avoid leaking references to "self" that prevent the
             # window from being GC-ed when closed, callbacks should be
             # methods of this class only, and specifically not be
             # partials, lambdas or methods of subobjects.  Hence...
             self.network.register_callback(self.on_network, interests)
+
+            # TODO(1.4.0) - Give due consideration to removing the banner from console
             # set initial message
-            if self.network.main_server:
-                self.console.showMessage(self.network.main_server.state.banner)
+            # if self.network.main_server:
+            #     self.console.showMessage(self.network.main_server.state.banner)
+
             self.network.register_callback(self._on_exchange_rate_quotes,
                 [ NetworkEventNames.EXCHANGE_RATE_QUOTES ])
             self.network.register_callback(self._on_historical_exchange_rates,
@@ -538,7 +542,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.need_update.set()
             return
 
-        if event in ['status', 'banner']:
+        # if event in ['status', 'banner']:
+        if event in ['status']:
             # Handle in GUI thread
             self.network_signal.emit(event, args)
         else:
@@ -548,10 +553,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Handle a network message in the GUI thread
         if event == 'status':
             self.update_status_bar()
-        elif event == 'banner':
-            assert self.network is not None
-            assert self.network.main_server is not None
-            self.console.showMessage(self.network.main_server.state.banner)
+        # elif event == 'banner':
+        #     assert self.network is not None
+        #     assert self.network.main_server is not None
+        #     self.console.showMessage(self.network.main_server.state.banner)
         else:
             self._logger.debug("unexpected network_qt signal event='%s' args='%s'", event, args)
 
@@ -779,7 +784,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             QKeySequence.HelpContents)
         help_menu.addAction(_("&Report Bug"), self.show_report_bug)
         help_menu.addSeparator()
-        help_menu.addAction(_("&Donate to server"), self.donate_to_server)
 
         self.setMenuBar(menubar)
 
@@ -976,17 +980,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def has_connected_main_server(self) -> bool:
         return self.network is not None and self.network.is_connected()
-
-    def donate_to_server(self) -> None:
-        assert self.network is not None
-        server = self.network.main_server
-        assert server is not None
-        addr = server.state.donation_address
-        if is_address_valid(addr):
-            self.pay_to_URI(web.create_URI(addr, 0, _('Donation for {}').format(server.host)))
-        else:
-            self.show_error(_('The server {} has not provided a valid donation address')
-                            .format(server))
 
     def show_about(self) -> None:
         QMessageBox.about(self, "ElectrumSV",
@@ -1194,7 +1187,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 text = _("Synchronizing...")
                 text += f' {response_count:,d}/{request_count:,d}'
             else:
-                server_height = self.network.get_server_height()
+                cached_tip = self.network.esv_client_cached_tip
+                server_height = cached_tip.height if cached_tip else 0
                 if server_height == 0:
                     # This is shown when for instance, there is a forced main server setting and
                     # the main server is offline. It might also be used on first start up before
@@ -1485,6 +1479,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     "Transactions tab and can be rebroadcast from there."), )
             except Exception as exception:
                 self._logger.exception('unhandled exception broadcasting transaction')
+                # TODO(1.4.0) Ensure the mAPI rejection reason for their broadcast failing is
+                #  clearly fed back to the user - Currently this expects an ElectrumX
+                #  aiorpcx.RPCError
                 reason = broadcast_failure_reason(exception)
                 d = UntrustedMessageDialog(
                     window, _("Transaction Broadcast Error"),

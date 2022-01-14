@@ -386,9 +386,8 @@ class NetworkEventNames:
 
 
 class NetworkServerType(IntEnum):
-    ELECTRUMX = 1
-    MERCHANT_API = 2
-    GENERAL = 3
+    MERCHANT_API = 1
+    GENERAL = 2
 
 
 API_SERVER_TYPES = { NetworkServerType.MERCHANT_API, NetworkServerType.GENERAL }
@@ -397,15 +396,15 @@ API_SERVER_TYPES = { NetworkServerType.MERCHANT_API, NetworkServerType.GENERAL }
 class ServerCapability(IntEnum):
     TRANSACTION_BROADCAST = 1
     FEE_QUOTE = 2
-    # The ElectrumX script hash notification API.
-    SCRIPTHASH_HISTORY = 3
-    MERKLE_PROOF_REQUEST = 4
-    MERKLE_PROOF_NOTIFICATION = 5
-    # The "General API" restoration sub-API.
+    MERKLE_PROOF_NOTIFICATION = 3
+    HEADERS = 4
+    PEER_CHANNELS = 5
+
+    # The following are for the NetworkServerType.GENERAL sub-API for restoration and
+    # fetching of arbitrary transactions and merkle proofs
     RESTORATION = 6
-    TRANSACTION_REQUEST = 7
-    HEADERS = 8
-    PEER_CHANNELS = 9
+    MERKLE_PROOF_REQUEST = 7
+    TRANSACTION_REQUEST = 8
 
 
 PREFIX_ASM_SCRIPT = "asm:"

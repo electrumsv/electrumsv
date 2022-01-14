@@ -56,10 +56,8 @@ class HeaderResponse(TypedDict):
     work: int
 
 
-class TipResponse(TypedDict):
-    header: HeaderResponse
-    state: str
-    chainWork: int
+class TipResponse(NamedTuple):
+    header: bytes
     height: int
 
 

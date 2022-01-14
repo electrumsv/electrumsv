@@ -166,16 +166,21 @@ class SubscriptionManager:
         key = entry.key
         if key.value_type in BYTE_SUBSCRIPTION_TYPES:
             assert type(key.value) is bytes, "subscribed script hashes must be bytes"
-        subscription_id = self._subscription_ids[key]
-        subscriptions = self._subscriptions[key]
-        subscriptions.remove(owner)
-        self._owner_subscriptions[owner].remove(key)
-        del self._owner_subscription_context[(owner, key)]
-        if len(subscriptions) == 0:
-            del self._subscription_ids[key]
-            del self._subscriptions[key]
-            return subscription_id
-        return None
+        try:
+            subscription_id = self._subscription_ids[key]
+            subscriptions = self._subscriptions[key]
+            subscriptions.remove(owner)
+            self._owner_subscriptions[owner].remove(key)
+            del self._owner_subscription_context[(owner, key)]
+            if len(subscriptions) == 0:
+                del self._subscription_ids[key]
+                del self._subscriptions[key]
+                return subscription_id
+            return None
+        except KeyError:
+            logger.error("Could not remove subscription for key: %s because the subscription does"
+                         "not exist", key)
+            return None
 
     def create_entries(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) \
             -> List[concurrent.futures.Future[None]]:

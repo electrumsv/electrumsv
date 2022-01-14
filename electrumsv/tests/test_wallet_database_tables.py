@@ -1411,7 +1411,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
 
 def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     ACCOUNT_ID = 10
-    SERVER_TYPE = NetworkServerType.ELECTRUMX
+    SERVER_TYPE = NetworkServerType.GENERAL
     UNUSED_SERVER_TYPE = NetworkServerType.MERCHANT_API
     date_updated = 1
     URL = "..."

@@ -4,10 +4,10 @@ import os
 import platform
 from sys import getsizeof
 import subprocess
-from typing import Any, Generator
+from typing import Any, Generator, List
 import uuid
 
-from bitcoinx import Script
+from bitcoinx import Script, hash_to_hex_str
 
 from electrumsv.constants import ScriptType
 from electrumsv.transaction import Transaction, XTxInput, XTxOutput, XPublicKey
@@ -130,3 +130,7 @@ def get_system_uuid() -> uuid.UUID:
         return get_macos_system_uuid()
     else:
         return get_linux_system_uuid()
+
+
+def fmt_hashes_to_hex_str(hashes: List[bytes]) -> List[str]:
+    return [hash_to_hex_str(h) for h in hashes]

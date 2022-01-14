@@ -21,44 +21,29 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
-
 import asyncio
-from collections import defaultdict
-from contextlib import suppress
 import datetime
-from enum import IntEnum
-from functools import partial
-from ipaddress import IPv4Address, IPv6Address
-import logging
-import random
-import re
-import ssl
-import time
-from typing import Any, Callable, cast, Coroutine, Dict, Iterable, List, NamedTuple, Optional, \
-    TYPE_CHECKING, TypedDict, Tuple, Union
-
+from concurrent.futures.thread import ThreadPoolExecutor
+from io import BytesIO
+from typing import Any, cast, Dict, Iterable, List, Optional, Set, TYPE_CHECKING
 from aiohttp import ClientSession
-from aiorpcx import (
-    connect_rs, RPCSession, Notification, BatchError, RPCError, CancelledError, SOCKSError,
-    TaskTimeout, TaskGroup, handler_invocation, Request, sleep, ignore_after, timeout_after,
-    SOCKS4a, SOCKS5, SOCKSProxy, SOCKSUserAuth, NetAddress, NewlineFramer
-)
-from bitcoinx import BitcoinRegtest, Chain, CheckPoint, double_sha256, Header, Headers, \
-    IncorrectBits, InsufficientPoW, MissingHeader, hash_to_hex_str, hex_str_to_hash, sha256
-from bitcoinx import Network as BitcoinXNetwork
-import certifi
-
+from aiorpcx import (RPCError, CancelledError, TaskGroup)
+from bitcoinx import Chain, double_sha256, hash_to_hex_str, Header, Headers, MissingHeader
 from .app_state import app_state, attempt_exception_reporting
-from .constants import API_SERVER_TYPES, NetworkServerType
+from .constants import API_SERVER_TYPES, NetworkServerType, PendingHeaderWorkKind, ServerCapability
+from .exceptions import ServiceUnavailableError
 from .i18n import _
 from .logs import logs
+
 from .network_support.api_server import APIServerDefinition, NewServer, NewServerAPIContext, \
-    SelectionCandidate
+    SelectionCandidate, select_servers
+from .network_support.esv_client import chain_tip_to_header_obj, ESVClient, REGTEST_MASTER_TOKEN
+from .network_support.esv_client_types import TipResponse
 from .networks import Net
 from .subscription import SubscriptionManager
 from .types import NetworkServerState, ServerAccountKey
-from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
-from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
+from .util import TriggeredCallbacks
+from .util.misc import fmt_hashes_to_hex_str
 
 if TYPE_CHECKING:
     from .wallet import AbstractAccount, Wallet
@@ -69,7 +54,6 @@ logger = logs.get_logger("network")
 HEADER_SIZE = 80
 ONE_MINUTE = 60
 ONE_DAY = 24 * 3600
-HEADERS_SUBSCRIBE = 'blockchain.headers.subscribe'
 BROADCAST_TX_MSG_LIST = (
     ('dust', _('very small "dust" payments')),
     (('Missing inputs', 'Inputs unavailable', 'bad-txns-inputs-spent'),
@@ -92,6 +76,7 @@ BROADCAST_TX_MSG_LIST = (
 )
 
 
+# TODO(1.4.0) Change RPCError for processing a mAPI broadcast failure error message instead
 def broadcast_failure_reason(exception: Exception) -> str:
     if isinstance(exception, RPCError):
         msg = exception.message
@@ -101,48 +86,6 @@ def broadcast_failure_reason(exception: Exception) -> str:
             if any(in_msg in msg for in_msg in in_msgs):
                 return out_msg
     return _('reason unknown')
-
-
-class SwitchReason(IntEnum):
-    '''The reason the main server was changed.'''
-    disconnected = 0
-    lagging = 1
-    user_set = 2
-
-
-def _require_list(obj: Any) -> Union[Tuple[Any, ...], List[Any]]:
-    assert isinstance(obj, (tuple, list))
-    return obj
-
-
-def _require_string(obj: Any) -> str:
-    assert isinstance(obj, str)
-    return obj
-
-
-class HeadersResponse(TypedDict):
-    count: int
-    hex: str
-    max: int
-    root: str
-    branch: List[str]
-
-
-class HeaderProofResponse(TypedDict):
-    branch: List[str]
-    header: str
-    root: str
-
-
-class MerkleResponse(TypedDict):
-    block_height: int
-    merkle: List[str]
-    pos: int
-
-
-class HeaderResponse(TypedDict):
-    hex: str
-    height: int
 
 
 def _root_from_proof(hash: bytes, branch: List[bytes], index: int) -> bytes:
@@ -158,707 +101,6 @@ def _root_from_proof(hash: bytes, branch: List[bytes], index: int) -> bytes:
     return hash
 
 
-class DisconnectSessionError(Exception):
-
-    def __init__(self, reason: str, *, blacklist: bool=False) -> None:
-        super().__init__(reason)
-        self.blacklist = False
-
-
-class SVServerState:
-    '''The run-time state of an SVServer.'''
-
-    def __init__(self) -> None:
-        self.banner = ''
-        self.donation_address = ''
-        self.last_try = 0.
-        self.last_good = 0.
-        self.last_blacklisted = 0.
-        self.retry_delay = 0
-        self.is_disabled = False
-        self.peers: List["SVServer"] = []
-
-    def can_retry(self, now: float) -> bool:
-        return not self.is_disabled and not self.is_blacklisted(now) and \
-            self.last_try + self.retry_delay < now
-
-    def is_blacklisted(self, now: float) -> bool:
-        return self.last_blacklisted > now - ONE_DAY
-
-    def to_json(self) -> Dict[str, int]:
-        return {
-            'last_try': int(self.last_try),
-            'last_good': int(self.last_good),
-            'last_blacklisted': int(self.last_blacklisted),
-        }
-
-    @classmethod
-    def from_json(cls, dct: Dict[str, int]) -> "SVServerState":
-        result = cls()
-        for attr, value in dct.items():
-            setattr(result, attr, value)
-        return result
-
-    def __str__(self) -> str:
-        return str(self.to_json())
-
-
-class SVServerKey(NamedTuple):
-    host: str
-    port: int
-    protocol: str
-
-    # Ensure that dictionary insertion is case insensitive.
-    def __hash__(self) -> int:
-        return hash((self.host.lower(), self.port, self.protocol.lower()))
-
-    # Ensure that comparisons and dictionary lookups are case insensitive.
-    def __eq__(self, other: object) -> bool:
-        return isinstance(other, SVServerKey) \
-            and self.host.lower() == other.host.lower() and self.port == other.port \
-            and self.protocol.lower() == other.protocol.lower()
-
-    def __ne__(self, other: object) -> bool:
-        return not self.__eq__(other)
-
-
-class SVServer:
-    '''
-    A smart wrapper around a (host, port, protocol) tuple.
-    '''
-    # The way SVServers are populated from config file is confusing. `JSON.register()` is called
-    # for `SVServer` and when the config is deserialized, the specially serialised `SVServer`
-    # entries are instantiated and in doing so they add themselves to the `all_servers` list.
-
-    all_servers: Dict[SVServerKey, 'SVServer'] = {}
-    _connection_task: Optional[asyncio.Task[None]] = None
-
-    def __init__(self, host: str, port: int, protocol: str) -> None:
-        if not isinstance(host, str) or not host:
-            raise ValueError(f'bad host: {host}')
-        if not isinstance(port, int):
-            raise ValueError(f'bad port: {port}')
-        if protocol not in 'st':
-            raise ValueError(f'unknown protocol: {protocol}')
-        key = SVServerKey(host, port, protocol)
-        assert key not in SVServer.all_servers
-        SVServer.all_servers[key] = self
-        # API attributes
-        self.host = host
-        self.port = port
-        self.protocol = protocol
-        self.state = SVServerState()
-
-    def key(self) -> SVServerKey:
-        return SVServerKey(self.host, self.port, self.protocol)
-
-    @classmethod
-    def unique(cls, host: str, port: Union[int, str], protocol: str) -> 'SVServer':
-        if isinstance(port, str):
-            port = int(port)
-        key = SVServerKey(host, port, protocol)
-        obj = cls.all_servers.get(key)
-        if not obj:
-            obj = cls(host, port, protocol)
-        return obj
-
-    def update(self, updated_key: SVServerKey) -> None:
-        existing_key = self.key()
-        assert existing_key != updated_key
-        self.host = updated_key.host
-        self.port = updated_key.port
-        self.protocol = updated_key.protocol
-        del self.all_servers[existing_key]
-        self.all_servers[updated_key] = self
-
-    def remove(self) -> None:
-        """
-        Remove this server from the list of known servers.
-
-        This will prevent the server from being saved into the config file, but keep in mind that
-        missing servers that are bundled with ElectrumSV are restored on next startup.
-        """
-        del self.all_servers[self.key()]
-
-    def _sslc(self) -> Optional[ssl.SSLContext]:
-        if self.protocol != 's':
-            return None
-        # FIXME: implement certificate pinning like Electrum?
-        return ssl.SSLContext(ssl.PROTOCOL_TLS)
-
-    def _connector(self, session_factory: partial["SVSession"], proxy: Optional["SVProxy"]) \
-            -> connect_rs:
-        return connect_rs(self.host, self.port, proxy=proxy, session_factory=session_factory,
-                          ssl=self._sslc())
-
-    def disconnected(self) -> bool:
-        return self._connection_task is None or self._connection_task.done()
-
-    def add_disconnection_callback(self, callback: Callable[[asyncio.Future[None]], None]) -> bool:
-        if self._connection_task is not None and not self._connection_task.done():
-            self._connection_task.add_done_callback(callback)
-            return True
-        return False
-
-    def disconnect(self) -> None:
-        if self._connection_task is not None:
-            self._connection_task.cancel()
-            self._connection_task = None
-
-    def _logger(self, n: str) -> logging.Logger:
-        logger_name = f'[{self.host}:{self.port} {self.protocol_text()} #{n}]'
-        return logs.get_logger(logger_name)
-
-    def to_json(self) -> Tuple[str, int, str, SVServerState]:
-        return (self.host, self.port, self.protocol, self.state)
-
-    @classmethod
-    def from_string(cls, s: str) -> 'SVServer':
-        parts = s.split(':', 3)
-        return cls.unique(*parts)
-
-    @classmethod
-    def from_json(cls, data: Tuple[str, int, str, SVServerState]) -> 'SVServer':
-        host, port, protocol, state = data
-        result = cls.unique(host, port, protocol)
-        result.state = state
-        return result
-
-    async def connect(self, network: 'Network', logger_name: str) -> None:
-        try:
-            async with TaskGroup() as group:
-                self._connection_task = await group.spawn(self._connect, network, logger_name)
-        finally:
-            self._connection_task = None
-
-    async def _connect(self, network: 'Network', logger_name: str) -> None:
-        '''Raises: OSError'''
-        await sleep(self.state.retry_delay)
-        self.state.retry_delay = max(10, min(self.state.retry_delay * 2 + 1, 600))
-        logger = self._logger(logger_name)
-        logger.info('connecting...')
-
-        self.state.last_try = time.time()
-        session_factory = partial(SVSession, network, self, logger)
-        async with self._connector(session_factory, proxy=network.proxy) as connected_session:
-            session = cast(SVSession, connected_session)
-            try:
-                await session.run()
-            except DisconnectSessionError as error:
-                await session.disconnect(str(error), blacklist=error.blacklist)
-            except (RPCError, BatchError, TaskTimeout) as error:
-                await session.disconnect(str(error))
-        logger.info('disconnected')
-
-    def protocol_text(self) -> str:
-        if self.protocol == 's':
-            return 'SSL'
-        return 'TCP'
-
-    def __eq__(self, other: object) -> bool:
-        if not isinstance(other, SVServer):
-            return NotImplemented
-        return self.host == other.host and self.port == other.port and \
-            self.protocol == other.protocol
-
-    def __hash__(self) -> int:
-        # If we override `__eq__` it makes the object unhashable without `__hash__`.
-        return hash((self.host, self.port, self.protocol))
-
-    def __repr__(self) -> str:
-        return f'SVServer("{self.host}", {self.port}, "{self.protocol}")'
-
-    def __str__(self) -> str:
-        return str(self.to_json()[:3])
-
-
-# NOTE(typing) No typing for this base class, so ignore..
-class SVUserAuth(SOCKSUserAuth): # type: ignore
-    def __repr__(self) -> str:
-        # So its safe in logs, etc.  Also used in proxy comparisons.
-        hash_str = sha256(str((self.username, self.password)).encode())[:8].hex()
-        return f'{self.__class__.__name__}({hash_str})'
-
-
-# NOTE(typing) No typing for this base class, so ignore..
-class SVProxy(SOCKSProxy): # type: ignore
-    '''Encapsulates a SOCKS proxy.'''
-
-    kinds = {'SOCKS4' : SOCKS4a, 'SOCKS5': SOCKS5}
-
-    auth: SOCKSUserAuth
-
-    def __init__(self, address: Union[NetAddress, str, Tuple[str, str]], kind: str,
-            auth: Optional[Union[SOCKSUserAuth, List[str]]]=None) -> None:
-        protocol = self.kinds.get(kind.upper())
-        if not protocol:
-            raise ValueError(f'invalid proxy kind: {kind}')
-        # This class is serialised using `util.JSON` hooks, this is not possible for `SVUserAuth`
-        # as that is naturally serialisable via `json.dumps` and the hook is not called.
-        if isinstance(auth, list):
-            auth = SVUserAuth(*auth)
-        super().__init__(address, protocol, auth)
-
-    def to_json(self) -> Tuple[str, str, List[str]]:
-        return (str(self.address), self.kind(), list(self.auth))
-
-    @classmethod
-    def from_json(cls, obj: Tuple[str, str, List[str]]) -> "SVProxy":
-        return cls(*obj)
-
-    @classmethod
-    def from_string(cls, obj: str) -> Optional["SVProxy"]:
-        # Backwards compatibility
-        try:
-            kind, host, port, username, password = obj.split(':', 5)
-            return cls((host, port), kind, SVUserAuth(username, password))
-        except Exception:
-            return None
-
-    def kind(self) -> str:
-        return 'SOCKS4' if self.protocol is SOCKS4a else 'SOCKS5'
-
-    def host(self) -> Union[IPv4Address, IPv6Address]:
-        return cast(Union[IPv4Address, IPv6Address], self.address.host)
-
-    def port(self) -> int:
-        return cast(int, self.address.port)
-
-    def username(self) -> str:
-        return cast(str, self.auth.username) if self.auth else ''
-
-    def password(self) -> str:
-        return cast(str, self.auth.password) if self.auth else ''
-
-    def __str__(self) -> str:
-        return ', '.join((repr(self.address), self.kind(), repr(self.auth)))
-
-
-# NOTE(typing) base class lacks typing.
-class SVSession(RPCSession): # type: ignore
-
-    ca_path = certifi.where()
-    _connecting_tips: Dict[bytes, asyncio.Event] = {}
-    _need_checkpoint_headers = True
-
-    def __init__(self, network: "Network", server: SVServer, logger: logging.Logger,
-            *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._handlers: Dict[str, Callable[..., Coroutine[Any, Any, None]]] = {}
-        self._network = network
-        self._closed_event = app_state.async_.event()
-        # These attributes are intended to part of the external API
-        self.chain: Optional[Chain] = None
-        self.logger = logger
-        self.server = server
-        self.tip: Optional[Header] = None
-        self.ptuple: Tuple[int, ...] = (0, )
-
-    def set_throttled(self, flag: bool) -> None:
-        if flag:
-            RPCSession.recalibrate_count = 30
-        else:
-            RPCSession.recalibrate_count = 10000000000
-
-    def get_current_outgoing_concurrency_target(self) -> int:
-        return cast(int, self._outgoing_concurrency.max_concurrent)
-
-    def default_framer(self) -> NewlineFramer:
-        max_size = app_state.electrumx_message_size_limit()*1024*1024
-        return NewlineFramer(max_size=max_size)
-
-    @classmethod
-    def _required_checkpoint_headers(cls) -> Tuple[int, int]:
-        '''Returns (start_height, count).  The range of headers needed for the DAA so that all
-        post-checkpoint headers can have their difficulty verified.
-        '''
-        if cls._need_checkpoint_headers:
-            headers_obj = cast(Headers, app_state.headers)
-            chain = headers_obj.longest_chain()
-            cp_height = cast(CheckPoint, headers_obj.checkpoint).height
-            if cp_height == 0:
-                cls._need_checkpoint_headers = False
-            else:
-                try:
-                    for height in range(cp_height - 146, cp_height):
-                        headers_obj.header_at_height(chain, height)
-                    cls._need_checkpoint_headers = False
-                except MissingHeader:
-                    return height, cp_height - height
-        return 0, 0
-
-    @classmethod
-    def _connect_header(cls, height: int, raw_header: bytes) -> Tuple[Header, Chain]:
-        '''It is assumed that if height is <= the checkpoint height then the header has
-        been checked for validity.
-        '''
-        headers_obj = cast(Headers, app_state.headers)
-        checkpoint = cast(CheckPoint, headers_obj.checkpoint)
-
-        if height <= checkpoint.height:
-            headers_obj.set_one(height, raw_header)
-            headers_obj.flush()
-            header = Net.COIN.deserialized_header(raw_header, height)
-            return header, headers_obj.longest_chain()
-        else:
-            return cast(Tuple[Header, Chain], headers_obj.connect(raw_header))
-
-    @classmethod
-    def _connect_chunk(cls, start_height: int, raw_chunk: bytes) -> Chain:
-        '''It is assumed that if the last header of the raw chunk is before the checkpoint height
-        then it has been checked for validity.
-        '''
-        headers_obj = cast(Headers, app_state.headers)
-        checkpoint = cast(CheckPoint, headers_obj.checkpoint)
-        x_network = cast(BitcoinXNetwork, headers_obj.network)
-        end_height = start_height + len(raw_chunk) // HEADER_SIZE
-
-        def extract_header(height: int) -> bytes:
-            start = (height - start_height) * HEADER_SIZE
-            return raw_chunk[start: start + HEADER_SIZE]
-
-        def verify_chunk_contiguous_and_set(next_raw_header: bytes, to_height: int) -> None:
-            # Set headers backwards from a proven header, verifying the prev_hash links.
-            for height in reversed(range(start_height, to_height)):
-                raw_header = extract_header(height)
-                if x_network.header_prev_hash(next_raw_header) != x_network.header_hash(raw_header):
-                    raise MissingHeader('prev_hash does not connect')
-                headers_obj.set_one(height, raw_header)
-                next_raw_header = raw_header
-
-        try:
-            # For pre-checkpoint headers with a verified proof, just set the headers after
-            # verifying the prev_hash links
-            if end_height < checkpoint.height:
-                # Set the last proven header
-                last_header = extract_header(end_height - 1)
-                headers_obj.set_one(end_height - 1, last_header)
-                verify_chunk_contiguous_and_set(last_header, end_height - 1)
-                return headers_obj.longest_chain()
-
-            # For chunks prior to but connecting to the checkpoint, no proof is required
-            verify_chunk_contiguous_and_set(checkpoint.raw_header, checkpoint.height)
-
-            # Process any remaining headers forwards from the checkpoint
-            chain = None
-            for height in range(max(checkpoint.height + 1, start_height), end_height):
-                _header, chain = headers_obj.connect(extract_header(height))
-
-            return chain or headers_obj.longest_chain()
-        finally:
-            headers_obj.flush()
-
-    async def _negotiate_protocol(self) -> None:
-        '''Raises: RPCError, TaskTimeout'''
-        method = 'server.version'
-        args = (PACKAGE_VERSION, [ version_string(PROTOCOL_MIN), version_string(PROTOCOL_MAX) ])
-        try:
-            server_string, protocol_string = await self.send_request(method, args)
-            self.logger.debug("server string: %s", server_string)
-            self.logger.debug("negotiated protocol: %s", protocol_string)
-            self.ptuple = protocol_tuple(protocol_string)
-            assert PROTOCOL_MIN <= self.ptuple <= PROTOCOL_MAX
-        except (AssertionError, ValueError) as e:
-            raise DisconnectSessionError(f'{method} failed: {e}', blacklist=True)
-
-    async def _get_checkpoint_headers(self) -> None:
-        '''Raises: RPCError, TaskTimeout'''
-        while True:
-            start_height, header_count = self._required_checkpoint_headers()
-            if not header_count:
-                break
-            logger.info("%d checkpoint headers needed", header_count)
-            await self._request_chunk(start_height, header_count)
-
-    async def _request_chunk(self, start_height: int, header_count: int) -> int:
-        '''Returns the greatest height successfully connected (might be lower than expected
-        because of a small server response).
-
-        Raises: RPCError, TaskTimeout, DisconnectSessionError'''
-        self.logger.info("requesting %d headers from height %d", header_count, start_height)
-        method = 'blockchain.block.headers'
-        assert app_state.headers is not None
-        cp_height = cast(int, app_state.headers.checkpoint.height)
-        if start_height + header_count >= cp_height:
-            cp_height = 0
-
-        try:
-            result = cast(HeadersResponse,
-                await self.send_request(method, (start_height, header_count, cp_height)))
-
-            received_count = result['count']
-            last_height = start_height + received_count - 1
-            if header_count != received_count:
-                self.logger.info("received just %d headers", received_count)
-
-            raw_chunk = bytes.fromhex(result['hex'])
-            assert len(raw_chunk) == HEADER_SIZE * received_count
-            if cp_height:
-                hex_root = result['root']
-                branch = [hex_str_to_hash(item) for item in result['branch']]
-                self._check_header_proof(hex_root, branch, raw_chunk[-HEADER_SIZE:], last_height)
-
-            self.chain = self._connect_chunk(start_height, raw_chunk)
-        except (AssertionError, KeyError, TypeError, ValueError,
-                IncorrectBits, InsufficientPoW, MissingHeader) as e:
-            raise DisconnectSessionError(f'{method} failed: {e}', blacklist=True)
-
-        self.logger.info("connected %d headers up to height %d", received_count, last_height)
-        return last_height
-
-    async def _subscribe_headers(self) -> None:
-        '''Raises: RPCError, TaskTimeout, DisconnectSessionError'''
-        self._handlers[HEADERS_SUBSCRIBE] = self._on_new_tip
-        tip = cast(HeaderResponse, await self.send_request(HEADERS_SUBSCRIBE))
-        await self._on_new_tip(tip)
-
-    # NOTE(typing) Override the default aiorpcx typing for this variable.
-    last_send: float
-
-    def _secs_to_next_ping(self) -> float:
-        return self.last_send + 300.0 - time.time()
-
-    async def _ping_loop(self) -> None:
-        '''Raises: RPCError, TaskTimeout'''
-        method = 'server.ping'
-        while True:
-            await sleep(self._secs_to_next_ping())
-            if self._secs_to_next_ping() < 1:
-                self.logger.debug("sending %s", method)
-                await self.send_request(method)
-
-    def _check_header_proof(self, hex_root: str, branch: List[bytes], raw_header: bytes,
-            header_height: int) -> None:
-        '''Raises: DisconnectSessionError'''
-        expected_root = Net.VERIFICATION_BLOCK_MERKLE_ROOT
-        if hex_root != expected_root:
-            raise DisconnectSessionError(f'bad header merkle root {hex_root} expected '
-                                         f'{expected_root}', blacklist=True)
-        header = Net.COIN.deserialized_header(raw_header, header_height)
-        proven_root = hash_to_hex_str(_root_from_proof(header.hash, branch, header_height))
-        if proven_root != expected_root:
-            raise DisconnectSessionError(f'invalid header proof {proven_root} expected '
-                                         f'{expected_root}', blacklist=True)
-        self.logger.debug("good header proof for height %d", header_height)
-
-    async def _on_new_tip(self, json_tip: HeaderResponse) -> None:
-        '''Raises: RPCError, TaskTimeout, DisconnectSessionError'''
-        try:
-            raw_header = bytes.fromhex(json_tip['hex'])
-            height = json_tip['height']
-            assert isinstance(height, int), "height must be an integer"
-        except Exception as e:
-            raise DisconnectSessionError(f'error connecting tip: {e} {json_tip}')
-
-        if height < Net.CHECKPOINT.height:
-            raise DisconnectSessionError(f'server tip height {height:,d} below checkpoint')
-
-        self.chain = None
-        self.tip = None
-        tip = Net.COIN.deserialized_header(raw_header, height)
-
-        while True:
-            try:
-                self.tip, self.chain = self._connect_header(tip.height, tip.raw)
-                self.logger.debug('connected tip at height %d', height)
-                self._network.check_main_chain_event.set()
-                self._network.check_main_chain_event.clear()
-                return
-            except (IncorrectBits, InsufficientPoW) as e:
-                raise DisconnectSessionError(f'bad header provided: {e}', blacklist=True)
-            except MissingHeader:
-                pass
-            # Try to connect and then re-check.  Note self.tip might have changed.
-            await self._catch_up_to_tip_throttled(tip)
-
-    async def _catch_up_to_tip_throttled(self, tip: Header) -> None:
-        '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
-        # Avoid thundering herd effect by having one session catch up per tip
-        done_event = SVSession._connecting_tips.get(tip.raw)
-        if done_event:
-            self.logger.debug('another session is connecting my tip %s', tip.hex_str())
-            await done_event.wait()
-        else:
-            self.logger.debug('connecting my own tip %s', tip.hex_str())
-            SVSession._connecting_tips[tip.raw] = app_state.async_.event()
-            try:
-                await self._catch_up_to_tip(tip)
-            finally:
-                SVSession._connecting_tips.pop(tip.raw).set()
-
-    async def _catch_up_to_tip(self, tip: Header) -> None:
-        '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
-        headers_obj = cast(Headers, app_state.headers)
-        cp_height = cast(int, headers_obj.checkpoint.height)
-        max_height = max(chain.height for chain in headers_obj.chains())
-        heights = [cp_height + 1]
-        step = 1
-        height = min(tip.height, max_height)
-        while height > cp_height:
-            heights.append(height)
-            height -= step
-            step += step
-
-        height = await self._request_headers_at_heights(heights)
-        # Catch up
-        while height < tip.height:
-            height = await self._request_chunk(height + 1, 2016)
-
-    async def _main_server_batch(self) -> None:
-        '''Raises: DisconnectSessionError, BatchError, TaskTimeout'''
-        async with timeout_after(10):
-            async with self.send_batch(raise_errors=True) as batch:
-                batch.add_request('server.banner')
-                batch.add_request('server.donation_address')
-                batch.add_request('server.peers.subscribe')
-        batch_results = cast(Tuple[Any, Any, Any], batch.results)
-        server = self.server
-        try:
-            server.state.banner = _require_string(batch_results[0])
-            server.state.donation_address = _require_string(batch_results[1])
-            server.state.peers = self._parse_peers_subscribe(batch_results[2])
-            self._network.trigger_callback('banner')
-        except AssertionError as e:
-            raise DisconnectSessionError(f'main server requests bad batch response: {e}')
-
-    def _parse_peers_subscribe(self, result: Any) -> List[SVServer]:
-        peers: List[SVServer] = []
-        for host_details in _require_list(result):
-            host_details = cast(Tuple[Any, str, List[str]], _require_list(host_details))
-            host = _require_string(host_details[1])
-            for v in host_details[2]:
-                if re.match(r"[st]\d*", _require_string(v)):
-                    protocol, port = v[0], v[1:]
-                    try:
-                        peers.append(SVServer.unique(host, port, protocol))
-                    except ValueError:
-                        pass
-        self.logger.info("%d servers returned from server.peers.subscribe", len(peers))
-        return peers
-
-    async def _request_headers_at_heights(self, heights: List[int]) -> int:
-        '''Requests the headers as a batch and connects them, lowest height first.
-
-        Return the greatest connected height (-1 if none connected).
-        Raises: DisconnectSessionError, BatchError, TaskTimeout
-        '''
-        good_height = -1
-        async def _request_header_batch(batch_heights: List[int]) -> None:
-            nonlocal good_height
-
-            self.logger.debug("requesting %d headers at heights %s", len(batch_heights),
-                batch_heights)
-            async with timeout_after(10):
-                async with self.send_batch(raise_errors=True) as batch:
-                    for height in batch_heights:
-                        batch.add_request(method,
-                                          (height, cp_height if height <= cp_height else 0))
-
-            batch_results = cast(Union[str, HeaderProofResponse], batch.results)
-            try:
-                for result, height in zip(batch_results, batch_heights):
-                    if height <= cp_height:
-                        cp_result = cast(HeaderProofResponse, result)
-                        hex_root = cp_result['root']
-                        branch = [hex_str_to_hash(item) for item in cp_result['branch']]
-                        raw_header = bytes.fromhex(cp_result['header'])
-                        self._check_header_proof(hex_root, branch, raw_header, height)
-                    else:
-                        raw_header = bytes.fromhex(result)
-                    _header, self.chain = self._connect_header(height, raw_header)
-                    good_height = height
-            except MissingHeader:
-                hex_str = hash_to_hex_str(Net.COIN.header_hash(raw_header))
-                self.logger.info("failed to connect at height %d, hash %s last good %d",
-                    height, hex_str, good_height)
-            except (AssertionError, KeyError, TypeError, ValueError) as e:
-                raise DisconnectSessionError(f'bad {method} response: {e}')
-
-        heights = sorted(set(heights))
-        cp_height = Net.CHECKPOINT.height
-        method = 'blockchain.block.header'
-        min_good_height = max((height for height in heights if height <= cp_height), default=-1)
-        for chunk in chunks(heights, 100):
-            await _request_header_batch(chunk)
-        if good_height < min_good_height:
-            raise DisconnectSessionError(f'cannot connect to checkpoint', blacklist=True)
-        return good_height
-
-    # What gets passed here?
-    async def handle_request(self, request: Union[Request, Notification]) -> None:
-        if isinstance(request, Notification):
-            handler = self._handlers.get(request.method)
-        else:
-            handler = None
-        coro = handler_invocation(handler, request)()
-        await coro
-
-    async def connection_lost(self) -> None:
-        await super().connection_lost()
-        self._closed_event.set()
-
-    #
-    # API exposed to the rest of this file
-    #
-
-    async def disconnect(self, reason: str, *, blacklist: bool=False) -> None:
-        if blacklist:
-            self.server.state.last_blacklisted = time.time()
-            self.logger.error("disconnecting and blacklisting: %s", reason)
-        else:
-            self.logger.error("disconnecting: %s", reason)
-        await self.close()
-
-    async def run(self) -> None:
-        '''Called when a connection is established to manage the connection.
-
-        Raises: RPCError, BatchError, TaskTimeout, DisconnectSessionError
-        '''
-        # Negotiate the protocol before doing anything else
-        await self._negotiate_protocol()
-        # Checkpoint headers are essential to attempting tip connection
-        await self._get_checkpoint_headers()
-        # Then subscribe headers and connect the server's tip
-        await self._subscribe_headers()
-        # Only once the tip is connected to our set of chains do we consider the
-        # session good and add it to the network's session list.  The network and
-        # other client code can assume a session 'tip' and 'chain' set.
-        is_main_server = await self._network.session_established(self)
-        try:
-            self.server.state.retry_delay = 0
-            async with TaskGroup() as group:
-                if is_main_server:
-                    self.logger.info('using as main server')
-                    await group.spawn(self._main_server_batch)
-                # This raises a TaskTimeout but it gets discarded as it also seems to trigger
-                # the closed event which cancels the ping exception before that gets raised up.
-                await group.spawn(self._ping_loop)
-                await self._closed_event.wait()
-                await group.cancel_remaining()
-        finally:
-            await self._network.session_closed(self)
-
-    async def headers_at_heights(self, heights: Iterable[int]) -> Dict[int, Header]:
-        '''Raises: MissingHeader, DisconnectSessionError, BatchError, TaskTimeout'''
-        result = {}
-        missing = []
-        header_at_height = cast(Headers, app_state.headers).header_at_height
-        for height in set(heights):
-            try:
-                result[height] = header_at_height(self.chain, height)
-            except MissingHeader:
-                missing.append(height)
-        if missing:
-            await self._request_headers_at_heights(missing)
-            for height in missing:
-                result[height] = header_at_height(self.chain, height)
-        return result
-
-    async def request_tx(self, tx_id: str) -> str:
-        '''Raises: RPCError, TaskTimeout'''
-        return cast(str, await self.send_request('blockchain.transaction.get', [tx_id]))
-
-
 class Network(TriggeredCallbacks):
     '''Manages a set of connections to remote ElectrumX servers.  All operations are
     asynchronous.
@@ -871,12 +113,6 @@ class Network(TriggeredCallbacks):
         app_state.read_headers()
 
         self.subscriptions = SubscriptionManager()
-
-        # Sessions
-        self.sessions: List[SVSession] = []
-        self._chosen_servers: set[SVServer] = set()
-        self.main_server: Optional[SVServer] = None
-        self.proxy: Optional[SVProxy] = None
 
         # The usable set of API servers both globally known by the application and also
         # per-wallet/account servers from each wallet database.
@@ -896,11 +132,43 @@ class Network(TriggeredCallbacks):
         self.shutdown_complete_event = async_.event()
 
         # Add an wallet, remove an wallet, or redo all wallet verifications
-        self._wallet_jobs = async_.queue()
+        self._wallets: Set[Wallet] = set()
+        self._executor = ThreadPoolExecutor(max_workers=1)
 
         self.future = async_.spawn(self._main_task_loop)
 
         self.aiohttp_session: Optional[ClientSession] = None
+        self.esv_client: Optional[ESVClient] = None
+        self.esv_client_cached_tip: Optional[Header] = None
+
+    # TODO(1.4.0) If a server disconnects or misbehaves we should add it to a temporary ban list
+    #  with a timeout so the selection algorithm will select other servers instead
+    async def get_esv_headers_client(self) -> Optional[ESVClient]:
+        """caches a single dedicated headers client"""
+        if self.esv_client is None:
+            selection_candidates = self.get_api_servers_for_headers()
+
+            # TODO(1.4.0) Uncomment this extra filtering step when the ESV Ref Server is proxying
+            #  merkle proof requests to the indexer
+
+            # There was a discussion in which we decided to remove a lot of client side
+            # complexity by keeping the headers state in perfect sync with the indexer's
+            # materialized view. Therefore we filter for the ESV-Reference-Servers that have
+            # an indexing API. This might change in future.
+            # selection_candidates = select_servers(
+            #     ServerCapability.MERKLE_PROOF_REQUEST, selection_candidates)
+
+            if len(selection_candidates) == 0:
+                return None
+
+            # TODO Prioritise properly. Probably on the basis on the server chain tip among other
+            #  things such as fee rate or user preference.
+            selection_candidate = selection_candidates[0]
+            aiohttp_session = await self.get_aiohttp_session()
+            assert selection_candidate.api_server is not None
+            self.esv_client = ESVClient(base_url=selection_candidate.api_server.url,
+                session=aiohttp_session, master_token=REGTEST_MASTER_TOKEN)
+        return self.esv_client
 
     async def get_aiohttp_session(self) -> ClientSession:
         """Global client session shared globally for any outbound http requests.
@@ -991,19 +259,14 @@ class Network(TriggeredCallbacks):
         finally:
             logger.debug("Network main task loop exiting.")
             self.shutdown_complete_event.set()
-            app_state.config.set_key('servers', list(SVServer.all_servers.values()), True)
             app_state.config.set_key('mapi_servers', self.get_config_mapi_servers(), True)
 
     async def _main_task(self) -> None:
-        # self._cevent = app_state.async_.event() # TODO remove
         group = TaskGroup()
         try:
             async with group:
                 await group.spawn(self._start_network, group)
-                await group.spawn(self._monitor_lagging_sessions)
-                await group.spawn(self._monitor_main_chain)
-                await group.spawn(self._monitor_wallets, group)
-                # self._ctask = await group.spawn(self._cancellable_task) # TODO remove
+                await group.spawn(self._monitor_chain_tip_task)
         finally:
             logger.debug("Network main task exiting")
             # NOTE(exception-reporting) We only try reporting the first exception for now, we do
@@ -1027,305 +290,144 @@ class Network(TriggeredCallbacks):
                     logger.exception("Exception in task %d", exc_idx,
                         exc_info=(type(exc), exc, exc.__traceback__))
 
-    # async def _cancellable_task(self) -> None: # TODO remove
-    #     await self._cevent.wait()
-    #     raise Exception("zzzz")
-
     async def _restart_network(self) -> None:
         self.stop_network_event.set()
 
     async def _start_network(self, group: TaskGroup) -> None:
         while True:
-            # Treat all servers as not used so connections are not delayed
-            for server in SVServer.all_servers.values():
-                server.state.retry_delay = 0
-
-            if self.main_server is None:
-                self.main_server, self.proxy = self._read_config_electrumx()
-
             logger.debug('starting...')
-            connections_task = await group.spawn(self._maintain_connections)
             await self.stop_network_event.wait()
             self.stop_network_event.clear()
-            with suppress(CancelledError):
-                await connections_task
 
-    async def _maintain_connections(self) -> None:
-        count = 1 if app_state.config.get('oneserver') else 10
-        async with TaskGroup() as group:
-            for n in range(0, count):
-                await group.spawn(self._maintain_connection, n)
+    def get_local_height(self) -> int:
+        chain = self.chain()
+        # This can be called from network_dialog.py when there is no chain
+        return cast(int, chain.height) if chain else 0
 
-    async def _maintain_connection(self, n: int) -> None:
-        # Connection 0 initially connects to the main_server.  main_server can change if
-        # auto_connect is true, or the user specifies a new one in the network dialog.
-        server = self.main_server if n == 0 else None
+    def get_local_tip_hash(self) -> bytes:
+        chain = self.chain()
+        assert chain is not None
+        return cast(bytes, chain.tip.hash)
+
+    async def get_esv_server_tip_height(self) -> int:
+        """raises `ServiceUnavailableError`"""
+        if self.esv_client_cached_tip:
+            return cast(int, self.esv_client_cached_tip.height)
+
+        assert self.esv_client is not None
+        tip = await self.esv_client.get_chain_tips(longest_chain_only=True)
+        self.esv_client_cached_tip = chain_tip_to_header_obj(tip)
+        logger.debug(f"Fetched chain tip: {self.esv_client_cached_tip}")
+        assert self.esv_client_cached_tip is not None
+        return cast(int, self.esv_client_cached_tip.height)
+
+
+    def get_esv_server_tip_hash(self) -> Optional[bytes]:
+        if not self.esv_client_cached_tip:
+            return None
+        assert self.esv_client_cached_tip is not None
+        return cast(bytes, self.esv_client_cached_tip.hash)
+
+    # TODO(post-1.4.0) Need a sound system for banning and selecting a better provider
+    async def _initial_headers_sync(self) -> None:
         while True:
-            if server is self.main_server:
-                self.trigger_callback('status')
-            else:
-                assert self.main_server is not None
-                server = await self._random_server(self.main_server.protocol)
-            assert server is not None
-
-            self._chosen_servers.add(server)
             try:
-                await server.connect(self, str(n))
-            except (OSError, SOCKSError) as e:
-                logger.error("%s connection error: %s", server, str(e))
-            finally:
-                self._chosen_servers.remove(server)
+                while self.get_local_height() < await self.get_esv_server_tip_height():
+                    missing_heights = [height for height in range(
+                        self.get_local_height(), await self.get_esv_server_tip_height() + 1)]
+                    await self._fetch_missing_headers_at_heights(missing_heights)
 
-            if server is self.main_server:
-                await self._maybe_switch_main_server(SwitchReason.disconnected)
+                assert self.esv_client_cached_tip is not None
+                if self.get_local_tip_hash() != self.get_esv_server_tip_hash():
+                    # Wallet can still operate like this so log error and return from function
+                    # TODO(1.4.0) Switch to alternative service providers
+                    logger.error("The Headers API tip is either lagging our previously "
+                        "stored tip or is an equal height fork. Local tip height: %s, "
+                        "Server tip height: %s", self.get_local_height(),
+                        self.esv_client_cached_tip.height)
+                return None
+            except ServiceUnavailableError:
+                logger.info("Headers API service is currently unavailable, retrying in 10 seconds")
+                await asyncio.sleep(10)
 
-    async def _maybe_switch_main_server(self, reason: SwitchReason) -> None:
-        now = time.time()
-        max_height = max((session.tip.height for session in self.sessions
-            if session.tip is not None), default=0)
-        for session in self.sessions:
-            if session.tip is not None and session.tip.height > max_height - 2:
-                session.server.state.last_good = now
-        # Give a 60-second breather for a lagging server to catch up
-        good_servers = [session.server for session in self.sessions
-                        if session.server.state.last_good > now - 60]
-        if not good_servers:
-            logger.warning('no good servers available')
-        elif self.main_server not in good_servers:
-            if self.auto_connect():
-                await self._set_main_server(random.choice(good_servers), reason)
-            else:
-                logger.warning("main server %s is not good, but retaining it because "
-                    "auto-connect is off", self.main_server)
-
-    async def _monitor_lagging_sessions(self) -> None:
-        '''Monitor which sessions are lagging.
-
-        If the main server is lagging switch the main server if auto_connect.
-        '''
+    # TODO: periodically check that selected / prioritised server is still the best
+    #  candidate and switch if needed. This ideally should be as simple as polling
+    #  get_esv_headers_client() which handles the selection and prioritisation algorithm.
+    #  For now, we stick to the same server until it disconnects or misbehaves.
+    async def _monitor_chain_tip_task(self) -> None:
+        WAIT_TIME = 10
         while True:
-            async with ignore_after(20):
-                await self.sessions_changed_event.wait()
-            await self._maybe_switch_main_server(SwitchReason.lagging)
+            try:
+                # Must always clear cached values when switching to a new server
+                self.esv_client = None
+                self.esv_client_cached_tip = None
+                esv_client = await self.get_esv_headers_client()
+                if not esv_client:
+                    logger.debug("There are no suitable ESV Reference Servers available. "
+                                 "Re-checking in %s seconds", WAIT_TIME)
+                    await asyncio.sleep(WAIT_TIME)
+                    continue
 
-    async def _monitor_wallets(self, group: TaskGroup) -> None:
-        while True:
-            job, wallet = await self._wallet_jobs.get()
-            logger.error('unknown wallet job %s', job)
+                # Will not proceed past this point until initial headers sync completes
+                await self._initial_headers_sync()
 
-    async def _monitor_main_chain(self) -> None:
-        main_chain = None
-        while True:
-            await self.check_main_chain_event.wait()
-            main_session = await self._main_session()
-            new_main_chain = main_session.chain
-            if main_chain != new_main_chain and main_chain:
-                _chain, above_height = main_chain.common_chain_and_height(new_main_chain)
-                logger.info("main chain updated; undoing wallet verifications above height %d",
-                    above_height)
-                await self._wallet_jobs.put(('undo_verifications', above_height))
-            # It has been observed that we may receive headers after all the history events that
-            # relate to the height of those headers. Queueing a check here will cover those new
-            # headers and also due to sequential nature of jobs undo any existing ones first.
-            await self._wallet_jobs.put(('check_verifications', None))
-            main_chain = new_main_chain
-            # TODO(deferred) We get triggered every time any server we are connected to gets a
-            #   new tip. This means that it is possible that all the UI elements will end up
-            #   refreshing (even if every 500 ms due to the timer choke which I observed happening
-            #   when I noticed this, so it does happen).
-            self.trigger_callback('updated')
-            self.trigger_callback('main_chain', main_chain, new_main_chain)
+                new_tip: TipResponse
+                async for new_tip in esv_client.subscribe_to_headers():
+                    logger.debug("Got new tip: %s", new_tip)
+                    await self._on_new_chain_tip(new_tip)
 
-    async def _set_main_server(self, server: SVServer, reason: SwitchReason) -> None:
-        '''Set the main server to something new.'''
-        assert isinstance(server, SVServer), f"got invalid server value: {server}"
-        logger.info("switching main server to: '%s' reason: %s", server, reason.name)
-        old_main_session = self.main_session()
-        self.main_server = server
-        self.check_main_chain_event.set()
-        self.check_main_chain_event.clear()
-        # This event is typically generated when sessions are both established and closed.
-        # We need to generate it here to wake up all the things that may be waiting for main
-        # sessions, given that an existing session can be upgraded to a main session.
-        self.sessions_changed_event.set()
-        self.sessions_changed_event.clear()
-        # Disconnect the old main session, if any, in order to lose scripthash
-        # subscriptions.
-        if old_main_session:
-            if reason == SwitchReason.user_set:
-                old_main_session.server.state.retry_delay = 0
-            await old_main_session.close()
-        self.trigger_callback('status')
+            # TODO(1.4.0) Add the server to a ban list with a timeout
+            except ServiceUnavailableError as e:
+                pass
 
-    def add_electrumx_server(self, server_key: SVServerKey) \
-            -> None:
-        """
-        Add a new electrumx server.
-        """
-        if server_key in SVServer.all_servers:
-            raise KeyError("server already exists")
+    def notify_wallets_new_tip(self, new_tip: Header, new_chain: Chain) -> None:
+        # Some merkle proofs can arrive before the corresponding header. Therefore we need to
+        # notify the 'late headers' background worker of any new headers.
+        logger.info("Notifying wallets of the new tip hash: %s, height: %s",
+            hash_to_hex_str(new_tip.hash), new_tip.height)
+        for wallet in self._wallets:
+            message = (new_tip, new_chain)
+            wallet._late_header_worker_queue.put_nowait((PendingHeaderWorkKind.NEW_HEADER, message))
 
-        if server_key.protocol not in 'st':
-            raise ValueError(f'unknown protocol: {server_key.protocol}')
+    async def notify_wallets_reorg(self, orphaned_block_hashes: List[bytes]) -> None:
+        logger.info("Notifying wallets of the the reorg")
+        loop = asyncio.get_running_loop()
+        tasks = [loop.run_in_executor(self._executor, wallet.on_reorg, orphaned_block_hashes)
+            for wallet in self._wallets]
+        await asyncio.gather(*tasks, return_exceptions=False)  # raises any exceptions
 
-        # This will register the server and make it available to the server connection logic
-        # to make use of. The server will also be persisted when the network shuts down.
-        SVServer.unique(server_key.host, server_key.port, server_key.protocol)
+    async def _on_new_chain_tip(self, new_tip: TipResponse) -> None:
+        assert app_state.headers is not None
+        old_chain: Chain = self.chain()
+        await self.force_connect_header(new_tip.header, new_tip.height)
+        self.esv_client_cached_tip = new_tip
+        new_chain: Chain = self.chain()
 
-    async def update_electrumx_server_async(self, existing_key: SVServerKey,
-            updated_key: SVServerKey) -> None:
-        """
-        Update the connection parameters for a given server instance.
+        if old_chain != new_chain:
+            _chain, common_parent_height = old_chain.common_chain_and_height(new_chain)
+            orphaned_block_hashes = [app_state.headers.header_at_height(old_chain, h).hash
+                for h in range(common_parent_height + 1, old_chain.tip.height)]
+            new_block_hashes = [app_state.headers.header_at_height(new_chain, h).hash for h in
+                range(common_parent_height + 1, new_chain.tip.height)]
 
-        This will take offline and disconnect a server before updating the parameters, the server
-        will be disabled for the duration of the update and left disabled if it was already so.
-        """
-        server = SVServer.all_servers.get(existing_key)
-        if server is None:
-            raise KeyError("server does not exist")
+            logger.info("Reorg detected; undoing wallet verifications for block hashes %s",
+                fmt_hashes_to_hex_str(orphaned_block_hashes))
 
-        if updated_key.protocol not in 'st':
-            raise ValueError(f'unknown protocol: {updated_key.protocol}')
+            await self.notify_wallets_reorg(orphaned_block_hashes)
+        else:
+            new_block_hashes = [app_state.headers.header_at_height(new_chain, h).hash for h in
+                range(old_chain.tip.height + 1, new_chain.tip.height)]
 
-        if updated_key in SVServer.all_servers:
-            raise KeyError("server already exists with updated parameters")
+        # New tip notifications from HeaderSV can skip multiple headers
+        # We need to ensure we notify all wallets of each and every new tip so any backlogged
+        # merkle proofs get the required headers for processing.
+        for block_hash in new_block_hashes:
+            new_tip_header: Header = self.header_for_hash(block_hash)
+            self.notify_wallets_new_tip(new_tip_header, new_chain)
 
-        # We do not want to leak the disabling of the server here (assuming the user did not
-        # manually disable it) so we override it to be disabled and preserve the existing value
-        # to restore it.
-        was_disabled = server.state.is_disabled
-        server.state.is_disabled = True
-        callback_pending = False
-        try:
-            if not server.disconnected():
-                def disconnection_callback(_future: asyncio.Future[None]) -> None:
-                    assert server is not None
-                    server.state.is_disabled = was_disabled
-                callback_pending = server.add_disconnection_callback(disconnection_callback)
-                server.disconnect()
-
-            server.update(updated_key)
-        finally:
-            if not callback_pending:
-                server.state.is_disabled = was_disabled
-
-    def update_electrumx_server(self, existing_key: SVServerKey, updated_key: SVServerKey) \
-            -> None:
-        return app_state.async_.spawn_and_wait(self.update_electrumx_server_async,
-            existing_key, updated_key)
-
-    async def delete_electrumx_server_async(self, existing_key: SVServerKey,
-            callback: Optional[Callable[[], None]]=None) -> None:
-        server = SVServer.all_servers.get(existing_key)
-        if server is None:
-            raise KeyError("server does not exist")
-
-        def on_disconnection_completed(*_: Any) -> None:
-            assert server is not None
-            server.remove()
-            if callback is not None:
-                callback()
-
-        server.state.is_disabled = True
-        callback_pending = False
-        if server.add_disconnection_callback(on_disconnection_completed):
-            callback_pending = True
-        server.disconnect()
-        if not callback_pending:
-            on_disconnection_completed()
-
-    def delete_electrumx_server(self, existing_key: SVServerKey,
-            callback: Optional[Callable[[], None]]=None) -> None:
-        app_state.async_.spawn(self.delete_electrumx_server_async, existing_key, callback)
-
-    def _read_config_electrumx(self) -> Tuple[SVServer, Optional[SVProxy]]:
-        # Remove obsolete key
-        config = app_state.config
-        config.set_key('server_blacklist', None)
-        # The way SVServers are populated from config file is confusing. JSON.register() is called
-        # for SVServer and when the config is deserialized, the specially serialised SVServer
-        # entries are instantiated and in doing so they add themselves to the `all_servers` list.
-        logger.info('Read %d electrumx servers from config file', len(SVServer.all_servers))
-        # Add default servers if not present. If we add the ability for users to delete servers
-        # and they want to delete default serves, then this will override that.
-        for host, data in Net.DEFAULT_SERVERS_ELECTRUMX.items():
-            for protocol in 'st':
-                if protocol in data:
-                    SVServer.unique(host, data[protocol], protocol)
-
-        main_server = config.get('server', None)
-        if isinstance(main_server, str):
-            main_server = SVServer.from_string(main_server)
-            config.set_key('server', main_server, True)
-        if not isinstance(main_server, SVServer):
-            logger.info('choosing an SSL server randomly; none in config')
-            # TODO We need a better server selection mechanism where if we choose the secure
-            #   version it falls back to the insecure version if there is one specified.
-            if Net.COIN is BitcoinRegtest:
-                main_server = self._random_server_nowait('t')
-            else:
-                main_server = self._random_server_nowait('s')
-            if not main_server:
-                raise RuntimeError('no servers available')
-
-        proxy = config.get('proxy', None)
-        if isinstance(proxy, str):
-            proxy = SVProxy.from_string(proxy)
-
-        logger.info("main server: %s, proxy: %s", main_server, proxy)
-        return main_server, proxy
-
-    def _available_servers(self, protocol: str) -> List[SVServer]:
-        now = time.time()
-        unchosen = set(SVServer.all_servers.values()).difference(self._chosen_servers)
-        return [server for server in unchosen
-                if server.protocol == protocol and server.state.can_retry(now)]
-
-    def _random_server_nowait(self, protocol: str) -> Optional[SVServer]:
-        servers = self._available_servers(protocol)
-        return random.choice(servers) if servers else None
-
-    async def _random_server(self, protocol: str) -> SVServer:
-        while True:
-            server = self._random_server_nowait(protocol)
-            if server:
-                return server
-            await sleep(10)
-
-    async def _main_session(self) -> SVSession:
-        while True:
-            session = self.main_session()
-            if session:
-                return session
-            await self.sessions_changed_event.wait()
-
-    async def _random_session(self) -> SVSession:
-        while not self.sessions:
-            logger.info('waiting for new session')
-            await self.sessions_changed_event.wait()
-        return random.choice(self.sessions)
-
-    #
-    # API exposed to SVSession
-    #
-
-    async def session_established(self, session: SVSession) -> bool:
-        self.sessions.append(session)
-        self.sessions_changed_event.set()
-        self.sessions_changed_event.clear()
-        self.trigger_callback('sessions')
-        if session.server is self.main_server:
-            self.trigger_callback('status')
-            return True
-        return False
-
-    async def session_closed(self, session: SVSession) -> None:
-        self.sessions.remove(session)
-        self.sessions_changed_event.set()
-        self.sessions_changed_event.clear()
-        if session.server is self.main_server:
-            self.trigger_callback('status')
-        self.trigger_callback('sessions')
+        self.trigger_callback('updated')
+        # NOTE(AustEcon) What listens for the 'main_chain' event? dapps?
+        self.trigger_callback('main_chain', old_chain, new_chain)
 
     #
     # External API
@@ -1335,31 +437,11 @@ class Network(TriggeredCallbacks):
         self._main_task_active = False
         self.future.cancel()
         await self.shutdown_complete_event.wait()
-        assert not self.sessions
         self.subscriptions.stop()
         logger.warning('stopped')
 
-    def auto_connect(self) -> bool:
-        return app_state.config.get_explicit_type(bool, 'auto_connect', True)
-
     def is_connected(self) -> bool:
-        return self.main_session() is not None
-
-    def main_session(self) -> Optional['SVSession']:
-        '''Returns the session, if any, connected to main_server.'''
-        for session in self.sessions:
-            if session.server is self.main_server:
-                return session
-        return None
-
-    def get_servers(self) -> Iterable[SVServer]:
-        return SVServer.all_servers.values()
-
-    def get_server(self, key: SVServerKey) -> SVServer:
-        """
-        Raises `KeyError` if the server does not exist.
-        """
-        return SVServer.all_servers[key]
+        return self.esv_client is not None
 
     def get_config_mapi_servers(self) -> List[APIServerDefinition]:
         """
@@ -1431,6 +513,17 @@ class Network(TriggeredCallbacks):
         # These are all the available API servers registered within the application.
         return self._api_servers
 
+    def get_api_servers_for_headers(self) -> List[SelectionCandidate]:
+        selection_candidates: List[SelectionCandidate] = []
+        for api_server in self.get_api_servers().values():
+            selection_candidates.append(
+                SelectionCandidate(server_type=api_server.server_type, credential_id=None,
+                    api_server=api_server))
+
+        header_capable_servers = select_servers(ServerCapability.HEADERS,
+            selection_candidates)
+        return header_capable_servers
+
     def get_api_servers_for_account(self, account: "AbstractAccount",
             server_type: NetworkServerType) -> List[SelectionCandidate]:
         wallet = account.get_wallet()
@@ -1449,8 +542,6 @@ class Network(TriggeredCallbacks):
         """
         Whether the given server is configured to be unusable by anything.
         """
-        if server_type == NetworkServerType.ELECTRUMX:
-            return False
         return self._api_servers[ServerAccountKey(url, server_type)].is_unusable()
 
     def _create_config_api_server(self, server_key: ServerAccountKey,
@@ -1516,77 +607,102 @@ class Network(TriggeredCallbacks):
 
     def add_wallet(self, wallet: "Wallet") -> None:
         """ This wallet has been loaded and is now using this network. """
+        self._wallets.add(wallet)
         self._register_api_servers_for_wallet(wallet)
-        app_state.async_.spawn(self._wallet_jobs.put, ('add', wallet))
 
     def remove_wallet(self, wallet: "Wallet") -> List[NetworkServerState]:
         """ This wallet has been unloaded and is no longer using this network. """
+        self._wallets.remove(wallet)
         updated_states = self._unregister_all_api_servers_for_wallet(wallet)
-        app_state.async_.spawn(self._wallet_jobs.put, ('remove', wallet))
         return updated_states
 
     def chain(self) -> Optional[Chain]:
-        main_session = self.main_session()
-        if main_session:
-            return main_session.chain
         return cast(Headers, app_state.headers).longest_chain()
 
-    def get_local_height(self) -> int:
-        chain = self.chain()
-        # This can be called from network_dialog.py when there is no chain
-        return cast(int, chain.height) if chain else 0
+    async def force_connect_header(self, raw_header: bytes, height: int) -> None:
+        try:
+            assert app_state.headers is not None
+            app_state.headers.connect(raw_header)
+        except MissingHeader:
+            await self._fetch_missing_headers_at_heights([height])
 
-    def get_server_height(self) -> int:
-        main_session = self.main_session()
-        if main_session and main_session.tip:
-            return cast(int, main_session.tip.height)
-        return 0
+    async def _fetch_missing_headers_at_heights(self, heights: Iterable[int]) -> Dict[int, Header]:
+        MAX_HEADER_REQUEST_BATCH_SIZE = 2000
+        MAX_CONCEIVABLE_REORG_DEPTH = 100  # If deeper than this it will recurse until resolved
+        sorted_heights = sorted(heights)
 
-    def set_server(self, server: SVServer, auto_connect: bool) -> None:
-        config = app_state.config
-        config.set_key('server', server, True)
-        if config.get('server') is server:
-            config.set_key('auto_connect', auto_connect, False)
-            app_state.async_.spawn(self._set_main_server, server,
-                SwitchReason.user_set)
+        result: Dict[int, Header] = {}
+        while len(sorted_heights) != 0:
+            batch_heights = sorted_heights[0:MAX_HEADER_REQUEST_BATCH_SIZE]
+            sorted_heights = sorted_heights[MAX_HEADER_REQUEST_BATCH_SIZE:]
+            min_height = batch_heights[0]
+            max_height = batch_heights[-1]
+            esv_client = await self.get_esv_headers_client()
+            assert esv_client is not None
+            count = max_height - min_height + 1
+            logger.debug(f"Fetching headers %s from %s", count, min_height)
+            header_array = await esv_client.get_headers_by_height(min_height, count)
+            stream = BytesIO(header_array)
+            for height in batch_heights:
+                raw_header = stream.read(80)
+                try:
+                    cast(Headers, app_state.headers).connect(raw_header)
+                except MissingHeader:
+                    # NOTE(AustEcon) Recurse back until it reaches our local cache's
+                    # common parent header and successfully connects
+                    logger.error("Cannot connect missing header. Backfilling %s headers deep",
+                        MAX_CONCEIVABLE_REORG_DEPTH)
+                    from_height = max(height - MAX_CONCEIVABLE_REORG_DEPTH, 1)
 
-    def set_proxy(self, proxy: Optional[SVProxy]) -> None:
-        if str(proxy) == str(self.proxy):
-            return
-        app_state.config.set_key("proxy", proxy, False)
-        # See if config accepted the update
-        if str(app_state.config.get('proxy')) == str(proxy):
-            self.proxy = proxy
-            logger.info("Set proxy to %s", proxy)
-            app_state.async_.spawn(self._restart_network)
+                    to_height = height + 1  # And include the currently missing header
 
-    def sessions_by_chain(self) -> Dict[Chain, List[SVSession]]:
-        '''Return a map {chain: sessions} for each chain being followed by any session.'''
-        result: Dict[Chain, List[SVSession]] = defaultdict(list)
-        for session in self.sessions:
-            if session.chain:
-                result[session.chain].append(session)
+                    await self._fetch_missing_headers_at_heights(
+                        [height for height in range(from_height, to_height)])
+
+                assert app_state.headers is not None
+                header = app_state.headers.lookup(double_sha256(raw_header))
+                result[height] = header
         return result
 
+    def header_at_height(self, height: int) -> Header:
+        _header_at_height = cast(Headers, app_state.headers).header_at_height
+        return _header_at_height(self.chain(), height)
+
+    def header_for_hash(self, block_hash: bytes) -> Header:
+        header, _chains = cast(Headers, app_state.headers).lookup(block_hash)
+        return header
+
+    async def headers_at_heights(self, heights: Iterable[int]) -> Dict[int, Header]:
+        """This is the top-level API for getting headers and should be used preferentially.
+        It checks the local cache first but will 'fail over' to fetching and back-filling any
+        missing ones."""
+        result = {}
+        missing = []
+        for height in set(heights):
+            try:
+                result[height] = self.header_at_height(height)
+            except MissingHeader:
+                missing.append(height)
+        if missing:
+            await self._fetch_missing_headers_at_heights(missing)
+            for height in missing:
+                result[height] = self.header_at_height(height)
+        return result
+
+    # TODO(1.4.0) This is no longer actually used in any meaningful way at present -> delete or use
+    def auto_connect(self) -> bool:
+        return app_state.config.get_explicit_type(bool, 'auto_connect', True)
+
     def status(self) -> Dict[str, Any]:
+        assert self.esv_client is not None
+        server_height = 0
+        if self.esv_client_cached_tip is not None:
+            server_height = self.esv_client_cached_tip.height
         return {
-            'server': str(self.main_server),
+            'server': str(self.esv_client.base_url),
             'blockchain_height': self.get_local_height(),
-            'server_height': self.get_server_height(),
-            'spv_nodes': len(self.sessions),
+            'server_height': server_height,
+            # 'spv_nodes': len(self.sessions),
             'connected': self.is_connected(),
             'auto_connect': self.auto_connect(),
         }
-
-    # FIXME: this should be removed; its callers need to be fixed
-    def request_and_wait(self, method: str, args: Any) -> Any:
-        async def send_request() -> Any:
-            # We'll give 10 seconds for the wallet to reconnect..
-            async with timeout_after(10):
-                session = await self._main_session()
-            return await session.send_request(method, args)
-
-        return app_state.async_.spawn_and_wait(send_request)
-
-
-JSON.register(SVServerState, SVServer, SVProxy)

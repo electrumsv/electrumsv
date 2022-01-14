@@ -60,7 +60,7 @@ from ..transaction import Transaction
 
 
 if TYPE_CHECKING:
-    from ..network import SVServer, Network
+    from ..network import Network
     from ..wallet import AbstractAccount
 
 __all__ = [ "NewServerAPIContext", "NewServerAccessState", "NewServer" ]
@@ -110,11 +110,6 @@ SERVER_CAPABILITIES = {
         CapabilitySupport(_("Transaction proofs"), ServerCapability.MERKLE_PROOF_NOTIFICATION,
             is_unsupported=True),
     ],
-    NetworkServerType.ELECTRUMX: [
-        CapabilitySupport(_("Blockchain scanning"), ServerCapability.SCRIPTHASH_HISTORY),
-        CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST),
-        CapabilitySupport(_("Transaction proofs"), ServerCapability.MERKLE_PROOF_REQUEST),
-    ]
 }
 
 
@@ -439,7 +434,6 @@ class SelectionCandidate(NamedTuple):
     server_type: NetworkServerType
     credential_id: Optional[IndefiniteCredentialId]
     api_server: Optional[NewServer] = None
-    electrumx_server: Optional["SVServer"] = None
 
 
 def select_servers(capability_type: ServerCapability, candidates: List[SelectionCandidate]) \
@@ -524,10 +518,6 @@ def prioritise_broadcast_servers(estimated_tx_size: TransactionSize,
             assert key_state.last_fee_quote is not None
             estimator = MAPIFeeEstimator(key_state.last_fee_quote)
             fee_estimator = estimator.estimate_fee
-        elif candidate.server_type == NetworkServerType.ELECTRUMX:
-            # NOTE At some point if ElectrumX servers stick around maybe they will do their
-            #   own fee quotes.
-            fee_estimator = electrumx_fee_estimator
         else:
             raise NotImplementedError(f"Unsupported server type {candidate.server_type}")
         initial_fee = fee_estimator(estimated_tx_size)

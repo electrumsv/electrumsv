@@ -768,22 +768,25 @@ def read_payment_requests(db: sqlite3.Connection, account_id: int,
         for t in db.execute(sql, sql_values).fetchall() ]
 
 
-# TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
-# @replace_db_context_with_connection
-# def read_reorged_transactions(db: sqlite3.Connection, reorg_height: int) -> List[bytes]:
-#     """
-#     Identify all transactions that were verified in the orphaned chain as part of a reorg.
-#     """
-#     sql = (
-#         "SELECT tx_hash "
-#         "FROM Transactions "
-#         f"WHERE block_height>? AND flags&{TxFlags.STATE_SETTLED}!=0"
-#     )
-#     sql_values = (reorg_height,)
-#     cursor = db.execute(sql, sql_values)
-#     rows = [ tx_hash for (tx_hash,) in cursor.fetchall() ]
-#     cursor.close()
-#     return rows
+@replace_db_context_with_connection
+def read_reorged_transactions(db: sqlite3.Connection,
+        orphaned_block_hashes: List[bytes]) -> List[bytes]:
+    """
+    Identify all transactions that were verified in the orphaned chain as part of a reorg.
+    """
+    # TODO(1.4.0) Update unittest
+
+    sql = f"""
+        SELECT tx_hash
+        FROM Transactions
+        WHERE block_hash IN ({','.join('?' for k in orphaned_block_hashes)})
+        AND flags&{TxFlags.STATE_SETTLED}!=0
+    """
+    sql_values = orphaned_block_hashes
+    cursor = db.execute(sql, sql_values)
+    rows = [ tx_hash for (tx_hash,) in cursor.fetchall() ]
+    cursor.close()
+    return rows
 
 
 @replace_db_context_with_connection
@@ -1390,31 +1393,33 @@ def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxF
     return db_context.post_to_thread(_write)
 
 
-# TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
-# def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]) \
-#         -> concurrent.futures.Future[bool]:
-#     """
-#     Reset transactions back to unverified state as a batch.
+# TODO(1.4.0) - There are currently no tasks or initial startup procedures that check for
+#  STATE_CLEARED transactions with no proof data. Therefore, post reorg, these transactions
+#  will remain as STATE_CLEARED.
+def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]) \
+        -> concurrent.futures.Future[bool]:
+    """
+    Reset transactions back to unverified state as a batch.
 
-#     NOTE This may not restore the correct block height, which is prohibitive. 0 is unconfirmed,
-#     and -1 is unconfirmed parents. We do not have the information to know if it has unconfirmed
-#     parents.
-#     """
-#     timestamp = get_posix_timestamp()
-#     sql = (
-#         "UPDATE Transactions "
-#         "SET date_updated=?, flags=(flags&?)|?, block_hash=NULL, block_position=NULL, "
-#             "fee_value=NULL, proof_data=NULL "
-#         "WHERE tx_hash IN ({})")
-#     sql_values = [ timestamp, ~TxFlags.MASK_STATE, TxFlags.STATE_CLEARED ]
+    NOTE This may not restore the correct block height, which is prohibitive. 0 is unconfirmed,
+    and -1 is unconfirmed parents. We do not have the information to know if it has unconfirmed
+    parents.
+    """
+    timestamp = get_posix_timestamp()
+    sql = (
+        "UPDATE Transactions "
+        "SET date_updated=?, flags=(flags&?)|?, block_hash=NULL, block_position=NULL, "
+            "fee_value=NULL, proof_data=NULL "
+        "WHERE tx_hash IN ({})")
+    sql_values = [ timestamp, ~TxFlags.MASK_STATE, TxFlags.STATE_CLEARED ]
 
-#     def _write(db: sqlite3.Connection) -> bool:
-#         rows_updated = execute_sql_by_id(db, sql, sql_values, tx_hashes)[0]
-#         if rows_updated < len(tx_hashes):
-#             # Rollback the database transaction (nothing to rollback but upholding the convention)
-#             raise DatabaseUpdateError("Rollback as nothing updated")
-#         return True
-#     return db_context.post_to_thread(_write)
+    def _write(db: sqlite3.Connection) -> bool:
+        rows_updated = execute_sql_by_id(db, sql, sql_values, tx_hashes)[0]
+        if rows_updated < len(tx_hashes):
+            # Rollback the database transaction (nothing to rollback but upholding the convention)
+            raise DatabaseUpdateError("Rollback as nothing updated")
+        return True
+    return db_context.post_to_thread(_write)
 
 
 def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[Outpoint],

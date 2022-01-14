@@ -3,6 +3,7 @@ import json
 import logging
 from typing import cast
 
+import bitcoinx
 from aiohttp import web
 from aiohttp import ClientSession
 from aiohttp.web_ws import WebSocketResponse
@@ -11,7 +12,8 @@ from bitcoinx import hash_to_hex_str
 from electrumsv.network_support.esv_client import ESVClient, PeerChannel
 from electrumsv.network_support.esv_client_types import PeerChannelToken, TokenPermissions, \
     GeneralNotification, ChannelNotification, MAPICallbackResponse
-from electrumsv.tests.data.reference_server.headers_data import GENESIS_TIP
+from electrumsv.tests.data.reference_server.headers_data import GENESIS_TIP_NOTIFICATION_BINARY, \
+    GENESIS_HEADER
 
 logger = logging.getLogger("test-esv-client")
 
@@ -143,9 +145,9 @@ async def mock_get_headers_by_height(request: web.Request):
 async def mock_get_chain_tips(request: web.Request):
     try:
         accept_type = request.headers.get('Accept')
-        assert accept_type != 'application/octet-stream'
-        tips = [GENESIS_TIP]
-        return web.json_response(tips)
+        assert accept_type == 'application/octet-stream'
+        headers_array = GENESIS_HEADER + bitcoinx.int_to_le_bytes(0)
+        return web.Response(body=headers_array, content_type='application/octet-stream')
     except AssertionError as e:
         raise web.HTTPBadRequest(reason=str(e))
 
@@ -156,7 +158,7 @@ async def mock_headers_websocket(request: web.Request) -> WebSocketResponse:
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     try:
-        await ws.send_json(GENESIS_TIP)
+        await ws.send_bytes(GENESIS_TIP_NOTIFICATION_BINARY)
         return ws
     finally:
         if not ws.closed:
@@ -349,7 +351,7 @@ async def test_get_headers_by_height(test_client):
 
 
 async def test_get_chain_tips(test_client):
-    expected_response = [GENESIS_TIP]
+    expected_response = GENESIS_HEADER + bitcoinx.int_to_le_bytes(0)
     test_session = await test_client(create_app)
     esv_client: ESVClient = await _get_esv_client(test_session)
     result = await esv_client.get_chain_tips()

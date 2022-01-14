@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 import os
 import stat
@@ -11,7 +12,7 @@ from .constants import DEFAULT_FEE
 from .logs import logs
 from .platform import platform
 from .types import TransactionSize
-from .util import make_dir, JSON
+from .util import make_dir
 
 
 logger = logs.get_logger("config")
@@ -215,7 +216,7 @@ class SimpleConfig:
         if not self.path:
             return
         path = os.path.join(self.path, "config")
-        s = JSON.dumps(self.user_config, indent=4, sort_keys=True)
+        s = json.dumps(self.user_config, indent=4, sort_keys=True)
         with open(path, "w", encoding='utf-8') as f:
             f.write(s)
         os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
@@ -277,7 +278,7 @@ def read_user_config(path: str) -> Dict[str, Any]:
     try:
         with open(config_path, "r", encoding='utf-8') as f:
             data = f.read()
-        result = JSON.loads(data)
+        result = json.loads(data)
     except Exception:
         logger.exception("Cannot read config file %s.", config_path)
         return {}

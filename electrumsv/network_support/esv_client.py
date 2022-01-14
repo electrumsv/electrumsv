@@ -36,21 +36,25 @@
 
 import asyncio
 import base64
+import http
 import json
 from typing import List, Union, Optional, AsyncIterable, Dict, cast
 
 import aiohttp
+import bitcoinx
 from aiohttp import web, WSServerHandshakeError
-from bitcoinx import hash_to_hex_str
+from bitcoinx import hash_to_hex_str, Header, unpack_header, double_sha256
 
+from electrumsv.exceptions import ServiceUnavailableError
+from electrumsv.network_support.exceptions import HeaderNotFoundError, HeaderResponseError
 from ..bitcoin import TSCMerkleProof
 from ..logs import logs
 
 from electrumsv.network_support.esv_client_types import (PeerChannelToken, TokenPermissions,
     MessageViewModelGetBinary, GenericJSON, MessageViewModelGetJSON, APITokenViewModelGet,
-    PeerChannelViewModelGet, RetentionViewModel, TipResponse, Error, GeneralNotification, ChannelId,
-    WebsocketUnauthorizedException, PeerChannelMessage, MAPICallbackResponse, WebsocketError,
-    TSCMerkleProofJson, tsc_merkle_proof_json_to_binary)
+    PeerChannelViewModelGet, RetentionViewModel, GeneralNotification, ChannelId,
+    WebsocketUnauthorizedException, PeerChannelMessage, MAPICallbackResponse, TSCMerkleProofJson,
+    tsc_merkle_proof_json_to_binary, TipResponse)
 
 logger = logs.get_logger("esv-client")
 
@@ -59,6 +63,13 @@ logger = logs.get_logger("esv-client")
 # It has an associated infinite balance i.e. unlimited use is permitted without payment.
 REGTEST_MASTER_TOKEN = "t80Dp_dIk1kqkHK3P9R5cpDf67JfmNixNscexEYG0_xa" \
                        "CbYXKGNm4V_2HKr68ES5bytZ8F19IS0XbJlq41accQ=="
+
+
+def chain_tip_to_header_obj(tip: bytes) -> Header:
+    raw_header = tip[0:80]
+    height = bitcoinx.le_bytes_to_int(tip[80:84])
+    header_fields = unpack_header(raw_header)
+    return Header(*header_fields, raw=raw_header, height=height, hash=double_sha256(raw_header))
 
 
 class PeerChannel:
@@ -106,7 +117,7 @@ class PeerChannel:
 
         headers = {"Authorization": f"Bearer {read_token.api_key}"}
         async with self.session.get(url, headers=headers) as resp:
-            if resp.status != 200:
+            if resp.status != http.HTTPStatus.OK:
                 logger.error("get_messages failed with status: %s, reason: %s",
                     resp.status, resp.reason)
                 return None
@@ -122,7 +133,7 @@ class PeerChannel:
 
         headers = {"Authorization": f"Bearer {read_token.api_key}"}
         async with self.session.head(url, headers=headers) as resp:
-            if resp.status != 200:
+            if resp.status != http.HTTPStatus.OK:
                 logger.error("get_max_sequence_number failed with status: %s, reason: %s",
                     resp.status, resp.reason)
                 return None
@@ -322,20 +333,34 @@ class ESVClient:
                         logger.info("General purpose websocket closed")
                         break
         except WSServerHandshakeError as e:
-            if e.status == 401:
+            if e.status == http.HTTPStatus.UNAUTHORIZED:
                 raise WebsocketUnauthorizedException()
-            raise
+            raise ServiceUnavailableError("Websocket handshake ElectrumSV-Reference Server failed")
+        except aiohttp.ClientConnectionError:
+            # NOTE(AustEcon) we must never include the api token in logs or exceptions
+            logger.error(f"Cannot connect to ElectrumSV-Reference Server at %s",
+                ws_base_url + "api/v1/web-socket")
+            raise ServiceUnavailableError("Cannot connect to ElectrumSV-Reference Server "
+                f"at {ws_base_url + 'api/v1/web-socket'}")
 
     # ----- HeaderSV APIs ----- #
-    async def get_single_header(self, block_hash: bytes) -> bytes:
+    async def get_single_header(self, block_hash: bytes) -> Optional[bytes]:
         url = self.base_url + f"api/v1/headers/{hash_to_hex_str(block_hash)}"
         headers = {}
         headers.update(self.headers)
         headers.update({"Accept": "application/octet-stream"})
-        async with self.session.get(url, headers=headers) as resp:
-            resp.raise_for_status()  # Todo - remove and handle outcomes when we use this
-            raw_header = await resp.read()
-            return raw_header
+        try:
+            async with self.session.get(url, headers=headers) as resp:
+                if resp.status == http.HTTPStatus.NOT_FOUND:
+                    raise HeaderNotFoundError("Header with block hash "
+                                              f"{hash_to_hex_str(block_hash)} not found")
+                elif resp.status != http.HTTPStatus.OK:
+                    raise HeaderResponseError("Failed to get header with status: "
+                                              f"{resp.status} reason: {resp.reason}")
+                return await resp.read()
+        except aiohttp.ClientConnectionError:
+            logger.error(f"Cannot connect to ElectrumSV-Reference Server at %s", url)
+            raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
     async def get_headers_by_height(self, from_height: int, count: Optional[int]=None) \
             -> bytes:
@@ -345,42 +370,65 @@ class ESVClient:
         headers = {}
         headers.update(self.headers)
         headers.update({"Accept": "application/octet-stream"})
-        async with self.session.get(url, headers=headers) as resp:
-            resp.raise_for_status()  # Todo - remove and handle outcomes
-            raw_headers_array = await resp.read()
-            return raw_headers_array
+        try:
+            async with self.session.get(url, headers=headers) as resp:
+                if resp.status != http.HTTPStatus.OK:
+                    error_message = f"get_headers_by_height failed with status: {resp.status}, " \
+                                    f"reason: {resp.reason}"
+                    logger.error(error_message)
+                    raise HeaderResponseError(error_message)
+                raw_headers_array = await resp.read()
+                return raw_headers_array
+        except aiohttp.ClientConnectionError:
+            logger.error(f"Cannot connect to ElectrumSV-Reference Server at %s", url)
+            raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
-    async def get_chain_tips(self) -> TipResponse:
+    async def get_chain_tips(self, longest_chain_only: bool=False) -> bytes:
         url = self.base_url + "api/v1/headers/tips"
+        if longest_chain_only:
+            url += "?longest_chain=1"
         headers = {}
         headers.update(self.headers)
-        headers.update({"Accept": "application/json"})
-        async with self.session.get(url, headers=self.headers) as resp:
-            resp.raise_for_status()  # Todo - remove and handle outcomes
-            json_tip_response: TipResponse = await resp.json()
-            return json_tip_response
+        headers.update({"Accept": "application/octet-stream"})
+        try:
+            async with self.session.get(url, headers=headers) as resp:
+                if resp.status == http.HTTPStatus.SERVICE_UNAVAILABLE:
+                    logger.error("The Header API is not enabled for this instance of "
+                                 "ElectrumSV-Reference-Server")
+                    raise ServiceUnavailableError("The Header API is not enabled for this instance "
+                        "of ElectrumSV-Reference-Server")
+
+                if resp.status != http.HTTPStatus.OK:
+                    error_message = f"get_chain_tips failed with status: {resp.status}, " \
+                                    f"reason: {resp.reason}"
+                    logger.error(error_message)
+                    raise HeaderResponseError(error_message)
+                headers_array: bytes = await resp.content.read()
+                return headers_array
+        except aiohttp.ClientConnectionError:
+            logger.error(f"Cannot connect to ElectrumSV-Reference Server at %s", url)
+            raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
     async def subscribe_to_headers(self) -> AsyncIterable[TipResponse]:
         ws_base_url = self._replace_http_with_ws(self.base_url)
         url = ws_base_url + "api/v1/headers/tips/websocket"
-
-        logger.debug(f"URL IS: {url}")
-        async with self.session.ws_connect(url, headers={}, timeout=5.0) as ws:
-            logger.debug(f'Connected to {url}')
-            async for msg in ws:
-                content: Union[TipResponse, Error] = json.loads(msg.data)
-                logger.debug(f'Message new chain tip hash: {content}')
-                if isinstance(content, dict) and content.get('error'):
-                    error_content = cast(Dict[str, WebsocketError], content)
-                    error: Error = Error.from_websocket_dict(error_content)
-                    logger.debug(f"Websocket error: {error}")
-                    if error.status == web.HTTPUnauthorized.status_code:
-                        raise web.HTTPUnauthorized()
-                else:
-                    yield cast(TipResponse, content)
-
-                if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                    break
+        try:
+            async with self.session.ws_connect(url, headers={}, timeout=5.0) as ws:
+                logger.debug("Connected to %s", url)
+                async for msg in ws:
+                    content = cast(bytes, msg.data)
+                    raw_header = content[0:80]
+                    block_hash = hash_to_hex_str(double_sha256(raw_header))
+                    logger.info("Message new chain tip hash: %s", block_hash)
+                    height = bitcoinx.le_bytes_to_int(content[80:84])
+                    yield TipResponse(raw_header, height)
+                    if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                        break
+        except WSServerHandshakeError:
+            raise ServiceUnavailableError("Websocket handshake ElectrumSV-Reference Server failed")
+        except (aiohttp.ClientConnectionError, ConnectionRefusedError):
+            logger.error(f"Cannot connect to ElectrumSV-Reference Server at %s", url)
+            raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
     # ----- Peer Channel APIs ----- #
     async def create_peer_channel(self, public_read: bool=True, public_write: bool=True,
@@ -429,7 +477,7 @@ class ESVClient:
         base_url = self.base_url if self.base_url.endswith("/") else self.base_url + "/"
         url = base_url + "api/v1/channel/manage/{channelid}".format(channelid=channel_id)
         async with self.session.get(url, headers=self.headers) as resp:
-            if resp.status != 200:
+            if resp.status != http.HTTPStatus.OK:
                 logger.error("get_single_peer_channel failed with status: %s, reason: %s",
                     resp.status, resp.reason)
                 return None

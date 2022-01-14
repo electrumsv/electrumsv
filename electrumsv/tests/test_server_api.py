@@ -52,10 +52,6 @@ def test_select_servers_filter_all_outputs() -> None:
             NetworkServerType.MERCHANT_API,
             None,
             api_server.NewServer("A", NetworkServerType.MERCHANT_API)),
-        api_server.SelectionCandidate(
-            NetworkServerType.ELECTRUMX,
-            None,
-            api_server.NewServer("B", NetworkServerType.ELECTRUMX)),
     ]
     selected_candidates = api_server.select_servers(ServerCapability.TRANSACTION_BROADCAST, servers)
     assert servers == selected_candidates
@@ -67,10 +63,6 @@ def test_select_servers_filter_reduced_outputs() -> None:
             NetworkServerType.MERCHANT_API,
             None,
             api_server.NewServer("A", NetworkServerType.MERCHANT_API)),
-        api_server.SelectionCandidate(
-            NetworkServerType.ELECTRUMX,
-            None,
-            api_server.NewServer("B", NetworkServerType.ELECTRUMX)),
     ]
     selected_candidates = api_server.select_servers(ServerCapability.FEE_QUOTE, servers)
     assert [ servers[0] ] == selected_candidates
