@@ -258,7 +258,7 @@ class AbstractStore:
         raise NotImplementedError
 
     def write(self) -> None:
-        if threading.current_thread().isDaemon():
+        if threading.current_thread().daemon:
             logger.error('daemon thread cannot write wallet')
             return
 
