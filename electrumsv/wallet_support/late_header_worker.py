@@ -164,6 +164,8 @@ async def _process_one_merkle_proof(db_functions_async: AsynchronousFunctions,
 
     tsc_proof = TSCMerkleProof.from_bytes(proof_data)
     if verify_proof(tsc_proof, header.merkle_root):
+        # TODO(1.4.0) This should be a database call that checks the transaction is still in the
+        #     state where it needs processing, and if it is not, then we log an error and move on.
         if await db_functions_async.update_transaction_flags_async(tx_hash,
                 TxFlags.STATE_SETTLED, ~TxFlags.MASK_STATE):
             callback = state.verification_callback()

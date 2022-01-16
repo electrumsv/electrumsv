@@ -65,9 +65,10 @@ class TxFlags(IntFlag):
     # TODO(technical-debt) Flatten down these flags to a set of packed values as they are all
     #     separate states of which a transaction can only be one. This should be able to be done
     #     in a database migration.
+
     # A transaction known to the p2p network which is unconfirmed and in the mempool.
     STATE_CLEARED = 1 << 20
-    # A transaction known to the p2p network which is confirmed and known to be in a block.
+    # A transaction known to the p2p network which is confirmed and verified as being in a block.
     STATE_SETTLED = 1 << 21
     # A transaction received from another party which is unknown to the p2p network.
     STATE_RECEIVED = 1 << 22
@@ -406,6 +407,7 @@ class ServerCapability(IntEnum):
     TRANSACTION_REQUEST = 7
     HEADERS = 8
     PEER_CHANNELS = 9
+    OUTPUT_SPENDS = 10
 
 
 PREFIX_ASM_SCRIPT = "asm:"

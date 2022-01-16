@@ -96,12 +96,16 @@ class CapabilitySupport:
     can_disable: bool=False
 
 
+# TODO(1.4.0) This kind of overrides the api server configurations, which kind of also should
+#     be replaced by the endpoints API results for each server. We should get rid of this, or
+#     use it for `MERCHANT_API` and other server types that do not have an 'endpoints' endpoint.
 SERVER_CAPABILITIES = {
     NetworkServerType.GENERAL: [
         CapabilitySupport(_("Account restoration"), ServerCapability.RESTORATION),
         CapabilitySupport(_("Arbitrary proof requests"), ServerCapability.MERKLE_PROOF_REQUEST),
         CapabilitySupport(_("Arbitrary transaction requests"),
             ServerCapability.TRANSACTION_REQUEST),
+        CapabilitySupport(_("Output spend notifications"), ServerCapability.OUTPUT_SPENDS),
     ],
     NetworkServerType.MERCHANT_API: [
         CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST,
@@ -476,6 +480,9 @@ def select_servers(capability_type: ServerCapability, candidates: List[Selection
 
 def pick_server_for_account(network: Optional[Network], account: AbstractAccount,
         capability: ServerCapability) -> str:
+    """
+    Raises `ServiceUnavailableError` if no servers are known that provide that capability.
+    """
     assert network is not None
     all_candidates = network.get_api_servers_for_account(
         account, NetworkServerType.GENERAL)

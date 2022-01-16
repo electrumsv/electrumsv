@@ -76,8 +76,8 @@ from ...types import ExceptionInfoType, Outpoint, WaitingUpdateCallback
 from ...util import format_fee_satoshis, get_wallet_name_from_path, profiler
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, AccountInstantiationFlags, Wallet
-from ...wallet_database.types import (InvoiceRow, KeyDataProtocol, TransactionBlockRow,
-    TransactionLinkState, TransactionOutputSpendableProtocol)
+from ...wallet_database.types import (InvoiceRow, KeyDataProtocol, TransactionLinkState,
+    TransactionOutputSpendableProtocol)
 from ... import web
 
 from .amountedit import AmountEdit, BTCAmountEdit
@@ -328,7 +328,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             -> None:
         self.wallet_setting_changed_signal.emit(setting_name, setting_value)
 
-    def _on_transaction_heights_updated(self, args: Tuple[int, List[TransactionBlockRow]]) -> None:
+    # TODO(1.4.0) This was called from the transaction script hash event handling. It was done
+    #     after the blocks that transactions were in were updated
+    def _on_transaction_heights_updated(self, args: Tuple[int, int]) -> None:
         self.utxo_list.update()
 
     def _dispatch_in_ui_thread(self, event_name: str, *args: Any) -> None:

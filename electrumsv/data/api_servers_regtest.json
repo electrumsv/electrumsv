@@ -6,7 +6,8 @@
         "capabilities": [
             "RESTORATION",
             "MERKLE_PROOF_REQUEST",
-            "TRANSACTION_REQUEST"
+            "TRANSACTION_REQUEST",
+            "OUTPUT_SPENDS"
         ],
         "enabled_for_all_wallets": true,
         "api_key_supported": false,

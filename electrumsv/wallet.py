@@ -55,7 +55,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath, TransactionImportFlag,
     KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags, MAX_VALUE,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerType,
-    pack_derivation_path, PaymentFlag, PendingHeaderWorkKind, RECEIVING_SUBPATH,
+    pack_derivation_path, PaymentFlag, PendingHeaderWorkKind, RECEIVING_SUBPATH, ServerCapability,
     SubscriptionOwnerPurpose, SubscriptionType, ScriptType, TransactionInputFlag,
     TransactionOutputFlag, TxFlags, unpack_derivation_path,
     WALLET_ACCOUNT_PATH_TEXT,
@@ -71,9 +71,11 @@ from .keystore import (BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore
     instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, SinglesigKeyStoreTypes,
     SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
-from .network_support.general_api import GeneralAPIError, MerkleProofMissingHeaderError, \
-    MerkleProofVerificationError, request_binary_merkle_proof_async, \
-    request_transaction_data_async, TransactionNotFoundError
+from .network_support.api_server import pick_server_for_account
+from .network_support.general_api import GeneralAPIError, maintain_spent_output_connection_async, \
+    MerkleProofMissingHeaderError, MerkleProofVerificationError, \
+    request_binary_merkle_proof_async, request_transaction_data_async, SpentOutputWorkerState, \
+    TransactionNotFoundError
 from .networks import Net
 from .storage import WalletStorage
 from .transaction import (HardwareSigningMetadata, Transaction, TransactionContext,
@@ -83,7 +85,7 @@ from .types import (SubscriptionDerivationData,
     KeyInstanceDataBIP32SubPath,
     KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult, MasterKeyDataTypes,
     MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
-    NetworkServerState, ServerAccountKey, SubscriptionEntry,
+    NetworkServerState, OutputSpend, ServerAccountKey, SubscriptionEntry,
     SubscriptionKey, SubscriptionDerivationScriptHashOwnerContext,
     SubscriptionOwner, SubscriptionKeyScriptHashOwnerContext,
     Outpoint, WaitingUpdateCallback,
@@ -97,13 +99,15 @@ from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataProtocol, KeyData,
-    KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow, MasterKeyRow,
+    KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow,
+    MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult, PaymentRequestReadRow,
-    PaymentRequestRow, PaymentRequestUpdateRow, TransactionBlockRow, TransactionDeltaSumRow,
+    PaymentRequestRow, PaymentRequestUpdateRow, SpentOutputRow,
+    TransactionDeltaSumRow,
     TransactionExistsRow, TransactionLinkState, TransactionMetadata,
     TransactionOutputShortRow, TransactionOutputSpendableRow, TransactionOutputSpendableProtocol,
     TransactionValueRow, TransactionInputAddRow, TransactionOutputAddRow, TransactionRow,
-    WalletBalance, WalletEventRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags)
+    WalletBalance, WalletEventRow)
 from .wallet_database.util import create_derivation_data2
 from .wallet_support import late_header_worker
 
@@ -868,58 +872,6 @@ class AbstractAccount:
     #                 subscription_keyinstance_ids), self._subscription_owner_for_keys)
 
     # TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
-    # def register_for_transaction_proofs(self, tx_hash: Optional[bytes]=None) -> None:
-    #     """
-    #     Observe our mempool and local transactions though one registered script hash.
-
-    #     This accomplishes two things, it notifies the wallet when our transactions are mined
-    #     so we can display the status change and it allows us to grab the merkle proof for
-    #     the transaction so that we can provide as necessary with the outputs in order to spend
-    #     them.
-
-    #     At this time we grab the merkle proof for all transactions and not just those with
-    #     UTXOs, but this will be the minority of cases. We can revisit the whole merkle proof
-    #     model when there is an SPV server-based system that can provide all the merkle proofs
-    #     in a standard way.
-    #     """
-    #     assert self._network is not None
-    #     # At this point, this is used to get a script hash per transaction that does not have
-    #     # a proof. In theory, we could just grab the script hash of the first output of any
-    #     # unproven transaction, but it is not a given that all transactions have outputs let
-    #     # alone outputs that can be used for this. If there is one, we use the script hash for
-    #     # it but if there isn't we will use the script hash of a spent output and associate
-    #     # it with the unproven spending transaction.
-    #     tx_seen: Set[bytes] = set()
-    #     tx_rows_by_script_hash: Dict[bytes, List[TransactionSubscriptionRow]] = {}
-    #     tx_subscription_entries: List[SubscriptionEntry] = []
-    #     for tx_row in self._wallet.read_keys_for_transaction_subscriptions(self._id, tx_hash):
-    #         # It is possible we will get multiple entries for a transaction. Does it happen?
-    #         if tx_row.tx_hash in tx_seen:
-    #             continue
-    #         tx_seen.add(tx_row.tx_hash)
-    #         if tx_row.script_hash in tx_rows_by_script_hash:
-    #             # The subscription entry has a reference to this, so appending will add
-    #             # to that subscription.
-    #             tx_rows_by_script_hash[tx_row.script_hash].append(tx_row)
-    #         else:
-    #             tx_entry_rows = tx_rows_by_script_hash[tx_row.script_hash] = [ tx_row ]
-    #             tx_entry = SubscriptionEntry(
-    #                 SubscriptionKey(SubscriptionType.SCRIPT_HASH, tx_row.script_hash),
-    #                 SubscriptionTransactionScriptHashOwnerContext(tx_entry_rows))
-    #             tx_subscription_entries.append(tx_entry)
-
-    #     if len(tx_subscription_entries):
-    #         self._logger.debug("Creating %d transaction subscriptions (tx_hash=%s)",
-    #             len(tx_subscription_entries),
-    #             hash_to_hex_str(tx_hash) if tx_hash is not None else None)
-    #         self._network.subscriptions.create_entries(tx_subscription_entries,
-    #             self._subscription_owner_for_transactions)
-
-    #     # This will awaken the loop that pulls in proofs for transactions we know are mined
-    #     # but have not yet fetched the proof for.
-    #     self._wallet._check_missing_transactions_event.set()
-
-    # TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
     # async def _on_network_key_script_hash_result(self, subscription_key: SubscriptionKey,
     #         context: SubscriptionKeyScriptHashOwnerContext,
     #         history: ScriptHashHistoryList) -> None:
@@ -982,103 +934,6 @@ class AbstractAccount:
     #     if obtain_missing_transactions:
     #         await self._wallet.maybe_obtain_transactions_async(tx_hashes, REMOVED
     #             tx_heights, tx_fee_hints)
-
-    # TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
-    # # TODO unit test malleation replacement of a transaction
-    # # TODO unit test spam transaction presence
-    # async def _on_network_transaction_script_hash_result(self, subscription_key: SubscriptionKey,
-    #         context: SubscriptionTransactionScriptHashOwnerContext,
-    #         history: ScriptHashHistoryList) -> None:
-    #     """
-    #     Receive an event related to this account and it's published account-related transactions.
-
-    #     `history` is in immediately usable order. Transactions are listed in ascending
-    #     block height (height > 0), followed by the unconfirmed (height == 0) and then
-    #     those with unconfirmed parents (height < 0).
-
-    #         [
-    #             { "tx_hash": "e232...", "height": 111 },
-    #             { "tx_hash": "df12...", "height": 222 },
-    #             { "tx_hash": "aa12...", "height": 0, "fee": 400 },
-    #             { "tx_hash": "bb12...", "height": -1, "fee": 300 },
-    #         ]
-
-    #     Use cases handled:
-    #     * Ignore all information about unknown transactions that use this key, and solely
-    #       observe whether the given transaction is mined in order to know when we can obtain a
-    #       merkle proof.
-    #       - The user creates a local transaction and gives it to another party.
-    #       - The user creates and broadcasts a payment (pays to a payment destination).
-    #       - The user is paying an invoice.
-    #       - The user makes a payment to via Paymail.
-    #       - The user receives a payment via Paymail.
-
-    #     Note that we are called synchronously from the network.
-    #     """
-    #     if not history:
-    #         return
-
-    #     tx_heights: Dict[bytes, int] = {}
-    #     for entry in history:
-    #         tx_hash = hex_str_to_hash(entry["tx_hash"])
-    #         # NOTE(typing) The storage of mixed type values in the history gives false positives.
-    #         tx_heights[tx_hash] = entry["height"] # type: ignore
-
-    #     async with self._wallet._obtain_proofs_async_lock:
-    #         entries: List[TransactionBlockRow] = []
-    #         pending_rows: List[TransactionSubscriptionRow] = []
-    #         for row in context.tx_rows[:]:
-    #             if row.tx_hash in tx_heights:
-    #                 # The transaction is either present in the mempool or in a block. We can
-    #                 # update the hash and clear the proof.
-    #                 block_height = tx_heights[row.tx_hash]
-    #                 block_hash = self._wallet._get_header_hash_for_height(block_height)
-    #                 entries.append(TransactionBlockRow(block_hash, row.tx_hash))
-    #                 # If the transaction is in a block, it will be in a state in the database
-    #                 # where we do not need to monitor it any more. If it is in the mempool we
-    #                 # need to wait for it to be included in a block, and will continue to monitor
-    #                 # it.
-    #                 if block_height > BlockHeight.MEMPOOL:
-    #                     context.tx_rows.remove(row)
-    #             else:
-    #                 pending_rows.append(row)
-
-    #         # Process any subscription transactions we did not locate if we can.
-    #         if len(pending_rows) and len(entries) < len(tx_heights):
-    #             # There are several possibilities here.
-    #             #
-    #             # 1. The transaction has been malleated and is present with another hash.
-    #             # 2. The transaction is not present but others are perhaps in the form of spam
-    #             #    transactions that we do not want to have.
-    #             #
-    #             # We need to fetch each transaction and analyse them. This should be the exception
-    #             # rather than the rule, so should not be that common. As the chance of users
-    #             # seeing
-    #             # spam transactions goes away, especially with ElectrumSV no longer showing them
-    #             # by default, the benefits of making them should no longer be present.
-    #             #
-    #             # However we are not going to do that at this point. It will be a todo item and a
-    #             # second pass.
-    #             # TODO(tx-malleation) Catch malleated transactions by fetching and processing
-    #             #   them as described.
-    #             pass
-
-    #         future = self._wallet.update_transaction_block_many(entries)
-    #         update_count = future.result()
-    #         self._logger.debug("maybe_obtain_proofs_async: updated %d of %d entries",
-    #             update_count, len(entries))
-    #         if update_count:
-    #             # Notify the network loop that if it has blocked waiting for more work to do
-    #             # requesting proofs and transactions, otherwise it will block indefinitely waiting
-    #             # to be told.
-    #             self._wallet._check_missing_transactions_event.set()
-    #             # Updating the height needs to happen in related UI.
-    #             self._wallet.trigger_callback('transaction_heights_updated', self._id, entries)
-
-    #         # Ensure that all subscriptions to this script hash for our transaction needs are
-    #         # removed and cleaned up.
-    #         if len(context.tx_rows) == 0:
-    #             raise SubscriptionStale()
 
     def can_export(self) -> bool:
         if self.is_watching_only():
@@ -2030,10 +1885,6 @@ class Wallet(TriggeredCallbacks):
 
         self.db_functions_async = db_functions.AsynchronousFunctions(self._db_context)
 
-        # This manages data that needs to be processed along with a header, but we do not have
-        # the chain of headers up to and including that header yet.
-        self._check_late_header_victims_queue = app_state.async_.queue()
-
         txdata_cache_size = self.get_cache_size_for_tx_bytedata() * (1024 * 1024)
         self._transaction_cache2 = LRUCache(max_size=txdata_cache_size)
 
@@ -2045,6 +1896,10 @@ class Wallet(TriggeredCallbacks):
         self._wallet_master_keystore: Optional[BIP32_KeyStore] = None
 
         self._missing_transactions: Dict[bytes, MissingTransactionEntry] = {}
+
+        # This manages data that needs to be processed along with a header, but we do not have
+        # the chain of headers up to and including that header yet.
+        self._check_late_header_victims_queue = app_state.async_.queue()
         self._late_header_worker_state = late_header_worker.LateHeaderWorkerState(
             self._check_late_header_victims_queue, weakref.WeakMethod(self.trigger_callback))
 
@@ -2818,10 +2673,6 @@ class Wallet(TriggeredCallbacks):
             -> List[TransactionExistsRow]:
         return db_functions.read_transactions_exist(self.get_db_context(), tx_hashes, account_id)
 
-    def update_transaction_block_many(self, entries: Iterable[TransactionBlockRow]) \
-            -> concurrent.futures.Future[int]:
-        return db_functions.update_transaction_block_many(self.get_db_context(), entries)
-
     # mAPI broadcast callbacks
 
     def create_mapi_broadcast_callbacks(self, rows: Iterable[MAPIBroadcastCallbackRow]) -> \
@@ -2844,7 +2695,8 @@ class Wallet(TriggeredCallbacks):
         assert self._db_context is not None
         return db_functions.delete_mapi_broadcast_callbacks(self._db_context, tx_hashes)
 
-    # Data acquisition.
+    ## Data acquisition.
+
     async def obtain_transactions_async(self, account_id: int, keys: List[Tuple[bytes, bool]],
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> Set[bytes]:
         """
@@ -2896,7 +2748,7 @@ class Wallet(TriggeredCallbacks):
                 account_id = entry.account_ids[0]
                 account = self._accounts[account_id]
                 try:
-                    tsc_full_proof = await request_binary_merkle_proof_async(
+                    tsc_full_proof, _header_data = await request_binary_merkle_proof_async(
                         self._network, account, tx_hash, include_transaction=True)
                 except ServerConnectionError:
                     # TODO(1.4.0) Handle `ServerConnectionError` exception.
@@ -2948,11 +2800,26 @@ class Wallet(TriggeredCallbacks):
 
     async def _obtain_merkle_proofs_worker_async(self) -> None:
         """
-        If we have transactions we did not obtain through either restoration scanning (which
-        provides merkle proofs) or through some mechanism where MAPI delivers the proof (either
-        to our channel or another party's channel where they deliver it to us) then we need
-        to manually obtain the proof ourselves.
+        Obtain TSC merkle proofs for transactions we know are mined.
+
+        This is currently only used to obtain merkle proofs for the following cases:
+
+        - We delete the older non-TSC proof from `STATE_SETTLED` transactions in migration 29.
+          Those transactions need a new TSC proof, and that should happen in the first iteration
+          given ability to access and use a server successfully.
+
+        It is planned that this would also handle the following cases:
+
+        - If we have transactions we did not obtain through either restoration scanning (which
+          provides merkle proofs) or through some mechanism where MAPI delivers the proof (either
+          to our channel or another party's channel where they deliver it to us) then we need to
+          manually obtain the proof ourselves. This would need some other external event source
+          where we find out whether transactions have been mined, like output spend notifications.
         """
+        # TODO(1.4.0) If the user does not have their internet connection enabled when the wallet
+        #     is first opened, then this will maybe error and exit or block. We should be able to
+        #     detect problems like this and highlight it to the user, and retry periodically or
+        #     when they manually indicate they want to retry.
         while True:
             # We just take the first returned transaction for now (and ignore the rest).
             rows = db_functions.read_proofless_transactions(self.get_db_context())
@@ -2961,8 +2828,10 @@ class Wallet(TriggeredCallbacks):
                 row = rows[0]
                 tx_hash = row.tx_hash
                 account = self._accounts[row.account_id]
+                logger.debug("Requesting merkle proof from server for transaction %s",
+                    hash_to_hex_str(row.tx_hash))
                 try:
-                    tsc_proof = await request_binary_merkle_proof_async(
+                    tsc_proof, (header, header_chain) = await request_binary_merkle_proof_async(
                         self._network, account, tx_hash, include_transaction=False)
                 except ServerConnectionError:
                     # TODO(1.4.0) Handle `ServerConnectionError` exception.
@@ -3000,6 +2869,10 @@ class Wallet(TriggeredCallbacks):
                 await self.db_functions_async.update_transaction_proof_async(row.tx_hash,
                     tsc_proof.block_hash, tsc_proof.transaction_index, tsc_proof.to_bytes(),
                     TxFlags.STATE_SETTLED)
+                logger.debug("Storing verified merkle proof for transaction %s",
+                    hash_to_hex_str(row.tx_hash))
+
+                self.trigger_callback('transaction_verified', tx_hash, header, tsc_proof)
 
                 # Process the next proof.
                 continue
@@ -3726,6 +3599,121 @@ class Wallet(TriggeredCallbacks):
     #     future = db_functions.set_transactions_reorged(self.get_db_context(), tx_hashes)
     #     future.result()
 
+    def _setup_spent_output_notifications(self) -> None:
+        # TODO(petty-cash) In theory each petty cash account maintains a connection. At the time
+        #     of writing, we only have one petty cash account per wallet, but there are loose
+        #     plans that sets of accounts may hierarchically share different petty cash accounts.
+        # TODO(1.4.0) These worker tasks should be restarted if they prematurely exits.
+        self._worker_tasks_maintain_spent_output_connection: \
+            dict[int, tuple[SpentOutputWorkerState, concurrent.futures.Future[None],
+                concurrent.futures.Future[None]]] = {}
+        for account in self._accounts.values():
+            if account.is_petty_cash():
+                # Start the spent output worker task ready to start processing for this petty
+                # cash account.
+                base_server_url = pick_server_for_account(self._network, account,
+                    ServerCapability.OUTPUT_SPENDS)
+                spent_output_worker_state = SpentOutputWorkerState()
+                connection_future = app_state.async_.spawn(maintain_spent_output_connection_async,
+                    self._network, base_server_url, spent_output_worker_state)
+                processing_future = app_state.async_.spawn(
+                    self._process_received_spent_output_notifications, account.get_id())
+                self._worker_tasks_maintain_spent_output_connection[account.get_id()] = \
+                    spent_output_worker_state, connection_future, processing_future
+
+                # Feed the initial state into the worker task.
+                # TODO(petty-cash) This should when we support multiple petty cash accounts we
+                #     should specify which grouping of accounts are funded by a given petty cash
+                #     account. It is possible we may end up mapping the petty cash account id to
+                #     those accounts in the database.
+                output_spends = db_functions.read_spent_outputs_to_monitor(self.get_db_context())
+                spent_outpoints = list({ Outpoint(output_spend.out_tx_hash, output_spend.out_index)
+                    for output_spend in output_spends })
+                spent_output_worker_state.registration_queue.put_nowait(spent_outpoints)
+
+    # TODO unit test malleation replacement of a transaction
+    async def _process_received_spent_output_notifications(self, account_id: int) -> None:
+        if account_id not in self._worker_tasks_maintain_spent_output_connection:
+            return
+        state = self._worker_tasks_maintain_spent_output_connection[account_id][0]
+        while True:
+            spent_outputs = await state.result_queue.get()
+
+            # Get the current database state that relates to the server state we just received.
+            rows_by_outpoint: Dict[Outpoint, list[SpentOutputRow]] = {}
+            spent_outpoints = { Outpoint(spent_output.out_tx_hash, spent_output.out_index)
+                for spent_output in spent_outputs }
+            for spent_output_row in await self.db_functions_async.read_spent_outputs_async(
+                    list(spent_outpoints)):
+                spent_outpoint = Outpoint(spent_output_row.spent_tx_hash,
+                    spent_output_row.spent_txo_index)
+                if spent_outpoint not in rows_by_outpoint:
+                    rows_by_outpoint[spent_outpoint] = []
+                rows_by_outpoint[spent_outpoint].append(spent_output_row)
+
+            # Reconcile the received server state against the database state.
+            for spent_output in spent_outputs:
+                spent_outpoint = Outpoint(spent_output.out_tx_hash,
+                    spent_output.out_index)
+                if spent_outpoint not in rows_by_outpoint:
+                    # TODO(1.4.0) The user would have had to delete the transaction from the
+                    #     database if that is even possible? Is that correct? Should we do
+                    #     something here? Need to finalise this.
+                    self._logger.error("NO DATABASE ENTRIES FOR SPENT OUTPUT NOTIFICATION %r",
+                        spent_output)
+                    continue
+
+                for row in rows_by_outpoint[spent_outpoint]:
+                    if row.spending_tx_hash != spent_output.in_tx_hash:
+                        # TODO(1.4.0) If this was a final transaction that we were watching and
+                        #     since we do not handle incomplete or non-final transactions yet
+                        #     as far as I can recall, it should be, then it has either been
+                        #     double spent or malleated. If it is not final, then it is possible
+                        #     we are legitimately waiting to know how it has been included in any
+                        #     transaction by the other party, or... something else?
+                        self._logger.error("DOUBLE SPENT OR MALLEATED %r ~ %r", spent_output, row)
+                        # TODO(1.4.0) Detect malleation by comparing transactions. That would
+                        #     probably require extra work like fetching the new transaction and
+                        #     then reconciling it.
+                        # TODO(1.4.0) It seems like there are some nuances to this.
+                    elif row.block_hash != spent_output.block_hash:
+                        if row.block_hash is None:
+                            self._logger.debug("Unspent output event, transaction has been mined "
+                                " %r ~ %r", spent_output, row)
+                            await self._process_received_spent_output_mined_event(row, spent_output)
+                        elif spent_output.block_hash is None:
+                            # We do not process this at this time because the new tip reorg
+                            # detection should already do it. However, we might use it to double
+                            # check data consistency later.
+                            self._logger.debug("Unspent output event, transaction is back in "
+                                "mempool %r ~ %r", spent_output, row)
+                        else:
+                            # We do not process this at this time because the new tip reorg
+                            # detection should already do it. However, we might use it to double
+                            # check data consistency later.
+                            self._logger.debug("Unspent output event, transaction reorged %r ~ %r",
+                                spent_output, row)
+
+    async def _process_received_spent_output_mined_event(self, row: SpentOutputRow,
+            spent_output: OutputSpend) -> None:
+        # We indicate that we need to obtain the proof by setting the
+        await self.db_functions_async.update_transaction_proof_async(row.spending_tx_hash,
+            spent_output.block_hash, None, None, TxFlags.STATE_CLEARED)
+
+        self._check_missing_proofs_event.set()
+        # TODO(1.4.0) This is a thing we did to ensure the UI was up to date when the script hash
+        # stuff was the way we did it, we should probably still do it.
+        # NOTE 1, 1 are just placeholder arguments to save having to change the ui callback signal
+        # support. We will revisit this via the 1.4.0 comment above before release.
+        self.trigger_callback('transaction_heights_updated', 1, 1)
+
+    def _teardown_spent_output_notifications(self) -> None:
+        for _state, connection_future, processing_future in \
+                self._worker_tasks_maintain_spent_output_connection.values():
+            connection_future.cancel()
+            processing_future.cancel()
+        del self._worker_tasks_maintain_spent_output_connection
+
     def have_transaction(self, tx_hash: bytes) -> bool:
         return self.get_transaction_flags(tx_hash) is not None
 
@@ -3803,13 +3791,17 @@ class Wallet(TriggeredCallbacks):
             network.add_wallet(self)
         for account in self.get_accounts():
             account.start(network)
-        self._worker_task_obtain_transactions = app_state.async_.spawn(
-            self._obtain_transactions_worker_async)
-        self._worker_task_obtain_merkle_proofs = app_state.async_.spawn(
-            self._obtain_merkle_proofs_worker_async)
-        self._worker_task_late_header_worker = app_state.async_.spawn(
-            late_header_worker.late_header_worker_async, self.db_functions_async,
-            self._late_header_worker_state)
+
+        if self._network is not None:
+            self._worker_task_obtain_transactions = app_state.async_.spawn(
+                self._obtain_transactions_worker_async)
+            self._worker_task_obtain_merkle_proofs = app_state.async_.spawn(
+                self._obtain_merkle_proofs_worker_async)
+            self._worker_task_late_header_worker = app_state.async_.spawn(
+                late_header_worker.late_header_worker_async, self.db_functions_async,
+                self._late_header_worker_state)
+            self._setup_spent_output_notifications()
+
         self._stopped = False
 
     def stop(self) -> None:
@@ -3825,15 +3817,17 @@ class Wallet(TriggeredCallbacks):
         self._storage.put('stored_height', local_height)
         self._storage.put('last_tip_hash', chain_tip_hash.hex() if chain_tip_hash else None)
 
-        if self._worker_task_obtain_transactions:
-            self._worker_task_obtain_transactions.cancel()
-            del self._worker_task_obtain_transactions
-        if self._worker_task_obtain_merkle_proofs:
-            self._worker_task_obtain_merkle_proofs.cancel()
-            del self._worker_task_obtain_merkle_proofs
-        if self._worker_task_late_header_worker:
-            self._worker_task_late_header_worker.cancel()
-            del self._worker_task_late_header_worker
+        if self._network is not None:
+            if self._worker_task_obtain_transactions:
+                self._worker_task_obtain_transactions.cancel()
+                del self._worker_task_obtain_transactions
+            if self._worker_task_obtain_merkle_proofs:
+                self._worker_task_obtain_merkle_proofs.cancel()
+                del self._worker_task_obtain_merkle_proofs
+            if self._worker_task_late_header_worker:
+                self._worker_task_late_header_worker.cancel()
+                del self._worker_task_late_header_worker
+            self._teardown_spent_output_notifications()
 
         for credential_id in self._registered_api_keys.values():
             app_state.credentials.remove_indefinite_credential(credential_id)

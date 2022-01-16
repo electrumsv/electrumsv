@@ -21,7 +21,7 @@ from ..crypto import pw_decode, pw_encode
 from ..i18n import _
 from ..logs import logs
 from ..types import KeyInstanceDataPrivateKey, MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
-    MasterKeyDataMultiSignature, MasterKeyDataTypes, ServerAccountKey, Outpoint
+    MasterKeyDataMultiSignature, MasterKeyDataTypes, Outpoint, OutputSpend, ServerAccountKey
 from ..util import get_posix_timestamp
 
 from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
@@ -33,11 +33,11 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, MAPIBroadcastCallbackRow,
     MapiBroadcastStatusFlags, NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult,
     PaymentRequestReadRow, PaymentRequestRow,PaymentRequestUpdateRow, SpendConflictType,
-    TransactionBlockRow, TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow,
-    TransactionLinkState, TransactionOutputAddRow, TransactionOutputSpendableRow,
-    TransactionValueRow, TransactionMetadata, TransactionOutputFullRow, TransactionOutputShortRow,
-    TransactionProoflessRow, TxProofData, TxProofResult, TransactionRow, WalletBalance,
-    WalletDataRow, WalletEventRow)
+    SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
+    TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
+    TransactionOutputSpendableRow, TransactionValueRow, TransactionMetadata,
+    TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow, TxProofData,
+    TxProofResult, TransactionRow, WalletBalance, WalletDataRow, WalletEventRow)
 from .util import flag_clause, read_rows_by_id, read_rows_by_ids, execute_sql_by_id, \
     update_rows_by_ids
 
@@ -383,6 +383,13 @@ def read_accounts(db: sqlite3.Connection) -> List[AccountRow]:
 
 
 @replace_db_context_with_connection
+def read_account_ids_for_transaction(db: sqlite3.Connection, tx_hash: bytes) -> List[int]:
+    sql = "SELECT account_id FROM AccountTransactions WHERE tx_hash=?"
+    sql_values = (tx_hash,)
+    return [ row[0] for row in db.execute(sql, sql_values).fetchall() ]
+
+
+@replace_db_context_with_connection
 def read_history_list(db: sqlite3.Connection, account_id: int,
         keyinstance_ids: Optional[Sequence[int]]=None) -> List[HistoryListRow]:
     if keyinstance_ids:
@@ -475,19 +482,41 @@ def read_proofless_transactions(db: sqlite3.Connection) -> List[TransactionProof
     # TODO: We associate the proofless transaction with the first account that it was linked to.
     # This is not ideal, but in reality it is unlikely many users will care about the nuances
     # and we can change the behaviour later.
-    sql_values: List[Any] = [ TxFlags.STATE_SETTLED ]
-    sql = """
+    sql_values: List[Any] = []
+    sql = f"""
     WITH matches AS (
         SELECT TX.tx_hash, ATX.account_id,
             row_number() OVER (PARTITION BY TX.tx_hash ORDER BY ATX.date_created) as rank
         FROM Transactions TX
         LEFT JOIN AccountTransactions ATX ON ATX.tx_hash=TX.tx_hash
-        WHERE TX.flags&?!=0 AND TX.proof_data IS NULL
+        WHERE TX.flags&{TxFlags.MASK_STATE}={TxFlags.STATE_SETTLED} AND TX.proof_data IS NULL OR
+              TX.flags&{TxFlags.MASK_STATE}={TxFlags.STATE_CLEARED} AND TX.block_hash IS NOT NULL
+                  AND TX.proof_data is NULL
+
     )
     SELECT tx_hash, account_id FROM matches WHERE account_id IS NOT NULL AND rank=1
     """
     rows = db.execute(sql, sql_values).fetchall()
     return [ TransactionProoflessRow(*row) for row in rows ]
+
+
+@replace_db_context_with_connection
+def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> List[OutputSpend]:
+    """
+    Retrieve all the outpoints we need to monitor (and why) via the 'output-spend' API. Remember
+    that the goal is to detect either the appearance of these in the mempool or a block.
+    """
+    sql = f"""
+    SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index
+    FROM TransactionInputs TXI
+    INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash AND TX.flags&{TxFlags.MASK_STATE}!=0 AND
+        TX.flags&{TxFlags.STATE_SETTLED}=0
+    """
+    # LEFT JOIN MAPIBroadcastCallbacks MBC ON MBC.tx_hash=TXI.tx_hash
+    #     AND MBC.status_flags={MapiBroadcastStatusFlags.SUCCEEDED}
+    # WHERE MBC.tx_hash IS NULL
+    rows = db.execute(sql).fetchall()
+    return [ OutputSpend(*row) for row in rows ]
 
 
 @replace_db_context_with_connection
@@ -667,26 +696,6 @@ def read_masterkeys(db: sqlite3.Connection) -> List[MasterKeyRow]:
         "SELECT masterkey_id, parent_masterkey_id, derivation_type, derivation_data, flags "
         "FROM MasterKeys")
     return [ MasterKeyRow(*row) for row in db.execute(sql).fetchall() ]
-
-
-# @replace_db_context_with_connection
-# def read_parent_transaction_outputs(db: sqlite3.Connection, tx_hash: bytes) \
-#         -> List[TransactionOutputShortRow]:
-#     """
-#     When we have the spending transaction in the database, we can look up the outputs using
-#     the database and do not have to provide the spent output keys.
-#     """
-#     sql_values = (tx_hash,)
-#     sql = (
-#         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.flags, "
-#             "TXO.script_type, TXO.script_hash "
-#         "FROM TransactionInputs TXI "
-#         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash "
-#         "WHERE TXI.tx_hash=?")
-#     cursor = db.execute(sql, sql_values)
-#     rows = [ TransactionOutputShortRow(*row) for row in cursor.fetchall() ]
-#     cursor.close()
-#     return rows
 
 
 @replace_db_context_with_connection
@@ -1451,26 +1460,6 @@ def set_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDataRo
     return db_context.post_to_thread(_write)
 
 
-def update_transaction_block_many(db_context: DatabaseContext,
-        entries: Iterable[TransactionBlockRow]) -> concurrent.futures.Future[int]:
-    timestamp = get_posix_timestamp()
-    rows: List[Tuple[int, Optional[bytes], bytes]] = []
-    for entry in entries:
-        rows.append((timestamp, entry.block_hash, entry.tx_hash))
-    sql = (
-        "UPDATE Transactions "
-        "SET date_updated=?, block_hash=?, proof_data=NULL, "
-            f"flags=flags&{~TxFlags.MASK_STATE}|{TxFlags.STATE_CLEARED} "
-        "WHERE tx_hash=?")
-
-    def _write(db: sqlite3.Connection) -> int:
-        nonlocal sql, rows
-        cursor = db.executemany(sql, rows)
-        # NOTE(typing) error: Redundant cast to "int"  [redundant-cast]
-        return cast(int, cursor.rowcount)  # type: ignore
-    return db_context.post_to_thread(_write)
-
-
 def update_account_names(db_context: DatabaseContext, entries: Iterable[Tuple[str, int]]) \
         -> concurrent.futures.Future[None]:
     sql = "UPDATE Accounts SET date_updated=?, account_name=? WHERE account_id=?"
@@ -2190,6 +2179,7 @@ class AsynchronousFunctions:
 
         return True
 
+    # TODO(1.4.0) Read functions should not be async.
     async def read_pending_header_transactions_async(self) \
             -> list[tuple[bytes, Optional[bytes], bytes]]:
         """
@@ -2201,16 +2191,36 @@ class AsynchronousFunctions:
             self._read_pending_header_transactions)
 
     def _read_pending_header_transactions(self, db: sqlite3.Connection) \
-            -> List[Tuple[bytes, Optional[bytes], bytes]]:
-        sql = """
+            -> list[tuple[bytes, Optional[bytes], bytes]]:
+        sql = f"""
             SELECT tx_hash, block_hash, proof_data
             FROM Transactions
-            WHERE flags&?!=0 AND proof_data IS NOT NULL
+            WHERE flags&{TxFlags.MASK_STATE}={TxFlags.STATE_CLEARED} AND proof_data IS NOT NULL
         """
-        sql_values = (TxFlags.STATE_CLEARED,)
-        rows = db.execute(sql, sql_values).fetchall()
+        rows = db.execute(sql).fetchall()
         return [ (row[0], row[1], row[2]) for row in rows ]
 
+    # TODO(1.4.0) Read functions should not be async.
+    async def read_spent_outputs_async(self, outpoints: Sequence[Outpoint]) -> List[SpentOutputRow]:
+        """
+        Get the metadata for how any of the given outpoints are spent. This is used to reconcile
+        against any incoming state from a service about those given outpoints.
+        """
+        return await self._db_context.run_in_thread_async(self._read_spent_outputs,
+            outpoints)
+
+    def _read_spent_outputs(self, db: sqlite3.Connection, outpoints: Sequence[Outpoint]) \
+            -> List[SpentOutputRow]:
+        sql = f"""
+        SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index, TX.block_hash,
+            TX.flags
+        FROM TransactionInputs TXI
+        INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash
+        """
+        sql_condition = "TXI.spent_tx_hash=? AND TXI.spent_txo_index=?"
+        return read_rows_by_ids(SpentOutputRow, db, sql, sql_condition, [], outpoints)
+
+    # TODO(1.4.0) Read functions should not be async.
     async def read_transaction_proof_data_async(self, tx_hashes: List[bytes]) -> List[TxProofData]:
         return await self._db_context.run_in_thread_async(self._read_transaction_proof_data,
             tx_hashes)
@@ -2252,6 +2262,8 @@ class AsynchronousFunctions:
           we should set it to SETTLED.
         - We have a CLEARED transaction and have just obtained but could not verify the proof,
           where we leave it as CLEARED (or set it to CLEARED if it is in another state).
+        - We have any local (SIGNED, DISPATCHED, RECEIVED) or broadcast (CLEARED) transaction
+          that we now have reason to believe is in a block.
 
         One case where it may be in SETTLED but not have proof data, and then get proof data that
         cannot be verified yet, is after migration 29 where we cleared all the legacy pre-TSC

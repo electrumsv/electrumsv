@@ -31,6 +31,15 @@ class AccountTransactionRow(NamedTuple):
     date_updated: int
 
 
+class SpentOutputRow(NamedTuple):
+    spent_tx_hash: bytes
+    spent_txo_index: int
+    spending_tx_hash: bytes
+    spending_txi_index: int
+    block_hash: Optional[bytes]
+    flags: TxFlags
+
+
 class HistoryListRow(NamedTuple):
     tx_hash: bytes
     tx_flags: TxFlags
@@ -210,11 +219,6 @@ class PaymentRequestUpdateRow(NamedTuple):
 
 
 SpendConflictType = Tuple[bytes, int, bytes, int]
-
-
-class TransactionBlockRow(NamedTuple):
-    block_hash: Optional[bytes]
-    tx_hash: bytes
 
 
 class TransactionDeltaSumRow(NamedTuple):

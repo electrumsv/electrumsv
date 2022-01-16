@@ -2,7 +2,7 @@ import base64
 import datetime
 import os
 import tempfile
-from typing import Generator, List
+from typing import Generator, List, Optional
 import unittest.mock
 
 import bitcoinx
@@ -28,7 +28,7 @@ from electrumsv.wallet_database.sqlite_support import DatabaseContext, LeakedSQL
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PaymentRequestReadRow, PaymentRequestRow,
-    PaymentRequestUpdateRow, TransactionBlockRow, TransactionRow, TransactionOutputShortRow,
+    PaymentRequestUpdateRow, TransactionRow, TransactionOutputShortRow,
     WalletBalance, WalletEventRow)
 
 from .util import PasswordToken
@@ -925,11 +925,6 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
     assert len(db_rows) == 1
     assert db_rows[0].flags == TransactionOutputFlag.SPENT
 
-    future = db_functions.update_transaction_block_many(db_context,
-        [ TransactionBlockRow(BLOCK_HASH, TX_HASH) ])
-    update_count = future.result(5)
-    assert update_count == 1
-
 
 @pytest.mark.asyncio
 async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
@@ -1335,6 +1330,10 @@ def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContex
 
 
 def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
+    """
+    This test creates the desired non-matches and all the desired matches and verifies that
+    the `read_proofless_transactions` database function only returns the correct matches.
+    """
     ACCOUNT1_ID = 10
     ACCOUNT2_ID = 11
     ACCOUNT3_ID = 12
@@ -1362,51 +1361,117 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     future.result()
 
     # Create the transactions.
-    TX_BYTES_1 = os.urandom(10)
-    TX_HASH_1 = bitcoinx.double_sha256(TX_BYTES_1)
-    tx1 = TransactionRow(
-        tx_hash=TX_HASH_1,
-        tx_bytes=TX_BYTES_1,
+    tx_rows: list[TransactionRow] = []
+    TX_BYTES_SETTLED_MATCH1 = os.urandom(10)
+    TX_HASH_SETTLED_MATCH1 = bitcoinx.double_sha256(TX_BYTES_SETTLED_MATCH1)
+    tx_settled_match1 = TransactionRow(
+        tx_hash=TX_HASH_SETTLED_MATCH1,
+        tx_bytes=TX_BYTES_SETTLED_MATCH1,
         flags=TxFlags.STATE_SETTLED, block_hash=None,
         block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=1, date_updated=2)
-    TX_BYTES_2 = os.urandom(10)
-    TX_HASH_2 = bitcoinx.double_sha256(TX_BYTES_2)
-    tx2 = TransactionRow(
-        tx_hash=TX_HASH_2,
-        tx_bytes=TX_BYTES_2,
+    TX_BYTES_SETTLED_MATCH2 = os.urandom(10)
+    TX_HASH_SETTLED_MATCH2 = bitcoinx.double_sha256(TX_BYTES_SETTLED_MATCH2)
+    tx_settled_match2 = TransactionRow(
+        tx_hash=TX_HASH_SETTLED_MATCH2,
+        tx_bytes=TX_BYTES_SETTLED_MATCH2,
         flags=TxFlags.STATE_SETTLED, block_hash=None,
         block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
-    TX_BYTES_3 = os.urandom(10)
-    TX_HASH_3 = bitcoinx.double_sha256(TX_BYTES_3)
-    tx3 = TransactionRow(
-        tx_hash=TX_HASH_3,
-        tx_bytes=TX_BYTES_3,
-        flags=TxFlags.STATE_SETTLED, block_hash=None,
-        block_position=None, fee_value=None,
+    TX_BYTES_SETTLED_IGNORED = os.urandom(10)
+    TX_HASH_SETTLED_IGNORED = bitcoinx.double_sha256(TX_BYTES_SETTLED_IGNORED)
+    tx_settled_ignored = TransactionRow(
+        tx_hash=TX_HASH_SETTLED_IGNORED,
+        tx_bytes=TX_BYTES_SETTLED_IGNORED,
+        flags=TxFlags.STATE_SETTLED, block_hash=b'ddddd',
+        block_position=None, fee_value=None, proof_data=b'fdfdfd',
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
-    future = db_functions.create_transactions_UNITTEST(db_context, [ tx1, tx2, tx3 ])
+    TX_BYTES_CLEARED_IGNORED = os.urandom(10)
+    TX_HASH_CLEARED_IGNORED = bitcoinx.double_sha256(TX_BYTES_CLEARED_IGNORED)
+    tx_cleared_ignored = TransactionRow(
+        tx_hash=TX_HASH_CLEARED_IGNORED,
+        tx_bytes=TX_BYTES_CLEARED_IGNORED,
+        flags=TxFlags.STATE_CLEARED, block_hash=None,
+        block_position=None, fee_value=None, proof_data=None,
+        description=None, version=None, locktime=None, date_created=2, date_updated=2)
+    TX_BYTES_CLEARED_MATCH1 = os.urandom(10)
+    TX_HASH_CLEARED_MATCH1 = bitcoinx.double_sha256(TX_BYTES_CLEARED_MATCH1)
+    tx_cleared_match1 = TransactionRow(
+        tx_hash=TX_HASH_CLEARED_MATCH1,
+        tx_bytes=TX_BYTES_CLEARED_MATCH1,
+        flags=TxFlags.STATE_CLEARED, block_hash=b'fake block hash',
+        block_position=None, fee_value=None, proof_data=None,
+        description=None, version=None, locktime=None, date_created=2, date_updated=2)
+
+    tx_nonmatches: List[TransactionRow] = []
+    tx_nonmatches_orphans: List[TransactionRow] = []
+    for tx_state in (TxFlags.UNSET, TxFlags.STATE_CLEARED, TxFlags.STATE_RECEIVED,
+            TxFlags.STATE_SETTLED):
+        for is_orphan in (True, False):
+            TX_BYTES_NONMATCH = f"nonmatch is_orphan={is_orphan} flags={tx_state!r}".encode()
+            TX_HASH_NONMATCH = TX_BYTES_NONMATCH
+            proof_data: Optional[bytes] = None
+            if tx_state == TxFlags.STATE_SETTLED:
+                proof_data = b'nonmatch settled proof data'
+            tx_nonmatch = TransactionRow(
+                tx_hash=TX_HASH_NONMATCH,
+                tx_bytes=TX_BYTES_NONMATCH,
+                flags=tx_state, block_hash=None, proof_data=proof_data,
+                block_position=None, fee_value=None,
+                description=None, version=None, locktime=None, date_created=2, date_updated=2)
+            if is_orphan:
+                tx_nonmatches_orphans.append(tx_nonmatch)
+            else:
+                tx_nonmatches.append(tx_nonmatch)
+    tx_rows.extend(tx_nonmatches)
+    tx_rows.extend(tx_nonmatches_orphans)
+    tx_rows.extend([ tx_settled_match1, tx_settled_match2, tx_settled_ignored,
+        tx_cleared_ignored, tx_cleared_match1 ])
+
+    future = db_functions.create_transactions_UNITTEST(db_context, tx_rows)
     future.result(timeout=5)
 
     # Link the first transaction to both accounts.
-    tx1a1 = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_1, AccountTxFlags.NONE, None, 10, 10)
-    tx1a2 = AccountTransactionRow(ACCOUNT2_ID, TX_HASH_1, AccountTxFlags.NONE, None, 1, 1)
-    tx1a3 = AccountTransactionRow(ACCOUNT3_ID, TX_HASH_1, AccountTxFlags.NONE, None, 5, 5)
-    tx2a1 = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_2, AccountTxFlags.NONE, None, 5, 5)
-    future = db_functions.create_account_transactions_UNITTEST(db_context, [ tx1a1, tx1a2, tx1a3,
-        tx2a1 ])
+    tx1a1 = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_SETTLED_MATCH1, AccountTxFlags.NONE, None,
+        20, 20)
+    tx1a2 = AccountTransactionRow(ACCOUNT2_ID, TX_HASH_SETTLED_MATCH1, AccountTxFlags.NONE, None,
+        10, 10)
+    tx1a3 = AccountTransactionRow(ACCOUNT3_ID, TX_HASH_SETTLED_MATCH1, AccountTxFlags.NONE, None,
+        30, 30)
+    tx2a1 = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_SETTLED_MATCH2, AccountTxFlags.NONE, None,
+        5, 5)
+    atx_settled_ignored = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_SETTLED_IGNORED,
+        AccountTxFlags.NONE, None, 1, 1)
+    atx_cleared_ignored = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_CLEARED_IGNORED,
+        AccountTxFlags.NONE, None, 1, 1)
+    atx_nonmatches: list[AccountTransactionRow]= []
+    for tx_nonmatch in tx_nonmatches:
+        atx_nonmatch = AccountTransactionRow(ACCOUNT1_ID, tx_nonmatch.tx_hash,
+            AccountTxFlags.NONE, None, 1, 1)
+        atx_nonmatches.append(atx_nonmatch)
+    atx_cleared_match1 = AccountTransactionRow(ACCOUNT1_ID, TX_HASH_CLEARED_MATCH1,
+        AccountTxFlags.NONE, None, 1, 1)
+    atx_rows: list[AccountTransactionRow] = [ tx1a1, tx1a2, tx1a3,
+        tx2a1, atx_settled_ignored, atx_cleared_ignored, atx_cleared_match1 ]
+    atx_rows.extend(atx_nonmatches)
+    future = db_functions.create_account_transactions_UNITTEST(db_context, atx_rows)
     future.result(timeout=5)
 
     # tx1 is linked to accounts 2, 3, 1 in that order, so should be associated with 2.
     # tx2 is linked to account 1 only, so should be associated with 1.
-    # tx3 is not linked to any account, so should be not be matched.
+    # Others are not linked to any account, so should be not be matched.
     rows = db_functions.read_proofless_transactions(db_context)
-    assert len(rows) == 2
-    tx1_result = [ row for row in rows if row.tx_hash == TX_HASH_1 ][0]
-    assert tx1_result.account_id == ACCOUNT2_ID
-    tx2_result = [ row for row in rows if row.tx_hash == TX_HASH_2 ][0]
-    assert tx2_result.account_id == ACCOUNT1_ID
+    expected_tx_hashes: dict[bytes, int] = {
+        TX_HASH_SETTLED_MATCH1: ACCOUNT2_ID,
+        TX_HASH_SETTLED_MATCH2: ACCOUNT1_ID,
+        TX_HASH_CLEARED_MATCH1: ACCOUNT1_ID,
+    }
+    remaining_tx_hashes = dict(expected_tx_hashes)
+    for pltx_row in rows:
+        assert pltx_row.tx_hash in remaining_tx_hashes
+        assert pltx_row.account_id == remaining_tx_hashes[pltx_row.tx_hash]
+        del remaining_tx_hashes[pltx_row.tx_hash]
+    assert remaining_tx_hashes == {}
 
 
 def test_table_servers_CRUD(db_context: DatabaseContext) -> None:

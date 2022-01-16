@@ -127,6 +127,19 @@ class Outpoint(NamedTuple):
         return f'Outpoint("{hash_to_hex_str(self.tx_hash)}",{self.txo_index})'
 
 
+class OutputSpend(NamedTuple):
+    out_tx_hash: bytes
+    out_index: int
+    in_tx_hash: bytes
+    in_index: int
+    block_hash: Optional[bytes] = None
+
+    def __repr__(self) -> str:
+        return f'OutputSpend("{hash_to_hex_str(self.out_tx_hash)}", {self.out_index}, ' \
+            f'"{hash_to_hex_str(self.in_tx_hash)}", {self.in_index}, ' + \
+            (f'"{self.block_hash.hex()}"' if self.block_hash else 'None') +')'
+
+
 ExceptionInfoType = Tuple[Type[BaseException], BaseException, TracebackType]
 
 WaitingUpdateCallback = Callable[[Arg(bool, "advance"), DefaultArg(Optional[str], "message")], None]
