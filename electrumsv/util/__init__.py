@@ -111,7 +111,7 @@ class DaemonThread(threading.Thread):
     def __init__(self, name: str) -> None:
         threading.Thread.__init__(self)
         self.name = name
-        self.parent_thread = threading.currentThread()
+        self.parent_thread = threading.current_thread()
         self.running = False
         self.running_lock = threading.Lock()
         self.logger = logs.get_logger(f'{name} thread')
