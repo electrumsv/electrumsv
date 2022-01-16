@@ -96,8 +96,8 @@ def _make_mock_channel_json(channel_id: str, host: str, port: int, tokens: list[
     }
 
 
-async def _create_peer_channel_instance(test_client) -> PeerChannel:
-    test_session = await test_client(create_app)
+async def _create_peer_channel_instance(aiohttp_client) -> PeerChannel:
+    test_session = await aiohttp_client(create_app)
     esv_client: ESVClient = await _get_esv_client(test_session)
     peer_channel: PeerChannel = await esv_client.create_peer_channel()
     return peer_channel
@@ -334,30 +334,30 @@ def create_app(loop):
     return app
 
 
-async def test_get_single_header(test_client):
-    test_session = await test_client(create_app)
+async def test_get_single_header(aiohttp_client):
+    test_session = await aiohttp_client(create_app)
     esv_client: ESVClient = await _get_esv_client(test_session)
     result = await esv_client.get_single_header(block_hash=bytes.fromhex('deadbeef'))
     assert result == bytes.fromhex("aa"*80)
 
 
-async def test_get_headers_by_height(test_client):
-    test_session = await test_client(create_app)
+async def test_get_headers_by_height(aiohttp_client):
+    test_session = await aiohttp_client(create_app)
     esv_client: ESVClient = await _get_esv_client(test_session)
     result = await esv_client.get_headers_by_height(from_height=0, count=2)
     assert result == bytes.fromhex("aa"*80) + bytes.fromhex("bb"*80)
 
 
-async def test_get_chain_tips(test_client):
+async def test_get_chain_tips(aiohttp_client):
     expected_response = [GENESIS_TIP]
-    test_session = await test_client(create_app)
+    test_session = await aiohttp_client(create_app)
     esv_client: ESVClient = await _get_esv_client(test_session)
     result = await esv_client.get_chain_tips()
     assert result == expected_response
 
 
-async def test_subscribe_to_headers(test_client):
-    test_session = await test_client(create_app)
+async def test_subscribe_to_headers(aiohttp_client):
+    test_session = await aiohttp_client(create_app)
     esv_client: ESVClient = await _get_esv_client(test_session)
     async for tip in esv_client.subscribe_to_headers():
         if tip:
@@ -366,15 +366,15 @@ async def test_subscribe_to_headers(test_client):
             return
 
 
-async def test_create_peer_channel(test_client):
-    test_session = await test_client(create_app)
+async def test_create_peer_channel(aiohttp_client):
+    test_session = await aiohttp_client(create_app)
     esv_client: ESVClient = await _get_esv_client(test_session)
     peer_channel: PeerChannel = await esv_client.create_peer_channel()
     assert isinstance(peer_channel, PeerChannel)
 
 
-async def test_delete_peer_channel(test_client):
-    test_session = await test_client(create_app)
+async def test_delete_peer_channel(aiohttp_client):
+    test_session = await aiohttp_client(create_app)
     esv_client: ESVClient = await _get_esv_client(test_session)
     # Setup Channel for deletion
     peer_channel = PeerChannel(channel_id=MOCK_CHANNEL_ID, tokens=MOCK_TOKENS,
@@ -382,8 +382,8 @@ async def test_delete_peer_channel(test_client):
     await esv_client.delete_peer_channel(peer_channel)
 
 
-async def test_list_peer_channels(test_client):
-    test_session = await test_client(create_app)
+async def test_list_peer_channels(aiohttp_client):
+    test_session = await aiohttp_client(create_app)
     esv_client: ESVClient = await _get_esv_client(test_session)
     peer_channels = await esv_client.list_peer_channels()
     assert isinstance(peer_channels, list)
@@ -393,8 +393,8 @@ async def test_list_peer_channels(test_client):
         assert peer_channel.tokens == MOCK_TOKENS
 
 
-async def test_get_single_peer_channel(test_client):
-    test_session = await test_client(create_app)
+async def test_get_single_peer_channel(aiohttp_client):
+    test_session = await aiohttp_client(create_app)
     esv_client: ESVClient = await _get_esv_client(test_session)
     peer_channel = await esv_client.get_single_peer_channel(MOCK_CHANNEL_ID)
     assert isinstance(peer_channel, PeerChannel)
@@ -402,8 +402,8 @@ async def test_get_single_peer_channel(test_client):
     assert peer_channel.tokens == MOCK_TOKENS
 
 
-async def test_subscribe_to_general_notifications(test_client):
-    test_session = await test_client(create_app)
+async def test_subscribe_to_general_notifications(aiohttp_client):
+    test_session = await aiohttp_client(create_app)
     esv_client: ESVClient = await _get_esv_client(test_session)
     notification: GeneralNotification
     async for notification in esv_client.subscribe_to_general_notifications():
@@ -415,9 +415,9 @@ async def test_subscribe_to_general_notifications(test_client):
 
 
 # Test PeerChannel class
-async def test_peer_channel_instance_attrs(test_client):
+async def test_peer_channel_instance_attrs(aiohttp_client):
     # All http endpoints are all mocked so that tests execute fast and they are hassle-free to run
-    peer_channel = await _create_peer_channel_instance(test_client)
+    peer_channel = await _create_peer_channel_instance(aiohttp_client)
     assert isinstance(peer_channel, PeerChannel)
     assert peer_channel.channel_id == MOCK_CHANNEL_ID
     assert peer_channel.tokens == MOCK_TOKENS
@@ -426,8 +426,8 @@ async def test_peer_channel_instance_attrs(test_client):
     logger.debug(f"callback_url={callback_url}")
 
 
-async def test_peer_channel_instance_get_write_token(test_client):
-    peer_channel = await _create_peer_channel_instance(test_client)
+async def test_peer_channel_instance_get_write_token(aiohttp_client):
+    peer_channel = await _create_peer_channel_instance(aiohttp_client)
     write_token = peer_channel.get_write_token()
     assert isinstance(write_token, PeerChannelToken)
     assert write_token.permissions & TokenPermissions.WRITE_ACCESS \
@@ -435,8 +435,8 @@ async def test_peer_channel_instance_get_write_token(test_client):
     logger.debug(f"write_token={write_token}")
 
 
-async def test_peer_channel_instance_get_read_token(test_client):
-    peer_channel = await _create_peer_channel_instance(test_client)
+async def test_peer_channel_instance_get_read_token(aiohttp_client):
+    peer_channel = await _create_peer_channel_instance(aiohttp_client)
     read_token = peer_channel.get_read_token()
     assert isinstance(read_token, PeerChannelToken)
     assert read_token.permissions & TokenPermissions.READ_ACCESS \
@@ -444,8 +444,8 @@ async def test_peer_channel_instance_get_read_token(test_client):
     logger.debug(f"read_token={read_token}")
 
 
-async def test_peer_channel_instance_get_messages(test_client):
-    peer_channel = await _create_peer_channel_instance(test_client)
+async def test_peer_channel_instance_get_messages(aiohttp_client):
+    peer_channel = await _create_peer_channel_instance(aiohttp_client)
     messages = await peer_channel.get_messages()
     assert len(messages) == 1
     assert messages[0]['sequence'] == 1
@@ -455,15 +455,15 @@ async def test_peer_channel_instance_get_messages(test_client):
     logger.debug(f"messages={messages}")
 
 
-async def test_peer_channel_instance_get_max_sequence_number(test_client):
-    peer_channel = await _create_peer_channel_instance(test_client)
+async def test_peer_channel_instance_get_max_sequence_number(aiohttp_client):
+    peer_channel = await _create_peer_channel_instance(aiohttp_client)
     seq = await peer_channel.get_max_sequence_number()
     assert isinstance(seq, int)
     logger.debug(f"seq={seq}")
 
 
-async def test_peer_channel_instance_write_message(test_client):
-    peer_channel = await _create_peer_channel_instance(test_client)
+async def test_peer_channel_instance_write_message(aiohttp_client):
+    peer_channel = await _create_peer_channel_instance(aiohttp_client)
     message = await peer_channel.write_message(message=MERKLE_PROOF_CALLBACK,
         mime_type='application/json')
     assert isinstance(message, dict)
@@ -474,8 +474,8 @@ async def test_peer_channel_instance_write_message(test_client):
     logger.debug(f"written message info={message}")
 
 
-async def test_peer_channel_instance_create_api_token(test_client):
-    peer_channel = await _create_peer_channel_instance(test_client)
+async def test_peer_channel_instance_create_api_token(aiohttp_client):
+    peer_channel = await _create_peer_channel_instance(aiohttp_client)
     api_token: PeerChannelToken = await peer_channel.create_api_token(
         description="custom description")
     assert isinstance(api_token.api_key, str)
@@ -483,8 +483,8 @@ async def test_peer_channel_instance_create_api_token(test_client):
     logger.debug(f"api_token={api_token}")
 
 
-async def test_peer_channel_instance_list_api_tokens(test_client):
-    peer_channel = await _create_peer_channel_instance(test_client)
+async def test_peer_channel_instance_list_api_tokens(aiohttp_client):
+    peer_channel = await _create_peer_channel_instance(aiohttp_client)
     api_tokens: list[PeerChannelToken] = await peer_channel.list_api_tokens()
     for api_token in api_tokens:
         assert isinstance(api_token.api_key, str)
