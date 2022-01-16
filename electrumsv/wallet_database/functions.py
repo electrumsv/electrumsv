@@ -2190,7 +2190,8 @@ class AsynchronousFunctions:
 
         return True
 
-    async def read_pending_header_transactions_async(self) -> List[Tuple[bytes, Optional[bytes]]]:
+    async def read_pending_header_transactions_async(self) \
+            -> list[tuple[bytes, Optional[bytes], bytes]]:
         """
         Transactions that are in state CLEARED and have proof are guaranteed to be those who
         we obtained proof for, but lacked the header to verify the proof. We need to
@@ -2200,15 +2201,15 @@ class AsynchronousFunctions:
             self._read_pending_header_transactions)
 
     def _read_pending_header_transactions(self, db: sqlite3.Connection) \
-            -> List[Tuple[bytes, Optional[bytes]]]:
+            -> List[Tuple[bytes, Optional[bytes], bytes]]:
         sql = """
-            SELECT tx_hash, block_hash
+            SELECT tx_hash, block_hash, proof_data
             FROM Transactions
             WHERE flags&?!=0 AND proof_data IS NOT NULL
         """
         sql_values = (TxFlags.STATE_CLEARED,)
         rows = db.execute(sql, sql_values).fetchall()
-        return [ (row[0], row[1]) for row in rows ]
+        return [ (row[0], row[1], row[2]) for row in rows ]
 
     async def read_transaction_proof_data_async(self, tx_hashes: List[bytes]) -> List[TxProofData]:
         return await self._db_context.run_in_thread_async(self._read_transaction_proof_data,

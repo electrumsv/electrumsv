@@ -862,11 +862,11 @@ class EditServerDialog(WindowModalDialog):
                 else:
                     return _("This URL is already in use.")
         elif server_type in API_SERVER_TYPES:
-            assert self._entry.data_api is not None
             existing_urls = set(server_key.url.lower() \
                 for server_key in self._network.get_api_servers())
             if url.lower() in existing_urls:
                 # If we are editing this server, allow it to save/update with the same URL.
+                assert self._entry.data_api is not None
                 if self._is_edit_mode and self._entry.data_api.url.lower() == url.lower():
                     pass
                 else:

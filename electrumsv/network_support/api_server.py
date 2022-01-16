@@ -118,6 +118,7 @@ SERVER_CAPABILITIES = {
 }
 
 
+# TODO(1.4.0) Fee quotes has to come in the send view to factor into the fee in the transaction
 async def broadcast_transaction(tx: Transaction, network: Network,
         account: "AbstractAccount", merkle_proof: bool = False, ds_check: bool = False) \
             -> BroadcastResponse:
@@ -157,33 +158,35 @@ async def broadcast_transaction(tx: Transaction, network: Network,
     assert broadcast_server.candidate.api_server.config is not None
     url = esv_reference_server.api_server.url
     esv_client = ESVClient(url, aiohttp_client, REGTEST_MASTER_TOKEN)
+
+    peer_channel = await esv_client.create_peer_channel()
+    server_id = broadcast_server.candidate.api_server.config['id']
+    mapi_callback_row = MAPIBroadcastCallbackRow(
+        tx_hash=tx.hash(),
+        peer_channel_id=peer_channel.channel_id,
+        broadcast_date=datetime.datetime.utcnow().isoformat(),
+        encrypted_private_key=os.urandom(64),  # libsodium encryption not implemented yet
+        server_id=server_id,
+        status_flags=MapiBroadcastStatusFlags.ATTEMPTING
+    )
+    account._wallet.create_mapi_broadcast_callbacks([mapi_callback_row])
+    api_server = broadcast_server.candidate.api_server
+    credential_id = broadcast_server.candidate.credential_id
+    assert api_server is not None
+
     try:
-        peer_channel = await esv_client.create_peer_channel()
-        server_id = broadcast_server.candidate.api_server.config['id']
-        mapi_callback_row = MAPIBroadcastCallbackRow(
-            tx_hash=tx.hash(),
-            peer_channel_id=peer_channel.channel_id,
-            broadcast_date=datetime.datetime.utcnow().isoformat(),
-            encrypted_private_key=os.urandom(64),  # libsodium encryption not implemented yet
-            server_id=server_id,
-            status_flags=MapiBroadcastStatusFlags.ATTEMPTING
-        )
-        account._wallet.create_mapi_broadcast_callbacks([mapi_callback_row])
-        api_server = broadcast_server.candidate.api_server
-        credential_id = broadcast_server.candidate.credential_id
-        assert api_server is not None
         result = await broadcast_transaction_mapi_simple(tx.to_bytes(),
             api_server, credential_id, peer_channel, merkle_proof, ds_check)
-        updates = [(MapiBroadcastStatusFlags.SUCCEEDED, tx.hash())]
-        account._wallet.update_mapi_broadcast_callbacks(updates)
-        # Todo - when the merkle proof callback is successfully processed,
-        #  delete the MAPIBroadcastCallbackRow
-        return result
     except BroadcastFailedError as e:
         account._wallet.delete_mapi_broadcast_callbacks(tx_hashes=[tx.hash()])
         logger.error(f"Error broadcasting to mAPI for tx: {tx.txid()}. Error: {str(e)}")
         raise
 
+    updates = [(MapiBroadcastStatusFlags.SUCCEEDED, tx.hash())]
+    account._wallet.update_mapi_broadcast_callbacks(updates)
+    # Todo - when the merkle proof callback is successfully processed,
+    #  delete the MAPIBroadcastCallbackRow
+    return result
 
 class NewServerAPIContext(NamedTuple):
     wallet_path: str
