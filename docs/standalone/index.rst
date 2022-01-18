@@ -82,6 +82,10 @@ How do I deal with problems on MacOS?
     you use MacOS and something isn't working right, maybe we have documented it here. Read more
     about :doc:`solutions to MacOS problems <problem-solving/macos>`.
 
+What if I do not want to upgrade to the latest version?
+    Users may continue wanting to use the older ElectrumSV as it is, and not use the new releases.
+    Read more about :doc:`upgrading concerns <problem-solving/upgrade-concerns>`.
+
 .. toctree::
    :maxdepth: 1
    :hidden:
@@ -90,6 +94,7 @@ How do I deal with problems on MacOS?
    /problem-solving/hardware-wallets
    /problem-solving/coin-splitting
    /problem-solving/macos
+   /problem-solving/upgrade-concerns
 
 Building on ElectrumSV
 ----------------------
