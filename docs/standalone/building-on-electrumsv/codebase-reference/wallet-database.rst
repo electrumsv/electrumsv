@@ -25,6 +25,8 @@ should end up being restructured.
 Transaction table
 ~~~~~~~~~~~~~~~~~
 
+.. _transaction-state:
+
 `flags`
 !!!!!!!
 

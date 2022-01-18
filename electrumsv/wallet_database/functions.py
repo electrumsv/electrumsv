@@ -269,7 +269,7 @@ def read_account_balance(db: sqlite3.Connection, account_id: int,
         TxFlags.STATE_SETTLED, coinbase_filter_mask, TransactionOutputFlag.NONE,
         TxFlags.STATE_CLEARED,
         TxFlags.STATE_SETTLED, coinbase_filter_mask, coinbase_filter_mask,
-        TxFlags.MASK_STATE_UNCLEARED,
+        TxFlags.MASK_STATE_LOCAL,
         account_id, txo_mask, txo_flags ]
     if exclude_frozen:
         sql += " AND KI.flags&?=0"
@@ -1164,7 +1164,7 @@ def read_wallet_balance(db: sqlite3.Connection,
         TxFlags.STATE_SETTLED, coinbase_filter_mask, TransactionOutputFlag.NONE,
         TxFlags.STATE_CLEARED,
         TxFlags.STATE_SETTLED, coinbase_filter_mask, coinbase_filter_mask,
-        TxFlags.MASK_STATE_UNCLEARED,
+        TxFlags.MASK_STATE_LOCAL,
         txo_mask, txo_flags ]
     if exclude_frozen:
         sql += " AND KI.flags&?=0"

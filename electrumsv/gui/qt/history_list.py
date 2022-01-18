@@ -392,7 +392,7 @@ class HistoryList(MyTreeWidget):
                 menu.addAction(_("Child pays for parent"),
                     partial(self._main_window.cpfp, account, tx, child_tx))
 
-        if flags is not None and flags & TxFlags.MASK_STATE_UNCLEARED != 0:
+        if flags is not None and flags & TxFlags.MASK_STATE_LOCAL != 0:
             if flags & TxFlags.PAYS_INVOICE:
                 broadcast_action = menu.addAction(self.invoiceIcon, _("Pay invoice"))
                 row = self._account._wallet.read_invoice(tx_hash=tx_hash)

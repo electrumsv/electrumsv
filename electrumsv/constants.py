@@ -82,7 +82,7 @@ class TxFlags(IntFlag):
     PAYS_INVOICE = 1 << 30
 
     MASK_STATE = (STATE_SETTLED | STATE_DISPATCHED | STATE_RECEIVED | STATE_CLEARED | STATE_SIGNED)
-    MASK_STATE_UNCLEARED = (STATE_DISPATCHED | STATE_RECEIVED | STATE_SIGNED)
+    MASK_STATE_LOCAL = (STATE_DISPATCHED | STATE_RECEIVED | STATE_SIGNED)
     MASK_STATE_BROADCAST = (STATE_SETTLED | STATE_CLEARED)
     # The transaction is present but not linked to any accounts for these known reasons.
     MASK_UNLINKED = (REMOVED | CONFLICTING)
@@ -269,17 +269,18 @@ BYTE_SUBSCRIPTION_TYPES = { SubscriptionType.SCRIPT_HASH, SubscriptionType.PUSHD
 class SubscriptionOwnerPurpose(IntEnum):
     NONE = 0
     SCANNER = 1
-    GAP_LIMIT_OBSERVER = 2
-    ACTIVE_KEYS = 3
+    ACTIVE_KEYS = 2
 
 
 class TransactionImportFlag(IntFlag):
     UNSET = 0
-    # The transaction was obtained externally and is being imported into an account.
-    EXTERNAL = 1 << 0
     # The user drove the process that caused this transaction to be imported.
     # This is used to decide if we should notify the user about the arrival of this transaction.
-    PROMPTED = 1 << 1
+    PROMPTED = 1 << 0
+    # The user has explicitly signed this transaction instead of implicitly signing/broadcasting.
+    EXPLICIT_SIGN = 1 << 1
+    # The user has explicitly signed and broadcast this transaction.
+    EXPLICIT_BROADCAST = 1 << 2
 
 
 class TransactionInputFlag(IntFlag):

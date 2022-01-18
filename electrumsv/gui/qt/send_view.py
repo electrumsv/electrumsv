@@ -47,7 +47,7 @@ from PyQt5.QtWidgets import (QCheckBox, QCompleter, QGridLayout, QGroupBox, QHBo
     QLabel, QSizePolicy, QTreeView, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ...app_state import app_state
-from ...constants import MAX_VALUE, PaymentFlag, WalletSettings
+from ...constants import MAX_VALUE, PaymentFlag, TransactionImportFlag, WalletSettings
 from ...exceptions import ExcessiveFee, NotEnoughFunds
 from ...i18n import _
 from ...logs import logs
@@ -577,7 +577,8 @@ class SendView(QWidget):
 
                 self._main_window.broadcast_transaction(self._account, tx, tx_context)
 
-        self._main_window.sign_tx_with_password(tx, sign_done, password, context=tx_context)
+        self._main_window.sign_tx_with_password(tx, sign_done, password, context=tx_context,
+            import_flags=TransactionImportFlag.EXPLICIT_BROADCAST)
 
     def is_invoice_payment(self) -> bool:
         return self._payment_request is not None

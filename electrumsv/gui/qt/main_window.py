@@ -1413,16 +1413,19 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     @protected
     def sign_tx(self, tx: Transaction, callback: Callable[[bool], None],
             password: Optional[str]=None,
-            window: Optional[QWidget]=None, context: Optional[TransactionContext]=None) -> None:
+            window: Optional[QWidget]=None, context: Optional[TransactionContext]=None,
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
         # NOTE(typing) The decorator wrapper will inject a password argument to the decoratee the
         #   caller of the decorated function does not provide. So we do not require the password
         #   argument so that typing works, but reject the call if it is not there.
         assert password is not None
-        self.sign_tx_with_password(tx, callback, password, window=window, context=context)
+        self.sign_tx_with_password(tx, callback, password, window=window, context=context,
+            import_flags=import_flags)
 
     def sign_tx_with_password(self, tx: Transaction, callback: Callable[[bool], None],
             password: str, window: Optional[QWidget]=None,
-            context: Optional[TransactionContext]=None) -> None:
+            context: Optional[TransactionContext]=None,
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
         '''Sign the transaction in a separate thread.  When done, calls
         the callback with a success code of True or False.'''
         assert self._account is not None
@@ -1438,7 +1441,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 callback(True)
 
         def sign_tx(update_cb: WaitingUpdateCallback) -> None:
-            future = account.sign_transaction(tx, password, context=context)
+            future = account.sign_transaction(tx, password, context=context,
+                import_flags=import_flags)
             if future is not None:
                 future.result()
             update_cb(False, _("Done."))

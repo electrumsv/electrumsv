@@ -575,7 +575,7 @@ class AbstractAccount:
     def get_local_transaction_entries(self, tx_hashes: Optional[List[bytes]]=None) \
             -> List[TransactionValueRow]:
         return self._wallet.read_transaction_value_entries(self._id, tx_hashes=tx_hashes,
-            mask=TxFlags.MASK_STATE_UNCLEARED)
+            mask=TxFlags.MASK_STATE_LOCAL)
 
     def get_transaction_value_entries(self, mask: Optional[TxFlags]=None) \
             -> List[TransactionValueRow]:
@@ -824,8 +824,7 @@ class AbstractAccount:
         self._network = network
         if network is not None:
             pass
-            # TODO(1.4.0) Remove when we have replaced monitoring key usage, or decided that it
-            #             is not necessary.
+            # TODO(1.4.0) Dependent on implementation of pushdata monitoring
             # # Set up the key monitoring for the account.
             # network.subscriptions.set_owner_callback(self._subscription_owner_for_keys,
             #     # NOTE(typing) The union of callback types does not recognise this case ??
@@ -836,13 +835,6 @@ class AbstractAccount:
             #     mask=KeyInstanceFlag.ACTIVE)
             # self.register_for_keyinstance_events(keyinstances)
 
-            # TODO(1.4.0) Remove when we have unspent output monitoring in the reference server.
-            # # Set up the transaction monitoring for the account.
-            # network.subscriptions.set_owner_callback(self._subscription_owner_for_transactions,
-            #     # NOTE(typing) The union of callback types does not recognise this case ??
-            #     self._on_network_transaction_script_hash_result) # type: ignore
-            # self.register_for_transaction_proofs()
-
     def stop(self) -> None:
         assert not self._stopped
         self._stopped = True
@@ -850,8 +842,7 @@ class AbstractAccount:
         self._logger.debug("stopping account %s", self)
         if self._network:
             pass
-            # TODO(1.4.0) Remove when we have replaced monitoring key usage, or decided that it
-            #             is not necessary.
+            # TODO(1.4.0) Dependent on implementation of pushdata monitoring
             # # Unsubscribe from the account's existing subscriptions.
             # futures = self._network.subscriptions.remove_owner(self._subscription_owner_for_keys)
             # # We could call `concurrent.futures.wait` on the list, but we want to raise if there
@@ -859,8 +850,7 @@ class AbstractAccount:
             # for future in futures:
             #     future.result()
 
-    # TODO(1.4.0) Remove when we have replaced monitoring key usage, or decided that it
-    #             is not necessary.
+    # TODO(1.4.0) Dependent on implementation of pushdata monitoring
     # def register_for_keyinstance_events(self, keyinstances: List[KeyInstanceRow]) -> None:
     #     assert self._network is not None
     #     if len(keyinstances):
@@ -871,7 +861,7 @@ class AbstractAccount:
     #             self._get_subscription_entries_for_keyinstance_ids(
     #                 subscription_keyinstance_ids), self._subscription_owner_for_keys)
 
-    # TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
+    # TODO(1.4.0) Dependent on implementation of pushdata monitoring
     # async def _on_network_key_script_hash_result(self, subscription_key: SubscriptionKey,
     #         context: SubscriptionKeyScriptHashOwnerContext,
     #         history: ScriptHashHistoryList) -> None:
@@ -1049,7 +1039,8 @@ class AbstractAccount:
         return script_template.to_script()
 
     def sign_transaction(self, tx: Transaction, password: str,
-            context: Optional[TransactionContext]=None) \
+            context: Optional[TransactionContext]=None,
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) \
                 -> Optional[concurrent.futures.Future[None]]:
         if self.is_watching_only():
             return None
@@ -1108,7 +1099,7 @@ class AbstractAccount:
                 self.set_transaction_label(tx_hash, tx_context.description)
 
         transaction_future = app_state.async_.spawn(self._wallet.add_local_transaction,
-            tx_hash, tx, tx_flags)
+            tx_hash, tx, tx_flags, import_flags)
         transaction_future.add_done_callback(callback)
         return transaction_future
 
@@ -1329,8 +1320,8 @@ class ImportedAddressAccount(ImportedAccountBase):
         if len(existing_keys):
             return False
 
-        # TODO(1.4.0) Remove when we have a replacement for detecting address usage, and
-        #             ...
+        # TODO(1.4.0) a. Dependent on implementation of pushdata monitoring for spends/receipts.
+        # TODO(1.4.0) b. Can use spent output events for watching spends.
         # def callback(future: concurrent.futures.Future[None]) -> None:
         #     if future.cancelled():
         #         return
@@ -1399,8 +1390,8 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         if len(existing_keys) > 0:
             return private_key_text
 
-        # TODO(1.4.0) Remove when we have a replacement for detecting address usage, and
-        #             ...
+        # TODO(1.4.0) a. Dependent on implementation of pushdata monitoring for spends/receipts.
+        # TODO(1.4.0) b. Can use spent output events for watching spends.
         # def callback(future: concurrent.futures.Future[None]) -> None:
         #     if future.cancelled():
         #         return
@@ -2333,8 +2324,8 @@ class Wallet(TriggeredCallbacks):
         account_row = self.add_accounts([ basic_account_row ])[0]
         account = self._create_account_from_data(account_row, account_flags)
 
-        # TODO(1.4.0) Remove when we have a replacement for detecting address/private key usage,
-        #             and ...
+        # TODO(1.4.0) a. Dependent on implementation of pushdata monitoring for spends/receipts.
+        # TODO(1.4.0) b. Can use spent output events for watching spends.
         # def callback(future: concurrent.futures.Future[None]) -> None:
         #     if future.cancelled():
         #         return
@@ -2774,8 +2765,7 @@ class Wallet(TriggeredCallbacks):
                     tx = Transaction.from_bytes(tx_bytes)
                     await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
                         block_hash=tsc_proof.block_hash, block_position=tsc_proof.transaction_index,
-                        tsc_proof_bytes=tsc_proof.to_bytes(),
-                        import_flags=TransactionImportFlag.EXTERNAL)
+                        tsc_proof_bytes=tsc_proof.to_bytes())
 
                     # Transfer ownership of verifying this transaction to late_header_worker_async
                     await self._check_late_header_victims_queue.put(
@@ -2789,8 +2779,7 @@ class Wallet(TriggeredCallbacks):
                 tx = Transaction.from_bytes(tx_bytes)
                 await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_SETTLED,
                     block_hash=tsc_proof.block_hash, block_position=tsc_proof.transaction_index,
-                    tsc_proof_bytes=tsc_proof.to_bytes(),
-                    import_flags=TransactionImportFlag.EXTERNAL)
+                    tsc_proof_bytes=tsc_proof.to_bytes())
                 assert tx_hash not in self._missing_transactions
 
             # To get here there must not have been any further missing transactions.
@@ -3329,14 +3318,14 @@ class Wallet(TriggeredCallbacks):
 
         return tx
 
-    async def add_local_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags) -> None:
+    async def add_local_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
         """
         This is currently only called when an account constructs and signs a transaction
         """
         link_state = TransactionLinkState()
         link_state.rollback_on_spend_conflict = True
-        await self._import_transaction(tx_hash, tx, flags, link_state, block_hash=None,
-            block_position=None)
+        await self._import_transaction(tx_hash, tx, flags, link_state, import_flags=import_flags)
 
     async def import_transaction_async(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
             link_state: Optional[TransactionLinkState]=None,
@@ -3418,20 +3407,38 @@ class Wallet(TriggeredCallbacks):
                 self._logger.debug("Removed missing transaction %s", hash_to_hex_str(tx_hash)[:8])
                 self.trigger_callback('missing_transaction_obtained', tx_hash, tx, link_state)
 
-        # TODO(rt12) later on we would have some way of asking servers whether a
-        # transaction has been mined, or to get notified if they get mined.
-        if self._network is not None:
-            # TODO(1.4.0) This watches our local and mempool transactions to see if they
-            #   have been mined. In an ideal world we would check to see if outpoints have been
-            #   spent. Reconcile this with larger picture of what loss of blockchain monitoring
-            #   costs us and what we need to replace in some other way.
-            if flags & TxFlags.MASK_STATE_UNCLEARED | TxFlags.STATE_CLEARED:
+        # TODO(1.4.0) Spent outputs edge case, monitoring STATE_SIGNED or STATE_CLEARED
+        #     transactions needs a final decision. In practice, all ongoing transaction
+        #     broadcasts will be via MAPI and we should aim to expect that mining notifications
+        #     come via peer channel callbacks.
+        # TODO(1.4.0) Allow user to correct lost STATE_SIGNED or STATE_CLEARED transactions.
+        #     This would likely be some UI option that used spent outputs to deal with either
+        #     unexpected MAPI non-involvement or loss of mined/double spent callback.
+
+        # We monitor local and mempool transactions to see if they have been mined.
+        if self._network is not None and flags & (TxFlags.MASK_STATE_LOCAL | TxFlags.STATE_CLEARED):
+            # We do not monitor transactions that have proof and are pending verification.
+            # We do not monitor local transactions that are being MAPI broadcast.
+            if flags & TxFlags.STATE_SIGNED and \
+                    import_flags & TransactionImportFlag.EXPLICIT_BROADCAST:
+                # The user has used the "Sign" UI button rather than the "Broadcast" UI button.
+                # It is not a given they will broadcast it, and we need to deal with that.
+                # TODO(1.4.0) Monitor spent output state if the broadcast fails.
+                #     I (rt12) suspect the correct place for this clause is in the "register"
+                #     clause, where we would do the appropriate handling. However this is probably
+                #     better to ignore and handle as a general state change.
                 pass
-                # TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
-                # if link_state.account_ids is not None:
-                #     for account_id in link_state.account_ids:
-                #         account = self._accounts[account_id]
-                #         account.register_for_transaction_proofs(tx_hash)
+            elif flags & TxFlags.STATE_CLEARED and tsc_proof_bytes is not None:
+                # We have the proof for this transaction but were not able to verify it due to
+                # the lack of the header for the block that the transaction is in.
+                # TODO(1.4.0) Monitor spent output state until there is a successful broadcast.
+                #     This should be a general state change.
+                pass
+            else:
+                # TODO(1.4.0) More intelligent selection of spent outputs to monitor.
+                pass
+                # self._register_spent_outputs_to_monitor(
+                #     [ Outpoint(input.prev_hash, input.prev_idx) for input in tx.inputs ])
 
         # This primarily routes a notification to the user interface, for it to update for this
         # specific change.
@@ -3603,7 +3610,7 @@ class Wallet(TriggeredCallbacks):
         # TODO(petty-cash) In theory each petty cash account maintains a connection. At the time
         #     of writing, we only have one petty cash account per wallet, but there are loose
         #     plans that sets of accounts may hierarchically share different petty cash accounts.
-        # TODO(1.4.0) These worker tasks should be restarted if they prematurely exits.
+        # TODO(1.4.0) These worker tasks should be restarted if they prematurely exit.
         self._worker_tasks_maintain_spent_output_connection: \
             dict[int, tuple[SpentOutputWorkerState, concurrent.futures.Future[None],
                 concurrent.futures.Future[None]]] = {}
@@ -3630,6 +3637,15 @@ class Wallet(TriggeredCallbacks):
                 spent_outpoints = list({ Outpoint(output_spend.out_tx_hash, output_spend.out_index)
                     for output_spend in output_spends })
                 spent_output_worker_state.registration_queue.put_nowait(spent_outpoints)
+
+    def _register_spent_outputs_to_monitor(self, spent_outpoints: list[Outpoint]) -> None:
+        if self._network is None:
+            return
+
+        account_id = [ account.get_id() for account in self._accounts.values()
+            if account.is_petty_cash() ][0]
+        state = self._worker_tasks_maintain_spent_output_connection[account_id][0]
+        state.registration_queue.put_nowait(spent_outpoints)
 
     # TODO unit test malleation replacement of a transaction
     async def _process_received_spent_output_notifications(self, account_id: int) -> None:

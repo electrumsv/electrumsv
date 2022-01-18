@@ -45,7 +45,7 @@ from bitcoinx import hash_to_hex_str, Header, MissingHeader, Unknown_Output
 from ...app_state import app_state
 from ...bitcoin import base_encode
 from ...constants import CHANGE_SUBPATH, DatabaseKeyDerivationType, RECEIVING_SUBPATH, \
-    ScriptType, TxFlags
+    ScriptType, TransactionImportFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
 from ...paymentrequest import PaymentRequest
@@ -380,7 +380,8 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         self.sign_button.setDisabled(True)
         self._main_window.push_top_level_window(self)
-        self._main_window.sign_tx(self.tx, sign_done, window=self, context=self._context)
+        self._main_window.sign_tx(self.tx, sign_done, window=self, context=self._context,
+            import_flags=TransactionImportFlag.EXPLICIT_SIGN)
         if not self.tx.is_complete():
             self.sign_button.setDisabled(False)
 
