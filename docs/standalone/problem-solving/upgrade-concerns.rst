@@ -10,7 +10,8 @@ released version and observe the same problems there.
 You need a server
 -----------------
 
-Versions of ElectrumSV before 1.4.0 use an open source server project called ElectrumX. Most
+Versions of ElectrumSV before 1.4.0 use an open source server project called
+`ElectrumX <https://github.com/kyuupichan/electrumx>`_. Most
 users do not even pay much attention to the fact that generous community members and businesses
 run these servers for them to use for free. While a blockchain is small and rarely used, this
 was feasible. But as blocks get larger and larger, it will become impractical and expensive for
