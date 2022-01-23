@@ -46,7 +46,7 @@ max_chars = max(len(page.chars) for page in pages)
 def vkb_button(click_cb):
     button = QPushButton()
     button.clicked.connect(partial(click_cb, button))
-    button.setFixedWidth(app_state.app.dpi / 3.6)
+    button.setFixedWidth(int(app_state.app.dpi / 3.6))
     return button
 
 
