@@ -100,8 +100,11 @@ Building on ElectrumSV
 ----------------------
 
 How is ElectrumSV implemented?
-    Read more about the
+    This section is intended to be a reference for developers, both the existing ElectrumSV
+    developers and any other developers who might wish to work with the source code or get
+    involved in the project. Refer to the
     :doc:`codebase reference <building-on-electrumsv/codebase-reference>`.
+
 
 How can I access my wallet using the REST API?
     For most users, accessing their wallet with the user interface will be fine. But if you have
