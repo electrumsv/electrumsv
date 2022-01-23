@@ -38,8 +38,8 @@ import json
 import os
 import random
 import threading
-from typing import Any, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple, TypedDict, \
-    TypeVar, TYPE_CHECKING
+from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple, \
+    TypedDict, TypeVar, TYPE_CHECKING
 import weakref
 
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
@@ -1958,6 +1958,16 @@ class Wallet(TriggeredCallbacks):
         assert self._db_context is not None, "This wallet does not have a database context"
         return self._db_context
 
+    def get_db_context_ref(self) -> weakref.WeakMethod[Callable[[], DatabaseContext]]:
+        """
+        In order to avoid passing around either a database context or proxying database calls
+        through the wallet, we pass this `weakref.ref` to wallet function that returns it's
+        database context. This requires the recipient to do a `f = callback(); db_context = f()`
+        to try and get the database context. We can revisit it later if we have better ideas.
+        This is not a reference to the context itself, but to the function that returns it.
+        """
+        return weakref.WeakMethod(self.get_db_context)
+
     def move_to(self, new_path: str) -> None:
         self._db_context = None
         self._storage.move_to(new_path)
@@ -2666,25 +2676,26 @@ class Wallet(TriggeredCallbacks):
 
     # mAPI broadcast callbacks
 
+    # TODO(1.4.0) There's a problem in that we kind of need to route all database calls through
+    #     the wallet, and this creates lots of noisy boilerplate functions. We should work out
+    #     if we can bypass the wallet in a clean way and skip this. This might be by passing
+    #     around a weakref method to `Wallet.get_db_context` to reliant logic and having the logic
+    #     use that to obtain a context and do direct `db_functions` and `db_functions_async` calls.
     def create_mapi_broadcast_callbacks(self, rows: Iterable[MAPIBroadcastCallbackRow]) -> \
             concurrent.futures.Future[None]:
-        assert self._db_context is not None
-        return db_functions.create_mapi_broadcast_callbacks(self._db_context, rows)
+        return db_functions.create_mapi_broadcast_callbacks(self.get_db_context(), rows)
 
     def read_mapi_broadcast_callbacks(self) -> List[MAPIBroadcastCallbackRow]:
-        assert self._db_context is not None
-        return db_functions.read_mapi_broadcast_callbacks(self._db_context)
+        return db_functions.read_mapi_broadcast_callbacks(self.get_db_context())
 
     def update_mapi_broadcast_callbacks(self,
             entries: Iterable[Tuple[MapiBroadcastStatusFlags, bytes]]) -> \
                 concurrent.futures.Future[None]:
-        assert self._db_context is not None
-        return db_functions.update_mapi_broadcast_callbacks(self._db_context, entries)
+        return db_functions.update_mapi_broadcast_callbacks(self.get_db_context(), entries)
 
     def delete_mapi_broadcast_callbacks(self, tx_hashes: Iterable[bytes]) -> \
                 concurrent.futures.Future[None]:
-        assert self._db_context is not None
-        return db_functions.delete_mapi_broadcast_callbacks(self._db_context, tx_hashes)
+        return db_functions.delete_mapi_broadcast_callbacks(self.get_db_context(), tx_hashes)
 
     ## Data acquisition.
 
@@ -2845,9 +2856,9 @@ class Wallet(TriggeredCallbacks):
                     # that it is still in need of processing. The late header worker can
                     # read these in on startup and will get it via the queue at runtime.
                     assert tsc_proof.block_hash is not None
-                    await self.db_functions_async.update_transaction_proof_async(row.tx_hash,
-                        tsc_proof.block_hash, tsc_proof.transaction_index, tsc_proof.to_bytes(),
-                        TxFlags.STATE_CLEARED)
+                    await db_functions.update_transaction_proof_async(self.get_db_context(),
+                        row.tx_hash, tsc_proof.block_hash, tsc_proof.transaction_index,
+                        tsc_proof.to_bytes(), TxFlags.STATE_CLEARED)
 
                     await self._check_late_header_victims_queue.put(
                         (PendingHeaderWorkKind.MERKLE_PROOF, exc.merkle_proof))
@@ -2855,9 +2866,9 @@ class Wallet(TriggeredCallbacks):
 
                 # Store the proof.
                 assert tsc_proof.block_hash is not None
-                await self.db_functions_async.update_transaction_proof_async(row.tx_hash,
-                    tsc_proof.block_hash, tsc_proof.transaction_index, tsc_proof.to_bytes(),
-                    TxFlags.STATE_SETTLED)
+                await db_functions.update_transaction_proof_async(self.get_db_context(),
+                    row.tx_hash, tsc_proof.block_hash, tsc_proof.transaction_index,
+                    tsc_proof.to_bytes(), TxFlags.STATE_SETTLED)
                 logger.debug("Storing verified merkle proof for transaction %s",
                     hash_to_hex_str(row.tx_hash))
 
@@ -3435,7 +3446,9 @@ class Wallet(TriggeredCallbacks):
                 #     This should be a general state change.
                 pass
             else:
-                # TODO(1.4.0) More intelligent selection of spent outputs to monitor.
+                # TODO(1.4.0) We can do more intelligent selection of spent outputs to monitor.
+                #     We really only care about UTXOs that affect us, but it is likely that in
+                #     most cases it is simpler to care about them all.
                 pass
                 # self._register_spent_outputs_to_monitor(
                 #     [ Outpoint(input.prev_hash, input.prev_idx) for input in tx.inputs ])
@@ -3495,25 +3508,6 @@ class Wallet(TriggeredCallbacks):
             -> int:
         return db_functions.read_bip32_keys_gap_size(self.get_db_context(), account_id,
             masterkey_id, prefix_bytes)
-
-    # TODO(1.4.0) Remove when we have completely replaced the proof obtaining and verification.
-    # # Called by network.
-    # async def add_transaction_proof(self, tx_hash: bytes, header: Header,
-    #         block_position: int, proof_position: int, proof_branch: Sequence[bytes]) -> None:
-    #     tx_id = hash_to_hex_str(tx_hash)
-    #     if self._stopped:
-    #         self._logger.debug("add_transaction_proof on stopped wallet: %s", tx_id)
-    #         return
-
-    #     proof = TxProof(proof_position, proof_branch)
-    #     await self.db_functions_async.update_transaction_proof_async(tx_hash, header.hash,
-    #         block_position, proof)
-
-    #     confirmations = max(self.get_local_height() - header.height + 1, 0)
-    #     self._logger.debug("add_transaction_proof %d %d %d", header.height, confirmations,
-    #         header.timestamp)
-    #     self.trigger_callback('transaction_verified', tx_hash, header, block_position,
-    #         confirmations, header.timestamp)
 
     def remove_transaction(self, tx_hash: bytes) -> concurrent.futures.Future[bool]:
         """
@@ -3659,7 +3653,7 @@ class Wallet(TriggeredCallbacks):
             rows_by_outpoint: Dict[Outpoint, list[SpentOutputRow]] = {}
             spent_outpoints = { Outpoint(spent_output.out_tx_hash, spent_output.out_index)
                 for spent_output in spent_outputs }
-            for spent_output_row in await self.db_functions_async.read_spent_outputs_async(
+            for spent_output_row in db_functions.read_spent_outputs(self.get_db_context(),
                     list(spent_outpoints)):
                 spent_outpoint = Outpoint(spent_output_row.spent_tx_hash,
                     spent_output_row.spent_txo_index)
@@ -3691,7 +3685,6 @@ class Wallet(TriggeredCallbacks):
                         # TODO(1.4.0) Detect malleation by comparing transactions. That would
                         #     probably require extra work like fetching the new transaction and
                         #     then reconciling it.
-                        # TODO(1.4.0) It seems like there are some nuances to this.
                     elif row.block_hash != spent_output.block_hash:
                         if row.block_hash is None:
                             self._logger.debug("Unspent output event, transaction has been mined "
@@ -3713,8 +3706,8 @@ class Wallet(TriggeredCallbacks):
     async def _process_received_spent_output_mined_event(self, row: SpentOutputRow,
             spent_output: OutputSpend) -> None:
         # We indicate that we need to obtain the proof by setting the
-        await self.db_functions_async.update_transaction_proof_async(row.spending_tx_hash,
-            spent_output.block_hash, None, None, TxFlags.STATE_CLEARED)
+        await db_functions.update_transaction_proof_async(self.get_db_context(),
+            row.spending_tx_hash, spent_output.block_hash, None, None, TxFlags.STATE_CLEARED)
 
         self._check_missing_proofs_event.set()
         # TODO(1.4.0) This is a thing we did to ensure the UI was up to date when the script hash
@@ -3814,7 +3807,7 @@ class Wallet(TriggeredCallbacks):
             self._worker_task_obtain_merkle_proofs = app_state.async_.spawn(
                 self._obtain_merkle_proofs_worker_async)
             self._worker_task_late_header_worker = app_state.async_.spawn(
-                late_header_worker.late_header_worker_async, self.db_functions_async,
+                late_header_worker.late_header_worker_async, self.get_db_context_ref(),
                 self._late_header_worker_state)
             self._setup_spent_output_notifications()
 

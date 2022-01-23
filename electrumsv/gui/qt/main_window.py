@@ -799,9 +799,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._paytomany_menu.setEnabled(enable_spending_menus)
 
-        # TODO(1.4.0) There should be no active account unless an account is selected in
-        #     the navigation, and so these menus should only be present if that is the case.
-        #     In fact the parent menu should be disabled.
         if account_id is not None:
             self._account_menu.setEnabled(True)
             assert self._account is not None
@@ -957,14 +954,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         - The user creates a new account that uses deterministic key derivation.
         - The user clicks the button in the toolbar.
         """
-        print(scan_role)
         assert self._account_id is not None
         assert self._account is not None
         assert self._account.is_deterministic()
 
         from . import blockchain_scan_dialog
-        from importlib import reload # TODO(dev-helper) Remove at some point.
-        reload(blockchain_scan_dialog)
+        # from importlib import reload # TODO(dev-helper) Remove at some point.
+        # reload(blockchain_scan_dialog)
         dialog = blockchain_scan_dialog.BlockchainScanDialog(weakref.proxy(self), self._wallet,
             self._account_id, scan_role)
         dialog.show()

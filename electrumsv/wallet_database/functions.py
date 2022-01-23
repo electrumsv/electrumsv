@@ -473,15 +473,13 @@ def read_invoices_for_account(db: sqlite3.Connection, account_id: int, flags: Op
         for t in rows ]
 
 
-# TODO(1.4.0) Find all the transactions we need merkle proofs but are not getting them
-#      via other avenues (i.e. MAPI), order in terms of priority and take the
-#      first. Is this sufficient? No, it is not, in fact we may not even want to do this
-#      case.
 @replace_db_context_with_connection
 def read_proofless_transactions(db: sqlite3.Connection) -> List[TransactionProoflessRow]:
-    # TODO: We associate the proofless transaction with the first account that it was linked to.
-    # This is not ideal, but in reality it is unlikely many users will care about the nuances
-    # and we can change the behaviour later.
+    # TODO: This action is billed against a petty cash account on behalf of the account that
+    # requires the proof. However, it is possible that a transaction may in the longer term be
+    # linked to multiple accounts, which complicates things. For now we take the simplest approach
+    # and bill it to the first account that it was linked to. This is not ideal, but in reality
+    # it is unlikely many users will care about the nuances and we can change the behaviour later.
     sql_values: List[Any] = []
     sql = f"""
     WITH matches AS (
@@ -506,17 +504,50 @@ def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> List[OutputSpend]:
     Retrieve all the outpoints we need to monitor (and why) via the 'output-spend' API. Remember
     that the goal is to detect either the appearance of these in the mempool or a block.
     """
+    # TODO(1.4.0) This is used to get the spent outputs we want to monitor, but we do not
+    #     monitor the ones where the MAPI broadcast covers mining/proof obtaining.
+    #     - Consider whether we do actually want to monitor MAPI broadcasted transactions also
+    #       and not necessarly fetch a proof, but reconcile MAPI failure.
+    #     - If we are excluding MAPI, then we need to ensure the exclusion constraint in the
+    #       query is correct.
     sql = f"""
     SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index
     FROM TransactionInputs TXI
     INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash AND TX.flags&{TxFlags.MASK_STATE}!=0 AND
         TX.flags&{TxFlags.STATE_SETTLED}=0
+    LEFT JOIN MAPIBroadcastCallbacks MBC ON MBC.tx_hash=TXI.tx_hash
+        AND MBC.status_flags={MapiBroadcastStatusFlags.SUCCEEDED}
+    WHERE MBC.tx_hash IS NULL
     """
-    # LEFT JOIN MAPIBroadcastCallbacks MBC ON MBC.tx_hash=TXI.tx_hash
-    #     AND MBC.status_flags={MapiBroadcastStatusFlags.SUCCEEDED}
-    # WHERE MBC.tx_hash IS NULL
     rows = db.execute(sql).fetchall()
     return [ OutputSpend(*row) for row in rows ]
+
+
+@replace_db_context_with_connection
+def read_spent_outputs(db: sqlite3.Connection, outpoints: Sequence[Outpoint]) \
+        -> List[SpentOutputRow]:
+    """
+    Get the metadata for how any of the given outpoints are spent. This is used to reconcile
+    against any incoming state from a service about those given outpoints.
+    """
+    sql = """
+    SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index, TX.block_hash,
+        TX.flags
+    FROM TransactionInputs TXI
+    INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash
+    """
+    sql_condition = "TXI.spent_tx_hash=? AND TXI.spent_txo_index=?"
+    return read_rows_by_ids(SpentOutputRow, db, sql, sql_condition, [], outpoints)
+
+
+@replace_db_context_with_connection
+def read_transaction_proof_data(db: sqlite3.Connection, tx_hashes: List[bytes]) \
+        -> List[TxProofData]:
+    sql = """
+        SELECT tx_hash, flags, block_hash, proof_data FROM Transactions WHERE tx_hash IN ({})
+    """
+    sql_values = ()
+    return read_rows_by_id(TxProofData, db, sql, sql_values, tx_hashes)
 
 
 @replace_db_context_with_connection
@@ -1136,6 +1167,23 @@ def read_network_servers(db: sqlite3.Connection,
 
 
 @replace_db_context_with_connection
+def read_pending_header_transactions(db: sqlite3.Connection) \
+        -> list[tuple[bytes, Optional[bytes], bytes]]:
+    """
+    Transactions that are in state CLEARED and have proof are guaranteed to be those who
+    we obtained proof for, but lacked the header to verify the proof. We need to
+    reconcile these with headers as the headers arrive, and verify them when that happens.
+    """
+    sql = f"""
+        SELECT tx_hash, block_hash, proof_data
+        FROM Transactions
+        WHERE flags&{TxFlags.MASK_STATE}={TxFlags.STATE_CLEARED} AND proof_data IS NOT NULL
+    """
+    rows = db.execute(sql).fetchall()
+    return [ (row[0], row[1], row[2]) for row in rows ]
+
+
+@replace_db_context_with_connection
 def read_wallet_balance(db: sqlite3.Connection,
         txo_flags: TransactionOutputFlag=TransactionOutputFlag.NONE,
         txo_mask: TransactionOutputFlag=TransactionOutputFlag.SPENT,
@@ -1426,6 +1474,18 @@ def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxF
 #     return db_context.post_to_thread(_write)
 
 
+async def update_transaction_flags_async(db_context: DatabaseContext, tx_hash: bytes,
+        flags: TxFlags, mask: Union[int, TxFlags]) -> bool:
+    return await db_context.run_in_thread_async(_update_transaction_flags, tx_hash, flags, mask)
+
+def _update_transaction_flags(db: sqlite3.Connection, tx_hash: bytes,
+        flags: TxFlags, mask: Union[int, TxFlags]) -> bool:
+    sql = "UPDATE Transactions SET flags=(flags&?)|? WHERE tx_hash=?"
+    sql_values: List[Any] = [ tx_hash, flags, mask ]
+    cursor = db.execute(sql, sql_values)
+    return cursor.rowcount == 1
+
+
 def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[Outpoint],
         flags: TransactionOutputFlag, mask: Optional[TransactionOutputFlag]=None) \
             -> concurrent.futures.Future[bool]:
@@ -1444,6 +1504,46 @@ def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[
                 "rows were updated")
         return True
     return db_context.post_to_thread(_write)
+
+
+async def update_transaction_proof_async(db_context: DatabaseContext, tx_hash: bytes,
+        block_hash: Optional[bytes], block_position: Optional[int], proof_data: Optional[bytes],
+        tx_flags: TxFlags=TxFlags.STATE_SETTLED) -> None:
+    await db_context.run_in_thread_async(_update_transaction_proof, tx_hash,
+        block_hash, block_position, proof_data, tx_flags)
+
+def _update_transaction_proof(db: sqlite3.Connection, tx_hash: bytes,
+        block_hash: Optional[bytes], block_position: Optional[int],
+        proof_data: Optional[bytes], tx_flags: TxFlags) -> None:
+    """
+    Set the proof related fields for a transaction.
+
+    There are two cases where this is called.
+    - We have a CLEARED transaction and have just obtained and verified the proof, where
+        we should set it to SETTLED.
+    - We have a CLEARED transaction and have just obtained but could not verify the proof,
+        where we leave it as CLEARED (or set it to CLEARED if it is in another state).
+    - We have any local (SIGNED, DISPATCHED, RECEIVED) or broadcast (CLEARED) transaction
+        that we now have reason to believe is in a block.
+
+    One case where it may be in SETTLED but not have proof data, and then get proof data that
+    cannot be verified yet, is after migration 29 where we cleared all the legacy pre-TSC
+    proof data but left the transactions as SETTLED in order for a better user experience
+    (see the migration for further detail).
+
+    This should only be called in the context of the writer thread.
+    """
+    assert tx_flags & ~TxFlags.MASK_STATE == 0      # No non-state flags should be set.
+    assert tx_flags & TxFlags.MASK_STATE != 0       # A state flag should be set.
+
+    timestamp = get_posix_timestamp()
+    clear_state_mask = ~TxFlags.MASK_STATE
+    sql = ("UPDATE Transactions "
+        "SET date_updated=?, proof_data=?, block_hash=?, block_position=?, flags=(flags&?)|? "
+        "WHERE tx_hash=?")
+    sql_values = [ timestamp, proof_data, block_hash, block_position, clear_state_mask,
+        tx_flags, tx_hash ]
+    db.execute(sql, sql_values)
 
 
 def set_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDataRow]) \
@@ -1880,6 +1980,45 @@ def update_network_server_states(db_context: DatabaseContext,
     return db_context.post_to_thread(_write)
 
 
+def create_mapi_broadcast_callbacks(db_context: DatabaseContext,
+        rows: Iterable[MAPIBroadcastCallbackRow]) -> concurrent.futures.Future[None]:
+    sql = """
+        INSERT INTO MAPIBroadcastCallbacks
+        (tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id, status_flags)
+        VALUES (?, ?, ?, ?, ?, ?)"""
+
+    def _write(db: sqlite3.Connection) -> None:
+        db.executemany(sql, rows)
+    return db_context.post_to_thread(_write)
+
+
+@replace_db_context_with_connection
+def read_mapi_broadcast_callbacks(db: sqlite3.Connection) -> List[MAPIBroadcastCallbackRow]:
+    sql = f"""
+        SELECT tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id,
+            status_flags
+        FROM MAPIBroadcastCallbacks
+    """
+    return [ MAPIBroadcastCallbackRow(*row) for row in db.execute(sql).fetchall() ]
+
+
+def update_mapi_broadcast_callbacks(db_context: DatabaseContext,
+        entries: Iterable[Tuple[MapiBroadcastStatusFlags, bytes]]) \
+            -> concurrent.futures.Future[None]:
+    sql = "UPDATE MAPIBroadcastCallbacks SET status_flags=? WHERE tx_hash=?"
+    def _write(db: sqlite3.Connection) -> None:
+        db.executemany(sql, entries)
+    return db_context.post_to_thread(_write)
+
+
+def delete_mapi_broadcast_callbacks(db_context: DatabaseContext, tx_hashes: Iterable[bytes]) \
+        -> concurrent.futures.Future[None]:
+    sql = "DELETE FROM MAPIBroadcastCallbacks WHERE tx_hash=?"
+    def _write(db: sqlite3.Connection) -> None:
+        db.executemany(sql, [(tx_hash,) for tx_hash in tx_hashes])
+    return db_context.post_to_thread(_write)
+
+
 # TODO This should not be a class. It should be flattened to functions.
 class AsynchronousFunctions:
     LOGGER_NAME: str = "async-functions"
@@ -2178,147 +2317,3 @@ class AsynchronousFunctions:
             return False
 
         return True
-
-    # TODO(1.4.0) Read functions should not be async.
-    async def read_pending_header_transactions_async(self) \
-            -> list[tuple[bytes, Optional[bytes], bytes]]:
-        """
-        Transactions that are in state CLEARED and have proof are guaranteed to be those who
-        we obtained proof for, but lacked the header to verify the proof. We need to
-        reconcile these with headers as the headers arrive, and verify them when that happens.
-        """
-        return await self._db_context.run_in_thread_async(
-            self._read_pending_header_transactions)
-
-    def _read_pending_header_transactions(self, db: sqlite3.Connection) \
-            -> list[tuple[bytes, Optional[bytes], bytes]]:
-        sql = f"""
-            SELECT tx_hash, block_hash, proof_data
-            FROM Transactions
-            WHERE flags&{TxFlags.MASK_STATE}={TxFlags.STATE_CLEARED} AND proof_data IS NOT NULL
-        """
-        rows = db.execute(sql).fetchall()
-        return [ (row[0], row[1], row[2]) for row in rows ]
-
-    # TODO(1.4.0) Read functions should not be async.
-    async def read_spent_outputs_async(self, outpoints: Sequence[Outpoint]) -> List[SpentOutputRow]:
-        """
-        Get the metadata for how any of the given outpoints are spent. This is used to reconcile
-        against any incoming state from a service about those given outpoints.
-        """
-        return await self._db_context.run_in_thread_async(self._read_spent_outputs,
-            outpoints)
-
-    def _read_spent_outputs(self, db: sqlite3.Connection, outpoints: Sequence[Outpoint]) \
-            -> List[SpentOutputRow]:
-        sql = f"""
-        SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index, TX.block_hash,
-            TX.flags
-        FROM TransactionInputs TXI
-        INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash
-        """
-        sql_condition = "TXI.spent_tx_hash=? AND TXI.spent_txo_index=?"
-        return read_rows_by_ids(SpentOutputRow, db, sql, sql_condition, [], outpoints)
-
-    # TODO(1.4.0) Read functions should not be async.
-    async def read_transaction_proof_data_async(self, tx_hashes: List[bytes]) -> List[TxProofData]:
-        return await self._db_context.run_in_thread_async(self._read_transaction_proof_data,
-            tx_hashes)
-
-    def _read_transaction_proof_data(self, db: sqlite3.Connection, tx_hashes: List[bytes]) \
-            -> List[TxProofData]:
-        sql = """
-            SELECT tx_hash, flags, block_hash, proof_data FROM Transactions WHERE tx_hash IN ({})
-        """
-        sql_values = ()
-        return read_rows_by_id(TxProofData, db, sql, sql_values, tx_hashes)
-
-    async def update_transaction_flags_async(self, tx_hash: bytes, flags: TxFlags,
-            mask: Union[int, TxFlags]) -> bool:
-        return await self._db_context.run_in_thread_async(self._update_transaction_flags, tx_hash,
-            flags, mask)
-
-    def _update_transaction_flags(self, db: sqlite3.Connection, tx_hash: bytes,
-            flags: TxFlags, mask: Union[int, TxFlags]) -> bool:
-        sql = "UPDATE Transactions SET flags=(flags&?)|? WHERE tx_hash=?"
-        sql_values: List[Any] = [ tx_hash, flags, mask ]
-        cursor = db.execute(sql, sql_values)
-        return cursor.rowcount == 1
-
-    async def update_transaction_proof_async(self, tx_hash: bytes, block_hash: Optional[bytes],
-            block_position: Optional[int], proof_data: Optional[bytes],
-            tx_flags: TxFlags=TxFlags.STATE_SETTLED) -> None:
-        await self._db_context.run_in_thread_async(self._update_transaction_proof, tx_hash,
-            block_hash, block_position, proof_data, tx_flags)
-
-    def _update_transaction_proof(self, db: sqlite3.Connection, tx_hash: bytes,
-            block_hash: Optional[bytes], block_position: Optional[int],
-            proof_data: Optional[bytes], tx_flags: TxFlags) -> None:
-        """
-        Set the proof related fields for a transaction.
-
-        There are two cases where this is called.
-        - We have a CLEARED transaction and have just obtained and verified the proof, where
-          we should set it to SETTLED.
-        - We have a CLEARED transaction and have just obtained but could not verify the proof,
-          where we leave it as CLEARED (or set it to CLEARED if it is in another state).
-        - We have any local (SIGNED, DISPATCHED, RECEIVED) or broadcast (CLEARED) transaction
-          that we now have reason to believe is in a block.
-
-        One case where it may be in SETTLED but not have proof data, and then get proof data that
-        cannot be verified yet, is after migration 29 where we cleared all the legacy pre-TSC
-        proof data but left the transactions as SETTLED in order for a better user experience
-        (see the migration for further detail).
-
-        This should only be called in the context of the writer thread.
-        """
-        assert tx_flags & ~TxFlags.MASK_STATE == 0      # No non-state flags should be set.
-        assert tx_flags & TxFlags.MASK_STATE != 0       # A state flag should be set.
-
-        timestamp = get_posix_timestamp()
-        clear_state_mask = ~TxFlags.MASK_STATE
-        sql = ("UPDATE Transactions "
-            "SET date_updated=?, proof_data=?, block_hash=?, block_position=?, flags=(flags&?)|? "
-            "WHERE tx_hash=?")
-        sql_values = [ timestamp, proof_data, block_hash, block_position, clear_state_mask,
-            tx_flags, tx_hash ]
-        db.execute(sql, sql_values)
-
-
-def create_mapi_broadcast_callbacks(db_context: DatabaseContext,
-        rows: Iterable[MAPIBroadcastCallbackRow]) -> concurrent.futures.Future[None]:
-    sql = """
-        INSERT INTO MAPIBroadcastCallbacks
-        (tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id, status_flags)
-        VALUES (?, ?, ?, ?, ?, ?)"""
-
-    def _write(db: sqlite3.Connection) -> None:
-        db.executemany(sql, rows)
-    return db_context.post_to_thread(_write)
-
-
-@replace_db_context_with_connection
-def read_mapi_broadcast_callbacks(db: sqlite3.Connection) -> List[MAPIBroadcastCallbackRow]:
-    sql = f"""
-        SELECT tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id,
-            status_flags
-        FROM MAPIBroadcastCallbacks
-    """
-    return [ MAPIBroadcastCallbackRow(*row) for row in db.execute(sql).fetchall() ]
-
-
-def update_mapi_broadcast_callbacks(db_context: DatabaseContext,
-        entries: Iterable[Tuple[MapiBroadcastStatusFlags, bytes]]) \
-            -> concurrent.futures.Future[None]:
-    sql = "UPDATE MAPIBroadcastCallbacks SET status_flags=? WHERE tx_hash=?"
-    def _write(db: sqlite3.Connection) -> None:
-        db.executemany(sql, entries)
-    return db_context.post_to_thread(_write)
-
-
-def delete_mapi_broadcast_callbacks(db_context: DatabaseContext, tx_hashes: Iterable[bytes]) \
-        -> concurrent.futures.Future[None]:
-    sql = "DELETE FROM MAPIBroadcastCallbacks WHERE tx_hash=?"
-    def _write(db: sqlite3.Connection) -> None:
-        db.executemany(sql, [(tx_hash,) for tx_hash in tx_hashes])
-    return db_context.post_to_thread(_write)

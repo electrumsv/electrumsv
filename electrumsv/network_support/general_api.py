@@ -341,7 +341,6 @@ class SpentOutputWorkerState:
 
 
 # TODO(1.4.0) This is temporary and will be refactored into the reference server server management.
-#     It is expected that this
 async def maintain_spent_output_connection_async(network: Optional[Network],
         server_url: str, state: SpentOutputWorkerState) -> None:
     """

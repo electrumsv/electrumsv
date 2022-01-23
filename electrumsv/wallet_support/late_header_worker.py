@@ -48,7 +48,8 @@ from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof, verify_proof
 from ..constants import PendingHeaderWorkKind, TxFlags
 from ..logs import logs
-from ..wallet_database.functions import AsynchronousFunctions
+from ..wallet_database import functions as db_functions
+from ..wallet_database.sqlite_support import DatabaseContext
 
 
 logger = logs.get_logger("late-header-worker")
@@ -65,7 +66,8 @@ class LateHeaderWorkerState:
         default_factory=block_transactions_factory)
 
 
-async def late_header_worker_async(db_functions_async: AsynchronousFunctions,
+async def late_header_worker_async(
+        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
         state: LateHeaderWorkerState) -> None:
     """
     We receive headers asynchronously and do not expect to have the headers before we
@@ -77,17 +79,21 @@ async def late_header_worker_async(db_functions_async: AsynchronousFunctions,
         gap between no header and in the list of those known to have no header.
     - A new header is received.
     """
-    await _populate_initial_state(db_functions_async, state)
+    await _populate_initial_state(get_db_context_ref, state)
 
     # TODO(1.4.0): Hook this up to arrival of new headers.
 
     while True:
-        await _process_one_item(db_functions_async, state)
+        await _process_one_item(get_db_context_ref, state)
 
 
-async def _populate_initial_state(db_functions_async: AsynchronousFunctions,
+async def _populate_initial_state(
+        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
         state: LateHeaderWorkerState) -> None:
-    rows = await db_functions_async.read_pending_header_transactions_async()
+    get_db_context = get_db_context_ref()
+    assert get_db_context is not None
+    db_context = get_db_context()
+    rows = db_functions.read_pending_header_transactions(db_context)
     for tx_hash, block_hash, proof_data in rows:
         # When we set the proof data on a transaction for deferred verification we also set the
         # block hash among other things. This is guaranteed to be set, so essential to check.
@@ -96,7 +102,8 @@ async def _populate_initial_state(db_functions_async: AsynchronousFunctions,
         state.late_header_worker_queue.put_nowait(msg)
 
 
-async def _process_one_item(db_functions_async: AsynchronousFunctions,
+async def _process_one_item(
+        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
         state: LateHeaderWorkerState) -> None:
     """
     Take one item from the work queue and process it, if there are no pending items, block until
@@ -105,15 +112,16 @@ async def _process_one_item(db_functions_async: AsynchronousFunctions,
     item_kind, item_any = await state.late_header_worker_queue.get()
     if item_kind == PendingHeaderWorkKind.MERKLE_PROOF:
         tsc_proof = cast(TSCMerkleProof, item_any)
-        await _process_merkle_proof(db_functions_async, state, tsc_proof)
+        await _process_merkle_proof(get_db_context_ref, state, tsc_proof)
     elif item_kind == PendingHeaderWorkKind.NEW_HEADER:
         header, _chain = cast(Tuple[Header, Chain], item_any)
-        await _process_header(db_functions_async, state, header)
+        await _process_header(get_db_context_ref, state, header)
     else:
         raise NotImplementedError(f"Unknown late header work item kind {item_kind}")
 
 
-async def _process_merkle_proof(db_functions_async: AsynchronousFunctions,
+async def _process_merkle_proof(
+        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
         state: LateHeaderWorkerState, tsc_proof: TSCMerkleProof) -> None:
     """Process a single merkle proof or if we need to wait for the header, add it to the
     state.block_transactions cache for re-checking for each new tip notification."""
@@ -128,19 +136,23 @@ async def _process_merkle_proof(db_functions_async: AsynchronousFunctions,
         state.block_transactions[tsc_proof.block_hash].add(tsc_proof.transaction_hash)
         return None
 
-    await _process_one_merkle_proof(db_functions_async, state, tsc_proof.block_hash,
+    get_db_context = get_db_context_ref()
+    assert get_db_context is not None
+    db_context = get_db_context()
+    await _process_one_merkle_proof(db_context, state, tsc_proof.block_hash,
         TxFlags.STATE_CLEARED, tsc_proof.transaction_hash, tsc_proof.to_bytes(), header)
 
 
-async def _process_header(db_functions_async: AsynchronousFunctions,
+async def _process_header(
+        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
         state: LateHeaderWorkerState, header: Header) -> None:
     """Process all backlogged merkle proofs that were waiting for this header"""
     block_hash = header.hash
     if block_hash in state.block_transactions:
-        await _process_block_transactions(db_functions_async, state, header)
+        await _process_block_transactions(get_db_context_ref, state, header)
 
 
-async def _process_one_merkle_proof(db_functions_async: AsynchronousFunctions,
+async def _process_one_merkle_proof(db_context: DatabaseContext,
         state: LateHeaderWorkerState, tx_hash: bytes, flags: TxFlags, tx_block_hash: bytes,
         proof_data: bytes, header: Header) -> None:
     # It is possible that the transaction may have changed from under us in the database,
@@ -166,7 +178,7 @@ async def _process_one_merkle_proof(db_functions_async: AsynchronousFunctions,
     if verify_proof(tsc_proof, header.merkle_root):
         # TODO(1.4.0) This should be a database call that checks the transaction is still in the
         #     state where it needs processing, and if it is not, then we log an error and move on.
-        if await db_functions_async.update_transaction_flags_async(tx_hash,
+        if await db_functions.update_transaction_flags_async(db_context, tx_hash,
                 TxFlags.STATE_SETTLED, ~TxFlags.MASK_STATE):
             callback = state.verification_callback()
             if callback is None:
@@ -188,19 +200,23 @@ async def _process_one_merkle_proof(db_functions_async: AsynchronousFunctions,
         # Remove the "pending verification" proof and block data from the transaction, it
         # should not be necessary to update the UI as the transaction should not have
         # changed state and we do not display "pending verification" proofs.
-        await db_functions_async.update_transaction_proof_async(tx_hash, None, None, None,
+        await db_functions.update_transaction_proof_async(db_context, tx_hash, None, None, None,
             TxFlags.STATE_CLEARED)
         return None
 
 
-async def _process_block_transactions(db_functions_async: AsynchronousFunctions,
+async def _process_block_transactions(
+        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
         state: LateHeaderWorkerState, header: Header) -> None:
     tx_hashes = list(state.block_transactions[header.hash])
-    unverified_entries = await db_functions_async.read_transaction_proof_data_async(tx_hashes)
+    get_db_context = get_db_context_ref()
+    assert get_db_context is not None
+    db_context = get_db_context()
+    unverified_entries = db_functions.read_transaction_proof_data(db_context, tx_hashes)
     for tx_hash, flags, tx_block_hash, proof_data in unverified_entries:
         assert tx_block_hash is not None
         assert proof_data is not None
-        await _process_one_merkle_proof(db_functions_async, state, tx_hash, flags,
-            tx_block_hash, proof_data, header)
+        await _process_one_merkle_proof(db_context, state, tx_hash, flags, tx_block_hash,
+            proof_data, header)
 
     del state.block_transactions[header.hash]

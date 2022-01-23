@@ -442,7 +442,6 @@ class BlockchainScanDialog(WindowModalDialog):
 
         for tx_hash in list(link_tx_hashes):
             link_state = TransactionLinkState()
-            print("LINK_ATTEMPT", tx_hash)
             await self._wallet.link_transaction_async(tx_hash, link_state)
             self._import_link_hashes.remove(tx_hash)
             self.import_step_signal.emit(tx_hash, link_state)
