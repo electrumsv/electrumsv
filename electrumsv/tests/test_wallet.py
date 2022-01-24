@@ -865,7 +865,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         db_context.release_connection(db)
 
 
-# TODO(1.4.0) Reorging needs to be reimplemented based on block hashes, when the tip changes
+# TODO(1.4.0) Reorgs. Needs to be reimplemented based on block hashes, when the tip changes
 #     the wallet should detect it and gather all block hashes that are now invalidated and
 #     process the affected transactions. One place where we currently fail at this is where
 #     a wallet was not loaded when the blockchain changed.
@@ -934,9 +934,9 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_metadata_1.block_position == BLOCK_POSITION
         assert tx_metadata_1.fee_value is None # == FEE_VALUE
 
-        # TODO(1.4.0) This maps to unspent output requirements?
+        # TODO(1.4.0) Reorgs. Verify that spent output registrations would pick this up.
         # ## Verify that the transaction does not qualify for subscriptions.
-        # sub_rows = wallet.read_keys_for_transaction_subscriptions(account_row.account_id, tx_hash_1)
+        # sub_rows = db_functions.read_spent_outputs_to_monitor(db_context)
         # assert not len(sub_rows)
 
         ## NOP reorg.
@@ -971,10 +971,10 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_metadata_1.block_position is None
         assert tx_metadata_1.fee_value is None
 
-        # TODO(1.4.0) This maps to unspent output requirements.
+        # TODO(1.4.0) Reorgs. Verify that spent output registrations would pick this up.
         # ## Verify that the transaction now qualify for subscriptions, which would mean that
         # ## we would listen for re-mining events.
-        # sub_rows = wallet.read_keys_for_transaction_subscriptions(account_row.account_id, tx_hash_1)
+        # sub_rows = db_functions.read_spent_outputs_to_monitor(db_context)
         # assert len(sub_rows) == 1
         # assert sub_rows[0].tx_hash == tx_hash_1
         # assert sub_rows[0].put_type == 1 # Output

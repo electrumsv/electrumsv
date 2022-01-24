@@ -81,7 +81,7 @@ async def late_header_worker_async(
     """
     await _populate_initial_state(get_db_context_ref, state)
 
-    # TODO(1.4.0): Hook this up to arrival of new headers.
+    # TODO(1.4.0): Networking. Hook this up to arrival of new headers.
 
     while True:
         await _process_one_item(get_db_context_ref, state)
@@ -176,8 +176,9 @@ async def _process_one_merkle_proof(db_context: DatabaseContext,
 
     tsc_proof = TSCMerkleProof.from_bytes(proof_data)
     if verify_proof(tsc_proof, header.merkle_root):
-        # TODO(1.4.0) This should be a database call that checks the transaction is still in the
-        #     state where it needs processing, and if it is not, then we log an error and move on.
+        # TODO(1.4.0) Database consistency. This should be a database call that checks the
+        #     transaction is still in the state where it needs processing, and if it is not, then
+        #     we log an error and move on.
         if await db_functions.update_transaction_flags_async(db_context, tx_hash,
                 TxFlags.STATE_SETTLED, ~TxFlags.MASK_STATE):
             callback = state.verification_callback()
@@ -193,8 +194,8 @@ async def _process_one_merkle_proof(db_context: DatabaseContext,
         return None
     else:
         # TODO(bad-server)
-        # TODO(1.4.0) We probably want to know what server this came from so we can treat
-        #    it as a bad server. And we would want to retry with a good server.
+        # TODO(1.4.0) Networking. We probably want to know what server this came from so we can
+        #    treat it as a bad server. And we would want to retry with a good server.
         logger.error("Deferred verification transaction %s failed verifying proof",
             hash_to_hex_str(tx_hash))
         # Remove the "pending verification" proof and block data from the transaction, it

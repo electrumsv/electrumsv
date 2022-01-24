@@ -507,7 +507,7 @@ class TestTransactionTable:
         result_tx_hashes = set(self._get_store_hashes())
         assert get_tx_hashes == result_tx_hashes
 
-    # TODO(1.4.0) Need to update for the new TSC proof storage.
+    # TODO(1.4.0) Unit test update. Need to update for the new TSC proof storage.
     # @pytest.mark.asyncio
     # async def test_proof(self) -> None:
     #     assert self.db_context is not None

@@ -10,6 +10,7 @@
 # subject to the following conditions:
 #
 # The above copyright notice and this permission notice shall be
+
 # included in all copies or substantial portions of the Software.
 #
 # THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
@@ -28,6 +29,7 @@ import datetime
 import os
 from functools import partial
 import signal
+import sys
 import threading
 from typing import Any, Callable, cast, Coroutine, Iterable, List, Optional, TypeVar
 
@@ -37,11 +39,13 @@ from PyQt5.QtCore import pyqtSignal, QEvent, QObject, QTimer
 from PyQt5.QtGui import QFileOpenEvent, QGuiApplication, QIcon
 from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QDialog
 
-from electrumsv.app_state import app_state, ExceptionHandlerABC
-from electrumsv.contacts import ContactEntry, ContactIdentity
-from electrumsv.i18n import _
-from electrumsv.logs import logs
-from electrumsv.wallet import AbstractAccount, Wallet
+from ...app_state import app_state, ExceptionHandlerABC
+from ...contacts import ContactEntry, ContactIdentity
+from ...i18n import _
+from ...logs import logs
+from ...types import ExceptionInfoType
+from ...util import UpdateCheckResultType
+from ...wallet import AbstractAccount, Wallet
 
 from . import dialogs, network_dialog
 from .cosigner_pool import CosignerPool
@@ -339,33 +343,32 @@ class SVApplication(QApplication):
 
         return w
 
-    # TODO(1.4.0) Make sure this is integrated into the notifications.
-    # def update_check(self) -> None:
-    #     if (not app_state.config.get('check_updates', True) or
-    #             app_state.config.get("offline", False)):
-    #         return
+    def update_check(self) -> None:
+        if (not app_state.config.get('check_updates', True) or
+                app_state.config.get("offline", False)):
+            return
 
-    #     def f() -> None:
-    #         import requests
-    #         try:
-    #             response = requests.request(
-    #                 'GET', "https://electrumsv.io/release.json",
-    #                 headers={'User-Agent' : 'ElectrumSV'}, timeout=10)
-    #             result = response.json()
-    #             self._on_update_check(True, result)
-    #         except Exception:
-    #             self._on_update_check(False, cast(ExceptionInfoType, sys.exc_info()))
+        def f() -> None:
+            import requests
+            try:
+                response = requests.request(
+                    'GET', "https://electrumsv.io/release.json",
+                    headers={'User-Agent' : 'ElectrumSV'}, timeout=10)
+                result = response.json()
+                self._on_update_check(True, result)
+            except Exception:
+                self._on_update_check(False, cast(ExceptionInfoType, sys.exc_info()))
 
-    #     t = threading.Thread(target=f)
-    #     t.setDaemon(True)
-    #     t.start()
+        t = threading.Thread(target=f)
+        t.setDaemon(True)
+        t.start()
 
-    # def _on_update_check(self, success: bool, result: UpdateCheckResultType) -> None:
-    #     if success:
-    #         when_checked = datetime.datetime.now().astimezone().isoformat()
-    #         app_state.config.set_key('last_update_check', result)
-    #         app_state.config.set_key('last_update_check_time', when_checked, True)
-    #     self.update_check_signal.emit(success, result)
+    def _on_update_check(self, success: bool, result: UpdateCheckResultType) -> None:
+        if success:
+            when_checked = datetime.datetime.now().astimezone().isoformat()
+            app_state.config.set_key('last_update_check', result)
+            app_state.config.set_key('last_update_check_time', when_checked, True)
+        self.update_check_signal.emit(success, result)
 
     def initial_dialogs(self) -> None:
         '''Suppressible dialogs that are shown when first opening the app.'''

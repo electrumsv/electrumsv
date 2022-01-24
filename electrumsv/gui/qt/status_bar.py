@@ -63,7 +63,7 @@ class NotificationIndicator(XToolButton):
         self.set_notification_state(0)
         self.setMinimumWidth(32)
 
-        # TODO(1.4.0)
+        # TODO(1.4.0) Notifications.
         # self.clicked.connect(self._on_notifications_clicked)
 
     def set_notification_state(self, how_many: int=0, is_urgent: bool=False) -> None:
@@ -80,7 +80,7 @@ class NotificationIndicator(XToolButton):
         self.setIcon(icon)
         self.setToolTip(text)
 
-    # TODO(1.4.0)
+    # TODO(1.4.0) Notifications.
     # def _on_notifications_clicked(self) -> None:
     #     self._main_window.toggle_tab(self._main_window.notifications_tab, True, to_front=True)
 

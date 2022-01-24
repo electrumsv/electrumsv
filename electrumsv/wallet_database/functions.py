@@ -504,8 +504,8 @@ def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> List[OutputSpend]:
     Retrieve all the outpoints we need to monitor (and why) via the 'output-spend' API. Remember
     that the goal is to detect either the appearance of these in the mempool or a block.
     """
-    # TODO(1.4.0) This is used to get the spent outputs we want to monitor, but we do not
-    #     monitor the ones where the MAPI broadcast covers mining/proof obtaining.
+    # TODO(1.4.0) MAPI management. This is used to get the spent outputs we want to monitor, but
+    #     we do not monitor the ones where the MAPI broadcast covers mining/proof obtaining.
     #     - Consider whether we do actually want to monitor MAPI broadcasted transactions also
     #       and not necessarly fetch a proof, but reconcile MAPI failure.
     #     - If we are excluding MAPI, then we need to ensure the exclusion constraint in the
@@ -808,7 +808,7 @@ def read_payment_requests(db: sqlite3.Connection, account_id: int,
         for t in db.execute(sql, sql_values).fetchall() ]
 
 
-# TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
+# TODO(1.4.0) Reorgs. Remove when we have replaced with a reference server equivalent.
 # @replace_db_context_with_connection
 # def read_reorged_transactions(db: sqlite3.Connection, reorg_height: int) -> List[bytes]:
 #     """
@@ -1447,7 +1447,7 @@ def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxF
     return db_context.post_to_thread(_write)
 
 
-# TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
+# TODO(1.4.0) Reorgs. Remove when we have replaced with a reference server equivalent.
 # def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]) \
 #         -> concurrent.futures.Future[bool]:
 #     """

@@ -96,9 +96,10 @@ class CapabilitySupport:
     can_disable: bool=False
 
 
-# TODO(1.4.0) This kind of overrides the api server configurations, which kind of also should
-#     be replaced by the endpoints API results for each server. We should get rid of this, or
-#     use it for `MERCHANT_API` and other server types that do not have an 'endpoints' endpoint.
+# TODO(1.4.0) Networking. This kind of overrides the api server configurations, which kind of
+#     also should be replaced by the endpoints API results for each server. We should get rid of
+#     this, or use it for `MERCHANT_API` and other server types that do not have an 'endpoints'
+#     endpoint.
 SERVER_CAPABILITIES = {
     NetworkServerType.GENERAL: [
         CapabilitySupport(_("Account restoration"), ServerCapability.RESTORATION),
@@ -122,7 +123,8 @@ SERVER_CAPABILITIES = {
 }
 
 
-# TODO(1.4.0) Fee quotes has to come in the send view to factor into the fee in the transaction
+# TODO(1.4.0) MAPI management. Fee quotes has to come in the send view to factor into the fee in
+#     the transaction
 async def broadcast_transaction(tx: Transaction, network: Network,
         account: "AbstractAccount", merkle_proof: bool = False, ds_check: bool = False) \
             -> BroadcastResponse:
@@ -490,11 +492,12 @@ def pick_server_for_account(network: Optional[Network], account: AbstractAccount
     if not len(restoration_candidates):
         raise ServiceUnavailableError(_("No servers available."))
 
-    # TODO(1.4.0) better choice of which server to use, probably some centralised approach.
+    # TODO(1.4.0) Networking. Better choice of which server to use, probably some centralised
+    #     approach.
     candidate = random.choice(restoration_candidates)
     assert candidate.api_server is not None and candidate.api_server.config is not None
 
-    # TODO(1.4.0) better endpoint url resolution rather than this hard-coding.
+    # TODO(1.4.0) Networking. Better endpoint url resolution rather than this hard-coding.
     url = candidate.api_server.config["url"]
     url = url if url.endswith("/") else url +"/"
     return url

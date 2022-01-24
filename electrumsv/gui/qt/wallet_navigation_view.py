@@ -490,7 +490,9 @@ class WalletNavigationView(QSplitter):
             partial(self._rename_account, account_id))
         menu.addSeparator()
 
-        scan_action = menu.addAction(_("Scan account"), main_window.scan_active_account_manual)
+        scan_action = menu.addAction(_("&Restore account"), main_window.scan_active_account_manual)
+        # TODO(1.4.0) Account restoration. We need to restore non-deterministic accounts, like
+        #     imported keys. But we should go over all account types to be sure we do it right.
         scan_action.setEnabled(account.is_deterministic())
         menu.addSeparator()
 
@@ -510,7 +512,7 @@ class WalletNavigationView(QSplitter):
         hist_menu.addAction("Export", main_window.export_history_dialog)
 
         labels_menu = menu.addMenu(_("&Labels"))
-        action = labels_menu.addAction(_("&Import"),
+        labels_menu.addAction(_("&Import"),
             partial(self._on_menu_import_labels, account_id))
         labels_menu.addAction(_("&Export"), partial(self._on_menu_export_labels, account_id))
 

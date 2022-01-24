@@ -54,7 +54,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     CHANGE_SUBPATH, DatabaseKeyDerivationType,
     DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath, TransactionImportFlag,
     KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags, MAX_VALUE,
-    MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerType,
+    MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
     pack_derivation_path, PaymentFlag, PendingHeaderWorkKind, RECEIVING_SUBPATH, ServerCapability,
     SubscriptionOwnerPurpose, SubscriptionType, ScriptType, TransactionInputFlag,
     TransactionOutputFlag, TxFlags, unpack_derivation_path,
@@ -637,7 +637,8 @@ class AbstractAccount:
         assert app_state.headers is not None
         history_raw: List[HistoryListEntry] = []
         lookup_header = app_state.headers.lookup
-        for row in self._wallet.read_history_list(self._id, domain):
+        rows = db_functions.read_history_list(self._wallet.get_db_context(), self._id, domain)
+        for row in rows:
             sort_key = (1000000000, row.date_created)
             if row.block_hash is not None:
                 try:
@@ -824,7 +825,7 @@ class AbstractAccount:
         self._network = network
         if network is not None:
             pass
-            # TODO(1.4.0) Dependent on implementation of pushdata monitoring
+            # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
             # # Set up the key monitoring for the account.
             # network.subscriptions.set_owner_callback(self._subscription_owner_for_keys,
             #     # NOTE(typing) The union of callback types does not recognise this case ??
@@ -842,7 +843,7 @@ class AbstractAccount:
         self._logger.debug("stopping account %s", self)
         if self._network:
             pass
-            # TODO(1.4.0) Dependent on implementation of pushdata monitoring
+            # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
             # # Unsubscribe from the account's existing subscriptions.
             # futures = self._network.subscriptions.remove_owner(self._subscription_owner_for_keys)
             # # We could call `concurrent.futures.wait` on the list, but we want to raise if there
@@ -850,7 +851,7 @@ class AbstractAccount:
             # for future in futures:
             #     future.result()
 
-    # TODO(1.4.0) Dependent on implementation of pushdata monitoring
+    # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
     # def register_for_keyinstance_events(self, keyinstances: List[KeyInstanceRow]) -> None:
     #     assert self._network is not None
     #     if len(keyinstances):
@@ -861,7 +862,7 @@ class AbstractAccount:
     #             self._get_subscription_entries_for_keyinstance_ids(
     #                 subscription_keyinstance_ids), self._subscription_owner_for_keys)
 
-    # TODO(1.4.0) Dependent on implementation of pushdata monitoring
+    # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
     # async def _on_network_key_script_hash_result(self, subscription_key: SubscriptionKey,
     #         context: SubscriptionKeyScriptHashOwnerContext,
     #         history: ScriptHashHistoryList) -> None:
@@ -1320,8 +1321,8 @@ class ImportedAddressAccount(ImportedAccountBase):
         if len(existing_keys):
             return False
 
-        # TODO(1.4.0) a. Dependent on implementation of pushdata monitoring for spends/receipts.
-        # TODO(1.4.0) b. Can use spent output events for watching spends.
+        # TODO(1.4.0) Key usage. Requires pushdata monitoring for spends/receipts.
+        #     Can use spent output events for watching spends.
         # def callback(future: concurrent.futures.Future[None]) -> None:
         #     if future.cancelled():
         #         return
@@ -1390,8 +1391,8 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         if len(existing_keys) > 0:
             return private_key_text
 
-        # TODO(1.4.0) a. Dependent on implementation of pushdata monitoring for spends/receipts.
-        # TODO(1.4.0) b. Can use spent output events for watching spends.
+        # TODO(1.4.0) Key usage. Requires pushdata monitoring for spends/receipts.
+        #     Can use spent output events for watching spends.
         # def callback(future: concurrent.futures.Future[None]) -> None:
         #     if future.cancelled():
         #         return
@@ -1916,7 +1917,7 @@ class Wallet(TriggeredCallbacks):
         # have the proof.
         self._check_missing_proofs_event = app_state.async_.event()
 
-        # TODO(1.4.0) This is all old networking support.
+        # TODO(1.4.0) Networking. Need to indicate progress on background network requests.
         self.progress_event = app_state.async_.event()
         self.request_count = 0
         self.response_count = 0
@@ -1932,7 +1933,7 @@ class Wallet(TriggeredCallbacks):
 
         # Cache the stuff that is needed unencrypted but is encrypted.
         self._registered_api_keys: Dict[ServerAccountKey, IndefiniteCredentialId] = {}
-        server_rows, server_account_rows = self.read_network_servers()
+        server_rows, server_account_rows = db_functions.read_network_servers(self.get_db_context())
         for server_row in server_rows:
             if server_row.encrypted_api_key is not None:
                 server_key = ServerAccountKey(server_row.url, server_row.server_type, -1)
@@ -2196,10 +2197,6 @@ class Wallet(TriggeredCallbacks):
             account.start(self._network)
         return account
 
-    def read_history_list(self, account_id: int, keyinstance_ids: Optional[Sequence[int]]=None) \
-            -> List[HistoryListRow]:
-        return db_functions.read_history_list(self.get_db_context(), account_id, keyinstance_ids)
-
     def read_bip32_keys_unused(self, account_id: int, masterkey_id: int,
             derivation_path: DerivationPath, limit: int) -> List[KeyInstanceRow]:
         return db_functions.read_bip32_keys_unused(self.get_db_context(), account_id, masterkey_id,
@@ -2334,8 +2331,8 @@ class Wallet(TriggeredCallbacks):
         account_row = self.add_accounts([ basic_account_row ])[0]
         account = self._create_account_from_data(account_row, account_flags)
 
-        # TODO(1.4.0) a. Dependent on implementation of pushdata monitoring for spends/receipts.
-        # TODO(1.4.0) b. Can use spent output events for watching spends.
+        # TODO(1.4.0) Key usage. Requires pushdata monitoring for spends/receipts.
+        #     Can use spent output events for watching spends.
         # def callback(future: concurrent.futures.Future[None]) -> None:
         #     if future.cancelled():
         #         return
@@ -2676,23 +2673,26 @@ class Wallet(TriggeredCallbacks):
 
     # mAPI broadcast callbacks
 
-    # TODO(1.4.0) There's a problem in that we kind of need to route all database calls through
-    #     the wallet, and this creates lots of noisy boilerplate functions. We should work out
-    #     if we can bypass the wallet in a clean way and skip this. This might be by passing
-    #     around a weakref method to `Wallet.get_db_context` to reliant logic and having the logic
-    #     use that to obtain a context and do direct `db_functions` and `db_functions_async` calls.
+    # TODO(1.4.0) Wallet database access. Remove boilerplate and allow caller to hold the db
+    #     context and call the database function directly.
     def create_mapi_broadcast_callbacks(self, rows: Iterable[MAPIBroadcastCallbackRow]) -> \
             concurrent.futures.Future[None]:
         return db_functions.create_mapi_broadcast_callbacks(self.get_db_context(), rows)
 
+    # TODO(1.4.0) Wallet database access. Remove boilerplate and allow caller to hold the db
+    #     context and call the database function directly.
     def read_mapi_broadcast_callbacks(self) -> List[MAPIBroadcastCallbackRow]:
         return db_functions.read_mapi_broadcast_callbacks(self.get_db_context())
 
+    # TODO(1.4.0) Wallet database access. Remove boilerplate and allow caller to hold the db
+    #     context and call the database function directly.
     def update_mapi_broadcast_callbacks(self,
             entries: Iterable[Tuple[MapiBroadcastStatusFlags, bytes]]) -> \
                 concurrent.futures.Future[None]:
         return db_functions.update_mapi_broadcast_callbacks(self.get_db_context(), entries)
 
+    # TODO(1.4.0) Wallet database access. Remove boilerplate and allow caller to hold the db
+    #     context and call the database function directly.
     def delete_mapi_broadcast_callbacks(self, tx_hashes: Iterable[bytes]) -> \
                 concurrent.futures.Future[None]:
         return db_functions.delete_mapi_broadcast_callbacks(self.get_db_context(), tx_hashes)
@@ -2753,7 +2753,7 @@ class Wallet(TriggeredCallbacks):
                     tsc_full_proof, _header_data = await request_binary_merkle_proof_async(
                         self._network, account, tx_hash, include_transaction=True)
                 except ServerConnectionError:
-                    # TODO(1.4.0) Handle `ServerConnectionError` exception.
+                    # TODO(1.4.0) Networking. Handle `ServerConnectionError` exception.
                     #     No reliable server should cause this, we should stand off the server or
                     #     something similar.
                     logger.error("Still need to implement handling for inability to connect"
@@ -2761,8 +2761,8 @@ class Wallet(TriggeredCallbacks):
                     await asyncio.sleep(60)
                     continue
                 except (TSCMerkleProofError, MerkleProofVerificationError):
-                    # TODO(1.4.0) Handle `MerkleProofVerificationError` exception.
-                    # TODO(1.4.0) Handle `TSCMerkleProofError` exception.
+                    # TODO(1.4.0) Networking. Handle `MerkleProofVerificationError` exception.
+                    # TODO(1.4.0) Networking. Handle `TSCMerkleProofError` exception.
                     #     No trustable server should cause this, we should disable the server or
                     #     something similar.
                     logger.error("Still need to implement handling for inability to connect"
@@ -2816,10 +2816,10 @@ class Wallet(TriggeredCallbacks):
           manually obtain the proof ourselves. This would need some other external event source
           where we find out whether transactions have been mined, like output spend notifications.
         """
-        # TODO(1.4.0) If the user does not have their internet connection enabled when the wallet
-        #     is first opened, then this will maybe error and exit or block. We should be able to
-        #     detect problems like this and highlight it to the user, and retry periodically or
-        #     when they manually indicate they want to retry.
+        # TODO(1.4.0) Networking. If the user does not have their internet connection enabled when
+        #     the wallet is first opened, then this will maybe error and exit or block. We should
+        #     be able to detect problems like this and highlight it to the user, and retry
+        #     periodically or when they manually indicate they want to retry.
         while True:
             # We just take the first returned transaction for now (and ignore the rest).
             rows = db_functions.read_proofless_transactions(self.get_db_context())
@@ -2834,7 +2834,7 @@ class Wallet(TriggeredCallbacks):
                     tsc_proof, (header, header_chain) = await request_binary_merkle_proof_async(
                         self._network, account, tx_hash, include_transaction=False)
                 except ServerConnectionError:
-                    # TODO(1.4.0) Handle `ServerConnectionError` exception.
+                    # TODO(1.4.0) Networking. Handle `ServerConnectionError` exception.
                     #     No reliable server should cause this, we should stand off the server or
                     #     something similar.
                     logger.error("Still need to implement handling for inability to connect"
@@ -2842,8 +2842,8 @@ class Wallet(TriggeredCallbacks):
                     await asyncio.sleep(60)
                     continue
                 except (TSCMerkleProofError, MerkleProofVerificationError):
-                    # TODO(1.4.0) Handle `MerkleProofVerificationError` exception.
-                    # TODO(1.4.0) Handle `TSCMerkleProofError` exception.
+                    # TODO(1.4.0) Networking. Handle `MerkleProofVerificationError` exception.
+                    # TODO(1.4.0) Networking. Handle `TSCMerkleProofError` exception.
                     #     No trustable server should cause this, we should disable the server or
                     #     something similar.
                     logger.error("Still need to implement handling for inability to connect"
@@ -2889,17 +2889,14 @@ class Wallet(TriggeredCallbacks):
             problems).
         Raises `GeneralAPIError` if a connection was established but the request errored.
         """
-        # TODO(1.4.0) We intercept this call because the wallet will be funding it via the petty
-        #  cash account. Therefore we need to wrap the call to apply the checks and handling
+        # TODO(1.4.0) Petty cash. We intercept this call because the wallet will be funding it
+        #     via the petty cash account. Therefore we need to wrap the call to apply the checks
+        #     and handling
         return await request_transaction_data_async(self._network, account, tx_hash)
-
-    def read_network_servers(self, server_key: Optional[Tuple[NetworkServerType, str]]=None) \
-            -> Tuple[List[NetworkServerRow], List[NetworkServerAccountRow]]:
-        return db_functions.read_network_servers(self.get_db_context(), server_key)
 
     def read_network_servers_with_credentials(self) -> List[NetworkServerState]:
         results: List[NetworkServerState] = []
-        server_rows, account_rows = self.read_network_servers()
+        server_rows, account_rows = db_functions.read_network_servers(self.get_db_context())
         for server_row in server_rows:
             server_key = ServerAccountKey.for_server_row(server_row)
             results.append(NetworkServerState(server_key, self._registered_api_keys.get(server_key),
@@ -3418,13 +3415,13 @@ class Wallet(TriggeredCallbacks):
                 self._logger.debug("Removed missing transaction %s", hash_to_hex_str(tx_hash)[:8])
                 self.trigger_callback('missing_transaction_obtained', tx_hash, tx, link_state)
 
-        # TODO(1.4.0) Spent outputs edge case, monitoring STATE_SIGNED or STATE_CLEARED
-        #     transactions needs a final decision. In practice, all ongoing transaction
-        #     broadcasts will be via MAPI and we should aim to expect that mining notifications
-        #     come via peer channel callbacks.
-        # TODO(1.4.0) Allow user to correct lost STATE_SIGNED or STATE_CLEARED transactions.
-        #     This would likely be some UI option that used spent outputs to deal with either
-        #     unexpected MAPI non-involvement or loss of mined/double spent callback.
+        # TODO(1.4.0) MAPI management. Spent outputs edge case, monitoring STATE_SIGNED or
+        #     STATE_CLEARED transactions needs a final decision. In practice, all ongoing
+        #     transaction broadcasts will be via MAPI and we should aim to expect that mining
+        #     notifications come via peer channel callbacks.
+        # TODO(1.4.0) MAPI management. Allow user to correct lost STATE_SIGNED or STATE_CLEARED
+        #     transactions. This would likely be some UI option that used spent outputs to deal
+        #     with either unexpected MAPI non-involvement or loss of mined/double spent callback.
 
         # We monitor local and mempool transactions to see if they have been mined.
         if self._network is not None and flags & (TxFlags.MASK_STATE_LOCAL | TxFlags.STATE_CLEARED):
@@ -3434,7 +3431,7 @@ class Wallet(TriggeredCallbacks):
                     import_flags & TransactionImportFlag.EXPLICIT_BROADCAST:
                 # The user has used the "Sign" UI button rather than the "Broadcast" UI button.
                 # It is not a given they will broadcast it, and we need to deal with that.
-                # TODO(1.4.0) Monitor spent output state if the broadcast fails.
+                # TODO(1.4.0) MAPI management. Monitor spent output state if the broadcast fails.
                 #     I (rt12) suspect the correct place for this clause is in the "register"
                 #     clause, where we would do the appropriate handling. However this is probably
                 #     better to ignore and handle as a general state change.
@@ -3442,13 +3439,15 @@ class Wallet(TriggeredCallbacks):
             elif flags & TxFlags.STATE_CLEARED and tsc_proof_bytes is not None:
                 # We have the proof for this transaction but were not able to verify it due to
                 # the lack of the header for the block that the transaction is in.
-                # TODO(1.4.0) Monitor spent output state until there is a successful broadcast.
-                #     This should be a general state change.
+                # TODO(1.4.0) Spent outputs. We need to recover from all failure cases here.
+                #     - Maybe the header never arrives (unlikely but should handle).
+                #     - Maybe the header does not verify correctly.
+                #     - Other failure cases?
                 pass
             else:
-                # TODO(1.4.0) We can do more intelligent selection of spent outputs to monitor.
-                #     We really only care about UTXOs that affect us, but it is likely that in
-                #     most cases it is simpler to care about them all.
+                # TODO(1.4.0) Spent outputs. We can do more intelligent selection of spent outputs
+                #     to monitor. We really only care about UTXOs that affect us, but it is
+                #     likely that in most cases it is simpler to care about them all.
                 pass
                 # self._register_spent_outputs_to_monitor(
                 #     [ Outpoint(input.prev_hash, input.prev_idx) for input in tx.inputs ])
@@ -3587,7 +3586,7 @@ class Wallet(TriggeredCallbacks):
                     return account
         return None
 
-    # TODO(1.4.0) Remove when we have replaced with a reference server equivalent.
+    # TODO(1.4.0) Reorgs. Remove when we have replaced with a reference server equivalent.
     # def undo_verifications(self, above_height: int) -> None:
     #     '''Called by network when a reorg has happened'''
     #     if self._stopped:
@@ -3604,7 +3603,7 @@ class Wallet(TriggeredCallbacks):
         # TODO(petty-cash) In theory each petty cash account maintains a connection. At the time
         #     of writing, we only have one petty cash account per wallet, but there are loose
         #     plans that sets of accounts may hierarchically share different petty cash accounts.
-        # TODO(1.4.0) These worker tasks should be restarted if they prematurely exit.
+        # TODO(1.4.0) Networking. These worker tasks should be restarted if they prematurely exit.
         self._worker_tasks_maintain_spent_output_connection: \
             dict[int, tuple[SpentOutputWorkerState, concurrent.futures.Future[None],
                 concurrent.futures.Future[None]]] = {}
@@ -3641,7 +3640,7 @@ class Wallet(TriggeredCallbacks):
         state = self._worker_tasks_maintain_spent_output_connection[account_id][0]
         state.registration_queue.put_nowait(spent_outpoints)
 
-    # TODO unit test malleation replacement of a transaction
+    # TODO(1.4.0) Spent outputs. Unit test malleation replacement of a transaction
     async def _process_received_spent_output_notifications(self, account_id: int) -> None:
         if account_id not in self._worker_tasks_maintain_spent_output_connection:
             return
@@ -3666,8 +3665,8 @@ class Wallet(TriggeredCallbacks):
                 spent_outpoint = Outpoint(spent_output.out_tx_hash,
                     spent_output.out_index)
                 if spent_outpoint not in rows_by_outpoint:
-                    # TODO(1.4.0) The user would have had to delete the transaction from the
-                    #     database if that is even possible? Is that correct? Should we do
+                    # TODO(1.4.0) Spent outputs. The user would have had to delete the transaction
+                    #     from the database if that is even possible? Is that correct? Should we do
                     #     something here? Need to finalise this.
                     self._logger.error("NO DATABASE ENTRIES FOR SPENT OUTPUT NOTIFICATION %r",
                         spent_output)
@@ -3675,16 +3674,16 @@ class Wallet(TriggeredCallbacks):
 
                 for row in rows_by_outpoint[spent_outpoint]:
                     if row.spending_tx_hash != spent_output.in_tx_hash:
-                        # TODO(1.4.0) If this was a final transaction that we were watching and
-                        #     since we do not handle incomplete or non-final transactions yet
-                        #     as far as I can recall, it should be, then it has either been
-                        #     double spent or malleated. If it is not final, then it is possible
-                        #     we are legitimately waiting to know how it has been included in any
-                        #     transaction by the other party, or... something else?
+                        # TODO(1.4.0) Spent outputs. If this was a final transaction that we were
+                        #     watching and since we do not handle incomplete or non-final
+                        #     transactions yet as far as I can recall, it should be, then it has
+                        #     either been double spent or malleated. If it is not final, then it
+                        #     is possible we are legitimately waiting to know how it has been
+                        #     included in any transaction by the other party, or... something else?
                         self._logger.error("DOUBLE SPENT OR MALLEATED %r ~ %r", spent_output, row)
-                        # TODO(1.4.0) Detect malleation by comparing transactions. That would
-                        #     probably require extra work like fetching the new transaction and
-                        #     then reconciling it.
+                        # TODO(1.4.0) Spent outputs. Detect malleation by comparing transactions.
+                        #     That would probably require extra work like fetching the new
+                        #     transaction and then reconciling it.
                     elif row.block_hash != spent_output.block_hash:
                         if row.block_hash is None:
                             self._logger.debug("Unspent output event, transaction has been mined "
@@ -3710,8 +3709,8 @@ class Wallet(TriggeredCallbacks):
             row.spending_tx_hash, spent_output.block_hash, None, None, TxFlags.STATE_CLEARED)
 
         self._check_missing_proofs_event.set()
-        # TODO(1.4.0) This is a thing we did to ensure the UI was up to date when the script hash
-        # stuff was the way we did it, we should probably still do it.
+        # TODO(1.4.0) Technical debt. This is a thing we did to ensure the UI was up to date
+        #     when the script hash stuff was the way we did it, we should probably still do it.
         # NOTE 1, 1 are just placeholder arguments to save having to change the ui callback signal
         # support. We will revisit this via the 1.4.0 comment above before release.
         self.trigger_callback('transaction_heights_updated', 1, 1)

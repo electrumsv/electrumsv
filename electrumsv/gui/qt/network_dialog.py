@@ -56,6 +56,7 @@ from ...network_support.api_server import APIServerDefinition, CapabilitySupport
     SERVER_CAPABILITIES
 from ...types import ServerAccountKey
 from ...util.network import DEFAULT_SCHEMES, UrlValidationError, validate_url
+from ...wallet_database import functions as db_functions
 from ...wallet_database.types import NetworkServerRow, NetworkServerAccountRow
 
 from .password_dialog import PasswordLineEdit
@@ -718,7 +719,8 @@ class EditServerDialog(WindowModalDialog):
             assert self._server_url is not None
             assert self._entry is not None
             server_type_url = (self._entry.server_type, self._server_url)
-            server_rows, server_account_rows = wallet.read_network_servers(server_type_url)
+            server_rows, server_account_rows = db_functions.read_network_servers(
+                wallet.get_db_context(), server_type_url)
             # These are not related to the existence of the server, unless the server is not
             # registered and tracked by the application config.
             if len(server_rows):

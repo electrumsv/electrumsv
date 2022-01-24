@@ -73,7 +73,8 @@ from ...networks import Net
 from ...storage import WalletStorage
 from ...transaction import Transaction, TransactionContext
 from ...types import ExceptionInfoType, Outpoint, WaitingUpdateCallback
-from ...util import format_fee_satoshis, get_wallet_name_from_path, profiler
+from ...util import UpdateCheckResultType, format_fee_satoshis, get_identified_release_signers, \
+    get_update_check_dates, get_wallet_name_from_path, profiler
 from ...version import PACKAGE_VERSION
 from ...wallet import AbstractAccount, AccountInstantiationFlags, Wallet
 from ...wallet_database.types import (InvoiceRow, KeyDataProtocol, TransactionLinkState,
@@ -257,12 +258,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._navigation_view.on_wallet_loaded()
 
-        self._update_add_account_button(True)
-
-        # This is what should normally happen when the window is ready, and multiple-accounts
-        # are allowed.
-        # self._add_account_action.setEnabled(True)
-
         # If the user is opening a wallet with no accounts, we show them the add an account wizard
         # automatically. It may be that at a later time, we allow people to disable this optionally
         # but some users struggle to read the "add account" text or maybe just like to complain.
@@ -328,8 +323,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             -> None:
         self.wallet_setting_changed_signal.emit(setting_name, setting_value)
 
-    # TODO(1.4.0) This was called from the transaction script hash event handling. It was done
-    #     after the blocks that transactions were in were updated
+    # TODO(1.4.0) Technical debt. This was called from the transaction script hash event handling.
+    #     It was done after the blocks that transactions were in were updated
     def _on_transaction_heights_updated(self, args: Tuple[int, int]) -> None:
         self.utxo_list.update()
 
@@ -390,8 +385,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         account = self._wallet.get_account(new_account_id)
         assert account is not None
 
-        self._update_add_account_button(True)
-
         self._wallet.create_gui_handler(self, account)
 
         self.account_created_signal.emit(new_account_id, account)
@@ -424,7 +417,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             assert self._receive_view is not None
             self._receive_view.update_contents()
 
-        # TODO(1.4.0) Reconcile what is interrelated with this and clean it up.
+        # TODO(1.4.0) Notifications. Reconcile what is interrelated with this and clean it up.
         # # NOTE(wallet-event-race-condition) For now we block creating the rows before the account
         # #   is created, in order to be sure that when we look here they will be present.
         # if not self.notifications_tab.is_empty():
@@ -434,14 +427,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # tab contents will be skipped, but that's okay as the synchronisation completion takes
         # care of triggering an update.
         self.need_update.set()
-
-    def _update_add_account_button(self, setting_enabled: bool) -> None:
-        is_disabled = len(self._wallet.get_accounts()) > 0 and not setting_enabled
-        self._add_account_action.setDisabled(is_disabled)
-        if is_disabled:
-            self._add_account_action.setToolTip("Accounts are limited to one at this time.")
-        else:
-            self._add_account_action.setToolTip("Experimental multiple account creation enabled.")
 
     def _on_show_secured_data(self, account_id: int) -> None:
         self._navigation_view._view_secured_data(main_window=self, account_id=account_id)
@@ -856,7 +841,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _update_show_menu(self, checked: bool = False) -> None:
         self._update_menu.exec(QCursor.pos())
 
-    # TODO(1.4.0) Make sure this is integrated into the notifications.
+    # TODO(1.4.0) Notifications. Make sure this is revisited and reused if possible.
     # def _update_check_toolbar_update(self) -> None:
     #     update_check_state = "default"
     #     check_result: Optional[ReleaseDocumentType] = self.config.get('last_update_check')
@@ -917,24 +902,23 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _on_check_for_updates(self, checked: bool=False) -> None:
         self.show_update_check()
 
-    # TODO(1.4.0) Make sure this is integrated into the notifications.
-    # def on_update_check(self, success: bool, result: UpdateCheckResultType) -> None:
-    #     if success:
-    #         assert isinstance(result, dict)
-    #         stable_result = result["stable"]
-    #         stable_signers = get_identified_release_signers(stable_result)
-    #         if stable_signers:
-    #             # The latest stable release date, the date of the build we are using.
-    #             stable_date_string = stable_result["date"]
-    #             release_date, current_date = get_update_check_dates(stable_date_string)
-    #             if release_date > current_date:
-    #                 self.app.tray.showMessage(
-    #                     "ElectrumSV",
-    #                     _("A new version of ElectrumSV, version {}, is available for download")
-    #                         .format(stable_result["version"]),
-    #                     read_QIcon("electrum_dark_icon"), 20000)
+    def on_update_check(self, success: bool, result: UpdateCheckResultType) -> None:
+        if success:
+            assert isinstance(result, dict)
+            stable_result = result["stable"]
+            stable_signers = get_identified_release_signers(stable_result)
+            if stable_signers:
+                # The latest stable release date, the date of the build we are using.
+                stable_date_string = stable_result["date"]
+                release_date, current_date = get_update_check_dates(stable_date_string)
+                if release_date > current_date:
+                    self.app.tray.showMessage(
+                        "ElectrumSV",
+                        _("A new version of ElectrumSV, version {}, is available for download")
+                            .format(stable_result["version"]),
+                        read_QIcon("electrum_dark_icon"), 20000)
 
-    #     self._update_check_toolbar_update()
+        # self._update_check_toolbar_update()
 
     def show_account_creation_wizard(self) -> None:
         from . import account_wizard

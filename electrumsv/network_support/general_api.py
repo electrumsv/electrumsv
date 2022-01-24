@@ -340,7 +340,8 @@ class SpentOutputWorkerState:
         dataclasses.field(default_factory=asyncio.Queue)
 
 
-# TODO(1.4.0) This is temporary and will be refactored into the reference server server management.
+# TODO(1.4.0) Networking. This is temporary and will be refactored into the reference server server
+#     management.
 async def maintain_spent_output_connection_async(network: Optional[Network],
         server_url: str, state: SpentOutputWorkerState) -> None:
     """
@@ -386,25 +387,27 @@ async def maintain_spent_output_connection_async(network: Optional[Network],
             'User-Agent':       'ElectrumSV'
         }
         spent_outputs: List[OutputSpend] = []
-        # TODO(1.4.0) If any of the error cases below occur we should requeue the outpoints,
-        #     but it is not as simple as just doing it. What we want to avoid is being in an
-        #     infinite loop of failed attempts.
+        # TODO(1.4.0) Networking. If any of the error cases below occur we should requeue the
+        #     outpoints, but it is not as simple as just doing it. What we want to avoid is being
+        #     in an infinite loop of failed attempts.
         async with session.post(api_url, headers=headers, data=byte_buffer) as response:
             if response.status != HTTPStatus.OK:
                 logger.error("websocket spent output registration failed "
                     "status=%d, reason=%s", response.status, response.reason)
-                # TODO(1.4.0) We need to handle all possible variations of this error case.
-                # - It may be lack of funding.
-                # - It may be short or long term server unavailability or errors.
-                # - ??? add anything else that comes to mind.
+                # TODO(1.4.0) Networking. Spent output registration failure.
+                #     We need to handle all possible variations of this error:
+                #     - It may be lack of funding.
+                #     - It may be short or long term server unavailability or errors.
+                #     - ??? add anything else that comes to mind.
                 return
 
             content_type, *content_type_extra = response.headers["Content-Type"].split(";")
             if content_type != "application/octet-stream":
                 logger.error("spent output registration response content type got %s, "
                     "expected 'application/octet-stream'", content_type)
-                # TODO(1.4.0) This is a bad server not respecting the request. We should stop
-                #     using it, and the user should have to manually flag it as valid again.
+                # TODO(1.4.0) Networking. Bad server not respecting the spent output request. We
+                #     should stop using it, and the user should have to manually flag it as valid
+                #     again.
                 # TODO(bad-server)
                 return
 
@@ -413,9 +416,9 @@ async def maintain_spent_output_connection_async(network: Optional[Network],
                 if len(response_bytes) != output_spend_struct_size:
                     logger.error("spent output registration record clipped, expected %d "
                         "bytes, got %d bytes", output_spend_struct_size, len(response_bytes))
-                    # TODO(1.4.0) The server is unreliable? Should we mark the server as to
-                    #     be avoided? Or flag it and stop using it if it happens more than once
-                    #     or twice?
+                    # TODO(1.4.0) Networking. The server is unreliable? Should we mark the server
+                    #     as to be avoided? Or flag it and stop using it if it happens more than
+                    #     once or twice?
                     return
 
                 spent_output = OutputSpend(*output_spend_struct.unpack(response_bytes))
