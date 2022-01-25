@@ -595,12 +595,12 @@ class SearchKeyEnumerator:
                 self.add_bip32_subpath(subpath, master_public_keys, threshold, script_types)
         elif account_type == AccountType.IMPORTED_ADDRESS:
             # The derivation data is the address or hash160 that relates to the script type.
-            for key_data in wallet.read_key_list(account_id):
+            for key_data in wallet.data.read_key_list(account_id):
                 script_type, item_hash = self._item_hasher.get_item_hash_for_key_data(key_data)
                 self.add_explicit_item(key_data.keyinstance_id, script_type, item_hash)
         elif account_type == AccountType.IMPORTED_PRIVATE_KEY:
             # The derivation data is the public key for the private key.
-            for key_data in wallet.read_key_list(account_id):
+            for key_data in wallet.data.read_key_list(account_id):
                 assert key_data.derivation_type == DerivationType.PRIVATE_KEY
                 public_key = PublicKey.from_bytes(key_data.derivation_data2)
                 for script_type in script_types:

@@ -585,7 +585,7 @@ class SendView(QWidget):
 
     def get_transaction_for_invoice(self) -> Optional[Transaction]:
         assert self._account is not None and self._payment_request is not None
-        invoice_row = self._account._wallet.read_invoice(
+        invoice_row = self._account._wallet.data.read_invoice(
             invoice_id=self._payment_request.get_id())
         assert invoice_row is not None
         if invoice_row.tx_hash is not None:
@@ -605,7 +605,7 @@ class SendView(QWidget):
             # transaction that is not related to the active invoice and it's repercussions, has
             # been confirmed by the appropriate calling logic. Like `confirm_broadcast_transaction`
             # in the main window logic.
-            invoice_row = self._account._wallet.read_invoice(invoice_id=invoice_id)
+            invoice_row = self._account._wallet.data.read_invoice(invoice_id=invoice_id)
             assert invoice_row is not None
             if tx_hash != invoice_row.tx_hash:
                 # Calling logic should have detected this and warned/confirmed with the user.
@@ -620,7 +620,7 @@ class SendView(QWidget):
                 self.payment_request_error_signal.emit(invoice_id, tx_hash)
                 return False
 
-            future = self._account._wallet.update_invoice_flags(
+            future = self._account._wallet.data.update_invoice_flags(
                 [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
             future.result()
 
@@ -695,23 +695,23 @@ class SendView(QWidget):
 
                 # NOTE This callback will be happening in the database thread. No UI calls should
                 #   be made, unless we emit a signal to do it.
-                row = wallet.read_invoice(payment_uri=pr.get_payment_uri())
+                row = wallet.data.read_invoice(payment_uri=pr.get_payment_uri())
                 assert row is not None
                 pr.set_id(row.invoice_id)
                 self.payment_request_imported_signal.emit(row)
 
             # TODO Is this the best algorithm for detecting a duplicate? No idea.
-            row = wallet.read_invoice_duplicate(pr.get_amount(), pr.get_payment_uri())
+            row = wallet.data.read_invoice_duplicate(pr.get_amount(), pr.get_payment_uri())
             if row is None:
                 row = InvoiceRow(0, account.get_id(), None, pr.get_payment_uri(), pr.get_memo(),
                     PaymentFlag.UNPAID, pr.get_amount(), pr.to_json().encode(),
                     pr.get_expiration_date())
-                future = wallet.create_invoices([ row ])
+                future = wallet.data.create_invoices([ row ])
                 future.add_done_callback(callback)
                 # We're waiting for the callback.
                 return
         else:
-            row = account._wallet.read_invoice(invoice_id=pr.get_id())
+            row = account._wallet.data.read_invoice(invoice_id=pr.get_id())
             assert row is not None
 
         # The invoice is already present. Populate it unless it's paid.

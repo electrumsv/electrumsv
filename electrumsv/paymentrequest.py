@@ -156,7 +156,7 @@ class PaymentRequest:
     def from_wallet_entry(cls, account: 'AbstractAccount',
             pr: PaymentRequestReadRow) -> 'PaymentRequest':
         wallet = account.get_wallet()
-        keyinstance = wallet.read_keyinstance(keyinstance_id=pr.keyinstance_id)
+        keyinstance = wallet.data.read_keyinstance(keyinstance_id=pr.keyinstance_id)
         assert keyinstance is not None
         script_type = account.get_default_script_type()
         script = account.get_script_for_derivation(script_type, keyinstance.derivation_type,

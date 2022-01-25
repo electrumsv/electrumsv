@@ -374,7 +374,7 @@ class HistoryList(MyTreeWidget):
 
         flags = self._wallet.get_transaction_flags(tx_hash)
         if flags is not None and flags & TxFlags.PAYS_INVOICE:
-            invoice_row = self._account._wallet.read_invoice(tx_hash=tx_hash)
+            invoice_row = self._account._wallet.data.read_invoice(tx_hash=tx_hash)
             invoice_id = invoice_row.invoice_id if invoice_row is not None else None
             action = menu.addAction(read_QIcon(ICON_NAME_INVOICE_PAYMENT), _("View invoice"),
                     partial(self._show_invoice_window, invoice_id))
@@ -395,7 +395,7 @@ class HistoryList(MyTreeWidget):
         if flags is not None and flags & TxFlags.MASK_STATE_LOCAL != 0:
             if flags & TxFlags.PAYS_INVOICE:
                 broadcast_action = menu.addAction(self.invoiceIcon, _("Pay invoice"))
-                row = self._account._wallet.read_invoice(tx_hash=tx_hash)
+                row = self._account._wallet.data.read_invoice(tx_hash=tx_hash)
                 if row is None:
                     # The associated invoice has been deleted.
                     broadcast_action.setEnabled(False)
@@ -422,7 +422,7 @@ class HistoryList(MyTreeWidget):
         self._main_window.broadcast_transaction(self._account, tx)
 
     def _show_invoice_window(self, invoice_id: int) -> None:
-        row = self._wallet.read_invoice(invoice_id=invoice_id)
+        row = self._wallet.data.read_invoice(invoice_id=invoice_id)
         if row is None:
             self._main_window.show_error(_("The invoice for the transaction has been deleted."))
             return

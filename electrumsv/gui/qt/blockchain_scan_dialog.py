@@ -65,7 +65,7 @@ from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, 
 
 from ...app_state import app_state
 from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, RECEIVING_SUBPATH, \
-    SubscriptionType, TransactionImportFlag, TxFlags
+    SubscriptionType, TransactionImportFlag, TxFlags, WalletEvent
 from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, BlockchainScanner, \
     ItemHashProtocol, PushDataHasher, PushDataHashHandler, PushDataSearchError, \
     SearchKeyEnumerator
@@ -411,8 +411,8 @@ class BlockchainScanDialog(WindowModalDialog):
                     link_tx_hashes.add(tx_hash)
 
             if len(obtain_tx_keys) or len(link_tx_hashes):
-                self._wallet.register_callback(self._on_wallet_event,
-                    ['missing_transaction_obtained'])
+                self._wallet.events.register_callback(self._on_wallet_event,
+                    [ WalletEvent.TRANSACTION_OBTAINED ])
 
             self._on_scanner_range_extended(len(obtain_tx_keys) + len(link_tx_hashes))
 
@@ -446,7 +446,7 @@ class BlockchainScanDialog(WindowModalDialog):
             self._import_link_hashes.remove(tx_hash)
             self.import_step_signal.emit(tx_hash, link_state)
 
-    def _on_wallet_event(self, event: str, *args: Iterable[Any]) -> None:
+    def _on_wallet_event(self, event: WalletEvent, *args: Iterable[Any]) -> None:
         """
         The general wallet callback event handler.
 
@@ -455,7 +455,7 @@ class BlockchainScanDialog(WindowModalDialog):
         """
         tx_hash: bytes
         link_state: TransactionLinkState
-        if event == 'missing_transaction_obtained':
+        if event == WalletEvent.TRANSACTION_OBTAINED:
             # NOTE(typing) Either we cast each argument, do unions and tuples or this.
             tx_hash, _tx, link_state = args # type: ignore
 
@@ -760,7 +760,7 @@ class BlockchainScanDialog(WindowModalDialog):
 
     def _on_dialog_finished(self) -> None:
         if self._stage == ScanDialogStage.IMPORT:
-            self._wallet.unregister_callback(self._on_wallet_event)
+            self._wallet.events.unregister_callback(self._on_wallet_event)
         self._main_window.update_history_view()
 
     def _on_dialog_rejected(self) -> None:

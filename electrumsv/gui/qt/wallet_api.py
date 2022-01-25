@@ -127,24 +127,18 @@ class WalletAPI(QObject):
     # Notification related.
 
     def get_notification_rows(self) -> List[WalletEventRow]:
-        return self.wallet_window._wallet.read_wallet_events(
+        return self.wallet_window._wallet.data.read_wallet_events(
             mask=WalletEventFlag.UNREAD|WalletEventFlag.FEATURED)
 
     def update_notification_flags(self, updates: List[Tuple[WalletEventFlag, int]]) -> None:
         self.wallet_window._wallet.update_wallet_event_flags(updates)
 
-    def _on_new_notifications(self, wallet_path: str, rows: List[WalletEventRow]) -> None:
-        if wallet_path == self.wallet_window._wallet.get_storage_path():
-            for row in rows:
-                self.new_notification.emit(row)
+    def _on_new_notifications(self, rows: List[WalletEventRow]) -> None:
+        for row in rows:
+            self.new_notification.emit(row)
 
     def prompt_to_show_secured_data(self, account_id: int) -> None:
         self.wallet_window.show_secured_data_signal.emit(account_id)
-
-    def update_displayed_notification_count(self, entry_count: int) -> None:
-        # TODO(1.4.0) Notifications. This should set it on the wallet navigation view entry.
-        pass
-        # self.wallet_window._status_bar.notification_widget.set_notification_state(entry_count)
 
     def show_help(self, dirname: str, filename: str) -> None:
         from .help_dialog import HelpDialog

@@ -95,6 +95,7 @@ class WalletNavigationView(QSplitter):
         self._main_window.account_created_signal.connect(self._on_account_created)
         self._main_window.account_change_signal.connect(self._on_account_changed)
         self._main_window.new_fx_quotes_signal.connect(self.refresh_account_balances)
+        self._main_window.notifications_updated_signal.connect(self._refresh_notifications)
 
         app_state.app_qt.base_unit_changed.connect(self.refresh_account_balances)
         app_state.app_qt.fiat_ccy_changed.connect(self.refresh_account_balances)
@@ -304,8 +305,8 @@ class WalletNavigationView(QSplitter):
         self._selection_tree.addTopLevelItem(self._contacts_item)
 
         self._notifications_item = QTreeWidgetItem()
-        self._notifications_item.setIcon(TreeColumns.MAIN,
-            read_QIcon("icons8-notification-80-blueui.png"))
+        self.update_notifications_icon(
+            len(self._main_window._api.get_notification_rows()))
         self._notifications_item.setText(TreeColumns.MAIN, _("Notifications"))
         self._notifications_item.setToolTip(TreeColumns.MAIN, _("The notifications in this wallet"))
         self._selection_tree.addTopLevelItem(self._notifications_item)
@@ -806,3 +807,13 @@ class WalletNavigationView(QSplitter):
                 assert child_account is not None
                 child_item.setText(TreeColumns.MAIN, child_account.display_name())
 
+    def update_notifications_icon(self, entry_count: int) -> None:
+        if entry_count > 0:
+            self._notifications_item.setIcon(TreeColumns.MAIN,
+                read_QIcon("icons8-notification-80-blueui-urgent-edit.png"))
+        else:
+            self._notifications_item.setIcon(TreeColumns.MAIN,
+                read_QIcon("icons8-notification-80-blueui.png"))
+
+    def _refresh_notifications(self) -> None:
+        pass

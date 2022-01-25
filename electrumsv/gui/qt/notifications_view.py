@@ -90,7 +90,7 @@ class ListContext(QObject):
         return row1.event_id == row2.event_id
 
     def on_list_updated(self, entry_count: int) -> None:
-        self.wallet_api.update_displayed_notification_count(entry_count)
+        pass
 
     def card_factory(self, row: WalletEventRow) -> 'NotificationCard':
         return NotificationCard(self, row)

@@ -82,6 +82,7 @@ class TxFlags(IntFlag):
     PAYS_INVOICE = 1 << 30
 
     MASK_STATE = (STATE_SETTLED | STATE_DISPATCHED | STATE_RECEIVED | STATE_CLEARED | STATE_SIGNED)
+    MASK_STATELESS = ~MASK_STATE
     MASK_STATE_LOCAL = (STATE_DISPATCHED | STATE_RECEIVED | STATE_SIGNED)
     MASK_STATE_BROADCAST = (STATE_SETTLED | STATE_CLEARED)
     # The transaction is present but not linked to any accounts for these known reasons.
@@ -372,6 +373,24 @@ class WalletEventFlag(IntFlag):
     FEATURED = 1 << 1
 
 
+class WalletEvent(Enum):
+    ACCOUNT_CREATE = "account_created"
+    ACCOUNT_RENAME = "on_account_renamed"
+    KEYS_CREATE = "keys_created"
+    KEYS_UPDATE = "keys_updated"
+    NOTIFICATIONS_CREATE = "notifications_created"
+    NOTIFICATIONS_UPDATE = "notifications_updated"
+    PAYMENT_REQUEST_PAID = "payment_requests_paid"
+    TRANSACTION_ADD = "transaction_added"
+    TRANSACTION_DELETE = "transaction_deleted"
+    TRANSACTION_HEIGHTS_UPDATED = "transaction_heights_updated"
+    TRANSACTION_LABELS_UPDATE = "transaction_labels_updated"
+    TRANSACTION_OBTAINED = "missing_transaction_obtained"
+    TRANSACTION_STATE_CHANGE = "transaction_state_change"
+    TRANSACTION_VERIFIED = "transaction_verified"
+    WALLET_SETTING_CHANGE = "on_setting_changed"
+
+
 class WalletSettings:
     USE_CHANGE = 'use_change'
     MULTIPLE_CHANGE = 'multiple_change'
@@ -382,9 +401,14 @@ class WalletSettings:
 EMPTY_HASH = b"\0" * 32
 
 
-class NetworkEventNames:
+class NetworkEventNames(Enum):
     HISTORICAL_EXCHANGE_RATES = "on_history"
     EXCHANGE_RATE_QUOTES = "on_quotes"
+    GENERIC_UPDATE = "updated"
+    GENERIC_STATUS = "status"
+    BANNER = "banner"
+    SESSIONS = "sessions"
+    MAIN_CHAIN = "main_chain"
 
 
 class NetworkServerType(IntEnum):

@@ -62,7 +62,7 @@ from ...app_state import app_state
 from ...bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string, TSCMerkleProof)
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
-    ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags)
+    ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags, WalletEvent)
 from ...exceptions import UserCancelled
 from ...i18n import _
 from ...logs import logs
@@ -125,7 +125,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     account_change_signal = pyqtSignal(object, object)
     keys_updated_signal = pyqtSignal(object, object)
     keys_created_signal = pyqtSignal(object, object)
-    notifications_created_signal = pyqtSignal(object, object)
+    notifications_created_signal = pyqtSignal(object)
+    notifications_updated_signal = pyqtSignal(object)
     transaction_state_signal = pyqtSignal(object, object, object)
     transaction_added_signal = pyqtSignal(object, object, object)
     transaction_deleted_signal = pyqtSignal(object, object)
@@ -222,12 +223,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # network callbacks
         if self.network:
             self.network_signal.connect(self.on_network_qt)
-            interests = ['updated', 'status', 'banner']
             # To avoid leaking references to "self" that prevent the
             # window from being GC-ed when closed, callbacks should be
             # methods of this class only, and specifically not be
             # partials, lambdas or methods of subobjects.  Hence...
-            self.network.register_callback(self.on_network, interests)
+            self.network.register_callback(self.on_network, [ NetworkEventNames.GENERIC_UPDATE,
+                NetworkEventNames.GENERIC_STATUS, NetworkEventNames.BANNER ])
             # set initial message
             if self.network.main_server:
                 self.console.showMessage(self.network.main_server.state.banner)
@@ -241,18 +242,24 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         # NOTE(ui-thread) These callbacks should actually all be routed through signals, in order
         #   to ensure that they are happening in the UI thread.
-        self._wallet.register_callback(self._on_account_created, ['account_created'])
-        self._wallet.register_callback(self._on_wallet_setting_changed, ['on_setting_changed'])
-        self._wallet.register_callback(self._dispatch_in_ui_thread, ['keys_updated'])
-        self._wallet.register_callback(self._dispatch_in_ui_thread, ['on_keys_created'])
-        self._wallet.register_callback(self._dispatch_in_ui_thread, ['notifications_created'])
-        self._wallet.register_callback(self._dispatch_in_ui_thread, ['transaction_heights_updated'])
-        self._wallet.register_callback(self._dispatch_in_ui_thread, ['transaction_state_change'])
-        self._wallet.register_callback(self._on_transaction_added, ['transaction_added'])
-        self._wallet.register_callback(self._on_transaction_deleted, ['transaction_deleted'])
-        self._wallet.register_callback(self._on_transaction_verified, ['transaction_verified'])
-        self._wallet.register_callback(self._dispatch_in_ui_thread, ['transaction_labels_updated'])
-        self._wallet.register_callback(self._on_payment_requests_paid, ['payment_requests_paid'])
+        self._wallet.events.register_callback(self._on_account_created,
+            [ WalletEvent.ACCOUNT_CREATE ])
+        self._wallet.events.register_callback(self._on_wallet_setting_changed,
+            [ WalletEvent.WALLET_SETTING_CHANGE ])
+        self._wallet.events.register_callback(self._dispatch_in_ui_thread, [
+            WalletEvent.KEYS_CREATE, WalletEvent.KEYS_UPDATE, WalletEvent.NOTIFICATIONS_CREATE,
+            WalletEvent.NOTIFICATIONS_UPDATE,
+            WalletEvent.TRANSACTION_HEIGHTS_UPDATED, WalletEvent.TRANSACTION_STATE_CHANGE,
+            WalletEvent.TRANSACTION_LABELS_UPDATE
+        ])
+        self._wallet.events.register_callback(self._on_transaction_added,
+            [ WalletEvent.TRANSACTION_ADD])
+        self._wallet.events.register_callback(self._on_transaction_deleted,
+            [ WalletEvent.TRANSACTION_DELETE ])
+        self._wallet.events.register_callback(self._on_transaction_verified,
+            [ WalletEvent.TRANSACTION_VERIFIED ])
+        self._wallet.events.register_callback(self._on_payment_requests_paid,
+            [ WalletEvent.PAYMENT_REQUEST_PAID ])
 
         self.load_wallet()
 
@@ -328,18 +335,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _on_transaction_heights_updated(self, args: Tuple[int, int]) -> None:
         self.utxo_list.update()
 
-    def _dispatch_in_ui_thread(self, event_name: str, *args: Any) -> None:
-        if event_name == "notifications_created":
+    def _dispatch_in_ui_thread(self, event_name: WalletEvent, *args: Any) -> None:
+        if event_name == WalletEvent.NOTIFICATIONS_CREATE:
             self.notifications_created_signal.emit(*args)
-        elif event_name == "on_keys_created":
+        elif event_name == WalletEvent.NOTIFICATIONS_UPDATE:
+            self.notifications_updated_signal.emit(*args)
+        elif event_name == WalletEvent.KEYS_CREATE:
             self.keys_created_signal.emit(*args)
-        elif event_name == 'keys_updated':
+        elif event_name == WalletEvent.KEYS_UPDATE:
             self.keys_updated_signal.emit(*args)
-        elif event_name == "transaction_heights_updated":
+        elif event_name == WalletEvent.TRANSACTION_HEIGHTS_UPDATED:
             self.ui_callback_signal.emit(self._on_transaction_heights_updated, args)
-        elif event_name == "transaction_labels_updated":
+        elif event_name == WalletEvent.TRANSACTION_LABELS_UPDATE:
             self.transaction_labels_updated_signal.emit(*args)
-        elif event_name == "transaction_state_change":
+        elif event_name == WalletEvent.TRANSACTION_STATE_CHANGE:
             self.transaction_state_signal.emit(*args)
         else:
             raise NotImplementedError(f"Event '{event_name}' not recognised")
@@ -520,22 +529,22 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def on_error(self, exc_info: ExceptionInfoType) -> None:
         self.on_exception(exc_info[1])
 
-    def on_network(self, event: str, *args: Any) -> None:
-        if event == 'updated':
+    def on_network(self, event: NetworkEventNames, *args: Any) -> None:
+        if event == NetworkEventNames.GENERIC_UPDATE:
             self.need_update.set()
             return
 
-        if event in ['status', 'banner']:
+        if event in [ NetworkEventNames.GENERIC_STATUS, NetworkEventNames.BANNER ]:
             # Handle in GUI thread
             self.network_signal.emit(event, args)
         else:
             self._logger.debug("unexpected network message event='%s' args='%s'", event, args)
 
-    def on_network_qt(self, event: str, args: Any=None) -> None:
+    def on_network_qt(self, event: NetworkEventNames, args: Any=None) -> None:
         # Handle a network message in the GUI thread
-        if event == 'status':
+        if event == NetworkEventNames.GENERIC_STATUS:
             self.update_status_bar()
-        elif event == 'banner':
+        elif event == NetworkEventNames.BANNER:
             assert self.network is not None
             assert self.network.main_server is not None
             self.console.showMessage(self.network.main_server.state.banner)
@@ -1370,7 +1379,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             assert self._account is not None
             assert self._send_view is not None
 
-            invoice_row = self._account._wallet.read_invoice(tx_hash=tx_hash)
+            invoice_row = self._account._wallet.data.read_invoice(tx_hash=tx_hash)
             if invoice_row is None:
                 if not self.question(_("This transaction is associated with a deleted invoice.") +
                         "<br/><br/>" + body_text,
@@ -1553,7 +1562,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.ui_callback_signal.emit(ui_callback, ())
 
         # Attempt to make the change.
-        future = account.get_wallet().update_transaction_output_flags(
+        future = account.get_wallet().data.update_transaction_output_flags(
             txo_keys, TransactionOutputFlag.FROZEN)
         future.add_done_callback(callback)
 
@@ -2280,7 +2289,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             event.ignore()
 
     def clean_up(self) -> None:
-        self._wallet.unregister_callbacks_for_object(self)
+        self._wallet.events.unregister_callbacks_for_object(self)
 
         if self.network:
             self.network.unregister_callbacks_for_object(self)

@@ -125,6 +125,8 @@ SERVER_CAPABILITIES = {
 
 # TODO(1.4.0) MAPI management. Fee quotes has to come in the send view to factor into the fee in
 #     the transaction
+# TODO(1.4.0) MAPI management. Any refactored logic based on this should receive the
+#     `WalletDataAccess` instance for the wallet, and not use private variables on the account.
 async def broadcast_transaction(tx: Transaction, network: Network,
         account: "AbstractAccount", merkle_proof: bool = False, ds_check: bool = False) \
             -> BroadcastResponse:
@@ -175,7 +177,7 @@ async def broadcast_transaction(tx: Transaction, network: Network,
         server_id=server_id,
         status_flags=MapiBroadcastStatusFlags.ATTEMPTING
     )
-    account._wallet.create_mapi_broadcast_callbacks([mapi_callback_row])
+    account._wallet.data.create_mapi_broadcast_callbacks([mapi_callback_row])
     api_server = broadcast_server.candidate.api_server
     credential_id = broadcast_server.candidate.credential_id
     assert api_server is not None
@@ -184,12 +186,12 @@ async def broadcast_transaction(tx: Transaction, network: Network,
         result = await broadcast_transaction_mapi_simple(tx.to_bytes(),
             api_server, credential_id, peer_channel, merkle_proof, ds_check)
     except BroadcastFailedError as e:
-        account._wallet.delete_mapi_broadcast_callbacks(tx_hashes=[tx.hash()])
+        account._wallet.data.delete_mapi_broadcast_callbacks(tx_hashes=[tx.hash()])
         logger.error(f"Error broadcasting to mAPI for tx: {tx.txid()}. Error: {str(e)}")
         raise
 
     updates = [(MapiBroadcastStatusFlags.SUCCEEDED, tx.hash())]
-    account._wallet.update_mapi_broadcast_callbacks(updates)
+    account._wallet.data.update_mapi_broadcast_callbacks(updates)
     # Todo - when the merkle proof callback is successfully processed,
     #  delete the MAPIBroadcastCallbackRow
     return result

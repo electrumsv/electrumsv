@@ -76,7 +76,7 @@ Synchronous database calls are performed in this manner:
             return
         # Raise any exception if it errored or get the result if completed successfully.
         future.result()
-        self.trigger_callback('transaction_deleted', self._id, tx_hash)
+        self.events.trigger_callback(WalletEvent.TRANSACTION_DELETED, self._id, tx_hash)
 
     future = db_functions.remove_transaction(self.get_db_context(), tx_hash)
     future.add_done_callback(on_db_call_done)

@@ -152,7 +152,8 @@ class RequestList(MyTreeWidget):
         self._receive_view.show_dialog(request_id)
 
     def on_update(self) -> None:
-        # This is currently triggered by events like 'transaction_added' from the main window.
+        # This is currently triggered by events like `WalletEvent.TRANSACTION_ADD` from the main
+        # window.
         if self._account_id is None:
             return
         assert self._account is not None
@@ -161,7 +162,7 @@ class RequestList(MyTreeWidget):
         nearest_expiry_time = float('inf')
 
         wallet = self._account._wallet
-        rows = wallet.read_payment_requests(self._account_id, flags=PaymentFlag.NONE,
+        rows = wallet.data.read_payment_requests(self._account_id, flags=PaymentFlag.NONE,
             mask=PaymentFlag.ARCHIVED)
 
         # clear the list and fill it again
@@ -226,11 +227,11 @@ class RequestList(MyTreeWidget):
     def _get_request_URI(self, pr_id: int) -> str:
         assert self._account is not None
         wallet = self._account.get_wallet()
-        req = self._account._wallet.read_payment_request(request_id=pr_id)
+        req = wallet.data.read_payment_request(request_id=pr_id)
         assert req is not None
         message = self._account.get_keyinstance_label(req.keyinstance_id)
         # TODO(ScriptTypeAssumption) see above for context
-        keyinstance = wallet.read_keyinstance(keyinstance_id=req.keyinstance_id)
+        keyinstance = wallet.data.read_keyinstance(keyinstance_id=req.keyinstance_id)
         assert keyinstance is not None
         script_template = self._account.get_script_template_for_derivation(
             self._account.get_default_script_type(),
@@ -245,7 +246,7 @@ class RequestList(MyTreeWidget):
 
     def _export_payment_request(self, pr_id: int) -> None:
         assert self._account is not None
-        pr = self._account._wallet.read_payment_request(request_id=pr_id)
+        pr = self._account._wallet.data.read_payment_request(request_id=pr_id)
         assert pr is not None
         pr_data = PaymentRequest.from_wallet_entry(self._account, pr).to_json()
         name = f'{pr.paymentrequest_id}.bip270.json'
@@ -261,7 +262,7 @@ class RequestList(MyTreeWidget):
 
         # Blocking deletion call.
         wallet = self._account.get_wallet()
-        row = wallet.read_payment_request(request_id=request_id)
+        row = wallet.data.read_payment_request(request_id=request_id)
         if row is None:
             return
 

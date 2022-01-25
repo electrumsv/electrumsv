@@ -46,7 +46,8 @@ from PyQt5.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, \
     QVBoxLayout, QWidget
 
 from ...app_state import app_state
-from ...constants import API_SERVER_TYPES, NetworkServerFlag, NetworkServerType, TOKEN_PASSWORD
+from ...constants import API_SERVER_TYPES, NetworkEventNames, NetworkServerFlag, \
+    NetworkServerType, TOKEN_PASSWORD
 from ...crypto import pw_decode, pw_encode
 from ...i18n import _
 from ...logs import logs
@@ -1814,11 +1815,12 @@ class NetworkDialog(QDialog):
         # application is connected to.
         self.network_updated_signal.connect(self._event_network_updated)
 
-        # 'update': possible main server change.
-        # 'sessions': a session is either opened or closed.
-        network.register_callback(self._event_network_callbacks, ['updated', 'sessions'])
+        # GENERIC_UPDATE: possible main server change.
+        # SESSIONS: a session is either opened or closed.
+        network.register_callback(self._event_network_callbacks,
+            [ NetworkEventNames.GENERIC_UPDATE, NetworkEventNames.SESSIONS ])
 
-    def _event_network_callbacks(self, event: List[str], *args: Any) -> None:
+    def _event_network_callbacks(self, _event: List[NetworkEventNames], *args: Any) -> None:
         # This may run in network thread??
         self.network_updated_signal.emit()
 

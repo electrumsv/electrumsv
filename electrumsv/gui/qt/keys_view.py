@@ -825,7 +825,7 @@ class KeyView(QTableView):
         # NOTE We get the full row, but only use one column.
         keyinstance_ids = [
             txo.keyinstance_id
-            for txo in self._main_window._wallet.get_transaction_outputs_short(txo_keys)
+            for txo in self._main_window._wallet.data.get_transaction_outputs_short(txo_keys)
         ]
         with self._update_lock:
             new_flags = EventFlags.KEY_UPDATED | EventFlags.FREEZE_UPDATE

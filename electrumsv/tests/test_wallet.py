@@ -619,7 +619,7 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
     expected_derivation_datas: Optional[List[Dict[str, Any]]] = testdata["derivation_datas"]
 
     if len(expected_labels):
-        rows1 = wallet.read_transaction_descriptions(tx_hashes=list(expected_labels.keys()))
+        rows1 = wallet.data.read_transaction_descriptions(tx_hashes=list(expected_labels.keys()))
         assert { row1.tx_hash: row1.description  for row1 in rows1 } == expected_labels
 
     rows2 = wallet.read_transactions_exist(list(settled_tx_hashes))

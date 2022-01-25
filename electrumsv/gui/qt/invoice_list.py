@@ -127,7 +127,7 @@ class InvoiceList(MyTreeWidget):
         #   This would for instance allow viewing of archived invoices.
         assert self._send_view._account is not None
         wallet = self._send_view._account.get_wallet()
-        invoice_rows = wallet.read_invoices_for_account(self._send_view._account.get_id(),
+        invoice_rows = wallet.data.read_invoices_for_account(self._send_view._account.get_id(),
             PaymentFlag.NONE, PaymentFlag.ARCHIVED)
 
         for row in invoice_rows:
@@ -172,7 +172,7 @@ class InvoiceList(MyTreeWidget):
         if text == "":
             text = None
         invoice_id = cast(int, item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole))
-        future = self._send_view._account._wallet.update_invoice_descriptions(
+        future = self._send_view._account._wallet.data.update_invoice_descriptions(
             [ (text, invoice_id) ])
         future.result()
 
@@ -209,7 +209,7 @@ class InvoiceList(MyTreeWidget):
         column_data = item.text(column).strip()
 
         invoice_id: int = item.data(COL_RECEIVED, Qt.ItemDataRole.UserRole)
-        row = self._send_view._account._wallet.read_invoice(invoice_id=invoice_id)
+        row = self._send_view._account._wallet.data.read_invoice(invoice_id=invoice_id)
         assert row is not None, f"invoice {invoice_id} not found"
 
         flags = row.flags & PaymentFlag.MASK_STATE
@@ -232,7 +232,7 @@ class InvoiceList(MyTreeWidget):
 
     def pay_invoice(self, invoice_id: int) -> None:
         assert self._send_view._account is not None
-        row = self._send_view._account._wallet.read_invoice(invoice_id=invoice_id)
+        row = self._send_view._account._wallet.data.read_invoice(invoice_id=invoice_id)
         if row is None:
             return
 
@@ -263,5 +263,5 @@ class InvoiceList(MyTreeWidget):
             #   be made, unless we emit a signal to do it.
             self._send_view.payment_request_deleted_signal.emit(invoice_id)
 
-        future = self._send_view._account._wallet.delete_invoices([ (invoice_id,) ])
+        future = self._send_view._account._wallet.data.delete_invoices([ (invoice_id,) ])
         future.add_done_callback(callback)

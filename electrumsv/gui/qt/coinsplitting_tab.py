@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import QFrame, QGridLayout, QLabel, QHBoxLayout, QVBoxLayou
 
 from ...app_state import app_state
 from ...bitcoin import ScriptTemplate
-from ...constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType
+from ...constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType, WalletEvent
 from ...exceptions import NotEnoughFunds
 from ...i18n import _
 from ...logs import logs
@@ -175,7 +175,8 @@ class CoinSplittingTab(QWidget):
         self.split_stage = STAGE_PREPARING
         self.new_transaction_cv = threading.Condition()
 
-        self._main_window._wallet.register_callback(self._on_wallet_event, ['transaction_added'])
+        self._main_window._wallet.events.register_callback(self._on_wallet_event,
+            [ WalletEvent.TRANSACTION_ADD ])
         self.waiting_dialog = SplitWaitingDialog(self._main_window.reference(), self,
             self._split_prepare_task, on_done=self._on_split_prepare_done,
             on_cancel=self._on_split_abort)
@@ -287,7 +288,7 @@ class CoinSplittingTab(QWidget):
         self._main_window.sign_tx_with_password(tx, sign_done, password, context=tx_context)
 
     def _cleanup_tx_created(self) -> None:
-        self._main_window._wallet.unregister_callback(self._on_wallet_event)
+        self._main_window._wallet.events.unregister_callback(self._on_wallet_event)
 
         self._allocated_key_state = None
         self.waiting_dialog = None
@@ -305,8 +306,8 @@ class CoinSplittingTab(QWidget):
             self._faucet_button.setEnabled(True)
             self._faucet_splitting = False
 
-    def _on_wallet_event(self, event: str, *args: Any) -> None:
-        if event == 'transaction_added':
+    def _on_wallet_event(self, event: WalletEvent, *args: Any) -> None:
+        if event == WalletEvent.TRANSACTION_ADD:
             if self._allocated_key_state is None:
                 return
 

@@ -6,11 +6,11 @@ from PyQt5.QtGui import QPainter, QPaintEvent, QPixmap
 from PyQt5.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QStatusBar,
     QStyle, QStyleOptionToolButton, QToolButton, QWidget, QWidgetAction)
 
-from electrumsv.app_state import app_state
-from electrumsv.i18n import _
-from electrumsv.wallet_database.types import WalletBalance
+from ...app_state import app_state
+from ...i18n import _
+from ...wallet_database.types import WalletBalance
 
-from .util import icon_path, read_QIcon
+from .util import icon_path
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
@@ -41,48 +41,6 @@ class XToolButton(QToolButton):
         # Draw
         self.style().drawComplexControl(QStyle.ComplexControl.CC_ToolButton, opt, qp, self)
         qp.end()
-
-
-class NotificationIndicator(XToolButton):
-    def __init__(self, main_window: 'ElectrumWindow', parent: Optional[QWidget]=None) -> None:
-        super().__init__(parent)
-        self._main_window = weakref.proxy(main_window)
-
-        # Special case icons
-        self._notification_urgent_icon = read_QIcon("icons8-topic-32-windows-urgent.png")
-        self._notification_many_icon = read_QIcon("icons8-topic-32-windows-plus.png")
-
-        self._notification_default_icon = read_QIcon("icons8-topic-32.png")
-        self._notification_indexable_icons = [
-            self._notification_default_icon,
-        ]
-        for i in range(1, 5+1):
-            self._notification_indexable_icons.append(
-                read_QIcon(f"icons8-topic-32-windows-{i}.png"))
-
-        self.set_notification_state(0)
-        self.setMinimumWidth(32)
-
-        # TODO(1.4.0) Notifications.
-        # self.clicked.connect(self._on_notifications_clicked)
-
-    def set_notification_state(self, how_many: int=0, is_urgent: bool=False) -> None:
-        if is_urgent and how_many > 0:
-            icon = self._notification_urgent_icon
-            text = _("There are urgent unread notifications")
-        elif how_many >= len(self._notification_indexable_icons):
-            icon = self._notification_many_icon
-            text = _("There are many unread notifications")
-        else:
-            icon = self._notification_indexable_icons[how_many]
-            text = _("There are {} unread notifications").format(how_many)
-
-        self.setIcon(icon)
-        self.setToolTip(text)
-
-    # TODO(1.4.0) Notifications.
-    # def _on_notifications_clicked(self) -> None:
-    #     self._main_window.toggle_tab(self._main_window.notifications_tab, True, to_front=True)
 
 
 class BalancePopup(QWidget):
@@ -167,9 +125,6 @@ class StatusBar(QStatusBar):
         network_widget.setLayout(hbox)
         network_widget.setMinimumWidth(150)
         self.addPermanentWidget(network_widget)
-
-        # self.notification_widget = NotificationIndicator(main_window)
-        # self.addPermanentWidget(self.notification_widget)
 
     def set_fiat_status(self, status: Optional[Tuple[Optional[str], Optional[str]]]) -> None:
         # None: Fiat is disabled.

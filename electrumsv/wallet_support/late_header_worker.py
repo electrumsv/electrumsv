@@ -39,36 +39,34 @@ import asyncio
 import dataclasses
 from collections import defaultdict
 from functools import partial
-from typing import Callable, cast, Tuple, Dict, Set
-import weakref
+from typing import Callable, cast, TYPE_CHECKING
 
 from bitcoinx import Chain, hash_to_hex_str, Header, MissingHeader
 
 from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof, verify_proof
-from ..constants import PendingHeaderWorkKind, TxFlags
+from ..constants import PendingHeaderWorkKind, TxFlags, WalletEvent
 from ..logs import logs
-from ..wallet_database import functions as db_functions
-from ..wallet_database.sqlite_support import DatabaseContext
+
+if TYPE_CHECKING:
+    from ..wallet import WalletDataAccess
 
 
 logger = logs.get_logger("late-header-worker")
 
-block_transactions_factory = cast(Callable[[], Dict[bytes, Set[bytes]]], partial(defaultdict, set))
+block_transactions_factory = cast(Callable[[], dict[bytes, set[bytes]]], partial(defaultdict, set))
 
 
 @dataclasses.dataclass
 class LateHeaderWorkerState:
-    late_header_worker_queue: asyncio.Queue[Tuple[PendingHeaderWorkKind,
-        TSCMerkleProof | Tuple[Header, Chain]]]
-    verification_callback: weakref.WeakMethod[Callable[[str, bytes, Header, TSCMerkleProof], None]]
+    late_header_worker_queue: asyncio.Queue[tuple[PendingHeaderWorkKind,
+        TSCMerkleProof | tuple[Header, Chain]]]
     block_transactions: dict[bytes, set[bytes]] = dataclasses.field(
         default_factory=block_transactions_factory)
 
 
-async def late_header_worker_async(
-        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
-        state: LateHeaderWorkerState) -> None:
+async def late_header_worker_async(wallet_data: WalletDataAccess, state: LateHeaderWorkerState) \
+        -> None:
     """
     We receive headers asynchronously and do not expect to have the headers before we
     receive data that needs to be processed. This worker matches deferred data processing
@@ -79,80 +77,48 @@ async def late_header_worker_async(
         gap between no header and in the list of those known to have no header.
     - A new header is received.
     """
-    await _populate_initial_state(get_db_context_ref, state)
+    assert app_state.headers is not None
 
-    # TODO(1.4.0): Networking. Hook this up to arrival of new headers.
-
-    while True:
-        await _process_one_item(get_db_context_ref, state)
-
-
-async def _populate_initial_state(
-        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
-        state: LateHeaderWorkerState) -> None:
-    get_db_context = get_db_context_ref()
-    assert get_db_context is not None
-    db_context = get_db_context()
-    rows = db_functions.read_pending_header_transactions(db_context)
-    for tx_hash, block_hash, proof_data in rows:
+    for tx_hash, block_hash, proof_data in wallet_data.read_pending_header_transactions():
         # When we set the proof data on a transaction for deferred verification we also set the
         # block hash among other things. This is guaranteed to be set, so essential to check.
         assert block_hash is not None
         msg = (PendingHeaderWorkKind.MERKLE_PROOF, TSCMerkleProof.from_bytes(proof_data))
         state.late_header_worker_queue.put_nowait(msg)
 
+    # TODO(1.4.0) Networking. Hook this up to arrival of new headers.
 
-async def _process_one_item(
-        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
-        state: LateHeaderWorkerState) -> None:
-    """
-    Take one item from the work queue and process it, if there are no pending items, block until
-    there is.
-    """
-    item_kind, item_any = await state.late_header_worker_queue.get()
-    if item_kind == PendingHeaderWorkKind.MERKLE_PROOF:
-        tsc_proof = cast(TSCMerkleProof, item_any)
-        await _process_merkle_proof(get_db_context_ref, state, tsc_proof)
-    elif item_kind == PendingHeaderWorkKind.NEW_HEADER:
-        header, _chain = cast(Tuple[Header, Chain], item_any)
-        await _process_header(get_db_context_ref, state, header)
-    else:
-        raise NotImplementedError(f"Unknown late header work item kind {item_kind}")
-
-
-async def _process_merkle_proof(
-        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
-        state: LateHeaderWorkerState, tsc_proof: TSCMerkleProof) -> None:
-    """Process a single merkle proof or if we need to wait for the header, add it to the
-    state.block_transactions cache for re-checking for each new tip notification."""
-    assert app_state.headers is not None
-    assert tsc_proof.block_hash is not None
-    assert tsc_proof.transaction_hash is not None
-    header: Header
-    try:
-        header, _chain = app_state.headers.lookup(tsc_proof.block_hash)
-    except MissingHeader:
-        # We have confirmed that at this point the header is not present, monitor it.
-        state.block_transactions[tsc_proof.block_hash].add(tsc_proof.transaction_hash)
-        return None
-
-    get_db_context = get_db_context_ref()
-    assert get_db_context is not None
-    db_context = get_db_context()
-    await _process_one_merkle_proof(db_context, state, tsc_proof.block_hash,
-        TxFlags.STATE_CLEARED, tsc_proof.transaction_hash, tsc_proof.to_bytes(), header)
+    while True:
+        item_kind, item_any = await state.late_header_worker_queue.get()
+        if item_kind == PendingHeaderWorkKind.MERKLE_PROOF:
+            tsc_proof = cast(TSCMerkleProof, item_any)
+            assert tsc_proof.block_hash is not None
+            assert tsc_proof.transaction_hash is not None
+            try:
+                header, _chain = cast(tuple[Header, Chain],
+                    app_state.headers.lookup(tsc_proof.block_hash))
+            except MissingHeader:
+                # We have confirmed that at this point the header is not present, monitor it.
+                state.block_transactions[tsc_proof.block_hash].add(tsc_proof.transaction_hash)
+            else:
+                await _process_one_merkle_proof(wallet_data, state, tsc_proof.block_hash,
+                    TxFlags.STATE_CLEARED, tsc_proof.transaction_hash, tsc_proof.to_bytes(), header)
+        elif item_kind == PendingHeaderWorkKind.NEW_HEADER:
+            header, _chain = cast(tuple[Header, Chain], item_any)
+            if header.hash in state.block_transactions:
+                tx_hashes = list(state.block_transactions[header.hash])
+                unverified_entries = wallet_data.read_transaction_proof_data(tx_hashes)
+                for proof_row in unverified_entries:
+                    assert proof_row.block_hash is not None
+                    assert proof_row.proof_bytes is not None
+                    await _process_one_merkle_proof(wallet_data, state, proof_row.tx_hash,
+                        proof_row.flags, proof_row.block_hash, proof_row.proof_bytes, header)
+                del state.block_transactions[header.hash]
+        else:
+            raise NotImplementedError(f"Unknown late header work item kind {item_kind}")
 
 
-async def _process_header(
-        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
-        state: LateHeaderWorkerState, header: Header) -> None:
-    """Process all backlogged merkle proofs that were waiting for this header"""
-    block_hash = header.hash
-    if block_hash in state.block_transactions:
-        await _process_block_transactions(get_db_context_ref, state, header)
-
-
-async def _process_one_merkle_proof(db_context: DatabaseContext,
+async def _process_one_merkle_proof(wallet_data: WalletDataAccess,
         state: LateHeaderWorkerState, tx_hash: bytes, flags: TxFlags, tx_block_hash: bytes,
         proof_data: bytes, header: Header) -> None:
     # It is possible that the transaction may have changed from under us in the database,
@@ -160,38 +126,32 @@ async def _process_one_merkle_proof(db_context: DatabaseContext,
     if proof_data is None:
         logger.error("Deferred verification transaction %s block hash now lacks proof data",
             hash_to_hex_str(tx_hash))
-        return None
+        return
 
     if flags & TxFlags.MASK_STATE != TxFlags.STATE_CLEARED:
         logger.error("Deferred verification transaction %s state unexpectedly changed "
                      "from %r to %r", hash_to_hex_str(tx_hash), TxFlags.STATE_CLEARED,
             TxFlags(flags))
-        return None
+        return
 
     if tx_block_hash != header.hash:
         logger.error("Deferred verification transaction %s block hash unexpectedly changed "
                      "from %s to %s", hash_to_hex_str(tx_hash), hash_to_hex_str(header.hash),
             hash_to_hex_str(tx_block_hash))
-        return None
+        return
 
     tsc_proof = TSCMerkleProof.from_bytes(proof_data)
     if verify_proof(tsc_proof, header.merkle_root):
         # TODO(1.4.0) Database consistency. This should be a database call that checks the
         #     transaction is still in the state where it needs processing, and if it is not, then
         #     we log an error and move on.
-        if await db_functions.update_transaction_flags_async(db_context, tx_hash,
-                TxFlags.STATE_SETTLED, ~TxFlags.MASK_STATE):
-            callback = state.verification_callback()
-            if callback is None:
-                logger.error("Deferred verification transaction %s callback dead",
-                    hash_to_hex_str(tx_hash))
-                return None
-            callback('transaction_verified', tx_hash, header, tsc_proof)
-            return None
-
-        logger.error("Deferred verification failed updating transaction %s state "
-            "from %r to %r", hash_to_hex_str(tx_hash), TxFlags(flags), TxFlags.STATE_SETTLED)
-        return None
+        if await wallet_data.update_transaction_flags_async(tx_hash, TxFlags.STATE_SETTLED,
+                TxFlags.MASK_STATELESS):
+            wallet_data.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, tx_hash, header,
+                tsc_proof)
+        else:
+            logger.error("Deferred verification failed updating transaction %s state "
+                "from %r to %r", hash_to_hex_str(tx_hash), TxFlags(flags), TxFlags.STATE_SETTLED)
     else:
         # TODO(bad-server)
         # TODO(1.4.0) Networking. We probably want to know what server this came from so we can
@@ -201,23 +161,5 @@ async def _process_one_merkle_proof(db_context: DatabaseContext,
         # Remove the "pending verification" proof and block data from the transaction, it
         # should not be necessary to update the UI as the transaction should not have
         # changed state and we do not display "pending verification" proofs.
-        await db_functions.update_transaction_proof_async(db_context, tx_hash, None, None, None,
+        await wallet_data.update_transaction_proof_async(tx_hash, None, None, None,
             TxFlags.STATE_CLEARED)
-        return None
-
-
-async def _process_block_transactions(
-        get_db_context_ref: weakref.WeakMethod[Callable[[], DatabaseContext]],
-        state: LateHeaderWorkerState, header: Header) -> None:
-    tx_hashes = list(state.block_transactions[header.hash])
-    get_db_context = get_db_context_ref()
-    assert get_db_context is not None
-    db_context = get_db_context()
-    unverified_entries = db_functions.read_transaction_proof_data(db_context, tx_hashes)
-    for tx_hash, flags, tx_block_hash, proof_data in unverified_entries:
-        assert tx_block_hash is not None
-        assert proof_data is not None
-        await _process_one_merkle_proof(db_context, state, tx_hash, flags, tx_block_hash,
-            proof_data, header)
-
-    del state.block_transactions[header.hash]

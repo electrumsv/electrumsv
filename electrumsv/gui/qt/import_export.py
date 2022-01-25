@@ -223,7 +223,7 @@ class LabelImporter(QDialog):
             return
 
         account_tx_hashes = { r.tx_hash
-            for r in self._wallet.read_transaction_descriptions(self._account_id) }
+            for r in self._wallet.data.read_transaction_descriptions(self._account_id) }
 
         for tx_hash, tx_description in result.transaction_labels.items():
             if tx_hash not in account_tx_hashes:
@@ -239,7 +239,7 @@ class LabelImporter(QDialog):
 
         derivation_path_by_data2 = { pack_derivation_path(label_path): label_path
             for label_path in result.key_labels }
-        existing_keys = self._wallet.read_keyinstances_for_derivations(account.get_id(),
+        existing_keys = self._wallet.data.read_keyinstances_for_derivations(account.get_id(),
             DerivationType.BIP32_SUBPATH, list(derivation_path_by_data2),
             account.get_masterkey_id())
         keyinstances_by_derivation_path = {

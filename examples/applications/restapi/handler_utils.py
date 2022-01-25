@@ -340,7 +340,7 @@ class ExtendedHandlerUtils(HandlerUtils):
             if wallet is None:
                 raise Fault(Errors.WALLET_NOT_LOADED_CODE, Errors.WALLET_NOT_LOADED_MESSAGE)
 
-            wallet.register_callback(app_state.app.on_triggered_event,
+            wallet.events.register_callback(app_state.app.on_triggered_event,
                 [WalletEventNames.TRANSACTION_STATE_CHANGE, WalletEventNames.TRANSACTION_ADDED,
                     WalletEventNames.VERIFIED])
             wallet.set_boolean_setting(WalletSettings.USE_CHANGE, True)

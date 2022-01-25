@@ -49,7 +49,7 @@ from bitcoinx import Network as BitcoinXNetwork
 import certifi
 
 from .app_state import app_state, attempt_exception_reporting
-from .constants import API_SERVER_TYPES, NetworkServerType
+from .constants import API_SERVER_TYPES, NetworkEventNames, NetworkServerType
 from .i18n import _
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer, NewServerAPIContext, \
@@ -717,7 +717,7 @@ class SVSession(RPCSession): # type: ignore
             server.state.banner = _require_string(batch_results[0])
             server.state.donation_address = _require_string(batch_results[1])
             server.state.peers = self._parse_peers_subscribe(batch_results[2])
-            self._network.trigger_callback('banner')
+            self._network.trigger_callback(NetworkEventNames.BANNER)
         except AssertionError as e:
             raise DisconnectSessionError(f'main server requests bad batch response: {e}')
 
@@ -1062,7 +1062,7 @@ class Network(TriggeredCallbacks):
         server = self.main_server if n == 0 else None
         while True:
             if server is self.main_server:
-                self.trigger_callback('status')
+                self.trigger_callback(NetworkEventNames.GENERIC_STATUS)
             else:
                 assert self.main_server is not None
                 server = await self._random_server(self.main_server.protocol)
@@ -1133,8 +1133,8 @@ class Network(TriggeredCallbacks):
             #   new tip. This means that it is possible that all the UI elements will end up
             #   refreshing (even if every 500 ms due to the timer choke which I observed happening
             #   when I noticed this, so it does happen).
-            self.trigger_callback('updated')
-            self.trigger_callback('main_chain', main_chain, new_main_chain)
+            self.trigger_callback(NetworkEventNames.GENERIC_UPDATE)
+            self.trigger_callback(NetworkEventNames.MAIN_CHAIN, main_chain, new_main_chain)
 
     async def _set_main_server(self, server: SVServer, reason: SwitchReason) -> None:
         '''Set the main server to something new.'''
@@ -1155,7 +1155,7 @@ class Network(TriggeredCallbacks):
             if reason == SwitchReason.user_set:
                 old_main_session.server.state.retry_delay = 0
             await old_main_session.close()
-        self.trigger_callback('status')
+        self.trigger_callback(NetworkEventNames.GENERIC_STATUS)
 
     def add_electrumx_server(self, server_key: SVServerKey) \
             -> None:
@@ -1313,9 +1313,9 @@ class Network(TriggeredCallbacks):
         self.sessions.append(session)
         self.sessions_changed_event.set()
         self.sessions_changed_event.clear()
-        self.trigger_callback('sessions')
+        self.trigger_callback(NetworkEventNames.SESSIONS)
         if session.server is self.main_server:
-            self.trigger_callback('status')
+            self.trigger_callback(NetworkEventNames.GENERIC_STATUS)
             return True
         return False
 
@@ -1324,8 +1324,8 @@ class Network(TriggeredCallbacks):
         self.sessions_changed_event.set()
         self.sessions_changed_event.clear()
         if session.server is self.main_server:
-            self.trigger_callback('status')
-        self.trigger_callback('sessions')
+            self.trigger_callback(NetworkEventNames.GENERIC_STATUS)
+        self.trigger_callback(NetworkEventNames.SESSIONS)
 
     #
     # External API
