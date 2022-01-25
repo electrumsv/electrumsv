@@ -4,13 +4,11 @@ import json
 import os
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
-    import pysqlite3
+    import pysqlite3 as sqlite3
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
-    import sqlite3
-else:
-    sqlite3 = pysqlite3
+    import sqlite3 # type: ignore[no-redef]
 from types import TracebackType
 from typing import Any, cast, Iterable, List, Optional, Sequence, Set, Tuple, Type, Union
 
@@ -1483,7 +1481,7 @@ def _update_transaction_flags(db: sqlite3.Connection, tx_hash: bytes,
     sql = "UPDATE Transactions SET flags=(flags&?)|? WHERE tx_hash=?"
     sql_values: List[Any] = [ tx_hash, flags, mask ]
     cursor = db.execute(sql, sql_values)
-    return cursor.rowcount == 1
+    return cast(bool, cursor.rowcount == 1)
 
 
 def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[Outpoint],
@@ -2242,8 +2240,7 @@ class AsynchronousFunctions:
             "SELECT ?, TA.account_id, ?, ? "
             "FROM transaction_accounts TA",
             (tx_hash, tx_hash, tx_hash, timestamp, timestamp))
-        # NOTE(typing) error: Redundant cast to "int"  [redundant-cast]
-        return cast(int, cursor.rowcount)  # type: ignore
+        return cast(int, cursor.rowcount)
 
     def _reconcile_transaction_output_spends(self, db: sqlite3.Connection, tx_hash: bytes) -> bool:
         """

@@ -1,13 +1,11 @@
 import json
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
-    import pysqlite3
+    import pysqlite3 as sqlite3
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
-    import sqlite3
-else:
-    sqlite3 = pysqlite3
+    import sqlite3 # type: ignore[no-redef]
 
 from ...constants import TransactionOutputFlag
 from ...util import get_posix_timestamp
