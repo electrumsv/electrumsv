@@ -97,7 +97,7 @@ def _make_mock_channel_json(channel_id: str, host: str, port: int, tokens: list[
 
 
 async def _create_peer_channel_instance(aiohttp_client) -> PeerChannel:
-    test_session = await aiohttp_client(create_app)
+    test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     peer_channel: PeerChannel = await esv_client.create_peer_channel()
     return peer_channel
@@ -306,8 +306,8 @@ async def mock_list_api_tokens(request: web.Request):
 
 
 
-def create_app(loop):
-    app = web.Application(loop=loop)
+def create_app():
+    app = web.Application()
     app.add_routes([
         web.get("/api/v1/web-socket", mock_general_websocket),
 
@@ -335,14 +335,14 @@ def create_app(loop):
 
 
 async def test_get_single_header(aiohttp_client):
-    test_session = await aiohttp_client(create_app)
+    test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     result = await esv_client.get_single_header(block_hash=bytes.fromhex('deadbeef'))
     assert result == bytes.fromhex("aa"*80)
 
 
 async def test_get_headers_by_height(aiohttp_client):
-    test_session = await aiohttp_client(create_app)
+    test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     result = await esv_client.get_headers_by_height(from_height=0, count=2)
     assert result == bytes.fromhex("aa"*80) + bytes.fromhex("bb"*80)
@@ -350,14 +350,14 @@ async def test_get_headers_by_height(aiohttp_client):
 
 async def test_get_chain_tips(aiohttp_client):
     expected_response = [GENESIS_TIP]
-    test_session = await aiohttp_client(create_app)
+    test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     result = await esv_client.get_chain_tips()
     assert result == expected_response
 
 
 async def test_subscribe_to_headers(aiohttp_client):
-    test_session = await aiohttp_client(create_app)
+    test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     async for tip in esv_client.subscribe_to_headers():
         if tip:
@@ -367,14 +367,14 @@ async def test_subscribe_to_headers(aiohttp_client):
 
 
 async def test_create_peer_channel(aiohttp_client):
-    test_session = await aiohttp_client(create_app)
+    test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     peer_channel: PeerChannel = await esv_client.create_peer_channel()
     assert isinstance(peer_channel, PeerChannel)
 
 
 async def test_delete_peer_channel(aiohttp_client):
-    test_session = await aiohttp_client(create_app)
+    test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     # Setup Channel for deletion
     peer_channel = PeerChannel(channel_id=MOCK_CHANNEL_ID, tokens=MOCK_TOKENS,
@@ -383,7 +383,7 @@ async def test_delete_peer_channel(aiohttp_client):
 
 
 async def test_list_peer_channels(aiohttp_client):
-    test_session = await aiohttp_client(create_app)
+    test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     peer_channels = await esv_client.list_peer_channels()
     assert isinstance(peer_channels, list)
@@ -394,7 +394,7 @@ async def test_list_peer_channels(aiohttp_client):
 
 
 async def test_get_single_peer_channel(aiohttp_client):
-    test_session = await aiohttp_client(create_app)
+    test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     peer_channel = await esv_client.get_single_peer_channel(MOCK_CHANNEL_ID)
     assert isinstance(peer_channel, PeerChannel)
@@ -403,7 +403,7 @@ async def test_get_single_peer_channel(aiohttp_client):
 
 
 async def test_subscribe_to_general_notifications(aiohttp_client):
-    test_session = await aiohttp_client(create_app)
+    test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     notification: GeneralNotification
     async for notification in esv_client.subscribe_to_general_notifications():
