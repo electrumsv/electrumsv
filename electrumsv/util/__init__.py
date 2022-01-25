@@ -33,8 +33,8 @@ import sys
 import threading
 import time
 import types
-from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple, \
-    TypedDict, TypeVar, Union
+from typing import Any, Callable, cast, Dict, Generic, Iterable, List, Optional, Sequence, Set, \
+    Tuple, TypedDict, TypeVar, Union
 
 from bitcoinx import PublicKey
 
@@ -402,15 +402,15 @@ def chunks(items: List[T1], size: int) -> Iterable[List[T1]]:
         yield items[i: i + size]
 
 
-EventNameTypes = Union[WalletEvent, NetworkEventNames]
+EventType = TypeVar('EventType')
 
-class TriggeredCallbacks:
+class TriggeredCallbacks(Generic[EventType]):
     def __init__(self) -> None:
-        self._callbacks: Dict[EventNameTypes, List[Callable[..., None]]] = defaultdict(list)
+        self._callbacks: Dict[EventType, List[Callable[..., None]]] = defaultdict(list)
         self._callback_lock = threading.Lock()
         self._callback_logger = logs.get_logger("callback-logger")
 
-    def register_callback(self, callback: Callable[..., None], events: List[EventNameTypes]) \
+    def register_callback(self, callback: Callable[..., None], events: List[EventType]) \
             -> None:
         with self._callback_lock:
             for event in events:
@@ -433,7 +433,7 @@ class TriggeredCallbacks:
                         if callback.__self__ is owner:
                             callbacks.remove(callback)
 
-    def trigger_callback(self, event: EventNameTypes, *args: Any) -> None:
+    def trigger_callback(self, event: EventType, *args: Any) -> None:
         with self._callback_lock:
             callbacks = self._callbacks[event][:]
         [callback(event, *args) for callback in callbacks]

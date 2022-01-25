@@ -1868,7 +1868,8 @@ class WalletDataAccess:
     that are called by wallet code should be wrapped here, so that the wallet code does not
     need access to the database context object.
     """
-    def __init__(self, db_context: DatabaseContext, events: TriggeredCallbacks) -> None:
+    def __init__(self, db_context: DatabaseContext, events: TriggeredCallbacks[WalletEvent]) \
+            -> None:
         # Private.
         self._db_context = db_context
 
@@ -2142,7 +2143,7 @@ class Wallet:
         self._db_context = storage.get_db_context()
         assert self._db_context is not None
 
-        self.events = TriggeredCallbacks()
+        self.events = TriggeredCallbacks[WalletEvent]()
         self.data = WalletDataAccess(self._db_context, self.events)
 
         self.db_functions_async = db_functions.AsynchronousFunctions(self._db_context)

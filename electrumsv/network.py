@@ -859,7 +859,7 @@ class SVSession(RPCSession): # type: ignore
         return cast(str, await self.send_request('blockchain.transaction.get', [tx_id]))
 
 
-class Network(TriggeredCallbacks):
+class Network(TriggeredCallbacks[NetworkEventNames]):
     '''Manages a set of connections to remote ElectrumX servers.  All operations are
     asynchronous.
     '''
