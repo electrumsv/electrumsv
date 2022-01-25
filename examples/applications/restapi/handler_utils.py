@@ -350,7 +350,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     def _fetch_transaction_dto(self, account: AbstractAccount, tx_id) -> Dict[str, Any]:
         tx_hash = hex_str_to_hash(tx_id)
-        tx_bytes = account._wallet.get_transaction_bytes(tx_hash)
+        tx_bytes = account._wallet.data.get_transaction_bytes(tx_hash)
         if tx_bytes is None:
             raise Fault(Errors.TRANSACTION_NOT_FOUND_CODE, Errors.TRANSACTION_NOT_FOUND_MESSAGE)
         return {"tx_hex": tx_bytes.hex()}
@@ -535,7 +535,7 @@ class ExtendedHandlerUtils(HandlerUtils):
     def remove_transaction(self, tx_hash: bytes, account: AbstractAccount) -> None:
         # removal of txs that are not in the STATE_SIGNED tx state is disabled for now as it may
         # cause issues with expunging utxos inadvertently.
-        tx_flags = account._wallet.get_transaction_flags(tx_hash)
+        tx_flags = account._wallet.data.get_transaction_flags(tx_hash)
         assert tx_flags is not None
         is_signed_state = (tx_flags & TxFlags.STATE_SIGNED) == TxFlags.STATE_SIGNED
         # Todo - perhaps remove restriction to STATE_SIGNED only later (if safe for utxos state)
@@ -561,7 +561,7 @@ class ExtendedHandlerUtils(HandlerUtils):
         # Ignore coins that are too expensive to send, or not confirmed.
         # Todo - this is inefficient to iterate over all coins (need better handling of dust utxos)
         if require_confirmed:
-            get_metadata = account._wallet.get_transaction_metadata
+            get_metadata = account._wallet.data.get_transaction_metadata
             spendable_coins = [coin for coin in all_coins
                 if coin.value > (INPUT_COST + OUTPUT_COST)
                 and cast(TransactionMetadata, get_metadata(coin.tx_hash)).block_hash is not None]

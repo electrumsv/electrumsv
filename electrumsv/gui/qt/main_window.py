@@ -85,7 +85,6 @@ from .amountedit import AmountEdit, BTCAmountEdit
 from .console import Console
 from .constants import CSS_WALLET_WINDOW_STYLE, ScanDialogRole, UIBroadcastSource
 from .contact_list import ContactList, edit_contact_dialog
-from .notifications_view import View
 from .password_dialog import LayoutFields
 from .qrcodewidget import QRDialog
 from .qrtextedit import ShowQRTextEdit
@@ -403,6 +402,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.scan_active_account(ScanDialogRole.ACCOUNT_CREATION)
 
     def set_active_account(self, account: Optional[AbstractAccount]) -> None:
+        if self._account is account:
+            return
+
         account_id: Optional[int] = None
         if account is not None:
             account_id = account.get_id()
@@ -438,7 +440,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.need_update.set()
 
     def _on_show_secured_data(self, account_id: int) -> None:
-        self._navigation_view._view_secured_data(main_window=self, account_id=account_id)
+        main_window_proxy: ElectrumWindow = weakref.proxy(self)
+        self._navigation_view._view_secured_data(main_window_proxy=main_window_proxy,
+            account_id=account_id)
 
     def _on_historical_exchange_rates(self, _event_name: str) -> None:
         # Notify the UI thread.
@@ -1016,7 +1020,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 total_delta = 0
                 for tx in self.tx_notifications:
                     if tx:
-                        for result in self._wallet.get_transaction_deltas(tx.hash()):
+                        for result in self._wallet.data.get_transaction_deltas(tx.hash()):
                             total_amount += result.total
                             total_delta += abs(result.total)
                         n_ok += 1
@@ -1155,6 +1159,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def refresh_wallet_display(self) -> None:
         self.update_status_bar()
         self._navigation_view.refresh_account_balances()
+        self._navigation_view.refresh_notifications()
         if self._wallet.is_synchronized() or not self.network or not self.network.is_connected():
             self.update_tabs()
 
@@ -1358,7 +1363,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Pass in the context of the call and check against the relevant contexts.
 
         # Skip confirmation for transactions loaded for broadcast.
-        flags = self._wallet.get_transaction_flags(tx_hash)
+        flags = self._wallet.data.get_transaction_flags(tx_hash)
         if flags is None:
             return True
 
@@ -1571,9 +1576,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def create_coinsplitting_tab(self) -> QWidget:
         from .coinsplitting_tab import CoinSplittingTab
         return CoinSplittingTab(self)
-
-    def create_notifications_view(self) -> View:
-        return View(self._api, self)
 
     def create_list_tab(self, list_widget: QWidget) -> QWidget:
         top_button_layout: Optional[TableTopButtonLayout] = None

@@ -164,7 +164,7 @@ class MissingTransactionEntry:
 
 ADDRESS_TYPES = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
 
-def dust_threshold(network: Optional["Network"]) -> int:
+def dust_threshold(network: Optional[Network]) -> int:
     return 546 # hard-coded Bitcoin SV dust threshold. Was changed to this as of Sept. 2018
 
 
@@ -182,9 +182,9 @@ class AbstractAccount:
     MAX_SOFTWARE_CHANGE_OUTPUTS = 10
     MAX_HARDWARE_CHANGE_OUTPUTS = 1
 
-    def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
+    def __init__(self, wallet: Wallet, row: AccountRow) -> None:
         # Prevent circular reference keeping parent and accounts alive.
-        self._wallet: 'Wallet' = cast('Wallet', weakref.proxy(wallet))
+        self._wallet: Wallet = cast(Wallet, weakref.proxy(wallet))
         self._row = row
         self._id = row.account_id
 
@@ -193,7 +193,7 @@ class AbstractAccount:
             SubscriptionOwnerPurpose.ACTIVE_KEYS)
 
         self._logger = logs.get_logger("account[{}]".format(self.name()))
-        self._network: Optional["Network"] = None
+        self._network: Optional[Network] = None
 
         # locks: if you need to take several, acquire them in the order they are defined here!
         self.lock = threading.RLock()
@@ -202,7 +202,7 @@ class AbstractAccount:
     def get_id(self) -> int:
         return self._id
 
-    def get_wallet(self) -> 'Wallet':
+    def get_wallet(self) -> Wallet:
         return self._wallet
 
     def is_petty_cash(self) -> bool:
@@ -565,7 +565,7 @@ class AbstractAccount:
         We should only ever mark a transaction as a state if it it isn't already in a related
         state.
         """
-        future = self._wallet.set_transaction_state(tx_hash, flags, ignore_mask)
+        future = self._wallet.data.set_transaction_state(tx_hash, flags, ignore_mask)
         if future.result():
             self._wallet.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, self._id,
                 tx_hash, flags)
@@ -577,12 +577,12 @@ class AbstractAccount:
 
     def get_local_transaction_entries(self, tx_hashes: Optional[List[bytes]]=None) \
             -> List[TransactionValueRow]:
-        return self._wallet.read_transaction_value_entries(self._id, tx_hashes=tx_hashes,
+        return self._wallet.data.read_transaction_value_entries(self._id, tx_hashes=tx_hashes,
             mask=TxFlags.MASK_STATE_LOCAL)
 
     def get_transaction_value_entries(self, mask: Optional[TxFlags]=None) \
             -> List[TransactionValueRow]:
-        return self._wallet.read_transaction_value_entries(self._id, mask=mask)
+        return self._wallet.data.read_transaction_value_entries(self._id, mask=mask)
 
     def get_transaction_outputs_with_key_data(self, exclude_frozen: bool=True, mature: bool=True,
             confirmed_only: Optional[bool]=None, keyinstance_ids: Optional[List[int]]=None) \
@@ -824,7 +824,7 @@ class AbstractAccount:
         tx.BIP_LI01_sort()
         return tx, tx_context
 
-    def start(self, network: Optional["Network"]) -> None:
+    def start(self, network: Optional[Network]) -> None:
         self._network = network
         if network is not None:
             pass
@@ -1362,7 +1362,7 @@ class ImportedAddressAccount(ImportedAccountBase):
 
 
 class ImportedPrivkeyAccount(ImportedAccountBase):
-    def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
+    def __init__(self, wallet: Wallet, row: AccountRow) -> None:
         self._default_keystore = Imported_KeyStore()
         AbstractAccount.__init__(self, wallet, row)
 
@@ -1448,7 +1448,7 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
 
 
 class DeterministicAccount(AbstractAccount):
-    def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
+    def __init__(self, wallet: Wallet, row: AccountRow) -> None:
         AbstractAccount.__init__(self, wallet, row)
 
         # We do not just keep the last used derivation index for each derived path for gap limit
@@ -1707,7 +1707,7 @@ class DeterministicAccount(AbstractAccount):
 class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
     """ Deterministic Wallet with a single pubkey per address """
 
-    def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
+    def __init__(self, wallet: Wallet, row: AccountRow) -> None:
         DeterministicAccount.__init__(self, wallet, row)
 
     def get_master_public_key(self) -> str:
@@ -1771,7 +1771,7 @@ class StandardAccount(SimpleDeterministicAccount):
 
 
 class MultisigAccount(DeterministicAccount):
-    def __init__(self, wallet: 'Wallet', row: AccountRow) -> None:
+    def __init__(self, wallet: Wallet, row: AccountRow) -> None:
         self._multisig_keystore = cast(Multisig_KeyStore,
             wallet.get_keystore(cast(int, row.default_masterkey_id)))
         self.m = self._multisig_keystore.m
@@ -1865,8 +1865,9 @@ class MultisigAccount(DeterministicAccount):
 class WalletDataAccess:
     """
     This is an abstraction for the database access for a given wallet. All database functions
-    that are called by wallet code should be wrapped here, so that the wallet code does not
-    need access to the database context object.
+    that are called by application code should be wrapped here, so that the wallet code does not
+    need access to the database context object. And so that the application code does not need
+    to hold a reference to the wallet.
     """
     def __init__(self, db_context: DatabaseContext, events: TriggeredCallbacks[WalletEvent]) \
             -> None:
@@ -2051,11 +2052,36 @@ class WalletDataAccess:
 
     # Transactions.
 
+    def get_transaction_deltas(self, tx_hash: bytes, account_id: Optional[int]=None) \
+            -> List[TransactionDeltaSumRow]:
+        return db_functions.read_transaction_values(self._db_context, tx_hash, account_id)
+
+    def get_transaction_flags(self, tx_hash: bytes) -> Optional[TxFlags]:
+        return db_functions.read_transaction_flags(self._db_context, tx_hash)
+
+    def get_transaction_metadata(self, tx_hash: bytes) -> Optional[TransactionMetadata]:
+        return db_functions.read_transaction_metadata(self._db_context, tx_hash)
+
     def read_pending_header_transactions(self) -> list[tuple[bytes, Optional[bytes], bytes]]:
         return db_functions.read_pending_header_transactions(self._db_context)
 
     def read_transaction_proof_data(self, tx_hashes: List[bytes]) -> List[TxProofData]:
         return db_functions.read_transaction_proof_data(self._db_context, tx_hashes)
+
+    def read_transaction_value_entries(self, account_id: int, *,
+            tx_hashes: Optional[List[bytes]]=None, mask: Optional[TxFlags]=None) \
+                -> List[TransactionValueRow]:
+        return db_functions.read_transaction_value_entries(self._db_context, account_id,
+            tx_hashes=tx_hashes, mask=mask)
+
+    def read_transactions_exist(self, tx_hashes: Sequence[bytes], account_id: Optional[int]=None) \
+            -> List[TransactionExistsRow]:
+        return db_functions.read_transactions_exist(self._db_context, tx_hashes, account_id)
+
+    def set_transaction_state(self, tx_hash: bytes, flag: TxFlags,
+            ignore_mask: Optional[TxFlags]=None) -> concurrent.futures.Future[bool]:
+        return db_functions.set_transaction_state(self._db_context, tx_hash, flag,
+            ignore_mask)
 
     async def update_transaction_flags_async(self, tx_hash: bytes,
             flags: TxFlags, mask: TxFlags) -> bool:
@@ -2106,8 +2132,7 @@ class WalletDataAccess:
 
     # Wallet events.
 
-    def create_wallet_events(self,  rows: List[WalletEventRow]) \
-            -> concurrent.futures.Future[None]:
+    def create_wallet_events(self,  rows: List[WalletEventRow]) -> concurrent.futures.Future[None]:
         return db_functions.create_wallet_events(self._db_context, rows)
 
     def read_wallet_events(self, account_id: Optional[int]=None,
@@ -2117,9 +2142,14 @@ class WalletDataAccess:
 
     def update_wallet_event_flags(self, entries: Iterable[Tuple[WalletEventFlag, int]]) \
             -> concurrent.futures.Future[None]:
+        def callback(future: concurrent.futures.Future[None]) -> None:
+            if future.cancelled():
+                return
+            future.result()
+            self.events.trigger_callback(WalletEvent.NOTIFICATIONS_UPDATE, entries)
+
         future = db_functions.update_wallet_event_flags(self._db_context, entries)
-        # TODO(1.4.0) Notifications. Look at whether this should be uncommented.
-        #self.events.trigger_callback(WalletEvent.NOTIFICATIONS_UPDATE, entries)
+        future.add_done_callback(callback)
         return future
 
 
@@ -2129,7 +2159,7 @@ class Wallet:
     This represents a loaded wallet and manages both data and network access for it.
     """
 
-    _network: Optional['Network'] = None
+    _network: Optional[Network] = None
     _stopped: bool = False
 
     def __init__(self, storage: WalletStorage, password: Optional[str]=None) -> None:
@@ -2712,6 +2742,10 @@ class Wallet:
 
     def create_wallet_events(self,  entries: List[WalletEventRow]) \
             -> concurrent.futures.Future[None]:
+        # TODO(1.4.0) Technical debt. Consider moving this into the database write function
+        #     where that deals with getting the latest id. We would need to defer the event
+        #     broadcast to a future callback as we wouldn't have the id until then. That should
+        #     be fine.
         next_id = self._storage.get("next_wallet_event_id", 1)
         rows = []
         for entry in entries:
@@ -2722,39 +2756,6 @@ class Wallet:
         self.events.trigger_callback(WalletEvent.NOTIFICATIONS_CREATE, self.get_storage_path(),
             rows)
         return future
-
-    def update_wallet_event_flags(self, entries: Iterable[Tuple[WalletEventFlag, int]]) \
-            -> concurrent.futures.Future[None]:
-        future = self.data.update_wallet_event_flags(entries)
-        self.events.trigger_callback(WalletEvent.NOTIFICATIONS_UPDATE, entries)
-        return future
-
-    # Transactions.
-
-    def get_transaction_deltas(self, tx_hash: bytes, account_id: Optional[int]=None) \
-            -> List[TransactionDeltaSumRow]:
-        return db_functions.read_transaction_values(self.get_db_context(), tx_hash, account_id)
-
-    def get_transaction_flags(self, tx_hash: bytes) -> Optional[TxFlags]:
-        return db_functions.read_transaction_flags(self.get_db_context(), tx_hash)
-
-    def set_transaction_state(self, tx_hash: bytes, flag: TxFlags,
-            ignore_mask: Optional[TxFlags]=None) -> concurrent.futures.Future[bool]:
-        return db_functions.set_transaction_state(self.get_db_context(), tx_hash, flag,
-            ignore_mask)
-
-    def get_transaction_metadata(self, tx_hash: bytes) -> Optional[TransactionMetadata]:
-        return db_functions.read_transaction_metadata(self.get_db_context(), tx_hash)
-
-    def read_transaction_value_entries(self, account_id: int, *,
-            tx_hashes: Optional[List[bytes]]=None, mask: Optional[TxFlags]=None) \
-                -> List[TransactionValueRow]:
-        return db_functions.read_transaction_value_entries(self.get_db_context(), account_id,
-            tx_hashes=tx_hashes, mask=mask)
-
-    def read_transactions_exist(self, tx_hashes: Sequence[bytes], account_id: Optional[int]=None) \
-            -> List[TransactionExistsRow]:
-        return db_functions.read_transactions_exist(self.get_db_context(), tx_hashes, account_id)
 
     ## Data acquisition.
 
@@ -2770,7 +2771,7 @@ class Wallet:
         """
         async with self._obtain_transactions_async_lock:
             missing_tx_hashes: Set[bytes] = set()
-            existing_tx_hashes = set(r.tx_hash for r in self.read_transactions_exist(
+            existing_tx_hashes = set(r.tx_hash for r in self.data.read_transactions_exist(
                 [ key[0] for key in keys ]))
             for tx_hash, with_proof in keys:
                 if tx_hash in existing_tx_hashes:
@@ -3784,7 +3785,7 @@ class Wallet:
         del self._worker_tasks_maintain_spent_output_connection
 
     def have_transaction(self, tx_hash: bytes) -> bool:
-        return self.get_transaction_flags(tx_hash) is not None
+        return self.data.get_transaction_flags(tx_hash) is not None
 
     def get_transaction(self, tx_hash: bytes) -> Optional[Transaction]:
         lock = self._obtain_transaction_lock(tx_hash)
@@ -3854,7 +3855,7 @@ class Wallet:
             self.response_count = 0
         return self.request_count, self.response_count
 
-    def start(self, network: Optional['Network']) -> None:
+    def start(self, network: Optional[Network]) -> None:
         self._network = network
         if network is not None:
             network.add_wallet(self)
@@ -3875,6 +3876,7 @@ class Wallet:
 
     def stop(self) -> None:
         assert not self._stopped
+
         local_height = self._last_load_height
         chain_tip_hash = self._last_load_hash
         if self._network is not None:
@@ -3903,6 +3905,7 @@ class Wallet:
 
         for account in self.get_accounts():
             account.stop()
+
         if self._network is not None:
             updated_states = self._network.remove_wallet(self)
             if len(updated_states):
@@ -3916,7 +3919,7 @@ class Wallet:
         self._network = None
         self._stopped = True
 
-    def create_gui_handler(self, window: 'WindowProtocol', account: AbstractAccount) -> None:
+    def create_gui_handler(self, window: WindowProtocol, account: AbstractAccount) -> None:
         for keystore in account.get_keystores():
             if isinstance(keystore, Hardware_KeyStore):
                 plugin = cast('QtPluginBase', keystore.plugin)

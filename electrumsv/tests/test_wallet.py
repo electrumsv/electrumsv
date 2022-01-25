@@ -622,7 +622,7 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
         rows1 = wallet.data.read_transaction_descriptions(tx_hashes=list(expected_labels.keys()))
         assert { row1.tx_hash: row1.description  for row1 in rows1 } == expected_labels
 
-    rows2 = wallet.read_transactions_exist(list(settled_tx_hashes))
+    rows2 = wallet.data.read_transactions_exist(list(settled_tx_hashes))
     assert settled_tx_hashes == { row2.tx_hash for row2 in rows2 }
 
     # Account 1 is the pre-existing account (and predates the petty cash account).
@@ -928,7 +928,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         await wallet.add_transaction_proof(tx_hash_1, fake_header, BLOCK_POSITION,
             BLOCK_POSITION, [ b'FAFFFAFF' ] * 10)
 
-        tx_metadata_1 = wallet.get_transaction_metadata(tx_hash_1)
+        tx_metadata_1 = wallet.data.get_transaction_metadata(tx_hash_1)
         assert tx_metadata_1 is not None
         assert tx_metadata_1.block_hash == BLOCK_HASH
         assert tx_metadata_1.block_position == BLOCK_POSITION
@@ -950,7 +950,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_flags1 == TxFlags.STATE_SETTLED
 
         # Check the mined metadata is the same as we set.
-        tx_metadata_1 = wallet.get_transaction_metadata(tx_hash_1)
+        tx_metadata_1 = wallet.data.get_transaction_metadata(tx_hash_1)
         assert tx_metadata_1 is not None
         assert tx_metadata_1.block_hash == BLOCK_HASH
         assert tx_metadata_1.block_position == BLOCK_POSITION
@@ -965,7 +965,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_flags1 == TxFlags.STATE_CLEARED
 
         # Check that all the mined metadata is reset to mempool state.
-        tx_metadata_1 = wallet.get_transaction_metadata(tx_hash_1)
+        tx_metadata_1 = wallet.data.get_transaction_metadata(tx_hash_1)
         assert tx_metadata_1 is not None
         assert tx_metadata_1.block_hash is None
         assert tx_metadata_1.block_position is None

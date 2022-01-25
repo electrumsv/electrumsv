@@ -1,6 +1,5 @@
 import os
 from typing import List
-from weakref import ProxyType
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QLabel, QSpinBox, QVBoxLayout, QWidget
@@ -15,18 +14,20 @@ from .util import (Buttons, ButtonsTableWidget, CloseButton, FormSectionWidget, 
 
 
 class PaymentDestinationsDialog(QDialog):
-    def __init__(self, main_window: ProxyType[ElectrumWindow], wallet: Wallet, account_id: int,
+    def __init__(self, main_window_proxy: ElectrumWindow, wallet: Wallet, account_id: int,
             parent: QWidget) -> None:
         # NOTE(typing) How you combine flags into a Qt.WindowFlags is beyond me.
         super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
-        self._main_window: ProxyType[ElectrumWindow] = main_window
+        # NOTE(proxytype-is-shitty) weakref.proxy does not return something that mirrors
+        #     attributes. This means that everything accessed is an `Any` and we leak those
+        #     and it introduces silent typing problems everywhere it touches.
+        self._main_window: ElectrumWindow = main_window_proxy
         self._wallet = wallet
 
-        self._account = account = self._wallet.get_account(account_id)
-        assert account is not None
-        keystore = account.get_keystore()
+        self._account = self._wallet.get_account(account_id)
+        assert self._account is not None
 
         self.setWindowTitle(_("Payment Destinations"))
         self.setMinimumSize(400, 400)

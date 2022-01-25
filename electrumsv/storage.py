@@ -281,7 +281,7 @@ class AbstractStore:
         raise NotImplementedError
 
     def upgrade(self, has_password: bool, new_password_token: PasswordTokenProtocol,
-            callbacks: Optional[ProgressCallbacks]=None) -> Optional['AbstractStore']:
+            callbacks: Optional[ProgressCallbacks]=None) -> Optional[AbstractStore]:
         raise NotImplementedError
 
     def _get_version(self) -> int:
@@ -324,7 +324,7 @@ class DatabaseStore(AbstractStore):
         self._db_context.close()
 
     @classmethod
-    def from_text_store(cls: Type['DatabaseStore'], text_store: TextStore,
+    def from_text_store(cls: Type[DatabaseStore], text_store: TextStore,
             password_token: PasswordTokenProtocol) -> DatabaseStore:
         # Only fully updated text stores can upgrade to a database store.
         data = text_store._data.copy()
@@ -364,9 +364,9 @@ class DatabaseStore(AbstractStore):
     def requires_upgrade(self) -> bool:
         return self.get_explicit_type(int, "migration", 0) < MIGRATION_CURRENT
 
-    def upgrade(self: 'DatabaseStore', has_password: bool,
+    def upgrade(self: DatabaseStore, has_password: bool,
             new_password_token: PasswordTokenProtocol,
-            callbacks: Optional[ProgressCallbacks]=None) -> Optional['DatabaseStore']:
+            callbacks: Optional[ProgressCallbacks]=None) -> Optional[DatabaseStore]:
         from .wallet_database.migration import update_database
         connection = self._db_context.acquire_connection()
         try:

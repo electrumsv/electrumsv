@@ -131,7 +131,7 @@ class WalletAPI(QObject):
             mask=WalletEventFlag.UNREAD|WalletEventFlag.FEATURED)
 
     def update_notification_flags(self, updates: List[Tuple[WalletEventFlag, int]]) -> None:
-        self.wallet_window._wallet.update_wallet_event_flags(updates)
+        self.wallet_window._wallet.data.update_wallet_event_flags(updates)
 
     def _on_new_notifications(self, rows: List[WalletEventRow]) -> None:
         for row in rows:

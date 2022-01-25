@@ -1051,6 +1051,8 @@ def protected(func: D1) -> D1:
         main_window = self
         if 'main_window' in kwargs:
             main_window = kwargs['main_window']
+        elif 'main_window_proxy' in kwargs:
+            main_window = kwargs['main_window_proxy']
         elif 'wallet_id' in kwargs:
             main_window2 = app_state.app_qt.get_wallet_window_by_id(kwargs['wallet_id'])
             assert main_window2 is not None

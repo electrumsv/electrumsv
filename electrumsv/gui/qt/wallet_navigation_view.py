@@ -43,7 +43,7 @@ import os
 import threading
 import time
 from typing import Any, cast, Dict, List, Optional, Sequence
-from weakref import proxy, ProxyType
+from weakref import proxy
 
 from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, QPoint, pyqtSignal, QSize, Qt
 from PyQt5.QtGui import QFont
@@ -64,6 +64,7 @@ from .account_dialog import AccountDialog
 from .constants import ScanDialogRole
 from .debugger_view import DebuggerView
 from .main_window import ElectrumWindow
+from . import notifications_view
 from .util import (Buttons, CancelButton, filename_field, line_dialog, MessageBox, OkButton,
     protected, read_QIcon, WindowModalDialog)
 
@@ -89,13 +90,16 @@ class WalletNavigationView(QSplitter):
         super().__init__(main_window)
 
         self._logger = logs.get_logger("navigation-view")
-        self._main_window: ProxyType[ElectrumWindow] = proxy(main_window)
+        # NOTE(proxytype-is-shitty) weakref.proxy does not return something that mirrors
+        #     attributes. This means that everything accessed is an `Any` and we leak those
+        #     and it introduces silent typing problems everywhere it touches.
+        self._main_window_proxy: ElectrumWindow = proxy(main_window)
         self._wallet = wallet
 
-        self._main_window.account_created_signal.connect(self._on_account_created)
-        self._main_window.account_change_signal.connect(self._on_account_changed)
-        self._main_window.new_fx_quotes_signal.connect(self.refresh_account_balances)
-        self._main_window.notifications_updated_signal.connect(self._refresh_notifications)
+        self._main_window_proxy.account_created_signal.connect(self._on_account_created)
+        self._main_window_proxy.account_change_signal.connect(self._on_account_changed)
+        self._main_window_proxy.new_fx_quotes_signal.connect(self.refresh_account_balances)
+        self._main_window_proxy.notifications_updated_signal.connect(self.refresh_notifications)
 
         app_state.app_qt.base_unit_changed.connect(self.refresh_account_balances)
         app_state.app_qt.fiat_ccy_changed.connect(self.refresh_account_balances)
@@ -116,10 +120,11 @@ class WalletNavigationView(QSplitter):
 
         self._home_widget = QWidget()
         self._accounts_widget = QWidget()
-        self._contacts_widget = self._main_window.create_contacts_list()
-        self._notifications_widget = self._main_window.create_notifications_view()
+        self._contacts_widget = self._main_window_proxy.create_contacts_list()
+        self._notifications_widget = notifications_view.View(self._main_window_proxy._api,
+            self._main_window_proxy.reference())
         self._advanced_widget = QWidget()
-        self._console_widget = self._main_window.create_console()
+        self._console_widget = self._main_window_proxy.create_console()
         self._debugger_widget = DebuggerView()
         self._tab_widget = QTabWidget()
 
@@ -159,7 +164,7 @@ class WalletNavigationView(QSplitter):
     def init_geometry(self, sizes: Optional[Sequence[int]]=None) -> None:
         self._logger.debug("init_geometry.1 %r", sizes)
         if sizes is None:
-            sizes = [ 200, self._main_window.size().width() - 200 ]
+            sizes = [ 200, self._main_window_proxy.size().width() - 200 ]
             self._logger.debug("init_geometry.2 %r", sizes)
         self.setSizes(sizes)
 
@@ -176,7 +181,7 @@ class WalletNavigationView(QSplitter):
 
         # TODO(invoice-import) What format are these imported files? No idea.
         # if self._import_invoices_action is not None:
-        #     self._import_invoices_action.setEnabled(self._main_window.is_send_view_active())
+        #     self._import_invoices_action.setEnabled(self._main_window_proxy.is_send_view_active())
 
     def refresh_account_balances(self) -> None:
         """
@@ -223,7 +228,7 @@ class WalletNavigationView(QSplitter):
         return True
 
     def _update_window_account(self, account: Optional[AbstractAccount]) -> None:
-        self._main_window.set_active_account(account)
+        self._main_window_proxy.set_active_account(account)
 
     def get_tab_widget(self) -> QTabWidget:
         return self._tab_widget
@@ -306,7 +311,7 @@ class WalletNavigationView(QSplitter):
 
         self._notifications_item = QTreeWidgetItem()
         self.update_notifications_icon(
-            len(self._main_window._api.get_notification_rows()))
+            len(self._main_window_proxy._api.get_notification_rows()))
         self._notifications_item.setText(TreeColumns.MAIN, _("Notifications"))
         self._notifications_item.setToolTip(TreeColumns.MAIN, _("The notifications in this wallet"))
         self._selection_tree.addTopLevelItem(self._notifications_item)
@@ -390,7 +395,7 @@ class WalletNavigationView(QSplitter):
                 item.setFont(TreeColumns.FIAT_VALUE, self._monospace_font)
 
         wallet_balance = WalletBalance()
-        for account in self._main_window._wallet.get_accounts():
+        for account in self._main_window_proxy._wallet.get_accounts():
             account_id = account.get_id()
             account_balance = account.get_balance()
             wallet_balance += account_balance
@@ -472,11 +477,14 @@ class WalletNavigationView(QSplitter):
         assert account is not None
 
         menu = QMenu()
-        self.add_menu_items(menu, account, self._main_window)
+        # NOTE(proxytype-is-shitty) weakref.proxy does not return something that mirrors
+        #     attributes. This means that everything accessed is an `Any` and we leak those
+        #     and it introduces silent typing problems everywhere it touches.
+        self.add_menu_items(menu, account, self._main_window_proxy)
         menu.exec_(self._selection_tree.viewport().mapToGlobal(position))
 
     def add_menu_items(self, menu: QMenu, account: AbstractAccount,
-            main_window: ProxyType[ElectrumWindow]) -> None:
+            main_window_proxy: ElectrumWindow) -> None:
         menu.clear()
 
         # This expects a reference to the main window, not the weakref.
@@ -485,13 +493,15 @@ class WalletNavigationView(QSplitter):
         menu.addAction(_("&Information"),
             partial(self._show_account_information, account_id))
         seed_menu = menu.addAction(_("View &secured data"),
-            partial(self._view_secured_data, main_window=main_window, account_id=account_id))
+            partial(self._view_secured_data, main_window_proxy=main_window_proxy,
+                account_id=account_id))
         seed_menu.setEnabled(self._can_view_secured_data(account))
         menu.addAction(_("&Rename"),
             partial(self._rename_account, account_id))
         menu.addSeparator()
 
-        scan_action = menu.addAction(_("&Restore account"), main_window.scan_active_account_manual)
+        scan_action = menu.addAction(_("&Restore account"),
+            main_window_proxy.scan_active_account_manual)
         # TODO(1.4.0) Account restoration. We need to restore non-deterministic accounts, like
         #     imported keys. But we should go over all account types to be sure we do it right.
         scan_action.setEnabled(account.is_deterministic())
@@ -499,10 +509,10 @@ class WalletNavigationView(QSplitter):
 
         private_keys_menu = menu.addMenu(_("&Private keys"))
         import_menu = private_keys_menu.addAction(_("&Import"), partial(self._import_privkey,
-                main_window=main_window, account_id=account_id))
+                main_window_proxy=main_window_proxy, account_id=account_id))
         import_menu.setEnabled(account.can_import_privkey())
         export_menu = private_keys_menu.addAction(_("&Export"), partial(self._export_privkeys,
-            main_window=main_window, account_id=account_id))
+            main_window_proxy=main_window_proxy, account_id=account_id))
         export_menu.setEnabled(account.can_export())
         if account.can_import_address():
             menu.addAction(_("Import addresses"), partial(self._import_addresses, account_id))
@@ -510,7 +520,7 @@ class WalletNavigationView(QSplitter):
         menu.addSeparator()
 
         hist_menu = menu.addMenu(_("&History"))
-        hist_menu.addAction("Export", main_window.export_history_dialog)
+        hist_menu.addAction("Export", main_window_proxy.export_history_dialog)
 
         labels_menu = menu.addMenu(_("&Labels"))
         labels_menu.addAction(_("&Import"),
@@ -531,20 +541,20 @@ class WalletNavigationView(QSplitter):
             keystore.type() != KeystoreType.IMPORTED_PRIVATE_KEY)
 
     def _on_menu_import_labels(self, account_id: int) -> None:
-        self._main_window.do_import_labels(account_id)
+        self._main_window_proxy.do_import_labels(account_id)
 
     def _on_menu_export_labels(self, account_id: int) -> None:
-        self._main_window.do_export_labels(account_id)
+        self._main_window_proxy.do_export_labels(account_id)
 
     def _on_menu_import_invoices(self, account_id: int) -> None:
         pass
     # TODO(invoice-import) What format are these imported files? No idea.
-    #     send_view = self._main_window.get_send_view(account_id)
+    #     send_view = self._main_window_proxy.get_send_view(account_id)
     #     send_view.import_invoices()
 
     def _rename_account(self, account_id: int) -> None:
         assert self._current_account_id is not None
-        account = self._main_window._wallet.get_account(self._current_account_id)
+        account = self._main_window_proxy._wallet.get_account(self._current_account_id)
         assert account is not None
 
         conflicting_accounts_before = self._get_conflicting_accounts(account.display_name())
@@ -571,28 +581,28 @@ class WalletNavigationView(QSplitter):
             self._unrename_conflicting_accounts(conflicting_accounts_before)
 
     def _show_account_information(self, account_id: int) -> None:
-        dialog = AccountDialog(self._main_window, self._wallet, account_id, self)
+        dialog = AccountDialog(self._main_window_proxy, self._wallet, account_id, self)
         dialog.exec_()
 
     def _on_menu_generate_destinations(self, account_id: int) -> None:
         from . import payment_destinations_dialog
         from importlib import reload
         reload(payment_destinations_dialog)
-        dialog = payment_destinations_dialog.PaymentDestinationsDialog(self._main_window,
+        dialog = payment_destinations_dialog.PaymentDestinationsDialog(self._main_window_proxy,
             self._wallet, account_id, self)
         dialog.exec_()
 
     def _on_menu_blockchain_scan(self, account_id: int) -> None:
-        if not self._main_window.has_connected_main_server():
+        if not self._main_window_proxy.has_connected_main_server():
             MessageBox.show_message(_("The wallet is not currently connected to an indexing "
                 "server. As such, the blockchain scanner cannot be used at this time."),
-                self._main_window.reference())
+                self._main_window_proxy.reference())
             return
 
         from . import blockchain_scan_dialog
         # from importlib import reload # TODO(dev-helper) Remove at some point.
         # reload(blockchain_scan_dialog)
-        dialog = blockchain_scan_dialog.BlockchainScanDialog(self._main_window,
+        dialog = blockchain_scan_dialog.BlockchainScanDialog(self._main_window_proxy,
             self._wallet, account_id, ScanDialogRole.MANUAL_RESCAN)
         dialog.exec_()
 
@@ -602,8 +612,10 @@ class WalletNavigationView(QSplitter):
             and account.type() != AccountType.IMPORTED_PRIVATE_KEY)
 
     @protected
-    def _view_secured_data(self, main_window: ElectrumWindow, account_id: int=-1,
-            password: Optional[str]=None) -> None:
+    def _view_secured_data(self,
+            main_window_proxy: ElectrumWindow,      # input to @protected
+            account_id: int=-1,
+            password: Optional[str]=None) -> None:  # output from @protected
         # account_id is a keyword argument so that 'protected' can identity the correct wallet
         # window to do the password request in the context of.
         account = self._wallet.get_account(account_id)
@@ -613,14 +625,14 @@ class WalletNavigationView(QSplitter):
             assert keystore is not None
             from .secured_data_dialog import SecuredDataDialog
             assert password is not None
-            d = SecuredDataDialog(self._main_window, self, keystore, password)
+            d = SecuredDataDialog(self._main_window_proxy, self, keystore, password)
             d.exec_()
         else:
             MessageBox.show_message(_("This type of account has no secured data. You are advised "
-                "to manually back up this wallet."), self._main_window.reference())
+                "to manually back up this wallet."), self._main_window_proxy.reference())
 
     @protected
-    def _import_privkey(self, main_window: ElectrumWindow, account_id: int=-1,
+    def _import_privkey(self, main_window_proxy: ElectrumWindow, account_id: int=-1,
             password: Optional[str]=None) -> None:
         # account_id is a keyword argument so that 'protected' can identity the correct wallet
         # window to do the password request in the context of.
@@ -629,7 +641,7 @@ class WalletNavigationView(QSplitter):
         title, msg = _('Import private keys'), _("Enter private keys")
         # NOTE(typing) `password` is non-None here, but we cannot do an assertion that is the case
         #   and have the type checker (pylance) observe it in the lambda.
-        self._main_window._do_import(title, msg,
+        self._main_window_proxy._do_import(title, msg,
             lambda x: account.import_private_key(x, password)) # type:ignore
 
     def _import_addresses(self, account_id: int) -> None:
@@ -639,11 +651,13 @@ class WalletNavigationView(QSplitter):
         def import_addr(addr: str) -> None:
             address = address_from_string(addr)
             account.import_address(address)
-        self._main_window._do_import(title, msg, import_addr)
+        self._main_window_proxy._do_import(title, msg, import_addr)
 
     @protected
-    def _export_privkeys(self, main_window: ElectrumWindow, account_id: int=-1,
-            password: Optional[str]=None) -> None:
+    def _export_privkeys(self,
+            main_window_proxy: ElectrumWindow,      # input to @protected
+            account_id: int=-1,
+            password: Optional[str]=None) -> None:  # output from @protected
         account = self._wallet.get_account(account_id)
         assert account is not None
 
@@ -670,7 +684,7 @@ class WalletNavigationView(QSplitter):
 
         defaultname = 'electrumsv-private-keys.csv'
         select_msg = _('Select file to export your private keys to')
-        hbox, filename_e, csv_button = filename_field(main_window.config, defaultname,
+        hbox, filename_e, csv_button = filename_field(main_window_proxy.config, defaultname,
             select_msg)
         vbox.addLayout(hbox)
 
@@ -745,10 +759,10 @@ class WalletNavigationView(QSplitter):
             ])
             MessageBox.show_error(txt, title=_("Unable to create csv"))
         except Exception as exc:
-            MessageBox.show_message(str(exc), main_window.reference())
+            MessageBox.show_message(str(exc), main_window_proxy.reference())
             return
 
-        MessageBox.show_message(_('Private keys exported'), main_window.reference())
+        MessageBox.show_message(_('Private keys exported'), main_window_proxy.reference())
 
     def _do_export_privkeys(self, fileName: str, pklist: Dict[str, str], is_csv: bool) -> None:
         with open(fileName, "w+") as f:
@@ -770,7 +784,7 @@ class WalletNavigationView(QSplitter):
         self._pane_view.setCurrentWidget(self._tab_widget)
 
         if self._update_active_account(account_id):
-            account = self._main_window._wallet.get_account(account_id)
+            account = self._main_window_proxy._wallet.get_account(account_id)
             assert account is not None
             self._update_window_account(account)
             return True
@@ -815,5 +829,9 @@ class WalletNavigationView(QSplitter):
             self._notifications_item.setIcon(TreeColumns.MAIN,
                 read_QIcon("icons8-notification-80-blueui.png"))
 
-    def _refresh_notifications(self) -> None:
-        pass
+    def refresh_notifications(self) -> None:
+        # Update the navigation view entry.
+        notification_count = len(self._main_window_proxy._api.get_notification_rows())
+        self.update_notifications_icon(notification_count)
+        # Update the contents of the notifications view.
+        self._notifications_widget.reset_contents()

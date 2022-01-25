@@ -314,7 +314,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     def update_tx_if_in_wallet(self) -> None:
         if self._tx_hash is not None:
-            flags = self._wallet.get_transaction_flags(self._tx_hash)
+            flags = self._wallet.data.get_transaction_flags(self._tx_hash)
             if flags is not None and flags & (TxFlags.STATE_CLEARED | TxFlags.STATE_SETTLED):
                 self.update()
 
@@ -785,7 +785,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         wallet = self._wallet
         if tx.is_complete():
-            metadata = wallet.get_transaction_metadata(self._tx_hash)
+            metadata = wallet.data.get_transaction_metadata(self._tx_hash)
             if metadata is None:
                 # The transaction is not known to the wallet.
                 status = _("External signed transaction")
@@ -809,7 +809,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                 assert self._account is not None
                 label = self._account.get_transaction_label(self._tx_hash)
 
-                tx_flags = cast(TxFlags, wallet.get_transaction_flags(self._tx_hash))
+                tx_flags = cast(TxFlags, wallet.data.get_transaction_flags(self._tx_hash))
                 state = tx_flags & TxFlags.MASK_STATE
                 if state & TxFlags.STATE_SETTLED:
                     status = _("Verified")
@@ -829,7 +829,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                 else:
                     status = _('Unknown')
 
-            account_deltas = wallet.get_transaction_deltas(self._tx_hash)
+            account_deltas = wallet.data.get_transaction_deltas(self._tx_hash)
             value_delta = sum(row.total for row in account_deltas)
             # # It is possible that the wallet does not have the transaction.
             # if delta_result.match_count == 0:

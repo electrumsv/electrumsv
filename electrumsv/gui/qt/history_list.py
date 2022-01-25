@@ -372,7 +372,7 @@ class HistoryList(MyTreeWidget):
             cast(Callable[[], None], lambda: self._main_window.show_transaction(account, tx,
                 tx_context)))
 
-        flags = self._wallet.get_transaction_flags(tx_hash)
+        flags = self._wallet.data.get_transaction_flags(tx_hash)
         if flags is not None and flags & TxFlags.PAYS_INVOICE:
             invoice_row = self._account._wallet.data.read_invoice(tx_hash=tx_hash)
             invoice_id = invoice_row.invoice_id if invoice_row is not None else None

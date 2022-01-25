@@ -89,7 +89,7 @@ class ListContext(QObject):
     def compare_rows(self, row1: WalletEventRow, row2: WalletEventRow) -> bool:
         return row1.event_id == row2.event_id
 
-    def on_list_updated(self, entry_count: int) -> None:
+    def on_list_updated(self, row_count: int) -> None:
         pass
 
     def card_factory(self, row: WalletEventRow) -> 'NotificationCard':
@@ -141,8 +141,14 @@ class View(QWidget):
     def is_empty(self) -> bool:
         return self._cards.is_empty()
 
+    def reset_contents(self) -> None:
+        self._cards.reset_contents()
+
 
 class Cards(QWidget):
+    _empty_label: Optional[QLabel] = None
+    _list: Optional[QListWidget] = None
+
     def __init__(self, context: ListContext, parent: QWidget) -> None:
         super().__init__(parent)
 
@@ -152,21 +158,25 @@ class Cards(QWidget):
         self._layout.setContentsMargins(0, 0, 0, 0)
         self._layout.setSpacing(0)
 
-        self._empty_label: Optional[QLabel] = None
-        self._list: Optional[QListWidget] = None
-
-        rows = self._context.get_rows()
-        if len(rows) > 0:
-            for row in rows:
-                self._add_entry(row)
-        else:
-            self._add_empty_label()
-
+        self.reset_contents()
         self.setLayout(self._layout)
 
         self._context.entry_added.connect(partial(self._on_entry_added_or_removed, True))
         self._context.entry_removed.connect(partial(self._on_entry_added_or_removed, False))
-        self._context.on_list_updated(len(rows))
+
+    def reset_contents(self) -> None:
+        rows = self._context.get_rows()
+        if len(rows) > 0:
+            if self._list is not None:
+                self._list.clear()
+
+            for row in rows:
+                self._add_entry(row)
+        else:
+            self._display_empty_label()
+
+        row_count = self._list.count() if self._list is not None else 0
+        self._context.on_list_updated(row_count)
 
     def is_empty(self) -> bool:
         return self._empty_label is not None
@@ -195,13 +205,7 @@ class Cards(QWidget):
                 list.takeItem(i)
 
         if list.count() == 0:
-            # Remove the list.
-            # NOTE(typing) This is a unrecognized Pylance signature.
-            list.setParent(None) # type: ignore
-            self._list = None
-
-            # Replace it with the placeholder label.
-            self._add_empty_label()
+            self._display_empty_label()
 
     def _on_entry_added_or_removed(self, added: bool, row: Any) -> None:
         if added:
@@ -209,14 +213,21 @@ class Cards(QWidget):
         else:
             self._remove_entry(row)
 
-        entry_count = 0 if self._list is None else self._list.count()
-        self._context.on_list_updated(entry_count)
+        row_count = self._list.count() if self._list is not None else 0
+        self._context.on_list_updated(row_count)
 
-    def _add_empty_label(self) -> None:
-        self._empty_label = QLabel(self._context.get_empty_text())
-        self._empty_label.setAlignment(Qt.AlignmentFlag(Qt.AlignmentFlag.AlignHCenter |
-            Qt.AlignmentFlag.AlignVCenter))
-        self._layout.addWidget(self._empty_label)
+    def _display_empty_label(self) -> None:
+        if self._list is not None:
+            # Remove the list.
+            # NOTE(typing) This is a unrecognized Pylance signature.
+            self._list.setParent(None) # type: ignore
+            self._list = None
+
+        if self._empty_label is None:
+            self._empty_label = QLabel(self._context.get_empty_text())
+            self._empty_label.setAlignment(Qt.AlignmentFlag(Qt.AlignmentFlag.AlignHCenter |
+                Qt.AlignmentFlag.AlignVCenter))
+            self._layout.addWidget(self._empty_label)
 
     def _remove_empty_label(self) -> None:
         if self._empty_label is not None:
@@ -225,7 +236,7 @@ class Cards(QWidget):
 
 
 class Card(QWidget):
-    def __init__(self, context: ListContext, row: Any, parent: Any=None):
+    def __init__(self, context: ListContext, row: WalletEventRow, parent: Optional[QWidget]=None):
         super().__init__(parent)
 
         self._context = context
@@ -303,6 +314,7 @@ class NotificationCard(Card):
             date_context_label.setAlignment(Qt.AlignmentFlag.AlignRight)
             date_context_label.setObjectName("NotificationCardContext")
 
+            assert self._row.account_id is not None
             account_name = self._context.wallet_api.get_account_name(self._row.account_id)
             account_context_label = QLabel(_("Account: {}").format(account_name))
             account_context_label.setObjectName("NotificationCardContext")
@@ -337,6 +349,7 @@ class NotificationCard(Card):
         url_type, url_path = url.split(":", 1)
         if url_type == "action":
             if url_path == "view-secured-data":
+                assert self._row.account_id is not None
                 self._context.wallet_api.prompt_to_show_secured_data(self._row.account_id)
                 return
         elif url_type == "help":

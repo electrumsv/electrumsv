@@ -53,7 +53,6 @@ from functools import partial
 import json
 import time
 from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_CHECKING
-from weakref import ProxyType
 import webbrowser
 
 from bitcoinx import hash_to_hex_str
@@ -218,14 +217,17 @@ class BlockchainScanDialog(WindowModalDialog):
 
     _pushdata_handler: Optional[PushDataHashHandler] = None
 
-    def __init__(self, main_window_proxy: ProxyType[ElectrumWindow], wallet: Wallet,
+    def __init__(self, main_window_proxy: ElectrumWindow, wallet: Wallet,
             account_id: int, role: ScanDialogRole) -> None:
         super().__init__(main_window_proxy.reference(), TEXT_TITLE)
 
         self.setMinimumWidth(500)
         self.setMinimumHeight(150)
 
-        self._main_window = main_window_proxy
+        # NOTE(proxytype-is-shitty) weakref.proxy does not return something that mirrors
+        #     attributes. This means that everything accessed is an `Any` and we leak those
+        #     and it introduces silent typing problems everywhere it touches.
+        self._main_window_proxy = main_window_proxy
         self._wallet = wallet
         self._account_id = account_id
         self._role = role
@@ -533,7 +535,7 @@ class BlockchainScanDialog(WindowModalDialog):
 
     def _on_clicked_button_help(self) -> None:
         from .help_dialog import HelpDialog
-        h = HelpDialog(self._main_window.reference(), HELP_FOLDER_NAME, HELP_SCAN_FILE_NAME)
+        h = HelpDialog(self._main_window_proxy.reference(), HELP_FOLDER_NAME, HELP_SCAN_FILE_NAME)
         h.run()
 
     def _on_clicked_button_advanced(self) -> None:
@@ -692,7 +694,7 @@ class BlockchainScanDialog(WindowModalDialog):
         all_are_imported = True
         conflicts_were_found = False
         missing_tx_hashes = set(all_tx_hashes)
-        for tx_row in self._wallet.read_transactions_exist(all_tx_hashes, self._account_id):
+        for tx_row in self._wallet.data.read_transactions_exist(all_tx_hashes, self._account_id):
             missing_tx_hashes.remove(tx_row.tx_hash)
 
             state = self._import_state[tx_row.tx_hash]
@@ -761,7 +763,7 @@ class BlockchainScanDialog(WindowModalDialog):
     def _on_dialog_finished(self) -> None:
         if self._stage == ScanDialogStage.IMPORT:
             self._wallet.events.unregister_callback(self._on_wallet_event)
-        self._main_window.update_history_view()
+        self._main_window_proxy.update_history_view()
 
     def _on_dialog_rejected(self) -> None:
         if self._stage == ScanDialogStage.SCAN:
@@ -801,11 +803,11 @@ class BlockchainScanDialog(WindowModalDialog):
                 "tx_id": hash_to_hex_str(entry.tx_hash),
                 "item_hashes": list(hash_to_hex_str(hash) for hash in entry.item_hashes)
             } for entry in entries))
-        self._main_window.app.clipboard().setText(entries_text)
+        self._main_window_proxy.app.clipboard().setText(entries_text)
 
     def _on_menu_copy_tx_ids_json_to_clipboard(self, entries: List[TransactionScanState]) -> None:
         tx_ids_text = json.dumps(list(hash_to_hex_str(entry.tx_hash) for entry in entries))
-        self._main_window.app.clipboard().setText(tx_ids_text)
+        self._main_window_proxy.app.clipboard().setText(tx_ids_text)
 
     def _on_menu_view_on_block_explorer(self, entries: List[TransactionScanState]) -> None:
         for entry in entries:

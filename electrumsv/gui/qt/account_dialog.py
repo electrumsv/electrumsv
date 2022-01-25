@@ -2,7 +2,6 @@
 # typing checks.
 from __future__ import annotations
 from typing import cast, Optional
-from weakref import ProxyType
 
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QComboBox, QDialog, QLabel, QLineEdit, QSizePolicy, QSpacerItem, \
@@ -23,13 +22,15 @@ from .util import Buttons, CloseButton, FormSectionWidget
 class AccountDialog(QDialog):
     _list: Optional[CosignerList] = None
 
-    def __init__(self, main_window: ProxyType[ElectrumWindow], wallet: Wallet, account_id: int,
+    def __init__(self, main_window_proxy: ElectrumWindow, wallet: Wallet, account_id: int,
             parent: QWidget) -> None:
         super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
-        assert type(main_window) is ProxyType
-        self._main_window = main_window
+        # NOTE(proxytype-is-shitty) weakref.proxy does not return something that mirrors
+        #     attributes. This means that everything accessed is an `Any` and we leak those
+        #     and it introduces silent typing problems everywhere it touches.
+        self._main_window_proxy = main_window_proxy
         self._wallet = wallet
 
         self._account = account = self._wallet.get_account(account_id)
@@ -80,7 +81,7 @@ class AccountDialog(QDialog):
             if current_script_type != new_script_type:
                 account.set_default_script_type(new_script_type)
 
-                view = self._main_window.get_receive_view(account.get_id())
+                view = self._main_window_proxy.get_receive_view(account.get_id())
                 view.update_script_type(new_script_type)
 
         update_script_types()
@@ -105,7 +106,7 @@ class AccountDialog(QDialog):
                 multisig_form.add_row(_("Number of signatures required"), QLabel(str(mkeystore.m)))
                 vbox.addWidget(multisig_form)
 
-                self._list = list = CosignerList(self._main_window, create=False)
+                self._list = list = CosignerList(self._main_window_proxy, create=False)
                 list.setMinimumHeight(350)
                 for i, keystore in enumerate(account.get_keystores()):
                     state = CosignerState(i, cast(SinglesigKeyStoreTypes, keystore))
