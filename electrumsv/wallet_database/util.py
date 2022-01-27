@@ -142,6 +142,47 @@ def execute_sql_by_id(db: sqlite3.Connection, sql: str,
     return rows_updated, rows
 
 
+def bulk_insert_returning(return_type: Type[T], db: sqlite3.Connection, sql_prefix: str,
+        sql_suffix: str, insert_rows: Sequence[Collection[T2]]) -> List[T]:
+    """
+    Do a bulk insert in a way where we get the primary key value back.
+
+    sql_prefix expected value `INSERT INTO MyTable (column1, column2) VALUES `
+    sql_suffix expected value `RETURNING key_column, column1, column2`
+
+    SQLite does not guarantee the order of the returned values, so it cannot be used to just
+    return the assigned primary key value for each given row. Instead the simplest approach is
+    to just return the whole row and give it back to the calling logic to use in place of the
+    source row data that went in.
+
+    It is the reponsibility of the caller to ensure the RETURNING column order provided in
+    `sql_suffix` matches the number of elements, and order, of the type to be returned
+    `return_type`.
+    """
+    row_size = len(insert_rows[0])
+    rows_per_batch = int(SQLITE_MAX_VARS // row_size)
+
+    value_parameter_text = "("+ ",".join(["?"] * row_size) +")"
+    next_row_index = 0
+    final_rows: List[T] = []
+    while next_row_index < len(insert_rows):
+        batch_row_count = min(rows_per_batch, len(insert_rows)-next_row_index)
+        batch_values: List[Any] = []
+        values_text = ""
+        for i in range(next_row_index, next_row_index + batch_row_count):
+            if len(values_text):
+                values_text += ","
+            values_text += value_parameter_text
+            batch_values.extend(insert_rows[i])
+
+        sql_completed = f"{sql_prefix} {values_text} {sql_suffix}"
+        for inserted_row in db.execute(sql_completed, batch_values):
+            final_rows.append(return_type(*inserted_row))
+
+        next_row_index += batch_row_count
+    return final_rows
+
+
 def update_rows_by_ids(db: sqlite3.Connection, sql: str, sql_id_expression: str,
         sql_values: List[Any], ids: Sequence[Collection[T]],
         sql_where_expression: Optional[str]=None) -> int:

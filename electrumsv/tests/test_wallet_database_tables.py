@@ -27,12 +27,10 @@ from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PaymentRequestReadRow, PaymentRequestRow,
     PaymentRequestUpdateRow, TransactionRow, TransactionOutputShortRow,
-    WalletBalance, WalletEventRow)
+    WalletBalance, WalletEventInsertRow)
 
 from .util import PasswordToken
 
-
-logs.set_level("debug")
 
 
 tx_hex_1 = ("01000000011a284a701e6a69ba68ac4b1a4509ac04f5c10547e3165fe869d5e910fe91bc4c04000000"
@@ -1094,10 +1092,10 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
     MASTERKEY_ID = 10
     ACCOUNT_ID = 10
 
-    line1 = WalletEventRow(1, WalletEventType.SEED_BACKUP_REMINDER, ACCOUNT_ID,
-        WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, 1)
-    line2 = WalletEventRow(2, WalletEventType.SEED_BACKUP_REMINDER, None,
-        WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, 1)
+    line1 = WalletEventInsertRow(WalletEventType.SEED_BACKUP_REMINDER, ACCOUNT_ID,
+        WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, 1, 1)
+    line2 = WalletEventInsertRow(WalletEventType.SEED_BACKUP_REMINDER, None,
+        WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, 1, 1)
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.
@@ -1118,31 +1116,21 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
     future.result()
 
     future = db_functions.create_wallet_events(db_context, [ line1, line2 ])
-    future.result()
-
-    # No effect: The primary key constraint will prevent any conflicting entry from being added.
-    with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.create_wallet_events(db_context, [ line1 ])
-        future.result()
+    lines = sorted(future.result(), key=lambda v: v.event_id)
 
     db_lines = db_functions.read_wallet_events(db_context)
-    assert 2 == len(db_lines)
-    db_line1 = [ db_line for db_line in db_lines if db_line == line1 ][0]
-    assert line1 == db_line1
-    db_line2 = [ db_line for db_line in db_lines if db_line == line2 ][0]
-    assert line2 == db_line2
-
-    date_updated = 20
+    db_lines = sorted(db_lines, key=lambda v: v.event_id)
+    assert lines == db_lines
 
     future = db_functions.update_wallet_event_flags(db_context,
-        [ (WalletEventFlag.UNREAD, line2.event_id) ])
+        [ (WalletEventFlag.UNREAD, lines[1].event_id) ])
     future.result()
 
     db_lines = db_functions.read_wallet_events(db_context)
+    db_lines = sorted(db_lines, key=lambda v: v.event_id)
     assert 2 == len(db_lines)
-    db_line2 = [ db_line for db_line in db_lines
-        if db_line.event_id == line2.event_id ][0]
-    assert db_line2.event_flags == WalletEventFlag.UNREAD
+    assert lines[0] == db_lines[0]
+    assert db_lines[1].event_flags == WalletEventFlag.UNREAD
 
     # Account does not exist.
     db_lines = db_functions.read_wallet_events(db_context, 1000)

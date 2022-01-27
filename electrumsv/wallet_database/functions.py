@@ -35,9 +35,10 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
     TransactionOutputSpendableRow, TransactionValueRow, TransactionMetadata,
     TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow, TxProofData,
-    TxProofResult, TransactionRow, WalletBalance, WalletDataRow, WalletEventRow)
-from .util import flag_clause, read_rows_by_id, read_rows_by_ids, execute_sql_by_id, \
-    update_rows_by_ids
+    TxProofResult, TransactionRow, WalletBalance, WalletDataRow, WalletEventInsertRow,
+    WalletEventRow)
+from .util import bulk_insert_returning, flag_clause, read_rows_by_id, read_rows_by_ids, \
+    execute_sql_by_id, update_rows_by_ids
 
 logger = logs.get_logger("db-functions")
 
@@ -179,16 +180,15 @@ def create_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDat
     return db_context.post_to_thread(_write)
 
 
-def create_wallet_events(db_context: DatabaseContext, entries: Iterable[WalletEventRow]) \
-        -> concurrent.futures.Future[None]:
-    sql = (
-        "INSERT INTO WalletEvents "
-            "(event_id, event_type, account_id, event_flags, date_created, date_updated) "
-        "VALUES (?, ?, ?, ?, ?, ?)")
-    # Duplicate the last column for date_updated = date_created
-    rows = [ (*t, t[-1]) for t in entries ]
-    def _write(db: sqlite3.Connection) -> None:
-        db.executemany(sql, rows)
+def create_wallet_events(db_context: DatabaseContext, entries: List[WalletEventInsertRow]) \
+        -> concurrent.futures.Future[List[WalletEventRow]]:
+    sql_prefix = "INSERT INTO WalletEvents (event_type, account_id, event_flags, date_created, " \
+        "date_updated) VALUES"
+    sql_suffix = "RETURNING event_id, event_type, account_id, event_flags, date_created, " \
+        "date_updated"
+    def _write(db: sqlite3.Connection) -> List[WalletEventRow]:
+        return bulk_insert_returning(WalletEventRow, db, sql_prefix, sql_suffix, entries)
+
     return db_context.post_to_thread(_write)
 
 
@@ -1234,7 +1234,7 @@ def read_wallet_events(db: sqlite3.Connection, account_id: Optional[int]=None,
     if mask is None:
         sql_values = []
         sql = (
-            "SELECT event_id, event_type, account_id, event_flags, date_created "
+            "SELECT event_id, event_type, account_id, event_flags, date_created, date_updated "
             "FROM WalletEvents")
         if account_id is not None:
             sql += "WHERE account_id=? "
@@ -1243,7 +1243,7 @@ def read_wallet_events(db: sqlite3.Connection, account_id: Optional[int]=None,
     else:
         sql_values = [ mask, mask ]
         sql = (
-            "SELECT event_id, event_type, account_id, event_flags, date_created "
+            "SELECT event_id, event_type, account_id, event_flags, date_created, date_updated "
             "FROM WalletEvents "
             "WHERE (event_flags&?)=? ")
         if account_id is not None:

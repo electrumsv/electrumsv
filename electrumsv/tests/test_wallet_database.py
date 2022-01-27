@@ -1,14 +1,31 @@
 import os
+from typing import Generator, NamedTuple
 
-from electrumsv.logs import logs
+import pytest
+try:
+    # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
+    import pysqlite3 as sqlite3
+except ModuleNotFoundError:
+    # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
+    # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
+    import sqlite3 # type: ignore[no-redef]
+
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.migration import create_database, update_database
-from electrumsv.wallet_database.sqlite_support import DatabaseContext
+from electrumsv.wallet_database.sqlite_support import DatabaseContext, SQLITE_MAX_VARS
 from electrumsv.wallet_database.types import WalletDataRow
+from electrumsv.wallet_database.util import bulk_insert_returning
 
 from .util import PasswordToken
 
-logs.set_level("debug")
+
+@pytest.fixture
+def db_context() -> Generator[DatabaseContext, None, None]:
+    unique_name = os.urandom(8).hex()
+    db_filename = DatabaseContext.shared_memory_uri(unique_name)
+    db_context = DatabaseContext(db_filename)
+    yield db_context
+    db_context.close()
 
 
 
@@ -80,4 +97,36 @@ class TestWalletDataTable:
         values = dict(db_functions.read_wallet_datas(self.db_context))
         assert len(values) == 0
 
+
+
+def test_bulk_insert_returning(db_context) -> None:
+    class OurRow(NamedTuple):
+        column1: int
+        column2: int
+        column3: int
+
+    rows_per_batch = int(SQLITE_MAX_VARS // 2)
+    # Overflow into several batches to make sure we get this many rows.
+    desired_row_count = int(rows_per_batch * 4.5)
+    insert_rows = [ (i + 900000000, i +  800000000) for i in range(desired_row_count) ]
+
+    def writer_function(db: sqlite3.Connection) -> list[OurRow]:
+        db.execute("""
+        CREATE TABLE table1 (
+            column1 INTEGER PRIMARY KEY,
+            column2 INTEGER,
+            column3 INTEGER
+        )""")
+
+        return bulk_insert_returning(OurRow, db,
+            "INSERT INTO table1 (column2, column3) VALUES",
+            "RETURNING column1, column2, column3", insert_rows)
+
+    returned_rows = db_context.run_in_thread(writer_function)
+    expected_rows = set(insert_rows)
+    unique_keys = set[int]()
+    for returned_row in returned_rows:
+        assert returned_row[1:] in expected_rows
+        assert returned_row[0] not in unique_keys
+        unique_keys.add(returned_row[0])
 

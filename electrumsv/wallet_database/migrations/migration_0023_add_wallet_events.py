@@ -39,6 +39,8 @@ def execute(conn: sqlite3.Connection) -> None:
         wallet_event_id += 1
 
     if wallet_event_id > 1:
+        # NOTE(rt) We stop using this as of migration 29 / 1.4.0 and leave it to the SQLite
+        # database to auto-assign.
         conn.execute("INSERT INTO WalletData (key, value, date_created, date_updated) VALUES "
             "(?, ?, ?, ?)", ("next_wallet_event_id", json.dumps(wallet_event_id), date_updated,
             date_updated))

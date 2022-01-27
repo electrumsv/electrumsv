@@ -492,6 +492,15 @@ class WalletDataRow(NamedTuple):
     value: Any
 
 
+class WalletEventInsertRow(NamedTuple):
+    event_type: WalletEventType
+    account_id: Optional[int]
+    # NOTE(rt12): sqlite3 python module only allows custom typing if the column name is unique.
+    event_flags: WalletEventFlag
+    date_created: int
+    date_updated: int
+
+
 class WalletEventRow(NamedTuple):
     event_id: int
     event_type: WalletEventType
@@ -499,6 +508,7 @@ class WalletEventRow(NamedTuple):
     # NOTE(rt12): sqlite3 python module only allows custom typing if the column name is unique.
     event_flags: WalletEventFlag
     date_created: int
+    date_updated: int
 
 
 class MapiBroadcastStatusFlags(IntEnum):

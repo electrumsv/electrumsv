@@ -108,7 +108,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     TransactionOutputShortRow, TransactionOutputSpendableRow, TransactionOutputSpendableProtocol,
     TransactionValueRow, TransactionInputAddRow, TransactionOutputAddRow, TransactionRow,
     TxProofData,
-    WalletBalance, WalletEventRow)
+    WalletBalance, WalletEventInsertRow, WalletEventRow)
 from .wallet_database.util import create_derivation_data2
 from .wallet_support import late_header_worker
 
@@ -2132,8 +2132,17 @@ class WalletDataAccess:
 
     # Wallet events.
 
-    def create_wallet_events(self,  rows: List[WalletEventRow]) -> concurrent.futures.Future[None]:
-        return db_functions.create_wallet_events(self._db_context, rows)
+    def create_wallet_events(self,  rows: List[WalletEventInsertRow]) \
+            -> concurrent.futures.Future[List[WalletEventRow]]:
+        def callback(future: concurrent.futures.Future[List[WalletEventRow]]) -> None:
+            if future.cancelled():
+                return
+            rows = future.result()
+            self.events.trigger_callback(WalletEvent.NOTIFICATIONS_CREATE, rows)
+
+        future = db_functions.create_wallet_events(self._db_context, rows)
+        future.add_done_callback(callback)
+        return future
 
     def read_wallet_events(self, account_id: Optional[int]=None,
             mask: WalletEventFlag=WalletEventFlag.NONE) -> List[WalletEventRow]:
@@ -2487,9 +2496,14 @@ class Wallet:
 
         # NOTE(wallet-event-race-condition) For now we block creating this as we want the
         #   main window to be able to find it present, to display on new account creation.
-        future = self.create_wallet_events([
-            WalletEventRow(0, WalletEventType.SEED_BACKUP_REMINDER, account_row.account_id,
-                WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, get_posix_timestamp())
+        # TODO(1.4.0) Notifications. The above comment is perhaps no longer relevant given that
+        #     we now wait for the insert to complete before sending the event? In theory, the
+        #     main window should either find the insert already there or hear the event if it
+        #     was not there yet.
+        date_created = get_posix_timestamp()
+        future = self.data.create_wallet_events([
+            WalletEventInsertRow(WalletEventType.SEED_BACKUP_REMINDER, account_row.account_id,
+                WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, date_created, date_created)
         ])
         future.result()
 
@@ -2736,25 +2750,6 @@ class Wallet:
         future = db_functions.delete_payment_request(self.get_db_context(), request_id,
             keyinstance_id)
         future.add_done_callback(callback)
-        return future
-
-    # Wallet events.
-
-    def create_wallet_events(self,  entries: List[WalletEventRow]) \
-            -> concurrent.futures.Future[None]:
-        # TODO(1.4.0) Technical debt. Consider moving this into the database write function
-        #     where that deals with getting the latest id. We would need to defer the event
-        #     broadcast to a future callback as we wouldn't have the id until then. That should
-        #     be fine.
-        next_id = self._storage.get("next_wallet_event_id", 1)
-        rows = []
-        for entry in entries:
-            rows.append(entry._replace(event_id=next_id))
-            next_id += 1
-        future = self.data.create_wallet_events(rows)
-        self._storage.put("next_wallet_event_id", next_id)
-        self.events.trigger_callback(WalletEvent.NOTIFICATIONS_CREATE, self.get_storage_path(),
-            rows)
         return future
 
     ## Data acquisition.
