@@ -381,7 +381,7 @@ async def manage_server_websocket_async(state: ServerConnectionState) -> None:
                         message_bytes = cast(bytes, websocket_message.data)
                         message_kind, message = unpack_server_message_bytes(message_bytes)
                         if message_kind == AccountMessageKind.PEER_CHANNEL_MESSAGE:
-                            assert isinstance(message, ChannelNotification)
+                            assert isinstance(message, dict) # ChannelNotification
                             state.peer_channel_message_queue.put_nowait(message)
                         elif message_kind == AccountMessageKind.SPENT_OUTPUT_EVENT:
                             assert isinstance(message, OutputSpend)

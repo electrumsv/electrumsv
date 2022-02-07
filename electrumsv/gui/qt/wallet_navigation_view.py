@@ -787,9 +787,10 @@ class WalletNavigationView(QSplitter):
     def show_debugger(self) -> None:
         self._selection_tree.setCurrentItem(self._debugger_item)
 
-    def _update_selected_account(self, account_id) -> bool:
+    def _update_selected_account(self, account_id: Optional[int]) -> bool:
         if self._update_active_account(account_id):
-            account = self._main_window_proxy._wallet.get_account(account_id)
+            account = self._main_window_proxy._wallet.get_account(account_id) \
+                if account_id is not None else None
             self._main_window_proxy.set_active_account(account)
             return True
         return False

@@ -321,7 +321,7 @@ class ESVClient:
             return json_tip_response
 
     async def subscribe_to_headers(self) -> AsyncIterable[TipResponse]:
-        ws_base_url = replace_http_with_ws(self.base_url)
+        ws_base_url = self.base_url
         url = ws_base_url + "api/v1/headers/tips/websocket"
 
         logger.debug(f"URL IS: {url}")

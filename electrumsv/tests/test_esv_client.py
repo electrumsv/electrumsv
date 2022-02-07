@@ -402,18 +402,6 @@ async def test_get_single_peer_channel(aiohttp_client):
     assert peer_channel.tokens == MOCK_TOKENS
 
 
-async def test_subscribe_to_general_notifications(aiohttp_client):
-    test_session = await aiohttp_client(create_app())
-    esv_client: ESVClient = await _get_esv_client(test_session)
-    notification: ServerWebsocketNotification
-    async for notification in esv_client.subscribe_to_general_notifications():
-        if notification:
-            assert notification['message_type'] == 'bsv.api.channels.notification'
-            assert notification['result']['id'] == MOCK_CHANNEL_ID
-            assert notification['result']['notification'] == 'New message arrived'
-            return
-
-
 # Test PeerChannel class
 async def test_peer_channel_instance_attrs(aiohttp_client):
     # All http endpoints are all mocked so that tests execute fast and they are hassle-free to run
