@@ -43,7 +43,7 @@ from PyQt5.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
 from bitcoinx import hash_to_hex_str, Header, MissingHeader, Unknown_Output
 
 from ...app_state import app_state
-from ...bitcoin import base_encode
+from ...bitcoin import base_encode, TSCMerkleProof
 from ...constants import CHANGE_SUBPATH, DatabaseKeyDerivationType, RECEIVING_SUBPATH, \
     ScriptType, TransactionImportFlag, TxFlags
 from ...i18n import _
@@ -54,6 +54,7 @@ from ...transaction import (Transaction, TransactionContext, TxFileExtensions,
     TxSerialisationFormat, tx_output_to_display_text, XTxInput, XTxOutput)
 from ...types import Outpoint, WaitingUpdateCallback
 from ...wallet import AbstractAccount
+from ...wallet_database.exceptions import DatabaseUpdateError, TransactionAlreadyExistsError
 from ... import web
 
 from .constants import UIBroadcastSource
@@ -73,6 +74,7 @@ class TxInfo(NamedTuple):
     status: str
     label: str
     can_broadcast: bool
+    is_external: bool
     amount: Optional[int]
     fee: Optional[int]
     height: Optional[int]
@@ -162,6 +164,7 @@ class TxDialog(QDialog, MessageBoxMixin):
     copy_data_ready_signal = pyqtSignal(object, object)
     save_data_ready_signal = pyqtSignal(object, object)
     dummy_signal = pyqtSignal(object, object)
+    show_error_signal = pyqtSignal(str)
 
     def __init__(self, account: Optional[AbstractAccount], tx: Transaction,
             context: Optional[TransactionContext], main_window: 'ElectrumWindow',
@@ -180,11 +183,13 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         self.copy_data_ready_signal.connect(self._copy_transaction_ready)
         self.save_data_ready_signal.connect(self._save_transaction_ready)
+        self.show_error_signal.connect(self._show_error)
 
         # Take a copy; it might get updated in the main window by the FX thread.  If this
         # happens during or after a long sign operation the signatures are lost.
         self.tx = copy.deepcopy(tx)
         self._tx_hash = tx.hash()
+        self._tx_state = TxFlags.UNSET
         if context is not None:
             self._context = copy.deepcopy(context)
         else:
@@ -238,10 +243,10 @@ class TxDialog(QDialog, MessageBoxMixin):
         self._add_io(vbox)
 
         self.sign_button = b = QPushButton(_("Sign"))
-        b.clicked.connect(self.sign)
+        b.clicked.connect(self._on_button_clicked_sign)
 
         self.broadcast_button = b = QPushButton(_("Broadcast"))
-        b.clicked.connect(self.do_broadcast)
+        b.clicked.connect(self._on_button_clicked_broadcast)
 
         self.cancel_button = b = QPushButton(_("Close"))
         b.clicked.connect(self.close)
@@ -249,7 +254,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         self.qr_button = b = QPushButton()
         b.setIcon(read_QIcon("qrcode.png"))
-        b.clicked.connect(self._show_qr)
+        b.clicked.connect(self._on_button_clicked_show_qr)
 
         self._copy_menu = QMenu()
         self._copy_button = QPushButton(_("Copy"))
@@ -260,11 +265,14 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.save_button.setMenu(self._save_menu)
 
         self.cosigner_button = b = QPushButton(_("Send to cosigner"))
-        b.clicked.connect(self.cosigner_send)
+        b.clicked.connect(self._on_button_clicked_cosigner_send)
+
+        self._import_button = b = QPushButton(_("Import"))
+        b.clicked.connect(self._on_button_clicked_import)
 
         # Action buttons
-        self.buttons = [self.cosigner_button, self.sign_button, self.broadcast_button,
-                        self.cancel_button]
+        self.buttons = [self._import_button, self.cosigner_button, self.sign_button,
+            self.broadcast_button, self.cancel_button]
         # Transaction sharing buttons
         self.sharing_buttons = [self._copy_button, self.qr_button, self.save_button]
 
@@ -279,24 +287,39 @@ class TxDialog(QDialog, MessageBoxMixin):
         main_window.transaction_added_signal.connect(self._on_transaction_added)
         main_window.transaction_verified_signal.connect(self._on_transaction_verified)
 
-    def _validate_account_event(self, account_ids: Set[int]) -> bool:
-        return self._account_id in account_ids
-
-    def _validate_application_event(self, wallet_path: str, account_id: int) -> bool:
-        if wallet_path == self._wallet.get_storage_path():
-            return self._validate_account_event({ account_id })
-        return False
-
     def _on_transaction_added(self, tx_hash: bytes, tx: Transaction, account_ids: Set[int]) \
             -> None:
-        if not self._validate_account_event(account_ids):
-            return
+        """
+        Listen to see if the transaction we are displaying has been added to the wallet database.
 
+        This will happen when:
+        - A partially signed transaction is fully signed.
+        - A viewed external transaction is manually imported via this dialog.
+        """
         # This will happen when the partially signed transaction is fully signed.
         if tx_hash == self._tx_hash:
             self.update()
 
-    def cosigner_send(self) -> None:
+    def _on_button_clicked_import(self) -> None:
+        assert self.tx.is_complete()
+        assert self._tx_state & TxFlags.MASK_STATELESS == 0
+        assert self._tx_state & TxFlags.MASK_STATE != 0
+
+        def callback(callback_future: concurrent.futures.Future[None]) -> None:
+            if callback_future.cancelled():
+                return
+            try:
+                callback_future.result()
+            except DatabaseUpdateError as update_exception:
+                self.show_error_signal.emit(update_exception.args[0])
+            except TransactionAlreadyExistsError:
+                self.show_error_signal.emit(_("That transaction has already been imported"))
+
+        future = app_state.async_.spawn(self._wallet.add_local_transaction, self._tx_hash, self.tx,
+            self._tx_state, TransactionImportFlag.MANUAL_IMPORT)
+        future.add_done_callback(callback)
+
+    def _on_button_clicked_cosigner_send(self) -> None:
         assert self._account is not None
         app_state.app_qt.cosigner_pool.do_send(self._main_window, self._account, self.tx)
 
@@ -307,8 +330,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         app_state.app_qt.clipboard().setText(hash_to_hex_str(self._tx_hash))
         QToolTip.showText(QCursor.pos(), _("Transaction ID copied to clipboard"), self)
 
-    def _on_transaction_verified(self, tx_hash: bytes, header: Header, block_position: int,
-            confirmations: int, timestamp: int) -> None:
+    def _on_transaction_verified(self, tx_hash: bytes, header: Header, tsc_proof: TSCMerkleProof) \
+            -> None:
         if tx_hash == self._tx_hash:
             self.update()
 
@@ -318,7 +341,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             if flags is not None and flags & (TxFlags.STATE_CLEARED | TxFlags.STATE_SETTLED):
                 self.update()
 
-    def do_broadcast(self) -> None:
+    def _on_button_clicked_broadcast(self) -> None:
         if not self._main_window.confirm_broadcast_transaction(self._tx_hash,
                 UIBroadcastSource.TRANSACTION_DIALOG):
             return
@@ -349,7 +372,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         else:
             event.ignore()
 
-    def _show_qr(self) -> None:
+    def _on_button_clicked_show_qr(self) -> None:
         if self.tx.is_complete():
             text = base_encode(self.tx.to_bytes(), base=43)
         else:
@@ -362,7 +385,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         except Exception as e:
             self.show_message(str(e))
 
-    def sign(self) -> None:
+    def _on_button_clicked_sign(self) -> None:
         def sign_done(success: bool) -> None:
             if success:
                 # If the signing was successful the hash will have changed.
@@ -393,26 +416,36 @@ class TxDialog(QDialog, MessageBoxMixin):
             return json.dumps(tx_dict, indent=4) + '\n'
         return json.dumps(tx_dict)
 
+    def _show_error(self, text: str) -> None:
+        """
+        Helper method to be called through the signal so that messages are displayed on the GUI
+        thread.
+        """
+        self.show_error(text)
+
     # NOTE(typing) The override checks are just painful, how do they even work?
     def update(self) -> None: # type: ignore[override]
         base_unit = app_state.base_unit()
         format_amount = app_state.format_amount
         tx_info = self._get_tx_info(self.tx)
+        # We need the local value because we modify this below and the source value is in a tuple.
         tx_info_fee = tx_info.fee
+
+        self._tx_state = tx_info.state
+        self._tx_hash = tx_info.hash
+        tx_id = hash_to_hex_str(tx_info.hash)
+        self.tx_hash_e.setText(tx_id)
+
+        is_tx_complete = self.tx.is_complete()
+        can_sign = not is_tx_complete and self._account is not None and \
+            self._account.can_sign(self.tx)
+        self.sign_button.setEnabled(can_sign)
 
         self.broadcast_button.setEnabled(tx_info.can_broadcast)
         if self._main_window.network is None:
             self.broadcast_button.setEnabled(False)
             self.broadcast_button.setToolTip(_('You are using ElectrumSV in offline mode; restart '
                                                'ElectrumSV if you want to get connected'))
-
-        can_sign = not self.tx.is_complete() and self._account is not None and \
-            self._account.can_sign(self.tx)
-        self.sign_button.setEnabled(can_sign)
-
-        self._tx_hash = tx_info.hash
-        tx_id = hash_to_hex_str(tx_info.hash)
-        self.tx_hash_e.setText(tx_id)
 
         if tx_info_fee is None:
             try:
@@ -471,9 +504,15 @@ class TxDialog(QDialog, MessageBoxMixin):
                 self._account, self.tx)
         self.cosigner_button.setVisible(visible)
 
+        self._import_button.setVisible(tx_info.is_external)
+        self._import_button.setEnabled(is_tx_complete)
+        self._import_button.setToolTip(_("Import this transaction into the databasw")
+            if is_tx_complete
+            else _("This transaction cannot be imported as it is not fully signed."))
+
         # Copy options.
         self._copy_menu.clear()
-        if self.tx.is_complete():
+        if is_tx_complete:
             self._copy_hex_menu = self._copy_menu.addAction(
                 _("Transaction (hex)"),
                 partial(self._copy_transaction, TxSerialisationFormat.HEX))
@@ -492,7 +531,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         # Save options.
         self._save_menu.clear()
-        if self.tx.is_complete():
+        if is_tx_complete:
             self._save_raw_menu = self._save_menu.addAction(
                 _("Transaction (raw)"),
                 partial(self._save_transaction, TxSerialisationFormat.RAW))
@@ -779,6 +818,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         amount: Optional[int]
         value_delta = 0
         can_broadcast = False
+        is_external = False
         label = ''
         fee = height = conf = date_created = date_mined = None
         state = TxFlags.UNSET
@@ -789,8 +829,9 @@ class TxDialog(QDialog, MessageBoxMixin):
             if metadata is None:
                 # The transaction is not known to the wallet.
                 status = _("External signed transaction")
-                state = TxFlags.STATE_RECEIVED | TxFlags.STATE_SIGNED
+                state = TxFlags.STATE_RECEIVED
                 can_broadcast = wallet._network is not None
+                is_external = True
             else:
                 date_created = metadata.date_created
 
@@ -862,8 +903,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         else:
             amount = None
 
-        return TxInfo(self._tx_hash, state, status, label, can_broadcast, amount, fee, height,
-            conf, date_mined, date_created)
+        return TxInfo(self._tx_hash, state, status, label, can_broadcast, is_external, amount, fee,
+            height, conf, date_mined, date_created)
 
     def select_keys_in_keys_tab(self, account_id: int, key_id: int) -> None:
         # Any transaction can be viewed in a transaction dialog. There is no requirement that the

@@ -36,16 +36,15 @@
 
 from __future__ import annotations
 import asyncio
-import dataclasses
 import enum
 from http import HTTPStatus
 import json
 import struct
 from typing import Any, AsyncIterable, cast, List, NamedTuple, Optional, Sequence, TypedDict, \
-    TYPE_CHECKING
+    TYPE_CHECKING, Union
 
 import aiohttp
-from aiohttp.web import WSMsgType
+from aiohttp import WSServerHandshakeError
 from bitcoinx import hash_to_hex_str, Chain, Header, MissingHeader
 
 from ..app_state import app_state
@@ -53,8 +52,13 @@ from ..bitcoin import TSCMerkleProof, TSCMerkleProofError, verify_proof
 from ..constants import ServerCapability
 from ..exceptions import ServerConnectionError
 from ..logs import logs
-from ..types import Outpoint, OutputSpend
+from ..types import Outpoint, outpoint_struct, outpoint_struct_size, output_spend_struct, \
+    output_spend_struct_size, OutputSpend
+
 from .api_server import pick_server_for_account
+from .constants import REGTEST_MASTER_TOKEN
+from .esv_client_types import AccountMessageKind, ChannelNotification, ServerConnectionState, \
+    WebsocketUnauthorizedException
 
 
 if TYPE_CHECKING:
@@ -95,14 +99,6 @@ class RestorationFilterResult(NamedTuple):
 RESULT_UNPACK_FORMAT = ">B32s32sI32sI"
 FILTER_RESPONSE_SIZE = 1 + 32 + 32 + 4 + 32 + 4
 assert struct.calcsize(RESULT_UNPACK_FORMAT) == FILTER_RESPONSE_SIZE
-
-OUTPOINT_FORMAT = ">32sI"
-outpoint_struct = struct.Struct(OUTPOINT_FORMAT)
-outpoint_struct_size = outpoint_struct.size
-
-OUTPUT_SPEND_FORMAT = ">32sI32sI32s"
-output_spend_struct = struct.Struct(OUTPUT_SPEND_FORMAT)
-output_spend_struct_size = output_spend_struct.size
 
 
 class GeneralAPIError(Exception):
@@ -223,8 +219,9 @@ async def _request_binary_merkle_proof_async(server_url: str, tx_hash: bytes,
     try:
         async with aiohttp.ClientSession(headers=headers) as session:
             async with session.get(url, params=params) as response:
-                if response.status != 200:
-                    raise FilterResponseInvalidError(f"Bad response status code {response.status}")
+                if response.status != HTTPStatus.OK:
+                    raise FilterResponseInvalidError(
+                        f"Bad response status={response.status}, reason={response.reason}")
 
                 content_type, *content_type_extra = response.headers["Content-Type"].split(";")
                 if content_type != "application/octet-stream":
@@ -310,15 +307,15 @@ async def request_transaction_data_async(network: Optional[Network], account: Ab
     url = server_url if server_url.endswith("/") else server_url + "/"
     url += hash_to_hex_str(tx_hash)
 
-    session = await network.get_aiohttp_session()
+    session = network.get_aiohttp_session()
     try:
         async with session.get(url, headers=headers) as response:
-            if response.status == 404:
+            if response.status == HTTPStatus.NOT_FOUND:
                 logger.error(f"Transaction for hash {hash_to_hex_str(tx_hash)} "
                     f"not found")
                 raise TransactionNotFoundError()
 
-            if response.status != 200:
+            if response.status != HTTPStatus.OK:
                 raise GeneralAPIError(
                     f"Bad response status code: {response.status}, reason: {response.reason}")
 
@@ -332,51 +329,117 @@ async def request_transaction_data_async(network: Optional[Network], account: Ab
         raise ServerConnectionError(f"Failed to connect to server at: {base_server_url}")
 
 
-@dataclasses.dataclass
-class SpentOutputWorkerState:
-    registration_queue: asyncio.Queue[Sequence[Outpoint]] = \
-        dataclasses.field(default_factory=asyncio.Queue)
-    result_queue: asyncio.Queue[Sequence[OutputSpend]] = \
-        dataclasses.field(default_factory=asyncio.Queue)
+def unpack_server_message_bytes(message_bytes: bytes) \
+        -> tuple[AccountMessageKind, Union[str, OutputSpend]]:
+    message_kind = AccountMessageKind(struct.unpack_from(">I", message_bytes, 0)[0])
+    if message_kind == AccountMessageKind.PEER_CHANNEL_MESSAGE:
+        return message_kind, json.loads(message_bytes[4:].decode("utf-8"))
+    elif message_kind == AccountMessageKind.SPENT_OUTPUT_EVENT:
+        spent_output = OutputSpend(*output_spend_struct.unpack(message_bytes[4:]))
+        return message_kind, spent_output
+    else:
+        raise NotImplementedError(f"Packing message kind {message_kind} is unsupported")
 
 
-# TODO(1.4.0) Networking. This is temporary and will be refactored into the reference server server
-#     management.
-async def maintain_spent_output_connection_async(network: Optional[Network],
-        server_url: str, state: SpentOutputWorkerState) -> None:
+async def maintain_server_connection_async(state: ServerConnectionState) -> None:
+    """
+    Keep a persistent connection to this ElectrumSV reference server alive.
+    """
+    while True:
+        await manage_server_websocket_async(state)
+        # When we establish a new websocket we will register all the outstanding output spend
+        # registrations that we need, so whatever is left in the queue at this point is redundant.
+        while not state.output_spend_registration_queue.empty():
+            state.output_spend_registration_queue.get_nowait()
+        # TODO(1.4.0) Networking. This is an arbitrary timeout, we should factor when this
+        #     happens into the UI and how we manage server usage.
+        await asyncio.sleep(10)
+
+
+async def manage_server_websocket_async(state: ServerConnectionState) -> None:
+    """
+    Manage an open websocket to this ElectrumSV reference server.
+    """
+    # TODO(1.4.0) Credentials. When we implement access token support for servers on account
+    #     creation, we should not store it in memory unencrypted.
+    websocket_url_template = state.server_url + "api/v1/web-socket?token={access_token}"
+    websocket_url = websocket_url_template.format(access_token=REGTEST_MASTER_TOKEN)
+    headers = {
+        "Accept": "application/octet-stream"
+    }
+    try:
+        async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
+                as server_websocket:
+            logger.info('Connected to server websocket, url=%s', websocket_url_template)
+            await register_output_spends_async(state)
+            spend_output_processing_future = app_state.async_.spawn(manage_output_spends_async,
+                state)
+            try:
+                websocket_message: aiohttp.WSMessage
+                async for websocket_message in server_websocket:
+                    if websocket_message.type == aiohttp.WSMsgType.BINARY:
+                        message_bytes = cast(bytes, websocket_message.data)
+                        message_kind, message = unpack_server_message_bytes(message_bytes)
+                        if message_kind == AccountMessageKind.PEER_CHANNEL_MESSAGE:
+                            assert isinstance(message, ChannelNotification)
+                            state.peer_channel_message_queue.put_nowait(message)
+                        elif message_kind == AccountMessageKind.SPENT_OUTPUT_EVENT:
+                            assert isinstance(message, OutputSpend)
+                            state.output_spend_result_queue.put_nowait([ message ])
+                        else:
+                            logger.error("Unhandled binary server websocket message %r",
+                                websocket_message)
+                    elif websocket_message.type in (aiohttp.WSMsgType.CLOSE,
+                            aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED,
+                            aiohttp.WSMsgType.CLOSING):
+                        logger.info("Server websocket closed")
+                        break
+                    else:
+                        logger.error("Unhandled server websocket message type %r",
+                            websocket_message)
+            finally:
+                spend_output_processing_future.cancel()
+    except WSServerHandshakeError as e:
+        if e.status == HTTPStatus.UNAUTHORIZED:
+            # TODO(1.4.0) Networking. Need to handle the case that our credentials are stale or
+            #     incorrect.
+            raise WebsocketUnauthorizedException()
+        # TODO(1.4.0) Networking. What is being raised here? Why?
+        raise
+
+
+async def register_output_spends_async(state: ServerConnectionState) -> None:
+    """
+    Feed the initial state into the registration worker task.
+
+    It is critical that this is executed first thing after the websocket connection is established.
+    These registrations only persist as long as that websocket connection is alive.
+    """
+    # Feed the initial state into the worker task.
+    # TODO(1.4.0) Petty cash. This should when we support multiple petty cash accounts we
+    #     should specify which grouping of accounts are funded by a given petty cash
+    #     account. It is possible we may end up mapping the petty cash account id to
+    #     those accounts in the database.
+    output_spends = state.wallet_data.read_spent_outputs_to_monitor()
+    logger.debug("Registering %d existing output spend notification requirements",
+        len(output_spends))
+    if len(output_spends):
+        spent_outpoints = list({ Outpoint(output_spend.out_tx_hash, output_spend.out_index)
+            for output_spend in output_spends })
+        state.output_spend_registration_queue.put_nowait(spent_outpoints)
+
+
+async def manage_output_spends_async(state: ServerConnectionState) -> None:
     """
     This in theory manages spent output registrations and notifications on behalf of a given
     petty cash account, and the non-petty cash accounts that are funded by it.
     """
-    assert network is not None
-    api_url = f"{server_url}api/v1/output-spend/notifications"
-    ws_url = f"{server_url}ws"
-
-    async def manage_notifications_async() -> None:
-        try:
-            async with session.ws_connect(ws_url) as websocket:
-                async for message in websocket:
-                    logger.debug("websocket message %r", message)
-                    if message.type == WSMsgType.ERROR:
-                        logger.error("Unhandled websocket message type %s", message.type,
-                            exc_info=message.data)
-                        break
-                    elif message.type == WSMsgType.BINARY:
-                        message_bytes = cast(bytes, message.data)
-                        spent_output = OutputSpend(*output_spend_struct.unpack(message_bytes))
-                        logger.debug("spent output notification of %r", spent_output)
-                        await state.result_queue.put([ spent_output ])
-                    else:
-                        logger.error("Unhandled websocket message type %s", message.type)
-                        break
-                logger.debug("websocket loop exit")
-        finally:
-            logger.debug("manage_notifications_async.exit")
+    api_url = f"{state.server_url}api/v1/output-spend/notifications"
 
     async def process_registration_batch_async() -> None:
-        logger.debug("waiting for spent output registrations")
-        outpoints = await state.registration_queue.get()
-        logger.debug("processing %d spent output registrations", len(outpoints))
+        logger.debug("Waiting for spent output registrations")
+        outpoints = await state.output_spend_registration_queue.get()
+        logger.debug("Processing %d spent output registrations", len(outpoints))
         # Pack the binary array of outpoints into the bytearray.
         byte_buffer = bytearray(len(outpoints) * outpoint_struct_size)
         for output_index, outpoint in enumerate(outpoints):
@@ -390,9 +453,9 @@ async def maintain_spent_output_connection_async(network: Optional[Network],
         # TODO(1.4.0) Networking. If any of the error cases below occur we should requeue the
         #     outpoints, but it is not as simple as just doing it. What we want to avoid is being
         #     in an infinite loop of failed attempts.
-        async with session.post(api_url, headers=headers, data=byte_buffer) as response:
+        async with state.session.post(api_url, headers=headers, data=byte_buffer) as response:
             if response.status != HTTPStatus.OK:
-                logger.error("websocket spent output registration failed "
+                logger.error("Websocket spent output registration failed "
                     "status=%d, reason=%s", response.status, response.reason)
                 # TODO(1.4.0) Networking. Spent output registration failure.
                 #     We need to handle all possible variations of this error:
@@ -403,7 +466,7 @@ async def maintain_spent_output_connection_async(network: Optional[Network],
 
             content_type, *content_type_extra = response.headers["Content-Type"].split(";")
             if content_type != "application/octet-stream":
-                logger.error("spent output registration response content type got %s, "
+                logger.error("Spent output registration response content type got %s, "
                     "expected 'application/octet-stream'", content_type)
                 # TODO(1.4.0) Networking. Bad server not respecting the spent output request. We
                 #     should stop using it, and the user should have to manually flag it as valid
@@ -414,46 +477,24 @@ async def maintain_spent_output_connection_async(network: Optional[Network],
             response_bytes = await response.content.read(output_spend_struct_size)
             while len(response_bytes) > 0:
                 if len(response_bytes) != output_spend_struct_size:
-                    logger.error("spent output registration record clipped, expected %d "
+                    logger.error("Spent output registration record clipped, expected %d "
                         "bytes, got %d bytes", output_spend_struct_size, len(response_bytes))
                     # TODO(1.4.0) Networking. The server is unreliable? Should we mark the server
                     #     as to be avoided? Or flag it and stop using it if it happens more than
                     #     once or twice?
                     return
 
-                spent_output = OutputSpend(*output_spend_struct.unpack(response_bytes))
-                logger.debug("spent output registration returned %r", spent_output)
+                spent_output = OutputSpend.from_network(*output_spend_struct.unpack(response_bytes))
+                logger.debug("Spent output registration returned %r", spent_output)
                 spent_outputs.append(spent_output)
 
                 response_bytes = await response.content.read(output_spend_struct_size)
 
-        await state.result_queue.put(spent_outputs)
+        await state.output_spend_result_queue.put(spent_outputs)
 
-    async def manage_registrations_async() -> None:
-        try:
-            while True:
-                await process_registration_batch_async()
-        finally:
-            logger.debug("manage_registrations_async.exit")
-
-    session = await network.get_aiohttp_session()
-
-    logger.debug("entering process_registration_batch_async")
-    notification_task = asyncio.create_task(manage_notifications_async())
-    registration_task = asyncio.create_task(manage_registrations_async())
-
+    logger.debug("Entering process_registration_batch_async")
     try:
-        # In the ideal situation these will run until the wallet exits. If any of our local tasks
-        # exits resulting in this exiting, then this indicates an error and there should be
-        # an exception on the given task for us to raise.
-        done, pending = await asyncio.wait([ notification_task, registration_task ],
-            return_when=asyncio.FIRST_COMPLETED)
-        # Raise any encountered exceptions up to the async exception handler.
-        for task in done:
-            task.result()
+        while True:
+            await process_registration_batch_async()
     finally:
-        logger.debug("exiting process_registration_batch_async")
-        # Ensure that we do no leak stale tasks that are no longer needed when the wallet exits
-        # and this task is cancelled or one of our local tasks exits unexpectedly.
-        notification_task.cancel()
-        registration_task.cancel()
+        logger.debug("Exiting process_registration_batch_async")

@@ -99,10 +99,12 @@ async def late_header_worker_async(wallet_data: WalletDataAccess, state: LateHea
                     app_state.headers.lookup(tsc_proof.block_hash))
             except MissingHeader:
                 # We have confirmed that at this point the header is not present, monitor it.
+                logger.debug("Backlogged transaction %s verification waiting for missing header",
+                    hash_to_hex_str(tsc_proof.transaction_hash))
                 state.block_transactions[tsc_proof.block_hash].add(tsc_proof.transaction_hash)
             else:
-                await _process_one_merkle_proof(wallet_data, state, tsc_proof.block_hash,
-                    TxFlags.STATE_CLEARED, tsc_proof.transaction_hash, tsc_proof.to_bytes(), header)
+                await _process_one_merkle_proof(wallet_data, state, tsc_proof.transaction_hash,
+                    TxFlags.STATE_CLEARED, tsc_proof.block_hash, tsc_proof.to_bytes(), header)
         elif item_kind == PendingHeaderWorkKind.NEW_HEADER:
             header, _chain = cast(tuple[Header, Chain], item_any)
             if header.hash in state.block_transactions:
@@ -111,6 +113,8 @@ async def late_header_worker_async(wallet_data: WalletDataAccess, state: LateHea
                 for proof_row in unverified_entries:
                     assert proof_row.block_hash is not None
                     assert proof_row.proof_bytes is not None
+                    logger.debug("Matching backlogged transaction to late header %s",
+                        hash_to_hex_str(proof_row.tx_hash))
                     await _process_one_merkle_proof(wallet_data, state, proof_row.tx_hash,
                         proof_row.flags, proof_row.block_hash, proof_row.proof_bytes, header)
                 del state.block_transactions[header.hash]

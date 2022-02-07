@@ -40,25 +40,22 @@ import json
 from typing import List, Union, Optional, AsyncIterable, Dict, cast
 
 import aiohttp
-from aiohttp import web, WSServerHandshakeError
+from aiohttp import web
 from bitcoinx import hash_to_hex_str
 
 from ..bitcoin import TSCMerkleProof
 from ..logs import logs
 
-from electrumsv.network_support.esv_client_types import (PeerChannelToken, TokenPermissions,
-    MessageViewModelGetBinary, GenericJSON, MessageViewModelGetJSON, APITokenViewModelGet,
-    PeerChannelViewModelGet, RetentionViewModel, TipResponse, Error, GeneralNotification, ChannelId,
-    WebsocketUnauthorizedException, PeerChannelMessage, MAPICallbackResponse, WebsocketError,
-    TSCMerkleProofJson, tsc_merkle_proof_json_to_binary)
+from .esv_client_types import (APITokenViewModelGet, ChannelId,
+    ChannelNotification, Error,
+    GenericJSON, PeerChannelToken, TokenPermissions, MAPICallbackResponse,
+    MessageViewModelGetBinary, MessageViewModelGetJSON, PeerChannelMessage,
+    PeerChannelViewModelGet, RetentionViewModel, ServerConnectionState, TipResponse,
+    tsc_merkle_proof_json_to_binary, TSCMerkleProofJson, WebsocketError)
 
+
+# TODO(1.4.0) Networking. Logging should be per server as before.
 logger = logs.get_logger("esv-client")
-
-# REGTEST_MASTER_TOKEN is a special case bearer token in the ESV-Reference-Server that is
-# configured to allow bypassing the account creation process for testing purposes
-# It has an associated infinite balance i.e. unlimited use is permitted without payment.
-REGTEST_MASTER_TOKEN = "t80Dp_dIk1kqkHK3P9R5cpDf67JfmNixNscexEYG0_xa" \
-                       "CbYXKGNm4V_2HKr68ES5bytZ8F19IS0XbJlq41accQ=="
 
 
 class PeerChannel:
@@ -195,6 +192,7 @@ class PeerChannel:
             return result
 
 
+
 class ESVClient:
     """This is a lightweight client for the ElectrumSVReferenceServer.
 
@@ -207,17 +205,9 @@ class ESVClient:
         self.master_token = master_token
         self.headers = {"Authorization": f"Bearer {self.master_token}"}
 
-        self._message_fetcher_is_alive = False
         self._FETCH_JOBS_COUNT = 4
         self._merkle_proofs_queue: asyncio.Queue[MAPICallbackResponse] = asyncio.Queue()
         self._peer_channel_cache: Dict[ChannelId, PeerChannel] = {}
-
-    def _replace_http_with_ws(self, url: str) -> str:
-        if url.startswith("http://"):
-            url = self.base_url.replace("http://", "ws://")
-        if self.base_url.startswith("https://"):
-            url = url.replace("https://", "wss://")
-        return url
 
     def _peer_channel_json_to_obj(self, peer_channel_json: PeerChannelViewModelGet) \
             -> PeerChannel:
@@ -236,14 +226,14 @@ class ESVClient:
 
     # ----- General Websocket ----- #
     async def _fetch_peer_channel_message_job(self,
-            peer_channel_notification_queue: asyncio.Queue[GeneralNotification]) -> None:
+            peer_channel_message_queue: asyncio.Queue[ChannelNotification]) -> None:
         """Can run multiple of these concurrently to fetch new peer channel messages
 
         NOTE(AustEcon): This function is not tested yet. It is only intended to show
         general intent at this stage."""
         while True:
-            message: GeneralNotification = await peer_channel_notification_queue.get()
-            channel_id: ChannelId = message['result']['id']
+            message: ChannelNotification = await peer_channel_message_queue.get()
+            channel_id: ChannelId = message['id']
 
             peer_channel = await self.get_single_peer_channel_cached(channel_id)
             if not peer_channel:
@@ -272,59 +262,29 @@ class ESVClient:
                 logger.error("No messages could be returned from channel_id: %s, "
                              "do you have a valid read token?", channel_id)
 
-    async def _message_fetcher_job(self) -> None:
-        """NOTE(AustEcon): This function is not tested yet. It is only intended to show
-        general intent at this stage.
-
-        Idempotent - if spawned twice, the second time will do nothing"""
-        if not self._message_fetcher_is_alive:
-            peer_channel_notification_queue: asyncio.Queue[GeneralNotification] = asyncio.Queue()
-            for i in range(self._FETCH_JOBS_COUNT):
-                asyncio.create_task(
-                    self._fetch_peer_channel_message_job(peer_channel_notification_queue))
-
-            async for notification in self.subscribe_to_general_notifications():
-                peer_channel_notification_queue.put_nowait(notification)
-
-    async def wait_for_merkle_proofs_and_double_spends(self) -> AsyncIterable[TSCMerkleProof]:
+    async def wait_for_merkle_proofs_and_double_spends(self, state: ServerConnectionState) \
+            -> AsyncIterable[TSCMerkleProof]:
         """NOTE(AustEcon): This function is not tested yet. It is only intended to show
         general intent at this stage."""
-        if not self._message_fetcher_is_alive:
-            asyncio.create_task(self._message_fetcher_job())
+        child_tasks = []
+        for i in range(self._FETCH_JOBS_COUNT):
+            child_tasks.append(asyncio.create_task(
+                self._fetch_peer_channel_message_job(state.peer_channel_message_queue)))
 
-        # https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
-        while True:
-            # Todo run select query on MAPIBroadcastCallbacks to get libsodium encryption key
-            callback_response: MAPICallbackResponse = await self._merkle_proofs_queue.get()
-            tsc_merkle_proof: TSCMerkleProofJson = json.loads(callback_response['callbackPayload'])
-
-            # NOTE(AustEcon) mAPI defaults to targetType == 'header' but the TSC spec defaults to
-            # 'hash' if the targetType field is omitted.
-            target_type = cast(str, tsc_merkle_proof.get('targetType', 'hash'))
-            yield tsc_merkle_proof_json_to_binary(tsc_merkle_proof, target_type=target_type)
-
-    async def subscribe_to_general_notifications(self) -> AsyncIterable[GeneralNotification]:
-        """Concurrent fetching of peer channel messages is left to the caller in order to keep
-        this class very simple"""
-        ws_base_url = self._replace_http_with_ws(self.base_url)
-        url = ws_base_url + "api/v1/web-socket" + f"?token={self.master_token}"
         try:
-            async with self.session.ws_connect(url, headers={}, timeout=5.0) as ws:
-                logger.info('Connected to %s', url)
-                msg: aiohttp.WSMessage
-                async for msg in ws:
-                    if msg.type == aiohttp.WSMsgType.TEXT:
-                        notification: GeneralNotification = json.loads(msg.data)
-                        yield notification
+            # https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
+            while True:
+                # Todo run select query on MAPIBroadcastCallbacks to get libsodium encryption key
+                callback_response: MAPICallbackResponse = await self._merkle_proofs_queue.get()
+                tsc_merkle_proof: TSCMerkleProofJson = json.loads(callback_response['callbackPayload'])
 
-                    if msg.type in (aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR,
-                            aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
-                        logger.info("General purpose websocket closed")
-                        break
-        except WSServerHandshakeError as e:
-            if e.status == 401:
-                raise WebsocketUnauthorizedException()
-            raise
+                # NOTE(AustEcon) mAPI defaults to targetType == 'header' but the TSC spec defaults to
+                # 'hash' if the targetType field is omitted.
+                target_type = cast(str, tsc_merkle_proof.get('targetType', 'hash'))
+                yield tsc_merkle_proof_json_to_binary(tsc_merkle_proof, target_type=target_type)
+        finally:
+            for task in child_tasks:
+                task.cancel()
 
     # ----- HeaderSV APIs ----- #
     async def get_single_header(self, block_hash: bytes) -> bytes:
@@ -361,7 +321,7 @@ class ESVClient:
             return json_tip_response
 
     async def subscribe_to_headers(self) -> AsyncIterable[TipResponse]:
-        ws_base_url = self._replace_http_with_ws(self.base_url)
+        ws_base_url = replace_http_with_ws(self.base_url)
         url = ws_base_url + "api/v1/headers/tips/websocket"
 
         logger.debug(f"URL IS: {url}")
@@ -445,51 +405,3 @@ class ESVClient:
             return self._peer_channel_cache[channel_id]
         else:
             return await self.get_single_peer_channel(channel_id)
-
-
-if __name__ == "__main__":
-    async def main() -> None:
-        session = aiohttp.ClientSession()
-        try:
-            BASE_URL = "http://127.0.0.1:47124/"  # ESVReferenceServer
-            REGTEST_BEARER_TOKEN = "t80Dp_dIk1kqkHK3P9R5cpDf67JfmNixNscexEYG0_xa" \
-                                   "CbYXKGNm4V_2HKr68ES5bytZ8F19IS0XbJlq41accQ=="
-            esv_client = ESVClient(BASE_URL, session, REGTEST_BEARER_TOKEN)
-
-            peer_channel = await esv_client.create_peer_channel()
-            assert isinstance(peer_channel, PeerChannel)
-
-            seq = await peer_channel.get_max_sequence_number()
-            assert isinstance(seq, int)
-
-            messages = await peer_channel.get_messages()
-            assert isinstance(messages, list)
-
-            message_to_write = {"key": "value"}
-            message = await peer_channel.write_message(message_to_write,
-                mime_type="application/json")
-            assert isinstance(message, dict)
-
-            peer_channel_token = await peer_channel.create_api_token()
-            assert isinstance(peer_channel_token, PeerChannelToken)
-
-            peer_channel_tokens = await peer_channel.list_api_tokens()
-            assert isinstance(peer_channel_tokens, list)
-            assert isinstance(peer_channel_tokens[0], PeerChannelToken)
-            assert len(peer_channel_tokens) == 2
-
-            list_peer_channels = await esv_client.list_peer_channels()
-            assert isinstance(list_peer_channels, list)
-            assert isinstance(list_peer_channels[0], PeerChannel)
-
-            fetched_peer_channel = await esv_client.get_single_peer_channel(
-                peer_channel.channel_id)
-            assert isinstance(fetched_peer_channel, PeerChannel)
-
-            result = await esv_client.delete_peer_channel(peer_channel)
-            assert result is None
-        finally:
-            if session:
-                await session.close()
-
-    asyncio.run(main())

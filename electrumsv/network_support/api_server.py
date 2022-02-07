@@ -47,16 +47,18 @@ from electrumsv.wallet_database.types import MAPIBroadcastCallbackRow, MapiBroad
 from electrumsv.types import IndefiniteCredentialId, NetworkServerState, ServerAccountKey, \
     TransactionFeeEstimator, TransactionSize
 
-from .esv_client import ESVClient, REGTEST_MASTER_TOKEN
 from ..app_state import app_state
 from ..constants import NetworkServerType, ServerCapability, TOKEN_PASSWORD
 from ..crypto import pw_decode
 from ..exceptions import BroadcastFailedError, ServiceUnavailableError
 from ..i18n import _
 from ..logs import logs
+from ..transaction import Transaction
+
+from .esv_client import ESVClient
+from .constants import REGTEST_MASTER_TOKEN
 from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator, BroadcastResponse, get_mapi_servers, \
     poll_servers_async, broadcast_transaction_mapi_simple, filter_mapi_servers_for_fee_quote
-from ..transaction import Transaction
 
 
 if TYPE_CHECKING:
@@ -160,7 +162,7 @@ async def broadcast_transaction(tx: Transaction, network: Network,
 
     esv_reference_servers = select_servers(ServerCapability.PEER_CHANNELS, selection_candidates)
     esv_reference_server = esv_reference_servers[0]  # Todo - prioritise properly
-    aiohttp_client = await network.get_aiohttp_session()
+    aiohttp_client = network.get_aiohttp_session()
     assert esv_reference_server.api_server is not None
     assert broadcast_server.candidate.api_server is not None
     assert broadcast_server.candidate.api_server.config is not None

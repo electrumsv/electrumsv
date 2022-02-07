@@ -4,16 +4,26 @@ ESVReferenceServer. It might be that at a later date we include a dedicated pypi
 for an ESVReferenceClient and/or use a github submodule in ElectrumSV
 (or something along those lines).
 """
+from __future__ import annotations
+import asyncio
+import dataclasses
 import enum
 import struct
 from enum import IntFlag
-from typing import List, NamedTuple, TypedDict, Dict, Any, Union, Optional
+from typing import Any, NamedTuple, Optional, Sequence, TYPE_CHECKING, TypedDict, Union
 
-# ----- ESVReferenceServer Error types ----- #
+import aiohttp
 import bitcoinx
 
-from electrumsv.bitcoin import TSCMerkleProof
+from ..bitcoin import TSCMerkleProof
+from ..types import Outpoint, OutputSpend
 
+
+if TYPE_CHECKING:
+    from ..wallet import WalletDataAccess
+
+
+# ----- ESVReferenceServer Error types ----- #
 
 class WebsocketUnauthorizedException(Exception):
     pass
@@ -30,12 +40,12 @@ class Error(Exception):
         self.reason = reason
         self.status = status
 
-    def to_websocket_dict(self) -> Dict[str, WebsocketError]:
+    def to_websocket_dict(self) -> dict[str, WebsocketError]:
         return {"error": {"reason": self.reason,
                           "status_code": self.status}}
 
     @classmethod
-    def from_websocket_dict(cls, message: Dict[str, WebsocketError]) -> 'Error':
+    def from_websocket_dict(cls, message: dict[str, WebsocketError]) -> 'Error':
         reason = message["error"]["reason"]
         status = message["error"]["status_code"]
         return cls(reason, status)
@@ -86,7 +96,7 @@ class PeerChannelType(IntFlag):
 
 
 ChannelId = str
-GenericJSON = Dict[Any, Any]
+GenericJSON = dict[Any, Any]
 
 
 # ViewModel refers to json response structures
@@ -113,7 +123,7 @@ class PeerChannelViewModelGet(TypedDict):
     locked: bool
     head_sequence: int
     retention: RetentionViewModel
-    access_tokens: List[PeerChannelAPITokenViewModelGet]
+    access_tokens: list[PeerChannelAPITokenViewModelGet]
 
 
 class APITokenViewModelGet(TypedDict):
@@ -160,7 +170,7 @@ class ChannelNotification(TypedDict):
     notification: str
 
 
-class GeneralNotification(TypedDict):
+class ServerWebsocketNotification(TypedDict):
     message_type: str
     result: ChannelNotification  # Later this will be a Union of multiple message types
 
@@ -195,7 +205,7 @@ class TSCMerkleProofJson(TypedDict):
     txOrId: str  # hex
     targetType: Optional[str]
     target: str  # hex
-    nodes: List[str]
+    nodes: list[str]
 
 
 def tsc_merkle_proof_json_to_binary(tsc_json: TSCMerkleProofJson, target_type: str) \
@@ -246,3 +256,22 @@ def tsc_merkle_proof_json_to_binary(tsc_json: TSCMerkleProofJson, target_type: s
             response += hash_type_node
             response += bitcoinx.hex_str_to_hash(node)
     return TSCMerkleProof.from_bytes(response)
+
+
+class AccountMessageKind(enum.IntEnum):
+    PEER_CHANNEL_MESSAGE = 1
+    SPENT_OUTPUT_EVENT = 2
+
+
+@dataclasses.dataclass
+class ServerConnectionState:
+    wallet_data: WalletDataAccess
+    session: aiohttp.ClientSession
+    server_url: str
+
+    # Incoming peer channel message notifications from the server.
+    peer_channel_message_queue: asyncio.Queue[ChannelNotification]
+    # Incoming spend notifications from the server.
+    output_spend_result_queue: asyncio.Queue[Sequence[OutputSpend]]
+    # Post outpoints here to get them registered with the server.
+    output_spend_registration_queue: asyncio.Queue[Sequence[Outpoint]]

@@ -8,7 +8,7 @@ import pytest
 
 from electrumsv.bitcoin import scripthash_bytes
 from electrumsv.blockchain_scanner import (BIP32ParentPath, DEFAULT_GAP_LIMITS,
-    BlockchainScanner, ScriptHasher, ScriptHashHandler, SearchEntryKind, SearchKeyEnumerator)
+    BlockchainScanner, ScriptHasher, SearchEntryKind, SearchKeyEnumerator)
 from electrumsv.constants import (CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType,
     SINGLE_SIGNER_SCRIPT_TYPES, SubscriptionType)
 from electrumsv.exceptions import SubscriptionStale

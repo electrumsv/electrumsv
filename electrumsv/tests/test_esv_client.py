@@ -10,7 +10,7 @@ from bitcoinx import hash_to_hex_str
 
 from electrumsv.network_support.esv_client import ESVClient, PeerChannel
 from electrumsv.network_support.esv_client_types import PeerChannelToken, TokenPermissions, \
-    GeneralNotification, ChannelNotification, MAPICallbackResponse
+    ServerWebsocketNotification, ChannelNotification, MAPICallbackResponse
 from electrumsv.tests.data.reference_server.headers_data import GENESIS_TIP
 
 logger = logging.getLogger("test-esv-client")
@@ -170,7 +170,7 @@ async def mock_general_websocket(request: web.Request) -> WebSocketResponse:
     await ws.prepare(request)
     try:
         result = ChannelNotification(id=MOCK_CHANNEL_ID, notification="New message arrived")
-        notification = GeneralNotification(message_type="bsv.api.channels.notification",
+        notification = ServerWebsocketNotification(message_type="bsv.api.channels.notification",
             result=result)
         await ws.send_json(notification)
         return ws
@@ -405,7 +405,7 @@ async def test_get_single_peer_channel(aiohttp_client):
 async def test_subscribe_to_general_notifications(aiohttp_client):
     test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
-    notification: GeneralNotification
+    notification: ServerWebsocketNotification
     async for notification in esv_client.subscribe_to_general_notifications():
         if notification:
             assert notification['message_type'] == 'bsv.api.channels.notification'

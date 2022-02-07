@@ -55,7 +55,6 @@ from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer, NewServerAPIContext, \
     SelectionCandidate
 from .networks import Net
-from .subscription import SubscriptionManager
 from .types import NetworkServerState, ServerAccountKey
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
@@ -870,8 +869,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
 
         app_state.read_headers()
 
-        self.subscriptions = SubscriptionManager()
-
         # Sessions
         self.sessions: List[SVSession] = []
         self._chosen_servers: set[SVServer] = set()
@@ -902,12 +899,12 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
 
         self.aiohttp_session: Optional[ClientSession] = None
 
-    async def get_aiohttp_session(self) -> ClientSession:
+    def get_aiohttp_session(self) -> ClientSession:
         """Global client session shared globally for any outbound http requests.
         Benefits from connection pooling if the same instance is re-used"""
         if self.aiohttp_session is not None:
             return self.aiohttp_session
-        self.aiohttp_session = ClientSession()
+        self.aiohttp_session = ClientSession(loop=app_state.async_.loop)
         return self.aiohttp_session
 
     async def close_aiohttp_session(self) -> None:
@@ -1336,7 +1333,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         self.future.cancel()
         await self.shutdown_complete_event.wait()
         assert not self.sessions
-        self.subscriptions.stop()
         logger.warning('stopped')
 
     def auto_connect(self) -> bool:

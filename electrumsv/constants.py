@@ -282,6 +282,8 @@ class TransactionImportFlag(IntFlag):
     EXPLICIT_SIGN = 1 << 1
     # The user has explicitly signed and broadcast this transaction.
     EXPLICIT_BROADCAST = 1 << 2
+    # The user is importing this manually from somewhere external.
+    MANUAL_IMPORT = 1 << 3
 
 
 class TransactionInputFlag(IntFlag):
@@ -504,3 +506,5 @@ class PendingHeaderWorkKind(IntEnum):
     # A new header arrived.
     NEW_HEADER = 2
 
+
+NO_BLOCK_HASH = bytes(32)

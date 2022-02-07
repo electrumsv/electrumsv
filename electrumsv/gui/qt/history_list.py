@@ -71,8 +71,9 @@ class TxStatus(enum.IntEnum):
 
 
 TX_ICONS = {
-    TxStatus.MISSING: "icons8-question-mark-96.png",
+    # Any states without entries have no icon at this time.
     TxStatus.FINAL: "icons8-checkmark-green-52.png",
+    TxStatus.MISSING: "icons8-question-mark-96.png",
     TxStatus.UNCONFIRMED: "icons8-checkmark-grey-52.png",
     TxStatus.UNMATURED: "icons8-lock-96.png",
     TxStatus.UNVERIFIED: "icons8-checkmark-grey-52.png",
@@ -182,7 +183,9 @@ class HistoryList(MyTreeWidget):
         current_tx_hash = item.data(Columns.STATUS, self.TX_ROLE) if item else None
         self.clear()
         if self._account is None:
+            logger.debug("History list not updated due to no currently selected account")
             return
+
         fx = app_state.fx
         if fx:
             fx.history_used_spot = False

@@ -219,16 +219,13 @@ class WalletNavigationView(QSplitter):
             self._select_account(account_id)
             return
 
-        self._update_window_account(None)
+        self._update_selected_account(None)
 
-    def _update_active_account(self, account_id: int) -> bool:
+    def _update_active_account(self, account_id: Optional[int]) -> bool:
         if account_id == self._current_account_id:
             return False
         self._current_account_id = account_id
         return True
-
-    def _update_window_account(self, account: Optional[AbstractAccount]) -> None:
-        self._main_window_proxy.set_active_account(account)
 
     def get_tab_widget(self) -> QTabWidget:
         return self._tab_widget
@@ -379,12 +376,22 @@ class WalletNavigationView(QSplitter):
 
     def _update_tree_balances(self) -> None:
         fx = app_state.fx
-        only_confirmed = app_state.config.get_explicit_type(bool, 'confirmed_only', False)
         align_flags = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
 
         def update_tree_item(item: QTreeWidgetItem, balance: WalletBalance) -> None:
-            nonlocal fx, only_confirmed
-            value = balance.confirmed if only_confirmed else balance.confirmed + balance.unconfirmed
+            nonlocal fx
+            # TODO(1.4.0) Balances. There is an unresolved decision about what balance to display
+            #     where. The user gets confused if their balance is not shown, but they don't have
+            #     the full balance to spend, as only confirmed and maybe unconfirmed (depending
+            #     on preferences) are available and not allocated or unmatured.
+            #     We would probably benefit from some easy way for users to see what coins are
+            #     available for spending and why. One idea would be to add a table of available
+            #     balances on the dashboard.
+
+            # This is the correct balance to display for the navigation pane summaries. It should
+            # match the sum of the balances in all the accounts history tabs, and this will of
+            # course include the unspendable amounts like those unmatured or allocated.
+            value = sum(balance)
             item.setText(TreeColumns.BSV_VALUE, app_state.format_amount(value, whitespaces=True))
             item.setTextAlignment(TreeColumns.BSV_VALUE, align_flags)
             item.setFont(TreeColumns.BSV_VALUE, self._monospace_font)
@@ -780,15 +787,16 @@ class WalletNavigationView(QSplitter):
     def show_debugger(self) -> None:
         self._selection_tree.setCurrentItem(self._debugger_item)
 
-    def _select_account(self, account_id: int) -> bool:
-        self._pane_view.setCurrentWidget(self._tab_widget)
-
+    def _update_selected_account(self, account_id) -> bool:
         if self._update_active_account(account_id):
             account = self._main_window_proxy._wallet.get_account(account_id)
-            assert account is not None
-            self._update_window_account(account)
+            self._main_window_proxy.set_active_account(account)
             return True
         return False
+
+    def _select_account(self, account_id: int) -> bool:
+        self._pane_view.setCurrentWidget(self._tab_widget)
+        return self._update_selected_account(account_id)
 
     def _get_conflicting_accounts(self, display_name: str) -> List[AbstractAccount]:
         display_name = display_name.lower()

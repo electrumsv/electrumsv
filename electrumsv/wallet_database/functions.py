@@ -509,7 +509,7 @@ def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> List[OutputSpend]:
     #     - If we are excluding MAPI, then we need to ensure the exclusion constraint in the
     #       query is correct.
     sql = f"""
-    SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index
+    SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index, TX.block_hash
     FROM TransactionInputs TXI
     INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash AND TX.flags&{TxFlags.MASK_STATE}!=0 AND
         TX.flags&{TxFlags.STATE_SETTLED}=0
@@ -539,7 +539,7 @@ def read_spent_outputs(db: sqlite3.Connection, outpoints: Sequence[Outpoint]) \
 
 
 @replace_db_context_with_connection
-def read_transaction_proof_data(db: sqlite3.Connection, tx_hashes: List[bytes]) \
+def read_transaction_proof_data(db: sqlite3.Connection, tx_hashes: Sequence[bytes]) \
         -> List[TxProofData]:
     sql = """
         SELECT tx_hash, flags, block_hash, proof_data FROM Transactions WHERE tx_hash IN ({})
@@ -1479,7 +1479,7 @@ async def update_transaction_flags_async(db_context: DatabaseContext, tx_hash: b
 def _update_transaction_flags(db: sqlite3.Connection, tx_hash: bytes,
         flags: TxFlags, mask: Union[int, TxFlags]) -> bool:
     sql = "UPDATE Transactions SET flags=(flags&?)|? WHERE tx_hash=?"
-    sql_values: List[Any] = [ tx_hash, flags, mask ]
+    sql_values: List[Any] = [ mask, flags, tx_hash ]
     cursor = db.execute(sql, sql_values)
     return cast(bool, cursor.rowcount == 1)
 
@@ -2043,6 +2043,11 @@ class AsynchronousFunctions:
         """
         Wrap the database operations required to import a transaction so the processing is
         offloaded to the SQLite writer thread while this task is blocked.
+
+        Raises:
+        - `TransactionAlreadyExistsError` if the transaction is already in the wallet database.
+        - `DatabaseUpdateError` if there are spend conflicts and it was requested that the
+              transaction was rolled back.
         """
         return await self._db_context.run_in_thread_async(self._import_transaction, tx_row,
             txi_rows, txo_rows, link_state)

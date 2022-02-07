@@ -52,12 +52,12 @@ from .bitcoin import scripthash_bytes, ScriptTemplate, separate_proof_and_embedd
     TSCMerkleProofError
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
     CHANGE_SUBPATH, DatabaseKeyDerivationType,
-    DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath, TransactionImportFlag,
+    DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath,
     KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags, MAX_VALUE,
-    MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
+    MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NO_BLOCK_HASH,
     pack_derivation_path, PaymentFlag, PendingHeaderWorkKind, RECEIVING_SUBPATH, ServerCapability,
-    SubscriptionOwnerPurpose, SubscriptionType, ScriptType, TransactionInputFlag,
-    TransactionOutputFlag, TxFlags, unpack_derivation_path,
+    SubscriptionOwnerPurpose, SubscriptionType, ScriptType, TransactionImportFlag,
+    TransactionInputFlag, TransactionOutputFlag, TxFlags, unpack_derivation_path,
     WALLET_ACCOUNT_PATH_TEXT, WalletEvent,
     WalletEventFlag, WalletEventType, WalletSettings)
 from .contacts import Contacts
@@ -72,12 +72,13 @@ from .keystore import (BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore
     SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
 from .network_support.api_server import pick_server_for_account
-from .network_support.general_api import GeneralAPIError, maintain_spent_output_connection_async, \
+from .network_support.esv_client_types import ServerConnectionState
+from .network_support.general_api import GeneralAPIError, maintain_server_connection_async, \
     MerkleProofMissingHeaderError, MerkleProofVerificationError, \
-    request_binary_merkle_proof_async, request_transaction_data_async, SpentOutputWorkerState, \
-    TransactionNotFoundError
+    request_binary_merkle_proof_async, request_transaction_data_async, TransactionNotFoundError
 from .networks import Net
 from .storage import WalletStorage
+from .subscription import SubscriptionManager
 from .transaction import (HardwareSigningMetadata, Transaction, TransactionContext,
     TxSerialisationFormat, NO_SIGNATURE, tx_dict_from_text, XPublicKey, XTxInput, XTxOutput)
 from .types import (SubscriptionDerivationData,
@@ -353,15 +354,16 @@ class AbstractAccount:
                         if final_flags & KeyInstanceFlag.ACTIVE:
                             subscription_keyinstance_ids.append(keyinstance_id)
 
-                if len(subscription_keyinstance_ids):
-                    self._network.subscriptions.create_entries(
-                        self._get_subscription_entries_for_keyinstance_ids(
-                            subscription_keyinstance_ids), self._subscription_owner_for_keys)
+                # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
+                # if len(subscription_keyinstance_ids):
+                #     self._wallet.subscriptions.create_entries(
+                #         self._get_subscription_entries_for_keyinstance_ids(
+                #             subscription_keyinstance_ids), self._subscription_owner_for_keys)
 
-                if len(unsubscription_keyinstance_ids):
-                    self._network.subscriptions.delete_entries(
-                        self._get_subscription_entries_for_keyinstance_ids(
-                            unsubscription_keyinstance_ids), self._subscription_owner_for_keys)
+                # if len(unsubscription_keyinstance_ids):
+                #     self._wallet.subscriptions.delete_entries(
+                #         self._get_subscription_entries_for_keyinstance_ids(
+                #             unsubscription_keyinstance_ids), self._subscription_owner_for_keys)
 
             self._wallet.events.trigger_callback(WalletEvent.KEYS_UPDATE, self._id, keyinstance_ids)
 
@@ -371,9 +373,10 @@ class AbstractAccount:
 
     def delete_key_subscriptions(self, keyinstance_ids: List[int]) -> None:
         assert self._network is not None
-        self._network.subscriptions.delete_entries(
-            self._get_subscription_entries_for_keyinstance_ids(
-                keyinstance_ids), self._subscription_owner_for_keys)
+        # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
+        # self._wallet.subscriptions.delete_entries(
+        #     self._get_subscription_entries_for_keyinstance_ids(
+        #         keyinstance_ids), self._subscription_owner_for_keys)
 
     def get_keystore(self) -> Optional[KeyStore]:
         if self._row.default_masterkey_id is not None:
@@ -1613,9 +1616,11 @@ class DeterministicAccount(AbstractAccount):
         if final_flags & KeyInstanceFlag.ACTIVE and self._network is not None:
             # NOTE(ActivitySubscription) This represents a key that was not previously active
             #   becoming active and requiring a subscription for events.
-            self._network.subscriptions.create_entries(
-                self._get_subscription_entries_for_keyinstance_ids([ keyinstance_id ]),
-                    self._subscription_owner_for_keys)
+            # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
+            # self._wallet.subscriptions.create_entries(
+            #     self._get_subscription_entries_for_keyinstance_ids([ keyinstance_id ]),
+            #         self._subscription_owner_for_keys)
+            pass
         return KeyData(keyinstance_id, self._id, masterkey_id, derivation_type,
             derivation_data2)
 
@@ -2065,7 +2070,7 @@ class WalletDataAccess:
     def read_pending_header_transactions(self) -> list[tuple[bytes, Optional[bytes], bytes]]:
         return db_functions.read_pending_header_transactions(self._db_context)
 
-    def read_transaction_proof_data(self, tx_hashes: List[bytes]) -> List[TxProofData]:
+    def read_transaction_proof_data(self, tx_hashes: Sequence[bytes]) -> List[TxProofData]:
         return db_functions.read_transaction_proof_data(self._db_context, tx_hashes)
 
     def read_transaction_value_entries(self, account_id: int, *,
@@ -2111,6 +2116,9 @@ class WalletDataAccess:
         return db_functions.read_account_transaction_outputs_with_key_and_tx_data(
             self._db_context, account_id, confirmed_only, mature_height,
                 exclude_frozen, keyinstance_ids)
+
+    def read_spent_outputs_to_monitor(self) -> list[OutputSpend]:
+        return db_functions.read_spent_outputs_to_monitor(self._db_context)
 
     def read_transaction_outputs_with_key_data(self, *, account_id: Optional[int]=None,
             tx_hash: Optional[bytes]=None, txo_keys: Optional[List[Outpoint]]=None,
@@ -3386,6 +3394,10 @@ class Wallet:
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
         """
         This is currently only called when an account constructs and signs a transaction
+
+        Raises:
+        - `TransactionAlreadyExistsError` if the transaction is already in the wallet database.
+        - `DatabaseUpdateError` if there are spend conflicts and the transaction was rolled back.
         """
         link_state = TransactionLinkState()
         link_state.rollback_on_spend_conflict = True
@@ -3403,6 +3415,11 @@ class Wallet:
         Note that a new transaction is imported as state cleared even if we know it has been
         mined through the `block_height` and `block_hash` values. It is not changed to state
         settled until we have obtained the merkle proof.
+
+        Raises:
+        - `TransactionAlreadyExistsError` if the transaction is already in the wallet database.
+        - `DatabaseUpdateError` if the link state indicated that there should be a rollback if
+            there were spend conflicts and this has happened.
         """
         # If there is a missing transaction entry it is almost certain that the indexer monitoring
         # detected, obtained and is importing the transaction.
@@ -3505,9 +3522,8 @@ class Wallet:
                 # TODO(1.4.0) Spent outputs. We can do more intelligent selection of spent outputs
                 #     to monitor. We really only care about UTXOs that affect us, but it is
                 #     likely that in most cases it is simpler to care about them all.
-                pass
-                # self._register_spent_outputs_to_monitor(
-                #     [ Outpoint(input.prev_hash, input.prev_idx) for input in tx.inputs ])
+                self._register_spent_outputs_to_monitor(
+                    [ Outpoint(input.prev_hash, input.prev_idx) for input in tx.inputs ])
 
         # This primarily routes a notification to the user interface, for it to update for this
         # specific change.
@@ -3656,56 +3672,58 @@ class Wallet:
     #     future = db_functions.set_transactions_reorged(self.get_db_context(), tx_hashes)
     #     future.result()
 
-    def _setup_spent_output_notifications(self) -> None:
-        # TODO(petty-cash) In theory each petty cash account maintains a connection. At the time
-        #     of writing, we only have one petty cash account per wallet, but there are loose
+    def _setup_server_connections(self) -> None:
+        """
+        Establish connections to all the servers that the wallet uses.
+        """
+        assert self._network is not None
+        # TODO(1.4.0) Petty cash. In theory each petty cash account maintains a connection. At the
+        #     time of writing, we only have one petty cash account per wallet, but there are loose
         #     plans that sets of accounts may hierarchically share different petty cash accounts.
         # TODO(1.4.0) Networking. These worker tasks should be restarted if they prematurely exit.
-        self._worker_tasks_maintain_spent_output_connection: \
-            dict[int, tuple[SpentOutputWorkerState, concurrent.futures.Future[None],
+        session = self._network.get_aiohttp_session()
+        self._worker_tasks_maintain_server_connection: \
+            dict[int, tuple[ServerConnectionState, concurrent.futures.Future[None],
                 concurrent.futures.Future[None]]] = {}
         for account in self._accounts.values():
             if account.is_petty_cash():
                 # Start the spent output worker task ready to start processing for this petty
                 # cash account.
-                base_server_url = pick_server_for_account(self._network, account,
+                # TODO(1.4.0) Networking. This is only connecting to the regtest server for now.
+                #     It is picking an arbitrary capability to use for connection.
+                server_url = pick_server_for_account(self._network, account,
                     ServerCapability.OUTPUT_SPENDS)
-                spent_output_worker_state = SpentOutputWorkerState()
-                connection_future = app_state.async_.spawn(maintain_spent_output_connection_async,
-                    self._network, base_server_url, spent_output_worker_state)
-                processing_future = app_state.async_.spawn(
-                    self._process_received_spent_output_notifications, account.get_id())
-                self._worker_tasks_maintain_spent_output_connection[account.get_id()] = \
-                    spent_output_worker_state, connection_future, processing_future
-
-                # Feed the initial state into the worker task.
-                # TODO(petty-cash) This should when we support multiple petty cash accounts we
-                #     should specify which grouping of accounts are funded by a given petty cash
-                #     account. It is possible we may end up mapping the petty cash account id to
-                #     those accounts in the database.
-                output_spends = db_functions.read_spent_outputs_to_monitor(self.get_db_context())
-                spent_outpoints = list({ Outpoint(output_spend.out_tx_hash, output_spend.out_index)
-                    for output_spend in output_spends })
-                spent_output_worker_state.registration_queue.put_nowait(spent_outpoints)
+                server_state = ServerConnectionState(self.data, session, server_url,
+                    asyncio.Queue(), asyncio.Queue(), asyncio.Queue())
+                connection_future = app_state.async_.spawn(maintain_server_connection_async,
+                    server_state)
+                spend_output_processing_future = app_state.async_.spawn(
+                    self._process_received_spent_output_notifications, server_state)
+                self._worker_tasks_maintain_server_connection[account.get_id()] = \
+                    server_state, connection_future, spend_output_processing_future
 
     def _register_spent_outputs_to_monitor(self, spent_outpoints: list[Outpoint]) -> None:
+        """
+        Call this to start monitoring outpoints when the wallet needs to know if they are mined.
+        """
         if self._network is None:
             return
 
         account_id = [ account.get_id() for account in self._accounts.values()
             if account.is_petty_cash() ][0]
-        state = self._worker_tasks_maintain_spent_output_connection[account_id][0]
-        state.registration_queue.put_nowait(spent_outpoints)
+        state = self._worker_tasks_maintain_server_connection[account_id][0]
+        state.output_spend_registration_queue.put_nowait(spent_outpoints)
 
     # TODO(1.4.0) Spent outputs. Unit test malleation replacement of a transaction
-    async def _process_received_spent_output_notifications(self, account_id: int) -> None:
-        if account_id not in self._worker_tasks_maintain_spent_output_connection:
-            return
-        state = self._worker_tasks_maintain_spent_output_connection[account_id][0]
+    async def _process_received_spent_output_notifications(self,
+            state: ServerConnectionState) -> None:
+        """
+        Process spent output results received from a server.
+        """
         while True:
-            spent_outputs = await state.result_queue.get()
+            spent_outputs = await state.output_spend_result_queue.get()
 
-            # Get the current database state that relates to the server state we just received.
+            # Match the received state to the current database state.
             rows_by_outpoint: Dict[Outpoint, list[SpentOutputRow]] = {}
             spent_outpoints = { Outpoint(spent_output.out_tx_hash, spent_output.out_index)
                 for spent_output in spent_outputs }
@@ -3718,14 +3736,14 @@ class Wallet:
                 rows_by_outpoint[spent_outpoint].append(spent_output_row)
 
             # Reconcile the received server state against the database state.
+            mined_transactions: set[tuple[bytes, bytes]] = set()
             for spent_output in spent_outputs:
-                spent_outpoint = Outpoint(spent_output.out_tx_hash,
-                    spent_output.out_index)
+                spent_outpoint = Outpoint(spent_output.out_tx_hash, spent_output.out_index)
                 if spent_outpoint not in rows_by_outpoint:
                     # TODO(1.4.0) Spent outputs. The user would have had to delete the transaction
                     #     from the database if that is even possible? Is that correct? Should we do
                     #     something here? Need to finalise this.
-                    self._logger.error("NO DATABASE ENTRIES FOR SPENT OUTPUT NOTIFICATION %r",
+                    self._logger.error("No database entries for spent output notification %r",
                         spent_output)
                     continue
 
@@ -3742,28 +3760,40 @@ class Wallet:
                         #     That would probably require extra work like fetching the new
                         #     transaction and then reconciling it.
                     elif row.block_hash != spent_output.block_hash:
-                        if row.block_hash is None:
-                            self._logger.debug("Unspent output event, transaction has been mined "
-                                " %r ~ %r", spent_output, row)
-                            await self._process_received_spent_output_mined_event(row, spent_output)
-                        elif spent_output.block_hash is None:
+                        if spent_output.block_hash is None:
                             # We do not process this at this time because the new tip reorg
                             # detection should already do it. However, we might use it to double
                             # check data consistency later.
                             self._logger.debug("Unspent output event, transaction is back in "
                                 "mempool %r ~ %r", spent_output, row)
+                        elif row.block_hash is None:
+                            self._logger.debug("Unspent output event, transaction has been mined "
+                                " %r ~ %r", spent_output, row)
+                            mined_transactions.add((row.spending_tx_hash,
+                                spent_output.block_hash))
                         else:
                             # We do not process this at this time because the new tip reorg
                             # detection should already do it. However, we might use it to double
                             # check data consistency later.
+                            # TODO(1.4.0) Spent outputs. Consider if we should have unregistered
+                            #     from this outpoint, and whether we should never get here because
+                            #     the only way we would detect reorgs was by received headers.
                             self._logger.debug("Unspent output event, transaction reorged %r ~ %r",
                                 spent_output, row)
+                    else:
+                        # Nothing is different than what we already have. Ignore the result. It
+                        # probably came in during the registration as the initial state.
+                        pass
 
-    async def _process_received_spent_output_mined_event(self, row: SpentOutputRow,
-            spent_output: OutputSpend) -> None:
-        # We indicate that we need to obtain the proof by setting the
+            for tx_hash, block_hash in mined_transactions:
+                await self._process_received_spent_output_mined_event(tx_hash, block_hash)
+
+    async def _process_received_spent_output_mined_event(self, spending_tx_hash: bytes,
+            block_hash: bytes) -> None:
+        # We indicate that we need to obtain the proof by setting the known block hash and the
+        # state to cleared.
         await db_functions.update_transaction_proof_async(self.get_db_context(),
-            row.spending_tx_hash, spent_output.block_hash, None, None, TxFlags.STATE_CLEARED)
+            spending_tx_hash, block_hash, None, None, TxFlags.STATE_CLEARED)
 
         self._check_missing_proofs_event.set()
         # TODO(1.4.0) Technical debt. This is a thing we did to ensure the UI was up to date
@@ -3772,12 +3802,13 @@ class Wallet:
         # support. We will revisit this via the 1.4.0 comment above before release.
         self.events.trigger_callback(WalletEvent.TRANSACTION_HEIGHTS_UPDATED, 1, 1)
 
-    def _teardown_spent_output_notifications(self) -> None:
-        for _state, connection_future, processing_future in \
-                self._worker_tasks_maintain_spent_output_connection.values():
+    def _teardown_server_connections(self) -> None:
+        for _state, connection_future, spend_output_processing_future in \
+                self._worker_tasks_maintain_server_connection.values():
+            spend_output_processing_future.cancel()
             connection_future.cancel()
-            processing_future.cancel()
-        del self._worker_tasks_maintain_spent_output_connection
+
+        del self._worker_tasks_maintain_server_connection
 
     def have_transaction(self, tx_hash: bytes) -> bool:
         return self.data.get_transaction_flags(tx_hash) is not None
@@ -3852,12 +3883,17 @@ class Wallet:
 
     def start(self, network: Optional[Network]) -> None:
         self._network = network
+        self.subscriptions = SubscriptionManager()
+
         if network is not None:
             network.add_wallet(self)
         for account in self.get_accounts():
             account.start(network)
 
         if self._network is not None:
+            # TODO(1.4.0) Networking. Every wallet has connections to reference servers. Is this
+            #     the right place to connect?
+            self._setup_server_connections()
             self._worker_task_obtain_transactions = app_state.async_.spawn(
                 self._obtain_transactions_worker_async)
             self._worker_task_obtain_merkle_proofs = app_state.async_.spawn(
@@ -3865,7 +3901,6 @@ class Wallet:
             self._worker_task_late_header_worker = app_state.async_.spawn(
                 late_header_worker.late_header_worker_async, self.data,
                 self._late_header_worker_state)
-            self._setup_spent_output_notifications()
 
         self._stopped = False
 
@@ -3893,7 +3928,7 @@ class Wallet:
             if self._worker_task_late_header_worker:
                 self._worker_task_late_header_worker.cancel()
                 del self._worker_task_late_header_worker
-            self._teardown_spent_output_notifications()
+            self._teardown_server_connections()
 
         for credential_id in self._registered_api_keys.values():
             app_state.credentials.remove_indefinite_credential(credential_id)
@@ -3907,6 +3942,9 @@ class Wallet:
                 # We do not need to wait for the future to complete, as closing the storage below
                 # should close out all database pending writes.
                 self.update_network_server_states(updated_states)
+
+        self.subscriptions.stop()
+        del self.subscriptions
 
         self.data.teardown()
         self.db_functions_async.close()

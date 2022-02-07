@@ -1,5 +1,6 @@
 from __future__ import annotations
 import dataclasses
+import struct
 from types import TracebackType
 from typing import Any, Callable, Coroutine, List, NamedTuple, Optional, Tuple, \
     Type, TYPE_CHECKING, TypedDict, Union
@@ -9,8 +10,8 @@ from bitcoinx import hash_to_hex_str
 from mypy_extensions import Arg, DefaultArg
 
 from .constants import AccountCreationType, DatabaseKeyDerivationType, DerivationType, \
-    DerivationPath, NetworkServerType, ScriptType, SubscriptionOwnerPurpose, SubscriptionType, \
-    unpack_derivation_path
+    DerivationPath, NetworkServerType, NO_BLOCK_HASH, ScriptType, SubscriptionOwnerPurpose, \
+    SubscriptionType, unpack_derivation_path
 
 
 if TYPE_CHECKING:
@@ -132,12 +133,31 @@ class OutputSpend(NamedTuple):
     out_index: int
     in_tx_hash: bytes
     in_index: int
-    block_hash: Optional[bytes] = None
+    block_hash: Optional[bytes]
+
+    @classmethod
+    def from_network(cls, out_tx_hash: bytes, out_index: int, in_tx_hash: bytes, in_index: int,
+            block_hash: Optional[bytes]) -> OutputSpend:
+        """
+        Convert the binary representation to the Python representation.
+        """
+        if block_hash == NO_BLOCK_HASH:
+            block_hash = None
+        return OutputSpend(out_tx_hash, out_index, in_tx_hash, in_index, block_hash)
 
     def __repr__(self) -> str:
         return f'OutputSpend("{hash_to_hex_str(self.out_tx_hash)}", {self.out_index}, ' \
             f'"{hash_to_hex_str(self.in_tx_hash)}", {self.in_index}, ' + \
-            (f'"{self.block_hash.hex()}"' if self.block_hash else 'None') +')'
+            (f'"{hash_to_hex_str(self.block_hash)}"' if self.block_hash else 'None') +')'
+
+
+OUTPOINT_FORMAT = ">32sI"
+outpoint_struct = struct.Struct(OUTPOINT_FORMAT)
+outpoint_struct_size = outpoint_struct.size
+
+OUTPUT_SPEND_FORMAT = ">32sI32sI32s"
+output_spend_struct = struct.Struct(OUTPUT_SPEND_FORMAT)
+output_spend_struct_size = output_spend_struct.size
 
 
 ExceptionInfoType = Tuple[Type[BaseException], BaseException, TracebackType]

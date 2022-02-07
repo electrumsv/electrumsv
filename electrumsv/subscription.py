@@ -212,19 +212,6 @@ class SubscriptionManager:
                 futures.append(future)
         return futures
 
-    def read_script_hashes(self) -> List[HashSubscriptionEntry]:
-        """
-        Get all the existing script hash subscriptions.
-
-        This is primarily useful for the networking when the main server changes and all the
-        subscriptions need to be remade.
-        """
-        with self._lock:
-            script_hash_entries: List[HashSubscriptionEntry] = []
-            for key, subscription_id in self._subscription_ids.items():
-                script_hash_entries.append(HashSubscriptionEntry(subscription_id, key.value))
-            return script_hash_entries
-
     def delete_entries(self, entries: List[SubscriptionEntry], owner: SubscriptionOwner) \
             -> List[concurrent.futures.Future[None]]:
         """

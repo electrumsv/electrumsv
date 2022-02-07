@@ -66,7 +66,7 @@ from ...app_state import app_state
 from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, RECEIVING_SUBPATH, \
     SubscriptionType, TransactionImportFlag, TxFlags, WalletEvent
 from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, BlockchainScanner, \
-    ItemHashProtocol, PushDataHasher, PushDataHashHandler, PushDataSearchError, \
+    PushDataHasher, PushDataHashHandler, PushDataSearchError, \
     SearchKeyEnumerator
 from ...exceptions import ServerConnectionError
 from ...i18n import _
@@ -258,8 +258,6 @@ class BlockchainScanDialog(WindowModalDialog):
 
         account = self._wallet.get_account(account_id)
         assert account is not None
-
-        item_hasher: Optional[ItemHashProtocol] = None
 
         assert self._wallet._network is not None
         # Capped restoration API.

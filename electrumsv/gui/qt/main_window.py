@@ -428,12 +428,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             assert self._receive_view is not None
             self._receive_view.update_contents()
 
-        # TODO(1.4.0) Notifications. Reconcile what is interrelated with this and clean it up.
-        # # NOTE(wallet-event-race-condition) For now we block creating the rows before the account
-        # #   is created, in order to be sure that when we look here they will be present.
-        # if not self.notifications_tab.is_empty():
-        #     self.toggle_tab(self.notifications_tab, True, to_front=True)
-
         # Update the status bar, and maybe the tab contents. If we are mid-synchronisation the
         # tab contents will be skipped, but that's okay as the synchronisation completion takes
         # care of triggering an update.
@@ -759,7 +753,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._paytomany_menu = tools_menu.addAction(_("&Pay to many"), self.paytomany)
 
-        raw_transaction_menu = tools_menu.addMenu(_("&Load transaction"))
+        raw_transaction_menu = tools_menu.addMenu(_("&View transaction"))
         raw_transaction_menu.addAction(_("From &file"), self.do_process_from_file)
         raw_transaction_menu.addAction(_("From &text"), self.do_process_from_text)
         blockchain_action = raw_transaction_menu.addAction(_("From the &blockchain"),
@@ -2072,8 +2066,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 self.show_transaction(self._account, tx)
 
     def do_process_from_text(self) -> None:
-        text = text_dialog(self, _('Input raw transaction'), _("Transaction:"),
-                           _("Load"))
+        text = text_dialog(self, _('Enter the raw transaction below..'), _("Transaction (hex):"),
+                           _("View"))
         if text is None:
             return
         try:

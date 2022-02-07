@@ -71,11 +71,11 @@ def read_rows_by_id(return_type: Type[T], db: sqlite3.Connection, sql: str, para
     results: List[T] = []
     batch_size = SQLITE_MAX_VARS - len(params)
     remaining_ids = ids
+    params = tuple(params)
     while len(remaining_ids):
-        batch_ids = remaining_ids[:batch_size]
+        batch_ids = tuple(remaining_ids[:batch_size])
         sql = sql.format(",".join("?" for k in batch_ids))
-        # NOTE(typing) the sequence type does not provide an addition operator hence typing ignored.
-        cursor = db.execute(sql, params + batch_ids) # type: ignore
+        cursor = db.execute(sql, params + tuple(batch_ids))
         rows = cursor.fetchall()
         cursor.close()
         # Skip copying/conversion for standard types.

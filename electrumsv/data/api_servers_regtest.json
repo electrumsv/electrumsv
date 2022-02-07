@@ -1,27 +1,15 @@
 [
     {
-        "id": 21001,
-        "url": "http://127.0.0.1:49241/",
-        "type": "GENERAL",
-        "capabilities": [
-            "RESTORATION",
-            "MERKLE_PROOF_REQUEST",
-            "TRANSACTION_REQUEST",
-            "OUTPUT_SPENDS"
-        ],
-        "enabled_for_all_wallets": true,
-        "api_key_supported": false,
-        "last_try": 0.0,
-        "last_good": 0.0,
-        "static_data_date": "2021-11-15T04:45:05+0000"
-    },
-    {
         "id": 21002,
         "url": "http://127.0.0.1:47124/",
         "type": "GENERAL",
         "capabilities": [
             "HEADERS",
-            "PEER_CHANNELS"
+            "PEER_CHANNELS",
+            "RESTORATION",
+            "MERKLE_PROOF_REQUEST",
+            "TRANSACTION_REQUEST",
+            "OUTPUT_SPENDS"
         ],
         "enabled_for_all_wallets": true,
         "api_key_supported": false,

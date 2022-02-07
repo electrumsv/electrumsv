@@ -35,6 +35,17 @@ at first, to yourself, to confirm the network is processing your transactions as
 
 ElectrumSV
 -----------
+# Release 1.4.0b2
+  * Release guide: TBD
+  * Transaction loading: The "Load transaction" menu has now been renamed "View transaction" in
+    order to highlight that this does not add the viewed transaction to the wallet.
+  * Transaction import: The transaction dialog now has a new "Import" button shown for viewed
+    external fully signed transactions. This will add the transaction to the database and link
+    it to any accounts that own the payment scripts used by the transaction.
+  * Navigation pane: The balance displayed is the total balance for each account. This includes
+    unspendable coins like those that are unmatured or already allocated. This is to match the
+    balance in the history tab for the given account.
+
 # Release 1.4.0b1
   * Release guide: https://electrumsv.io/articles/2021/electrumsv-1_4_0b1.html
   * Sqlite: The minimum required version of Sqlite is 3.35.4. The reason for requiring this is

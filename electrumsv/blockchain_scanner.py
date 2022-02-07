@@ -36,13 +36,6 @@
 
 """
 Blockchain scanning functionality.
-
-Further work
-------------
-
-* Potential later advanced setting, where the user can customise the scanned script types. However
-  this falls under the umbrella of maybe missing account-related transactions and resulting in
-  incorrect state. Better to focus on presumably unavoidably correct state for a start.
 """
 
 from __future__ import annotations
@@ -50,28 +43,21 @@ import concurrent.futures
 from dataclasses import dataclass, field
 from enum import IntEnum
 import random
-from typing import Callable, cast, Dict, List, NamedTuple, Optional, Protocol, \
-    Sequence, Tuple, TYPE_CHECKING, TypeVar
+from typing import Callable, cast, Dict, List, NamedTuple, Optional, Sequence, Tuple, \
+    TYPE_CHECKING
 
 from bitcoinx import (bip32_key_from_string, BIP32PublicKey, hash160, P2MultiSig_Output,
-    P2PKH_Address, P2SH_Address, PublicKey, sha256)
+    PublicKey, sha256)
 
 from .app_state import app_state
-from .bitcoin import ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH, DerivationType,
-    DerivationPath, NetworkServerType, RECEIVING_SUBPATH, ScriptType, ServerCapability,
-    SubscriptionOwnerPurpose, SubscriptionType)
-from .exceptions import SubscriptionStale, UnsupportedAccountTypeError
+    DerivationPath, NetworkServerType, RECEIVING_SUBPATH, ScriptType, ServerCapability)
+from .exceptions import UnsupportedAccountTypeError
 from .i18n import _
 from .logs import logs
-from .keys import get_single_signer_script_template, get_multi_signer_script_template
 from .network_support.api_server import select_servers
 from .network_support.general_api import post_restoration_filter_request_binary, \
     RestorationFilterRequest, RestorationFilterResult, unpack_binary_restoration_entry
-from .networks import Net
-from .types import (ScriptHashHistoryList, SubscriptionEntry,
-    ScriptHashResultCallback, SubscriptionKey, SubscriptionScannerScriptHashOwnerContext,
-    SubscriptionOwner)
 from .wallet import AbstractAccount
 from .wallet_database.types import KeyListRow
 
@@ -82,7 +68,8 @@ if TYPE_CHECKING:
 
 logger = logs.get_logger("scanner")
 
-# TODO Network disconnection.
+# TODO(1.4.0) Networking. Handle disconnection problems cleanly.
+# TODO(1.4.0) Unit tests. Blockchain scanner.
 
 ExtendRangeCallback = Callable[[int], None]
 
@@ -157,153 +144,12 @@ class SearchEntry(NamedTuple):
 
 
 @dataclass
-class ScriptHashHistory:
-    """
-    The sub-context for the history and the history itself.
-    """
-    history: ScriptHashHistoryList
-    bip32_subpath: Optional[DerivationPath] = None
-    bip32_subpath_index: int = -1
-
-
-ScanResultType = TypeVar("ScanResultType")
-WrappedScanType = TypeVar("WrappedScanType")
-
-
-# NOTE(rt12) I don't know what the best name for this is yet.
-class ScannerHandlerProtocol(Protocol[ScanResultType]):
-    _results: ScanResultType
-
-    def setup(self, scanner: BlockchainScanner) -> None:
-        raise NotImplementedError
-
-    def shutdown(self) -> None:
-        raise NotImplementedError
-
-    async def wait_until_ready(self) -> None:
-        """
-        Wait until at least one result has been come in.
-        """
-        raise NotImplementedError
-
-    def get_required_count(self) -> int:
-        """
-        How many results we can ask for this attempt.
-        """
-        raise NotImplementedError
-
-    def has_ongoing_activity(self) -> bool:
-        raise NotImplementedError
-
-    def get_results(self) -> ScanResultType:
-        raise NotImplementedError
-
-    def get_item_hash_for_script(self, script_type: ScriptType, script: ScriptTemplate) -> bytes:
-        raise NotImplementedError
-
-    async def search_entries(self, entries: List[SearchEntry]) -> None:
-        raise NotImplementedError
-
-
-class ScriptHashHandler(ScannerHandlerProtocol[Dict[bytes, ScriptHashHistory]]):
-    def __init__(self, network: Network, wallet_id: int=0, account_id: int=0) -> None:
-        self._network = network
-        self._active_subscriptions: Dict[bytes, SearchEntry] = {}
-        self._results: Dict[bytes, ScriptHashHistory] = {}
-
-        self._event = app_state.async_.event()
-        self._subscription_owner = SubscriptionOwner(wallet_id, account_id,
-            SubscriptionOwnerPurpose.SCANNER)
-        self._network.subscriptions.set_owner_callback(self._subscription_owner,
-            script_hash_callback=cast(ScriptHashResultCallback, self._on_script_hash_result))
-
-    def setup(self, scanner: BlockchainScanner) -> None:
-        self._scanner = scanner
-
-    def shutdown(self) -> None:
-        self._network.subscriptions.remove_owner(self._subscription_owner)
-        del self._scanner
-        del self._network
-
-    async def wait_until_ready(self) -> None:
-        # This should block until a script hash is satisfied, then generate another.
-        await self._event.wait()
-        self._event.clear()
-
-    def get_required_count(self) -> int:
-        return 100 - len(self._active_subscriptions)
-
-    def has_ongoing_activity(self) -> bool:
-        return len(self._active_subscriptions) > 0
-
-    def get_results(self) -> Dict[bytes, ScriptHashHistory]:
-        return self._results
-
-    def get_item_hash_for_script(self, script_type: ScriptType, script: ScriptTemplate) -> bytes:
-        return cast(bytes, sha256(script.to_script_bytes()))
-
-    async def search_entries(self, search_entries: List[SearchEntry]) -> None:
-        # Track the outstanding subscriptions locally.
-        subscription_entries: List[SubscriptionEntry] = []
-        for search_entry in search_entries:
-            subscription_entries.append(SubscriptionEntry(
-                SubscriptionKey(SubscriptionType.SCRIPT_HASH, search_entry.item_hash),
-                SubscriptionScannerScriptHashOwnerContext(search_entry)))
-            self._active_subscriptions[search_entry.item_hash] = search_entry
-        # Subscribe to the entries.
-        self._network.subscriptions.create_entries(subscription_entries, self._subscription_owner)
-
-    async def _on_script_hash_result(self, subscription_key: SubscriptionKey,
-            context: SubscriptionScannerScriptHashOwnerContext,
-            history: ScriptHashHistoryList) -> None:
-        """
-        Receive an event related to a scanned script hash from the subscription manager.
-
-        `history` is in immediately usable order. Transactions are listed in ascending
-        block height (height > 0), followed by the unconfirmed (height == 0) and then
-        those with unconfirmed parents (height < 0).
-
-            [
-                { "tx_hash": "e232...", "height": 111 },
-                { "tx_hash": "df12...", "height": 222 },
-                { "tx_hash": "aa12...", "height": 0, "fee": 400 },
-                { "tx_hash": "bb12...", "height": -1, "fee": 300 },
-            ]
-
-        Receiving this event is interpreted as completing the need to subscribe to the given
-        script hash, and having the required information.
-        """
-        assert subscription_key.value_type == SubscriptionType.SCRIPT_HASH
-        script_hash = cast(bytes, subscription_key.value)
-
-        # Signal that we have a result for this script hash and have finished with it.
-        history_entry = self._results[script_hash] = ScriptHashHistory(history)
-        entry = cast(SearchEntry, context.value)
-        if entry.kind == SearchEntryKind.BIP32:
-            assert entry.parent_path is not None
-            assert entry.parent_index > -1
-            entry.parent_path.result_count += 1
-            if len(history):
-                entry.parent_path.highest_used_index = max(entry.parent_path.highest_used_index,
-                    entry.parent_index)
-
-            history_entry.bip32_subpath = entry.parent_path.subpath
-            history_entry.bip32_subpath_index = entry.parent_index
-
-        del self._active_subscriptions[script_hash]
-        self._event.set()
-        # Trigger the unsubscription for this script hash.
-        raise SubscriptionStale()
-
-
-
-@dataclass
 class PushDataMatchResult:
     filter_result: RestorationFilterResult
     search_entry: SearchEntry
 
 
-class PushDataHashHandler(ScannerHandlerProtocol[List[PushDataMatchResult]]):
+class PushDataHashHandler:
     def __init__(self, network: Network, account: AbstractAccount) -> None:
         self._network = network
         self._account = account
@@ -351,11 +197,10 @@ class PushDataHashHandler(ScannerHandlerProtocol[List[PushDataMatchResult]]):
         if not len(restoration_candidates):
             raise PushDataSearchError(_("No servers available."))
 
-        # TODO better choice of which server to use, probably some centralised approach.
+        # TODO(1.4.0) Networking. Standardised server selection / endpoint url resolution.
         candidate = random.choice(restoration_candidates)
         assert candidate.api_server is not None and candidate.api_server.config is not None
 
-        # TODO better endpoint url resolution rather than this hard-coding.
         url = candidate.api_server.config["url"]
         url = url if url.endswith("/") else url +"/"
         url = f"{url}api/v1/restoration/search"
@@ -379,7 +224,7 @@ class BlockchainScanner:
     is that.. I do not remember! Work out why this should be the case or not before using more.
     """
     def __init__(self,
-            handler: ScannerHandlerProtocol[ScanResultType],
+            handler: PushDataHashHandler,
             enumerator: SearchKeyEnumerator,
             extend_range_cb: Optional[ExtendRangeCallback]=None) -> None:
         self._handler = handler
@@ -449,74 +294,6 @@ class BlockchainScanner:
             self._extend_range_cb(self._scan_entry_count)
 
 
-class ItemHashProtocol(Protocol):
-    """
-    This provides an interface which can be used for typing of item hashers. There is no need
-    to inherit it, the type checker will verify that any passed instances match.
-    """
-
-    def get_item_hash_for_public_keys(self, script_type: ScriptType, public_keys: List[PublicKey],
-            threshold: int=1) -> bytes:
-        """
-        At this time, all output scripts are generated based on featured public keys in some
-        form used in standard script templates. In the longer run this may not be the case.
-
-        Can cover:
-        - P2PK.
-        - P2PKH.
-        - P2SH multi-signature.
-        - Bare multi-signature.
-        """
-        raise NotImplementedError
-
-    def get_item_hash_for_key_data(self, key_data: KeyListRow) -> Tuple[ScriptType, bytes]:
-        """
-        This is primarily for imported addresses. The way an address works, and there are two
-        types we inherited from Bitcoin Core, is that the hash goes in a standard script opcode
-        template. We store the hash in the database for easy matching, and we can use it to
-        create the output script without a lot of work.
-
-        Can cover:
-        - P2SH.
-        - P2PKH.
-        """
-        raise NotImplementedError
-
-
-class ScriptHasher:
-    """
-    The script hash based indexing done by ElectrumX tracks the SHA256 hash of every output
-    script that is spendable. This means that you have to know exactly how your key was used
-    to find your transactions, which in the world of Bitcoin Core where regular people are
-    restricted to standard scripts works fine.
-    """
-
-    def get_item_hash_for_public_keys(self, script_type: ScriptType,
-            public_keys: List[PublicKey], threshold: int=1) -> bytes:
-        if len(public_keys) == 1:
-            # P2PK
-            # P2PKH
-            script_template = get_single_signer_script_template(public_keys[0], script_type)
-        else:
-            # Bare multi-signature.
-            # P2SH multi-signature.
-            public_keys_hex = [ public_key.to_hex() for public_key in public_keys ]
-            script_template = get_multi_signer_script_template(public_keys_hex,
-                threshold, script_type)
-        return cast(bytes, sha256(script_template.to_script_bytes()))
-
-    def get_item_hash_for_key_data(self, key_data: KeyListRow) -> Tuple[ScriptType, bytes]:
-        if key_data.derivation_type == DerivationType.PUBLIC_KEY_HASH:
-            script_template = P2PKH_Address(key_data.derivation_data2, Net.COIN)
-            item_hash = cast(bytes, sha256(script_template.to_script_bytes()))
-            return ScriptType.P2PKH, item_hash
-        elif key_data.derivation_type == DerivationType.SCRIPT_HASH:
-            script_template = P2SH_Address(key_data.derivation_data2, Net.COIN)
-            item_hash = cast(bytes, sha256(script_template.to_script_bytes()))
-            return ScriptType.MULTISIG_P2SH, item_hash
-        raise NotImplementedError
-
-
 class PushDataHasher:
     """
     This is currently only used for account restoration. The restoration indexing that ElectrumSV
@@ -566,8 +343,8 @@ class SearchKeyEnumerator:
     This provides a way to iterate through the possible things we want to match on, or search keys
     to enumerate.
     """
-    def __init__(self, item_hasher: ItemHashProtocol,
-            settings: Optional[AdvancedSettings]=None) -> None:
+    def __init__(self, item_hasher: PushDataHasher, settings: Optional[AdvancedSettings]=None) \
+            -> None:
         self._item_hasher = item_hasher
         if settings is None:
             settings = AdvancedSettings()
