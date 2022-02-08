@@ -73,8 +73,8 @@ from .keystore import (BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore
 from .logs import logs
 from .network_support.api_server import pick_server_for_account
 from .network_support.esv_client_types import ServerConnectionState
-from .network_support.general_api import GeneralAPIError, maintain_server_connection_async, \
-    MerkleProofMissingHeaderError, MerkleProofVerificationError, \
+from .network_support.general_api import FilterResponseInvalidError, GeneralAPIError, \
+    maintain_server_connection_async, MerkleProofMissingHeaderError, MerkleProofVerificationError, \
     request_binary_merkle_proof_async, request_transaction_data_async, TransactionNotFoundError
 from .networks import Net
 from .storage import WalletStorage
@@ -2791,7 +2791,9 @@ class Wallet:
                         with_proof, [ account_id ])
                     missing_tx_hashes.add(tx_hash)
             self._logger.debug("Registering %d missing transactions", len(missing_tx_hashes))
-            if len(missing_tx_hashes):
+            # Prompt the missing transaction logic to try again if the user is re-registering
+            # already missing transactions (the `TransactionImportFlag.PROMPTED` check).
+            if len(missing_tx_hashes) or import_flags & TransactionImportFlag.PROMPTED:
                 self._check_missing_transactions_event.set()
             return missing_tx_hashes
 
@@ -2823,6 +2825,14 @@ class Wallet:
                         "to a server to get arbitrary merkle proofs, sleeping 60 seconds")
                     await asyncio.sleep(60)
                     continue
+                except FilterResponseInvalidError as response_exception:
+                    # TODO(1.4.0) Networking. Handle `FilterResponseInvalidError` exception.
+                    #     No reliable server should cause this, we should stand off the server or
+                    #     something similar. For now we exit the loop and let the user cause
+                    #     other events that allow retry by setting the event.
+                    logger.error("Server responded to proof request with error %s",
+                        str(response_exception))
+                    break
                 except (TSCMerkleProofError, MerkleProofVerificationError):
                     # TODO(1.4.0) Networking. Handle `MerkleProofVerificationError` exception.
                     # TODO(1.4.0) Networking. Handle `TSCMerkleProofError` exception.

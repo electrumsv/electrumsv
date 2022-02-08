@@ -1240,7 +1240,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         tx_dialog.show()
         return tx_dialog
 
-    def on_tx_dialog_finished(self, tx_dialog: "TxDialog", status: int) -> None:
+    def on_tx_dialog_finished(self, tx_dialog: TxDialog, status: int) -> None:
         tx_dialog.finished.disconnect()
         self.tx_dialogs.remove(tx_dialog)
 

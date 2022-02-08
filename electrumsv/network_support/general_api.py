@@ -120,7 +120,7 @@ async def post_restoration_filter_request_json(url: str, request_data: Restorati
     structures until there are no more matches.
 
     Raises `HTTPError` if the response status code indicates an error occurred.
-    Raises `FilterResponseInvalidError` if the response content type does not match what we accept.
+    Raises `FilterResponseInvalidError` if the response is not valid.
     """
     headers={
         'Content-Type':     'application/json',
@@ -147,7 +147,7 @@ async def post_restoration_filter_request_binary(url: str, request_data: Restora
     This will stream matches for the given push data hashes from the server in packed binary
     structures until there are no more matches.
 
-    Raises `FilterResponseInvalidError` if the response content type does not match what we accept.
+    Raises `FilterResponseInvalidError` if the response is not valid.
     Raises `FilterResponseIncompleteError` if a response packet is incomplete. This likely means
       that the connection was closed mid-transmission.
     Raises `ServerConnectionError` if the remote computer does not accept
@@ -198,7 +198,7 @@ async def _request_binary_merkle_proof_async(server_url: str, tx_hash: bytes,
     but it is more likely that we will simply separate the transaction and proof in the response
     for ease of access.
 
-    Raises `FilterResponseInvalidError` if the response content type does not match what we accept.
+    Raises `FilterResponseInvalidError` if the response is not valid.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
     assert target_type in { "hash", "header", "merkleroot" }
@@ -253,6 +253,7 @@ async def request_binary_merkle_proof_async(network: Optional[Network], account:
     """
     Requests the merkle proof from a given server, verifies it and returns it.
 
+    Raises `FilterResponseInvalidError` if the response is not valid.
     Raises `ServerConnectionError` if the remote server is not online (and other networking
         problems).
     Raises `TSCMerkleProofError` if the proof structure is illegitimate.
@@ -399,6 +400,8 @@ async def manage_server_websocket_async(state: ServerConnectionState) -> None:
                             websocket_message)
             finally:
                 spend_output_processing_future.cancel()
+    except aiohttp.ClientConnectorError:
+        logger.debug("Unable to connect to server websocket")
     except WSServerHandshakeError as e:
         if e.status == HTTPStatus.UNAUTHORIZED:
             # TODO(1.4.0) Networking. Need to handle the case that our credentials are stale or
