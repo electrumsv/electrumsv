@@ -31,7 +31,7 @@ from functools import partial
 import gzip
 import json
 import math
-from typing import Any, cast, Dict, NamedTuple, Optional, Set, TYPE_CHECKING, Union
+from typing import Any, Callable, cast, Dict, NamedTuple, Optional, Set, TYPE_CHECKING, Union
 import weakref
 import webbrowser
 
@@ -252,17 +252,17 @@ class TxDialog(QDialog, MessageBoxMixin):
         b.clicked.connect(self.close)
         b.setDefault(True)
 
-        self.qr_button = b = QPushButton()
-        b.setIcon(read_QIcon("qrcode.png"))
-        b.clicked.connect(self._on_button_clicked_show_qr)
+        qr_button = QPushButton()
+        qr_button.setIcon(read_QIcon("qrcode.png"))
+        qr_button.clicked.connect(self._on_button_clicked_show_qr)
 
+        copy_button = QPushButton(_("Copy"))
         self._copy_menu = QMenu()
-        self._copy_button = QPushButton(_("Copy"))
-        self._copy_button.setMenu(self._copy_menu)
+        copy_button.setMenu(self._copy_menu)
 
+        save_button = QPushButton(_("Save"))
         self._save_menu = QMenu()
-        self.save_button = QPushButton(_("Save"))
-        self.save_button.setMenu(self._save_menu)
+        save_button.setMenu(self._save_menu)
 
         self.cosigner_button = b = QPushButton(_("Send to cosigner"))
         b.clicked.connect(self._on_button_clicked_cosigner_send)
@@ -271,15 +271,15 @@ class TxDialog(QDialog, MessageBoxMixin):
         b.clicked.connect(self._on_button_clicked_import)
 
         # Action buttons
-        self.buttons = [self._import_button, self.cosigner_button, self.sign_button,
+        buttons = [self._import_button, self.cosigner_button, self.sign_button,
             self.broadcast_button, self.cancel_button]
         # Transaction sharing buttons
-        self.sharing_buttons = [self._copy_button, self.qr_button, self.save_button]
+        sharing_buttons = [copy_button, qr_button, save_button]
 
         hbox = QHBoxLayout()
-        hbox.addLayout(Buttons(*self.sharing_buttons))
+        hbox.addLayout(Buttons(*sharing_buttons))
         hbox.addStretch(1)
-        hbox.addLayout(Buttons(*self.buttons))
+        hbox.addLayout(Buttons(*buttons))
         vbox.addLayout(hbox)
         self.update()
 
@@ -510,46 +510,42 @@ class TxDialog(QDialog, MessageBoxMixin):
             if is_tx_complete
             else _("This transaction cannot be imported as it is not fully signed."))
 
-        # Copy options.
-        self._copy_menu.clear()
-        if is_tx_complete:
-            self._copy_hex_menu = self._copy_menu.addAction(
-                _("Transaction (hex)"),
-                partial(self._copy_transaction, TxSerialisationFormat.HEX))
+        # These menus are created ahead of time because that's the way the popup button menus
+        # have to work. Normally menus are created on demand, which limits the lifetime of the
+        # `self` reference. In this case, we want to avoid leaking the transaction dialog by
+        # not locking in a `self` reference.
+        weakself = weakref.proxy(self)
+        def copy_transaction(format: TxSerialisationFormat) -> None:
+            weakself._copy_transaction(format)
+        def save_transaction(format: TxSerialisationFormat) -> None:
+            weakself._save_transaction(format)
+        if self.tx.is_complete():
+            self._copy_menu.addAction(_("Transaction (hex)"),
+                partial(copy_transaction, TxSerialisationFormat.HEX))
             if self._account:
-                self._copy_extended_full_menu = self._copy_menu.addAction(
-                    _("Transaction with proofs (JSON)"),
-                    partial(self._copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+                self._copy_menu.addAction(_("Transaction with proofs (JSON)"),
+                    partial(copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
         else:
-            self._copy_extended_basic_menu = self._copy_menu.addAction(
-                _("Incomplete transaction (JSON)"),
-                partial(self._copy_transaction, TxSerialisationFormat.JSON))
+            self._copy_menu.addAction(_("Incomplete transaction (JSON)"),
+                partial(copy_transaction, TxSerialisationFormat.JSON))
             if self._account:
-                self._copy_extended_full_menu = self._copy_menu.addAction(
-                    _("Incomplete transaction with proofs (JSON)"),
-                    partial(self._copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+                self._copy_menu.addAction(_("Incomplete transaction with proofs (JSON)"),
+                    partial(copy_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
 
-        # Save options.
-        self._save_menu.clear()
-        if is_tx_complete:
-            self._save_raw_menu = self._save_menu.addAction(
-                _("Transaction (raw)"),
-                partial(self._save_transaction, TxSerialisationFormat.RAW))
-            self._save_hex_menu = self._save_menu.addAction(
-                _("Transaction (hex)"),
-                partial(self._save_transaction, TxSerialisationFormat.HEX))
+        if self.tx.is_complete():
+            self._save_menu.addAction(_("Transaction (raw)"),
+                partial(save_transaction, TxSerialisationFormat.RAW))
+            self._save_menu.addAction(_("Transaction (hex)"),
+                partial(save_transaction, TxSerialisationFormat.HEX))
             if self._account:
-                self._save_extended_full_menu = self._save_menu.addAction(
-                    _("Transaction with proofs (JSON)"),
-                    partial(self._save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+                self._save_menu.addAction(_("Transaction with proofs (JSON)"),
+                    partial(save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
         else:
-            self._save_extended_basic_menu = self._save_menu.addAction(
-                _("Incomplete transaction (JSON)"),
-                partial(self._save_transaction, TxSerialisationFormat.JSON))
+            self._save_menu.addAction(_("Incomplete transaction (JSON)"),
+                partial(save_transaction, TxSerialisationFormat.JSON))
             if self._account:
-                self._save_extended_full_menu = self._save_menu.addAction(
-                    _("Incomplete transaction with proofs (JSON)"),
-                    partial(self._save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+                self._save_menu.addAction(_("Incomplete transaction with proofs (JSON)"),
+                    partial(save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
 
     def _obtain_transaction_data(self, format: TxSerialisationFormat,
             completion_signal: Optional[pyqtBoundSignal], done_signal: pyqtBoundSignal,
