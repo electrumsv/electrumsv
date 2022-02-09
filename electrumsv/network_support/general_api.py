@@ -40,7 +40,7 @@ import enum
 from http import HTTPStatus
 import json
 import struct
-from typing import Any, AsyncIterable, cast, List, NamedTuple, Optional, Sequence, TypedDict, \
+from typing import Any, AsyncIterable, cast, List, NamedTuple, Optional, TypedDict, \
     TYPE_CHECKING, Union
 
 import aiohttp
@@ -57,7 +57,7 @@ from ..types import Outpoint, outpoint_struct, outpoint_struct_size, output_spen
 
 from .api_server import pick_server_for_account
 from .constants import REGTEST_MASTER_TOKEN
-from .esv_client_types import AccountMessageKind, ChannelNotification, ServerConnectionState, \
+from .esv_client_types import AccountMessageKind, ServerConnectionState, \
     WebsocketUnauthorizedException
 
 

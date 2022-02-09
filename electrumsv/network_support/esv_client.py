@@ -276,10 +276,11 @@ class ESVClient:
             while True:
                 # Todo run select query on MAPIBroadcastCallbacks to get libsodium encryption key
                 callback_response: MAPICallbackResponse = await self._merkle_proofs_queue.get()
-                tsc_merkle_proof: TSCMerkleProofJson = json.loads(callback_response['callbackPayload'])
+                tsc_merkle_proof: TSCMerkleProofJson = \
+                    json.loads(callback_response['callbackPayload'])
 
-                # NOTE(AustEcon) mAPI defaults to targetType == 'header' but the TSC spec defaults to
-                # 'hash' if the targetType field is omitted.
+                # NOTE(AustEcon) mAPI defaults to targetType == 'header' but the TSC spec defaults
+                # to 'hash' if the targetType field is omitted.
                 target_type = cast(str, tsc_merkle_proof.get('targetType', 'hash'))
                 yield tsc_merkle_proof_json_to_binary(tsc_merkle_proof, target_type=target_type)
         finally:

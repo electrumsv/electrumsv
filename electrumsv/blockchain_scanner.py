@@ -215,7 +215,16 @@ class PushDataHashHandler:
         async for payload_bytes in post_restoration_filter_request_binary(url, request_data):
             filter_result = unpack_binary_restoration_entry(payload_bytes)
             search_entry = entry_mapping[filter_result.push_data_hash]
-            self._results.append(PushDataMatchResult(filter_result, search_entry))
+            self.record_match_for_entry(filter_result, search_entry)
+
+    def record_match_for_entry(self, result: RestorationFilterResult, entry: SearchEntry) -> None:
+        if entry.kind == SearchEntryKind.BIP32:
+            assert entry.parent_path is not None
+            assert entry.parent_index > -1
+            entry.parent_path.result_count += 1
+            entry.parent_path.highest_used_index = \
+                max(entry.parent_path.highest_used_index, entry.parent_index)
+        self._results.append(PushDataMatchResult(result, entry))
 
 
 class BlockchainScanner:

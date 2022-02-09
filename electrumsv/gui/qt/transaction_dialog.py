@@ -31,7 +31,7 @@ from functools import partial
 import gzip
 import json
 import math
-from typing import Any, Callable, cast, Dict, NamedTuple, Optional, Set, TYPE_CHECKING, Union
+from typing import Any, cast, Dict, NamedTuple, Optional, Set, TYPE_CHECKING, Union
 import weakref
 import webbrowser
 
