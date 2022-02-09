@@ -2135,13 +2135,30 @@ class AsynchronousFunctions:
         return True
 
     async def link_transaction_async(self, tx_hash: bytes,
-            link_state: TransactionLinkState) -> None:
+            link_state: TransactionLinkState) -> TransactionRow:
         """
         Wrap the database operations required to link a transaction so the processing is
         offloaded to the SQLite writer thread while this task is blocked.
+
+        WARNING: This returns a lite version of the `TransactionRow` with explicitly `None` values
+        for `tx_bytes` and `proof_data`.
         """
-        await self._db_context.run_in_thread_async(self._link_transaction, tx_hash,
-            link_state)
+        return await self._db_context.run_in_thread_async(self._link_transaction_returning,
+            tx_hash, link_state)
+
+    def _link_transaction_returning(self, db: sqlite3.Connection, tx_hash: bytes,
+            link_state: TransactionLinkState) -> TransactionRow:
+        self._link_transaction(db, tx_hash, link_state)
+
+        cursor = db.execute("SELECT flags, block_hash, block_position, fee_value, description, "
+            "version, locktime, date_created, date_updated FROM Transactions WHERE tx_hash=?",
+            (tx_hash,))
+        flags, block_hash, block_position, fee_value, description, version, locktime, \
+            date_created, date_updated = cursor.fetchone()
+        tx_data = None
+        proof_data = None
+        return TransactionRow(tx_hash, tx_data, flags, block_hash, block_position, fee_value,
+            description, version, locktime, proof_data, date_created, date_updated)
 
     def _link_transaction(self, db: sqlite3.Connection, tx_hash: bytes,
             link_state: TransactionLinkState) -> None:

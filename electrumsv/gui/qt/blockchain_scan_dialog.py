@@ -34,16 +34,6 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
-# This user interface currently supports two different types of scan:
-#
-# 1. Legacy ElectrumX scans.
-# 2. Restoration indexer scans.
-#
-# The user cannot choose which one to use. The idea is that we will replace the legacy scans
-# when services supporting the restoration scans are available. Until the legacy scanning is
-# no longer needed we will retain the code, but the user will have to use the type we decide
-# is active. There will be no user interface for them to choose between the types.
-
 from __future__ import annotations
 from collections import defaultdict
 import concurrent.futures
@@ -55,7 +45,7 @@ import time
 from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_CHECKING
 import webbrowser
 
-from bitcoinx import hash_to_hex_str
+from bitcoinx import Chain, hash_to_hex_str, Header, MissingHeader
 from PyQt5.QtCore import pyqtSignal, Qt, QPoint, QTimer
 from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, QMenu,
@@ -64,7 +54,7 @@ from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, 
 
 from ...app_state import app_state
 from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, RECEIVING_SUBPATH, \
-    SubscriptionType, TransactionImportFlag, TxFlags, WalletEvent
+    TransactionImportFlag, TxFlags, WalletEvent
 from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, BlockchainScanner, \
     PushDataHasher, PushDataHashHandler, PushDataSearchError, \
     SearchKeyEnumerator
@@ -73,7 +63,7 @@ from ...i18n import _
 from ...network_support.general_api import FilterResponseIncompleteError, FilterResponseInvalidError
 from ...logs import logs
 from ...wallet import Wallet
-from ...wallet_database.types import TransactionLinkState
+from ...wallet_database.types import TransactionLinkState, TransactionRow
 from ...web import BE_URL
 
 from .constants import ScanDialogRole
@@ -85,9 +75,6 @@ if TYPE_CHECKING:
 
 
 logger = logs.get_logger("scanner-ui")
-
-
-HARDCODED_SUBSCRIPTION_TYPE = SubscriptionType.PUSHDATA_HASH
 
 
 TEXT_TITLE = _("Blockchain scanner")
@@ -146,7 +133,7 @@ TEXT_IMPORT = _("<center><b>Importing</b>"
     "{:,d} transactions imported (in {:,d} seconds).</center>")
 TEXT_FINAL_COMPLETE = _("<center><b>Import complete</b>"
     "<br/><br/>"
-    "This account has been scanned and any located transactions that were not already present "
+    "This account has been scanned and any located transactions not already present "
     "were imported.")
 TEXT_FINAL_FAILURE = _("<center><b>Import failed</b>"
     "<br/><br/>"
@@ -212,8 +199,7 @@ class BlockchainScanDialog(WindowModalDialog):
     _import_start_time: int = -1
     _import_end_time: int = -1
 
-    update_progress_signal = pyqtSignal(int)
-    import_step_signal = pyqtSignal(bytes, object)
+    import_step_signal = pyqtSignal(TransactionRow, TransactionLinkState)
 
     _pushdata_handler: Optional[PushDataHashHandler] = None
 
@@ -264,69 +250,66 @@ class BlockchainScanDialog(WindowModalDialog):
         item_hasher = PushDataHasher()
         self._pushdata_handler = PushDataHashHandler(self._wallet._network, account)
 
-        if item_hasher is not None:
-            search_enumerator = SearchKeyEnumerator(item_hasher, self._advanced_settings)
-            search_enumerator.use_account(account)
+        search_enumerator = SearchKeyEnumerator(item_hasher, self._advanced_settings)
+        search_enumerator.use_account(account)
 
-            assert self._pushdata_handler is not None
-            self._scanner = BlockchainScanner(self._pushdata_handler, search_enumerator,
-                extend_range_cb=self._on_scanner_range_extended)
+        assert self._pushdata_handler is not None
+        self._scanner = BlockchainScanner(self._pushdata_handler, search_enumerator,
+            extend_range_cb=self._on_scanner_range_extended)
 
-            # We do not have to forceably stop this timer if the dialog is closed. It's lifecycle
-            # is directly tied to the life of this dialog.
-            self._timer = QTimer(self)
+        # We do not have to forceably stop this timer if the dialog is closed. It's lifecycle
+        # is directly tied to the life of this dialog.
+        self._timer = QTimer(self)
 
-            self.import_step_signal.connect(self._update_for_import_step)
+        self.import_step_signal.connect(self._update_for_import_step)
 
-            self._attempt_import_icon = read_QIcon("icons8-add-green-48-ui.png")
-            self._conflicted_tx_icon = read_QIcon("icons8-error-48-ui.png")
-            self._imported_tx_icon = read_QIcon("icons8-add-grey-48-ui.png")
+        self._attempt_import_icon = read_QIcon("icons8-add-grey-48-ui.png")
+        self._conflicted_tx_icon = read_QIcon("icons8-error-48-ui.png")
+        self._imported_tx_icon = read_QIcon("icons8-add-green-48-ui.png")
 
-            self._about_label = QLabel(TEXT_PRE_SCAN)
-            self._about_label.setWordWrap(True)
-            self._about_label.setAlignment(Qt.AlignmentFlag(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop))
-            self._about_label.setMinimumHeight(60)
+        self._about_label = QLabel(TEXT_PRE_SCAN)
+        self._about_label.setWordWrap(True)
+        self._about_label.setAlignment(Qt.AlignmentFlag(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop))
+        self._about_label.setMinimumHeight(60)
 
-            self.update_progress_signal.connect(self._progress_bar.setValue)
+        # At the time of writing, there are no advanced options to set for non-deterministic.
+        self._advanced_button.setEnabled(account.is_deterministic())
+        self._advanced_button.clicked.connect(self._on_clicked_button_advanced)
 
-            # At the time of writing, there are no advanced options to set for non-deterministic.
-            self._advanced_button.setEnabled(account.is_deterministic())
-            self._advanced_button.clicked.connect(self._on_clicked_button_advanced)
+        expand_details_button = self._expand_details_button = QPushButton("+")
+        expand_details_button.setStyleSheet("padding: 2px;")
+        expand_details_button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+        expand_details_button.clicked.connect(self._on_clicked_button_expand_details)
+        expand_details_button.setMinimumWidth(15)
 
-            expand_details_button = self._expand_details_button = QPushButton("+")
-            expand_details_button.setStyleSheet("padding: 2px;")
-            expand_details_button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
-            expand_details_button.clicked.connect(self._on_clicked_button_expand_details)
-            expand_details_button.setMinimumWidth(15)
+        # NOTE(copy-paste) Generic separation line code used elsewhere as well.
+        details_header_line = QFrame()
+        details_header_line.setStyleSheet("QFrame { border: 1px solid #C3C2C2; }")
+        details_header_line.setFrameShape(QFrame.HLine)
+        details_header_line.setFixedHeight(1)
 
-            # NOTE(copy-paste) Generic separation line code used elsewhere as well.
-            details_header_line = QFrame()
-            details_header_line.setStyleSheet("QFrame { border: 1px solid #C3C2C2; }")
-            details_header_line.setFrameShape(QFrame.HLine)
-            details_header_line.setFixedHeight(1)
+        details_header = QHBoxLayout()
+        details_header.addWidget(expand_details_button)
+        details_header.addWidget(QLabel(_("Details")))
+        details_header.addWidget(details_header_line, 1)
 
-            details_header = QHBoxLayout()
-            details_header.addWidget(expand_details_button)
-            details_header.addWidget(QLabel(_("Details")))
-            details_header.addWidget(details_header_line, 1)
+        tree = self._scan_detail_tree = QTreeWidget()
+        tree.header().setStretchLastSection(False)
+        tree.setHeaderLabels([ "", "Transaction ID", "Block Height" ])
+        tree.setColumnCount(Columns.COLUMN_COUNT)
+        tree.header().setSectionResizeMode(Columns.STATUS, QHeaderView.ResizeToContents)
+        tree.header().setSectionResizeMode(Columns.TX_ID, QHeaderView.Stretch)
+        tree.header().setSectionResizeMode(Columns.HEIGHT, QHeaderView.ResizeToContents)
+        tree.setVisible(False)
+        tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tree.setSelectionMode(tree.ExtendedSelection)
+        tree.customContextMenuRequested.connect(self._on_tree_scan_context_menu)
+        self._scan_tree_indexes: Dict[bytes, int] = {}
 
-            tree = self._scan_detail_tree = QTreeWidget()
-            tree.header().setStretchLastSection(False)
-            tree.setHeaderLabels([ "", "Transaction ID", "Block Height" ])
-            tree.setColumnCount(Columns.COLUMN_COUNT)
-            tree.header().setSectionResizeMode(Columns.STATUS, QHeaderView.ResizeToContents)
-            tree.header().setSectionResizeMode(Columns.TX_ID, QHeaderView.Stretch)
-            tree.header().setSectionResizeMode(Columns.HEIGHT, QHeaderView.ResizeToContents)
-            tree.setVisible(False)
-            tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            tree.setSelectionMode(tree.ExtendedSelection)
-            tree.customContextMenuRequested.connect(self._on_tree_scan_context_menu)
-            self._scan_tree_indexes: Dict[bytes, int] = {}
-
-            details_layout = self._details_layout = QVBoxLayout()
-            details_layout.addLayout(details_header)
-            details_layout.addWidget(tree)
+        details_layout = self._details_layout = QVBoxLayout()
+        details_layout.addLayout(details_header)
+        details_layout.addWidget(tree)
 
         # NOTE(copy-paste) Generic separation line code used elsewhere as well.
         button_box_line = QFrame()
@@ -442,9 +425,9 @@ class BlockchainScanDialog(WindowModalDialog):
 
         for tx_hash in list(link_tx_hashes):
             link_state = TransactionLinkState()
-            await self._wallet.link_transaction_async(tx_hash, link_state)
+            tx_row = await self._wallet.link_transaction_async(tx_hash, link_state)
             self._import_link_hashes.remove(tx_hash)
-            self.import_step_signal.emit(tx_hash, link_state)
+            self.import_step_signal.emit(tx_row, link_state)
 
     def _on_wallet_event(self, event: WalletEvent, *args: Iterable[Any]) -> None:
         """
@@ -453,20 +436,21 @@ class BlockchainScanDialog(WindowModalDialog):
         This event is triggered by the wallet and is only received for events this object
         registers for and we have explicit handling for each.
         """
-        tx_hash: bytes
+        tx_row: TransactionRow
         link_state: TransactionLinkState
         if event == WalletEvent.TRANSACTION_OBTAINED:
             # NOTE(typing) Either we cast each argument, do unions and tuples or this.
-            tx_hash, _tx, link_state = args # type: ignore
+            tx_row, _tx, link_state = args # type: ignore
 
             # Perhaps we received events from other systems or before the import started.
-            if tx_hash not in self._import_fetch_hashes:
+            if tx_row.tx_hash not in self._import_fetch_hashes:
                 return
-            self._import_fetch_hashes.remove(tx_hash)
-            self.import_step_signal.emit(tx_hash, link_state)
+            self._import_fetch_hashes.remove(tx_row.tx_hash)
+            self.import_step_signal.emit(tx_row, link_state)
 
-    def _update_for_import_step(self, tx_hash: bytes, link_state: TransactionLinkState) -> None:
-        tree_item_index = self._scan_tree_indexes[tx_hash]
+    def _update_for_import_step(self, tx_row: TransactionRow, link_state: TransactionLinkState) \
+            -> None:
+        tree_item_index = self._scan_tree_indexes[tx_row.tx_hash]
         tree_item = self._scan_detail_tree.topLevelItem(tree_item_index)
         import_entry = cast(TransactionScanState, tree_item.data(Columns.STATUS, ImportRoles.ENTRY))
         if link_state.has_spend_conflicts:
@@ -480,20 +464,31 @@ class BlockchainScanDialog(WindowModalDialog):
             import_entry.linked_account_ids = link_state.account_ids
             tree_item.setIcon(Columns.STATUS, self._imported_tx_icon)
             tree_item.setToolTip(Columns.STATUS, _("This transaction was imported successfully."))
+        if tx_row.flags & TxFlags.STATE_SETTLED:
+            assert app_state.headers is not None
+            assert tx_row.block_hash is not None
+            try:
+                header, chain = cast(Tuple[Header, Chain],
+                    app_state.headers.lookup(tx_row.block_hash))
+            except MissingHeader:
+                pass
+            else:
+                tree_item.setText(Columns.HEIGHT, str(header.height))
 
         total_work_units, remaining_work_units = self._get_import_work_units()
-        self.update_progress_signal.emit(total_work_units - remaining_work_units)
+        self._progress_bar.setValue(total_work_units - remaining_work_units)
 
         if remaining_work_units == 0:
             self._stage = ScanDialogStage.FINAL
 
             self._import_end_time = int(time.time())
-            self._update_display()
 
             self._exit_button.setText(_("Exit"))
             self._exit_button.setFocus()
             self._progress_bar.setVisible(False)
             self._scan_button.setEnabled(False)
+
+        self._update_display()
 
     def _get_import_work_units(self) -> Tuple[int, int]:
         total_work_units = self._import_fetch_steps + self._import_link_steps
@@ -735,7 +730,7 @@ class BlockchainScanDialog(WindowModalDialog):
             # NOTE(typing) It accepts `None` in an iterable of strings. Need to test if it can
             #   be replaced by an empty string.
             tx_id = hash_to_hex_str(tx_hash)
-            column_values = [ None, tx_id ]
+            column_values = [ None, tx_id, "?" ]
             tree_item = QTreeWidgetItem(column_values) # type: ignore[arg-type]
             if entry.already_conflicting:
                 tree_item.setIcon(Columns.STATUS, self._conflicted_tx_icon)

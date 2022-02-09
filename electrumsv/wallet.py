@@ -3496,7 +3496,7 @@ class Wallet:
             if tx_hash in self._missing_transactions:
                 del self._missing_transactions[tx_hash]
                 self._logger.debug("Removed missing transaction %s", hash_to_hex_str(tx_hash)[:8])
-                self.events.trigger_callback(WalletEvent.TRANSACTION_OBTAINED, tx_hash, tx,
+                self.events.trigger_callback(WalletEvent.TRANSACTION_OBTAINED, tx_row, tx,
                     link_state)
 
         # TODO(1.4.0) MAPI management. Spent outputs edge case, monitoring STATE_SIGNED or
