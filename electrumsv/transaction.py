@@ -27,8 +27,8 @@ import enum
 from io import BytesIO
 import struct
 from struct import error as struct_error
-from typing import Any, Callable, cast, Dict, Generator, List, Optional, Sequence, Tuple, \
-    TypedDict, TypeVar, Union
+from typing import Any, Callable, cast, Dict, Generator, List, Optional, Protocol, Sequence, \
+    Tuple, TypedDict, TypeVar, Union
 
 import attr
 from bitcoinx import (
@@ -38,7 +38,6 @@ from bitcoinx import (
     PrivateKey, PublicKey, push_int, push_item, read_le_int32, read_le_int64, read_le_uint32,
     read_varint, Script, SigHash, Tx, TxInput, TxOutput, unpack_le_uint16, varint_len
 )
-from typing_extensions import Protocol
 
 from .bitcoin import ScriptTemplate
 from .constants import DatabaseKeyDerivationType, DerivationPath, ScriptType
