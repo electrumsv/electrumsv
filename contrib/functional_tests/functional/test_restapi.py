@@ -2,7 +2,8 @@
 Before running these tests you must install the electrumsv-sdk and run:
 
 electrumsv-sdk start node
-electrumsv-sdk start electrumx
+electrumsv-sdk start simple_indexer
+electrumsv-sdk start reference_server
 electrumsv-sdk start --new electrumsv
 
 """

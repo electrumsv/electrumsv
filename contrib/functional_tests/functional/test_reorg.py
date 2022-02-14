@@ -1,8 +1,8 @@
 """
 Warning - this will reset all components back to a blank state before running the simulation
 
-Runs node1, electrumx1 and electrumsv1 and loads the default wallet on the daemon (so that newly
-submitted blocks will be synchronized by ElectrumSV
+Runs node1, indexer1, reference1 and electrumsv1 and loads the default wallet on the daemon
+(so that newly submitted blocks will be synchronized by ElectrumSV
 
 reorged txid: 'a1fa9460ca105c1396cd338f7fa202bf79a9d244d730e91e19f6302a05b2f07a'
 """

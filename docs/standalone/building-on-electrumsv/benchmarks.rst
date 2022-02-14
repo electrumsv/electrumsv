@@ -24,7 +24,8 @@ Installation of dependencies
 2. Install the ElectrumSV-SDK (follow instructions here: https://electrumsv-sdk.readthedocs.io/ ) and then do::
 
     electrumsv-sdk install node
-    electrumsv-sdk install electrumx
+    electrumsv-sdk install simple_indexer
+    electrumsv-sdk install reference_server
     electrumsv-sdk install --repo=$PWD electrumsv
 
 This will install the repositories and dependencies for these components.

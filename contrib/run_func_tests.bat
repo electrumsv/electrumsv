@@ -9,31 +9,41 @@ if %ERRORLEVEL% neq 0 goto ProcessError
 electrumsv-sdk stop
 if %ERRORLEVEL% neq 0 goto ProcessError
 
-@rem "resetting node, electrumx and electrumsv..."
+@rem "resetting node, simple indexer, reference server and electrumsv..."
 electrumsv-sdk install node
 if %ERRORLEVEL% neq 0 goto ProcessError
 
-electrumsv-sdk install electrumx
+electrumsv-sdk install simple_indexer
+if %ERRORLEVEL% neq 0 goto ProcessError
+
+electrumsv-sdk install reference_server
 if %ERRORLEVEL% neq 0 goto ProcessError
 
 electrumsv-sdk install --repo=%ESVDIR% electrumsv
 if %ERRORLEVEL% neq 0 goto ProcessError
 
-@rem "resetting node, electrumx and electrumsv..."
+@rem "resetting node, simple indexer, reference server and electrumsv..."
 electrumsv-sdk reset node
 if %ERRORLEVEL% neq 0 goto ProcessError
 
-electrumsv-sdk reset electrumx
+electrumsv-sdk reset simple_indexer
+if %ERRORLEVEL% neq 0 goto ProcessError
+
+electrumsv-sdk reset reference_server
 if %ERRORLEVEL% neq 0 goto ProcessError
 
 electrumsv-sdk reset --repo=%ESVDIR%
 if %ERRORLEVEL% neq 0 goto ProcessError
 
-@rem "starting up node, electrumx and electrumsv in preparation for functional testing..."
+@rem "starting up node, simple indexer, reference server and electrumsv in preparation "
+@rem "for functional testing..."
 electrumsv-sdk start --background node
 if %ERRORLEVEL% neq 0 goto ProcessError
 
-electrumsv-sdk start --background electrumx
+electrumsv-sdk start --background simple_indexer
+if %ERRORLEVEL% neq 0 goto ProcessError
+
+electrumsv-sdk start --background reference_server
 if %ERRORLEVEL% neq 0 goto ProcessError
 
 electrumsv-sdk start --background --repo=%ESVDIR% electrumsv
