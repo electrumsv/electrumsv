@@ -252,9 +252,6 @@ def run_offline_command(config: SimpleConfig, config_options: Dict[str, Any]) ->
     cmd_runner = Commands(config, wallet, None)
     func = getattr(cmd_runner, cmd.name)
     result = func(*args, **kwargs)
-    # save wallet
-    if wallet:
-        wallet.stop()
     return result
 
 
