@@ -2179,6 +2179,8 @@ class Wallet:
     _network: Optional[Network] = None
     _stopped: bool = False
 
+    subscriptions: Optional[SubscriptionManager] = None
+
     def __init__(self, storage: WalletStorage, password: Optional[str]=None) -> None:
         self._id = random.randint(0, (1<<32)-1)
 
@@ -3893,9 +3895,9 @@ class Wallet:
 
     def start(self, network: Optional[Network]) -> None:
         self._network = network
-        self.subscriptions = SubscriptionManager()
 
         if network is not None:
+            self.subscriptions = SubscriptionManager()
             network.add_wallet(self)
         for account in self.get_accounts():
             account.start(network)
@@ -3953,8 +3955,8 @@ class Wallet:
                 # should close out all database pending writes.
                 self.update_network_server_states(updated_states)
 
-        self.subscriptions.stop()
-        del self.subscriptions
+            assert self.subscriptions is not None
+            self.subscriptions.stop()
 
         self.data.teardown()
         self.db_functions_async.close()
