@@ -307,7 +307,7 @@ class WalletWizard(BaseWizard):
                     if entry.requires_upgrade:
                         migration_context = MigrationContext(entry, storage)
                         # We hand off the storage reference to the wallet wizard to close.
-                        del storage
+                        storage = None
                         return WalletOpenResult(True, wizard=cls(migration_data=migration_context))
                     return WalletOpenResult(True)
 
