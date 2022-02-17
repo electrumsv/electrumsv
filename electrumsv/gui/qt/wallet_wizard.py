@@ -300,6 +300,7 @@ class WalletWizard(BaseWizard):
         entry = create_file_state(wallet_path)
         was_aborted = False
         if entry is not None and not entry.is_too_modern:
+            storage: Optional[WalletStorage]
             storage = WalletStorage(wallet_path)
             try:
                 password = request_password(None, storage, entry)
