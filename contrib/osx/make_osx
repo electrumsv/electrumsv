@@ -66,12 +66,11 @@ python3 --version
 python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
 
 info "Installing requirements..."
-python3 -m pip install -Ir ./contrib/deterministic-build/requirements.txt && \
-python3 -m pip install -Ir ./contrib/deterministic-build/requirements-binaries.txt || \
+python3 -m pip install -Ir ./contrib/deterministic-build/macos-py3.10-requirements.txt || \
 fail "Could not install requirements"
 
 info "Installing hardware wallet requirements..."
-python3 -m pip install -Ir ./contrib/deterministic-build/requirements-hw.txt || \
+python3 -m pip install -Ir ./contrib/deterministic-build/macos-py3.10-requirements-hw.txt || \
 fail "Could not install hardware wallet requirements"
 
 info "Extracting libusb..."

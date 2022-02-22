@@ -101,15 +101,34 @@ use to run ElectrumSV. Check the following command prints a message that ends wi
 
     pip3 --version
 
-To run ElectrumSV from its top-level directory, first install the core dependencies::
+To run ElectrumSV from its top-level directory, first install the core dependencies.
 
-    pip3 install --user -r contrib/deterministic-build/requirements.txt
-    pip3 install --user -r contrib/deterministic-build/requirements-binaries.txt
+Windows::
+
+    pip3 install --user -r contrib\deterministic-build\win64-py3.10-requirements.txt
+
+MacOS::
+
+    pip3 install --user -r contrib/deterministic-build/macos-py3.10-requirements.txt
+
+Linux::
+
+    pip3 install --user -r contrib/deterministic-build/linux-py3.10-requirements.txt
 
 If you have a hardware wallet, or want to ensure that the hardware wallet support can work,
-install their specific dependencies::
+install their specific dependencies.
 
-    pip3 install --user -r contrib/deterministic-build/requirements-hw.txt
+Windows::
+
+    pip3 install --user -r contrib\deterministic-build\win64-py3.10-requirements-hw.txt
+
+MacOS::
+
+    pip3 install --user -r contrib/deterministic-build/macos-py3.10-requirements-hw.txt
+
+Linux::
+
+    pip3 install --user -r contrib/deterministic-build/linux-py3.10-requirements-hw.txt
 
 Then invoke it as so::
 
@@ -120,9 +139,8 @@ download and install most dependencies used by ElectrumSV. This is useful if you
 the `electrumsv` Python library, perhaps for Bitcoin application development using ElectrumSV
 as a wallet server. And of course it should make the `electrum-sv` command accessible for use.
 
-In order to do so, run these commands::
+In order to do so, run this command::
 
-    pip3 install --user -r contrib/deterministic-build/requirements-binaries.txt
     pip3 install .
 
 Problem Solving
@@ -153,15 +171,11 @@ If you encounter problems referring to "Python.h", first check your Python versi
 
     python3 --version
 
-If it says "3.6", then install the following::
+If it says "3.10", then install the following::
 
-    sudo apt install python3.6-dev
+    sudo apt install python3.10-dev
 
-If it says "3.7", then install the following::
-
-    sudo apt install python3.7-dev
-
-If it says a later version of Python, you should be able to figure out what to do.
+If it says any other version of Python, this is unsupported.
 
 Scanning QR codes
 ~~~~~~~~~~~~~~~~~
@@ -197,15 +211,35 @@ not available:
 5. Ensure *Add Python to environment variables* is checked.
 6. Select *Install*.
 
-To run ElectrumSV from its top-level directory, first install the core dependencies::
+To run ElectrumSV from its top-level directory, first install the core dependencies.
 
-    pip3 install --user -r contrib\deterministic-build\requirements.txt
-    pip3 install --user -r contrib\deterministic-build\requirements-binaries.txt
+Windows::
+
+    pip3 install --user -r contrib\deterministic-build\win64-py3.10-requirements.txt
+
+MacOS::
+
+    pip3 install --user -r contrib/deterministic-build/macos-py3.10-requirements.txt
+
+Linux::
+
+    pip3 install --user -r contrib/deterministic-build/linux-py3.10-requirements.txt
 
 If you have a hardware wallet, or want to ensure that the hardware wallet support can work,
-install their specific dependencies::
+install their specific dependencies.
 
-    pip3 install --user -r contrib\deterministic-build\requirements-hw.txt
+Windows::
+
+    pip3 install --user -r contrib\deterministic-build\win64-py3.10-requirements-hw.txt
+
+MacOS::
+
+    pip3 install --user -r contrib/deterministic-build/macos-py3.10-requirements-hw.txt
+
+Linux::
+
+    pip3 install --user -r contrib/deterministic-build/linux-py3.10-requirements-hw.txt
+
 
 Then invoke it as so::
 
@@ -217,7 +251,6 @@ for Bitcoin application development using ElectrumSV as a wallet server.
 
 In order to do so, run these commands::
 
-    pip3 install --user -r contrib\deterministic-build\requirements-binaries.txt
     pip3 install .
 
 Using ElectrumSV SDK

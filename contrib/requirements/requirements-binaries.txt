@@ -1,8 +1,0 @@
-electrumsv-database
-electrumsv-secp256k1>=0.9.1
-bitcoinX==0.6.0
-PyQt5>=5.15.4
-pycryptodomex
-websocket-client
-dmgbuild
-psutil-wheels
