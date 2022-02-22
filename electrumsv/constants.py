@@ -2,6 +2,7 @@ from enum import Enum, IntEnum, IntFlag
 from typing import Optional, Sequence, Tuple
 
 from bitcoinx import pack_be_uint32, unpack_be_uint32_from
+from electrumsv_database.sqlite import DATABASE_EXT as SQLITE_DATABASE_EXT
 
 
 ## Local functions to avoid circular dependencies. This file should be independent
@@ -35,7 +36,7 @@ class StorageKind(IntEnum):
 
 ## Wallet database
 
-DATABASE_EXT = ".sqlite"
+DATABASE_EXT = SQLITE_DATABASE_EXT
 MIGRATION_FIRST = 22
 MIGRATION_CURRENT = 29
 

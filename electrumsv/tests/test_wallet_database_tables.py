@@ -6,6 +6,7 @@ from typing import Generator, List, Optional
 import unittest.mock
 
 import bitcoinx
+from electrumsv_database.sqlite import DatabaseContext, LeakedSQLiteConnectionError
 import pytest
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
@@ -18,11 +19,9 @@ except ModuleNotFoundError:
 from electrumsv.constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
     MasterKeyFlags, NetworkServerFlag, NetworkServerType,
     PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
-from electrumsv.logs import logs
 from electrumsv.types import ServerAccountKey, Outpoint
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
-from electrumsv.wallet_database.sqlite_support import DatabaseContext, LeakedSQLiteConnectionError
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
     NetworkServerRow, NetworkServerAccountRow, PaymentRequestReadRow, PaymentRequestRow,

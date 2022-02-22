@@ -4,6 +4,7 @@ import unittest
 import unittest.mock
 
 from bitcoinx import BIP39Mnemonic, ElectrumMnemonic, Wordlists
+from electrumsv_database.sqlite import DatabaseContext
 
 from electrumsv.bitcoin import address_from_string
 from electrumsv.constants import AccountFlags, DerivationType, KeystoreTextType, MasterKeyFlags, \
@@ -14,7 +15,6 @@ from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text, 
     Old_KeyStore
 from electrumsv.networks import Net, SVMainnet
 from electrumsv.wallet import MultisigAccount, StandardAccount, Wallet
-from electrumsv.wallet_database.sqlite_support import DatabaseContext
 from electrumsv.wallet_database.types import AccountRow
 
 from .util import MockStorage, setup_async, tear_down_async

@@ -45,6 +45,7 @@ import weakref
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
     BIP32PrivateKey, double_sha256, hash_to_hex_str, hex_str_to_hash, MissingHeader,
     P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Ops, pack_byte, push_item, Script)
+from electrumsv_database.sqlite import DatabaseContext
 
 from . import coinchooser
 from .app_state import app_state
@@ -96,7 +97,6 @@ from .util import (format_satoshis, get_posix_timestamp, get_wallet_name_from_pa
 from .util.cache import LRUCache
 from .wallet_database.exceptions import KeyInstanceNotFoundError
 from .wallet_database import functions as db_functions
-from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataProtocol, KeyData,

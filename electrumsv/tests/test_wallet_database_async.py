@@ -16,10 +16,10 @@ except ModuleNotFoundError:
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore
 import tempfile
+from typing import Generator
 
+from electrumsv_database.sqlite import DatabaseContext
 import pytest
-
-from electrumsv.wallet_database.sqlite_support import DatabaseContext
 
 
 def _db_context():
@@ -29,7 +29,7 @@ def _db_context():
 
 
 @pytest.fixture
-def db_context() -> None:
+def db_context() -> Generator[DatabaseContext, None, None]:
     value = _db_context()
     yield value
     value.close()
@@ -48,7 +48,7 @@ async def test_executor_propagates_exception(db_context: DatabaseContext) -> Non
 
 @pytest.mark.asyncio
 async def test_executor_wraps_database_access(db_context: DatabaseContext) -> None:
-    def _test(db: sqlite3.Connection) -> None:
+    def _test(db: sqlite3.Connection) -> int:
         db.execute("CREATE TABLE FirstTable ("
             "ft_id INTEGER PRIMARY KEY,"
             "ft_name TEXT NOT NULL"

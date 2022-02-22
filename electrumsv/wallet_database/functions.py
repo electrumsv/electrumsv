@@ -12,6 +12,8 @@ except ModuleNotFoundError:
 from types import TracebackType
 from typing import Any, cast, Iterable, List, Optional, Sequence, Set, Tuple, Type, Union
 
+from electrumsv_database.sqlite import DatabaseContext, replace_db_context_with_connection
+
 from ..constants import (DerivationType, DerivationPath, KeyInstanceFlag,
     NetworkServerType, pack_derivation_path, PaymentFlag, ScriptType, TransactionOutputFlag,
     TxFlags, unpack_derivation_path, WalletEventFlag)
@@ -24,7 +26,6 @@ from ..util import get_posix_timestamp
 
 from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     TransactionAlreadyExistsError, TransactionRemovalError)
-from .sqlite_support import DatabaseContext, replace_db_context_with_connection
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,

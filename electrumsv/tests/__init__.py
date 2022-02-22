@@ -1,11 +1,11 @@
-import logging
 import os
 import sys
 import threading
 import unittest
 
+from electrumsv_database.sqlite import DatabaseContext, JournalModes
+
 from electrumsv.networks import Net, SVTestnet, SVMainnet
-from electrumsv.wallet_database.sqlite_support import DatabaseContext, JournalModes
 
 
 def setup_module(module):

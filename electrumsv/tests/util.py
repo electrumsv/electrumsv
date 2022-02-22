@@ -1,9 +1,10 @@
 import os
 
+from electrumsv_database.sqlite import DatabaseContext
+
 from electrumsv.app_state import AppStateProxy
 from electrumsv.credentials import PasswordTokenProtocol
 from electrumsv.simple_config import SimpleConfig
-from electrumsv.wallet_database.sqlite_support import DatabaseContext
 from electrumsv.wallet_database import functions as db_functions
 
 

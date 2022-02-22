@@ -9,8 +9,7 @@ except ModuleNotFoundError:
 from typing import Any, cast, Collection, List, Optional, Sequence, Tuple, Type, TypeVar
 
 from bitcoinx import base58_decode_check, PublicKey
-
-from .sqlite_support import SQLITE_EXPR_TREE_DEPTH, SQLITE_MAX_VARS
+from electrumsv_database.sqlite import SQLITE_EXPR_TREE_DEPTH, SQLITE_MAX_VARS
 
 from ..constants import DerivationType, pack_derivation_path
 from ..types import KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataTypes, \

@@ -1,6 +1,7 @@
 import os
 from typing import Generator, NamedTuple
 
+from electrumsv_database.sqlite import DatabaseContext, SQLITE_MAX_VARS
 import pytest
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
@@ -12,7 +13,6 @@ except ModuleNotFoundError:
 
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.migration import create_database, update_database
-from electrumsv.wallet_database.sqlite_support import DatabaseContext, SQLITE_MAX_VARS
 from electrumsv.wallet_database.types import WalletDataRow
 from electrumsv.wallet_database.util import bulk_insert_returning
 

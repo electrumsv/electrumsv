@@ -42,6 +42,7 @@ import zlib
 
 from bitcoinx import DecryptionError, hash_to_hex_str, hex_str_to_hash, PrivateKey, PublicKey
 from bitcoinx.address import P2PKH_Address, P2SH_Address
+from electrumsv_database.sqlite import DatabaseContext
 
 from .bitcoin import is_address_valid, address_from_string
 from .constants import (CHANGE_SUBPATH, DATABASE_EXT, DerivationType,
@@ -65,7 +66,6 @@ from .wallet_database.storage_migration import (create_accounts1, create_keys1,
     PaymentRequestRow1, TransactionDeltaRow_22, TransactionOutputFlag1, TransactionOutputRow1,
     TransactionRow1, TxData1,
     TxFlags_22, read_wallet_data1, update_wallet_datas1, WalletDataRow1)
-from .wallet_database.sqlite_support import DatabaseContext
 from .wallet_database.types import WalletDataRow
 
 

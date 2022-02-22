@@ -21,7 +21,7 @@ from typing import Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequen
     TypedDict, Union
 
 from bitcoinx import bip32_build_chain_string
-
+from electrumsv_database.sqlite import DatabaseContext, replace_db_context_with_connection
 from ..constants import DerivationPath, DerivationType, KeyInstanceFlag, MasterKeyFlags, \
     PaymentFlag, ScriptType
 from ..types import MasterKeyDataBIP32, \
@@ -29,7 +29,6 @@ from ..types import MasterKeyDataBIP32, \
     MasterKeyDataTypes
 from ..util import get_posix_timestamp
 
-from .sqlite_support import DatabaseContext, replace_db_context_with_connection
 from .types import MasterKeyRow
 
 
@@ -263,7 +262,8 @@ def create_accounts1(db_context: DatabaseContext, entries: Iterable[AccountRow1]
     def _write(db: sqlite3.Connection) -> None:
         nonlocal query, datas
         db.executemany(query, datas)
-    return db_context.post_to_thread(_write)
+    z = db_context.post_to_thread(_write)
+    return z
 
 
 def create_keys1(db_context: DatabaseContext, entries: Iterable[KeyInstanceRow1]) \
