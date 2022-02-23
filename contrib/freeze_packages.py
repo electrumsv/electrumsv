@@ -37,8 +37,13 @@ for r_suffix in [ '-pyinstaller', '',  '-hw' ]:
     adapt projects to the upcoming change.
     """
     # The only affected dependency for ElectrumSV is setuptools which we pin to 51.0.0 currently
-    subprocess.check_call(f"pip-compile --allow-unsafe --generate-hashes --output-file={dr_path}"
-                          f" {r_path}")
+    command_args = ["pip-compile", "--allow-unsafe", "--generate-hashes",
+        f"--output-file={dr_path}", r_path]
+    print(f"Running command: {' '.join(command_args)}")
+    ret = subprocess.run(command_args, stdout=sys.stdout, stderr=sys.stdout)
+    if ret.returncode != 0:
+        print("Failed running command")
+        sys.exit(ret.returncode)
     print("OK.")
 
 print("Done. Updated requirements")

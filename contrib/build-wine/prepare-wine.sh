@@ -95,7 +95,7 @@ done
 # upgrade pip
 $PYTHON -m pip install pip --upgrade
 
-$PYTHON -m pip install -r $here/../deterministic-build/requirements-pyinstaller.txt
+$PYTHON -m pip install -r $here/../deterministic-build/win64-py3.10-requirements-pyinstaller.txt
 
 echo "Compiling PyInstaller bootloader with anti-virus false-positive protection"
 pushd $WINEPREFIX/drive_c/electrum
