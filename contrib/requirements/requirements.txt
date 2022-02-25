@@ -2,20 +2,17 @@ aiohttp>=3.7.4.post
 aiohttp_middlewares
 aiorpcX==0.22.1
 bitcoinX==0.6.0
-certifi
-chardet==3.0.4 # aiohttp 3.7.3 caps the version at this, requests also uses it.
-dmgbuild
+dmgbuild; platform_system=="Macos"
 dnspython<2.0
 ecdsa>=0.13.3
 electrumsv-database>=1.5
 electrumsv-secp256k1>=0.9.1
-mypy-extensions
-psutil-wheels
-pyaes>=0.1a1
-pycryptodomex
+mypy-extensions         # TODO: Look at whether this should be in `requirements-dev.txt`.
+psutil-wheels; platform_system=="Windows"
+pyaes>=0.1a1            # TODO: We should be able to phase this out for pycryptodomex
+pycryptodomex           # Only used for AES
 PyQt5>=5.15.4
 requests
 python-dateutil>=2.8.0
 qrcode
 websocket-client
-yarl

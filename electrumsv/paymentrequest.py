@@ -28,7 +28,6 @@ from typing import Any, cast, List, Optional, Dict, TYPE_CHECKING, Union
 import urllib.parse
 
 from bitcoinx import Script
-import certifi
 import requests
 
 from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
@@ -58,9 +57,6 @@ ACK_HEADERS = {
     'Accept': 'application/bitcoinsv-paymentack',
     'User-Agent': 'ElectrumSV'
 }
-
-# Used for requests.
-ca_path = certifi.where()
 
 # BIP 270 - Simplified Payment Protocol
 # https://github.com/electrumsv/bips/blob/master/bip-0270.mediawiki
@@ -319,7 +315,7 @@ class PaymentRequest:
 
     # The following function and classes is abstracted to allow unit testing.
     def _make_request(self, url: str, message: str) -> "_RequestsResponseWrapper":
-        r = requests.post(url, data=message, headers=ACK_HEADERS, verify=ca_path)
+        r = requests.post(url, data=message, headers=ACK_HEADERS)
         return self._RequestsResponseWrapper(r)
 
     class _RequestsResponseWrapper:

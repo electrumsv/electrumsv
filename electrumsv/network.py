@@ -46,7 +46,6 @@ from aiorpcx import (
 from bitcoinx import BitcoinRegtest, Chain, CheckPoint, double_sha256, Header, Headers, \
     IncorrectBits, InsufficientPoW, MissingHeader, hash_to_hex_str, hex_str_to_hash, sha256
 from bitcoinx import Network as BitcoinXNetwork
-import certifi
 
 from .app_state import app_state, attempt_exception_reporting
 from .constants import API_SERVER_TYPES, NetworkEventNames, NetworkServerType
@@ -436,7 +435,6 @@ class SVProxy(SOCKSProxy): # type: ignore
 # NOTE(typing) base class lacks typing.
 class SVSession(RPCSession): # type: ignore
 
-    ca_path = certifi.where()
     _connecting_tips: Dict[bytes, asyncio.Event] = {}
     _need_checkpoint_headers = True
 
