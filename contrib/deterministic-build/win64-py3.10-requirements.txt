@@ -194,9 +194,9 @@ ecdsa==0.17.0 \
     --hash=sha256:5cf31d5b33743abe0dfc28999036c849a69d548f994b535e527ee3cb7f3ef676 \
     --hash=sha256:b9f500bb439e4153d0330610f5d26baaf18d17b8ced1bc54410d189385ea68aa
     # via -r C:\Data\Git\electrumsv\contrib\requirements\requirements.txt
-electrumsv-database==1.2 \
-    --hash=sha256:564e29b5448190df76fb22a6a45b7a99f0204d5bf6fde96443902094ce215441 \
-    --hash=sha256:cf1dd7b5486b835b74b141e78816d430865568d6a53c54574714a88b028a2686
+electrumsv-database==1.5 \
+    --hash=sha256:21289a705ce84304c534107a0f338f9ca323748307b74f6917c7de338294424c \
+    --hash=sha256:a312c4351d7832b7966862316da2d94d8b82aa4e87590a85230a460899420b0e
     # via -r C:\Data\Git\electrumsv\contrib\requirements\requirements.txt
 electrumsv-secp256k1==0.9.4 \
     --hash=sha256:3b2d7b5380337692466f864dfc412452b09379565ec26b48cf27525685ef9fd9 \

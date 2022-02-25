@@ -7,7 +7,7 @@ chardet==3.0.4 # aiohttp 3.7.3 caps the version at this, requests also uses it.
 dmgbuild
 dnspython<2.0
 ecdsa>=0.13.3
-electrumsv-database
+electrumsv-database>=1.5
 electrumsv-secp256k1>=0.9.1
 mypy-extensions
 psutil-wheels

@@ -259,8 +259,9 @@ def create_accounts1(db_context: DatabaseContext, entries: Iterable[AccountRow1]
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
         "account_name, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?)")
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
         nonlocal query, datas
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(query, datas)
     z = db_context.post_to_thread(_write)
     return z
@@ -273,8 +274,9 @@ def create_keys1(db_context: DatabaseContext, entries: Iterable[KeyInstanceRow1]
     query = ("INSERT INTO KeyInstances (keyinstance_id, account_id, masterkey_id, "
         "derivation_type, derivation_data, script_type, flags, description, date_created, "
         "date_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
         nonlocal query, datas
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
@@ -285,8 +287,9 @@ def create_master_keys1(db_context: DatabaseContext, entries: Iterable[MasterKey
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
         "derivation_data, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?)")
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
         nonlocal query, datas
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
@@ -298,8 +301,9 @@ def create_payment_requests1(db_context: DatabaseContext, entries: Iterable[Paym
         "(paymentrequest_id, keyinstance_id, state, value, expiration, description, date_created, "
         "date_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     datas = [ (*t, t[-1]) for t in entries ]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
         nonlocal query, datas
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
@@ -311,8 +315,9 @@ def create_transaction_deltas_22(db_context: DatabaseContext,
     query = ("INSERT INTO TransactionDeltas (tx_hash, keyinstance_id, value_delta, "
         "date_created, date_updated) VALUES (?, ?, ?, ?, ?)")
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
         nonlocal query, datas
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
@@ -323,8 +328,9 @@ def create_transaction_outputs1(db_context: DatabaseContext,
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, keyinstance_id, "
         "flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
         nonlocal query, datas
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
@@ -352,7 +358,8 @@ def create_transactions1(db_context: DatabaseContext, entries: Iterable[Transact
             metadata.fee, description, metadata.date_added,
             metadata.date_updated))
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
@@ -368,8 +375,9 @@ def create_wallet_datas1(db_context: DatabaseContext, entries: Iterable[WalletDa
         data = json.dumps(entry.value)
         rows.append([ entry.key, data, timestamp, timestamp])
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
         nonlocal sql, rows
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -390,8 +398,9 @@ def update_wallet_datas1(db_context: DatabaseContext, entries: Iterable[WalletDa
     for entry in entries:
         rows.append((json.dumps(entry.value), timestamp, entry.key))
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
         nonlocal sql, rows
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 

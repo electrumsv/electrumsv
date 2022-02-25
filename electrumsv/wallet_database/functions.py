@@ -1,3 +1,25 @@
+"""
+Copyright(c) 2021, 2022 Bitcoin Association.
+Distributed under the Open BSV software license, see the accompanying file LICENSE
+
+Note on typing
+--------------
+
+Write database functions are run in the SQLite writer thread using the helper functions from
+the `sqlite_database` package, and because of this have to follow the pattern where the database
+is an optional last argument.
+
+    ```
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
+        ...
+    ```
+
+This is not required for reading functions as they should run generally run inline unless they
+are long running, in which case they should be handed off to a worker thread.
+
+"""
+
 from collections import defaultdict
 import concurrent.futures
 import json
@@ -50,7 +72,8 @@ def create_accounts(db_context: DatabaseContext, entries: Iterable[AccountRow]) 
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
         "account_name, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
 
@@ -64,7 +87,8 @@ def create_invoices(db_context: DatabaseContext, entries: Iterable[InvoiceRow]) 
     timestamp = get_posix_timestamp()
     # Discard the first column for the id and the last column for date updated.
     rows = [ (*entry[1:-1], timestamp, timestamp) for entry in entries ]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -77,7 +101,8 @@ def create_keyinstances(db_context: DatabaseContext, entries: Iterable[KeyInstan
         "(keyinstance_id, account_id, masterkey_id, derivation_type, derivation_data, "
         "derivation_data2, flags, description, date_created, date_updated) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, datas)
     return db_context.post_to_thread(_write)
 
@@ -89,8 +114,9 @@ def create_keyinstance_scripts(db_context: DatabaseContext,
         "VALUES (?, ?, ?, ?, ?)")
     timestamp = get_posix_timestamp()
     rows = [ (*t, timestamp, timestamp) for t in entries]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
         nonlocal sql, rows
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -101,7 +127,8 @@ def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyR
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     sql = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
         "derivation_data, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, datas)
     return db_context.post_to_thread(_write)
 
@@ -115,7 +142,8 @@ def create_payment_requests(db_context: DatabaseContext, entries: List[PaymentRe
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     timestamp = get_posix_timestamp()
     sql_values = [ (*t[:-1], timestamp, timestamp) for t in entries ]
-    def _write(db: sqlite3.Connection) -> List[PaymentRequestRow]:
+    def _write(db: Optional[sqlite3.Connection]=None) -> List[PaymentRequestRow]:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, sql_values)
         return entries
     return db_context.post_to_thread(_write)
@@ -128,7 +156,8 @@ def create_transaction_outputs(db_context: DatabaseContext,
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     timestamp = get_posix_timestamp()
     db_rows = [ (*t, timestamp, timestamp) for t in entries ]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, db_rows)
     return db_context.post_to_thread(_write)
 
@@ -141,7 +170,8 @@ def create_account_transactions_UNITTEST(db_context: DatabaseContext,
             (account_id, tx_hash, flags, description, date_created, date_updated)
         VALUES (?,?,?,?,?,?)
     """
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         logger.debug("add %d account transactions", len(rows))
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
@@ -159,7 +189,8 @@ def create_transactions_UNITTEST(db_context: DatabaseContext, rows: List[Transac
         assert type(row.tx_hash) is bytes and row.tx_bytes is not None
         assert row.date_created > 0 and row.date_updated > 0
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         logger.debug("add %d transactions", len(rows))
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
@@ -176,7 +207,8 @@ def create_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDat
         data = json.dumps(entry.value)
         rows.append([ entry.key, data, timestamp, timestamp])
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -187,7 +219,8 @@ def create_wallet_events(db_context: DatabaseContext, entries: List[WalletEventI
         "date_updated) VALUES"
     sql_suffix = "RETURNING event_id, event_type, account_id, event_flags, date_created, " \
         "date_updated"
-    def _write(db: sqlite3.Connection) -> List[WalletEventRow]:
+    def _write(db: Optional[sqlite3.Connection]=None) -> List[WalletEventRow]:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         return bulk_insert_returning(WalletEventRow, db, sql_prefix, sql_suffix, entries)
 
     return db_context.post_to_thread(_write)
@@ -196,7 +229,8 @@ def create_wallet_events(db_context: DatabaseContext, entries: List[WalletEventI
 def delete_invoices(db_context: DatabaseContext, entries: Iterable[Tuple[int]]) \
         -> concurrent.futures.Future[None]:
     sql = "DELETE FROM Invoices WHERE invoice_id=?"
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, entries)
     return db_context.post_to_thread(_write)
 
@@ -211,7 +245,8 @@ def delete_payment_request(db_context: DatabaseContext, paymentrequest_id: int,
     write_sql2 = "DELETE FROM PaymentRequests WHERE paymentrequest_id=?"
     write_sql2_values = (paymentrequest_id,)
 
-    def _write(db: sqlite3.Connection) -> KeyInstanceFlag:
+    def _write(db: Optional[sqlite3.Connection]=None) -> KeyInstanceFlag:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         # We need the flags for the key instance to work out why it is active.
         flags = db.execute(read_sql1, read_sql1_values).fetchone()[0]
         assert flags & expected_key_flags == expected_key_flags, "not a valid payment request key"
@@ -228,7 +263,8 @@ def delete_payment_request(db_context: DatabaseContext, paymentrequest_id: int,
 
 def delete_wallet_data(db_context: DatabaseContext, key: str) -> concurrent.futures.Future[None]:
     sql = "DELETE FROM WalletData WHERE key=?"
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.execute(sql, (key,))
     return db_context.post_to_thread(_write)
 
@@ -1298,7 +1334,8 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) \
         "WHERE tx_hash=?")
     sql4_values = (timestamp, tx_hash)
 
-    def _write(db: sqlite3.Connection) -> bool:
+    def _write(db: Optional[sqlite3.Connection]=None) -> bool:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.execute(sql1, sql1_values)
         db.execute(sql2, sql2_values)
         db.execute(sql3, sql3_values)
@@ -1339,7 +1376,9 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
         prefix_bytes ]                  # The packed parent path bytes.
     sql_write = "UPDATE KeyInstances SET flags=flags|? WHERE keyinstance_id=? AND flags&?=0"
 
-    def _write(db: sqlite3.Connection) -> Tuple[int, DerivationType, bytes, KeyInstanceFlag]:
+    def _write(db: Optional[sqlite3.Connection]=None) \
+            -> Tuple[int, DerivationType, bytes, KeyInstanceFlag]:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         keyinstance_row = db.execute(sql_read, sql_read_values).fetchone()
         if keyinstance_row is None:
             raise KeyInstanceNotFoundError()
@@ -1389,7 +1428,8 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
         "FROM KeyInstances "
         "WHERE keyinstance_id IN ({})")
 
-    def _write(db: sqlite3.Connection) -> List[KeyInstanceFlagChangeRow]:
+    def _write(db: Optional[sqlite3.Connection]=None) -> List[KeyInstanceFlagChangeRow]:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         # TODO(optimisation) It is potentially possible to combine this into the update by using
         #   a join or a sub-select. But whether this works with Sqlite, is another matter.
         #   Reference: https://stackoverflow.com/a/7927957
@@ -1437,7 +1477,8 @@ def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxF
         "WHERE tx_hash=? AND flags&?=0")
     sql_values = [ timestamp, mask_bits, flag, tx_hash, ignore_mask ]
 
-    def _write(db: sqlite3.Connection) -> bool:
+    def _write(db: Optional[sqlite3.Connection]=None) -> bool:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         cursor = db.execute(sql, sql_values)
         if cursor.rowcount == 0:
             # Rollback the database transaction (nothing to rollback but upholding the convention).
@@ -1464,7 +1505,7 @@ def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxF
 #         "WHERE tx_hash IN ({})")
 #     sql_values = [ timestamp, ~TxFlags.MASK_STATE, TxFlags.STATE_CLEARED ]
 
-#     def _write(db: sqlite3.Connection) -> bool:
+#     def _write(db: Optional[sqlite3.Connection]=None) -> bool:
 #         rows_updated = execute_sql_by_id(db, sql, sql_values, tx_hashes)[0]
 #         if rows_updated < len(tx_hashes):
 #             # Rollback the database transaction (nothing to rollback but upholding the convention)
@@ -1477,8 +1518,9 @@ async def update_transaction_flags_async(db_context: DatabaseContext, tx_hash: b
         flags: TxFlags, mask: Union[int, TxFlags]) -> bool:
     return await db_context.run_in_thread_async(_update_transaction_flags, tx_hash, flags, mask)
 
-def _update_transaction_flags(db: sqlite3.Connection, tx_hash: bytes,
-        flags: TxFlags, mask: Union[int, TxFlags]) -> bool:
+def _update_transaction_flags(tx_hash: bytes, flags: TxFlags, mask: Union[int, TxFlags], \
+        db: Optional[sqlite3.Connection]=None) -> bool:
+    assert db is not None and isinstance(db, sqlite3.Connection)
     sql = "UPDATE Transactions SET flags=(flags&?)|? WHERE tx_hash=?"
     sql_values: List[Any] = [ mask, flags, tx_hash ]
     cursor = db.execute(sql, sql_values)
@@ -1495,8 +1537,9 @@ def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[
     sql_id_expression = "tx_hash=? AND txo_index=?"
     sql_values = [ get_posix_timestamp(), mask, flags ]
 
-    def _write(db: sqlite3.Connection) -> bool:
+    def _write(db: Optional[sqlite3.Connection]=None) -> bool:
         nonlocal sql, sql_id_expression, sql_values, txo_keys
+        assert db is not None and isinstance(db, sqlite3.Connection)
         rows_updated = update_rows_by_ids(db, sql, sql_id_expression, sql_values, txo_keys)
         if rows_updated != len(txo_keys):
             raise DatabaseUpdateError(f"Rollback as only {rows_updated} of {len(txo_keys)} "
@@ -1511,9 +1554,9 @@ async def update_transaction_proof_async(db_context: DatabaseContext, tx_hash: b
     await db_context.run_in_thread_async(_update_transaction_proof, tx_hash,
         block_hash, block_position, proof_data, tx_flags)
 
-def _update_transaction_proof(db: sqlite3.Connection, tx_hash: bytes,
-        block_hash: Optional[bytes], block_position: Optional[int],
-        proof_data: Optional[bytes], tx_flags: TxFlags) -> None:
+def _update_transaction_proof(tx_hash: bytes, block_hash: Optional[bytes],
+        block_position: Optional[int], proof_data: Optional[bytes], tx_flags: TxFlags,
+        db: Optional[sqlite3.Connection]=None) -> None:
     """
     Set the proof related fields for a transaction.
 
@@ -1532,6 +1575,7 @@ def _update_transaction_proof(db: sqlite3.Connection, tx_hash: bytes,
 
     This should only be called in the context of the writer thread.
     """
+    assert db is not None and isinstance(db, sqlite3.Connection)
     assert tx_flags & ~TxFlags.MASK_STATE == 0      # No non-state flags should be set.
     assert tx_flags & TxFlags.MASK_STATE != 0       # A state flag should be set.
 
@@ -1554,7 +1598,8 @@ def set_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDataRo
     for entry in entries:
         rows.append((entry.key, json.dumps(entry.value), timestamp, timestamp))
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -1564,7 +1609,8 @@ def update_account_names(db_context: DatabaseContext, entries: Iterable[Tuple[st
     sql = "UPDATE Accounts SET date_updated=?, account_name=? WHERE account_id=?"
     timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -1574,7 +1620,8 @@ def update_account_script_types(db_context: DatabaseContext,
     sql = "UPDATE Accounts SET date_updated=?, default_script_type=? WHERE account_id=?"
     timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -1585,7 +1632,8 @@ def update_account_transaction_descriptions(db_context: DatabaseContext,
     sql = "UPDATE AccountTransactions SET date_updated=?, description=? " \
         "WHERE account_id=? AND tx_hash=?"
     rows = [ (timestamp,) + entry for entry in entries ]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -1595,7 +1643,8 @@ def update_invoice_transactions(db_context: DatabaseContext,
     sql = "UPDATE Invoices SET date_updated=?, tx_hash=? WHERE invoice_id=?"
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -1606,7 +1655,8 @@ def update_invoice_descriptions(db_context: DatabaseContext,
         "WHERE invoice_id=?")
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -1618,7 +1668,8 @@ def update_invoice_flags(db_context: DatabaseContext,
         "WHERE invoice_id=?")
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -1630,7 +1681,8 @@ def update_keyinstance_derivation_datas(db_context: DatabaseContext,
     timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -1640,7 +1692,8 @@ def update_keyinstance_descriptions(db_context: DatabaseContext,
     sql = ("UPDATE KeyInstances SET date_updated=?, description=? WHERE keyinstance_id=?")
     timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -1674,7 +1727,8 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
 
     date_updated = get_posix_timestamp()
 
-    def _write(db: sqlite3.Connection) -> PasswordUpdateResult:
+    def _write(db: Optional[sqlite3.Connection]=None) -> PasswordUpdateResult:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         password_token = pw_encode(os.urandom(32).hex(), new_password)
 
         cursor = db.execute(token_update_sql, (date_updated, password_token, "password-token"))
@@ -1792,8 +1846,9 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
     return db_context.post_to_thread(_write)
 
 
-def _close_paid_payment_requests(db: sqlite3.Connection) \
+def _close_paid_payment_requests(db: Optional[sqlite3.Connection]=None) \
         -> Tuple[Set[int], List[Tuple[int, int, int]], List[Tuple[str, int, bytes]]]:
+    assert db is not None and isinstance(db, sqlite3.Connection)
     timestamp = get_posix_timestamp()
     sql_read_1 = """
     WITH key_payments AS (
@@ -1875,7 +1930,8 @@ def update_payment_requests(db_context: DatabaseContext,
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -1885,7 +1941,8 @@ def update_wallet_event_flags(db_context: DatabaseContext,
     sql = "UPDATE WalletEvents SET date_updated=?, event_flags=? WHERE event_id=?"
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -1930,7 +1987,8 @@ def update_network_servers(db_context: DatabaseContext,
     if deleted_server_keys:
         delete_server_keys = [ (v.url, v.server_type) for v in deleted_server_keys ]
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         if delete_server_keys:
             db.executemany(delete_server_accounts_sql, delete_server_keys)
             db.executemany(delete_server_sql, delete_server_keys)
@@ -1971,7 +2029,8 @@ def update_network_server_states(db_context: DatabaseContext,
         account_row.url, account_row.server_type, account_row.account_id)
         for account_row in updated_server_account_rows ]
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         if update_server_rows:
             db.executemany(update_server_sql, update_server_rows)
         if update_server_account_rows:
@@ -1986,7 +2045,8 @@ def create_mapi_broadcast_callbacks(db_context: DatabaseContext,
         (tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id, status_flags)
         VALUES (?, ?, ?, ?, ?, ?)"""
 
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, rows)
     return db_context.post_to_thread(_write)
 
@@ -2005,7 +2065,8 @@ def update_mapi_broadcast_callbacks(db_context: DatabaseContext,
         entries: Iterable[Tuple[MapiBroadcastStatusFlags, bytes]]) \
             -> concurrent.futures.Future[None]:
     sql = "UPDATE MAPIBroadcastCallbacks SET status_flags=? WHERE tx_hash=?"
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, entries)
     return db_context.post_to_thread(_write)
 
@@ -2013,7 +2074,8 @@ def update_mapi_broadcast_callbacks(db_context: DatabaseContext,
 def delete_mapi_broadcast_callbacks(db_context: DatabaseContext, tx_hashes: Iterable[bytes]) \
         -> concurrent.futures.Future[None]:
     sql = "DELETE FROM MAPIBroadcastCallbacks WHERE tx_hash=?"
-    def _write(db: sqlite3.Connection) -> None:
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, [(tx_hash,) for tx_hash in tx_hashes])
     return db_context.post_to_thread(_write)
 
@@ -2053,9 +2115,9 @@ class AsynchronousFunctions:
         return await self._db_context.run_in_thread_async(self._import_transaction, tx_row,
             txi_rows, txo_rows, link_state)
 
-    def _import_transaction(self, db: sqlite3.Connection, tx_row: TransactionRow,
+    def _import_transaction(self, tx_row: TransactionRow,
             txi_rows: List[TransactionInputAddRow], txo_rows: List[TransactionOutputAddRow],
-            link_state: TransactionLinkState) -> bool:
+            link_state: TransactionLinkState, db: Optional[sqlite3.Connection]=None) -> bool:
         """
         Insert the transaction data and attempt to link it to any accounts it may be involved with.
 
@@ -2147,8 +2209,9 @@ class AsynchronousFunctions:
         return await self._db_context.run_in_thread_async(self._link_transaction_returning,
             tx_hash, link_state)
 
-    def _link_transaction_returning(self, db: sqlite3.Connection, tx_hash: bytes,
-            link_state: TransactionLinkState) -> TransactionRow:
+    def _link_transaction_returning(self, tx_hash: bytes, link_state: TransactionLinkState,
+            db: Optional[sqlite3.Connection]=None) -> TransactionRow:
+        assert db is not None and isinstance(db, sqlite3.Connection)
         self._link_transaction(db, tx_hash, link_state)
 
         cursor = db.execute("SELECT flags, block_hash, block_position, fee_value, description, "
