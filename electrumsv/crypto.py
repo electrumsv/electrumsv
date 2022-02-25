@@ -28,15 +28,10 @@ import hashlib
 import hmac
 from typing import Optional, Union
 
-import pyaes
-
 from .exceptions import InvalidPassword
 
 
-try:
-    from Cryptodome.Cipher import AES
-except ImportError:
-    AES = None # type: ignore
+from Cryptodome.Cipher import AES
 
 
 class InvalidPadding(Exception):
@@ -62,23 +57,12 @@ def strip_PKCS7_padding(data: bytes) -> bytes:
 
 def aes_encrypt_with_iv(key: bytes, iv: bytes, data: bytes) -> bytes:
     data = append_PKCS7_padding(data)
-    if AES:
-        e = AES.new(key, AES.MODE_CBC, iv).encrypt(data)
-    else:
-        aes_cbc = pyaes.AESModeOfOperationCBC(key, iv=iv)
-        aes = pyaes.Encrypter(aes_cbc, padding=pyaes.PADDING_NONE)
-        e = aes.feed(data) + aes.feed()  # empty aes.feed() flushes buffer
-    return e
+    return AES.new(key, AES.MODE_CBC, iv).encrypt(data)
 
 
 def aes_decrypt_with_iv(key: bytes, iv: bytes, data: bytes) -> bytes:
-    if AES:
-        cipher = AES.new(key, AES.MODE_CBC, iv)
-        data = cipher.decrypt(data)
-    else:
-        aes_cbc = pyaes.AESModeOfOperationCBC(key, iv=iv)
-        aes = pyaes.Decrypter(aes_cbc, padding=pyaes.PADDING_NONE)
-        data = aes.feed(data) + aes.feed()  # empty aes.feed() flushes buffer
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    data = cipher.decrypt(data)
     try:
         return strip_PKCS7_padding(data)
     except InvalidPadding:

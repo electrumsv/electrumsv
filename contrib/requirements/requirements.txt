@@ -9,7 +9,6 @@ electrumsv-database>=1.5
 electrumsv-secp256k1>=0.9.1
 mypy-extensions         # TODO: Look at whether this should be in `requirements-dev.txt`.
 psutil-wheels; platform_system=="Windows"
-pyaes>=0.1a1            # TODO: We should be able to phase this out for pycryptodomex
 pycryptodomex           # Only used for AES
 PyQt5>=5.15.4
 requests

@@ -15,37 +15,10 @@ from electrumsv.storage import WalletStorage
 
 from . import SequentialTestCase
 from . import TestCaseForTestnet
-from . import FAST_TESTS
 
 
 def address_to_script(addr):
     return address_from_string(addr).to_script_bytes().hex()
-
-
-def needs_test_with_all_aes_implementations(func):
-    """Function decorator to run a unit test twice:
-    once when pycryptodomex is not available, once when it is.
-
-    NOTE: this is inherently sequential;
-    tests running in parallel would break things
-    """
-    def run_test(*args, **kwargs):
-        if FAST_TESTS:  # if set, only run tests once, using fastest implementation
-            func(*args, **kwargs)
-            return
-        _aes = crypto.AES
-        crypto.AES = None
-        try:
-            # first test without pycryptodomex
-            func(*args, **kwargs)
-        finally:
-            crypto.AES = _aes
-        # if pycryptodomex is not available, we are done
-        if not _aes:
-            return
-        # if pycryptodomex is available, test again now
-        func(*args, **kwargs)
-    return run_test
 
 
 class Test_bitcoin(SequentialTestCase):
@@ -81,14 +54,12 @@ class Test_bitcoin(SequentialTestCase):
         self.assertFalse(PublicKey.verify_message_and_address(b'wrong', msg1, addr1))
         self.assertFalse(PublicKey.verify_message_and_address(sig2, msg1, addr1))
 
-    @needs_test_with_all_aes_implementations
     def test_decrypt_message(self):
         key = WalletStorage.get_eckey_from_password('pw123')
         self.assertEqual(b'me<(s_s)>age', key.decrypt_message('QklFMQMDFtgT3zWSQsa+Uie8H/WvfUjlu9UN9OJtTt3KlgKeSTi6SQfuhcg1uIz9hp3WIUOFGTLr4RNQBdjPNqzXwhkcPi2Xsbiw6UCNJncVPJ6QBg=='))
         self.assertEqual(b'me<(s_s)>age', key.decrypt_message('QklFMQKXOXbylOQTSMGfo4MFRwivAxeEEkewWQrpdYTzjPhqjHcGBJwdIhB7DyRfRQihuXx1y0ZLLv7XxLzrILzkl/H4YUtZB4uWjuOAcmxQH4i/Og=='))
         self.assertEqual(b'hey_there' * 100, key.decrypt_message('QklFMQLOOsabsXtGQH8edAa6VOUa5wX8/DXmxX9NyHoAx1a5bWgllayGRVPeI2bf0ZdWK0tfal0ap0ZIVKbd2eOJybqQkILqT6E1/Syzq0Zicyb/AA1eZNkcX5y4gzloxinw00ubCA8M7gcUjJpOqbnksATcJ5y2YYXcHMGGfGurWu6uJ/UyrNobRidWppRMW5yR9/6utyNvT6OHIolCMEf7qLcmtneoXEiz51hkRdZS7weNf9mGqSbz9a2NL3sdh1A0feHIjAZgcCKcAvksNUSauf0/FnIjzTyPRpjRDMeDC8Ci3sGiuO3cvpWJwhZfbjcS26KmBv2CHWXfRRNFYOInHZNIXWNAoBB47Il5bGSMd+uXiGr+SQ9tNvcu+BiJNmFbxYqg+oQ8dGAl1DtvY2wJVY8k7vO9BIWSpyIxfGw7EDifhc5vnOmGe016p6a01C3eVGxgl23UYMrP7+fpjOcPmTSF4rk5U5ljEN3MSYqlf1QEv0OqlI9q1TwTK02VBCjMTYxDHsnt04OjNBkNO8v5uJ4NR+UUDBEp433z53I59uawZ+dbk4v4ZExcl8EGmKm3Gzbal/iJ/F7KQuX2b/ySEhLOFVYFWxK73X1nBvCSK2mC2/8fCw8oI5pmvzJwQhcCKTdEIrz3MMvAHqtPScDUOjzhXxInQOCb3+UBj1PPIdqkYLvZss1TEaBwYZjLkVnK2MBj7BaqT6Rp6+5A/fippUKHsnB6eYMEPR2YgDmCHL+4twxHJG6UWdP3ybaKiiAPy2OHNP6PTZ0HrqHOSJzBSDD+Z8YpaRg29QX3UEWlqnSKaan0VYAsV1VeaN0XFX46/TWO0L5tjhYVXJJYGqo6tIQJymxATLFRF6AZaD1Mwd27IAL04WkmoQoXfO6OFfwdp/shudY/1gBkDBvGPICBPtnqkvhGF+ZF3IRkuPwiFWeXmwBxKHsRx/3+aJu32Ml9+za41zVk2viaxcGqwTc5KMexQFLAUwqhv+aIik7U+5qk/gEVSuRoVkihoweFzKolNF+BknH2oB4rZdPixag5Zje3DvgjsSFlOl69W/67t/Gs8htfSAaHlsB8vWRQr9+v/lxTbrAw+O0E+sYGoObQ4qQMyQshNZEHbpPg63eWiHtJJnrVBvOeIbIHzoLDnMDsWVWZSMzAQ1vhX1H5QLgSEbRlKSliVY03kDkh/Nk/KOn+B2q37Ialq4JcRoIYFGJ8AoYEAD0tRuTqFddIclE75HzwaNG7NyKW1plsa72ciOPwsPJsdd5F0qdSQ3OSKtooTn7uf6dXOc4lDkfrVYRlZ0PX'))
 
-    @needs_test_with_all_aes_implementations
     def test_encrypt_message(self):
         key = WalletStorage.get_eckey_from_password('secret_password77')
         public_key = key.public_key
@@ -112,7 +83,6 @@ class Test_bitcoin(SequentialTestCase):
         sig2 = eckey2.sign(bytes.fromhex('642a2e66332f507c92bda910158dfe46fc10afbf72218764899d3af99a043fac'), None)
         self.assertEqual(bytes.fromhex('30440220618513f4cfc87dde798ce5febae7634c23e7b9254a1eabf486be820f6a7c2c4702204fef459393a2b931f949e63ced06888f35e286e446dc46feb24b5b5f81c6ed52'), sig2)
 
-    @needs_test_with_all_aes_implementations
     def test_aes_homomorphic(self):
         """Make sure AES is homomorphic."""
         payload = u'\u66f4\u7a33\u5b9a\u7684\u4ea4\u6613\u5e73\u53f0'
@@ -121,21 +91,18 @@ class Test_bitcoin(SequentialTestCase):
         dec = crypto.pw_decode(enc, password)
         self.assertEqual(dec, payload)
 
-    @needs_test_with_all_aes_implementations
     def test_aes_encode_without_password(self):
         """When not passed a password, pw_encode is noop on the payload."""
         payload = u'\u66f4\u7a33\u5b9a\u7684\u4ea4\u6613\u5e73\u53f0'
         enc = crypto.pw_encode(payload, None)
         self.assertEqual(payload, enc)
 
-    @needs_test_with_all_aes_implementations
     def test_aes_deencode_without_password(self):
         """When not passed a password, pw_decode is noop on the payload."""
         payload = u'\u66f4\u7a33\u5b9a\u7684\u4ea4\u6613\u5e73\u53f0'
         enc = crypto.pw_decode(payload, None)
         self.assertEqual(payload, enc)
 
-    @needs_test_with_all_aes_implementations
     def test_aes_decode_with_invalid_password(self):
         """pw_decode raises an Exception when supplied an invalid password."""
         payload = u"blah"
