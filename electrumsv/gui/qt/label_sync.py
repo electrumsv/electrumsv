@@ -30,14 +30,15 @@ import hashlib
 import os
 import requests
 import threading
-from typing import Any, Callable, Dict, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Callable, cast, Dict, Optional, Tuple, TYPE_CHECKING
 
+from bitcoinx.aes import aes_decrypt_with_iv, aes_encrypt_with_iv
+from bitcoinx.errors import DecryptionError
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QDialog, QFileDialog, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
 from electrumsv.app_state import app_state
-from electrumsv.crypto import aes_decrypt_with_iv, aes_encrypt_with_iv
-from electrumsv.exceptions import UserCancelled
+from electrumsv.exceptions import InvalidPassword, UserCancelled
 from electrumsv.extensions import label_sync
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -87,7 +88,10 @@ class LabelSync(object):
     def decode(self, account: AbstractAccount, message: str) -> str:
         password, iv, wallet_id = self._accounts[account]
         decoded = base64.b64decode(message)
-        decrypted = aes_decrypt_with_iv(password, iv, decoded)
+        try:
+            decrypted = cast(bytes, aes_decrypt_with_iv(password, iv, decoded))
+        except DecryptionError:
+            raise InvalidPassword()
         return decrypted.decode('utf8')
 
     def get_nonce(self, account : AbstractAccount) -> int:

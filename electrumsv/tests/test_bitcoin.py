@@ -23,10 +23,6 @@ def address_to_script(addr):
 
 class Test_bitcoin(SequentialTestCase):
 
-    def test_pycryptodomex_is_available(self):
-        # we want the unit testing framework to test with pycryptodomex available.
-        self.assertTrue(bool(crypto.AES))
-
     def test_msg_signing(self):
         msg1 = b'Chancellor on brink of second bailout for banks'
         msg2 = b'Electrum'

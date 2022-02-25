@@ -7,9 +7,8 @@ dnspython<2.0
 ecdsa>=0.13.3
 electrumsv-database>=1.5
 electrumsv-secp256k1>=0.9.1
-mypy-extensions         # TODO: Look at whether this should be in `requirements-dev.txt`.
+mypy-extensions         # This is an import that the code will not run without.
 psutil-wheels; platform_system=="Windows"
-pycryptodomex           # Only used for AES
 PyQt5>=5.15.4
 requests
 python-dateutil>=2.8.0
