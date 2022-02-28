@@ -2088,10 +2088,10 @@ class WalletDataAccess:
         return db_functions.set_transaction_state(self._db_context, tx_hash, flag,
             ignore_mask)
 
-    async def update_transaction_flags_async(self, tx_hash: bytes,
-            flags: TxFlags, mask: TxFlags) -> bool:
-        return await db_functions.update_transaction_flags_async(self._db_context, tx_hash,
-            flags, mask)
+    async def update_transaction_flags_async(self, entries: list[tuple[TxFlags, TxFlags, bytes]]) \
+            -> int:
+        return await self._db_context.run_in_thread_async(db_functions.update_transaction_flags,
+            entries)
 
     async def update_transaction_proof_async(self, tx_hash: bytes,
             block_hash: Optional[bytes], block_position: Optional[int], proof_data: Optional[bytes],
@@ -3548,7 +3548,7 @@ class Wallet:
         app_state.async_.spawn(self._close_paid_payment_requests_async)
 
     async def link_transaction_async(self, tx_hash: bytes, link_state: TransactionLinkState) \
-            -> None:
+            -> TransactionRow:
         """
         Link an existing transaction to any applicable accounts.
 
@@ -3556,7 +3556,7 @@ class Wallet:
         accounts related to those keys. We will work this out as part of the importing process.
         This should not be done for any pre-existing transactions.
         """
-        await self.db_functions_async.link_transaction_async(tx_hash, link_state)
+        return await self.db_functions_async.link_transaction_async(tx_hash, link_state)
 
     async def _close_paid_payment_requests_async(self) \
             -> Tuple[Set[int], List[Tuple[int, int, int]], List[Tuple[str, int, bytes]]]:
@@ -3748,7 +3748,8 @@ class Wallet:
                 rows_by_outpoint[spent_outpoint].append(spent_output_row)
 
             # Reconcile the received server state against the database state.
-            mined_transactions: set[tuple[bytes, bytes]] = set()
+            mined_transactions = set[tuple[bytes, bytes]]()
+            mempool_transactions = dict[bytes, TxFlags]()
             for spent_output in spent_outputs:
                 spent_outpoint = Outpoint(spent_output.out_tx_hash, spent_output.out_index)
                 if spent_outpoint not in rows_by_outpoint:
@@ -3792,6 +3793,16 @@ class Wallet:
                             #     the only way we would detect reorgs was by received headers.
                             self._logger.debug("Unspent output event, transaction reorged %r ~ %r",
                                 spent_output, row)
+                    elif row.block_hash is None and row.flags & TxFlags.MASK_STATE_LOCAL:
+                        # Both local state and notification have no block hash and the state
+                        # indicates we think this transaction is not broadcast. Because we have
+                        # a spent output result for it, we know it is broadcast and because there
+                        # is no block hash we know it is in the mempool.
+                        self._logger.debug("Unspent output event, local transaction has been "
+                            "broadcast %r ~ %r", spent_output, row)
+                        mempool_transactions[spent_output.in_tx_hash] = row.flags
+                        # TODO(1.4.0) If a transaction we did not expect to get mined, becomes
+                        #     mined then there should be some flow where the user gets notified.
                     else:
                         # Nothing is different than what we already have. Ignore the result. It
                         # probably came in during the registration as the initial state.
@@ -3799,6 +3810,14 @@ class Wallet:
 
             for tx_hash, block_hash in mined_transactions:
                 await self._process_received_spent_output_mined_event(tx_hash, block_hash)
+
+            if len(mempool_transactions):
+                entries = [ (TxFlags.MASK_STATELESS, TxFlags.STATE_CLEARED, tx_hash)
+                    for tx_hash in mempool_transactions ]
+                await self.data.update_transaction_flags_async(entries)
+                for tx_hash, tx_flags in mempool_transactions.items():
+                    self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, -1,
+                        tx_hash, (tx_flags & TxFlags.MASK_STATE) | TxFlags.STATE_CLEARED)
 
     async def _process_received_spent_output_mined_event(self, spending_tx_hash: bytes,
             block_hash: bytes) -> None:

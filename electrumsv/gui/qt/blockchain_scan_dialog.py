@@ -168,7 +168,7 @@ class ScanErrorKind(IntEnum):
     UNRELIABLE_SERVER = 4
 
 
-@dataclass
+@dataclass(repr=False)
 class TransactionScanState:
     tx_hash: bytes
     item_hashes: Set[bytes]
@@ -177,6 +177,15 @@ class TransactionScanState:
     already_conflicting = False
     found_spend_conflicts = False
     linked_account_ids: Set[int] = field(default_factory=set)
+
+    def __repr__(self) -> str:
+        return f"TransactionScanState(tx_hash={hash_to_hex_str(self.tx_hash)}, item_hashes=["+ \
+            ", ".join([ value.hex() for value in self.item_hashes ]) +"] "+ \
+            f"is_missing={self.is_missing}, already_imported={self.already_imported}, "+ \
+            f"already_conflicting={self.already_conflicting}, "+ \
+            f"found_spend_conflicts={self.found_spend_conflicts}, "+ \
+            "linked_account_ids=["+ \
+                ", ".join(str(account_id) for account_id in self.linked_account_ids) +"])"
 
 
 MEMPOOL_SORT_HEIGHT        = 100000000

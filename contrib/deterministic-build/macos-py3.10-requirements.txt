@@ -111,9 +111,7 @@ bitcoinx==0.6.0 \
 certifi==2021.10.8 \
     --hash=sha256:78884e7c1d4b00ce3cea67b44566851c4343c120abd683433ce934a68ea58872 \
     --hash=sha256:d62a0163eb4c2344ac042ab2bdf75399a71a2d8c7d47eac2e2ee91b9d6339569
-    # via
-    #   -r /Users/rt12/src/electrumsv/contrib/requirements/requirements.txt
-    #   requests
+    # via requests
 cffi==1.15.0 \
     --hash=sha256:00c878c90cb53ccfaae6b8bc18ad05d2036553e6d9d1d9dbcf323bbe83854ca3 \
     --hash=sha256:0104fb5ae2391d46a4cb082abdd5c69ea4eab79d8d44eaaf79f1b1fd806ee4c2 \
@@ -166,17 +164,13 @@ cffi==1.15.0 \
     --hash=sha256:fd8a250edc26254fe5b33be00402e6d287f562b6a5b2152dec302fa15bb3e997 \
     --hash=sha256:ffaa5c925128e29efbde7301d8ecaf35c8c60ffbcd6a1ffd3a552177c8e5e796
     # via electrumsv-secp256k1
-chardet==3.0.4 \
-    --hash=sha256:84ab92ed1c4d4f16916e05906b6b75a6c0fb5db821cc65e70cbd64a3e2a5eaae \
-    --hash=sha256:fc323ffcaeaed0e0a02bf4d117757b98aed530d9ed4531e3e15460124c106691
-    # via -r /Users/rt12/src/electrumsv/contrib/requirements/requirements.txt
 charset-normalizer==2.0.12 \
     --hash=sha256:2857e29ff0d34db842cd7ca3230549d1a697f96ee6d3fb071cfa6c7393832597 \
     --hash=sha256:6881edbebdb17b39b4eaaa821b438bf6eddffb4468cf344f09f89def34a8b1df
     # via
     #   aiohttp
     #   requests
-dmgbuild==1.5.2 \
+dmgbuild==1.5.2 ; platform_system == "Darwin" \
     --hash=sha256:65bfb7c267cb9475cb52a32c04779e1cec12dfb9bcb7d02cf2b6bee5faf088f4
     # via -r /Users/rt12/src/electrumsv/contrib/requirements/requirements.txt
 dnspython==1.16.0 \
@@ -190,9 +184,9 @@ ecdsa==0.17.0 \
     --hash=sha256:5cf31d5b33743abe0dfc28999036c849a69d548f994b535e527ee3cb7f3ef676 \
     --hash=sha256:b9f500bb439e4153d0330610f5d26baaf18d17b8ced1bc54410d189385ea68aa
     # via -r /Users/rt12/src/electrumsv/contrib/requirements/requirements.txt
-electrumsv-database==1.5 \
-    --hash=sha256:21289a705ce84304c534107a0f338f9ca323748307b74f6917c7de338294424c \
-    --hash=sha256:a312c4351d7832b7966862316da2d94d8b82aa4e87590a85230a460899420b0e
+electrumsv-database==1.6 \
+    --hash=sha256:58c9cd3a1c207b06899204fb5ba05b01eb93dba35bafd7daf7cc991c91dd59cd \
+    --hash=sha256:d172cf57a32dfb6ab8f10ffd89f44337df948dde6fdbe2b3b8913c8313575b19
     # via -r /Users/rt12/src/electrumsv/contrib/requirements/requirements.txt
 electrumsv-secp256k1==0.9.4 \
     --hash=sha256:3b2d7b5380337692466f864dfc412452b09379565ec26b48cf27525685ef9fd9 \
@@ -349,26 +343,9 @@ mypy-extensions==0.4.3 \
     --hash=sha256:090fedd75945a69ae91ce1303b5824f428daf5a028d2f6ab8a299250a846f15d \
     --hash=sha256:2d82818f5bb3e369420cb3c4060a7970edba416647068eb4c5343488a6c604a8
     # via -r /Users/rt12/src/electrumsv/contrib/requirements/requirements.txt
-psutil-wheels==5.8.0 \
-    --hash=sha256:05a4b136c395273066ecd63d64200868fc57561c65f6dda988b28d08f4a60f69 \
-    --hash=sha256:2cfbb317f3ee0c8ac9dd5d82e6913b0216222d2b22ea65cbc2f8072dabb167d4 \
-    --hash=sha256:3f0ca7c4c9031e04b18e52cd4c6f17e196bb7896071dd1eacaeb352948b47517 \
-    --hash=sha256:5dd57fb06b081bf2e3cebe89ca92f6ef606ecc5e50ac7ecb2dc7a68262d6cd91 \
-    --hash=sha256:84bb63b669aa918b4a62226276b1c1f952e57a461debfb7b9eed848c41e7cbda \
-    --hash=sha256:902ab2a221529cd7c0d9fa2f865fdd22bc45df87db825437aeee0dcaeed9b787 \
-    --hash=sha256:933c4079c8121f8f0d3d1525671e3b6182d804d54c7819b6a7dddeac5605ba69 \
-    --hash=sha256:96838ad949609621e369d327834ade3b3e1b0fa3f450e0a7460855a3cf41a6d6 \
-    --hash=sha256:9fb80725195402a66e5db947f239d032500cde75ca5d8625326d797a65341d6f \
-    --hash=sha256:b07890d22db82a135b8d5149ba1736e0fde998605cfa73c4d030bbfc77e890b6 \
-    --hash=sha256:c7c13e8264fa26f0bde4ddc15f2959d04c2a8f7537c41541d1503dd159b01a86 \
-    --hash=sha256:d13d705fb5026d3ae476c7988601430dfaa6143e695058a3182146adc0457b7f \
-    --hash=sha256:ea1f7f6bcc536669a22c07429dde993bc707f45339137b085394faada25fc813
-    # via -r /Users/rt12/src/electrumsv/contrib/requirements/requirements.txt
 pyaes==1.6.1 \
     --hash=sha256:02c1b1405c38d3c370b085fb952dd8bea3fadcee6411ad99f312cc129c536d8f
-    # via
-    #   -r /Users/rt12/src/electrumsv/contrib/requirements/requirements.txt
-    #   bitcoinx
+    # via bitcoinx
 pycparser==2.21 \
     --hash=sha256:8ee45429555515e1f6b185e78100aea234072576aa43ab53aefcae078162fca9 \
     --hash=sha256:e644fdec12f7872f86c58ff790da456218b10f863970249516d60a5eaca77206
@@ -537,6 +514,5 @@ yarl==1.7.2 \
     --hash=sha256:fce78593346c014d0d986b7ebc80d782b7f5e19843ca798ed62f8e3ba8728576 \
     --hash=sha256:fd547ec596d90c8676e369dd8a581a21227fe9b4ad37d0dc7feb4ccf544c2d59
     # via
-    #   -r /Users/rt12/src/electrumsv/contrib/requirements/requirements.txt
     #   aiohttp
     #   aiohttp-middlewares

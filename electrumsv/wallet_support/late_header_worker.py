@@ -149,8 +149,8 @@ async def _process_one_merkle_proof(wallet_data: WalletDataAccess,
         # TODO(1.4.0) Database consistency. This should be a database call that checks the
         #     transaction is still in the state where it needs processing, and if it is not, then
         #     we log an error and move on.
-        if await wallet_data.update_transaction_flags_async(tx_hash, TxFlags.STATE_SETTLED,
-                TxFlags.MASK_STATELESS):
+        if await wallet_data.update_transaction_flags_async([
+                (TxFlags.MASK_STATELESS, TxFlags.STATE_SETTLED, tx_hash) ]) == 1:
             wallet_data.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, tx_hash, header,
                 tsc_proof)
         else:

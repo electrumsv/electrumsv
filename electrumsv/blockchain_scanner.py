@@ -332,7 +332,11 @@ class PushDataHasher:
             public_keys_hex = [ public_key.to_hex() for public_key in public_keys ]
             redeem_script = P2MultiSig_Output(sorted(public_keys_hex), threshold).to_script_bytes()
             hashable_item = hash160(redeem_script)
-        assert len(hashable_item)
+        elif script_type == ScriptType.MULTISIG_ACCUMULATOR:
+            # We are looking for any one of the featured cosigner public keys used in this.
+            hashable_item = public_keys[0].hash160()
+        else:
+            raise NotImplementedError(f"unsupported script type {script_type}")
         return cast(bytes, sha256(hashable_item))
 
     def get_item_hash_for_key_data(self, key_data: KeyListRow) -> Tuple[ScriptType, bytes]:

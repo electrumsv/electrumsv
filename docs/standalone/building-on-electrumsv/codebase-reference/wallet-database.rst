@@ -91,8 +91,8 @@ Asynchronous database calls are performed in this manner:
 
 .. code-block:: python
 
-    if await update_transaction_flags_async(db_context, tx_hash,
-            TxFlags.STATE_SETTLED, ~TxFlags.MASK_STATE):
+    if await update_transaction_flags_async(db_context, [
+            (TxFlags.MASK_STATELESS, TxFlags.STATE_SETTLED, tx_hash) ]):
         ...
 
 Database schema

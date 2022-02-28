@@ -2,13 +2,14 @@ aiohttp>=3.7.4.post
 aiohttp_middlewares
 aiorpcX==0.22.1
 bitcoinX==0.6.0
-dmgbuild; platform_system=="Macos"
+dmgbuild; platform_system=="Darwin"
 dnspython<2.0
 ecdsa>=0.13.3
-electrumsv-database>=1.5
+electrumsv-database>=1.6
 electrumsv-secp256k1>=0.9.1
 mypy-extensions         # This is an import that the code will not run without.
 psutil-wheels; platform_system=="Windows"
+pycryptodomex           # This is an optional import for bitcoinx to override pyaes.
 PyQt5>=5.15.4
 requests
 python-dateutil>=2.8.0

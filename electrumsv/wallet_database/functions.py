@@ -32,9 +32,10 @@ except ModuleNotFoundError:
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore[no-redef]
 from types import TracebackType
-from typing import Any, cast, Iterable, List, Optional, Sequence, Set, Tuple, Type, Union
+from typing import Any, cast, Iterable, Optional, Sequence, Type
 
-from electrumsv_database.sqlite import DatabaseContext, replace_db_context_with_connection
+from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, execute_sql_by_id, \
+    read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
 
 from ..constants import (DerivationType, DerivationPath, KeyInstanceFlag,
     NetworkServerType, pack_derivation_path, PaymentFlag, ScriptType, TransactionOutputFlag,
@@ -60,8 +61,7 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow, TxProofData,
     TxProofResult, TransactionRow, WalletBalance, WalletDataRow, WalletEventInsertRow,
     WalletEventRow)
-from .util import bulk_insert_returning, flag_clause, read_rows_by_id, read_rows_by_ids, \
-    execute_sql_by_id, update_rows_by_ids
+from .util import flag_clause
 
 logger = logs.get_logger("db-functions")
 
@@ -133,8 +133,8 @@ def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyR
     return db_context.post_to_thread(_write)
 
 
-def create_payment_requests(db_context: DatabaseContext, entries: List[PaymentRequestRow]) \
-        -> concurrent.futures.Future[List[PaymentRequestRow]]:
+def create_payment_requests(db_context: DatabaseContext, entries: list[PaymentRequestRow]) \
+        -> concurrent.futures.Future[list[PaymentRequestRow]]:
     sql = (
         "INSERT INTO PaymentRequests "
         "(paymentrequest_id, keyinstance_id, state, value, expiration, description, date_created, "
@@ -142,7 +142,7 @@ def create_payment_requests(db_context: DatabaseContext, entries: List[PaymentRe
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
     timestamp = get_posix_timestamp()
     sql_values = [ (*t[:-1], timestamp, timestamp) for t in entries ]
-    def _write(db: Optional[sqlite3.Connection]=None) -> List[PaymentRequestRow]:
+    def _write(db: Optional[sqlite3.Connection]=None) -> list[PaymentRequestRow]:
         assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, sql_values)
         return entries
@@ -164,7 +164,7 @@ def create_transaction_outputs(db_context: DatabaseContext,
 
 # This is currently only used from unit tests.
 def create_account_transactions_UNITTEST(db_context: DatabaseContext,
-        rows: List[AccountTransactionRow]) -> concurrent.futures.Future[None]:
+        rows: list[AccountTransactionRow]) -> concurrent.futures.Future[None]:
     sql = """
         INSERT INTO AccountTransactions
             (account_id, tx_hash, flags, description, date_created, date_updated)
@@ -178,7 +178,7 @@ def create_account_transactions_UNITTEST(db_context: DatabaseContext,
 
 
 # This is currently only used from unit tests.
-def create_transactions_UNITTEST(db_context: DatabaseContext, rows: List[TransactionRow]) \
+def create_transactions_UNITTEST(db_context: DatabaseContext, rows: list[TransactionRow]) \
         -> concurrent.futures.Future[None]:
     sql = ("INSERT INTO Transactions (tx_hash, tx_data, flags, block_hash, "
         "block_position, fee_value, description, version, locktime, proof_data, "
@@ -213,20 +213,20 @@ def create_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDat
     return db_context.post_to_thread(_write)
 
 
-def create_wallet_events(db_context: DatabaseContext, entries: List[WalletEventInsertRow]) \
-        -> concurrent.futures.Future[List[WalletEventRow]]:
+def create_wallet_events(db_context: DatabaseContext, entries: list[WalletEventInsertRow]) \
+        -> concurrent.futures.Future[list[WalletEventRow]]:
     sql_prefix = "INSERT INTO WalletEvents (event_type, account_id, event_flags, date_created, " \
         "date_updated) VALUES"
     sql_suffix = "RETURNING event_id, event_type, account_id, event_flags, date_created, " \
         "date_updated"
-    def _write(db: Optional[sqlite3.Connection]=None) -> List[WalletEventRow]:
+    def _write(db: Optional[sqlite3.Connection]=None) -> list[WalletEventRow]:
         assert db is not None and isinstance(db, sqlite3.Connection)
         return bulk_insert_returning(WalletEventRow, db, sql_prefix, sql_suffix, entries)
 
     return db_context.post_to_thread(_write)
 
 
-def delete_invoices(db_context: DatabaseContext, entries: Iterable[Tuple[int]]) \
+def delete_invoices(db_context: DatabaseContext, entries: Iterable[tuple[int]]) \
         -> concurrent.futures.Future[None]:
     sql = "DELETE FROM Invoices WHERE invoice_id=?"
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
@@ -318,7 +318,7 @@ def read_account_balance(db: sqlite3.Connection, account_id: int,
 @replace_db_context_with_connection
 def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, account_id: int,
         confirmed_only: bool=False, exclude_immature: bool=False, exclude_frozen: bool=False,
-        keyinstance_ids: Optional[List[int]]=None) -> List[AccountTransactionOutputSpendableRow]:
+        keyinstance_ids: Optional[list[int]]=None) -> list[AccountTransactionOutputSpendableRow]:
     """
     Get the unspent coins in the given account.
 
@@ -346,7 +346,7 @@ def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, accou
         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
         "WHERE KI.account_id=? AND TXO.flags&?=0 AND TX.flags&?=?")
-    sql_values: List[Any] = [ account_id, txo_mask, tx_mask, tx_flags ]
+    sql_values: list[Any] = [ account_id, txo_mask, tx_mask, tx_flags ]
     if exclude_frozen:
         sql += " AND KI.flags&?=0"
         sql_values.append(KeyInstanceFlag.FROZEN)
@@ -364,8 +364,8 @@ def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, accou
 @replace_db_context_with_connection
 def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection, account_id: int,
         confirmed_only: bool=False, exclude_immature: bool=False, exclude_frozen: bool=False,
-        keyinstance_ids: Optional[List[int]]=None) \
-            -> List[AccountTransactionOutputSpendableRowExtended]:
+        keyinstance_ids: Optional[list[int]]=None) \
+            -> list[AccountTransactionOutputSpendableRowExtended]:
     """
     Get the unspent coins in the given account extended with transaction fields.
 
@@ -394,7 +394,7 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
         "WHERE KI.account_id=? AND TXO.flags&?=0 AND TX.flags&?=?")
-    sql_values: List[Any] = [ account_id, txo_mask, tx_mask, tx_flags ]
+    sql_values: list[Any] = [ account_id, txo_mask, tx_mask, tx_flags ]
     if exclude_frozen:
         sql += " AND KI.flags&?=0"
         sql_values.append(KeyInstanceFlag.FROZEN)
@@ -410,7 +410,7 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
 
 
 @replace_db_context_with_connection
-def read_accounts(db: sqlite3.Connection) -> List[AccountRow]:
+def read_accounts(db: sqlite3.Connection) -> list[AccountRow]:
     sql = (
         "SELECT account_id, default_masterkey_id, default_script_type, account_name, flags "
         "FROM Accounts")
@@ -418,7 +418,7 @@ def read_accounts(db: sqlite3.Connection) -> List[AccountRow]:
 
 
 @replace_db_context_with_connection
-def read_account_ids_for_transaction(db: sqlite3.Connection, tx_hash: bytes) -> List[int]:
+def read_account_ids_for_transaction(db: sqlite3.Connection, tx_hash: bytes) -> list[int]:
     sql = "SELECT account_id FROM AccountTransactions WHERE tx_hash=?"
     sql_values = (tx_hash,)
     return [ row[0] for row in db.execute(sql, sql_values).fetchall() ]
@@ -426,7 +426,7 @@ def read_account_ids_for_transaction(db: sqlite3.Connection, tx_hash: bytes) -> 
 
 @replace_db_context_with_connection
 def read_history_list(db: sqlite3.Connection, account_id: int,
-        keyinstance_ids: Optional[Sequence[int]]=None) -> List[HistoryListRow]:
+        keyinstance_ids: Optional[Sequence[int]]=None) -> list[HistoryListRow]:
     if keyinstance_ids:
         # Used for the address dialog.
         sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_hash, TX.block_position, "
@@ -458,7 +458,7 @@ def read_invoice(db: sqlite3.Connection, *, invoice_id: Optional[int]=None,
         tx_hash: Optional[bytes]=None, payment_uri: Optional[str]=None) -> Optional[InvoiceRow]:
     sql = ("SELECT invoice_id, account_id, tx_hash, payment_uri, description, "
         "invoice_flags, value, invoice_data, date_expires, date_created FROM Invoices")
-    sql_values: List[Any]
+    sql_values: list[Any]
     if invoice_id is not None:
         sql += " WHERE invoice_id=?"
         sql_values = [ invoice_id ]
@@ -493,10 +493,10 @@ def read_invoice_duplicate(db: sqlite3.Connection, value: int, payment_uri: str)
 
 @replace_db_context_with_connection
 def read_invoices_for_account(db: sqlite3.Connection, account_id: int, flags: Optional[int]=None,
-        mask: Optional[int]=None) -> List[InvoiceAccountRow]:
+        mask: Optional[int]=None) -> list[InvoiceAccountRow]:
     sql = ("SELECT invoice_id, payment_uri, description, invoice_flags, value, "
         "date_expires, date_created FROM Invoices WHERE account_id=?")
-    sql_values: List[Any] = [ account_id ]
+    sql_values: list[Any] = [ account_id ]
     # We keep the filtering in case we want to let the user define whether to show only
     # invoices in a certain state. If we never do that, we can remove this.
     clause, extra_values = flag_clause("invoice_flags", flags, mask)
@@ -509,13 +509,13 @@ def read_invoices_for_account(db: sqlite3.Connection, account_id: int, flags: Op
 
 
 @replace_db_context_with_connection
-def read_proofless_transactions(db: sqlite3.Connection) -> List[TransactionProoflessRow]:
+def read_proofless_transactions(db: sqlite3.Connection) -> list[TransactionProoflessRow]:
     # TODO: This action is billed against a petty cash account on behalf of the account that
     # requires the proof. However, it is possible that a transaction may in the longer term be
     # linked to multiple accounts, which complicates things. For now we take the simplest approach
     # and bill it to the first account that it was linked to. This is not ideal, but in reality
     # it is unlikely many users will care about the nuances and we can change the behaviour later.
-    sql_values: List[Any] = []
+    sql_values: list[Any] = []
     sql = f"""
     WITH matches AS (
         SELECT TX.tx_hash, ATX.account_id,
@@ -534,7 +534,7 @@ def read_proofless_transactions(db: sqlite3.Connection) -> List[TransactionProof
 
 
 @replace_db_context_with_connection
-def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> List[OutputSpend]:
+def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> list[OutputSpend]:
     """
     Retrieve all the outpoints we need to monitor (and why) via the 'output-spend' API. Remember
     that the goal is to detect either the appearance of these in the mempool or a block.
@@ -560,7 +560,7 @@ def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> List[OutputSpend]:
 
 @replace_db_context_with_connection
 def read_spent_outputs(db: sqlite3.Connection, outpoints: Sequence[Outpoint]) \
-        -> List[SpentOutputRow]:
+        -> list[SpentOutputRow]:
     """
     Get the metadata for how any of the given outpoints are spent. This is used to reconcile
     against any incoming state from a service about those given outpoints.
@@ -577,7 +577,7 @@ def read_spent_outputs(db: sqlite3.Connection, outpoints: Sequence[Outpoint]) \
 
 @replace_db_context_with_connection
 def read_transaction_proof_data(db: sqlite3.Connection, tx_hashes: Sequence[bytes]) \
-        -> List[TxProofData]:
+        -> list[TxProofData]:
     sql = """
         SELECT tx_hash, flags, block_hash, proof_data FROM Transactions WHERE tx_hash IN ({})
     """
@@ -587,7 +587,7 @@ def read_transaction_proof_data(db: sqlite3.Connection, tx_hashes: Sequence[byte
 
 @replace_db_context_with_connection
 def read_key_list(db: sqlite3.Connection, account_id: int,
-        keyinstance_ids: Optional[Sequence[int]]=None) -> List[KeyListRow]:
+        keyinstance_ids: Optional[Sequence[int]]=None) -> list[KeyListRow]:
     """
     Find all existing keys for the given account and their usages.
 
@@ -623,7 +623,7 @@ def read_key_list(db: sqlite3.Connection, account_id: int,
 
 @replace_db_context_with_connection
 def read_keyinstance_scripts_by_id(db: sqlite3.Connection, keyinstance_ids: Sequence[int]) \
-        -> List[KeyInstanceScriptHashRow]:
+        -> list[KeyInstanceScriptHashRow]:
     sql = (
         "SELECT keyinstance_id, script_type, script_hash "
         "FROM KeyInstanceScripts "
@@ -633,7 +633,7 @@ def read_keyinstance_scripts_by_id(db: sqlite3.Connection, keyinstance_ids: Sequ
 
 @replace_db_context_with_connection
 def read_keyinstance_scripts_by_hash(db: sqlite3.Connection, script_hashes: Sequence[bytes]) \
-        -> List[KeyInstanceScriptHashRow]:
+        -> list[KeyInstanceScriptHashRow]:
     sql = (
         "SELECT keyinstance_id, script_type, script_hash "
         "FROM KeyInstanceScripts "
@@ -647,7 +647,7 @@ def read_keyinstance(db: sqlite3.Connection, *, account_id: Optional[int]=None,
     """
     Read one explicitly requested keyinstance.
     """
-    sql_values: List[Any] = [ keyinstance_id ]
+    sql_values: list[Any] = [ keyinstance_id ]
     sql = (
         "SELECT KI.keyinstance_id, KI.account_id, KI.masterkey_id, KI.derivation_type, "
             "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description "
@@ -664,7 +664,7 @@ def read_keyinstance(db: sqlite3.Connection, *, account_id: Optional[int]=None,
 @replace_db_context_with_connection
 def read_keyinstances(db: sqlite3.Connection, *, account_id: Optional[int]=None,
         keyinstance_ids: Optional[Sequence[int]]=None, flags: Optional[KeyInstanceFlag]=None,
-        mask: Optional[KeyInstanceFlag]=None) -> List[KeyInstanceRow]:
+        mask: Optional[KeyInstanceFlag]=None) -> list[KeyInstanceRow]:
     """
     Read explicitly requested keyinstances.
     """
@@ -695,7 +695,7 @@ def read_keyinstances(db: sqlite3.Connection, *, account_id: Optional[int]=None,
 
 @replace_db_context_with_connection
 def read_keyinstance_derivation_indexes_last(db: sqlite3.Connection, account_id: int) \
-        -> List[Tuple[int, bytes, bytes]]:
+        -> list[tuple[int, bytes, bytes]]:
     # Keys are created in order of sequence enumeration, so we shouldn't need to order by
     # the derivation_data2 bytes to get them ordered from oldest to newest, just id.
     sql = """
@@ -708,7 +708,7 @@ def read_keyinstance_derivation_indexes_last(db: sqlite3.Connection, account_id:
     GROUP BY masterkey_id, derivation_subpath
     """
     sql_values = [ account_id, DerivationType.BIP32_SUBPATH ]
-    return cast(List[Tuple[int, bytes, bytes]], db.execute(sql, sql_values).fetchall())
+    return cast(list[tuple[int, bytes, bytes]], db.execute(sql, sql_values).fetchall())
 
 
 @replace_db_context_with_connection
@@ -736,8 +736,8 @@ def read_keyinstance_derivation_index_last(db: sqlite3.Connection, account_id: i
 
 @replace_db_context_with_connection
 def read_keyinstances_for_derivations(db: sqlite3.Connection, account_id: int,
-        derivation_type: DerivationType, derivation_data2s: List[bytes],
-        masterkey_id: Optional[int]=None) -> List[KeyInstanceRow]:
+        derivation_type: DerivationType, derivation_data2s: list[bytes],
+        masterkey_id: Optional[int]=None) -> list[KeyInstanceRow]:
     """
     Locate the keyinstance with the given `derivation_data2` field.
     """
@@ -745,7 +745,7 @@ def read_keyinstances_for_derivations(db: sqlite3.Connection, account_id: int,
             "KI.derivation_data, KI.derivation_data2, KI.flags, KI.description "
         "FROM KeyInstances AS KI "
         "WHERE account_id=? AND derivation_type=?")
-    sql_values: List[Any] = [ account_id, derivation_type ]
+    sql_values: list[Any] = [ account_id, derivation_type ]
     if masterkey_id is not None:
         sql += " AND masterkey_id=?"
         sql_values.append(masterkey_id)
@@ -757,7 +757,7 @@ def read_keyinstances_for_derivations(db: sqlite3.Connection, account_id: int,
 
 
 @replace_db_context_with_connection
-def read_masterkeys(db: sqlite3.Connection) -> List[MasterKeyRow]:
+def read_masterkeys(db: sqlite3.Connection) -> list[MasterKeyRow]:
     sql = (
         "SELECT masterkey_id, parent_masterkey_id, derivation_type, derivation_data, flags "
         "FROM MasterKeys")
@@ -766,7 +766,7 @@ def read_masterkeys(db: sqlite3.Connection) -> List[MasterKeyRow]:
 
 @replace_db_context_with_connection
 def read_parent_transaction_outputs_with_key_data(db: sqlite3.Connection, tx_hash: bytes) \
-        -> List[TransactionOutputSpendableRow]:
+        -> list[TransactionOutputSpendableRow]:
     """
     When we have the spending transaction in the database, we can look up the outputs using
     the database and do not have to provide the spent output keys.
@@ -820,7 +820,7 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
 @replace_db_context_with_connection
 def read_payment_requests(db: sqlite3.Connection, account_id: int,
         flags: Optional[PaymentFlag]=None, mask: Optional[PaymentFlag]=None) \
-            -> List[PaymentRequestReadRow]:
+            -> list[PaymentRequestReadRow]:
     sql = """
     WITH key_payments AS (
         SELECT KI.keyinstance_id, TOTAL(TXO.value) AS total_value
@@ -834,7 +834,7 @@ def read_payment_requests(db: sqlite3.Connection, account_id: int,
         PR.expiration, PR.description, PR.date_created FROM PaymentRequests PR
     INNER JOIN key_payments KP USING(keyinstance_id)
     """
-    sql_values: List[Any] = [ account_id ]
+    sql_values: list[Any] = [ account_id ]
     clause, extra_values = flag_clause("PR.state", flags, mask)
     if clause:
         sql += f" WHERE {clause}"
@@ -845,7 +845,7 @@ def read_payment_requests(db: sqlite3.Connection, account_id: int,
 
 # TODO(1.4.0) Reorgs. Remove when we have replaced with a reference server equivalent.
 # @replace_db_context_with_connection
-# def read_reorged_transactions(db: sqlite3.Connection, reorg_height: int) -> List[bytes]:
+# def read_reorged_transactions(db: sqlite3.Connection, reorg_height: int) -> list[bytes]:
 #     """
 #     Identify all transactions that were verified in the orphaned chain as part of a reorg.
 #     """
@@ -872,12 +872,12 @@ def read_transaction_bytes(db: sqlite3.Connection, tx_hash: bytes) -> Optional[b
 
 @replace_db_context_with_connection
 def read_transaction_descriptions(db: sqlite3.Connection, account_id: Optional[int]=None,
-        tx_hashes: Optional[Sequence[bytes]]=None) -> List[AccountTransactionDescriptionRow]:
+        tx_hashes: Optional[Sequence[bytes]]=None) -> list[AccountTransactionDescriptionRow]:
     sql = (
         "SELECT account_id, tx_hash, description "
         "FROM AccountTransactions "
         "WHERE description IS NOT NULL")
-    sql_values: List[Any] = []
+    sql_values: list[Any] = []
     if account_id is not None:
         sql += " AND account_id=?"
         sql_values = [ account_id ]
@@ -890,7 +890,7 @@ def read_transaction_descriptions(db: sqlite3.Connection, account_id: Optional[i
 
 @replace_db_context_with_connection
 def read_transactions_exist(db: sqlite3.Connection, tx_hashes: Sequence[bytes],
-        account_id: Optional[int]=None) -> List[TransactionExistsRow]:
+        account_id: Optional[int]=None) -> list[TransactionExistsRow]:
     """
     Return the subset of transactions that are already present in the database.
     """
@@ -919,7 +919,7 @@ def read_transaction_flags(db: sqlite3.Connection, tx_hash: bytes) -> Optional[T
 
 
 @replace_db_context_with_connection
-def read_transaction_hashes(db: sqlite3.Connection, account_id: Optional[int]=None) -> List[bytes]:
+def read_transaction_hashes(db: sqlite3.Connection, account_id: Optional[int]=None) -> list[bytes]:
     if account_id is None:
         sql = "SELECT tx_hash FROM Transactions"
         cursor = db.execute(sql)
@@ -939,8 +939,8 @@ def read_transaction_metadata(db: sqlite3.Connection, tx_hash: bytes) \
 
 
 @replace_db_context_with_connection
-def read_transaction_outputs_explicit(db: sqlite3.Connection, output_ids: List[Outpoint]) \
-        -> List[TransactionOutputShortRow]:
+def read_transaction_outputs_explicit(db: sqlite3.Connection, output_ids: list[Outpoint]) \
+        -> list[TransactionOutputShortRow]:
     """
     Read all the transaction outputs for the given outpoints if they exist.
     """
@@ -952,7 +952,7 @@ def read_transaction_outputs_explicit(db: sqlite3.Connection, output_ids: List[O
 
 
 @replace_db_context_with_connection
-def read_transaction_inputs_full(db: sqlite3.Connection) -> List[TransactionInputAddRow]:
+def read_transaction_inputs_full(db: sqlite3.Connection) -> list[TransactionInputAddRow]:
     """
     Read all the transaction outputs for the given outpoints if they exist.
     """
@@ -969,7 +969,7 @@ def read_transaction_inputs_full(db: sqlite3.Connection) -> List[TransactionInpu
 
 @replace_db_context_with_connection
 def read_transaction_outputs_full(db: sqlite3.Connection,
-        output_ids: Optional[List[Outpoint]]=None) -> List[TransactionOutputFullRow]:
+        output_ids: Optional[list[Outpoint]]=None) -> list[TransactionOutputFullRow]:
     """
     Read all the transaction outputs for the given outpoints if they exist.
     """
@@ -991,13 +991,13 @@ def read_transaction_outputs_full(db: sqlite3.Connection,
 def read_transaction_outputs_with_key_data(db: sqlite3.Connection, *,
         account_id: Optional[int]=None,
         tx_hash: Optional[bytes]=None,
-        txo_keys: Optional[List[Outpoint]]=None,
-        derivation_data2s: Optional[List[bytes]]=None,
-        require_keys: bool=False) -> List[TransactionOutputSpendableRow]:
+        txo_keys: Optional[list[Outpoint]]=None,
+        derivation_data2s: Optional[list[bytes]]=None,
+        require_keys: bool=False) -> list[TransactionOutputSpendableRow]:
     """
     Read all the transaction outputs with spend information for the given outpoints if they exist.
     """
-    sql_values: List[Any] = []
+    sql_values: list[Any] = []
     if derivation_data2s:
         sql = (
             "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
@@ -1058,15 +1058,15 @@ def read_transaction_outputs_with_key_data(db: sqlite3.Connection, *,
 
 @replace_db_context_with_connection
 def read_transaction_proof(db: sqlite3.Connection, tx_hashes: Sequence[bytes]) \
-        -> List[TxProofResult]:
+        -> list[TxProofResult]:
     sql = "SELECT tx_hash, proof_data FROM Transactions WHERE tx_hash IN ({})"
     return read_rows_by_id(TxProofResult, db, sql, [], tx_hashes)
 
 
 @replace_db_context_with_connection
 def read_transaction_value_entries(db: sqlite3.Connection, account_id: int, *,
-        tx_hashes: Optional[List[bytes]]=None, mask: Optional[TxFlags]=None) \
-            -> List[TransactionValueRow]:
+        tx_hashes: Optional[list[bytes]]=None, mask: Optional[TxFlags]=None) \
+            -> list[TransactionValueRow]:
     if tx_hashes is None:
         sql = ("SELECT TXV.tx_hash, TOTAL(TXV.value), TX.flags, TX.block_hash, "
                 "TX.date_created, TX.date_updated "
@@ -1094,7 +1094,7 @@ def read_transaction_value_entries(db: sqlite3.Connection, account_id: int, *,
 
 @replace_db_context_with_connection
 def read_transaction_values(db: sqlite3.Connection, tx_hash: bytes,
-        account_id: Optional[int]=None) -> List[TransactionDeltaSumRow]:
+        account_id: Optional[int]=None) -> list[TransactionDeltaSumRow]:
     if account_id is None:
         sql = ("SELECT account_id, TOTAL(value), COUNT(value) "
             "FROM TransactionValues "
@@ -1114,7 +1114,7 @@ def read_transaction_values(db: sqlite3.Connection, tx_hash: bytes,
 
 @replace_db_context_with_connection
 def read_bip32_keys_unused(db: sqlite3.Connection, account_id: int, masterkey_id: int,
-        derivation_path: DerivationPath, limit: int) -> List[KeyInstanceRow]:
+        derivation_path: DerivationPath, limit: int) -> list[KeyInstanceRow]:
     # The derivation path is the relative parent path from the master key.
     prefix_bytes = pack_derivation_path(derivation_path)
     # Keys are created in order of sequence enumeration, so we shouldn't need to order by
@@ -1180,8 +1180,8 @@ def read_bip32_keys_gap_size(db: sqlite3.Connection, account_id: int,
 
 @replace_db_context_with_connection
 def read_network_servers(db: sqlite3.Connection,
-        server_key: Optional[Tuple[NetworkServerType, str]]=None) \
-        -> Tuple[List[NetworkServerRow], List[NetworkServerAccountRow]]:
+        server_key: Optional[tuple[NetworkServerType, str]]=None) \
+        -> tuple[list[NetworkServerRow], list[NetworkServerAccountRow]]:
     read_server_row_sql = "SELECT url, server_type, encrypted_api_key, flags, fee_quote_json, " \
             "date_last_tried, date_last_connected, date_created, date_updated " \
         "FROM Servers"
@@ -1266,8 +1266,8 @@ def read_wallet_datas(db: sqlite3.Connection) -> Any:
 
 @replace_db_context_with_connection
 def read_wallet_events(db: sqlite3.Connection, account_id: Optional[int]=None,
-        mask: WalletEventFlag=WalletEventFlag.NONE) -> List[WalletEventRow]:
-    sql_values: List[Any]
+        mask: WalletEventFlag=WalletEventFlag.NONE) -> list[WalletEventRow]:
+    sql_values: list[Any]
     if mask is None:
         sql_values = []
         sql = (
@@ -1347,7 +1347,7 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) \
 
 def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_id: int,
         derivation_path: DerivationPath, allocation_flags: KeyInstanceFlag) \
-            -> concurrent.futures.Future[Tuple[int, DerivationType, bytes, KeyInstanceFlag]]:
+            -> concurrent.futures.Future[tuple[int, DerivationType, bytes, KeyInstanceFlag]]:
     """
     Allocate one keyinstance for the caller's usage.
 
@@ -1377,7 +1377,7 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
     sql_write = "UPDATE KeyInstances SET flags=flags|? WHERE keyinstance_id=? AND flags&?=0"
 
     def _write(db: Optional[sqlite3.Connection]=None) \
-            -> Tuple[int, DerivationType, bytes, KeyInstanceFlag]:
+            -> tuple[int, DerivationType, bytes, KeyInstanceFlag]:
         assert db is not None and isinstance(db, sqlite3.Connection)
         keyinstance_row = db.execute(sql_read, sql_read_values).fetchone()
         if keyinstance_row is None:
@@ -1397,7 +1397,7 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
 
 def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
         flags: KeyInstanceFlag, mask: Optional[KeyInstanceFlag]=None) \
-            -> concurrent.futures.Future[List[KeyInstanceFlagChangeRow]]:
+            -> concurrent.futures.Future[list[KeyInstanceFlagChangeRow]]:
     if mask is None:
         # NOTE(typing) There is no gain in casting to KeyInstanceFlag.
         mask = ~flags # type: ignore
@@ -1428,7 +1428,7 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
         "FROM KeyInstances "
         "WHERE keyinstance_id IN ({})")
 
-    def _write(db: Optional[sqlite3.Connection]=None) -> List[KeyInstanceFlagChangeRow]:
+    def _write(db: Optional[sqlite3.Connection]=None) -> list[KeyInstanceFlagChangeRow]:
         assert db is not None and isinstance(db, sqlite3.Connection)
         # TODO(optimisation) It is potentially possible to combine this into the update by using
         #   a join or a sub-select. But whether this works with Sqlite, is another matter.
@@ -1445,7 +1445,7 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
             raise DatabaseUpdateError(f"Rollback as only {len(new_rows)} of {len(key_ids)} "
                 "rows were updated")
 
-        final_rows: List[KeyInstanceFlagChangeRow] = []
+        final_rows: list[KeyInstanceFlagChangeRow] = []
         rows_by_keyinstance_id = { row.keyinstance_id: row for row in old_rows }
         for new_row in new_rows:
             old_row = rows_by_keyinstance_id[new_row.keyinstance_id]
@@ -1488,7 +1488,7 @@ def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxF
 
 
 # TODO(1.4.0) Reorgs. Remove when we have replaced with a reference server equivalent.
-# def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: List[bytes]) \
+# def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: list[bytes]) \
 #         -> concurrent.futures.Future[bool]:
 #     """
 #     Reset transactions back to unverified state as a batch.
@@ -1514,20 +1514,15 @@ def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxF
 #     return db_context.post_to_thread(_write)
 
 
-async def update_transaction_flags_async(db_context: DatabaseContext, tx_hash: bytes,
-        flags: TxFlags, mask: Union[int, TxFlags]) -> bool:
-    return await db_context.run_in_thread_async(_update_transaction_flags, tx_hash, flags, mask)
-
-def _update_transaction_flags(tx_hash: bytes, flags: TxFlags, mask: Union[int, TxFlags], \
-        db: Optional[sqlite3.Connection]=None) -> bool:
+def update_transaction_flags(entries: list[tuple[TxFlags, TxFlags, bytes]], \
+        db: Optional[sqlite3.Connection]=None) -> int:
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = "UPDATE Transactions SET flags=(flags&?)|? WHERE tx_hash=?"
-    sql_values: List[Any] = [ mask, flags, tx_hash ]
-    cursor = db.execute(sql, sql_values)
-    return cast(bool, cursor.rowcount == 1)
+    cursor = db.executemany(sql, entries)
+    return cast(int, cursor.rowcount)
 
 
-def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: List[Outpoint],
+def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: list[Outpoint],
         flags: TransactionOutputFlag, mask: Optional[TransactionOutputFlag]=None) \
             -> concurrent.futures.Future[bool]:
     if mask is None:
@@ -1604,7 +1599,7 @@ def set_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDataRo
     return db_context.post_to_thread(_write)
 
 
-def update_account_names(db_context: DatabaseContext, entries: Iterable[Tuple[str, int]]) \
+def update_account_names(db_context: DatabaseContext, entries: Iterable[tuple[str, int]]) \
         -> concurrent.futures.Future[None]:
     sql = "UPDATE Accounts SET date_updated=?, account_name=? WHERE account_id=?"
     timestamp = get_posix_timestamp()
@@ -1616,7 +1611,7 @@ def update_account_names(db_context: DatabaseContext, entries: Iterable[Tuple[st
 
 
 def update_account_script_types(db_context: DatabaseContext,
-        entries: Iterable[Tuple[ScriptType, int]]) -> concurrent.futures.Future[None]:
+        entries: Iterable[tuple[ScriptType, int]]) -> concurrent.futures.Future[None]:
     sql = "UPDATE Accounts SET date_updated=?, default_script_type=? WHERE account_id=?"
     timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
@@ -1627,7 +1622,7 @@ def update_account_script_types(db_context: DatabaseContext,
 
 
 def update_account_transaction_descriptions(db_context: DatabaseContext,
-        entries: Iterable[Tuple[Optional[str], int, bytes]]) -> concurrent.futures.Future[None]:
+        entries: Iterable[tuple[Optional[str], int, bytes]]) -> concurrent.futures.Future[None]:
     timestamp = get_posix_timestamp()
     sql = "UPDATE AccountTransactions SET date_updated=?, description=? " \
         "WHERE account_id=? AND tx_hash=?"
@@ -1639,7 +1634,7 @@ def update_account_transaction_descriptions(db_context: DatabaseContext,
 
 
 def update_invoice_transactions(db_context: DatabaseContext,
-        entries: Iterable[Tuple[Optional[bytes], int]]) -> concurrent.futures.Future[None]:
+        entries: Iterable[tuple[Optional[bytes], int]]) -> concurrent.futures.Future[None]:
     sql = "UPDATE Invoices SET date_updated=?, tx_hash=? WHERE invoice_id=?"
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
@@ -1650,7 +1645,7 @@ def update_invoice_transactions(db_context: DatabaseContext,
 
 
 def update_invoice_descriptions(db_context: DatabaseContext,
-        entries: Iterable[Tuple[Optional[str], int]]) -> concurrent.futures.Future[None]:
+        entries: Iterable[tuple[Optional[str], int]]) -> concurrent.futures.Future[None]:
     sql = ("UPDATE Invoices SET date_updated=?, description=? "
         "WHERE invoice_id=?")
     timestamp = get_posix_timestamp()
@@ -1662,7 +1657,7 @@ def update_invoice_descriptions(db_context: DatabaseContext,
 
 
 def update_invoice_flags(db_context: DatabaseContext,
-        entries: Iterable[Tuple[PaymentFlag, PaymentFlag, int]]) -> concurrent.futures.Future[None]:
+        entries: Iterable[tuple[PaymentFlag, PaymentFlag, int]]) -> concurrent.futures.Future[None]:
     sql = ("UPDATE Invoices SET date_updated=?, "
             "invoice_flags=((invoice_flags&?)|?) "
         "WHERE invoice_id=?")
@@ -1675,7 +1670,7 @@ def update_invoice_flags(db_context: DatabaseContext,
 
 
 def update_keyinstance_derivation_datas(db_context: DatabaseContext,
-        entries: Iterable[Tuple[bytes, int]]) -> concurrent.futures.Future[None]:
+        entries: Iterable[tuple[bytes, int]]) -> concurrent.futures.Future[None]:
     sql = ("UPDATE KeyInstances SET date_updated=?, derivation_data=? WHERE keyinstance_id=?")
 
     timestamp = get_posix_timestamp()
@@ -1688,7 +1683,7 @@ def update_keyinstance_derivation_datas(db_context: DatabaseContext,
 
 
 def update_keyinstance_descriptions(db_context: DatabaseContext,
-        entries: Iterable[Tuple[Optional[str], int]]) -> concurrent.futures.Future[None]:
+        entries: Iterable[tuple[Optional[str], int]]) -> concurrent.futures.Future[None]:
     sql = ("UPDATE KeyInstances SET date_updated=?, description=? WHERE keyinstance_id=?")
     timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
@@ -1795,7 +1790,7 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
         source_derivation_data: bytes
 
         # Re-encrypt the stored private keys with the new password.
-        keyinstance_updates: List[Tuple[int, bytes, int]] = []
+        keyinstance_updates: list[tuple[int, bytes, int]] = []
         for keyinstance_id, account_id, source_derivation_data in db.execute(keyinstance_read_sql):
             data = cast(KeyInstanceDataPrivateKey, json.loads(source_derivation_data))
             data["prv"] = pw_encode(pw_decode(data["prv"], old_password), new_password)
@@ -1806,7 +1801,7 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
             db.executemany(keyinstance_update_sql, keyinstance_updates)
 
         # Re-encrypt masterkey data (seed, passphrase, xprv) with the new password.
-        masterkey_updates: List[Tuple[int, bytes, int]] = []
+        masterkey_updates: list[tuple[int, bytes, int]] = []
         for (masterkey_id, derivation_type, source_derivation_data) in \
                 db.execute(masterkey_read_sql):
             updated_data = reencrypt_masterkey_data(masterkey_id, derivation_type,
@@ -1823,7 +1818,7 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
         encrypted_api_key: str
 
         # Re-encrypt network server api keys with the new password.
-        server_updates: List[Tuple[int, str, str, int]] = []
+        server_updates: list[tuple[int, str, str, int]] = []
         for url, raw_server_type, encrypted_api_key in db.execute(server_read_sql):
             server_type = NetworkServerType(raw_server_type)
             encrypted_api_key2 = pw_encode(pw_decode(encrypted_api_key, old_password), new_password)
@@ -1832,7 +1827,7 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
             db.executemany(server_update_sql, server_updates)
 
         # Re-encrypt network server account api keys with the new password.
-        server_account_updates: List[Tuple[int, str, str, int, int]] = []
+        server_account_updates: list[tuple[int, str, str, int, int]] = []
         for url, raw_server_type, account_id, encrypted_api_key in \
                 db.execute(server_account_read_sql):
             server_type = NetworkServerType(raw_server_type)
@@ -1847,7 +1842,7 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
 
 
 def _close_paid_payment_requests(db: Optional[sqlite3.Connection]=None) \
-        -> Tuple[Set[int], List[Tuple[int, int, int]], List[Tuple[str, int, bytes]]]:
+        -> tuple[set[int], list[tuple[int, int, int]], list[tuple[str, int, bytes]]]:
     assert db is not None and isinstance(db, sqlite3.Connection)
     timestamp = get_posix_timestamp()
     sql_read_1 = """
@@ -1870,8 +1865,8 @@ def _close_paid_payment_requests(db: Optional[sqlite3.Connection]=None) \
     ]
     read_rows = db.execute(sql_read_1, sql_read_1_values).fetchall()
     paymentrequest_ids = { row[0] for row in read_rows }
-    keyinstance_rows: List[Tuple[int, int, int]] = []
-    txdesc_rows: List[Tuple[str, int, bytes]] = []
+    keyinstance_rows: list[tuple[int, int, int]] = []
+    txdesc_rows: list[tuple[str, int, bytes]] = []
 
     if len(read_rows):
         paymentrequest_update_rows = []
@@ -1915,7 +1910,7 @@ def _close_paid_payment_requests(db: Optional[sqlite3.Connection]=None) \
 
 
 async def close_paid_payment_requests_async(db_context: DatabaseContext) \
-        -> Tuple[Set[int], List[Tuple[int, int, int]], List[Tuple[str, int, bytes]]]:
+        -> tuple[set[int], list[tuple[int, int, int]], list[tuple[str, int, bytes]]]:
     """
     Wrap the database operations required to link a transaction so the processing is
     offloaded to the SQLite writer thread while this task is blocked.
@@ -1937,7 +1932,7 @@ def update_payment_requests(db_context: DatabaseContext,
 
 
 def update_wallet_event_flags(db_context: DatabaseContext,
-        entries: Iterable[Tuple[WalletEventFlag, int]]) -> concurrent.futures.Future[None]:
+        entries: Iterable[tuple[WalletEventFlag, int]]) -> concurrent.futures.Future[None]:
     sql = "UPDATE WalletEvents SET date_updated=?, event_flags=? WHERE event_id=?"
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
@@ -1948,12 +1943,12 @@ def update_wallet_event_flags(db_context: DatabaseContext,
 
 
 def update_network_servers(db_context: DatabaseContext,
-        added_server_rows: Optional[List[NetworkServerRow]]=None,
-        added_server_account_rows: Optional[List[NetworkServerAccountRow]]=None,
-        updated_server_rows: Optional[List[NetworkServerRow]]=None,
-        updated_server_account_rows: Optional[List[NetworkServerAccountRow]]=None,
-        deleted_server_keys: Optional[List[ServerAccountKey]]=None,
-        deleted_server_account_keys: Optional[List[ServerAccountKey]]=None) \
+        added_server_rows: Optional[list[NetworkServerRow]]=None,
+        added_server_account_rows: Optional[list[NetworkServerAccountRow]]=None,
+        updated_server_rows: Optional[list[NetworkServerRow]]=None,
+        updated_server_account_rows: Optional[list[NetworkServerAccountRow]]=None,
+        deleted_server_keys: Optional[list[ServerAccountKey]]=None,
+        deleted_server_account_keys: Optional[list[ServerAccountKey]]=None) \
             -> concurrent.futures.Future[None]:
     """
     Add, update and remove server definitions for this wallet.
@@ -2006,8 +2001,8 @@ def update_network_servers(db_context: DatabaseContext,
 
 
 def update_network_server_states(db_context: DatabaseContext,
-        updated_server_rows: List[NetworkServerRow],
-        updated_server_account_rows: List[NetworkServerAccountRow]) \
+        updated_server_rows: list[NetworkServerRow],
+        updated_server_account_rows: list[NetworkServerAccountRow]) \
             -> concurrent.futures.Future[None]:
     """
     Update the state fields for server definitions on this wallet.
@@ -2052,7 +2047,7 @@ def create_mapi_broadcast_callbacks(db_context: DatabaseContext,
 
 
 @replace_db_context_with_connection
-def read_mapi_broadcast_callbacks(db: sqlite3.Connection) -> List[MAPIBroadcastCallbackRow]:
+def read_mapi_broadcast_callbacks(db: sqlite3.Connection) -> list[MAPIBroadcastCallbackRow]:
     sql = f"""
         SELECT tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id,
             status_flags
@@ -2062,7 +2057,7 @@ def read_mapi_broadcast_callbacks(db: sqlite3.Connection) -> List[MAPIBroadcastC
 
 
 def update_mapi_broadcast_callbacks(db_context: DatabaseContext,
-        entries: Iterable[Tuple[MapiBroadcastStatusFlags, bytes]]) \
+        entries: Iterable[tuple[MapiBroadcastStatusFlags, bytes]]) \
             -> concurrent.futures.Future[None]:
     sql = "UPDATE MAPIBroadcastCallbacks SET status_flags=? WHERE tx_hash=?"
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
@@ -2101,7 +2096,7 @@ class AsynchronousFunctions:
         self.close()
 
     async def import_transaction_async(self, tx_row: TransactionRow,
-            txi_rows: List[TransactionInputAddRow], txo_rows: List[TransactionOutputAddRow],
+            txi_rows: list[TransactionInputAddRow], txo_rows: list[TransactionOutputAddRow],
             link_state: TransactionLinkState) -> bool:
         """
         Wrap the database operations required to import a transaction so the processing is
@@ -2116,7 +2111,7 @@ class AsynchronousFunctions:
             txi_rows, txo_rows, link_state)
 
     def _import_transaction(self, tx_row: TransactionRow,
-            txi_rows: List[TransactionInputAddRow], txo_rows: List[TransactionOutputAddRow],
+            txi_rows: list[TransactionInputAddRow], txo_rows: list[TransactionOutputAddRow],
             link_state: TransactionLinkState, db: Optional[sqlite3.Connection]=None) -> bool:
         """
         Insert the transaction data and attempt to link it to any accounts it may be involved with.
@@ -2139,7 +2134,7 @@ class AsynchronousFunctions:
         return True
 
     def _insert_transaction(self, db: sqlite3.Connection, tx_row: TransactionRow,
-            txi_rows: List[TransactionInputAddRow], txo_rows: List[TransactionOutputAddRow]) -> Any:
+            txi_rows: list[TransactionInputAddRow], txo_rows: list[TransactionOutputAddRow]) -> Any:
         """
         Insert the base data for a parsed transaction into the database.
 
@@ -2260,7 +2255,7 @@ class AsynchronousFunctions:
             db.execute(sql2, sql2_values)
 
     def _link_transaction_key_usage(self, db: sqlite3.Connection, tx_hash: bytes,
-            link_state: TransactionLinkState) -> Tuple[int, int]:
+            link_state: TransactionLinkState) -> tuple[int, int]:
         """
         Link transaction outputs to key usage.
 
@@ -2356,8 +2351,8 @@ class AsynchronousFunctions:
             "WHERE TXI.tx_hash=? OR TXI.spent_tx_hash=?")
         cursor = db.execute(sql, (tx_hash, tx_hash))
 
-        spend_conflicts: List[SpendConflictType] = []
-        spent_rows: List[Tuple[int, bytes, int, bytes, int]] = []
+        spend_conflicts: list[SpendConflictType] = []
+        spent_rows: list[tuple[int, bytes, int, bytes, int]] = []
         for (txi_hash, txi_index, txo_hash, txo_index, txo_spending_tx_hash) in cursor.fetchall():
             if txo_spending_tx_hash is not None:
                 # This output is already being spent by something. We accept repeated calls and
