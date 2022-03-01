@@ -1098,7 +1098,7 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)):
         future = db_functions.create_wallet_events(db_context, [ line1 ])
         future.result()
 
