@@ -201,7 +201,7 @@ async def mock_delete_peer_channel(request: web.Request):
         channel_id = request.match_info['channelid']
         mock_channel_id = base64.urlsafe_b64encode(bytes.fromhex("aa") * 64).decode()
         assert channel_id == mock_channel_id
-        return web.HTTPNoContent()
+        raise web.HTTPNoContent()
     except AssertionError as e:
         raise web.HTTPBadRequest(reason=str(e))
 
@@ -242,11 +242,11 @@ async def mock_get_messages(request: web.Request):
             response_headers = {}
             response_headers.update({'Access-Control-Expose-Headers': 'authorization,etag'})
             response_headers.update({'ETag': str(max_sequence)})
-            return web.HTTPOk(headers=response_headers)
+            raise web.HTTPOk(headers=response_headers)
         else:
             return web.json_response([MOCK_MESSAGE])
     except AssertionError as e:
-        return web.HTTPBadRequest(reason=str(e))
+        raise web.HTTPBadRequest(reason=str(e))
 
 
 async def mock_write_message(request: web.Request):
@@ -269,7 +269,7 @@ async def mock_write_message(request: web.Request):
         }
         return web.json_response(response_json)
     except AssertionError as e:
-        return web.HTTPBadRequest(reason=str(e))
+        raise web.HTTPBadRequest(reason=str(e))
 
 
 async def mock_create_token(request: web.Request):
@@ -286,7 +286,7 @@ async def mock_create_token(request: web.Request):
 
         return web.json_response(MOCK_GET_TOKEN_RESPONSE)
     except AssertionError as e:
-        return web.HTTPBadRequest(reason=str(e))
+        raise web.HTTPBadRequest(reason=str(e))
 
 
 async def mock_list_api_tokens(request: web.Request):
@@ -300,7 +300,7 @@ async def mock_list_api_tokens(request: web.Request):
 
         return web.json_response([MOCK_GET_TOKEN_RESPONSE])
     except AssertionError as e:
-        return web.HTTPBadRequest(reason=str(e))
+        raise web.HTTPBadRequest(reason=str(e))
 
 # ----- Mock Handlers END ----- #
 
