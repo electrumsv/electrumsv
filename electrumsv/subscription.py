@@ -249,6 +249,7 @@ class SubscriptionManager:
                 futures.append(future)
         return futures
 
+    # TODO(1.4.0) Tip registration. Replace with tip filter notification event function.
     async def on_script_hash_history(self, subscription_id: int, script_hash: bytes,
             result: ScriptHashHistoryList) -> None:
         # One of the problems we had in the past was we would process the script hash history

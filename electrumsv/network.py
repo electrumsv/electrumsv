@@ -880,7 +880,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         self._api_servers_config: Dict[NetworkServerType, List[APIServerDefinition]] = {
             server_type: [] for server_type in API_SERVER_TYPES
         }
-        self._read_config_api_server_mapi()
         self._read_config_api_server()
 
         # Events
@@ -912,7 +911,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
     def _read_config_api_server(self) -> None:
         api_servers = cast(List[APIServerDefinition], app_state.config.get("api_servers", []))
         if api_servers:
-            logger.info("read %d api servers from config file", len(api_servers))
+            logger.info("Read %d api server entries from config file", len(api_servers))
 
         servers_by_uri = { api_server['url']: api_server for api_server in api_servers }
         for api_server in Net.DEFAULT_SERVERS_API:
@@ -926,42 +925,28 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         # Register the API server for visibility and maybe even usage. We pass in the reference
         # to the config entry dictionary, which will be saved via `_api_servers_config`.
         for api_server in api_servers:
-            server_type = cast(Optional[NetworkServerType],
-                getattr(NetworkServerType, api_server["type"]))
+            server_type = cast(Optional[NetworkServerType], getattr(NetworkServerType,
+                api_server["type"], None))
             if server_type is None:
-                logger.error("skipping api server '%s' missing server 'type'", api_server["url"])
+                logger.error("Skipping api server '%s', unknown server type '%s'",
+                    api_server["url"], api_server["type"])
                 continue
-            server_key = ServerAccountKey(api_server["url"], server_type)
+            server_key = ServerAccountKey(api_server["url"], server_type, None)
             self._api_servers[server_key] = self._create_config_api_server(server_key, api_server)
             # This is the collection of application level servers and it is primarily used to group
             # them for persistence.
             self._api_servers_config[server_type].append(api_server)
 
-    def _read_config_api_server_mapi(self) -> None:
-        mapi_servers = cast(List[APIServerDefinition], app_state.config.get("mapi_servers", []))
-        if mapi_servers:
-            logger.info("read %d merchant api servers from config file", len(mapi_servers))
-
-        servers_by_uri = { mapi_server['url']: mapi_server for mapi_server in mapi_servers }
-        for mapi_server in Net.DEFAULT_SERVERS_MAPI:
-            server = servers_by_uri.get(mapi_server['url'], None)
-            if server is None:
-                server = cast(APIServerDefinition, mapi_server.copy())
-                server["modified_date"] = server["static_data_date"]
-                mapi_servers.append(server)
-            self._migrate_config_entry(server)
-
-        # Register the MAPI server for visibility and maybe even usage. We pass in the reference
-        # to the config entry dictionary, which will be saved via `_api_servers_config`.
-        for mapi_server in mapi_servers:
-            server_key = ServerAccountKey(mapi_server["url"], NetworkServerType.MERCHANT_API)
-            self._api_servers[server_key] = self._create_config_api_server(server_key, mapi_server)
-
-        # This is the collection of application level servers and it is primarily used to group
-        # them for persistence.
-        self._api_servers_config[NetworkServerType.MERCHANT_API] = mapi_servers
+        for server_type, api_servers in self._api_servers_config.items():
+            if len(api_servers):
+                logger.info("Added %d %s api server entries from config file", server_type,
+                    len(api_servers))
 
     def _migrate_config_entry(self, server: APIServerDefinition) -> None:
+        """
+        Adding a new server via the UI globally or loading existing servers from the config
+        file use this to ensure all the fields are present.
+        """
         ## Ensure all the default field values are present if they are not already.
         server.setdefault("api_key", "")
         # Whether the API key is supported for the given server from entry presence.
@@ -987,7 +972,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             logger.debug("Network main task loop exiting.")
             self.shutdown_complete_event.set()
             app_state.config.set_key('servers', list(SVServer.all_servers.values()), True)
-            app_state.config.set_key('mapi_servers', self.get_config_mapi_servers(), True)
+            app_state.config.set_key('api_servers', self.get_config_api_servers(), True)
 
     async def _main_task(self) -> None:
         # self._cevent = app_state.async_.event() # TODO remove
@@ -1355,23 +1340,27 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         """
         return SVServer.all_servers[key]
 
-    def get_config_mapi_servers(self) -> List[APIServerDefinition]:
+    def get_config_api_servers(self) -> List[APIServerDefinition]:
         """
-        Update the mapi server config entries and return them.
+        Update the api server config entries and return them.
 
         This will pull in the live server state.
         """
-        for config in self._api_servers_config[NetworkServerType.MERCHANT_API]:
-            server_key = ServerAccountKey(config["url"], NetworkServerType.MERCHANT_API)
-            server = self._api_servers[server_key]
-            key_state = server.api_key_state[server.config_credential_id]
-            config["last_good"] = key_state.last_good
-            config["last_try"] = key_state.last_try
-            if server.config_credential_id is None:
-                config["anonymous_fee_quote"] = key_state.last_fee_quote_response
-            else:
-                config["anonymous_fee_quote"] = None
-        return self._api_servers_config[NetworkServerType.MERCHANT_API]
+        all_configs = list[APIServerDefinition]()
+        for server_type in self._api_servers_config:
+            for config in self._api_servers_config[server_type]:
+                server_key = ServerAccountKey(config["url"], server_type, None)
+                server = self._api_servers[server_key]
+                key_state = server.api_key_state[server.config_credential_id]
+                config["last_good"] = key_state.last_good
+                config["last_try"] = key_state.last_try
+                if server_type == NetworkServerType.MERCHANT_API:
+                    if server.config_credential_id is None:
+                        config["anonymous_fee_quote"] = key_state.last_fee_quote_response
+                    else:
+                        config["anonymous_fee_quote"] = None
+                all_configs.append(config)
+        return all_configs
 
     def create_config_api_server(self, server_type: NetworkServerType,
             server_data: APIServerDefinition) -> None:
@@ -1383,11 +1372,12 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         """
         server_url = server_data["url"]
         assert server_url not in [ d["url"] for d in self._api_servers_config[server_type] ]
-        if server_type == NetworkServerType.MERCHANT_API:
-            self._migrate_config_entry(server_data)
+
+        self._migrate_config_entry(server_data)
+        server_data["type"] = server_type.name
         self._api_servers_config[server_type].append(server_data)
 
-        server_key = ServerAccountKey(server_url, server_type)
+        server_key = ServerAccountKey(server_url, server_type, None)
         if server_key in self._api_servers:
             return
         self._api_servers[server_key] = self._create_config_api_server(server_key)
@@ -1402,7 +1392,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         update_data["modified_date"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
         for config in self._api_servers_config[server_type]:
             if config["url"] == server_url:
-                server_key = ServerAccountKey(server_url, server_type)
+                server_key = ServerAccountKey(server_url, server_type, None)
                 server = self._api_servers[server_key]
                 server.on_pending_config_change(update_data)
                 # NOTE(typing) This appears to be a mypy bug, where it considers the type of
@@ -1416,7 +1406,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         for config_index, config in enumerate(self._api_servers_config[server_type]):
             if config["url"] == server_url:
                 del self._api_servers_config[server_type][config_index]
-                del self._api_servers[ServerAccountKey(server_url, server_type)]
+                del self._api_servers[ServerAccountKey(server_url, server_type, None)]
                 break
         else:
             raise KeyError(f"Server '{server_url}' does not exist")
@@ -1445,7 +1435,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         """
         if server_type == NetworkServerType.ELECTRUMX:
             return False
-        return self._api_servers[ServerAccountKey(url, server_type)].is_unusable()
+        return self._api_servers[ServerAccountKey(url, server_type, None)].is_unusable()
 
     def _create_config_api_server(self, server_key: ServerAccountKey,
             config: Optional[APIServerDefinition]=None, allow_no_config: bool=False) -> NewServer:
@@ -1484,7 +1474,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         updated_states: List[NetworkServerState] = []
         for server_key, server in list(self._api_servers.items()):
             updated_states.extend(server.unregister_wallet(wallet_path))
-            # TODO(rt12) Why are we deleting unused servers from this data structure?
             if server.is_unused():
                 del self._api_servers[server_key]
         return updated_states

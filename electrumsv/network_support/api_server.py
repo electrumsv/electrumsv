@@ -200,7 +200,7 @@ async def broadcast_transaction(tx: Transaction, network: Network,
 
 class NewServerAPIContext(NamedTuple):
     wallet_path: str
-    account_id: int
+    account_id: Optional[int]
 
 
 class NewServerAccessState:
@@ -258,12 +258,13 @@ class NewServer:
         self.config_credential_id: Optional[IndefiniteCredentialId] = None
 
         # These are the enabled clients, whether they use an API key and the id if so.
-        self.client_api_keys: Dict[NewServerAPIContext, Optional[IndefiniteCredentialId]] = {}
+        self.client_api_keys = dict[NewServerAPIContext, Optional[IndefiniteCredentialId]]()
+        self.database_ids = dict[NewServerAPIContext, int]()
         # We keep per-API key state for a reason. An API key can be considered to be a distinct
         # account with the service, and it makes sense to keep the statistics/metadata for the
         # service separated by API key for this reason. We intentionally leave these in place
         # at least for now as they are kind of relative to the given key value.
-        self.api_key_state: Dict[Optional[IndefiniteCredentialId], NewServerAccessState] = {}
+        self.api_key_state = dict[Optional[IndefiniteCredentialId], NewServerAccessState]()
 
         # We need to put any config credential in the credential cache. The only time that there
         # will not be an application config entry, is where the server is from an external wallet.
@@ -285,6 +286,7 @@ class NewServer:
         """
         usage_context = NewServerAPIContext(wallet_path, server_state.key.account_id)
         self.client_api_keys[usage_context] = server_state.credential_id
+        self.database_ids[usage_context] = server_state.server_id
 
         if server_state.credential_id not in self.api_key_state:
             self.api_key_state[server_state.credential_id] = NewServerAccessState()
@@ -301,6 +303,7 @@ class NewServer:
     def remove_wallet_usage(self, wallet_path: str, specific_server_key: ServerAccountKey) -> None:
         usage_context = NewServerAPIContext(wallet_path, specific_server_key.account_id)
         del self.client_api_keys[usage_context]
+        del self.database_ids[usage_context]
 
     def unregister_wallet(self, wallet_path: str) -> List[NetworkServerState]:
         """
@@ -315,6 +318,7 @@ class NewServer:
             if client_key.wallet_path != wallet_path:
                 continue
             del self.client_api_keys[client_key]
+            server_id = self.database_ids.pop(client_key)
 
             key_state = self.api_key_state[credential_id]
             specific_server_key = ServerAccountKey(self.url, self.server_type,
@@ -325,7 +329,7 @@ class NewServer:
                     mapi_fee_quote_json = json.dumps(key_state.last_fee_quote_response)
             else:
                 assert key_state.last_fee_quote_response is None
-            server_state = NetworkServerState(specific_server_key, credential_id,
+            server_state = NetworkServerState(server_id, specific_server_key, credential_id,
                 mapi_fee_quote_json, int(key_state.last_try), int(key_state.last_good))
             results.append(server_state)
         return results
@@ -404,7 +408,7 @@ class NewServer:
             return True, self.client_api_keys[client_key]
 
         # Look up the account's wallet as the first fallback.
-        wallet_client_key = NewServerAPIContext(client_key.wallet_path, -1)
+        wallet_client_key = NewServerAPIContext(client_key.wallet_path, None)
         if wallet_client_key in self.client_api_keys:
             return True, self.client_api_keys[wallet_client_key]
 

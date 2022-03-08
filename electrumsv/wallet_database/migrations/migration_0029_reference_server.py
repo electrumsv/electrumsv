@@ -147,6 +147,36 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         )
     """)
 
+    # Using a composite key to refer to servers and different tables is awkward, especially
+    # as we add dependent tables on servers. For this reason both the base server table and
+    # server account table are now merged and there is a primary key `server_id` column.
+    conn.execute("""
+        CREATE TABLE Servers2 (
+            server_id                   INTEGER     PRIMARY KEY,
+            server_type                 INTEGER     NOT NULL,
+            url                         TEXT        NOT NULL,
+            account_id                  INTEGER     DEFAULT NULL,
+            server_flags                INTEGER     NOT NULL DEFAULT 0,
+            encrypted_api_key           TEXT        DEFAULT NULL,
+            fee_quote_json              TEXT        DEFAULT NULL,
+            date_last_connected         INTEGER     DEFAULT 0,
+            date_last_tried             INTEGER     DEFAULT 0,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (account_id) REFERENCES Accounts (account_id)
+        )
+    """)
+    # We ignore the `ServerAccounts` table because if people have account-specific server entries
+    # they can recreate them. This is a new table and there will not be any real world usage.
+    conn.execute("DROP TABLE ServerAccounts")
+    conn.execute("DROP INDEX idx_Servers_unique")
+    conn.execute("DROP TABLE Servers")
+    conn.execute("ALTER TABLE Servers2 RENAME TO Servers")
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_Servers_unique
+            ON Servers(server_type, url, account_id)
+    """)
+
     # We need to persist the updated next primary key value for the `Accounts` table.
     # We need to persist the updated next identifier for the `Accounts` table.
     conn.executemany("UPDATE WalletData SET value=? WHERE key=?",

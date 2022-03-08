@@ -2,7 +2,7 @@ import base64
 import datetime
 import os
 import tempfile
-from typing import Generator, List, Optional
+from typing import cast, Generator, List, Optional
 import unittest.mock
 
 import bitcoinx
@@ -19,12 +19,13 @@ except ModuleNotFoundError:
 from electrumsv.constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
     MasterKeyFlags, NetworkServerFlag, NetworkServerType,
     PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
-from electrumsv.types import ServerAccountKey, Outpoint
+from electrumsv.types import NetworkServerState, Outpoint, ServerAccountKey
+from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
-    NetworkServerRow, NetworkServerAccountRow, PaymentRequestReadRow, PaymentRequestRow,
+    NetworkServerRow, PaymentRequestReadRow, PaymentRequestRow,
     PaymentRequestUpdateRow, TransactionRow, TransactionOutputShortRow,
     WalletBalance, WalletEventInsertRow)
 
@@ -1460,91 +1461,107 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
 
 
 def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
+    SERVER_ID = 1
     ACCOUNT_ID = 10
     SERVER_TYPE = NetworkServerType.ELECTRUMX
     UNUSED_SERVER_TYPE = NetworkServerType.MERCHANT_API
     date_updated = 1
     URL = "..."
     server_rows = [
-        NetworkServerRow(URL, SERVER_TYPE, None, NetworkServerFlag.NONE,
-            None, 0, 0, date_updated, date_updated),
+        NetworkServerRow(SERVER_ID+1, SERVER_TYPE, URL*1, None, NetworkServerFlag.NONE,
+            None, None, 0, 0, date_updated, date_updated),
     ]
     server_account_rows = [
-        NetworkServerAccountRow(URL, SERVER_TYPE, ACCOUNT_ID, None, None, 0, 0, date_updated,
-            date_updated)
-    ]
-    server_account_rows_no_server = [
-        NetworkServerAccountRow(URL*2, SERVER_TYPE, ACCOUNT_ID, None, None, 0, 0, date_updated,
-            date_updated)
+        NetworkServerRow(SERVER_ID+2, SERVER_TYPE, URL*1, ACCOUNT_ID, NetworkServerFlag.NONE,
+            None, None, 0, 0, date_updated, date_updated)
     ]
 
-    ## Verify that the NetworkServerRow entry is added.
-    future = db_functions.update_network_servers(db_context, added_server_rows=server_rows)
-    future.result(timeout=5)
+    ## Server row creation.
 
-    # Test the Accounts table foreign key.
-    future = db_functions.update_network_servers(db_context,
-        added_server_account_rows=server_account_rows)
+    # Nothing should prevent creation of the given server row.
+    update_future = db_functions.update_network_servers(db_context, server_rows, [], [], [])
+    created_server_rows = update_future.result(timeout=5)
+    assert len(created_server_rows) == 1
+    modified_source_row = server_rows[0]._replace(server_id=created_server_rows[0].server_id)
+    assert modified_source_row == created_server_rows[0]
+
+    # Verify that the read picks up the added Servers row.
+    read_rows = db_functions.read_network_servers(db_context)
+    assert len(read_rows) == 1
+    read_server_rows = [ row for row in read_rows if row.account_id is None ]
+    assert len(read_server_rows) == 1
+    read_server_account_rows = [ row for row in read_rows if row.account_id is not None ]
+    assert len(read_server_account_rows) == 0
+
+    # These columns are not read by the query.
+    read_server_rows[0] = read_server_rows[0]._replace(date_created=date_updated,
+        date_updated=date_updated)
+    assert server_rows == read_server_rows
+
+    # Creating the server again should fail as the given url/server type/account is in use now.
+    update_future = db_functions.update_network_servers(db_context, server_rows, [], [], [])
     with pytest.raises(sqlite3.IntegrityError):
-        future.result(timeout=5)
+        update_future.result(timeout=5)
 
-    ## Make the account and the masterkey row it requires to exist.
+    ## Server account row creation.
+
+    # Creating the server account rows should fail as the referenced account existing with the
+    # given id.
+    update_future = db_functions.update_network_servers(db_context, server_account_rows, [], [], [])
+    with pytest.raises(sqlite3.IntegrityError):
+        update_future.result(timeout=5)
+
+    # Make the account and the masterkey row `server_account_rows` requires to exist.
     if True:
         MASTERKEY_ID = 20
 
         # Satisfy the masterkey foreign key constraint by creating the masterkey.
         mk_row1 = MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
             MasterKeyFlags.NONE)
-        future = db_functions.create_master_keys(db_context, [ mk_row1 ])
-        future.result(timeout=5)
+        masterkey_future = db_functions.create_master_keys(db_context, [ mk_row1 ])
+        masterkey_future.result(timeout=5)
 
         line1 = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name1',
             AccountFlags.NONE)
-        future = db_functions.create_accounts(db_context, [ line1 ])
-        future.result(timeout=5)
+        account_future = db_functions.create_accounts(db_context, [ line1 ])
+        account_future.result(timeout=5)
 
-    # Test the Servers table foreign key causes an integrity error.
-    future = db_functions.update_network_servers(db_context,
-        added_server_account_rows=server_account_rows_no_server)
-    with pytest.raises(sqlite3.IntegrityError):
-        future.result(timeout=5)
+    # Verify that the server rows with accounts are added correctly.
+    update_future = db_functions.update_network_servers(db_context, server_account_rows, [], [], [])
+    created_account_rows = update_future.result(timeout=5)
+    assert len(created_account_rows) == 1
+    modified_source_row = server_account_rows[0]._replace(
+        server_id=created_account_rows[0].server_id)
+    assert modified_source_row == created_account_rows[0]
 
-    # Verify that the read picks up the added Servers row.
-    read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+    # Find the server row and account row.
+    read_rows = db_functions.read_network_servers(db_context)
+    assert len(read_rows) == 2
+    read_server_rows = [ row for row in read_rows if row.account_id is None ]
     assert len(read_server_rows) == 1
-    assert len(read_server_account_rows) == 0
+    read_server_account_rows = [ row for row in read_rows if row.account_id is not None ]
+    assert len(read_server_account_rows) == 1
     # These columns are not read by the query.
-    read_server_rows[0] = read_server_rows[0]._replace(date_created=date_updated,
-        date_updated=date_updated)
-    assert server_rows == read_server_rows
-
-    # Verify that the NetworkServerAccountRows are added.
-    if True:
-        future = db_functions.update_network_servers(db_context,
-            added_server_account_rows=server_account_rows)
-        future.result(timeout=5)
-
-        # Find the server row and account row.
-        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
-        assert len(read_server_rows) == 1
-        assert len(read_server_account_rows) == 1
-        # These columns are not read by the query.
-        read_server_account_rows[0] = read_server_account_rows[0]._replace(date_created=date_updated,
-            date_updated=date_updated)
-        assert server_account_rows == read_server_account_rows
+    read_server_account_rows[0] = read_server_account_rows[0]._replace(
+        date_created=date_updated, date_updated=date_updated)
+    assert server_account_rows == read_server_account_rows
 
     # Verify that the important NetworkServerRow columns are updated.
     if True:
         update_server_rows = [
-            server_rows[0]._replace(flags=NetworkServerFlag.ANY_ACCOUNT, encrypted_api_key="key"),
+            server_rows[0]._replace(server_id=created_server_rows[0].server_id,
+                server_flags=NetworkServerFlag.ANY_ACCOUNT, encrypted_api_key="key"),
         ]
-        future = db_functions.update_network_servers(db_context,
-            updated_server_rows=update_server_rows)
-        future.result(timeout=5)
+        update_future = db_functions.update_network_servers(db_context, [], update_server_rows, [],
+            [])
+        update_future.result(timeout=5)
 
         # Find the server row and account row.
-        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+        read_rows = db_functions.read_network_servers(db_context)
+        assert len(read_rows) == 2
+        read_server_rows = [ row for row in read_rows if row.account_id is None ]
         assert len(read_server_rows) == 1
+        read_server_account_rows = [ row for row in read_rows if row.account_id is not None ]
         assert len(read_server_account_rows) == 1
         # These columns are not read by the query.
         read_server_rows[0] = read_server_rows[0]._replace(date_created=date_updated,
@@ -1555,90 +1572,97 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
             date_created=date_updated, date_updated=date_updated)
         assert server_account_rows == read_server_account_rows
 
-    # Verify that the important NetworkServerAccountRow columns are updated.
+    # Verify that the important server rows with account columns are updated.
     if True:
         update_server_account_rows = [
             server_account_rows[0]._replace(encrypted_api_key="key"),
         ]
-        future = db_functions.update_network_servers(db_context,
-            updated_server_account_rows=update_server_account_rows)
-        future.result(timeout=5)
+        update_future = db_functions.update_network_servers(db_context,
+            [], update_server_account_rows, [], [])
+        update_future.result(timeout=5)
 
         # Find the server row and account row.
-        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+        read_rows = db_functions.read_network_servers(db_context)
+        assert len(read_rows) == 2
+        read_server_rows = [ row for row in read_rows if row.account_id is None ]
         assert len(read_server_rows) == 1
+        read_server_account_rows = [ row for row in read_rows if row.account_id is not None ]
         assert len(read_server_account_rows) == 1
         # These columns are not read by the query.
         read_server_rows[0] = read_server_rows[0]._replace(date_created=date_updated,
             date_updated=date_updated)
         assert update_server_rows == read_server_rows
         # These columns are not read by the query.
-        read_server_account_rows[0] = read_server_account_rows[0]._replace(date_created=date_updated,
-            date_updated=date_updated)
+        read_server_account_rows[0] = read_server_account_rows[0]._replace(
+            date_created=date_updated, date_updated=date_updated)
         assert update_server_account_rows == read_server_account_rows
 
-    # Delete the Servers row and confirm the related ServerAccounts row is also deleted.
+    # Delete the both rows by id.
     if True:
-        future = db_functions.update_network_servers(db_context,
-            deleted_server_keys=[ ServerAccountKey(URL, SERVER_TYPE) ])
+        assert created_server_rows[0].server_id is not None
+        assert created_account_rows[0].server_id is not None
+        update_future = db_functions.update_network_servers(db_context, [], [],
+            [ created_server_rows[0].server_id, created_account_rows[0].server_id ], [])
+        update_future.result(timeout=5)
+
+        read_rows = db_functions.read_network_servers(db_context)
+        assert len(read_rows) == 0
+
+        # Restore the rows.
+        future = db_functions.update_network_servers(db_context, server_rows + server_account_rows,
+            [], [], [])
         future.result(timeout=5)
 
-        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
-        assert len(read_server_rows) == 0
-        assert len(read_server_account_rows) == 0
+    # Delete the both rows by key.
+    if True:
+        delete_key = ServerAccountKey.from_row(created_server_rows[0])
+        update_future = db_functions.update_network_servers(db_context, [], [], [], [ delete_key ])
+        update_future.result(timeout=5)
 
-    # Restore the rows.
-    future = db_functions.update_network_servers(db_context, added_server_rows=server_rows,
-        added_server_account_rows=server_account_rows)
-    future.result(timeout=5)
+        read_rows = db_functions.read_network_servers(db_context)
+        assert len(read_rows) == 0
+
+        # Restore the rows.
+        future = db_functions.update_network_servers(db_context, server_rows + server_account_rows,
+            [], [], [])
+        future.result(timeout=5)
 
     # Verify that updating the server state works.
     if True:
-        new_server_rows = [ server_rows[0]._replace(mapi_fee_quote_json="fee_quote_json",
+        server_states = [ NetworkServerState(cast(int, server_rows[0].server_id),
+            ServerAccountKey.from_row(server_rows[0]), None, "fee_quote_json",
             date_last_good=111111, date_last_try=22222) ]
-        new_server_account_rows = [ server_account_rows[0]._replace(mapi_fee_quote_json="zzzz",
-            date_last_try=555555) ]
-        future = db_functions.update_network_server_states(db_context, new_server_rows,
-            new_server_account_rows)
-        future.result(timeout=5)
+        server_account_states = [ NetworkServerState(cast(int, server_account_rows[0].server_id),
+            ServerAccountKey.from_row(server_account_rows[0]), None, "fee_quote_zzzz",
+            date_last_good=0, date_last_try=555555) ]
+        update_future = db_functions.update_network_server_states(db_context, server_states +
+            server_account_states)
+        update_future.result(timeout=5)
 
-        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
+        read_rows = db_functions.read_network_servers(db_context)
+        assert len(read_rows) == 2
+        read_server_rows = [ row for row in read_rows if row.account_id is None ]
         assert len(read_server_rows) == 1
+        read_server_account_rows = [ row for row in read_rows if row.account_id is not None ]
         assert len(read_server_account_rows) == 1
 
-        # We need to adjust the new update rows for the row update date used by the database.
-        new_server_rows = [ new_server_rows[0]._replace(
-            date_updated=read_server_rows[0].date_updated) ]
-        new_server_account_rows = [ new_server_account_rows[0]._replace(
-            date_updated=read_server_account_rows[0].date_updated) ]
+        read_row = read_server_rows[0]
+        assert read_row.server_id == server_rows[0].server_id
+        assert read_row.mapi_fee_quote_json == "fee_quote_json"
+        assert read_row.date_last_good == 111111
+        assert read_row.date_last_try == 22222
 
-        assert read_server_rows == new_server_rows
-        assert read_server_account_rows == new_server_account_rows
+        read_row = read_server_account_rows[0]
+        assert read_row.server_id == server_account_rows[0].server_id
+        assert read_row.mapi_fee_quote_json == "fee_quote_zzzz"
+        assert read_row.date_last_good == 0
+        assert read_row.date_last_try == 555555
 
-    # Verify that the deleting just the ServerAccounts row works too.
+    # Verify that deleting an unmatched row does not delete existing rows.
     if True:
-        # Verify that deleting an unmatched Servers row does not delete the existing row.
-        future = db_functions.update_network_servers(db_context,
-            deleted_server_keys=[ ServerAccountKey(URL, UNUSED_SERVER_TYPE) ])
-        future.result(timeout=5)
-
-        # Verify that deleting an unmatched ServerAccounts row does not delete the existing row.
-        future = db_functions.update_network_servers(db_context,
-            deleted_server_account_keys=[ ServerAccountKey(URL, UNUSED_SERVER_TYPE, ACCOUNT_ID) ])
-        future.result(timeout=5)
-
-        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
-        assert len(read_server_rows) == 1
-        assert len(read_server_account_rows) == 1
-
-        # Verify that deleting an matched ServerAccounts row does delete the existing row.
-        future = db_functions.update_network_servers(db_context,
-            deleted_server_account_keys=[ ServerAccountKey(URL, SERVER_TYPE, ACCOUNT_ID) ])
-        future.result(timeout=5)
-
-        read_server_rows, read_server_account_rows = db_functions.read_network_servers(db_context)
-        assert len(read_server_rows) == 1
-        assert len(read_server_account_rows) == 0
+        future = db_functions.update_network_servers(db_context, [], [], [ 1343211 ], [])
+        with pytest.raises(DatabaseUpdateError):
+            future.result(timeout=5)
 
 
 def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> None:

@@ -16,7 +16,7 @@ from .constants import AccountCreationType, DatabaseKeyDerivationType, Derivatio
 
 if TYPE_CHECKING:
     from .keystore import KeyStore
-    from .wallet_database.types import KeyDataProtocol, NetworkServerRow, NetworkServerAccountRow
+    from .wallet_database.types import KeyDataProtocol, NetworkServerRow
 
 
 @dataclasses.dataclass(frozen=True)
@@ -169,30 +169,27 @@ class ServerAccountKey(NamedTuple):
     """ For now the each client may have different access to a MAPI server. """
     url: str
     server_type: NetworkServerType
-    account_id: int = -1
+    account_id: Optional[int]
 
     @staticmethod
     def groupby(key: "ServerAccountKey") -> "ServerAccountKey":
-        return ServerAccountKey(key.url, key.server_type)
+        return ServerAccountKey(key.url, key.server_type, None)
 
     @classmethod
-    def for_server_row(cls, row: "NetworkServerRow") -> "ServerAccountKey":
-        return cls(row.url, row.server_type)
-
-    @classmethod
-    def for_account_row(cls, row: "NetworkServerAccountRow") -> "ServerAccountKey":
+    def from_row(cls, row: "NetworkServerRow") -> "ServerAccountKey":
         return cls(row.url, row.server_type, row.account_id)
 
     def to_server_key(self) -> "ServerAccountKey":
-        if self.account_id == -1:
+        if self.account_id is None:
             return self
-        return ServerAccountKey(self.url, self.server_type)
+        return ServerAccountKey(self.url, self.server_type, None)
 
 
 IndefiniteCredentialId = uuid.UUID
 
 
 class NetworkServerState(NamedTuple):
+    server_id: int
     key: ServerAccountKey
     credential_id: Optional[IndefiniteCredentialId]
     # MAPI specific, used for JSONEnvelope serialised transaction fee quotes.

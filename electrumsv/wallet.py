@@ -52,14 +52,12 @@ from .app_state import app_state
 from .bitcoin import scripthash_bytes, ScriptTemplate, separate_proof_and_embedded_transaction, \
     TSCMerkleProofError
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
-    CHANGE_SUBPATH, DatabaseKeyDerivationType,
-    DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath,
-    KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags, MAX_VALUE,
-    MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
-    pack_derivation_path, PaymentFlag, PendingHeaderWorkKind, RECEIVING_SUBPATH, ServerCapability,
-    SubscriptionOwnerPurpose, SubscriptionType, ScriptType, TransactionImportFlag,
-    TransactionInputFlag, TransactionOutputFlag, TxFlags, unpack_derivation_path,
-    WALLET_ACCOUNT_PATH_TEXT, WalletEvent,
+    CHANGE_SUBPATH, DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
+    DerivationPath, KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags, MAX_VALUE,
+    MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, pack_derivation_path, PaymentFlag,
+    PendingHeaderWorkKind, RECEIVING_SUBPATH, ServerCapability, SubscriptionOwnerPurpose,
+    SubscriptionType, ScriptType, TransactionImportFlag, TransactionInputFlag,
+    TransactionOutputFlag, TxFlags, unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT, WalletEvent,
     WalletEventFlag, WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
@@ -102,7 +100,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataProtocol, KeyData,
     KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow,
     MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
-    NetworkServerRow, NetworkServerAccountRow, PasswordUpdateResult, PaymentRequestReadRow,
+    NetworkServerRow, PasswordUpdateResult, PaymentRequestReadRow,
     PaymentRequestRow, PaymentRequestUpdateRow, SpentOutputRow,
     TransactionDeltaSumRow,
     TransactionExistsRow, TransactionLinkState, TransactionMetadata,
@@ -2169,6 +2167,16 @@ class WalletDataAccess:
         future.add_done_callback(callback)
         return future
 
+    # Miscellanous.
+
+    def read_network_servers(self, server_key: Optional[ServerAccountKey]=None) \
+            -> list[NetworkServerRow]:
+        return db_functions.read_network_servers(self._db_context, server_key)
+
+    def update_network_server_states(self, states: list[NetworkServerState]) \
+            -> concurrent.futures.Future[None]:
+        return db_functions.update_network_server_states(self._db_context, states)
+
 
 
 class Wallet:
@@ -2253,21 +2261,14 @@ class Wallet:
 
         # Cache the stuff that is needed unencrypted but is encrypted.
         self._registered_api_keys: Dict[ServerAccountKey, IndefiniteCredentialId] = {}
-        server_rows, server_account_rows = db_functions.read_network_servers(self.get_db_context())
+        server_rows = self.data.read_network_servers()
         for server_row in server_rows:
             if server_row.encrypted_api_key is not None:
-                server_key = ServerAccountKey(server_row.url, server_row.server_type, -1)
+                server_key = ServerAccountKey(server_row.url, server_row.server_type,
+                    server_row.account_id)
                 self._registered_api_keys[server_key] = \
                     app_state.credentials.add_indefinite_credential(
                         pw_decode(server_row.encrypted_api_key, password))
-
-        for account_row in server_account_rows:
-            if account_row.encrypted_api_key is not None:
-                server_key = ServerAccountKey(account_row.url, account_row.server_type,
-                    account_row.account_id)
-                self._registered_api_keys[server_key] = \
-                    app_state.credentials.add_indefinite_credential(
-                        pw_decode(account_row.encrypted_api_key, password))
 
     def __str__(self) -> str:
         return f"wallet(path='{self._storage.get_path()}')"
@@ -2972,33 +2973,23 @@ class Wallet:
 
     def read_network_servers_with_credentials(self) -> List[NetworkServerState]:
         results: List[NetworkServerState] = []
-        server_rows, account_rows = db_functions.read_network_servers(self.get_db_context())
-        for server_row in server_rows:
-            server_key = ServerAccountKey.for_server_row(server_row)
-            results.append(NetworkServerState(server_key, self._registered_api_keys.get(server_key),
-                server_row.mapi_fee_quote_json, server_row.date_last_try,
-                server_row.date_last_good))
-        for account_row in account_rows:
-            server_key = ServerAccountKey.for_account_row(account_row)
-            results.append(NetworkServerState(server_key, self._registered_api_keys.get(server_key),
-                account_row.mapi_fee_quote_json, account_row.date_last_try,
-                account_row.date_last_good))
+        for server_row in db_functions.read_network_servers(self.get_db_context()):
+            assert server_row.server_id is not None
+            server_key = ServerAccountKey.from_row(server_row)
+            results.append(NetworkServerState(server_row.server_id, server_key,
+                self._registered_api_keys.get(server_key), server_row.mapi_fee_quote_json,
+                server_row.date_last_try, server_row.date_last_good))
         return results
 
     def get_credential_id_for_server_key(self, key: ServerAccountKey) \
             -> Optional[IndefiniteCredentialId]:
         return self._registered_api_keys.get(key)
 
-    def update_network_servers(self,
-            added_server_rows: List[NetworkServerRow],
-            added_server_account_rows: List[NetworkServerAccountRow],
+    def update_network_servers(self, added_server_rows: List[NetworkServerRow],
             updated_server_rows: List[NetworkServerRow],
-            updated_server_account_rows: List[NetworkServerAccountRow],
-            deleted_server_keys: List[ServerAccountKey],
-            deleted_server_account_keys: List[ServerAccountKey],
-            updated_api_keys: Dict[ServerAccountKey,
+            deleted_server_keys: List[ServerAccountKey], updated_api_keys: Dict[ServerAccountKey,
                 Tuple[Optional[str], Optional[Tuple[str, str]]]]) \
-                    -> concurrent.futures.Future[None]:
+                    -> concurrent.futures.Future[list[NetworkServerRow]]:
         """
         Update the database, wallet and network for the given set of network server changes.
 
@@ -3007,12 +2998,12 @@ class Wallet:
         on a successful database update. If the database update fails, then no changes should
         be applied.
         """
-        def update_cached_values(future: concurrent.futures.Future[None]) -> None:
+        def update_cached_values(future: concurrent.futures.Future[list[NetworkServerRow]]) -> None:
             # Skip if the operation was cancelled.
             if future.cancelled():
                 return
             # Raise any exception if it errored or get the result if completed successfully.
-            future.result()
+            created_rows = future.result()
 
             # Need to delete, add and update cached credentials. This should happen regardless of
             # whether the network is activated.
@@ -3033,68 +3024,33 @@ class Wallet:
                         app_state.credentials.add_indefinite_credential(unencrypted_value)
 
             if self._network is not None:
-                added_keys: List[NetworkServerState] = []
-                updated_keys: List[NetworkServerState] = []
+                created_states: List[NetworkServerState] = []
+                updated_states: List[NetworkServerState] = []
                 deleted_keys: List[ServerAccountKey] = []
 
-                for server_row in added_server_rows:
-                    server_key = ServerAccountKey.for_server_row(server_row)
-                    added_keys.append(NetworkServerState(server_key,
-                        self._registered_api_keys.get(server_key)))
-
-                for account_row in added_server_account_rows:
-                    server_key = ServerAccountKey.for_account_row(account_row)
-                    added_keys.append(NetworkServerState(server_key,
+                for server_row in created_rows:
+                    assert server_row.server_id is not None
+                    server_key = ServerAccountKey.from_row(server_row)
+                    created_states.append(NetworkServerState(server_row.server_id, server_key,
                         self._registered_api_keys.get(server_key)))
 
                 for server_row in updated_server_rows:
-                    server_key = ServerAccountKey.for_server_row(server_row)
+                    assert server_row.server_id is not None
+                    server_key = ServerAccountKey.from_row(server_row)
                     if server_key in updated_api_keys:
-                        updated_keys.append(NetworkServerState(server_key,
-                            self._registered_api_keys.get(server_key)))
-
-                for account_row in updated_server_account_rows:
-                    server_key = ServerAccountKey.for_account_row(account_row)
-                    if server_key in updated_api_keys:
-                        updated_keys.append(NetworkServerState(server_key,
+                        updated_states.append(NetworkServerState(server_row.server_id, server_key,
                             self._registered_api_keys.get(server_key)))
 
                 deleted_keys.extend(deleted_server_keys)
-                deleted_keys.extend(deleted_server_account_keys)
 
-                self._network.update_api_servers_for_wallet(self, added_keys, updated_keys,
+                self._network.update_api_servers_for_wallet(self, created_states, updated_states,
                     deleted_keys)
 
         future = db_functions.update_network_servers(self.get_db_context(), added_server_rows,
-            added_server_account_rows, updated_server_rows, updated_server_account_rows,
-            deleted_server_keys, deleted_server_account_keys)
+            updated_server_rows, [], deleted_server_keys)
         # We do not update the data used by the wallet and network unless the database update
         # successfully applies. There is likely no reason it won't, outside of programmer error.
         future.add_done_callback(update_cached_values)
-        return future
-
-    def update_network_server_states(self, updated_states: List[NetworkServerState]) \
-            -> concurrent.futures.Future[None]:
-        """
-        Update this wallet's network servers for the latest state changes.
-
-        This is the statistics and data sourced from the server, not the definition of the server
-        itself.
-        """
-        server_rows: List[NetworkServerRow] = []
-        server_account_rows: List[NetworkServerAccountRow] = []
-        for state in updated_states:
-            if state.key.account_id == -1:
-                server_rows.append(NetworkServerRow(state.key.url, state.key.server_type,
-                    mapi_fee_quote_json=state.mapi_fee_quote_json,
-                    date_last_good=state.date_last_good, date_last_try=state.date_last_try))
-            else:
-                server_account_rows.append(NetworkServerAccountRow(state.key.url,
-                    state.key.server_type, state.key.account_id,
-                    mapi_fee_quote_json=state.mapi_fee_quote_json,
-                    date_last_good=state.date_last_good, date_last_try=state.date_last_try))
-        future = db_functions.update_network_server_states(self.get_db_context(),
-            server_rows, server_account_rows)
         return future
 
     def _obtain_transaction_lock(self, tx_hash: bytes) -> threading.RLock:
@@ -3918,6 +3874,7 @@ class Wallet:
         if network is not None:
             self.subscriptions = SubscriptionManager()
             network.add_wallet(self)
+
         for account in self.get_accounts():
             account.start(network)
 
@@ -3972,7 +3929,7 @@ class Wallet:
             if len(updated_states):
                 # We do not need to wait for the future to complete, as closing the storage below
                 # should close out all database pending writes.
-                self.update_network_server_states(updated_states)
+                self.data.update_network_server_states(updated_states)
 
             assert self.subscriptions is not None
             self.subscriptions.stop()

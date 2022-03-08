@@ -159,28 +159,19 @@ class MasterKeyRow(NamedTuple):
 
 # WARNING The order of the fields in this data structure are implicitly linked to the query.
 class NetworkServerRow(NamedTuple):
-    url: str
+    # If this is `None` on an INSERT, SQLite will substitute it for a real primary key value.
+    server_id: Optional[int]
     server_type: NetworkServerType
-    encrypted_api_key: Optional[str] = None
-    flags: NetworkServerFlag = NetworkServerFlag.NONE
+    url: str
+    account_id: Optional[int]
+    server_flags: NetworkServerFlag
+    encrypted_api_key: Optional[str]
     # MAPI specific: used for JSONEnvelope serialised transaction fee quotes.
-    mapi_fee_quote_json: Optional[str] = None
-    date_last_try: int = 0
-    date_last_good: int = 0
-    date_created: int = -1
-    date_updated: int = -1
-
-
-class NetworkServerAccountRow(NamedTuple):
-    url: str
-    server_type: NetworkServerType
-    account_id: int
-    encrypted_api_key: Optional[str] = None
-    mapi_fee_quote_json: Optional[str] = None
-    date_last_try: int = 0
-    date_last_good: int = 0
-    date_created: int = -1
-    date_updated: int = -1
+    mapi_fee_quote_json: Optional[str]
+    date_last_try: int
+    date_last_good: int
+    date_created: int
+    date_updated: int
 
 
 class PasswordUpdateResult(NamedTuple):
