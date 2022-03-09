@@ -1967,6 +1967,7 @@ def update_network_servers(db_context: DatabaseContext, create_rows: list[Networ
             if cursor.rowcount != len(final_update_rows):
                 raise DatabaseUpdateError
         if create_rows:
+            print("FOREIGN KEYS", db.execute('pragma foreign_keys').fetchall())
             return bulk_insert_returning(NetworkServerRow, db, insert_prefix_sql,
                 insert_suffix_sql, create_rows)
         return []
