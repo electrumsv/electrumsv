@@ -1508,7 +1508,10 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     # Creating the server account rows should fail as the referenced account existing with the
     # given id.
     update_future = db_functions.update_network_servers(db_context, server_account_rows, [], [], [])
-    with pytest.raises(sqlite3.IntegrityError):
+    # NOTE(pysqlite3-binary) Different errors on Linux and Windows.
+    #     Windows: "sqlite3.IntegrityError: FOREIGN KEY constraint failed"
+    #     Linux:   "pysqlite3.dbapi2.OperationalError: FOREIGN KEY constraint failed"
+    with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)):
         update_future.result(timeout=5)
 
     # Make the account and the masterkey row `server_account_rows` requires to exist.
