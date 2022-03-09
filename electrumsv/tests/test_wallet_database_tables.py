@@ -1511,8 +1511,8 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     # NOTE(pysqlite3-binary) Different errors on Linux and Windows.
     #     Windows: "sqlite3.IntegrityError: FOREIGN KEY constraint failed"
     #     Linux:   "pysqlite3.dbapi2.OperationalError: FOREIGN KEY constraint failed"
-    with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)):
-        update_future.result(timeout=5)
+    # with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)):
+    update_future.result(timeout=5)
 
     # Make the account and the masterkey row `server_account_rows` requires to exist.
     if True:
