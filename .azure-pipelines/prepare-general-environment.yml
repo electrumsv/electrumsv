@@ -17,6 +17,7 @@ steps:
     sudo apt-get install libusb-1.0-0-dev libudev-dev
     python3 -m pip install -r contrib/deterministic-build/linux-py3.10-requirements.txt
     python3 -m pip install -r contrib/deterministic-build/linux-py3.10-requirements-hw.txt
+    python3 -c "import pysqlite3; print(pysqlite3.sqlite_version)"
   displayName: Prepare general environment
   condition: |
     and(
