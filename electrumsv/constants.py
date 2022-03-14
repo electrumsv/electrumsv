@@ -436,9 +436,12 @@ class ServerCapability(IntEnum):
     HEADERS = 8
     PEER_CHANNELS = 9
     OUTPUT_SPENDS = 10
+    TIP_FILTER = 11
 
 
 PREFIX_ASM_SCRIPT = "asm:"
+
+ADDRESS_DERIVATION_TYPES = [ DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH ]
 
 # WARNING(script-types) We currently bake all the possible script hashes for a key into the
 #   `KeyInstanceScripts` database table. If you add a script type here, you need to write a
@@ -472,9 +475,29 @@ class DatabaseWriteErrorCodes(IntEnum):
 
 
 class NetworkServerFlag(IntFlag):
-    NONE = 0
-    ANY_ACCOUNT = 1 << 0
-    API_KEY_REQUIRED = 1 << 12
+    NONE                                            = 0
+    # The user edited this and updated the API key manually. We use this as a decision point
+    # whether to apply changes from any updated config entry (if the user edited, we do not).
+    API_KEY_MANUALLY_UPDATED                        = 1 << 0
+    # For a server base row, this means it applies to any account.
+    # For an server account row, this means the account row overrides the base row.
+    ENABLED                                         = 1 << 1
+
+    # This server was added from the config, not from a user manual addition.
+    FROM_CONFIG                                     = 1 << 4
+    # Unless a server has been explicitly marked as not supporting API keys, it should.
+    API_KEY_SUPPORTED                               = 1 << 5
+    # `API_KEY_SUPPORTED` must also be set. To use this server requires an API key.
+    API_KEY_REQUIRED                                = 1 << 6
+
+    # The "General API" restoration sub-API.
+    CAPABILITY_MERKLE_PROOF_REQUEST                 = 1 << 10
+    CAPABILITY_RESTORATION                          = 1 << 11
+    CAPABILITY_TRANSACTION_REQUEST                  = 1 << 12
+    CAPABILITY_HEADERS                              = 1 << 13
+    CAPABILITY_PEER_CHANNELS                        = 1 << 14
+    CAPABILITY_OUTPUT_SPENDS                        = 1 << 15
+    CAPABILITY_TIP_FILTER                           = 1 << 16
 
 
 class CredentialPolicyFlag(IntFlag):

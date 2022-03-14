@@ -41,22 +41,22 @@ import random
 import dateutil.parser
 import dataclasses
 import os
-from typing import cast, Dict, List, NamedTuple, Optional, Tuple, TypedDict, TYPE_CHECKING
+from typing import cast, Dict, List, NamedTuple, Optional, TypedDict, TYPE_CHECKING
 
-from electrumsv.wallet_database.types import MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags
-from electrumsv.types import IndefiniteCredentialId, NetworkServerState, ServerAccountKey, \
-    TransactionFeeEstimator, TransactionSize
+from electrumsv.wallet_database.types import MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, \
+    NetworkServerRow
+from electrumsv.types import IndefiniteCredentialId, ServerAccountKey, TransactionFeeEstimator, \
+    TransactionSize
 
 from ..app_state import app_state
-from ..constants import NetworkServerType, ServerCapability, TOKEN_PASSWORD
-from ..crypto import pw_decode
+from ..constants import NetworkServerFlag, NetworkServerType, ServerCapability
 from ..exceptions import BroadcastFailedError, ServiceUnavailableError
 from ..i18n import _
 from ..logs import logs
 from ..transaction import Transaction
+from ..util import get_posix_timestamp
 
 from .esv_client import ESVClient
-from .constants import REGTEST_MASTER_TOKEN
 from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator, BroadcastResponse, get_mapi_servers, \
     poll_servers_async, broadcast_transaction_mapi_simple, filter_mapi_servers_for_fee_quote
 
@@ -65,7 +65,7 @@ if TYPE_CHECKING:
     from ..network import SVServer, Network
     from ..wallet import AbstractAccount
 
-__all__ = [ "NewServerAPIContext", "NewServerAccessState", "NewServer" ]
+__all__ = [ "NewServerAccessState", "NewServer" ]
 
 
 STALE_PERIOD_SECONDS = 60 * 60 * 24
@@ -78,14 +78,12 @@ class APIServerDefinition(TypedDict):
     url: str
     type: str
     api_key: str
+    api_key_template: str
     api_key_required: bool
     api_key_supported: bool
-    enabled_for_all_wallets: bool
-    last_good: float
-    last_try: float
+    enabled_for_all_accounts: bool
     capabilities: List[str]
     static_data_date: str
-    modified_date: str
     # MAPI
     anonymous_fee_quote: Optional[JSONEnvelope]
 
@@ -109,6 +107,8 @@ SERVER_CAPABILITIES = {
         CapabilitySupport(_("Arbitrary transaction requests"),
             ServerCapability.TRANSACTION_REQUEST),
         CapabilitySupport(_("Output spend notifications"), ServerCapability.OUTPUT_SPENDS),
+        CapabilitySupport(_("Peer channels"), ServerCapability.PEER_CHANNELS),
+        CapabilitySupport(_("Tip filter"), ServerCapability.TIP_FILTER),
     ],
     NetworkServerType.MERCHANT_API: [
         CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST,
@@ -142,11 +142,11 @@ async def broadcast_transaction(tx: Transaction, network: Network,
     Raises `BroadcastFailedError` if it connects but there is some other problem with the
         broadcast attempt.
     """
-    server_entries = get_mapi_servers(network, account)
+    server_entries = get_mapi_servers(account)
     if len(server_entries) != 0:
         await poll_servers_async(server_entries)
 
-    selection_candidates = network.get_api_servers_for_account(account,
+    selection_candidates = account._wallet.get_servers_for_account(account,
         NetworkServerType.MERCHANT_API)
     candidates_with_fee_quotes = filter_mapi_servers_for_fee_quote(selection_candidates)
     broadcast_servers: list[BroadcastCandidate] = prioritise_broadcast_servers(
@@ -157,20 +157,16 @@ async def broadcast_transaction(tx: Transaction, network: Network,
 
     # For the peer channel callbacks to work on public networks we will
     # require at least one public ESV Reference Server instance for each network
-    selection_candidates = network.get_api_servers_for_account(account,
+    selection_candidates = account._wallet.get_servers_for_account(account,
         NetworkServerType.GENERAL)
 
-    esv_reference_servers = select_servers(ServerCapability.PEER_CHANNELS, selection_candidates)
-    esv_reference_server = esv_reference_servers[0]  # Todo - prioritise properly
-    aiohttp_client = network.get_aiohttp_session()
-    assert esv_reference_server.api_server is not None
     assert broadcast_server.candidate.api_server is not None
-    assert broadcast_server.candidate.api_server.config is not None
-    url = esv_reference_server.api_server.url
-    esv_client = ESVClient(url, aiohttp_client, REGTEST_MASTER_TOKEN)
+    state = account._wallet._TEMP_get_main_server_state()
+    esv_client = ESVClient(state)
 
     peer_channel = await esv_client.create_peer_channel()
-    server_id = broadcast_server.candidate.api_server.config['id']
+    server_id = state.server.database_rows[None].server_id
+    assert server_id is not None
     mapi_callback_row = MAPIBroadcastCallbackRow(
         tx_hash=tx.hash(),
         peer_channel_id=peer_channel.channel_id,
@@ -179,7 +175,7 @@ async def broadcast_transaction(tx: Transaction, network: Network,
         server_id=server_id,
         status_flags=MapiBroadcastStatusFlags.ATTEMPTING
     )
-    account._wallet.data.create_mapi_broadcast_callbacks([mapi_callback_row])
+    await account._wallet.data.create_mapi_broadcast_callbacks_async([mapi_callback_row])
     api_server = broadcast_server.candidate.api_server
     credential_id = broadcast_server.candidate.credential_id
     assert api_server is not None
@@ -198,10 +194,8 @@ async def broadcast_transaction(tx: Transaction, network: Network,
     #  delete the MAPIBroadcastCallbackRow
     return result
 
-class NewServerAPIContext(NamedTuple):
-    wallet_path: str
-    account_id: Optional[int]
 
+DEFAULT_API_KEY_TEMPLATE = "Authorization: Bearer {API_KEY}"
 
 class NewServerAccessState:
     """ The state for each URL/api key combination used by the application. """
@@ -217,8 +211,8 @@ class NewServerAccessState:
         self.last_fee_quote: Optional[FeeQuote] = None
 
     def __repr__(self) -> str:
-        return f"<NewServerAccessState last_try={self.last_try} last_good={self.last_good} " \
-               f"last_fee_quote={self.last_fee_quote}/>"
+        return f"NewServerAccessState(last_try={self.last_try} last_good={self.last_good} " \
+               f"last_fee_quote={self.last_fee_quote})"
 
     def record_attempt(self) -> None:
         self.last_try = datetime.datetime.now(datetime.timezone.utc).timestamp()
@@ -250,135 +244,99 @@ class NewServerAccessState:
 
 
 class NewServer:
-    def __init__(self, url: str, server_type: NetworkServerType,
-            config: Optional[APIServerDefinition]=None) -> None:
+    def __init__(self, url: str, server_type: NetworkServerType) -> None:
+        # TODO(1.4.0) Servers. Need to decide on a policy for trailing slashes.
+        if not url.endswith("/") and url.find("?") == -1:
+            url += "/"
         self.url = url
         self.server_type = server_type
-        self.config: Optional[APIServerDefinition] = config
-        self.config_credential_id: Optional[IndefiniteCredentialId] = None
 
         # These are the enabled clients, whether they use an API key and the id if so.
-        self.client_api_keys = dict[NewServerAPIContext, Optional[IndefiniteCredentialId]]()
-        self.database_ids = dict[NewServerAPIContext, int]()
+        self.client_api_keys = dict[Optional[int], Optional[IndefiniteCredentialId]]()
+        self.database_rows = dict[Optional[int], NetworkServerRow]()
         # We keep per-API key state for a reason. An API key can be considered to be a distinct
         # account with the service, and it makes sense to keep the statistics/metadata for the
         # service separated by API key for this reason. We intentionally leave these in place
         # at least for now as they are kind of relative to the given key value.
         self.api_key_state = dict[Optional[IndefiniteCredentialId], NewServerAccessState]()
 
-        # We need to put any config credential in the credential cache. The only time that there
-        # will not be an application config entry, is where the server is from an external wallet.
-        if config is not None:
-            if config.get("api_key"):
-                decrypted_api_key = pw_decode(config["api_key"], TOKEN_PASSWORD)
-                self.config_credential_id = \
-                    app_state.credentials.add_indefinite_credential(decrypted_api_key)
-            if self.config_credential_id not in self.api_key_state:
-                self.api_key_state[self.config_credential_id] = NewServerAccessState()
+    def get_account_ids(self) -> list[Optional[int]]:
+        return list(self.client_api_keys)
 
-    def set_wallet_usage(self, wallet_path: str, server_state: NetworkServerState) -> None:
+    def set_server_account_usage(self, server_row: NetworkServerRow,
+            credential_id: Optional[IndefiniteCredentialId]) -> None:
         """
-        Prime the server with the given server state from the given wallet.
+        Prime the server with the given account-related state.
 
         This may override the common state for a credential, like when it was last tried,
         when it was last successfully used or the last fee quote received based on what is the
         latest usable state.
         """
-        usage_context = NewServerAPIContext(wallet_path, server_state.key.account_id)
-        self.client_api_keys[usage_context] = server_state.credential_id
-        self.database_ids[usage_context] = server_state.server_id
+        self.client_api_keys[server_row.account_id] = credential_id
+        self.database_rows[server_row.account_id] = server_row
 
-        if server_state.credential_id not in self.api_key_state:
-            self.api_key_state[server_state.credential_id] = NewServerAccessState()
-        key_state = self.api_key_state[server_state.credential_id]
-        if server_state.date_last_good > key_state.last_good:
-            key_state.last_try = max(key_state.last_try, server_state.date_last_try)
+        if credential_id not in self.api_key_state:
+            self.api_key_state[credential_id] = NewServerAccessState()
+        key_state = self.api_key_state[credential_id]
+
+        if server_row.date_last_good > key_state.last_good:
+            key_state.last_try = max(key_state.last_try, server_row.date_last_try)
             # Fee quote state is only relevant for MAPI.
             if self.server_type == NetworkServerType.MERCHANT_API:
                 fee_response: Optional[JSONEnvelope] = None
-                if server_state.mapi_fee_quote_json:
-                    fee_response = cast(JSONEnvelope, json.loads(server_state.mapi_fee_quote_json))
-                key_state.set_fee_quote(fee_response, server_state.date_last_good)
+                if server_row.mapi_fee_quote_json:
+                    fee_response = cast(JSONEnvelope, json.loads(server_row.mapi_fee_quote_json))
+                key_state.set_fee_quote(fee_response, server_row.date_last_good)
 
-    def remove_wallet_usage(self, wallet_path: str, specific_server_key: ServerAccountKey) -> None:
-        usage_context = NewServerAPIContext(wallet_path, specific_server_key.account_id)
-        del self.client_api_keys[usage_context]
-        del self.database_ids[usage_context]
+    def clear_server_account_usage(self, specific_server_key: ServerAccountKey) -> None:
+        del self.client_api_keys[specific_server_key.account_id]
+        del self.database_rows[specific_server_key.account_id]
 
-    def unregister_wallet(self, wallet_path: str) -> List[NetworkServerState]:
+    def to_updated_rows(self) -> List[NetworkServerRow]:
         """
-        Remove all involvement of a wallet that is being unloaded from this server.
-
-        We return the updated state for each registered server/account as of the time of
-        unregistration for the caller to optionally persist.
+        We return the updated state for each registered server/account as of the current time for
+        the caller to presumably persist. We only update the metadata, not the fields the user
+        edits like the api key related values.
         """
-        # This wallet is being unloaded so remove all it's involvement with the server.
-        results: List[NetworkServerState] = []
-        for client_key, credential_id in list(self.client_api_keys.items()):
-            if client_key.wallet_path != wallet_path:
-                continue
-            del self.client_api_keys[client_key]
-            server_id = self.database_ids.pop(client_key)
-
+        date_updated = get_posix_timestamp()
+        results: List[NetworkServerRow] = []
+        for account_id, credential_id in list(self.client_api_keys.items()):
+            server_row = self.database_rows[account_id]
             key_state = self.api_key_state[credential_id]
-            specific_server_key = ServerAccountKey(self.url, self.server_type,
-                client_key.account_id)
+
             mapi_fee_quote_json: Optional[str] = None
             if self.server_type == NetworkServerType.MERCHANT_API:
                 if key_state.last_fee_quote_response:
                     mapi_fee_quote_json = json.dumps(key_state.last_fee_quote_response)
             else:
                 assert key_state.last_fee_quote_response is None
-            server_state = NetworkServerState(server_id, specific_server_key, credential_id,
-                mapi_fee_quote_json, int(key_state.last_try), int(key_state.last_good))
-            results.append(server_state)
+
+            updated_row = server_row._replace(mapi_fee_quote_json=mapi_fee_quote_json,
+                date_last_try=int(key_state.last_try), date_last_good=int(key_state.last_good),
+                date_updated=date_updated)
+            results.append(updated_row)
         return results
-
-    def on_pending_config_change(self, config_update: APIServerDefinition) -> None:
-        """
-        Process a change to the config entry for this server.
-
-        The instance variable `config` is a reference to the config entry that is tracked by
-        the network. We get this event before it is updated, so that we can interpret the changes
-        againt it.
-        """
-        assert self.config is not None
-        if self.config_credential_id is not None:
-            app_state.credentials.remove_indefinite_credential(self.config_credential_id)
-            self.config_credential_id = None
-
-        new_encrypted_api_key = config_update.get("api_key")
-        if new_encrypted_api_key:
-            decrypted_api_key = pw_decode(new_encrypted_api_key, TOKEN_PASSWORD)
-            self.config_credential_id = \
-                app_state.credentials.add_indefinite_credential(decrypted_api_key)
-            if self.config_credential_id not in self.api_key_state:
-                self.api_key_state[self.config_credential_id] = NewServerAccessState()
 
     def is_unusable(self) -> bool:
         """
         Whether the given server is configured to be unusable by anything.
         """
         if len(self.client_api_keys) == 0:
-            if self.config is None:
-                return True
-            # TODO(rt12) This needs to be documented. How is an enabled server unusable? Wouldn't
-            #   it be the other way around?
-            return self.config["enabled_for_all_wallets"]
+            return True
         return False
 
     def is_unused(self) -> bool:
         """ An API server is considered unused if it is not a globally stored one (if it were it
             would have a config object) and it no longer has any loaded wallets using it. """
-        return len(self.client_api_keys) == 0 and self.config is None
+        return len(self.client_api_keys) == 0
 
     def should_request_fee_quote(self, credential_id: Optional[IndefiniteCredentialId]) -> bool:
         """
         Work out if we have a valid fee quote, and if not whether we can get one.
         """
-        if self.config is not None:
-            if self.config.get("api_key_required") and credential_id is None:
-                return False
+        row = self.database_rows[None]
+        if row.server_flags & NetworkServerFlag.API_KEY_REQUIRED and credential_id is None:
+            return False
 
         key_state = self.api_key_state[credential_id]
         if key_state.last_fee_quote is None:
@@ -395,8 +353,8 @@ class NewServer:
         retrieved_date = dateutil.parser.isoparse(key_state.last_fee_quote["timestamp"])
         return (now_date - retrieved_date).total_seconds() > STALE_PERIOD_SECONDS
 
-    def get_credential_id(self, client_key: NewServerAPIContext) \
-            -> Tuple[bool, Optional[IndefiniteCredentialId]]:
+    def get_credential_id(self, account_id: Optional[int]) \
+            -> tuple[bool, Optional[IndefiniteCredentialId]]:
         """
         Indicate whether the given client can use this server.
 
@@ -404,18 +362,12 @@ class NewServer:
         use the given server, and the credential id which can be `None` for no credential.
         """
         # Look up the account.
-        if client_key in self.client_api_keys:
-            return True, self.client_api_keys[client_key]
+        if account_id in self.client_api_keys:
+            return True, self.client_api_keys[account_id]
 
         # Look up the account's wallet as the first fallback.
-        wallet_client_key = NewServerAPIContext(client_key.wallet_path, None)
-        if wallet_client_key in self.client_api_keys:
-            return True, self.client_api_keys[wallet_client_key]
-
-        # Finally we look up the application server for this URL, if there is one, and if it
-        # is enabled for global use, we use it's api key.
-        if self.config is not None and self.config["enabled_for_all_wallets"]:
-            return True, self.config_credential_id
+        if None in self.client_api_keys:
+            return True, self.client_api_keys[None]
 
         # This client is not configured to use this server.
         return False, None
@@ -425,28 +377,39 @@ class NewServer:
         if credential_id is None:
             return {}
 
-        authorization_header = "Authorization: Bearer {API_KEY}"
-        if self.config is not None:
-            authorization_header_override = self.config.get("api_key_template")
-            if authorization_header_override:
-                authorization_header = cast(str, authorization_header_override)
-
         decrypted_api_key = app_state.credentials.get_indefinite_credential(credential_id)
+        api_key_template = self.database_rows[None].api_key_template
+        if api_key_template is not None:
+            authorization_header = api_key_template
+        else:
+            authorization_header = DEFAULT_API_KEY_TEMPLATE
         header_key, _separator, header_value = authorization_header.partition(": ")
         return { header_key: header_value.format(API_KEY=decrypted_api_key) }
 
     @property
     def capabilities(self) -> List[ServerCapability]:
         results: List[ServerCapability] = []
-        if self.config is not None:
-            for capability_name in self.config.get("capabilities", []):
-                capability_value = getattr(ServerCapability, capability_name, None)
-                if capability_value is not None:
-                    results.append(capability_value)
+        if self.server_type == NetworkServerType.MERCHANT_API:
+            for support in SERVER_CAPABILITIES[NetworkServerType.MERCHANT_API]:
+                results.append(support.type)
+        else:
+            row = self.database_rows[None]
+            if row.server_flags & NetworkServerFlag.CAPABILITY_MERKLE_PROOF_REQUEST:
+                results.append(ServerCapability.MERKLE_PROOF_REQUEST)
+            if row.server_flags & NetworkServerFlag.CAPABILITY_RESTORATION:
+                results.append(ServerCapability.RESTORATION)
+            if row.server_flags & NetworkServerFlag.CAPABILITY_TRANSACTION_REQUEST:
+                results.append(ServerCapability.TRANSACTION_REQUEST)
+            if row.server_flags & NetworkServerFlag.CAPABILITY_HEADERS:
+                results.append(ServerCapability.HEADERS)
+            if row.server_flags & NetworkServerFlag.CAPABILITY_PEER_CHANNELS:
+                results.append(ServerCapability.PEER_CHANNELS)
+            if row.server_flags & NetworkServerFlag.CAPABILITY_OUTPUT_SPENDS:
+                results.append(ServerCapability.OUTPUT_SPENDS)
         return results
 
     def __repr__(self) -> str:
-        return f"<NewServer url={self.url} server_type={self.server_type} config={self.config}/>"
+        return f"NewServer(url={self.url} server_type={self.server_type})"
 
 
 class SelectionCandidate(NamedTuple):
@@ -488,13 +451,12 @@ def select_servers(capability_type: ServerCapability, candidates: List[Selection
     return filtered_servers
 
 
-def pick_server_for_account(network: Optional[Network], account: AbstractAccount,
-        capability: ServerCapability) -> str:
+def pick_server_candidate_for_account(account: AbstractAccount, capability: ServerCapability) \
+        -> SelectionCandidate:
     """
     Raises `ServiceUnavailableError` if no servers are known that provide that capability.
     """
-    assert network is not None
-    all_candidates = network.get_api_servers_for_account(
+    all_candidates = account._wallet.get_servers_for_account(
         account, NetworkServerType.GENERAL)
     restoration_candidates = select_servers(capability, all_candidates)
     if not len(restoration_candidates):
@@ -502,12 +464,19 @@ def pick_server_for_account(network: Optional[Network], account: AbstractAccount
 
     # TODO(1.4.0) Networking. Better choice of which server to use, probably some centralised
     #     approach.
-    candidate = random.choice(restoration_candidates)
-    assert candidate.api_server is not None and candidate.api_server.config is not None
+    return random.choice(restoration_candidates)
+
+
+def pick_server_for_account(account: AbstractAccount, capability: ServerCapability) -> str:
+    """
+    Raises `ServiceUnavailableError` if no servers are known that provide that capability.
+    """
+    candidate = pick_server_candidate_for_account(account, capability)
+    assert candidate.api_server is not None
 
     # TODO(1.4.0) Networking. Better endpoint url resolution rather than this hard-coding.
-    url = candidate.api_server.config["url"]
-    url = url if url.endswith("/") else url +"/"
+    url = candidate.api_server.url
+    assert url.endswith("/"), f"bad config url '{url}' lacks trailing slash"
     return url
 
 

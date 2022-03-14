@@ -1,4 +1,3 @@
-import dataclasses
 from enum import IntEnum
 from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Set, Tuple, Union
 
@@ -93,13 +92,8 @@ class KeyDataProtocol(Protocol):
         ...
 
 
-@dataclasses.dataclass
-class KeyData:
-    """
-    At the time of writing, no database operation uses this. It is a helper abstraction that
-    allows non-database types that do not have to be contiguous immutable rows to encapsulate the
-    key data fields.
-    """
+# @dataclasses.dataclass
+class KeyData(NamedTuple):
     keyinstance_id: int                 # Overlapping common output/spendable type field.
     account_id: int                     # Spendable type field.
     masterkey_id: Optional[int]         # Spendable type field.
@@ -165,6 +159,7 @@ class NetworkServerRow(NamedTuple):
     url: str
     account_id: Optional[int]
     server_flags: NetworkServerFlag
+    api_key_template: Optional[str]
     encrypted_api_key: Optional[str]
     # MAPI specific: used for JSONEnvelope serialised transaction fee quotes.
     mapi_fee_quote_json: Optional[str]
@@ -198,6 +193,8 @@ class PaymentRequestRow(NamedTuple):
     requested_value: Optional[int]
     expiration: Optional[int]
     description: Optional[str]
+    script_type: ScriptType
+    pushdata_hash: bytes
     date_created: int = -1
 
 
@@ -514,3 +511,4 @@ class MAPIBroadcastCallbackRow(NamedTuple):
     encrypted_private_key: bytes
     server_id: int
     status_flags: MapiBroadcastStatusFlags
+

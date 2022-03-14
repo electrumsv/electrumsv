@@ -19,7 +19,7 @@ except ModuleNotFoundError:
 from electrumsv.constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
     MasterKeyFlags, NetworkServerFlag, NetworkServerType,
     PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
-from electrumsv.types import NetworkServerState, Outpoint, ServerAccountKey
+from electrumsv.types import Outpoint, ServerAccountKey
 from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
@@ -941,8 +941,10 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     assert len(rows) == 0
 
     LINE_COUNT = 3
-    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None, None, TX_DESC1)
-    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100, 60*60, TX_DESC2)
+    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None, None, TX_DESC1,
+        ScriptType.P2PKH, b'')
+    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100, 60*60, TX_DESC2,
+        ScriptType.P2PKH, b'')
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.
@@ -1044,7 +1046,8 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     account_transaction_entries = [
         AccountTransactionRow(ACCOUNT_ID, TX_HASH, AccountTxFlags.NONE, None, 1, 1),
     ]
-    future = db_functions.create_account_transactions_UNITTEST(db_context, account_transaction_entries)
+    future = db_functions.create_account_transactions_UNITTEST(db_context,
+        account_transaction_entries)
     future.result()
 
     db = db_context.acquire_connection()
@@ -1469,17 +1472,18 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     URL = "..."
     server_rows = [
         NetworkServerRow(SERVER_ID+1, SERVER_TYPE, URL*1, None, NetworkServerFlag.NONE,
-            None, None, 0, 0, date_updated, date_updated),
+            None, None, None, 0, 0, date_updated, date_updated),
     ]
     server_account_rows = [
         NetworkServerRow(SERVER_ID+2, SERVER_TYPE, URL*1, ACCOUNT_ID, NetworkServerFlag.NONE,
-            None, None, 0, 0, date_updated, date_updated)
+            None, None, None, 0, 0, date_updated, date_updated)
     ]
 
     ## Server row creation.
 
     # Nothing should prevent creation of the given server row.
-    update_future = db_functions.update_network_servers(db_context, server_rows, [], [], [])
+    update_future = db_functions.update_network_servers_transaction(db_context, server_rows, [],
+        [], [])
     created_server_rows = update_future.result(timeout=5)
     assert len(created_server_rows) == 1
     modified_source_row = server_rows[0]._replace(server_id=created_server_rows[0].server_id)
@@ -1499,7 +1503,8 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     assert server_rows == read_server_rows
 
     # Creating the server again should fail as the given url/server type/account is in use now.
-    update_future = db_functions.update_network_servers(db_context, server_rows, [], [], [])
+    update_future = db_functions.update_network_servers_transaction(db_context, server_rows, [],
+        [], [])
     with pytest.raises(sqlite3.IntegrityError):
         update_future.result(timeout=5)
 
@@ -1507,7 +1512,8 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
 
     # Creating the server account rows should fail as the referenced account existing with the
     # given id.
-    update_future = db_functions.update_network_servers(db_context, server_account_rows, [], [], [])
+    update_future = db_functions.update_network_servers_transaction(db_context,
+        server_account_rows, [], [], [])
     # NOTE(pysqlite3-binary) Different errors on Linux and Windows.
     #     Windows: "sqlite3.IntegrityError: FOREIGN KEY constraint failed"
     #     Linux:   "pysqlite3.dbapi2.OperationalError: FOREIGN KEY constraint failed"
@@ -1530,7 +1536,8 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
         account_future.result(timeout=5)
 
     # Verify that the server rows with accounts are added correctly.
-    update_future = db_functions.update_network_servers(db_context, server_account_rows, [], [], [])
+    update_future = db_functions.update_network_servers_transaction(db_context,
+        server_account_rows, [], [], [])
     created_account_rows = update_future.result(timeout=5)
     assert len(created_account_rows) == 1
     modified_source_row = server_account_rows[0]._replace(
@@ -1553,10 +1560,10 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     if True:
         update_server_rows = [
             server_rows[0]._replace(server_id=created_server_rows[0].server_id,
-                server_flags=NetworkServerFlag.ANY_ACCOUNT, encrypted_api_key="key"),
+                server_flags=NetworkServerFlag.ENABLED, encrypted_api_key="key"),
         ]
-        update_future = db_functions.update_network_servers(db_context, [], update_server_rows, [],
-            [])
+        update_future = db_functions.update_network_servers_transaction(db_context, [],
+            update_server_rows, [], [])
         update_future.result(timeout=5)
 
         # Find the server row and account row.
@@ -1580,7 +1587,7 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
         update_server_account_rows = [
             server_account_rows[0]._replace(encrypted_api_key="key"),
         ]
-        update_future = db_functions.update_network_servers(db_context,
+        update_future = db_functions.update_network_servers_transaction(db_context,
             [], update_server_account_rows, [], [])
         update_future.result(timeout=5)
 
@@ -1604,7 +1611,7 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     if True:
         assert created_server_rows[0].server_id is not None
         assert created_account_rows[0].server_id is not None
-        update_future = db_functions.update_network_servers(db_context, [], [],
+        update_future = db_functions.update_network_servers_transaction(db_context, [], [],
             [ created_server_rows[0].server_id, created_account_rows[0].server_id ], [])
         update_future.result(timeout=5)
 
@@ -1612,34 +1619,33 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
         assert len(read_rows) == 0
 
         # Restore the rows.
-        future = db_functions.update_network_servers(db_context, server_rows + server_account_rows,
-            [], [], [])
+        future = db_functions.update_network_servers_transaction(db_context,
+            server_rows + server_account_rows, [], [], [])
         future.result(timeout=5)
 
     # Delete the both rows by key.
     if True:
         delete_key = ServerAccountKey.from_row(created_server_rows[0])
-        update_future = db_functions.update_network_servers(db_context, [], [], [], [ delete_key ])
+        update_future = db_functions.update_network_servers_transaction(db_context, [], [], [],
+            [ delete_key ])
         update_future.result(timeout=5)
 
         read_rows = db_functions.read_network_servers(db_context)
         assert len(read_rows) == 0
 
         # Restore the rows.
-        future = db_functions.update_network_servers(db_context, server_rows + server_account_rows,
-            [], [], [])
+        future = db_functions.update_network_servers_transaction(db_context,
+            server_rows + server_account_rows, [], [], [])
         future.result(timeout=5)
 
     # Verify that updating the server state works.
     if True:
-        server_states = [ NetworkServerState(cast(int, server_rows[0].server_id),
-            ServerAccountKey.from_row(server_rows[0]), None, "fee_quote_json",
+        new_server_rows = [ server_rows[0]._replace(mapi_fee_quote_json="fee_quote_json",
             date_last_good=111111, date_last_try=22222) ]
-        server_account_states = [ NetworkServerState(cast(int, server_account_rows[0].server_id),
-            ServerAccountKey.from_row(server_account_rows[0]), None, "fee_quote_zzzz",
-            date_last_good=0, date_last_try=555555) ]
-        update_future = db_functions.update_network_server_states(db_context, server_states +
-            server_account_states)
+        new_server_account_rows = [ server_account_rows[0]._replace(
+            mapi_fee_quote_json="fee_quote_zzzz", date_last_good=0, date_last_try=555555) ]
+        update_future = db_functions.update_network_servers(db_context, new_server_rows +
+            new_server_account_rows)
         update_future.result(timeout=5)
 
         read_rows = db_functions.read_network_servers(db_context)
@@ -1663,7 +1669,8 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
 
     # Verify that deleting an unmatched row does not delete existing rows.
     if True:
-        future = db_functions.update_network_servers(db_context, [], [], [ 1343211 ], [])
+        future = db_functions.update_network_servers_transaction(db_context, [], [],
+            [ 1343211 ], [])
         with pytest.raises(DatabaseUpdateError):
             future.result(timeout=5)
 
@@ -1684,12 +1691,13 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
             SERVER_ID, MAPI_STATUS_FLAGS2),
     ]
 
-    future = db_functions.create_mapi_broadcast_callbacks(db_context,
-        rows=mapi_broadcast_callback_rows)
+    future = db_context.post_to_thread(db_functions.create_mapi_broadcast_callbacks_write,
+        mapi_broadcast_callback_rows)
     assert future.result(timeout=5) is None
 
     if True:
-        rows_after_insert: list[MAPIBroadcastCallbackRow] = db_functions.read_mapi_broadcast_callbacks(db_context)
+        rows_after_insert: list[MAPIBroadcastCallbackRow] = \
+            db_functions.read_mapi_broadcast_callbacks(db_context)
         assert rows_after_insert == mapi_broadcast_callback_rows
         assert len(rows_after_insert) == 2
 
@@ -1697,7 +1705,8 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
         future = db_functions.delete_mapi_broadcast_callbacks(db_context, tx_hashes=[TX_HASH2])
         assert future.result(timeout=5) is None
 
-        rows_after_delete: list[MAPIBroadcastCallbackRow] = db_functions.read_mapi_broadcast_callbacks(db_context)
+        rows_after_delete: list[MAPIBroadcastCallbackRow] = \
+            db_functions.read_mapi_broadcast_callbacks(db_context)
         assert len(rows_after_delete) == 1
         assert rows_after_delete[0].status_flags == MapiBroadcastStatusFlags.ATTEMPTING
 
@@ -1706,5 +1715,6 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
             entries=[(MapiBroadcastStatusFlags.SUCCEEDED, TX_HASH1)])
         assert future.result(timeout=5) is None
 
-        rows_after_update: list[MAPIBroadcastCallbackRow] = db_functions.read_mapi_broadcast_callbacks(db_context)
+        rows_after_update: list[MAPIBroadcastCallbackRow] = \
+            db_functions.read_mapi_broadcast_callbacks(db_context)
         assert rows_after_update[0].status_flags == MapiBroadcastStatusFlags.SUCCEEDED

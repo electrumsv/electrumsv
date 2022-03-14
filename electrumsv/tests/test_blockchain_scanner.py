@@ -8,9 +8,8 @@ import unittest.mock
 from bitcoinx import bip32_key_from_string, BIP32PublicKey, hash_to_hex_str, sha256
 import pytest
 
-from electrumsv.blockchain_scanner import (BIP32ParentPath, DEFAULT_GAP_LIMITS,
-    BlockchainScanner, PushDataHasher, PushDataHashHandler, PushDataMatchResult, SearchEntry,
-    SearchEntryKind, SearchKeyEnumerator)
+from electrumsv.blockchain_scanner import (BIP32ParentPath, BlockchainScanner, DEFAULT_GAP_LIMITS,
+    PushDataHashHandler, PushDataMatchResult, SearchEntry, SearchEntryKind, SearchKeyEnumerator)
 from electrumsv.constants import (CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType,
     SINGLE_SIGNER_SCRIPT_TYPES)
 from electrumsv.network_support.general_api import RestorationFilterResult
@@ -105,8 +104,7 @@ async def test_scanner_pump_mixed(app_state):
         range_index += 1
         assert new_range == sum(expected_steps[:range_index])
 
-    item_hasher = PushDataHasher()
-    search_enumerator = SearchKeyEnumerator(item_hasher)
+    search_enumerator = SearchKeyEnumerator()
     for input_line in input_lines_explicit:
         search_enumerator.add_explicit_item(input_line.keyinstance_id, ScriptType.P2PKH,
             input_line.pushdata_hash)
@@ -157,8 +155,7 @@ async def test_scanner_pump_bip32(app_state):
         nonlocal last_range
         last_range = new_range
 
-    item_hasher = PushDataHasher()
-    search_enumerator = SearchKeyEnumerator(item_hasher)
+    search_enumerator = SearchKeyEnumerator()
     receiving_path = search_enumerator.add_bip32_subpath(RECEIVING_SUBPATH, [ xpub1 ], 1,
         SINGLE_SIGNER_SCRIPT_TYPES)
     async def replacement_search_entries(entries: list[SearchEntry]) -> None:
@@ -211,8 +208,7 @@ async def test_scanner_pump_script(app_state):
         extend_range_called = True
         assert new_range == len(input_lines)
 
-    item_hasher = PushDataHasher()
-    search_enumerator = SearchKeyEnumerator(item_hasher)
+    search_enumerator = SearchKeyEnumerator()
     for input_line in input_lines:
         search_enumerator.add_explicit_item(input_line.keyinstance_id, ScriptType.P2PKH,
             input_line.pushdata_hash)
@@ -246,8 +242,7 @@ def test_scanner_bip32_correctness(app_state):
     # app_state.subscriptions = unittest.mock.Mock()
     assert isinstance(xpub1, BIP32PublicKey)
 
-    item_hasher = PushDataHasher()
-    search_enumerator = SearchKeyEnumerator(item_hasher)
+    search_enumerator = SearchKeyEnumerator()
 
     receiving_xpub = xpub1.child_safe(RECEIVING_SUBPATH[0])
     receiving_path = BIP32ParentPath(RECEIVING_SUBPATH, 1, [ xpub1 ], (ScriptType.P2PKH,))

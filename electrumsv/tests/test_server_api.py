@@ -4,40 +4,37 @@ import uuid
 
 import pytest
 
-from electrumsv.constants import NetworkServerType, ServerCapability
+from electrumsv.constants import NetworkServerFlag, NetworkServerType, ServerCapability
 from electrumsv.network_support import api_server, mapi
 from electrumsv.types import IndefiniteCredentialId, TransactionSize
+from electrumsv.wallet_database.types import NetworkServerRow
 
 
 def test_get_authorization_headers_credential_none() -> None:
-    config = {}
-    server = api_server.NewServer("my_url", NetworkServerType.MERCHANT_API, config)
+    server = api_server.NewServer("my_url", NetworkServerType.MERCHANT_API)
     headers = server.get_authorization_headers(None)
     assert headers == {}
 
 
-default_server_header = { "Authorization": "Bearer kredential" }
-
 server_params = [
-    (None, default_server_header),
-    # Just a default config, the requires entry is meaningless as it is expected to be filtered for
-    # before the call to `get_authorization_headers`.
-    ({ "requires_api_key": True }, default_server_header),
+    (None, { "Authorization": "Bearer kredential" }),
     # Override the api key template with a custom one.
-    ({ "api_key_template": "Authorization: Bearer testnet_{API_KEY}" },
-        { "Authorization": "Bearer testnet_kredential" }),
+    ("Authorization: Bearer testnet_{API_KEY}", { "Authorization": "Bearer testnet_kredential" }),
 ]
 
 
 @pytest.mark.parametrize("params", server_params)
 @unittest.mock.patch('electrumsv.network_support.api_server.app_state')
 def test_get_authorization_headers_credential_default_header(app_state, params) -> None:
-    config, expected_headers = params
+    use_this_value, expected_headers = params
     app_state.credentials = unittest.mock.Mock()
     app_state.credentials.get_indefinite_credential.side_effect = lambda v: "kredential"
 
     credential_id = cast(IndefiniteCredentialId, uuid.uuid4())
-    server = api_server.NewServer("my_url", NetworkServerType.MERCHANT_API, config)
+    server = api_server.NewServer("my_url", NetworkServerType.MERCHANT_API)
+    mock_row = unittest.mock.Mock()
+    mock_row.api_key_template = use_this_value
+    server.database_rows[None] = cast(NetworkServerRow, mock_row)
     headers = server.get_authorization_headers(credential_id)
     assert headers == expected_headers
 
@@ -57,6 +54,13 @@ def test_select_servers_filter_all_outputs() -> None:
             None,
             api_server.NewServer("B", NetworkServerType.ELECTRUMX)),
     ]
+    fake_row = unittest.mock.Mock()
+    fake_row.server_flags = NetworkServerFlag.NONE
+    assert servers[0].api_server is not None
+    servers[0].api_server.database_rows[None] = cast(NetworkServerRow, fake_row)
+    assert servers[1].api_server is not None
+    servers[1].api_server.database_rows[None] = cast(NetworkServerRow, fake_row)
+
     selected_candidates = api_server.select_servers(ServerCapability.TRANSACTION_BROADCAST, servers)
     assert servers == selected_candidates
 
@@ -72,6 +76,13 @@ def test_select_servers_filter_reduced_outputs() -> None:
             None,
             api_server.NewServer("B", NetworkServerType.ELECTRUMX)),
     ]
+    fake_row = unittest.mock.Mock()
+    fake_row.server_flags = NetworkServerFlag.NONE
+    assert servers[0].api_server is not None
+    servers[0].api_server.database_rows[None] = cast(NetworkServerRow, fake_row)
+    assert servers[1].api_server is not None
+    servers[1].api_server.database_rows[None] = cast(NetworkServerRow, fake_row)
+
     selected_candidates = api_server.select_servers(ServerCapability.FEE_QUOTE, servers)
     assert [ servers[0] ] == selected_candidates
 

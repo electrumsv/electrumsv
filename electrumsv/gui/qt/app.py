@@ -47,7 +47,7 @@ from ...types import ExceptionInfoType
 from ...util import UpdateCheckResultType
 from ...wallet import AbstractAccount, Wallet
 
-from . import dialogs, network_dialog
+from . import dialogs
 from .cosigner_pool import CosignerPool
 from .main_window import ElectrumWindow
 from .exception_window import Exception_Hook
@@ -115,7 +115,6 @@ class SVApplication(QApplication):
         self.windows: List[ElectrumWindow] = []
         self.log_handler = SVLogHandler()
         self.log_window: Optional[SVLogWindow] = None
-        self.net_dialog: Optional[network_dialog.NetworkDialog] = None
         self.timer = QTimer(self)
         self.exception_hook: Optional[ExceptionHandlerABC] = None
         # A floating point number, e.g. 129.1
@@ -219,32 +218,14 @@ class SVApplication(QApplication):
         # Use a signal as can be called from daemon thread
         self.create_new_window_signal.emit(path, uri, False)
 
-    def show_network_dialog(self, parent: ElectrumWindow) -> None:
-        if not app_state.daemon.network:
-            parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
-                                  'ElectrumSV if you want to get connected'), title=_('Offline'))
-            return
-        if self.net_dialog:
-            self.net_dialog._event_network_updated()
-            self.net_dialog.show()
-            self.net_dialog.raise_()
-            return
-        # from importlib import reload
-        # reload(network_dialog)
-        network = app_state.daemon.network
-        assert network is not None
-        self.net_dialog = network_dialog.NetworkDialog(network)
-        self.net_dialog.show()
-
     def show_log_viewer(self) -> None:
         if self.log_window is None:
             self.log_window = SVLogWindow(None, self.log_handler)
         self.log_window.show()
 
     def _last_window_closed(self) -> None:
-        for dialog in (self.net_dialog, self.log_window):
-            if dialog:
-                dialog.accept()
+        if self.log_window:
+            self.log_window.accept()
 
     def on_transaction_label_change(self, account: AbstractAccount, tx_hash: bytes, text: str) \
             -> None:

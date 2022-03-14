@@ -2,15 +2,19 @@ import base64
 import json
 import logging
 from typing import cast
+import unittest.mock
+import uuid
 
 from aiohttp import web
 from aiohttp import ClientSession
 from aiohttp.web_ws import WebSocketResponse
 from bitcoinx import hash_to_hex_str
 
+from electrumsv.app_state import AppStateProxy
 from electrumsv.network_support.esv_client import ESVClient, PeerChannel
-from electrumsv.network_support.esv_client_types import PeerChannelToken, TokenPermissions, \
-    ServerWebsocketNotification, ChannelNotification, MAPICallbackResponse
+from electrumsv.network_support.esv_client_types import ChannelNotification, MAPICallbackResponse, \
+    PeerChannelToken, ServerConnectionState, ServerWebsocketNotification, TokenPermissions
+from electrumsv.network_support.api_server import NewServer
 from electrumsv.tests.data.reference_server.headers_data import GENESIS_TIP
 
 logger = logging.getLogger("test-esv-client")
@@ -102,9 +106,25 @@ async def _create_peer_channel_instance(aiohttp_client) -> PeerChannel:
     peer_channel: PeerChannel = await esv_client.create_peer_channel()
     return peer_channel
 
+CREDENTIAL_ID = uuid.uuid4()
+
+def _get_server_state(test_session: ClientSession) -> ServerConnectionState:
+    # All the `None` fields are unsupported at this time.
+    mock_server = unittest.mock.Mock()
+    mock_server.url = BASE_URL
+    server = cast(NewServer, mock_server)
+    return ServerConnectionState(
+        wallet_data=None,
+        session=test_session,
+        server=server,
+        peer_channel_message_queue=None,
+        output_spend_result_queue=None,
+        output_spend_registration_queue=None,
+        tip_filter_new_pushdata_event=None,
+        credential_id=CREDENTIAL_ID)
 
 async def _get_esv_client(test_session: ClientSession) -> ESVClient:
-    esv_client = ESVClient(BASE_URL, test_session, REGTEST_BEARER_TOKEN)
+    esv_client = ESVClient(_get_server_state(test_session))
     return esv_client
 
 
@@ -334,21 +354,27 @@ def create_app():
     return app
 
 
-async def test_get_single_header(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_get_single_header(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     result = await esv_client.get_single_header(block_hash=bytes.fromhex('deadbeef'))
     assert result == bytes.fromhex("aa"*80)
 
 
-async def test_get_headers_by_height(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_get_headers_by_height(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     result = await esv_client.get_headers_by_height(from_height=0, count=2)
     assert result == bytes.fromhex("aa"*80) + bytes.fromhex("bb"*80)
 
 
-async def test_get_chain_tips(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_get_chain_tips(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     expected_response = [GENESIS_TIP]
     test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
@@ -356,7 +382,9 @@ async def test_get_chain_tips(aiohttp_client):
     assert result == expected_response
 
 
-async def test_subscribe_to_headers(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_subscribe_to_headers(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     async for tip in esv_client.subscribe_to_headers():
@@ -366,23 +394,28 @@ async def test_subscribe_to_headers(aiohttp_client):
             return
 
 
-async def test_create_peer_channel(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_create_peer_channel(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     peer_channel: PeerChannel = await esv_client.create_peer_channel()
     assert isinstance(peer_channel, PeerChannel)
 
 
-async def test_delete_peer_channel(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_delete_peer_channel(mock_app_state: AppStateProxy, aiohttp_client) -> None:
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     # Setup Channel for deletion
-    peer_channel = PeerChannel(channel_id=MOCK_CHANNEL_ID, tokens=MOCK_TOKENS,
-        base_url=BASE_URL, session=test_session, master_token=REGTEST_BEARER_TOKEN)
+    peer_channel = PeerChannel(esv_client._state, channel_id=MOCK_CHANNEL_ID, tokens=MOCK_TOKENS)
     await esv_client.delete_peer_channel(peer_channel)
 
 
-async def test_list_peer_channels(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_list_peer_channels(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     peer_channels = await esv_client.list_peer_channels()
@@ -393,7 +426,9 @@ async def test_list_peer_channels(aiohttp_client):
         assert peer_channel.tokens == MOCK_TOKENS
 
 
-async def test_get_single_peer_channel(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_get_single_peer_channel(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     peer_channel = await esv_client.get_single_peer_channel(MOCK_CHANNEL_ID)
@@ -403,7 +438,9 @@ async def test_get_single_peer_channel(aiohttp_client):
 
 
 # Test PeerChannel class
-async def test_peer_channel_instance_attrs(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_peer_channel_instance_attrs(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     # All http endpoints are all mocked so that tests execute fast and they are hassle-free to run
     peer_channel = await _create_peer_channel_instance(aiohttp_client)
     assert isinstance(peer_channel, PeerChannel)
@@ -414,7 +451,9 @@ async def test_peer_channel_instance_attrs(aiohttp_client):
     logger.debug(f"callback_url={callback_url}")
 
 
-async def test_peer_channel_instance_get_write_token(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_peer_channel_instance_get_write_token(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     peer_channel = await _create_peer_channel_instance(aiohttp_client)
     write_token = peer_channel.get_write_token()
     assert isinstance(write_token, PeerChannelToken)
@@ -423,7 +462,9 @@ async def test_peer_channel_instance_get_write_token(aiohttp_client):
     logger.debug(f"write_token={write_token}")
 
 
-async def test_peer_channel_instance_get_read_token(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_peer_channel_instance_get_read_token(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     peer_channel = await _create_peer_channel_instance(aiohttp_client)
     read_token = peer_channel.get_read_token()
     assert isinstance(read_token, PeerChannelToken)
@@ -432,7 +473,9 @@ async def test_peer_channel_instance_get_read_token(aiohttp_client):
     logger.debug(f"read_token={read_token}")
 
 
-async def test_peer_channel_instance_get_messages(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_peer_channel_instance_get_messages(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     peer_channel = await _create_peer_channel_instance(aiohttp_client)
     messages = await peer_channel.get_messages()
     assert len(messages) == 1
@@ -443,14 +486,18 @@ async def test_peer_channel_instance_get_messages(aiohttp_client):
     logger.debug(f"messages={messages}")
 
 
-async def test_peer_channel_instance_get_max_sequence_number(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_peer_channel_instance_get_max_sequence_number(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     peer_channel = await _create_peer_channel_instance(aiohttp_client)
     seq = await peer_channel.get_max_sequence_number()
     assert isinstance(seq, int)
     logger.debug(f"seq={seq}")
 
 
-async def test_peer_channel_instance_write_message(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_peer_channel_instance_write_message(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     peer_channel = await _create_peer_channel_instance(aiohttp_client)
     message = await peer_channel.write_message(message=MERKLE_PROOF_CALLBACK,
         mime_type='application/json')
@@ -462,7 +509,9 @@ async def test_peer_channel_instance_write_message(aiohttp_client):
     logger.debug(f"written message info={message}")
 
 
-async def test_peer_channel_instance_create_api_token(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_peer_channel_instance_create_api_token(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     peer_channel = await _create_peer_channel_instance(aiohttp_client)
     api_token: PeerChannelToken = await peer_channel.create_api_token(
         description="custom description")
@@ -471,7 +520,9 @@ async def test_peer_channel_instance_create_api_token(aiohttp_client):
     logger.debug(f"api_token={api_token}")
 
 
-async def test_peer_channel_instance_list_api_tokens(aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+async def test_peer_channel_instance_list_api_tokens(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     peer_channel = await _create_peer_channel_instance(aiohttp_client)
     api_tokens: list[PeerChannelToken] = await peer_channel.list_api_tokens()
     for api_token in api_tokens:

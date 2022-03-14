@@ -34,6 +34,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 # THE SOFTWARE.
 
+from __future__ import annotations
 import asyncio
 import base64
 import json
@@ -43,6 +44,7 @@ import aiohttp
 from aiohttp import web
 from bitcoinx import hash_to_hex_str
 
+from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof
 from ..logs import logs
 
@@ -61,23 +63,35 @@ logger = logs.get_logger("esv-client")
 class PeerChannel:
     """Represents a single Peer Channel instance"""
 
-    def __init__(self, channel_id: str, tokens: List[PeerChannelToken], base_url: str,
-            session: aiohttp.ClientSession, master_token: str) -> None:
+    def __init__(self, state: ServerConnectionState, channel_id: str,
+            tokens: List[PeerChannelToken]) -> None:
         assert len(base64.urlsafe_b64decode(channel_id)) == 64, "Channel id should be 64 bytes"
         for permissions, api_key in tokens:
             assert len(base64.urlsafe_b64decode(api_key)) == 64, "Peer channel tokens should be " \
                                                                  "64 bytes"
         self.channel_id = channel_id
         self.tokens = tokens
-        self.base_url = base_url
-        self.session = session
-        self.master_token = master_token  # master bearer token for the server account
+        self.state = state
 
     def __repr__(self) -> str:
-        return f"<PeerChannel channel_id={self.channel_id}/>"
+        return f"PeerChannel(channel_id={self.channel_id})"
+
+    @classmethod
+    def from_json(cls, json: PeerChannelViewModelGet, state: ServerConnectionState) -> PeerChannel:
+        access_tokens = json['access_tokens']
+        tokens = []
+        for token in access_tokens:
+            permissions = TokenPermissions.NONE
+            if token['can_read']:
+                permissions |= TokenPermissions.READ_ACCESS
+            if token['can_write']:
+                permissions |= TokenPermissions.WRITE_ACCESS
+            tokens.append(PeerChannelToken(permissions=permissions, api_key=token['token']))
+
+        return cls(channel_id=json['id'], tokens=tokens, state=state)
 
     def get_callback_url(self) -> str:
-        return self.base_url + f"api/v1/channel/{self.channel_id}"
+        return f"{self.state.server.url}api/v1/channel/{self.channel_id}"
 
     def get_write_token(self) -> Optional[PeerChannelToken]:
         for token in self.tokens:
@@ -95,14 +109,14 @@ class PeerChannel:
         """Return cases:
             - Empty list means there are no unread messages.
             - Null means we do not have a valid read token - should be handled by the caller."""
-        url = self.base_url + "api/v1/channel/{channelid}".format(channelid=self.channel_id)
+        url = f"{self.state.server.url}api/v1/channel/{self.channel_id}"
         read_token = self.get_read_token()
         if read_token is None:
             logger.error("A valid read token was not found for 'get_messages' request to: %s", url)
             return None
 
         headers = {"Authorization": f"Bearer {read_token.api_key}"}
-        async with self.session.get(url, headers=headers) as resp:
+        async with self.state.session.get(url, headers=headers) as resp:
             if resp.status != 200:
                 logger.error("get_messages failed with status: %s, reason: %s",
                     resp.status, resp.reason)
@@ -111,14 +125,14 @@ class PeerChannel:
             return result
 
     async def get_max_sequence_number(self) -> Optional[int]:
-        url = self.base_url + "api/v1/channel/{channelid}".format(channelid=self.channel_id)
+        url = f"{self.state.server.url}api/v1/channel/{self.channel_id}"
         read_token = self.get_read_token()
         if read_token is None:
             logger.error("A valid read token was not found for 'get_messages' request to: %s", url)
             return None
 
         headers = {"Authorization": f"Bearer {read_token.api_key}"}
-        async with self.session.head(url, headers=headers) as resp:
+        async with self.state.session.head(url, headers=headers) as resp:
             if resp.status != 200:
                 logger.error("get_max_sequence_number failed with status: %s, reason: %s",
                     resp.status, resp.reason)
@@ -129,7 +143,7 @@ class PeerChannel:
             mime_type: str="application/octet-stream") \
                 -> Optional[Union[MessageViewModelGetJSON, MessageViewModelGetBinary]]:
         """returns sequence number"""
-        url = self.base_url + "api/v1/channel/{channelid}".format(channelid=self.channel_id)
+        url = f"{self.state.server.url}api/v1/channel/{self.channel_id}"
         write_token = self.get_write_token()
         if write_token is None:
             logger.error("A valid write token was not found for 'get_messages' request to: %s", url)
@@ -140,31 +154,33 @@ class PeerChannel:
             assert isinstance(message, dict)
             headers.update({"Content-Type": mime_type})
             json_no_whitespace = json.dumps(message, separators=(",", ":"))
-            async with self.session.post(url, headers=headers, data=json_no_whitespace) as resp:
-                resp.raise_for_status()  # Todo - remove and handle outcomes when we use this
-                json_response: MessageViewModelGetJSON = await resp.json()
+            async with self.state.session.post(url, headers=headers, data=json_no_whitespace) \
+                    as response:
+                response.raise_for_status()  # Todo - remove and handle outcomes when we use this
+                json_response: MessageViewModelGetJSON = await response.json()
                 return json_response
         else:
             assert isinstance(message, bytes)
             headers.update({"Content-Type": mime_type})
-            async with self.session.post(url, headers=headers, json=message) as resp:
-                resp.raise_for_status()  # Todo - remove and handle outcomes when we use this
-                bin_response: MessageViewModelGetBinary = await resp.json()
+            async with self.state.session.post(url, headers=headers, json=message) as response:
+                response.raise_for_status()  # Todo - remove and handle outcomes when we use this
+                bin_response: MessageViewModelGetBinary = await response.json()
                 return bin_response
 
     async def create_api_token(self, can_read: bool=True, can_write: bool=True,
             description: str="standard token") -> PeerChannelToken:
-        url = self.base_url + "api/v1/channel/manage/{channelid}/api-token".format(
-            channelid=self.channel_id)
-        headers = {"Authorization": f"Bearer {self.master_token}"}
+        url = f"{self.state.server.url}api/v1/channel/manage/{self.channel_id}/api-token"
+        assert self.state.credential_id is not None
+        master_token = app_state.credentials.get_indefinite_credential(self.state.credential_id)
+        headers = {"Authorization": f"Bearer {master_token}"}
         body = {
           "description": description,
           "can_read": can_read,
           "can_write": can_write
         }
-        async with self.session.post(url, headers=headers, json=body) as resp:
-            resp.raise_for_status()  # Todo - remove and handle outcomes when we use this
-            json_token: APITokenViewModelGet = await resp.json()
+        async with self.state.session.post(url, headers=headers, json=body) as response:
+            response.raise_for_status()  # Todo - remove and handle outcomes when we use this
+            json_token: APITokenViewModelGet = await response.json()
             permissions: TokenPermissions = TokenPermissions.NONE
             if json_token['can_read']:
                 permissions |= TokenPermissions.READ_ACCESS
@@ -173,12 +189,13 @@ class PeerChannel:
             return PeerChannelToken(permissions=permissions, api_key=json_token['token'])
 
     async def list_api_tokens(self) -> list[PeerChannelToken]:
-        url = self.base_url + "api/v1/channel/manage/{channelid}/api-token".format(
-            channelid=self.channel_id)
-        headers = {"Authorization": f"Bearer {self.master_token}"}
-        async with self.session.get(url, headers=headers) as resp:
-            resp.raise_for_status()  # Todo - remove and handle outcomes when we use this
-            json_tokens: list[APITokenViewModelGet] = await resp.json()
+        url = f"{self.state.server.url}api/v1/channel/manage/{self.channel_id}/api-token"
+        assert self.state.credential_id is not None
+        master_token = app_state.credentials.get_indefinite_credential(self.state.credential_id)
+        headers = {"Authorization": f"Bearer {master_token}"}
+        async with self.state.session.get(url, headers=headers) as response:
+            response.raise_for_status()  # Todo - remove and handle outcomes when we use this
+            json_tokens: list[APITokenViewModelGet] = await response.json()
 
             result = []
             for json_token in json_tokens:
@@ -199,30 +216,11 @@ class ESVClient:
     The only state is the base_url and master_token. Therefore instances of ESVClient can be
     re-generated on-demand - no need for caching of ESVClient instances."""
 
-    def __init__(self, base_url: str, session: aiohttp.ClientSession, master_token: str):
-        self.base_url = base_url
-        self.session = session
-        self.master_token = master_token
-        self.headers = {"Authorization": f"Bearer {self.master_token}"}
-
+    def __init__(self, state: ServerConnectionState) -> None:
+        self._state = state
         self._FETCH_JOBS_COUNT = 4
         self._merkle_proofs_queue: asyncio.Queue[MAPICallbackResponse] = asyncio.Queue()
         self._peer_channel_cache: Dict[ChannelId, PeerChannel] = {}
-
-    def _peer_channel_json_to_obj(self, peer_channel_json: PeerChannelViewModelGet) \
-            -> PeerChannel:
-        access_tokens = peer_channel_json['access_tokens']
-        tokens = []
-        for token in access_tokens:
-            permissions = TokenPermissions.NONE
-            if token['can_read']:
-                permissions |= TokenPermissions.READ_ACCESS
-            if token['can_write']:
-                permissions |= TokenPermissions.WRITE_ACCESS
-            tokens.append(PeerChannelToken(permissions=permissions, api_key=token['token']))
-
-        return PeerChannel(channel_id=peer_channel_json['id'], tokens=tokens,
-            base_url=self.base_url, session=self.session, master_token=self.master_token)
 
     # ----- General Websocket ----- #
     async def _fetch_peer_channel_message_job(self,
@@ -289,44 +287,46 @@ class ESVClient:
 
     # ----- HeaderSV APIs ----- #
     async def get_single_header(self, block_hash: bytes) -> bytes:
-        url = self.base_url + f"api/v1/headers/{hash_to_hex_str(block_hash)}"
-        headers = {}
-        headers.update(self.headers)
+        url = f"{self._state.server.url}api/v1/headers/{hash_to_hex_str(block_hash)}"
+        assert self._state.credential_id is not None
+        master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
+        headers = {"Authorization": f"Bearer {master_token}"}
         headers.update({"Accept": "application/octet-stream"})
-        async with self.session.get(url, headers=headers) as resp:
-            resp.raise_for_status()  # Todo - remove and handle outcomes when we use this
-            raw_header = await resp.read()
+        async with self._state.session.get(url, headers=headers) as response:
+            response.raise_for_status()  # Todo - remove and handle outcomes when we use this
+            raw_header = await response.read()
             return raw_header
 
     async def get_headers_by_height(self, from_height: int, count: Optional[int]=None) \
             -> bytes:
-        url = self.base_url + "api/v1/headers/by-height" + f"?height={from_height}"
+        url = f"{self._state.server.url}api/v1/headers/by-height?height={from_height}"
         if count:
             url += f"&count={count}"
-        headers = {}
-        headers.update(self.headers)
+        assert self._state.credential_id is not None
+        master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
+        headers = {"Authorization": f"Bearer {master_token}"}
         headers.update({"Accept": "application/octet-stream"})
-        async with self.session.get(url, headers=headers) as resp:
-            resp.raise_for_status()  # Todo - remove and handle outcomes
-            raw_headers_array = await resp.read()
+        async with self._state.session.get(url, headers=headers) as response:
+            response.raise_for_status()  # Todo - remove and handle outcomes
+            raw_headers_array = await response.read()
             return raw_headers_array
 
     async def get_chain_tips(self) -> TipResponse:
-        url = self.base_url + "api/v1/headers/tips"
-        headers = {}
-        headers.update(self.headers)
+        url = f"{self._state.server.url}api/v1/headers/tips"
+        assert self._state.credential_id is not None
+        master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
+        headers = {"Authorization": f"Bearer {master_token}"}
         headers.update({"Accept": "application/json"})
-        async with self.session.get(url, headers=self.headers) as resp:
-            resp.raise_for_status()  # Todo - remove and handle outcomes
-            json_tip_response: TipResponse = await resp.json()
+        async with self._state.session.get(url, headers=headers) as response:
+            response.raise_for_status()  # Todo - remove and handle outcomes
+            json_tip_response: TipResponse = await response.json()
             return json_tip_response
 
     async def subscribe_to_headers(self) -> AsyncIterable[TipResponse]:
-        ws_base_url = self.base_url
-        url = ws_base_url + "api/v1/headers/tips/websocket"
+        url =  f"{self._state.server.url}api/v1/headers/tips/websocket"
 
         logger.debug(f"URL IS: {url}")
-        async with self.session.ws_connect(url, headers={}, timeout=5.0) as ws:
+        async with self._state.session.ws_connect(url, headers={}, timeout=5.0) as ws:
             logger.debug(f'Connected to {url}')
             async for msg in ws:
                 content: Union[TipResponse, Error] = json.loads(msg.data)
@@ -346,7 +346,7 @@ class ESVClient:
     # ----- Peer Channel APIs ----- #
     async def create_peer_channel(self, public_read: bool=True, public_write: bool=True,
             sequenced: bool=True, retention: Optional[RetentionViewModel]=None) -> PeerChannel:
-        url = self.base_url + "api/v1/channel/manage"
+        url = f"{self._state.server.url}api/v1/channel/manage"
         body = {
           "public_read": public_read,
           "public_write": public_write,
@@ -360,42 +360,52 @@ class ESVClient:
         if retention:
             body.update(retention)
 
-        async with self.session.post(url, headers=self.headers, json=body) as resp:
-            resp.raise_for_status()
-            json_response: PeerChannelViewModelGet = await resp.json()
-            peer_channel = self._peer_channel_json_to_obj(json_response)
+        assert self._state.credential_id is not None
+        master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
+        headers = {"Authorization": f"Bearer {master_token}"}
+
+        async with self._state.session.post(url, headers=headers, json=body) as response:
+            response.raise_for_status()
+            json_response: PeerChannelViewModelGet = await response.json()
+            peer_channel = PeerChannel.from_json(json_response, self._state)
             self._peer_channel_cache[peer_channel.channel_id] = peer_channel  # cache
-            return self._peer_channel_json_to_obj(json_response)
+            return peer_channel
 
     async def delete_peer_channel(self, peer_channel: PeerChannel) -> None:
-        url = self.base_url + "api/v1/channel/manage/{channelid}"
-        url = url.format(channelid=peer_channel.channel_id)
-        async with self.session.delete(url, headers=self.headers) as resp:
+        url = f"{self._state.server.url}api/v1/channel/manage/{peer_channel.channel_id}"
+        assert self._state.credential_id is not None
+        master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
+        headers = {"Authorization": f"Bearer {master_token}"}
+        async with self._state.session.delete(url, headers=headers) as resp:
             resp.raise_for_status()
             assert resp.status == web.HTTPNoContent.status_code
 
     async def list_peer_channels(self) -> List[PeerChannel]:
-        base_url = self.base_url if self.base_url.endswith("/") else self.base_url + "/"
-        url = base_url + "api/v1/channel/manage/list"
-        async with self.session.get(url, headers=self.headers) as resp:
-            resp.raise_for_status()
+        url = f"{self._state.server.url}api/v1/channel/manage/list"
+        assert self._state.credential_id is not None
+        master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
+        headers = {"Authorization": f"Bearer {master_token}"}
+        async with self._state.session.get(url, headers=headers) as response:
+            response.raise_for_status()
             result = []
-            for peer_channel_json in await resp.json():
-                peer_channel_obj = self._peer_channel_json_to_obj(peer_channel_json)
+            for peer_channel_json in await response.json():
+                peer_channel_obj = PeerChannel.from_json(peer_channel_json, self._state)
                 self._peer_channel_cache[peer_channel_obj.channel_id] = peer_channel_obj  # cache
                 result.append(peer_channel_obj)
             return result
 
     async def get_single_peer_channel(self, channel_id: str) -> Optional[PeerChannel]:
-        base_url = self.base_url if self.base_url.endswith("/") else self.base_url + "/"
-        url = base_url + "api/v1/channel/manage/{channelid}".format(channelid=channel_id)
-        async with self.session.get(url, headers=self.headers) as resp:
+        url = f"{self._state.server.url}api/v1/channel/manage/{channel_id}"
+        assert self._state.credential_id is not None
+        master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
+        headers = {"Authorization": f"Bearer {master_token}"}
+        async with self._state.session.get(url, headers=headers) as resp:
             if resp.status != 200:
                 logger.error("get_single_peer_channel failed with status: %s, reason: %s",
                     resp.status, resp.reason)
                 return None
 
-            peer_channel = self._peer_channel_json_to_obj(await resp.json())
+            peer_channel = PeerChannel.from_json(await resp.json(), self._state)
             self._peer_channel_cache[channel_id] = peer_channel  # cache
             return peer_channel
 

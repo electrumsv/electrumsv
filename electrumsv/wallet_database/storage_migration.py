@@ -6,6 +6,11 @@ was introduced for, e.g. "SomeStruct_22", where 22 was the first database migrat
 
 TODO Currently this contains structures named "SomeStruct1" instead of "SomeStruct_22". This should
      be rectified at some point, but is not being rectified yet in order to reduce merge burden.
+
+TODO There are aliases for some structures, mostly "SomeStruct_27" at the moment, where we
+     refer to the current version in the code. When these change they should be formalised
+     into a full structure.
+
 """
 import concurrent.futures
 from enum import IntFlag
@@ -29,10 +34,10 @@ from ..types import MasterKeyDataBIP32, \
     MasterKeyDataTypes
 from ..util import get_posix_timestamp
 
-from .types import MasterKeyRow
+from .types import KeyInstanceRow, MasterKeyRow, PaymentRequestRow
 
 
-class KeyInstanceFlag1(IntFlag):
+class KeyInstanceFlag_22(IntFlag):
     NONE = 0
 
     # This key should be loaded and managed appropriately.
@@ -49,6 +54,8 @@ class KeyInstanceFlag1(IntFlag):
     ACTIVE_MASK = IS_ACTIVE | USER_SET_ACTIVE
     INACTIVE_MASK = ~IS_ACTIVE
     ALLOCATED_MASK = IS_PAYMENT_REQUEST | IS_INVOICE
+
+KeyInstanceFlag_27 = KeyInstanceFlag
 
 
 class TransactionOutputFlag1(IntFlag):
@@ -90,7 +97,7 @@ class AccountRow1(NamedTuple):
     account_name: str
 
 
-class KeyInstanceRow1(NamedTuple):
+class KeyInstanceRow_22(NamedTuple):
     keyinstance_id: int
     account_id: int
     masterkey_id: Optional[int]
@@ -100,15 +107,16 @@ class KeyInstanceRow1(NamedTuple):
     flags: KeyInstanceFlag
     description: Optional[str]
 
+KeyInstanceRow_27 = KeyInstanceRow
 
-class MasterKeyRow1(NamedTuple):
+class MasterKeyRow_22(NamedTuple):
     masterkey_id: int
     parent_masterkey_id: Optional[int]
     derivation_type: DerivationType
     derivation_data: bytes
 
 
-class PaymentRequestRow1(NamedTuple):
+class PaymentRequestRow_22(NamedTuple):
     paymentrequest_id: int
     keyinstance_id: int
     state: PaymentFlag
@@ -117,6 +125,7 @@ class PaymentRequestRow1(NamedTuple):
     description: Optional[str]
     date_created: int
 
+PaymentRequestRow_27 = PaymentRequestRow
 
 class TransactionDeltaRow_22(NamedTuple):
     tx_hash: bytes
@@ -124,7 +133,7 @@ class TransactionDeltaRow_22(NamedTuple):
     value_delta: int
 
 
-class TransactionOutputRow1(NamedTuple):
+class TransactionOutputRow_22(NamedTuple):
     tx_hash: bytes
     tx_index: int
     value: int
@@ -168,7 +177,8 @@ class WalletDataRow1(NamedTuple):
     value: Any
 
 
-class MasterKeyDataBIP32_27(TypedDict):
+# TODO(database) We do not actually know what revision this originated in, but before 27.
+class MasterKeyDataBIP32_26(TypedDict):
     xpub: str
     seed: Optional[str]
     passphrase: Optional[str]
@@ -176,19 +186,18 @@ class MasterKeyDataBIP32_27(TypedDict):
     xprv: Optional[str]
     subpaths: List[Tuple[DerivationPath, int]]
 
-
-# The current definition of `electrumsv.types.MasterKeyDataBIP32` at the 29th migration.
-class MasterKeyDataBIP32_29(TypedDict):
-    xpub: str
-    seed: Optional[str]
-    # If there is a seed / no parent masterkey, the xpub/xprv are derived from the seed using this.
-    # - For master keys with Electrum seeds this will always be 'm'
-    # If there is no seed, the xpub/xprv are derived from the parent masterkey using this.
-    derivation: Optional[str]
-    passphrase: Optional[str]
-    label: Optional[str]
-    xprv: Optional[str]
-
+# # The current definition of `electrumsv.types.MasterKeyDataBIP32` at the 27th migration.
+# class MasterKeyDataBIP32_27(TypedDict):
+#     xpub: str
+#     seed: Optional[str]
+#     # If there is a seed / no parent masterkey, the xpub/xprv are derived from the seed using it.
+#     # - For master keys with Electrum seeds this will always be 'm'
+#     # If there is no seed, the xpub/xprv are derived from the parent masterkey using this.
+#     derivation: Optional[str]
+#     passphrase: Optional[str]
+#     label: Optional[str]
+#     xprv: Optional[str]
+MasterKeyDataBIP32_27 = MasterKeyDataBIP32
 
 class MasterKeyDataElectrumOld1(TypedDict):
     seed: Optional[str]
@@ -210,10 +219,23 @@ class MasterKeyDataHardware1(TypedDict):
     subpaths: List[Tuple[DerivationPath, int]]
 
 
-MultiSignatureMasterKeyDataTypes1 = Union[MasterKeyDataBIP32_27, MasterKeyDataElectrumOld1,
-    MasterKeyDataHardware1]
-CosignerListType1 = List[Tuple[DerivationType, MultiSignatureMasterKeyDataTypes1]]
+# class MasterKeyDataHardware_27(TypedDict):
+#     hw_type: str
+#     xpub: str
+#     derivation: str
+#     label: Optional[str]
+#     cfg: Optional[MasterKeyDataHardwareCfg1]
+MasterKeyDataHardware_27 = MasterKeyDataHardware
 
+MultiSignatureMasterKeyDataTypes1 = Union[MasterKeyDataBIP32_26, MasterKeyDataElectrumOld1,
+    MasterKeyDataHardware1]
+
+# MultiSignatureMasterKeyDataTypes_27 = Union[MasterKeyDataBIP32_27, MasterKeyDataElectrumOld1,
+#     MasterKeyDataHardware_27]
+MultiSignatureMasterKeyDataTypes_27 = MultiSignatureMasterKeyDataTypes
+
+
+CosignerListType1 = List[Tuple[DerivationType, MultiSignatureMasterKeyDataTypes1]]
 
 _MasterKeyDataMultiSignature1 = TypedDict(
     '_MasterKeyDataMultiSignature1',
@@ -225,9 +247,26 @@ class MasterKeyDataMultiSignature1(_MasterKeyDataMultiSignature1):
     m: int
     n: int
 
-
-MasterKeyDataTypes1 = Union[MasterKeyDataBIP32_27, MasterKeyDataElectrumOld1,
+MasterKeyDataTypes1 = Union[MasterKeyDataBIP32_26, MasterKeyDataElectrumOld1,
     MasterKeyDataHardware1, MasterKeyDataMultiSignature1]
+
+
+# CosignerListType_27 = List[Tuple[DerivationType, MultiSignatureMasterKeyDataTypes_27]]
+
+# _MasterKeyDataMultiSignature_27 = TypedDict(
+#     '_MasterKeyDataMultiSignature_27',
+#     { 'cosigner-keys': CosignerListType_27 },
+#     total=True,
+# )
+
+# class MasterKeyDataMultiSignature_27(_MasterKeyDataMultiSignature_27):
+#     m: int
+#     n: int
+MasterKeyDataMultiSignature_27 = MasterKeyDataMultiSignature
+
+# MasterKeyDataTypes_27 = Union[MasterKeyDataBIP32_27, MasterKeyDataElectrumOld1,
+#     MasterKeyDataHardware_27, MasterKeyDataMultiSignature_27]
+MasterKeyDataTypes_27 = MasterKeyDataTypes
 
 
 class KeyInstanceDataBIP32SubPath1(TypedDict):
@@ -267,7 +306,7 @@ def create_accounts1(db_context: DatabaseContext, entries: Iterable[AccountRow1]
     return z
 
 
-def create_keys1(db_context: DatabaseContext, entries: Iterable[KeyInstanceRow1]) \
+def create_keys1(db_context: DatabaseContext, entries: Iterable[KeyInstanceRow_22]) \
         -> concurrent.futures.Future[None]:
     timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries]
@@ -281,7 +320,7 @@ def create_keys1(db_context: DatabaseContext, entries: Iterable[KeyInstanceRow1]
     return db_context.post_to_thread(_write)
 
 
-def create_master_keys1(db_context: DatabaseContext, entries: Iterable[MasterKeyRow1]) \
+def create_master_keys1(db_context: DatabaseContext, entries: Iterable[MasterKeyRow_22]) \
         -> concurrent.futures.Future[None]:
     timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
@@ -294,7 +333,7 @@ def create_master_keys1(db_context: DatabaseContext, entries: Iterable[MasterKey
     return db_context.post_to_thread(_write)
 
 
-def create_payment_requests1(db_context: DatabaseContext, entries: Iterable[PaymentRequestRow1]) \
+def create_payment_requests1(db_context: DatabaseContext, entries: Iterable[PaymentRequestRow_22]) \
         -> concurrent.futures.Future[None]:
     # Duplicate the last column for date_updated = date_created
     query = ("INSERT INTO PaymentRequests "
@@ -323,7 +362,7 @@ def create_transaction_deltas_22(db_context: DatabaseContext,
 
 
 def create_transaction_outputs1(db_context: DatabaseContext,
-        entries: Iterable[TransactionOutputRow1]) -> concurrent.futures.Future[None]:
+        entries: Iterable[TransactionOutputRow_22]) -> concurrent.futures.Future[None]:
     timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO TransactionOutputs (tx_hash, tx_index, value, keyinstance_id, "
@@ -420,10 +459,10 @@ def update_wallet_datas1(db_context: DatabaseContext, entries: Iterable[WalletDa
 
 
 def convert_masterkey_derivation_data1(derivation_type: DerivationType,
-        old_derivation_data: MasterKeyDataTypes1, is_multisig: bool=False) -> MasterKeyDataTypes:
+        old_derivation_data: MasterKeyDataTypes1, is_multisig: bool=False) -> MasterKeyDataTypes_27:
     data_dict = cast(Dict[str, Any], old_derivation_data)
     if derivation_type == DerivationType.BIP32:
-        data_bip32_in = cast(MasterKeyDataBIP32_27, old_derivation_data)
+        data_bip32_in = cast(MasterKeyDataBIP32_26, old_derivation_data)
         data_bip32_in.setdefault("label", None)
         data_bip32_in.setdefault("passphrase", None)
         data_bip32_in.setdefault("seed", None)
@@ -433,7 +472,7 @@ def convert_masterkey_derivation_data1(derivation_type: DerivationType,
         else:
             del data_dict["subpaths"]
         assert len(data_dict) == 5
-        return cast(MasterKeyDataBIP32, data_bip32_in)
+        return cast(MasterKeyDataBIP32_27, data_bip32_in)
     elif derivation_type == DerivationType.ELECTRUM_OLD:
         data_old_in = cast(MasterKeyDataElectrumOld1, old_derivation_data)
         data_old_in.setdefault("seed", None)
@@ -448,11 +487,11 @@ def convert_masterkey_derivation_data1(derivation_type: DerivationType,
         del data_dict["subpaths"]
         data_multisig_in = cast(MasterKeyDataMultiSignature1, old_derivation_data)
         assert len(data_multisig_in["cosigner-keys"]) == data_multisig_in["n"]
-        data_out = cast(MasterKeyDataMultiSignature, data_multisig_in)
+        data_out = cast(MasterKeyDataMultiSignature_27, data_multisig_in)
         for i, (cosigner_derivation_type, cosigner_data_in) in \
                 enumerate(data_multisig_in["cosigner-keys"]):
             data_out["cosigner-keys"][i] = (cosigner_derivation_type,
-                cast(MultiSignatureMasterKeyDataTypes,
+                cast(MultiSignatureMasterKeyDataTypes_27,
                     convert_masterkey_derivation_data1(cosigner_derivation_type, cosigner_data_in,
                         is_multisig=True)))
         return data_out
@@ -465,12 +504,13 @@ def convert_masterkey_derivation_data1(derivation_type: DerivationType,
         data_hardware_in.setdefault("cfg", None)
         del data_dict["subpaths"]
         assert len(data_dict) == 5
-        return cast(MasterKeyDataHardware, data_hardware_in)
+        return cast(MasterKeyDataHardware_27, data_hardware_in)
     raise NotImplementedError(f"Unhandled type {derivation_type}")
 
+MasterKeyRow_27 = MasterKeyRow
 
-def upgrade_masterkey1(row: MasterKeyRow1) -> MasterKeyRow:
-    return MasterKeyRow(masterkey_id=row.masterkey_id, parent_masterkey_id=row.parent_masterkey_id,
-        derivation_type=row.derivation_type, derivation_data=row.derivation_data,
-        flags=MasterKeyFlags.NONE)
+def upgrade_masterkey_22(row: MasterKeyRow_22) -> MasterKeyRow_27:
+    return MasterKeyRow_27(masterkey_id=row.masterkey_id,
+        parent_masterkey_id=row.parent_masterkey_id, derivation_type=row.derivation_type,
+        derivation_data=row.derivation_data, flags=MasterKeyFlags.NONE)
 

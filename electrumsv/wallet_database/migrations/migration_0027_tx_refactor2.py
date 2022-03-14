@@ -28,9 +28,9 @@ from ...util import get_posix_timestamp
 from ...util.misc import ProgressCallbacks
 
 from ..storage_migration import (AccountRow1, convert_masterkey_derivation_data1,
-    KeyInstanceDataBIP32SubPath1, KeyInstanceDataTypes1, KeyInstanceFlag1, KeyInstanceRow1,
-    MasterKeyDataBIP32_27, MasterKeyDataTypes1, MasterKeyRow1, TransactionOutputFlag1, TxFlags_22,
-    upgrade_masterkey1)
+    KeyInstanceDataBIP32SubPath1, KeyInstanceDataTypes1, KeyInstanceFlag_22,
+    KeyInstanceRow_27, MasterKeyDataBIP32_26, MasterKeyDataTypes1, MasterKeyRow_22,
+    TransactionOutputFlag1, TxFlags_22, upgrade_masterkey_22)
 from ..util import create_derivation_data2
 
 logger = logs.get_logger("migration-0027")
@@ -51,7 +51,7 @@ logger = logs.get_logger("migration-0027")
 class PossibleScript(NamedTuple):
     account_id: int
     masterkey_id: Optional[int]
-    keyinstance: KeyInstanceRow1
+    keyinstance: KeyInstanceRow_27
     derivation_path: DerivationPath
     script_type: ScriptType
     script_hash: bytes
@@ -141,35 +141,35 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         accounts[row[0]] = AccountRow1(row[0], row[1], ScriptType(row[2]), row[3])
 
     # Cache masterkey data.
-    masterkeys: Dict[int, MasterKeyRow1] = {}
+    masterkeys: Dict[int, MasterKeyRow_22] = {}
     cursor = conn.execute("SELECT masterkey_id, parent_masterkey_id, derivation_type, "
         "derivation_data FROM MasterKeys")
     rows = cursor.fetchall()
     cursor.close()
     for row in rows:
-        masterkeys[row[0]] = MasterKeyRow1(*row)
+        masterkeys[row[0]] = MasterKeyRow_22(*row)
 
     # Cache keyinstance data. These are only going to cover all existing detected key usage and the
     # gap limit beyond that. Because the creation and detection of the use of these is driven by
     # the indexer/electrumx telling us they have been used, it is not guaranteed that we will have
     # them all.
-    keyinstances: Dict[int, KeyInstanceRow1] = {}
+    keyinstances: Dict[int, KeyInstanceRow_27] = {}
     # For accounts with masterkeys. {(account_id, masterkey_id): { derivation_path: keyinstance }}
-    mk_keyinstance_data: Dict[Tuple[int, int], Dict[DerivationPath, KeyInstanceRow1]] = \
+    mk_keyinstance_data: Dict[Tuple[int, int], Dict[DerivationPath, KeyInstanceRow_27]] = \
         defaultdict(dict)
     # For other account types. {account_id: [keyinstance,..]}
-    other_keyinstance_data: Dict[int, List[Tuple[KeyInstanceRow1, bytes]]] = defaultdict(list)
+    other_keyinstance_data: Dict[int, List[KeyInstanceRow_27]] = defaultdict(list)
     cursor = conn.execute("SELECT keyinstance_id, account_id, masterkey_id, derivation_type, "
-        "derivation_data, script_type, flags, description FROM KeyInstances")
+        "derivation_data, flags, description FROM KeyInstances")
     rows = cursor.fetchall()
     cursor.close()
     keyinstance_updates: List[Tuple[bytes, int, int]] = []
     for row in rows:
-        krow = keyinstances[row[0]] = KeyInstanceRow1(row[0], row[1], row[2],
-            DerivationType(row[3]), row[4], ScriptType(row[5]), KeyInstanceFlag(row[6]),
-            row[7])
-        derivation_data_dict = cast(KeyInstanceDataTypes1, json.loads(krow.derivation_data))
-        derivation_data2 = create_derivation_data2(krow.derivation_type, derivation_data_dict)
+        derivation_data_dict = cast(KeyInstanceDataTypes1, json.loads(row[4]))
+        derivation_data2 = create_derivation_data2(row[3], derivation_data_dict)
+        krow = keyinstances[row[0]] = KeyInstanceRow_27(row[0], row[1], row[2],
+            DerivationType(row[3]), row[4], derivation_data2, KeyInstanceFlag(row[5]),
+            row[6])
         if krow.masterkey_id is not None:
             assert krow.derivation_type == DerivationType.BIP32_SUBPATH
             derivation_path = tuple(
@@ -177,7 +177,11 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             mk_keyinstance_data[(krow.account_id, krow.masterkey_id)][derivation_path] = krow
         else:
             # Used to calculate script hashes.
-            other_keyinstance_data[krow.account_id].append((krow, derivation_data2))
+            other_keyinstance_data[krow.account_id].append(KeyInstanceRow_27(
+                keyinstance_id=krow.keyinstance_id, account_id=krow.account_id,
+                masterkey_id=krow.masterkey_id, derivation_type=krow.derivation_type,
+                derivation_data=krow.derivation_data, derivation_data2=derivation_data2,
+                flags=krow.flags, description=krow.description))
 
         keyinstance_updates.append((derivation_data2, date_updated, row[0]))
 
@@ -261,7 +265,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # Cache all script hashes. This needs to be done for all keys based on the account type and the
     # masterkey used by it. All script types for the given account type should be looked for.
     mk_keystores: Dict[int, KeyStore] = {}
-    mk_rows: Dict[int, MasterKeyRow1] = {}
+    mk_rows: Dict[int, MasterKeyRow_22] = {}
     updated_masterkey_derivation_data: List[Tuple[bytes, int]] = []
     account_keystores: Dict[int, KeyStore] = {}
     for mkrow in sorted(masterkeys.values(), key=lambda t: 0 if t.masterkey_id is None
@@ -278,7 +282,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         mk_keystores[mkrow.masterkey_id] = instantiate_keystore(mkrow.derivation_type,
             derivation_data_dict_new,
             parent_keystore,
-            upgrade_masterkey1(mkrow))
+            upgrade_masterkey_22(mkrow))
         mk_rows[mkrow.masterkey_id] = mkrow
 
     private_key_types = { DerivationType.PRIVATE_KEY }
@@ -289,37 +293,36 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         masterkey_id = account.default_masterkey_id
         if masterkey_id is None:
             account_keyinstance_data = other_keyinstance_data.get(account_id, [])
-            found_types = set(key.derivation_type
-                for (key, _derivation_data2) in account_keyinstance_data)
+            found_types = set(keyinstance_27.derivation_type
+                for keyinstance_27 in account_keyinstance_data)
             if found_types & private_key_types:
                 ikeystore = account_keystores[account_id] = Imported_KeyStore()
-                # NOTE(typing) Allow KeyInstanceRow1 to be passed as KeyInstanceRow
-                ikeystore.set_state([ t[0] for t in account_keyinstance_data ]) # type: ignore
+                ikeystore.set_state(account_keyinstance_data)
 
-                for keyinstance, derivation_data2 in account_keyinstance_data:
-                    public_key = PublicKey.from_bytes(derivation_data2)
+                for keyinstance_27 in account_keyinstance_data:
+                    public_key = PublicKey.from_bytes(keyinstance_27.derivation_data2)
                     for script_type in SINGLESIG_SCRIPT_TYPES:
                         script_template = get_single_signer_script_template(public_key,
                             script_type)
                         script_hash = sha256(script_template.to_script_bytes())
                         key_script_hashes[script_hash] = PossibleScript(account_id,
-                            None, keyinstance, (), script_type,
+                            None, keyinstance_27, (), script_type,
                             script_hash)
             elif found_types & address_types:
                 # NOTE In theory we have the hash in derivation_data2 here.
-                for keyinstance, derivation_data2 in account_keyinstance_data:
-                    if keyinstance.derivation_type == DerivationType.PUBLIC_KEY_HASH:
+                for keyinstance_27 in account_keyinstance_data:
+                    if keyinstance_27.derivation_type == DerivationType.PUBLIC_KEY_HASH:
                         script_type = ScriptType.P2PKH
-                        script_template = P2PKH_Address(derivation_data2, Net.COIN)
-                    elif keyinstance.derivation_type == DerivationType.SCRIPT_HASH:
+                        script_template = P2PKH_Address(keyinstance_27.derivation_data2, Net.COIN)
+                    elif keyinstance_27.derivation_type == DerivationType.SCRIPT_HASH:
                         script_type = ScriptType.MULTISIG_P2SH
-                        script_template = P2SH_Address(derivation_data2, Net.COIN)
+                        script_template = P2SH_Address(keyinstance_27.derivation_data2, Net.COIN)
                     else:
                         raise NotImplementedError("...")
 
                     script_hash = sha256(script_template.to_script_bytes())
                     key_script_hashes[script_hash] = PossibleScript(account_id,
-                        None, keyinstance, (), script_type,
+                        None, keyinstance_27, (), script_type,
                         script_hash)
             else:
                 raise DatabaseMigrationError(_("This imported address wallet has no entries and "
@@ -332,7 +335,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             # hashes up to the point we have already generated keys. We do this instead of just
             # generating them for used keys, as we do not know which the user has given out.
             mk_row = mk_rows[masterkey_id]
-            mk_derivation_data = cast(MasterKeyDataBIP32_27, json.loads(mk_row.derivation_data))
+            mk_derivation_data = cast(MasterKeyDataBIP32_26, json.loads(mk_row.derivation_data))
             mk_watermarks: Dict[DerivationPath, int] = defaultdict(int)
             for derivation_path, next_index in mk_derivation_data["subpaths"]:
                 mk_watermarks[tuple(derivation_path)] = next_index
@@ -626,7 +629,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             updated_masterkey_derivation_data)
 
     # TABLE: KeyInstances
-    assert int(KeyInstanceFlag1.IS_ACTIVE) == int(KeyInstanceFlag.ACTIVE)
+    assert int(KeyInstanceFlag_22.IS_ACTIVE) == int(KeyInstanceFlag.ACTIVE)
     # Mark any keyinstance as reserved that has a script type (is in use in an output).
     # This is introducing an post-migration flag `KeyInstanceFlag.USED` into pre-migration flags.
     conn.execute(f"UPDATE KeyInstances SET flags=flags|{KeyInstanceFlag.USED} "
@@ -635,10 +638,10 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # keys and have user's wallets monitoring arbitrary number of keys we do not know why we are
     # monitoring.
     conn.execute(f"UPDATE KeyInstances SET flags=flags&? WHERE flags&?=?",
-        (~KeyInstanceFlag1.IS_ACTIVE,
-        KeyInstanceFlag1.IS_ACTIVE|KeyInstanceFlag1.IS_PAYMENT_REQUEST|
-            KeyInstanceFlag1.USER_SET_ACTIVE,
-        KeyInstanceFlag1.IS_ACTIVE))
+        (~KeyInstanceFlag_22.IS_ACTIVE,
+        KeyInstanceFlag_22.IS_ACTIVE|KeyInstanceFlag_22.IS_PAYMENT_REQUEST|
+            KeyInstanceFlag_22.USER_SET_ACTIVE,
+        KeyInstanceFlag_22.IS_ACTIVE))
 
 
     logger.debug("fix table KeyInstances by creating secondary table")
