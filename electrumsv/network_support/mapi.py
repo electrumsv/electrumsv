@@ -142,10 +142,11 @@ async def decode_response_body(response: aiohttp.ClientResponse) -> Dict[Any, An
 #         await self.mapi_client.close()
 
 
-def get_mapi_servers(network: "Network", account: "AbstractAccount") -> \
+def get_mapi_servers(account: "AbstractAccount") -> \
         List[Tuple["NewServer", Optional["IndefiniteCredentialId"]]]:
     server_entries: List[Tuple["NewServer", Optional["IndefiniteCredentialId"]]] = []
-    for candidate in network.get_api_servers_for_account(account, NetworkServerType.MERCHANT_API):
+    for candidate in account._wallet.get_servers_for_account(account,
+            NetworkServerType.MERCHANT_API):
         assert candidate.api_server is not None
         if candidate.api_server.should_request_fee_quote(candidate.credential_id):
             server_entries.append((candidate.api_server, candidate.credential_id))
@@ -180,7 +181,7 @@ def poll_servers(network: "Network", account: "AbstractAccount") \
     If there is work to be done, a `concurrent.futures.Future` instance is returned. Otherwise
     we return `None`.
     """
-    server_entries = get_mapi_servers(network, account)
+    server_entries = get_mapi_servers(account)
     if not len(server_entries):
         return None
     return app_state.async_.spawn(poll_servers_async, server_entries)
@@ -199,6 +200,7 @@ async def get_fee_quote(server: "NewServer",
     selection"""
     server.api_key_state[credential_id].record_attempt()
 
+    # TODO(1.4.0) Servers. Trailing slash cleanup.
     url = server.url if server.url.endswith("/") else server.url +"/"
     url += "feeQuote"
     headers = {'Content-Type': 'application/json'}
@@ -249,6 +251,7 @@ async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: "N
         merkle_proof: bool=False, ds_check: bool=False) -> BroadcastResponse:
     server.api_key_state[credential_id].record_attempt()
 
+    # TODO(1.4.0) Servers. Trailing slash cleanup.
     url = server.url if server.url.endswith("/") else server.url +"/"
     url += "tx"
     write_token = peer_channel.get_write_token()

@@ -9,10 +9,9 @@
             "RESTORATION",
             "MERKLE_PROOF_REQUEST",
             "TRANSACTION_REQUEST",
-            "OUTPUT_SPENDS"
+            "OUTPUT_SPENDS",
+            "TIP_FILTER"
         ],
-        "enabled_for_all_wallets": true,
-        "api_key_supported": false,
         "last_try": 0.0,
         "last_good": 0.0,
         "static_data_date": "2021-12-15T04:45:05+0000"
@@ -20,7 +19,7 @@
     {
         "id": 10001,
         "type": "MERCHANT_API",
-        "url": "http://127.0.0.1:5050/mapi",
+        "url": "http://127.0.0.1:5050/mapi/",
         "api_key_required": false,
         "static_data_date": "2021-05-13T04:45:05+0000"
     }

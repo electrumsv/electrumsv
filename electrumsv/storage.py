@@ -62,8 +62,8 @@ from .wallet_database import functions as db_functions
 from .wallet_database.storage_migration import (create_accounts1, create_keys1,
     create_master_keys1, create_payment_requests1, create_transaction_deltas_22, \
     create_transaction_outputs1,
-    create_transactions1, create_wallet_datas1, AccountRow1, KeyInstanceRow1, MasterKeyRow1,
-    PaymentRequestRow1, TransactionDeltaRow_22, TransactionOutputFlag1, TransactionOutputRow1,
+    create_transactions1, create_wallet_datas1, AccountRow1, KeyInstanceRow_22, MasterKeyRow_22,
+    PaymentRequestRow_22, TransactionDeltaRow_22, TransactionOutputFlag1, TransactionOutputRow_22,
     TransactionRow1, TxData1,
     TxFlags_22, read_wallet_data1, update_wallet_datas1, WalletDataRow1)
 from .wallet_database.types import WalletDataRow
@@ -853,13 +853,13 @@ class TextStore(AbstractStore):
             account_id = next_account_id
             next_account_id += 1
 
-            masterkey_rows: List[MasterKeyRow1] = []
+            masterkey_rows: List[MasterKeyRow_22] = []
             account_rows: List[AccountRow1] = []
-            keyinstance_rows: List[KeyInstanceRow1] = []
+            keyinstance_rows: List[KeyInstanceRow_22] = []
             txdelta_rows: List[TransactionDeltaRow_22] = []
             transaction_rows: List[TransactionRow1] = []
-            txoutput_rows: List[TransactionOutputRow1] = []
-            paymentrequest_rows: List[PaymentRequestRow1] = []
+            txoutput_rows: List[TransactionOutputRow_22] = []
+            paymentrequest_rows: List[PaymentRequestRow_22] = []
 
             class _TxState(NamedTuple):
                 tx: Transaction
@@ -1008,7 +1008,7 @@ class TextStore(AbstractStore):
                             "subpath": (type_idx, address_idx),
                         }
                         derivation_data = json.dumps(derivation_info).encode()
-                        keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
+                        keyinstance_rows.append(KeyInstanceRow_22(next_keyinstance_id, account_id,
                             masterkey_id, DerivationType.BIP32_SUBPATH, derivation_data,
                             ScriptType.NONE, flags, description))
                         next_keyinstance_id += 1
@@ -1044,7 +1044,7 @@ class TextStore(AbstractStore):
                                 if (address_string in frozen_addresses or
                                     (tx_id, n) in txouts_frozen)
                                 else TransactionOutputFlag1.NONE)
-                            txoutput_rows.append(TransactionOutputRow1(tx_state.tx_hash, n,
+                            txoutput_rows.append(TransactionOutputRow_22(tx_state.tx_hash, n,
                                 tx_output.value, address_state.keyinstance_id, txo_flags))
                             tx_state.encountered_addresses.add(address_string)
 
@@ -1080,7 +1080,7 @@ class TextStore(AbstractStore):
 
                             # Go back to the rows produced from outputs and adjust spent flag.
                             orow = txoutput_rows[txout_state.row_index]
-                            txoutput_rows[txout_state.row_index] = TransactionOutputRow1(
+                            txoutput_rows[txout_state.row_index] = TransactionOutputRow_22(
                                 orow.tx_hash, orow.tx_index, orow.value, orow.keyinstance_id,
                                 TransactionOutputFlag1.IS_SPENT)
                             tx_state.encountered_addresses.add(address_string)
@@ -1110,7 +1110,7 @@ class TextStore(AbstractStore):
                 }
 
                 derivation_data = json.dumps(mk_data).encode()
-                masterkey_rows.append(MasterKeyRow1(masterkey_id, None,
+                masterkey_rows.append(MasterKeyRow_22(masterkey_id, None,
                     DerivationType.ELECTRUM_MULTISIG, derivation_data))
                 account_rows.append(AccountRow1(account_id, masterkey_id, ScriptType.MULTISIG_BARE,
                     "Multisig account"))
@@ -1137,13 +1137,13 @@ class TextStore(AbstractStore):
                     if isinstance(address, P2PKH_Address):
                         address_states[address_string] = _AddressState(next_keyinstance_id,
                             len(keyinstance_rows), ScriptType.P2PKH)
-                        keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
+                        keyinstance_rows.append(KeyInstanceRow_22(next_keyinstance_id, account_id,
                             None, DerivationType.PUBLIC_KEY_HASH, derivation_data,
                             ScriptType.P2PKH, KeyInstanceFlag.ACTIVE, description))
                     elif isinstance(address, P2SH_Address):
                         address_states[address_string] = _AddressState(next_keyinstance_id,
                             len(keyinstance_rows), ScriptType.MULTISIG_P2SH)
-                        keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
+                        keyinstance_rows.append(KeyInstanceRow_22(next_keyinstance_id, account_id,
                             None, DerivationType.SCRIPT_HASH, derivation_data,
                             ScriptType.MULTISIG_P2SH, KeyInstanceFlag.ACTIVE, description))
                     else:
@@ -1181,7 +1181,7 @@ class TextStore(AbstractStore):
                         "prv": update_private_data(enc_prvkey),
                     }
                     derivation_data = json.dumps(ik_data).encode()
-                    keyinstance_rows.append(KeyInstanceRow1(next_keyinstance_id, account_id,
+                    keyinstance_rows.append(KeyInstanceRow_22(next_keyinstance_id, account_id,
                         None, DerivationType.PRIVATE_KEY, derivation_data,
                         ScriptType.P2PKH, KeyInstanceFlag.ACTIVE, description))
                     next_keyinstance_id += 1
@@ -1195,7 +1195,7 @@ class TextStore(AbstractStore):
                     (CHANGE_SUBPATH, len(_change_address_strings)),
                 ]
                 keystore = self.get("keystore")
-                masterkey_row = MasterKeyRow1(*(masterkey_id, None),
+                masterkey_row = MasterKeyRow_22(*(masterkey_id, None),
                     *convert_keystore(keystore, subpaths))
                 masterkey_rows.append(masterkey_row)
                 account_rows.append(AccountRow1(account_id, masterkey_id, ScriptType.P2PKH,
@@ -1211,7 +1211,7 @@ class TextStore(AbstractStore):
                     continue
 
                 address_state = address_states[address_string]
-                paymentrequest_rows.append(PaymentRequestRow1(next_paymentrequest_id,
+                paymentrequest_rows.append(PaymentRequestRow_22(next_paymentrequest_id,
                     address_state.keyinstance_id,
                     request_data.get('status', 2), # PaymentFlag.UNKNOWN = 2
                     request_data.get('amount', None), request_data.get('exp', None),

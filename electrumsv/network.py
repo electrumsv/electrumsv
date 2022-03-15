@@ -25,7 +25,6 @@
 import asyncio
 from collections import defaultdict
 from contextlib import suppress
-import datetime
 from enum import IntEnum
 from functools import partial
 from ipaddress import IPv4Address, IPv6Address
@@ -48,18 +47,15 @@ from bitcoinx import BitcoinRegtest, Chain, CheckPoint, double_sha256, Header, H
 from bitcoinx import Network as BitcoinXNetwork
 
 from .app_state import app_state, attempt_exception_reporting
-from .constants import API_SERVER_TYPES, NetworkEventNames, NetworkServerType
+from .constants import NetworkEventNames
 from .i18n import _
 from .logs import logs
-from .network_support.api_server import APIServerDefinition, NewServer, NewServerAPIContext, \
-    SelectionCandidate
 from .networks import Net
-from .types import NetworkServerState, ServerAccountKey
 from .util import chunks, JSON, protocol_tuple, TriggeredCallbacks, version_string
 from .version import PACKAGE_VERSION, PROTOCOL_MIN, PROTOCOL_MAX
 
 if TYPE_CHECKING:
-    from .wallet import AbstractAccount, Wallet
+    from .wallet import Wallet
 
 
 logger = logs.get_logger("network")
@@ -873,15 +869,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         self.main_server: Optional[SVServer] = None
         self.proxy: Optional[SVProxy] = None
 
-        # The usable set of API servers both globally known by the application and also
-        # per-wallet/account servers from each wallet database.
-        self._api_servers: Dict[ServerAccountKey, NewServer] = {}
-        # Track the application API servers from the config and add them to the usable set.
-        self._api_servers_config: Dict[NetworkServerType, List[APIServerDefinition]] = {
-            server_type: [] for server_type in API_SERVER_TYPES
-        }
-        self._read_config_api_server()
-
         # Events
         async_ = app_state.async_
         self.sessions_changed_event = async_.event()
@@ -908,57 +895,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         if self.aiohttp_session is not None:
             await self.aiohttp_session.close()
 
-    def _read_config_api_server(self) -> None:
-        api_servers = cast(List[APIServerDefinition], app_state.config.get("api_servers", []))
-        if api_servers:
-            logger.info("Read %d api server entries from config file", len(api_servers))
-
-        servers_by_uri = { api_server['url']: api_server for api_server in api_servers }
-        for api_server in Net.DEFAULT_SERVERS_API:
-            server = servers_by_uri.get(api_server['url'], None)
-            if server is None:
-                server = cast(APIServerDefinition, api_server.copy())
-                server["modified_date"] = server["static_data_date"]
-                api_servers.append(server)
-            self._migrate_config_entry(server)
-
-        # Register the API server for visibility and maybe even usage. We pass in the reference
-        # to the config entry dictionary, which will be saved via `_api_servers_config`.
-        for api_server in api_servers:
-            server_type = cast(Optional[NetworkServerType], getattr(NetworkServerType,
-                api_server["type"], None))
-            if server_type is None:
-                logger.error("Skipping api server '%s', unknown server type '%s'",
-                    api_server["url"], api_server["type"])
-                continue
-            server_key = ServerAccountKey(api_server["url"], server_type, None)
-            self._api_servers[server_key] = self._create_config_api_server(server_key, api_server)
-            # This is the collection of application level servers and it is primarily used to group
-            # them for persistence.
-            self._api_servers_config[server_type].append(api_server)
-
-        for server_type, api_servers in self._api_servers_config.items():
-            if len(api_servers):
-                logger.info("Added %d %s api server entries from config file", server_type,
-                    len(api_servers))
-
-    def _migrate_config_entry(self, server: APIServerDefinition) -> None:
-        """
-        Adding a new server via the UI globally or loading existing servers from the config
-        file use this to ensure all the fields are present.
-        """
-        ## Ensure all the default field values are present if they are not already.
-        server.setdefault("api_key", "")
-        # Whether the API key is supported for the given server from entry presence.
-        server.setdefault("api_key_supported", "api_key_required" in server)
-        # All the default MAPI servers are enabled for all wallets out of the box.
-        server.setdefault("enabled_for_all_wallets", True)
-        # When we were last able to connect, and when we last tried to connect.
-        server.setdefault("last_good", 0.0)
-        server.setdefault("last_try", 0.0)
-        # If we request an anonymous fee quote for this server, keep the last one.
-        # server.setdefault("anonymous_fee_quote", None)
-
     async def _main_task_loop(self) -> None:
         self._main_task_active = True
         iterations = 0
@@ -972,7 +908,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             logger.debug("Network main task loop exiting.")
             self.shutdown_complete_event.set()
             app_state.config.set_key('servers', list(SVServer.all_servers.values()), True)
-            app_state.config.set_key('api_servers', self.get_config_api_servers(), True)
 
     async def _main_task(self) -> None:
         # self._cevent = app_state.async_.event() # TODO remove
@@ -1340,173 +1275,34 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         """
         return SVServer.all_servers[key]
 
-    def get_config_api_servers(self) -> List[APIServerDefinition]:
-        """
-        Update the api server config entries and return them.
+    # def delete_config_api_server(self, server_url: str, server_type: NetworkServerType) -> None:
+    #     for config_index, config in enumerate(self._api_servers_config[server_type]):
+    #         if config["url"] == server_url:
+    #             del self._api_servers_config[server_type][config_index]
+    #             del self._api_servers[ServerAccountKey(server_url, server_type, None)]
+    #             break
+    #     else:
+    #         raise KeyError(f"Server '{server_url}' does not exist")
 
-        This will pull in the live server state.
-        """
-        all_configs = list[APIServerDefinition]()
-        for server_type in self._api_servers_config:
-            for config in self._api_servers_config[server_type]:
-                server_key = ServerAccountKey(config["url"], server_type, None)
-                server = self._api_servers[server_key]
-                key_state = server.api_key_state[server.config_credential_id]
-                config["last_good"] = key_state.last_good
-                config["last_try"] = key_state.last_try
-                if server_type == NetworkServerType.MERCHANT_API:
-                    if server.config_credential_id is None:
-                        config["anonymous_fee_quote"] = key_state.last_fee_quote_response
-                    else:
-                        config["anonymous_fee_quote"] = None
-                all_configs.append(config)
-        return all_configs
+    # def get_api_servers(self) -> Dict[ServerAccountKey, NewServer]:
+    #     # These are all the available API servers registered within the application.
+    #     return self._api_servers
 
-    def create_config_api_server(self, server_type: NetworkServerType,
-            server_data: APIServerDefinition) -> None:
-        """
-        Register a new application-level API server entry.
-
-        This will set up the standard default fields, so it is not necessary for any caller to
-        provide a 100% complete entry.
-        """
-        server_url = server_data["url"]
-        assert server_url not in [ d["url"] for d in self._api_servers_config[server_type] ]
-
-        self._migrate_config_entry(server_data)
-        server_data["type"] = server_type.name
-        self._api_servers_config[server_type].append(server_data)
-
-        server_key = ServerAccountKey(server_url, server_type, None)
-        if server_key in self._api_servers:
-            return
-        self._api_servers[server_key] = self._create_config_api_server(server_key)
-
-    def update_config_api_server(self, server_url: str, server_type: NetworkServerType,
-            update_data: APIServerDefinition) -> None:
-        """
-        Update fields in an existing application-level API server entry.
-
-        This just overwrites existing fields and can only be used for limited updates.
-        """
-        update_data["modified_date"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
-        for config in self._api_servers_config[server_type]:
-            if config["url"] == server_url:
-                server_key = ServerAccountKey(server_url, server_type, None)
-                server = self._api_servers[server_key]
-                server.on_pending_config_change(update_data)
-                # NOTE(typing) This appears to be a mypy bug, where it considers the type of
-                #   config to be some raw instance of `TypedDict` and not `APIServerDefinition`.
-                config.update(update_data) # type: ignore
-                break
-        else:
-            self.create_config_api_server(server_type, update_data)
-
-    def delete_config_api_server(self, server_url: str, server_type: NetworkServerType) -> None:
-        for config_index, config in enumerate(self._api_servers_config[server_type]):
-            if config["url"] == server_url:
-                del self._api_servers_config[server_type][config_index]
-                del self._api_servers[ServerAccountKey(server_url, server_type, None)]
-                break
-        else:
-            raise KeyError(f"Server '{server_url}' does not exist")
-
-    def get_api_servers(self) -> Dict[ServerAccountKey, NewServer]:
-        # These are all the available API servers registered within the application.
-        return self._api_servers
-
-    def get_api_servers_for_account(self, account: "AbstractAccount",
-            server_type: NetworkServerType) -> List[SelectionCandidate]:
-        wallet = account.get_wallet()
-        client_key = NewServerAPIContext(wallet.get_storage_path(), account.get_id())
-
-        results: List[SelectionCandidate] = []
-        for api_server in self._api_servers.values():
-            if api_server.server_type == server_type:
-                have_credential, credential_id = api_server.get_credential_id(client_key)
-                # TODO(API) What about putting the client api context in the result.
-                if have_credential:
-                    results.append(SelectionCandidate(server_type, credential_id, api_server))
-        return results
-
-    def is_server_disabled(self, url: str, server_type: NetworkServerType) -> bool:
-        """
-        Whether the given server is configured to be unusable by anything.
-        """
-        if server_type == NetworkServerType.ELECTRUMX:
-            return False
-        return self._api_servers[ServerAccountKey(url, server_type, None)].is_unusable()
-
-    def _create_config_api_server(self, server_key: ServerAccountKey,
-            config: Optional[APIServerDefinition]=None, allow_no_config: bool=False) -> NewServer:
-        if config is None:
-            # The config entry should exist except when an external wallet database is brought
-            # to this installation and loaded, with unknown servers in it.
-            for iter_config in self._api_servers_config[server_key.server_type]:
-                if iter_config["url"] == server_key.url:
-                    config = iter_config
-                    break
-            else:
-                if not allow_no_config:
-                    raise KeyError(f"Server config not found {server_key.url}")
-        return NewServer(server_key.url, server_key.server_type, config)
-
-    def _register_api_servers_for_wallet(self, wallet: "Wallet") -> None:
-        """ For a newly loaded wallet, set up it's API server usage. This will """
-        rows = wallet.read_network_servers_with_credentials()
-
-        wallet_path = wallet.get_storage_path()
-        for row in rows:
-            if row.key.server_type not in API_SERVER_TYPES:
-                continue
-            # If the server does not exist already it is not one known globally to the application.
-            server_key = row.key.to_server_key()
-            if server_key not in self._api_servers:
-                self._api_servers[server_key] = self._create_config_api_server(server_key,
-                    allow_no_config=True)
-            server = self._api_servers[server_key]
-            server.set_wallet_usage(wallet_path, row)
-
-    def _unregister_all_api_servers_for_wallet(self, wallet: "Wallet") -> List[NetworkServerState]:
-        """ Unregister a specific wallet from all API servers. We do this when a wallet has been
-            unloaded. """
-        wallet_path = wallet.get_storage_path()
-        updated_states: List[NetworkServerState] = []
-        for server_key, server in list(self._api_servers.items()):
-            updated_states.extend(server.unregister_wallet(wallet_path))
-            if server.is_unused():
-                del self._api_servers[server_key]
-        return updated_states
-
-    def update_api_servers_for_wallet(self,
-            wallet: "Wallet", added_keys: List[NetworkServerState],
-            updated_keys: List[NetworkServerState], deleted_keys: List[ServerAccountKey]) -> None:
-        """
-        This is called by the wallet to update the wallet usage of added, updated or removed
-        api servers
-        """
-        wallet_path = wallet.get_storage_path()
-        # We know updated servers will not have changed their type or url, so we do not need
-        # to do anything with the accounts at this point. But we do need to have observed the flags
-        # of servers for enabling/disabling.
-        for row in added_keys + updated_keys:
-            server = self._api_servers[row.key.to_server_key()]
-            server.set_wallet_usage(wallet_path, row)
-
-        for specific_server_key in deleted_keys:
-            server = self._api_servers[specific_server_key.to_server_key()]
-            server.remove_wallet_usage(wallet_path, specific_server_key)
+    # def is_server_disabled(self, url: str, server_type: NetworkServerType) -> bool:
+    #     """
+    #     Whether the given server is configured to be unusable by anything.
+    #     """
+    #     if server_type == NetworkServerType.ELECTRUMX:
+    #         return False
+    #     return self._api_servers[ServerAccountKey(url, server_type, None)].is_unusable()
 
     def add_wallet(self, wallet: "Wallet") -> None:
         """ This wallet has been loaded and is now using this network. """
-        self._register_api_servers_for_wallet(wallet)
         app_state.async_.spawn(self._wallet_jobs.put, ('add', wallet))
 
-    def remove_wallet(self, wallet: "Wallet") -> List[NetworkServerState]:
+    def remove_wallet(self, wallet: "Wallet") -> None:
         """ This wallet has been unloaded and is no longer using this network. """
-        updated_states = self._unregister_all_api_servers_for_wallet(wallet)
         app_state.async_.spawn(self._wallet_jobs.put, ('remove', wallet))
-        return updated_states
 
     def chain(self) -> Optional[Chain]:
         main_session = self.main_session()

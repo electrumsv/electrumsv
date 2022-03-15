@@ -45,15 +45,15 @@ from typing import Any, AsyncIterable, cast, List, NamedTuple, Optional, TypedDi
 
 import aiohttp
 from aiohttp import WSServerHandshakeError
-from bitcoinx import hash_to_hex_str, Chain, Header, MissingHeader
+from bitcoinx import Chain, hash_to_hex_str, Header, MissingHeader
 
 from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof, TSCMerkleProofError, verify_proof
 from ..constants import ServerCapability
 from ..exceptions import ServerConnectionError
 from ..logs import logs
-from ..types import Outpoint, outpoint_struct, outpoint_struct_size, output_spend_struct, \
-    output_spend_struct_size, OutputSpend
+from ..types import Outpoint, outpoint_struct, outpoint_struct_size, \
+    output_spend_struct, output_spend_struct_size, OutputSpend
 
 from .api_server import pick_server_for_account
 from .constants import REGTEST_MASTER_TOKEN
@@ -214,6 +214,7 @@ async def _request_binary_merkle_proof_async(server_url: str, tx_hash: bytes,
         'User-Agent':       'ElectrumSV'
     }
 
+    # TODO(1.4.0) Servers. Trailing slash cleanup.
     url = server_url if server_url.endswith("/") else server_url + "/"
     url += hash_to_hex_str(tx_hash)
     try:
@@ -265,8 +266,7 @@ async def request_binary_merkle_proof_async(network: Optional[Network], account:
     assert network is not None
     assert app_state.headers is not None
 
-    base_server_url = pick_server_for_account(network, account,
-        ServerCapability.MERKLE_PROOF_REQUEST)
+    base_server_url = pick_server_for_account(account, ServerCapability.MERKLE_PROOF_REQUEST)
     server_url = f"{base_server_url}api/v1/merkle-proof/"
     tsc_proof_bytes = await _request_binary_merkle_proof_async(server_url, tx_hash,
         include_transaction=include_transaction)
@@ -298,13 +298,13 @@ async def request_transaction_data_async(network: Optional[Network], account: Ab
     Raises `GeneralAPIError` if a connection was established but the request errored.
     """
     assert network is not None
-    base_server_url = pick_server_for_account(network, account,
-        ServerCapability.TRANSACTION_REQUEST)
+    base_server_url = pick_server_for_account(account, ServerCapability.TRANSACTION_REQUEST)
     server_url = f"{base_server_url}api/v1/transaction/"
     headers = {
         'Accept':           'application/octet-stream',
         'User-Agent':       'ElectrumSV'
     }
+    # TODO(1.4.0) Servers. Trailing slash cleanup.
     url = server_url if server_url.endswith("/") else server_url + "/"
     url += hash_to_hex_str(tx_hash)
 
@@ -363,7 +363,7 @@ async def manage_server_websocket_async(state: ServerConnectionState) -> None:
     """
     # TODO(1.4.0) Credentials. When we implement access token support for servers on account
     #     creation, we should not store it in memory unencrypted.
-    websocket_url_template = state.server_url + "api/v1/web-socket?token={access_token}"
+    websocket_url_template = state.server.url + "api/v1/web-socket?token={access_token}"
     websocket_url = websocket_url_template.format(access_token=REGTEST_MASTER_TOKEN)
     headers = {
         "Accept": "application/octet-stream"
@@ -372,9 +372,8 @@ async def manage_server_websocket_async(state: ServerConnectionState) -> None:
         async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
                 as server_websocket:
             logger.info('Connected to server websocket, url=%s', websocket_url_template)
-            await register_output_spends_async(state)
-            spend_output_processing_future = app_state.async_.spawn(manage_output_spends_async,
-                state)
+            register_output_spends_async(state)
+            output_spends_future = app_state.async_.spawn(manage_output_spends_async, state)
             try:
                 websocket_message: aiohttp.WSMessage
                 async for websocket_message in server_websocket:
@@ -399,7 +398,7 @@ async def manage_server_websocket_async(state: ServerConnectionState) -> None:
                         logger.error("Unhandled server websocket message type %r",
                             websocket_message)
             finally:
-                spend_output_processing_future.cancel()
+                output_spends_future.cancel()
     except aiohttp.ClientConnectorError:
         logger.debug("Unable to connect to server websocket")
     except WSServerHandshakeError as e:
@@ -411,7 +410,7 @@ async def manage_server_websocket_async(state: ServerConnectionState) -> None:
         raise
 
 
-async def register_output_spends_async(state: ServerConnectionState) -> None:
+def register_output_spends_async(state: ServerConnectionState) -> None:
     """
     Feed the initial state into the registration worker task.
 
@@ -432,12 +431,13 @@ async def register_output_spends_async(state: ServerConnectionState) -> None:
         state.output_spend_registration_queue.put_nowait(spent_outpoints)
 
 
+
 async def manage_output_spends_async(state: ServerConnectionState) -> None:
     """
     This in theory manages spent output registrations and notifications on behalf of a given
     petty cash account, and the non-petty cash accounts that are funded by it.
     """
-    api_url = f"{state.server_url}api/v1/output-spend/notifications"
+    api_url = f"{state.server.url}api/v1/output-spend/notifications"
 
     async def process_registration_batch_async() -> None:
         logger.debug("Waiting for spent output registrations")

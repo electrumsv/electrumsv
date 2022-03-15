@@ -43,11 +43,9 @@ import concurrent.futures
 from dataclasses import dataclass, field
 from enum import IntEnum
 import random
-from typing import Callable, cast, Dict, List, NamedTuple, Optional, Sequence, Tuple, \
-    TYPE_CHECKING
+from typing import Callable, cast, Dict, List, NamedTuple, Optional, Sequence, TYPE_CHECKING
 
-from bitcoinx import (bip32_key_from_string, BIP32PublicKey, hash160, P2MultiSig_Output,
-    PublicKey, sha256)
+from bitcoinx import bip32_key_from_string, BIP32PublicKey, PublicKey
 
 from .app_state import app_state
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH, DerivationType,
@@ -59,7 +57,7 @@ from .network_support.api_server import select_servers
 from .network_support.general_api import post_restoration_filter_request_binary, \
     RestorationFilterRequest, RestorationFilterResult, unpack_binary_restoration_entry
 from .wallet import AbstractAccount
-from .wallet_database.types import KeyListRow
+from .wallet_support.keys import get_pushdata_hash_for_derivation, get_pushdata_hash_for_public_keys
 
 
 if TYPE_CHECKING:
@@ -191,7 +189,7 @@ class PushDataHashHandler:
             means that the connection was closed mid-transmission.
         Raises `ServerConnectionError` if the remote computer cannot be connected to.
         """
-        all_candidates = self._network.get_api_servers_for_account(
+        all_candidates = self._account._wallet.get_servers_for_account(
             self._account, NetworkServerType.GENERAL)
         restoration_candidates = select_servers(ServerCapability.RESTORATION, all_candidates)
         if not len(restoration_candidates):
@@ -199,11 +197,9 @@ class PushDataHashHandler:
 
         # TODO(1.4.0) Networking. Standardised server selection / endpoint url resolution.
         candidate = random.choice(restoration_candidates)
-        assert candidate.api_server is not None and candidate.api_server.config is not None
+        assert candidate.api_server is not None
 
-        url = candidate.api_server.config["url"]
-        url = url if url.endswith("/") else url +"/"
-        url = f"{url}api/v1/restoration/search"
+        url = f"{candidate.api_server.url}api/v1/restoration/search"
 
         # These are the pushdata hashes that have been passed along.
         entry_mapping: Dict[bytes, SearchEntry] = { entry.item_hash: entry for entry in entries }
@@ -303,62 +299,13 @@ class BlockchainScanner:
             self._extend_range_cb(self._scan_entry_count)
 
 
-class PushDataHasher:
-    """
-    This is currently only used for account restoration. The restoration indexing that ElectrumSV
-    hopes to support is currently based on SHA256 pushdata indexing. The wallet provides a list
-    of pushdata hashes and asks the indexer if it has any matching data. This will only work for
-    capped restoration indexing, it is not reasonable to assume that any indexer will be able
-    to provide full blockchain indexes of hashes for arbitrary data (given that future transaction
-    outputs are not forced into a limited set of standard script templates).
-    """
-
-    def get_item_hash_for_public_keys(self, script_type: ScriptType,
-            public_keys: List[PublicKey], threshold: int=1) -> bytes:
-        hashable_item: bytes = b''
-        if script_type == ScriptType.P2PK:
-            # We are looking for this public key.
-            assert len(public_keys) == 1
-            hashable_item = public_keys[0].to_bytes()
-        elif script_type == ScriptType.P2PKH:
-            # We are looking for the hash160 of this public key.
-            assert len(public_keys) == 1
-            hashable_item = public_keys[0].hash160()
-        elif script_type == ScriptType.MULTISIG_BARE:
-            # We are looking for any one of the featured cosigner public keys used in this.
-            hashable_item = public_keys[0].to_bytes()
-        elif script_type == ScriptType.MULTISIG_P2SH:
-            # We are looking for the hash160 of the redeem script.
-            public_keys_hex = [ public_key.to_hex() for public_key in public_keys ]
-            redeem_script = P2MultiSig_Output(sorted(public_keys_hex), threshold).to_script_bytes()
-            hashable_item = hash160(redeem_script)
-        elif script_type == ScriptType.MULTISIG_ACCUMULATOR:
-            # We are looking for any one of the featured cosigner public keys used in this.
-            hashable_item = public_keys[0].hash160()
-        else:
-            raise NotImplementedError(f"unsupported script type {script_type}")
-        return cast(bytes, sha256(hashable_item))
-
-    def get_item_hash_for_key_data(self, key_data: KeyListRow) -> Tuple[ScriptType, bytes]:
-        if key_data.derivation_type == DerivationType.PUBLIC_KEY_HASH:
-            # We are looking for this hash160 in a P2PKH script output.
-            item_hash = cast(bytes, sha256(key_data.derivation_data2))
-            return ScriptType.P2PKH, item_hash
-        elif key_data.derivation_type == DerivationType.SCRIPT_HASH:
-            # We are looking for this hash160 in a P2SH script output.
-            item_hash = cast(bytes, sha256(key_data.derivation_data2))
-            return ScriptType.MULTISIG_P2SH, item_hash
-        raise NotImplementedError
-
-
 class SearchKeyEnumerator:
     """
     This provides a way to iterate through the possible things we want to match on, or search keys
     to enumerate.
     """
-    def __init__(self, item_hasher: PushDataHasher, settings: Optional[AdvancedSettings]=None) \
+    def __init__(self, settings: Optional[AdvancedSettings]=None) \
             -> None:
-        self._item_hasher = item_hasher
         if settings is None:
             settings = AdvancedSettings()
         self._settings = settings
@@ -386,7 +333,9 @@ class SearchKeyEnumerator:
         elif account_type == AccountType.IMPORTED_ADDRESS:
             # The derivation data is the address or hash160 that relates to the script type.
             for key_data in wallet.data.read_key_list(account_id):
-                script_type, item_hash = self._item_hasher.get_item_hash_for_key_data(key_data)
+                assert key_data.derivation_data2 is not None
+                script_type, item_hash = get_pushdata_hash_for_derivation(key_data.derivation_type,
+                    key_data.derivation_data2)
                 self.add_explicit_item(key_data.keyinstance_id, script_type, item_hash)
         elif account_type == AccountType.IMPORTED_PRIVATE_KEY:
             # The derivation data is the public key for the private key.
@@ -394,8 +343,7 @@ class SearchKeyEnumerator:
                 assert key_data.derivation_type == DerivationType.PRIVATE_KEY
                 public_key = PublicKey.from_bytes(key_data.derivation_data2)
                 for script_type in script_types:
-                    item_hash = self._item_hasher.get_item_hash_for_public_keys(script_type,
-                        [ public_key ])
+                    item_hash = get_pushdata_hash_for_public_keys(script_type, [ public_key ])
                     self.add_explicit_item(key_data.keyinstance_id, script_type, item_hash)
         else:
             raise UnsupportedAccountTypeError()
@@ -460,8 +408,7 @@ class SearchKeyEnumerator:
             public_keys: List[PublicKey] = [ public_key.child_safe(current_index)
                 for public_key in parent_path.parent_public_keys ]
             for script_type in parent_path.script_types:
-                item_hash = self._item_hasher.get_item_hash_for_public_keys(script_type,
-                    public_keys)
+                item_hash = get_pushdata_hash_for_public_keys(script_type, public_keys)
                 new_entries.append(SearchEntry(SearchEntryKind.BIP32, None, script_type,
                     item_hash, parent_path, current_index))
 

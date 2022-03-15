@@ -44,7 +44,7 @@ from ..crypto import pw_decode, pw_encode
 from ..i18n import _
 from ..logs import logs
 from ..types import KeyInstanceDataPrivateKey, MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
-    MasterKeyDataMultiSignature, MasterKeyDataTypes, NetworkServerState, Outpoint, OutputSpend, \
+    MasterKeyDataMultiSignature, MasterKeyDataTypes, Outpoint, OutputSpend, \
     ServerAccountKey
 from ..util import get_posix_timestamp
 
@@ -52,11 +52,12 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     TransactionAlreadyExistsError, TransactionRemovalError)
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
-    HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
+    HistoryListRow, InvoiceAccountRow, InvoiceRow,
+    KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, MAPIBroadcastCallbackRow,
     MapiBroadcastStatusFlags, NetworkServerRow, PasswordUpdateResult,
-    PaymentRequestReadRow, PaymentRequestRow,PaymentRequestUpdateRow, SpendConflictType,
-    SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
+    PaymentRequestReadRow, PaymentRequestRow,PaymentRequestUpdateRow,
+    SpendConflictType, SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
     TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
     TransactionOutputSpendableRow, TransactionValueRow, TransactionMetadata,
     TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow, TxProofData,
@@ -136,11 +137,11 @@ def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyR
 
 def create_payment_requests(db_context: DatabaseContext, entries: list[PaymentRequestRow]) \
         -> concurrent.futures.Future[list[PaymentRequestRow]]:
-    sql = (
-        "INSERT INTO PaymentRequests "
-        "(paymentrequest_id, keyinstance_id, state, value, expiration, description, date_created, "
-            "date_updated) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+    sql = """
+        INSERT INTO PaymentRequests (paymentrequest_id, keyinstance_id, state, value, expiration,
+            description, script_type, pushdata_hash, date_created, date_updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """
     timestamp = get_posix_timestamp()
     sql_values = [ (*t[:-1], timestamp, timestamp) for t in entries ]
     def _write(db: Optional[sqlite3.Connection]=None) -> list[PaymentRequestRow]:
@@ -1183,8 +1184,8 @@ def read_bip32_keys_gap_size(db: sqlite3.Connection, account_id: int,
 def read_network_servers(db: sqlite3.Connection,
         server_key: Optional[ServerAccountKey]=None) -> list[NetworkServerRow]:
     read_server_row_sql = "SELECT server_id, server_type, url, account_id, server_flags, " \
-        "encrypted_api_key, fee_quote_json, date_last_tried, date_last_connected, date_created, " \
-        "date_updated FROM Servers"
+        "api_key_template, encrypted_api_key, fee_quote_json, date_last_tried, " \
+        "date_last_connected, date_created, date_updated FROM Servers"
     params: Sequence[Any] = ()
     if server_key is not None:
         read_server_row_sql += f" WHERE server_type=? AND url=?"
@@ -1915,29 +1916,29 @@ def update_wallet_event_flags(db_context: DatabaseContext,
     return db_context.post_to_thread(_write)
 
 
-def update_network_servers(db_context: DatabaseContext, create_rows: list[NetworkServerRow],
-        update_rows: list[NetworkServerRow], deleted_server_ids: list[int],
-        deleted_server_keys: list[ServerAccountKey]) \
+def update_network_servers_transaction(db_context: DatabaseContext,
+        create_rows: list[NetworkServerRow], update_rows: list[NetworkServerRow],
+        deleted_server_ids: list[int], deleted_server_keys: list[ServerAccountKey]) \
             -> concurrent.futures.Future[list[NetworkServerRow]]:
     """
     Add, update and remove server definitions for this wallet.
     """
     # These columns should be in the same order as the `NetworkServerRow` tuple.
     insert_prefix_sql = "INSERT INTO Servers (server_id, server_type, url, account_id, " \
-        "server_flags, encrypted_api_key, fee_quote_json, date_last_connected, date_last_tried, " \
-        "date_created, date_updated) VALUES"
+        "server_flags, api_key_template, encrypted_api_key, fee_quote_json, date_last_connected, " \
+        "date_last_tried, date_created, date_updated) VALUES"
     insert_suffix_sql = "RETURNING server_id, server_type, url, account_id, " \
-        "server_flags, encrypted_api_key, fee_quote_json, date_last_connected, date_last_tried, " \
-        "date_created, date_updated"
-    update_sql = "UPDATE Servers SET date_updated=?, encrypted_api_key=?, server_flags=? " \
-        "WHERE server_id=?"
+        "server_flags, api_key_template, encrypted_api_key, fee_quote_json, date_last_connected, " \
+        "date_last_tried, date_created, date_updated"
+    update_sql = "UPDATE Servers SET date_updated=?, api_key_template=?, encrypted_api_key=?, " \
+        "server_flags=? WHERE server_id=?"
     delete_ids_sql = "DELETE FROM Servers WHERE server_id=?"
     delete_server_keys_sql = "DELETE FROM Servers WHERE server_type=? AND url=?"
     delete_account_keys_sql = "DELETE FROM Servers WHERE server_type=? AND url=? AND " \
         "account_id=?"
 
     timestamp_utc = get_posix_timestamp()
-    final_update_rows = [ (timestamp_utc, server_row.encrypted_api_key,
+    final_update_rows = [ (timestamp_utc, server_row.api_key_template, server_row.encrypted_api_key,
         server_row.server_flags, server_row.server_id)
         for server_row in update_rows ]
     final_delete_ids_rows = [ (server_id,) for server_id in deleted_server_ids ]
@@ -1965,7 +1966,8 @@ def update_network_servers(db_context: DatabaseContext, create_rows: list[Networ
         if final_update_rows:
             cursor = db.executemany(update_sql, final_update_rows)
             if cursor.rowcount != len(final_update_rows):
-                raise DatabaseUpdateError
+                raise DatabaseUpdateError(f"Expected to update {len(final_update_rows)} rows"
+                    f", updated {cursor.rowcount}")
         if create_rows:
             return bulk_insert_returning(NetworkServerRow, db, insert_prefix_sql,
                 insert_suffix_sql, create_rows)
@@ -1973,7 +1975,7 @@ def update_network_servers(db_context: DatabaseContext, create_rows: list[Networ
     return db_context.post_to_thread(_write)
 
 
-def update_network_server_states(db_context: DatabaseContext, states: list[NetworkServerState]) \
+def update_network_servers(db_context: DatabaseContext, rows: list[NetworkServerRow]) \
         -> concurrent.futures.Future[None]:
     """
     Update the state fields for server definitions on this wallet.
@@ -1985,8 +1987,8 @@ def update_network_server_states(db_context: DatabaseContext, states: list[Netwo
         "date_last_connected=?, date_last_tried=? WHERE server_id=?"
 
     timestamp_utc = get_posix_timestamp()
-    update_rows = [ (timestamp_utc, state.mapi_fee_quote_json, state.date_last_good,
-        state.date_last_try, state.server_id) for state in states ]
+    update_rows = [ (timestamp_utc, row.mapi_fee_quote_json, row.date_last_good,
+        row.date_last_try, row.server_id) for row in rows ]
 
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
@@ -1994,17 +1996,16 @@ def update_network_server_states(db_context: DatabaseContext, states: list[Netwo
     return db_context.post_to_thread(_write)
 
 
-def create_mapi_broadcast_callbacks(db_context: DatabaseContext,
-        rows: Iterable[MAPIBroadcastCallbackRow]) -> concurrent.futures.Future[None]:
+
+def create_mapi_broadcast_callbacks_write(rows: Iterable[MAPIBroadcastCallbackRow],
+        db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
     sql = """
         INSERT INTO MAPIBroadcastCallbacks
         (tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id, status_flags)
-        VALUES (?, ?, ?, ?, ?, ?)"""
-
-    def _write(db: Optional[sqlite3.Connection]=None) -> None:
-        assert db is not None and isinstance(db, sqlite3.Connection)
-        db.executemany(sql, rows)
-    return db_context.post_to_thread(_write)
+        VALUES (?, ?, ?, ?, ?, ?)
+    """
+    db.executemany(sql, rows)
 
 
 @replace_db_context_with_connection

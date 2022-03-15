@@ -2,8 +2,8 @@ The wallet database
 ===================
 
 Each wallet is stored in it's own SQLite database. The current version of ElectrumSV at the time of
-writing, 1.4.0b1, uses the database schema version 28. This schema is include for reference
-purposes and cannot be used to a working wallet.
+writing, 1.4.0b1, uses the database schema version 29. This schema is include for reference
+purposes and cannot be used to a create a working wallet.
 
 Each version of ElectrumSV includes migration code that applies any needed changes to older
 versions of the wallet. This database format is pretty solid at this point, but it is a work in
@@ -98,10 +98,10 @@ Asynchronous database calls are performed in this manner:
 Database schema
 ---------------
 
-This is version 28 of our database schema. It should be correct for the ElectrumSV version
+This is version 29 of our database schema. It should be correct for the ElectrumSV version
 this documentation is intended for, but if it is not, please let us know.
 
-.. literalinclude:: database/28.sql
+.. literalinclude:: database/29.sql
     :linenos:
     :language: sql
 

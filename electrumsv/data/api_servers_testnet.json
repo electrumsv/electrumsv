@@ -2,7 +2,7 @@
     {
         "id": 30001,
         "type": "MERCHANT_API",
-        "url": "https://mapi.taal.com/mapi",
+        "url": "https://mapi.taal.com/mapi/",
         "api_key_required": true,
         "api_key_template": "Authorization: Bearer testnet_{API_KEY}",
         "static_data_date": "2021-05-13T04:45:05+0000"

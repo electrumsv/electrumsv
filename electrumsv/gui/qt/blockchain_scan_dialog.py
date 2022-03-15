@@ -56,8 +56,7 @@ from ...app_state import app_state
 from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, RECEIVING_SUBPATH, \
     TransactionImportFlag, TxFlags, WalletEvent
 from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, BlockchainScanner, \
-    PushDataHasher, PushDataHashHandler, PushDataSearchError, \
-    SearchKeyEnumerator
+    PushDataHashHandler, PushDataSearchError, SearchKeyEnumerator
 from ...exceptions import ServerConnectionError
 from ...i18n import _
 from ...network_support.general_api import FilterResponseIncompleteError, FilterResponseInvalidError
@@ -256,10 +255,9 @@ class BlockchainScanDialog(WindowModalDialog):
 
         assert self._wallet._network is not None
         # Capped restoration API.
-        item_hasher = PushDataHasher()
         self._pushdata_handler = PushDataHashHandler(self._wallet._network, account)
 
-        search_enumerator = SearchKeyEnumerator(item_hasher, self._advanced_settings)
+        search_enumerator = SearchKeyEnumerator(self._advanced_settings)
         search_enumerator.use_account(account)
 
         assert self._pushdata_handler is not None

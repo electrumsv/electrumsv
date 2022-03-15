@@ -85,6 +85,7 @@ from .amountedit import AmountEdit, BTCAmountEdit
 from .console import Console
 from .constants import CSS_WALLET_WINDOW_STYLE, ScanDialogRole, UIBroadcastSource
 from .contact_list import ContactList, edit_contact_dialog
+from .network_dialog import NetworkDialog
 from .password_dialog import LayoutFields
 from .qrcodewidget import QRDialog
 from .qrtextedit import ShowQRTextEdit
@@ -175,6 +176,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._send_view: Optional[SendViewTypes] = None
         self._receive_views: Dict[int, ReceiveViewTypes] = {}
         self._receive_view: Optional[ReceiveViewTypes] = None
+        self._network_dialog: Optional[NetworkDialog] = None
 
         self._tab_widget = tabs = self._navigation_view.get_tab_widget()
 
@@ -801,7 +803,21 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._account_menu.setEnabled(False)
 
     def _show_network_dialog(self) -> None:
-        self.app.show_network_dialog(self)
+        # TODO(1.4.0) Servers. Need to change the dialog to be offline friendly.
+        # if not app_state.daemon.network:
+        #     parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
+        #                           'ElectrumSV if you want to get connected'), title=_('Offline'))
+        #     return
+        if self._network_dialog is not None:
+            self._network_dialog._event_network_updated()
+            self._network_dialog.show()
+            self._network_dialog.raise_()
+            return
+
+        # from importlib import reload
+        # reload(network_dialog)
+        self._network_dialog = NetworkDialog(self, self._wallet)
+        self._network_dialog.show()
 
     def _open_documentation(self) -> None:
         webbrowser.open("https://electrumsv.readthedocs.io/")
@@ -2290,9 +2306,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if self.network:
             self.network.unregister_callbacks_for_object(self)
 
-        if self.tx_notify_timer:
+        if self.tx_notify_timer is not None:
             self.tx_notify_timer.stop()
             self.tx_notify_timer = None
+
+        if self._network_dialog is not None:
+            self._network_dialog.clean_up()
+            self._network_dialog.close()
+            self._network_dialog = None
 
         # Cancelled tasks have a reference to a cancelled exception, if we do not delete the
         # future that links to the task, the task methods on the window class will keep the window

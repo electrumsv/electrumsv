@@ -16,11 +16,11 @@ import aiohttp
 import bitcoinx
 
 from ..bitcoin import TSCMerkleProof
-from ..types import Outpoint, OutputSpend
-
+from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
 
 if TYPE_CHECKING:
     from ..wallet import WalletDataAccess
+    from .api_server import NewServer
 
 
 # ----- ESVReferenceServer Error types ----- #
@@ -267,7 +267,7 @@ class AccountMessageKind(enum.IntEnum):
 class ServerConnectionState:
     wallet_data: WalletDataAccess
     session: aiohttp.ClientSession
-    server_url: str
+    server: NewServer
 
     # Incoming peer channel message notifications from the server.
     peer_channel_message_queue: asyncio.Queue[ChannelNotification]
@@ -275,3 +275,7 @@ class ServerConnectionState:
     output_spend_result_queue: asyncio.Queue[Sequence[OutputSpend]]
     # Post outpoints here to get them registered with the server.
     output_spend_registration_queue: asyncio.Queue[Sequence[Outpoint]]
+    # Set this is there are new pushdata hashes that need to be monitored.
+    tip_filter_new_pushdata_event: asyncio.Event
+
+    credential_id: Optional[IndefiniteCredentialId]=None

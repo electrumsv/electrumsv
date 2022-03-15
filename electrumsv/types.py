@@ -35,9 +35,9 @@ class DatabaseKeyDerivationData:
     source: DatabaseKeyDerivationType = dataclasses.field(default=DatabaseKeyDerivationType.UNKNOWN)
 
     @classmethod
-    def from_key_data(cls, row: "KeyDataProtocol",
+    def from_key_data(cls, row: KeyDataProtocol,
             source: DatabaseKeyDerivationType=DatabaseKeyDerivationType.UNKNOWN) \
-                -> "DatabaseKeyDerivationData":
+                -> DatabaseKeyDerivationData:
         derivation_path: Optional[DerivationPath] = None
         if row.derivation_type == DerivationType.BIP32_SUBPATH:
             assert isinstance(row.derivation_data2, bytes)
@@ -179,23 +179,13 @@ class ServerAccountKey(NamedTuple):
     def from_row(cls, row: "NetworkServerRow") -> "ServerAccountKey":
         return cls(row.url, row.server_type, row.account_id)
 
-    def to_server_key(self) -> "ServerAccountKey":
+    def to_base_key(self) -> "ServerAccountKey":
         if self.account_id is None:
             return self
         return ServerAccountKey(self.url, self.server_type, None)
 
 
 IndefiniteCredentialId = uuid.UUID
-
-
-class NetworkServerState(NamedTuple):
-    server_id: int
-    key: ServerAccountKey
-    credential_id: Optional[IndefiniteCredentialId]
-    # MAPI specific, used for JSONEnvelope serialised transaction fee quotes.
-    mapi_fee_quote_json: Optional[str] = None
-    date_last_try: int = 0
-    date_last_good: int = 0
 
 
 class MasterKeyDataBIP32(TypedDict):
