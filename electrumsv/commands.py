@@ -24,11 +24,12 @@
 # SOFTWARE.
 
 import argparse
+from collections.abc import Sequence
 from decimal import Decimal
 from functools import wraps
 import json
 import sys
-from typing import Any, Callable, cast, Dict, List, TYPE_CHECKING, TypeVar, Optional
+from typing import Any, Callable, cast, TYPE_CHECKING, TypeVar, Optional
 
 from .i18n import _
 from .logs import logs
@@ -45,7 +46,7 @@ logger = logs.get_logger("commands")
 
 ArgTypeType = Callable[[str], Any]
 
-known_commands: Dict[str, 'Command'] = {}
+known_commands: dict[str, 'Command'] = {}
 
 
 # def satoshis(amount: Union[int, Optional[str]]) -> int:
@@ -54,6 +55,8 @@ known_commands: Dict[str, 'Command'] = {}
 
 
 class Command:
+    defaults: Sequence[Any]
+
     def __init__(self, func: Callable[..., Any], s: str) -> None:
         self.name = func.__name__
         self.description = func.__doc__
@@ -64,10 +67,8 @@ class Command:
         self.requires_password = 'p' in s
 
         varnames = func.__code__.co_varnames[1:func.__code__.co_argcount]
-        # NOTE(typing) The `Callable` type does not have this, but it has the other
-        #   function-related variables.
-        self.defaults = func.__defaults__ # type: ignore
-        if self.defaults:
+        if func.__defaults__:
+            self.defaults = func.__defaults__
             n = len(self.defaults)
             self.params = list(varnames[:-n])
             self.options = list(varnames[-n:])
@@ -77,7 +78,7 @@ class Command:
             self.defaults = []
 
     def __repr__(self) -> str:
-        return "<Command {}>".format(self)
+        return f"Command({self})"
 
     def __str__(self) -> str:
         return "{}({})".format(self.name, ", ".join(self.params +
@@ -148,7 +149,7 @@ class Commands:
         return PACKAGE_VERSION
 
     @command('')
-    def help(self) -> List[str]:
+    def help(self) -> list[str]:
         # for the python console
         return sorted(known_commands.keys())
 
@@ -222,7 +223,7 @@ command_options = {
 # don't use floats because of rounding errors
 from .transaction import tx_dict_from_text
 json_loads = lambda x: json.loads(x, parse_float=lambda x: str(Decimal(x)))
-arg_types: Dict[str, ArgTypeType] = {
+arg_types: dict[str, ArgTypeType] = {
     'num': int,
     'nbits': int,
     'imax': int,
@@ -252,7 +253,7 @@ config_variables = {
 }
 
 def set_default_subparser(self: argparse.ArgumentParser, name: str,
-        args: Optional[List[str]]=None) -> None:
+        args: Optional[list[str]]=None) -> None:
     """see http://stackoverflow.com/questions/5176691"""
     subparser_found = False
     for arg in sys.argv[1:]:
@@ -285,7 +286,7 @@ argparse.ArgumentParser.set_default_subparser = set_default_subparser # type: ig
 # "_SubParsersAction"  [type-arg]'
 def subparser_call(self: argparse._SubParsersAction,  # type: ignore[type-arg]
         parser: argparse.ArgumentParser,
-        namespace: Optional[argparse.Namespace], values: List[str],
+        namespace: Optional[argparse.Namespace], values: list[str],
         option_string: Optional[str]=None) -> None:
     from argparse import ArgumentError, SUPPRESS, _UNRECOGNIZED_ARGS_ATTR
     parser_name = values[0]
