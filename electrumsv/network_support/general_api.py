@@ -56,7 +56,6 @@ from ..types import Outpoint, outpoint_struct, outpoint_struct_size, \
     output_spend_struct, output_spend_struct_size, OutputSpend
 
 from .api_server import pick_server_for_account
-from .constants import REGTEST_MASTER_TOKEN
 from .esv_client_types import AccountMessageKind, ServerConnectionState, \
     WebsocketUnauthorizedException
 
@@ -363,8 +362,10 @@ async def manage_server_websocket_async(state: ServerConnectionState) -> None:
     """
     # TODO(1.4.0) Credentials. When we implement access token support for servers on account
     #     creation, we should not store it in memory unencrypted.
+    assert state.credential_id is not None
+    master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     websocket_url_template = state.server.url + "api/v1/web-socket?token={access_token}"
-    websocket_url = websocket_url_template.format(access_token=REGTEST_MASTER_TOKEN)
+    websocket_url = websocket_url_template.format(access_token=master_token)
     headers = {
         "Accept": "application/octet-stream"
     }

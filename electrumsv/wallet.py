@@ -3834,6 +3834,7 @@ class Wallet:
                     wallet_data=self.data,
                     session=session,
                     server=candidate.api_server,
+                    credential_id=candidate.api_server.client_api_keys[None],
                     peer_channel_message_queue = asyncio.Queue(),
                     output_spend_result_queue = asyncio.Queue(),
                     output_spend_registration_queue = asyncio.Queue(),
