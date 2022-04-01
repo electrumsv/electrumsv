@@ -105,7 +105,7 @@ async def late_header_worker_async(wallet_data: WalletDataAccess, state: LateHea
             else:
                 await _process_one_merkle_proof(wallet_data, state, tsc_proof.transaction_hash,
                     TxFlags.STATE_CLEARED, tsc_proof.block_hash, tsc_proof.to_bytes(), header)
-        elif item_kind == PendingHeaderWorkKind.NEW_HEADER:
+        elif item_kind == PendingHeaderWorkKind.NEW_TIP:
             header, _chain = cast(tuple[Header, Chain], item_any)
             if header.hash in state.block_transactions:
                 tx_hashes = list(state.block_transactions[header.hash])

@@ -99,7 +99,7 @@ class BroadcastResponse(TypedDict):
     timestamp: str
     txid: str # Canonical hex transaction id.
     returnResult: str # "success" or "failure"
-    returnDescription: str # "" or "<error message>"
+    resultDescription: str # "" or "<error message>"
     minerId: str
     currentHighestBlockHash: str
     currentHighestBlockHeight: int
@@ -208,17 +208,17 @@ async def get_fee_quote(server: "NewServer",
     is_ssl = url.startswith("https")
 
     async with aiohttp.ClientSession() as client:
-        async with client.get(url, headers=headers, ssl=is_ssl) as resp:
+        async with client.get(url, headers=headers, ssl=is_ssl) as response:
             try:
-                json_response = await decode_response_body(resp)
+                json_response = await decode_response_body(response)
             except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
                 logger.error("failed connecting to %s", url)
             else:
-                if resp.status != 200:
+                if response.status != 200:
                     # We hope that this service will become available later. Until then it
                     # should be excluded by prioritisation/server selection algorithms
                     logger.error("feeQuote request to %s failed with: status: %s, reason: %s",
-                        url, resp.status, resp.reason)
+                        url, response.status, response.reason)
                 else:
                     assert json_response['encoding'].lower() == 'utf-8'
 
@@ -295,6 +295,10 @@ async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: "N
                     server.api_key_state[credential_id].record_success()
                     broadcast_response: BroadcastResponse = \
                         json.loads(broadcast_response_envelope['payload'])
+
+                    if broadcast_response['returnResult'] == 'failure':
+                        raise BroadcastFailedError(broadcast_response['resultDescription'])
+
                     return broadcast_response
 
 

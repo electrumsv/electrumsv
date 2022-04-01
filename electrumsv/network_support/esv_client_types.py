@@ -66,10 +66,8 @@ class HeaderResponse(TypedDict):
     work: int
 
 
-class TipResponse(TypedDict):
-    header: HeaderResponse
-    state: str
-    chainWork: int
+class TipResponse(NamedTuple):
+    header: bytes
     height: int
 
 
@@ -265,7 +263,7 @@ class AccountMessageKind(enum.IntEnum):
 
 @dataclasses.dataclass
 class ServerConnectionState:
-    wallet_data: WalletDataAccess
+    wallet_data: Optional[WalletDataAccess]
     session: aiohttp.ClientSession
     server: NewServer
 

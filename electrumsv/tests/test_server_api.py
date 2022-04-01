@@ -50,9 +50,9 @@ def test_select_servers_filter_all_outputs() -> None:
             None,
             api_server.NewServer("A", NetworkServerType.MERCHANT_API)),
         api_server.SelectionCandidate(
-            NetworkServerType.ELECTRUMX,
+            NetworkServerType.MERCHANT_API,
             None,
-            api_server.NewServer("B", NetworkServerType.ELECTRUMX)),
+            api_server.NewServer("B", NetworkServerType.MERCHANT_API)),
     ]
     fake_row = unittest.mock.Mock()
     fake_row.server_flags = NetworkServerFlag.NONE
@@ -72,9 +72,9 @@ def test_select_servers_filter_reduced_outputs() -> None:
             None,
             api_server.NewServer("A", NetworkServerType.MERCHANT_API)),
         api_server.SelectionCandidate(
-            NetworkServerType.ELECTRUMX,
+            NetworkServerType.GENERAL,
             None,
-            api_server.NewServer("B", NetworkServerType.ELECTRUMX)),
+            api_server.NewServer("B", NetworkServerType.GENERAL)),
     ]
     fake_row = unittest.mock.Mock()
     fake_row.server_flags = NetworkServerFlag.NONE

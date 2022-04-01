@@ -8,8 +8,6 @@ from typing import Any, Callable, cast, Iterable, Generator, List, Optional, Pro
     Tuple, TYPE_CHECKING, TypeVar, Union
 import weakref
 
-from aiorpcx import RPCError
-
 from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QEvent, QLocale, QPoint,
     QProcess, QModelIndex, QSize, QTimer)
 from PyQt5.QtGui import QColor, QCursor, QFont, QIcon, QKeyEvent, QMouseEvent, QPalette, QPixmap, \
@@ -352,9 +350,7 @@ class UntrustedMessageDialog(QDialog):
         ))
         text_label.setWordWrap(True)
         vbox.addWidget(text_label)
-        if isinstance(exception, RPCError):
-            untrusted_text += str(exception)
-        elif isinstance(exception, Exception):
+        if isinstance(exception, Exception):
             untrusted_text += "".join(traceback.TracebackException.from_exception(
                 exception).format())
         text_edit = QPlainTextEdit(untrusted_text)

@@ -47,6 +47,8 @@ import aiohttp
 from aiohttp import WSServerHandshakeError
 from bitcoinx import Chain, hash_to_hex_str, Header, MissingHeader
 
+from .exceptions import FilterResponseInvalidError, FilterResponseIncompleteError, \
+    TransactionNotFoundError, GeneralAPIError
 from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof, TSCMerkleProofError, verify_proof
 from ..constants import ServerCapability
@@ -100,18 +102,6 @@ FILTER_RESPONSE_SIZE = 1 + 32 + 32 + 4 + 32 + 4
 assert struct.calcsize(RESULT_UNPACK_FORMAT) == FILTER_RESPONSE_SIZE
 
 
-class GeneralAPIError(Exception):
-    pass
-
-class FilterResponseInvalidError(GeneralAPIError):
-    pass
-
-class FilterResponseIncompleteError(GeneralAPIError):
-    pass
-
-class TransactionNotFoundError(GeneralAPIError):
-    pass
-
 async def post_restoration_filter_request_json(url: str, request_data: RestorationFilterRequest) \
         -> AsyncIterable[RestorationFilterJSONResponse]:
     """
@@ -140,8 +130,8 @@ async def post_restoration_filter_request_json(url: str, request_data: Restorati
                 yield json.loads(response_line)
 
 
-async def post_restoration_filter_request_binary(url: str, request_data: RestorationFilterRequest) \
-        -> AsyncIterable[bytes]:
+async def post_restoration_filter_request_binary(url: str, request_data: RestorationFilterRequest,
+        access_token: str) -> AsyncIterable[bytes]:
     """
     This will stream matches for the given push data hashes from the server in packed binary
     structures until there are no more matches.
@@ -152,16 +142,19 @@ async def post_restoration_filter_request_binary(url: str, request_data: Restora
     Raises `ServerConnectionError` if the remote computer does not accept
       the connection.
     """
-    headers={
+    headers = {
         'Content-Type':     'application/json',
         'Accept':           'application/octet-stream',
-        'User-Agent':       'ElectrumSV'
+        'User-Agent':       'ElectrumSV',
+        'Authorization':    f'Bearer {access_token}'
     }
     try:
-        async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.post(url, json=request_data) as response:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, data=json.dumps(request_data), headers=headers) \
+                    as response:
                 if response.status != 200:
-                    raise FilterResponseInvalidError(f"Bad response status code {response.status}")
+                    raise FilterResponseInvalidError(f"Bad response status code {response.status} "
+                        f"reason: {response.reason}")
 
                 content_type, *content_type_extra = response.headers["Content-Type"].split(";")
                 if content_type != "application/octet-stream":
@@ -189,7 +182,7 @@ STREAM_CHUNK_SIZE = 16*1024
 
 
 async def _request_binary_merkle_proof_async(server_url: str, tx_hash: bytes,
-        include_transaction: bool=False, target_type: str="hash") -> bytes:
+        include_transaction: bool=False, target_type: str="hash", access_token: str="") -> bytes:
     """
     Get a TSC merkle proof with optional embedded transaction.
 
@@ -207,10 +200,11 @@ async def _request_binary_merkle_proof_async(server_url: str, tx_hash: bytes,
     if include_transaction:
         params["includeFullTx"] = "1"
 
-    headers={
+    headers = {
         'Content-Type':     'application/json',
         'Accept':           'application/octet-stream',
-        'User-Agent':       'ElectrumSV'
+        'User-Agent':       'ElectrumSV',
+        'Authorization':    f'Bearer {access_token}'
     }
 
     # TODO(1.4.0) Servers. Trailing slash cleanup.
@@ -265,10 +259,20 @@ async def request_binary_merkle_proof_async(network: Optional[Network], account:
     assert network is not None
     assert app_state.headers is not None
 
-    base_server_url = pick_server_for_account(account, ServerCapability.MERKLE_PROOF_REQUEST)
+    # TODO(1.4.0) Networking. Discuss this with Roger the fact that we want to pin to one main
+    #  server for consistent chain state.
+
+    # base_server_url = pick_server_for_account(account, ServerCapability.MERKLE_PROOF_REQUEST)
+    main_server = account.get_wallet().main_server
+    assert main_server is not None
+    base_server_url = main_server._state.server.url
+
+    assert main_server._state.credential_id is not None
+    master_token = app_state.credentials.get_indefinite_credential(main_server._state.credential_id)
+
     server_url = f"{base_server_url}api/v1/merkle-proof/"
     tsc_proof_bytes = await _request_binary_merkle_proof_async(server_url, tx_hash,
-        include_transaction=include_transaction)
+        include_transaction=include_transaction, access_token=master_token)
     logger.debug("Read %d bytes of merkle proof", len(tsc_proof_bytes))
     try:
         tsc_proof = TSCMerkleProof.from_bytes(tsc_proof_bytes)
@@ -311,8 +315,7 @@ async def request_transaction_data_async(network: Optional[Network], account: Ab
     try:
         async with session.get(url, headers=headers) as response:
             if response.status == HTTPStatus.NOT_FOUND:
-                logger.error(f"Transaction for hash {hash_to_hex_str(tx_hash)} "
-                    f"not found")
+                logger.error("Transaction for hash %s not found", hash_to_hex_str(tx_hash))
                 raise TransactionNotFoundError()
 
             if response.status != HTTPStatus.OK:
@@ -423,6 +426,7 @@ def register_output_spends_async(state: ServerConnectionState) -> None:
     #     should specify which grouping of accounts are funded by a given petty cash
     #     account. It is possible we may end up mapping the petty cash account id to
     #     those accounts in the database.
+    assert state.wallet_data is not None
     output_spends = state.wallet_data.read_spent_outputs_to_monitor()
     logger.debug("Registering %d existing output spend notification requirements",
         len(output_spends))

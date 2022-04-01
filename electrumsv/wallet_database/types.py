@@ -430,6 +430,13 @@ class TransactionRow(NamedTuple):
     date_updated: int               = -1
 
 
+class TransactionProofRow(NamedTuple):
+    block_hash: bytes
+    tx_hash: bytes
+    proof_data: bytes
+    block_position: int
+
+
 class TransactionProoflessRow(NamedTuple):
     tx_hash: bytes
     account_id: int

@@ -24,5 +24,59 @@
         "url": "http://127.0.0.1:5050/mapi/",
         "api_key_required": false,
         "static_data_date": "2021-05-13T04:45:05+0000"
+    },
+    {
+        "id": 21003,
+        "url": "http://127.0.0.1:47123/",
+        "type": "GENERAL",
+        "capabilities": [
+            "HEADERS",
+            "PEER_CHANNELS",
+            "RESTORATION",
+            "MERKLE_PROOF_REQUEST",
+            "TRANSACTION_REQUEST",
+            "OUTPUT_SPENDS"
+        ],
+        "enabled_for_all_wallets": true,
+        "api_key_supported": false,
+        "last_try": 0.0,
+        "last_good": 0.0,
+        "static_data_date": "2021-12-15T04:45:05+0000"
+    },
+    {
+        "id": 21004,
+        "url": "http://127.0.0.1:47122/",
+        "type": "GENERAL",
+        "capabilities": [
+            "HEADERS",
+            "PEER_CHANNELS",
+            "RESTORATION",
+            "MERKLE_PROOF_REQUEST",
+            "TRANSACTION_REQUEST",
+            "OUTPUT_SPENDS"
+        ],
+        "enabled_for_all_wallets": true,
+        "api_key_supported": false,
+        "last_try": 0.0,
+        "last_good": 0.0,
+        "static_data_date": "2021-12-15T04:45:05+0000"
+    },
+    {
+        "id": 21005,
+        "url": "http://127.0.0.1:47121/",
+        "type": "GENERAL",
+        "capabilities": [
+            "HEADERS",
+            "PEER_CHANNELS",
+            "RESTORATION",
+            "MERKLE_PROOF_REQUEST",
+            "TRANSACTION_REQUEST",
+            "OUTPUT_SPENDS"
+        ],
+        "enabled_for_all_wallets": true,
+        "api_key_supported": false,
+        "last_try": 0.0,
+        "last_good": 0.0,
+        "static_data_date": "2021-12-15T04:45:05+0000"
     }
 ]
