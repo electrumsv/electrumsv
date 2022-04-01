@@ -3726,7 +3726,7 @@ class Wallet:
         assert self.main_server is not None
         proofs_on_main_chain: List[TransactionProofRow] = []
         remaining_tx_hashes = set(tx_hashes)
-        tx_proofs_rows = await db_functions.read_merkle_proofs(self._db_context, tx_hashes)
+        tx_proofs_rows = db_functions.read_merkle_proofs(self._db_context, tx_hashes)
         for proof_row in tx_proofs_rows:
             block_hash, tx_hash, proof_data, block_position = proof_row
             header, chain = cast(Headers, app_state.headers).lookup(block_hash)
@@ -3745,7 +3745,7 @@ class Wallet:
                 "Orphaned block hashes: %s", block_hashes_as_str)
             return
 
-        tx_hashes = await db_functions.read_reorged_transactions_async(
+        tx_hashes = db_functions.read_reorged_transactions(
             self._db_context, orphaned_block_hashes)
 
         block_hashes_as_str = [hash_to_hex_str(h) for h in orphaned_block_hashes]

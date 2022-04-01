@@ -17,3 +17,7 @@ class TransactionProofAlreadyExistsError(Exception):
 
 class TransactionRemovalError(Exception):
     pass
+
+
+class IncompleteProofDataSubmittedError(Exception):
+    pass

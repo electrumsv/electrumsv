@@ -48,7 +48,8 @@ from ..types import KeyInstanceDataPrivateKey, MasterKeyDataBIP32, MasterKeyData
     ServerAccountKey
 from ..util import get_posix_timestamp
 from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
-    TransactionAlreadyExistsError, TransactionProofAlreadyExistsError, TransactionRemovalError)
+    IncompleteProofDataSubmittedError, TransactionAlreadyExistsError,
+    TransactionProofAlreadyExistsError, TransactionRemovalError)
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow,
@@ -1475,28 +1476,6 @@ def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxF
     return db_context.post_to_thread(_write)
 
 
-def set_transactions_reorged(db_context: DatabaseContext, tx_hashes: list[bytes]) \
-        -> concurrent.futures.Future[bool]:
-    """
-    Reset transactions back to unverified state as a batch.
-    """
-    timestamp = get_posix_timestamp()
-    sql = (
-        "UPDATE Transactions "
-        "SET date_updated=?, flags=(flags&?)|?, block_hash=NULL, block_position=NULL, "
-            "fee_value=NULL, proof_data=NULL "
-        "WHERE tx_hash IN ({})")
-    sql_values = [ timestamp, ~TxFlags.MASK_STATE, TxFlags.STATE_CLEARED ]
-
-    def _write(db: Optional[sqlite3.Connection]=None) -> bool:
-        rows_updated = execute_sql_by_id(db, sql, sql_values, tx_hashes)[0]
-        if rows_updated < len(tx_hashes):
-            # Rollback the database transaction (nothing to rollback but upholding the convention)
-            raise DatabaseUpdateError("Rollback as nothing updated")
-        return True
-    return db_context.post_to_thread(_write)
-
-
 def update_transaction_flags(entries: list[tuple[TxFlags, TxFlags, bytes]], \
         db: Optional[sqlite3.Connection]=None) -> int:
     assert db is not None and isinstance(db, sqlite3.Connection)
@@ -2030,30 +2009,20 @@ def delete_mapi_broadcast_callbacks(db_context: DatabaseContext, tx_hashes: Iter
     return db_context.post_to_thread(_write)
 
 
-async def read_reorged_transactions_async(db_context: DatabaseContext,
-        orphaned_block_hashes: list[bytes]) -> list[bytes]:
-    return await db_context.run_in_thread_async(_read_reorged_transactions,
-        orphaned_block_hashes=orphaned_block_hashes)
-
-
-def _read_reorged_transactions(db: Optional[sqlite3.Connection]=None,  # pylint: disable=dangerous-default-value
+@replace_db_context_with_connection
+def read_reorged_transactions(db: sqlite3.Connection,
         orphaned_block_hashes: list[bytes]=[]) -> list[bytes]:
     """
     Identify all transactions that were verified in the orphaned chain as part of a reorg.
     """
-    # TODO(1.4.0) Update unittest
     sql = "SELECT tx_hash FROM Transactions WHERE block_hash IN ({})" + \
           f"AND flags&{TxFlags.MASK_STATE}={TxFlags.STATE_SETTLED}"
     return read_rows_by_id(bytes, db, sql, [], orphaned_block_hashes)
 
 
-async def read_merkle_proofs(db_context: DatabaseContext, tx_hashes: list[bytes]) \
+@replace_db_context_with_connection
+def read_merkle_proofs(db: sqlite3.Connection, tx_hashes: list[bytes]=[]) \
         -> list[TransactionProofRow]:
-    return await db_context.run_in_thread_async(_read_merkle_proofs, tx_hashes=tx_hashes)
-
-
-def _read_merkle_proofs(db: Optional[sqlite3.Connection]=None,  # pylint: disable=dangerous-default-value
-        tx_hashes: list[bytes]=[]) -> list[TransactionProofRow]:
     sql = """
         SELECT block_hash, tx_hash, proof_data, block_position FROM TransactionProofs 
         WHERE tx_hash in ({})
@@ -2063,11 +2032,11 @@ def _read_merkle_proofs(db: Optional[sqlite3.Connection]=None,  # pylint: disabl
 
 async def set_transactions_reorged_async(db_context: DatabaseContext, tx_hashes: list[bytes]) \
         -> bool:
-    return await db_context.run_in_thread_async(_set_transactions_reorged, tx_hashes=tx_hashes)
+    return await db_context.run_in_thread_async(_set_transactions_reorged, tx_hashes)
 
 
-def _set_transactions_reorged(db: Optional[sqlite3.Connection]=None, tx_hashes: list[bytes]=[]) \
-        -> bool:  # pylint: disable=dangerous-default-value
+def _set_transactions_reorged(tx_hashes: list[bytes]=[], db: Optional[sqlite3.Connection]=None) \
+        -> bool:
     """
     Reset transactions back to unverified state as a batch.
     """
@@ -2186,6 +2155,9 @@ class AsynchronousFunctions:
             except sqlite3.IntegrityError as e:
                 if "UNIQUE constraint failed" in e.args[0]:
                     raise TransactionProofAlreadyExistsError()
+        elif tx_row.block_hash is not None or tx_row.block_position is not None or \
+                tx_row.proof_data is not None:
+            raise IncompleteProofDataSubmittedError
 
 
         # Constraint: (tx_hash, tx_index) should be unique.
