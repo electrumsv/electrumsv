@@ -70,21 +70,18 @@ DOWNLOADS_OLDER = [
         DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.12.tar.gz", "7.6 MiB"),
         DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.3.12.zip", "7.9 MiB"),
         DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.3.12-docs.zip", "10.3 MiB"),
-    ]),
-    DownloadEntry("1.3.4", "2020/06/16", "https://medium.com/@roger.taylor/electrumsv-1-3-4-9408b74fd397", [
-        DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.3.4.dmg","28.3 MiB"),
-    ], "This is provided for users of MacOS 10.13 and 10.14, given they have no expectation of receiving support."),
+    ])
 ]
 
 DOWNLOADS_EXPERIMENTAL = [
-    DownloadEntry("1.4.0b1", "2021/08/19", "/articles/2021/electrumsv-1_4_0b1.html", [
-        DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.4.0b1.dmg","78.5 MiB"),
-        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.4.0b1.exe", "74.0 MiB"),
-        DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.4.0b1-portable.exe", "74.0 MiB"),
-        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.4.0b1.tar.gz", "56.0 MiB"),
-        DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.4.0b1.zip", "56.4 MiB"),
-        DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.4.0b1-docs.zip", "11.0 MiB"),
-    ], "Due to Apple's new security requirements, please read <a href='https://electrumsv.readthedocs.io/en/releases-1.4/problem-solving/macos.html#damaged-and-can-t-be-opened'>our workaround</a> for a problem you may encounter."),
+    # DownloadEntry("1.4.0b1", "2021/08/19", "/articles/2021/electrumsv-1_4_0b1.html", [
+    #     DownloadFileEntry("fab fa-apple", "MacOS downloads", "MacOS", "ElectrumSV-1.4.0b1.dmg","78.5 MiB"),
+    #     DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.4.0b1.exe", "74.0 MiB"),
+    #     DownloadFileEntry("fab fa-windows", "Windows downloads", "Windows", "ElectrumSV-1.4.0b1-portable.exe", "74.0 MiB"),
+    #     DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.4.0b1.tar.gz", "56.0 MiB"),
+    #     DownloadFileEntry("fas fa-code", "Other downloads", "Source code", "ElectrumSV-1.4.0b1.zip", "56.4 MiB"),
+    #     DownloadFileEntry("fas fa-book", "Documentation", "HTML", "ElectrumSV-1.4.0b1-docs.zip", "11.0 MiB"),
+    # ], "Due to Apple's new security requirements, please read <a href='https://electrumsv.readthedocs.io/en/releases-1.4/problem-solving/macos.html#damaged-and-can-t-be-opened'>our workaround</a> for a problem you may encounter."),
 ]
 
 # The maximum number articles to include on a page.
