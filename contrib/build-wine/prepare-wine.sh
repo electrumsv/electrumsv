@@ -13,9 +13,10 @@ LIBUSB_REPO='https://github.com/libusb/libusb.git'
 LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 
 PYINSTALLER_REPO="https://github.com/pyinstaller/pyinstaller.git"
-PYINSTALLER_COMMIT="8cd1a68fbde24935d3638850c025d0fb26c5ae8c"
+PYINSTALLER_COMMIT="3940e5fc5f9e02bce9f1af53c70a42db81071381"
 
 PYTHON_VERSION=3.10.0
+# TODO Upgrade wine. Windows Python 3.10.4 msis error with our current wine.
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64
@@ -110,21 +111,21 @@ mkdir pyinstaller
     git fetch --depth 1 origin $PYINSTALLER_COMMIT
     git checkout -b pinned "${PYINSTALLER_COMMIT}^{commit}"
     # This errors with it not picking up commctrl.h definitions for some reason. Disable it for now.
-    # rm -fv PyInstaller/bootloader/Windows-*/run*.exe || true  # Make sure EXEs that came with repo are deleted -- we rebuild them and need to detect if build failed
-    # if [ ${PYI_SKIP_TAG:-0} -eq 0 ] ; then
-    #     echo "const char *ec_tag = \"tagged by ElectrumSV@$GIT_COMMIT_HASH\";" >> ./bootloader/src/pyi_main.c
-    # else
-    #     warn "Skipping PyInstaller tag"
-    # fi
-    # pushd bootloader
-    # # If switching to 64-bit Windows, edit CC= below
-    # export WINRC=`which x86_64-w64-mingw32-windres`
-    # python3 ./waf all CC=x86_64-w64-mingw32-gcc CFLAGS="-Wno-stringop-overflow -static"
-    # # Note: it's possible for the EXE to not be there if the build
-    # # failed but didn't return exit status != 0 to the shell (waf bug?);
-    # # So we need to do this to make sure the EXE is actually there.
-    # # If we switch to 64-bit, edit this path below.
-    # popd
+    rm -fv PyInstaller/bootloader/Windows-*/run*.exe || true  # Make sure EXEs that came with repo are deleted -- we rebuild them and need to detect if build failed
+    if [ ${PYI_SKIP_TAG:-0} -eq 0 ] ; then
+        echo "const char *ec_tag = \"tagged by ElectrumSV@$GIT_COMMIT_HASH\";" >> ./bootloader/src/pyi_main.c
+    else
+        warn "Skipping PyInstaller tag"
+    fi
+    pushd bootloader
+    # If switching to 64-bit Windows, edit CC= below
+    export WINRC=`which x86_64-w64-mingw32-windres`
+    python3 ./waf all CC=x86_64-w64-mingw32-gcc CFLAGS="-Wno-stringop-overflow -static"
+    # Note: it's possible for the EXE to not be there if the build
+    # failed but didn't return exit status != 0 to the shell (waf bug?);
+    # So we need to do this to make sure the EXE is actually there.
+    # If we switch to 64-bit, edit this path below.
+    popd
     [ -e PyInstaller/bootloader/Windows-64bit/runw.exe ] || { echo "Could not find runw.exe in target dir!" ; exit 1; }
 ) || { echo "PyInstaller bootloader build failed" ; exit 1; }
 echo "Installing PyInstaller ..."

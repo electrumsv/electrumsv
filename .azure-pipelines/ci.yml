@@ -254,11 +254,11 @@ stages:
       inputs:
         artifactName: 'build-documentation'
         targetPath: $(Build.ArtifactStagingDirectory)
-  - job: BuildMacOS10_14
+  - job: BuildMacOS11
     dependsOn:
     - Preparation
     pool:
-      vmImage: 'macOS-10.15'
+      vmImage: 'macOS-11'
     steps:
     - task: UsePythonVersion@0
       inputs:
@@ -291,7 +291,7 @@ stages:
     dependsOn:
       - BuildLinuxBasedWindows
       - BuildSourceArchive
-      - BuildMacOS10_14
+      - BuildMacOS11
       - Preparation
     variables:
       COMMIT_TAG: $[dependencies.Preparation.outputs['exportVars.COMMIT_TAG']]

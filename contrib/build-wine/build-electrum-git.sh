@@ -49,8 +49,8 @@ cd ..
 
 rm -rf dist/
 
-# build standalone and portable versions
-wine "$PYHOME/scripts/pyinstaller.exe" --noconfirm --exclude-module _bootlocale --ascii --clean --name $NAME_ROOT-$VERSION -w deterministic.spec
+# build standalone and portable versions ... --name $NAME_ROOT-$VERSION
+wine "$PYHOME/scripts/pyinstaller.exe" --noconfirm --ascii --clean deterministic.spec
 
 # set timestamps in dist, in order to make the installer reproducible
 pushd dist

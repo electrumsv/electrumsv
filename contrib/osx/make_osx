@@ -54,11 +54,50 @@ info "Activating virtualenv $BUILDDIR/venv"
 python3 -m venv $BUILDDIR/venv
 source $BUILDDIR/venv/bin/activate
 
-python3 -m pip install -U pip
+python3 -m pip install -U pip wheel
 
-info "Installing pyinstaller"
-python3 -m pip install git+https://github.com/pyinstaller/pyinstaller.git@8cd1a68fbde24935d3638850c025d0fb26c5ae8c || fail "Could not install pyinstaller"
-# python3 -m pip install pyinstaller -I || fail "Could not install pyinstaller"
+info "Building PyInstaller."
+PYINSTALLER_REPO="https://github.com/pyinstaller/pyinstaller.git"
+PYINSTALLER_COMMIT="3940e5fc5f9e02bce9f1af53c70a42db81071381"
+# TODO This is the latest commit that passes pyinstaller's CI.
+# TODO(1.4.0) There has been a change in code-signing behaviour we likely need to address
+#     before release. (https://github.com/pyinstaller/pyinstaller/pull/5581)
+(
+    if [ -f "$BUILDDIR/pyinstaller/PyInstaller/bootloader/Darwin-64bit/runw" ]; then
+        info "pyinstaller already built, skipping"
+        exit 0
+    fi
+    ELECTRUM_COMMIT_HASH=$(git rev-parse HEAD)
+    pushd "$BUILDDIR"
+    rm -rf pyinstaller
+    mkdir pyinstaller
+    cd pyinstaller
+    # Shallow clone
+    git init
+    git remote add origin $PYINSTALLER_REPO
+    git fetch --depth 1 origin $PYINSTALLER_COMMIT
+    git checkout -b pinned "${PYINSTALLER_COMMIT}^{commit}"
+    rm -fv PyInstaller/bootloader/Darwin-*/run* || true
+    # add reproducible randomness. this ensures we build a different bootloader for each commit.
+    # if we built the same one for all releases, that might also get anti-virus false positives
+    echo "const char *electrum_tag = \"tagged by Electrum@$ELECTRUM_COMMIT_HASH\";" >> ./bootloader/src/pyi_main.c
+    pushd bootloader
+    # compile bootloader
+    python3 ./waf all CFLAGS="-static"
+    popd
+    # sanity check bootloader is there:
+    [[ -e "PyInstaller/bootloader/Darwin-64bit/runw" ]] || fail "Could not find runw in target dir!"
+    popd
+) || fail "PyInstaller build failed"
+
+info "Installing PyInstaller requirements."
+python3 -m pip install --no-build-isolation --no-dependencies --no-warn-script-location \
+    -Ir "$BUILDDIR/pyinstaller/requirements.txt" || fail "Could not install requirements"
+
+info "Installing PyInstaller."
+python3 -m pip install --no-build-isolation --no-dependencies --no-warn-script-location \
+    "$BUILDDIR/pyinstaller" || fail "Could not install requirements"
+
 
 info "Using these versions for building $PACKAGE:"
 sw_vers
@@ -100,7 +139,7 @@ RAW_VERSION=`git describe --tags --dirty --always --match sv-*`
 VERSION=${RAW_VERSION:3}
 
 info "Using Pyinstaller to build $PACKAGE version $VERSION"
-pyinstaller --noconfirm --exclude-module _bootlocale --ascii contrib/osx/osx.spec || fail "Could not build binary"
+pyinstaller --noconfirm --ascii contrib/osx/osx.spec || fail "Could not build binary"
 
 info "Adding bitcoin URI types to Info.plist"
 plutil -insert 'CFBundleURLTypes' \
