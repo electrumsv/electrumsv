@@ -1123,6 +1123,8 @@ class ServersListWidget(QTableWidget):
             self.setItem(row_index, 1, item_1)
 
             item_2 = SortableServerQTableWidgetItem()
+            # TODO(1.4.0) Network Dialogue. This is kept to make it easier to reinstate
+            #   this behaviour for the new non-electrumx servers at a later date
             # if list_entry.server_type == NetworkServerType.ELECTRUMX and
             #       self._network is not None:
             #     if list_entry.data_electrumx == self._network.main_server and \
@@ -1186,7 +1188,7 @@ class ServersListWidget(QTableWidget):
             return
         entry = cast(ServerListEntry, items[0].data(Roles.ITEM_DATA))
 
-        # TODO(1.4.0) - Integrate non-electrumx servers with this
+        # TODO(1.4.0). Network Dialogue. Integrate non-electrumx servers with this
         # def use_as_server(auto_connect: bool) -> None:
         #     nonlocal entry
         #     assert entry.data_electrumx is not None
@@ -1332,7 +1334,7 @@ class NetworkTabsLayout(QVBoxLayout):
         self.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         self.last_values = None
 
-    # TODO(1.4.0) - Integrate non-electrumx servers with this
+    # TODO(1.4.0). Network Dialogue. Integrate non-electrumx servers with this
     # def follow_server(self, server: SVServer, auto_connect: bool) -> None:
     #     self._network.set_server(server, auto_connect)
     #     # This updates the blockchain tab too.

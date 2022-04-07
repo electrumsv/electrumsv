@@ -16,7 +16,8 @@ from electrumsv.network_support.esv_client import ESVClient, PeerChannel
 from electrumsv.network_support.esv_client_types import ChannelNotification, MAPICallbackResponse, \
     PeerChannelToken, ServerConnectionState, ServerWebsocketNotification, TokenPermissions
 from electrumsv.network_support.api_server import NewServer
-from electrumsv.tests.data.reference_server.headers_data import GENESIS_TIP_NOTIFICATION_BINARY, \
+
+from ..tests.data.reference_server.headers_data import GENESIS_TIP_NOTIFICATION_BINARY, \
     GENESIS_HEADER
 
 logger = logging.getLogger("test-esv-client")

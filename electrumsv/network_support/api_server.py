@@ -181,7 +181,7 @@ async def broadcast_transaction(tx: Transaction, network: Network,
             api_server, credential_id, peer_channel, merkle_proof, ds_check)
     except BroadcastFailedError as e:
         account._wallet.data.delete_mapi_broadcast_callbacks(tx_hashes=[tx.hash()])
-        logger.error(f"Error broadcasting to mAPI for tx: {tx.txid()}. Error: {str(e)}")
+        logger.error("Error broadcasting to mAPI for tx: %s. Error: %s", tx.txid(), str(e))
         raise
 
     updates = [(MapiBroadcastStatusFlags.SUCCEEDED, tx.hash())]

@@ -1986,7 +1986,7 @@ def read_mapi_broadcast_callbacks(db: sqlite3.Connection, tx_hash: Optional[byte
     """
     params: Iterable[bytes] = ()
     if tx_hash:
-        sql += f" WHERE tx_hash=?"
+        sql += " WHERE tx_hash=?"
         params = (tx_hash,)
     return [ MAPIBroadcastCallbackRow(*row) for row in db.execute(sql, params).fetchall() ]
 
@@ -2015,9 +2015,9 @@ def read_reorged_transactions(db: sqlite3.Connection,
     """
     Identify all transactions that were verified in the orphaned chain as part of a reorg.
     """
-    sql = "SELECT tx_hash FROM Transactions WHERE block_hash IN ({})" + \
-          f"AND flags&{TxFlags.MASK_STATE}={TxFlags.STATE_SETTLED}"
-    return read_rows_by_id(bytes, db, sql, [], orphaned_block_hashes)
+    sql = "SELECT tx_hash FROM Transactions WHERE flags&?=? AND block_hash IN ({})"
+    return read_rows_by_id(bytes, db, sql, [TxFlags.MASK_STATE, TxFlags.STATE_SETTLED],
+        orphaned_block_hashes)
 
 
 @replace_db_context_with_connection

@@ -36,7 +36,7 @@
 
 from __future__ import annotations
 import json
-from typing import cast, List, Optional, Tuple, Any
+from typing import Any, cast, List, Optional, Tuple
 from bitcoinx import ElectrumMnemonic, PublicKey, Wordlists
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)

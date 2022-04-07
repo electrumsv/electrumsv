@@ -532,7 +532,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         if event in [ NetworkEventNames.GENERIC_STATUS, NetworkEventNames.BANNER ]:
             # Handle in GUI thread
-            self.network_signal.emit(event.value, args)
+            self.network_signal.emit(event, args)
         else:
             self._logger.debug("unexpected network message event='%s' args='%s'", event, args)
 
@@ -1482,8 +1482,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 reason = str(exception)
                 d = UntrustedMessageDialog(
                     window, _("Transaction Broadcast Error"),
-                    _("Your transaction was not sent: ") + _(reason) +".",
-                    exception)
+                    _("Your transaction was not sent: ") + reason +".", exception)
                 d.exec()
             else:
                 if account and tx_id:

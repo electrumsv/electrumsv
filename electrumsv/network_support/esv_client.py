@@ -48,8 +48,8 @@ from bitcoinx import double_sha256, Chain, Header, hash_to_hex_str
 
 from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof
-from electrumsv.exceptions import ServiceUnavailableError
-from electrumsv.network_support.exceptions import HeaderNotFoundError, HeaderResponseError
+from ..exceptions import ServiceUnavailableError
+from ..network_support.exceptions import HeaderNotFoundError, HeaderResponseError
 from ..logs import logs
 from ..network_support.esv_client_types import (APITokenViewModelGet, ChannelId,
     ChannelNotification, GenericJSON, MessageViewModelGetBinary, MessageViewModelGetJSON,
@@ -263,11 +263,11 @@ class ESVClient:
                                 or json_payload["callbackReason"] == "doubleSpendAttempt":
                             self._merkle_proofs_queue.put_nowait(json_payload)
                         else:
-                            logger.error(f"PeerChannelMessage not recognised: {pc_message}")
+                            logger.error("PeerChannelMessage not recognised: %s", pc_message)
 
                     if pc_message['content_type'] == 'application/octet-stream':
-                        logger.error(f"Binary format PeerChannelMessage received - "
-                                     f"not supported yet")
+                        logger.error("Binary format PeerChannelMessage received - "
+                                     "not supported yet")
             else:
                 logger.error("No messages could be returned from channel_id: %s, "
                              "do you have a valid read token?", channel_id)
@@ -313,7 +313,7 @@ class ESVClient:
                                               f"{response.status} reason: {response.reason}")
                 return await response.read()
         except aiohttp.ClientConnectionError:
-            logger.error(f"Cannot connect to ElectrumSV-Reference Server at %s", url)
+            logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
             raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
     async def get_batched_headers_by_height(self, from_height: int, count: Optional[int]=None) \
@@ -332,7 +332,7 @@ class ESVClient:
                 raw_headers_array = await response.read()
                 return raw_headers_array
         except aiohttp.ClientConnectionError:
-            logger.error(f"Cannot connect to ElectrumSV-Reference Server at %s", url)
+            logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
             raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
     async def get_chain_tips(self) -> bytes:
@@ -358,7 +358,7 @@ class ESVClient:
             raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
     async def subscribe_to_headers(self) -> AsyncIterable[TipResponse]:
-        url =  f"{self._state.server.url}api/v1/headers/tips/websocket"
+        url = f"{self._state.server.url}api/v1/headers/tips/websocket"
         try:
             async with self._state.session.ws_connect(url, headers={}, timeout=5.0) as ws:
                 logger.debug("Connected to %s", url)
@@ -374,7 +374,7 @@ class ESVClient:
         except WSServerHandshakeError:
             raise ServiceUnavailableError("Websocket handshake ElectrumSV-Reference Server failed")
         except (aiohttp.ClientConnectionError, ConnectionRefusedError):
-            logger.error(f"Cannot connect to ElectrumSV-Reference Server at %s", url)
+            logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
             raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
     # ----- Peer Channel APIs ----- #

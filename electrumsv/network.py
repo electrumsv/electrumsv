@@ -401,7 +401,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 await self._monitor_chain_tip_task_async(selection_candidate)
             except ServiceUnavailableError as e:
                 # assert selection_candidate.api_server is not None
-                # logger.debug(f"Server unavailable: %s", selection_candidate.api_server.url)
+                # logger.debug("Server unavailable: %s", selection_candidate.api_server.url)
                 pass
             finally:
                 self.chosen_servers.remove(selection_candidate)
