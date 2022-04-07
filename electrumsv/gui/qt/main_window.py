@@ -59,14 +59,12 @@ from PyQt5 import sip
 import electrumsv
 from ... import bitcoin, commands, paymentrequest, qrscanner, util
 from ...app_state import app_state
-from ...bitcoin import (COIN, is_address_valid, address_from_string,
-    script_template_to_string, TSCMerkleProof)
+from ...bitcoin import (address_from_string, COIN, script_template_to_string, TSCMerkleProof)
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
     ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags, WalletEvent)
 from ...exceptions import UserCancelled
 from ...i18n import _
 from ...logs import logs
-from ...network import broadcast_failure_reason
 from ...network_support.api_server import broadcast_transaction
 from ...network_support.mapi import BroadcastResponse
 from ...networks import Net
@@ -230,9 +228,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # partials, lambdas or methods of subobjects.  Hence...
             self.network.register_callback(self.on_network, [ NetworkEventNames.GENERIC_UPDATE,
                 NetworkEventNames.GENERIC_STATUS, NetworkEventNames.BANNER ])
-            # set initial message
-            if self.network.main_server:
-                self.console.showMessage(self.network.main_server.state.banner)
+
             self.network.register_callback(self._on_exchange_rate_quotes,
                 [ NetworkEventNames.EXCHANGE_RATE_QUOTES ])
             self.network.register_callback(self._on_historical_exchange_rates,
@@ -544,10 +540,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Handle a network message in the GUI thread
         if event == NetworkEventNames.GENERIC_STATUS:
             self.update_status_bar()
-        elif event == NetworkEventNames.BANNER:
-            assert self.network is not None
-            assert self.network.main_server is not None
-            self.console.showMessage(self.network.main_server.state.banner)
         else:
             self._logger.debug("unexpected network_qt signal event='%s' args='%s'", event, args)
 
@@ -775,7 +767,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             QKeySequence.HelpContents)
         help_menu.addAction(_("&Report Bug"), self.show_report_bug)
         help_menu.addSeparator()
-        help_menu.addAction(_("&Donate to server"), self.donate_to_server)
 
         self.setMenuBar(menubar)
 
@@ -981,17 +972,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def has_connected_main_server(self) -> bool:
         return self.network is not None and self.network.is_connected()
-
-    def donate_to_server(self) -> None:
-        assert self.network is not None
-        server = self.network.main_server
-        assert server is not None
-        addr = server.state.donation_address
-        if is_address_valid(addr):
-            self.pay_to_URI(web.create_URI(addr, 0, _('Donation for {}').format(server.host)))
-        else:
-            self.show_error(_('The server {} has not provided a valid donation address')
-                            .format(server))
 
     def show_about(self) -> None:
         QMessageBox.about(self, "ElectrumSV",
@@ -1200,19 +1180,23 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 text = _("Synchronizing...")
                 text += f' {response_count:,d}/{request_count:,d}'
             else:
-                server_height = self.network.get_server_height()
-                if server_height == 0:
+                if self._wallet.main_server is not None:
+                    server_chain_tip = self._wallet.main_server.tip
+                    server_height = server_chain_tip.height if server_chain_tip else 0
+                    server_lag = self.network.get_local_height() - server_height
+                    if server_height == 0:
+                        text = _("Main server pending")
+                    elif server_lag > 1:
+                        text = _("Server {} blocks behind").format(server_lag)
+                    else:
+                        text = _("Connected")
+                else:
                     # This is shown when for instance, there is a forced main server setting and
                     # the main server is offline. It might also be used on first start up before
                     # the headers are synced (?).
                     text = _("Main server pending")
                     tooltip_text = _("You are not currently connected to a valid main server.")
-                else:
-                    server_lag = self.network.get_local_height() - server_height
-                    if server_lag > 1:
-                        text = _("Server {} blocks behind").format(server_lag)
-                    else:
-                        text = _("Connected")
+
         self._status_bar.set_network_status(text, tooltip_text)
 
     def update_tabs(self, *args: Any) -> None:
@@ -1495,11 +1479,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     "Transactions tab and can be rebroadcast from there."), )
             except Exception as exception:
                 self._logger.exception('unhandled exception broadcasting transaction')
-                reason = broadcast_failure_reason(exception)
+                reason = str(exception)
                 d = UntrustedMessageDialog(
                     window, _("Transaction Broadcast Error"),
-                    _("Your transaction was not sent: ") + reason +".",
-                    exception)
+                    _("Your transaction was not sent: ") + reason +".", exception)
                 d.exec()
             else:
                 if account and tx_id:

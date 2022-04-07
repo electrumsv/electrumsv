@@ -1,21 +1,24 @@
-import base64
-import json
-import logging
-from typing import cast
-import unittest.mock
-import uuid
-
 from aiohttp import web
 from aiohttp import ClientSession
+from aiohttp.test_utils import TestClient
 from aiohttp.web_ws import WebSocketResponse
+import base64
+import bitcoinx
 from bitcoinx import hash_to_hex_str
+import json
+import logging
+from typing import cast, Union
+import unittest.mock
+import uuid
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.network_support.esv_client import ESVClient, PeerChannel
 from electrumsv.network_support.esv_client_types import ChannelNotification, MAPICallbackResponse, \
     PeerChannelToken, ServerConnectionState, ServerWebsocketNotification, TokenPermissions
 from electrumsv.network_support.api_server import NewServer
-from electrumsv.tests.data.reference_server.headers_data import GENESIS_TIP
+
+from ..tests.data.reference_server.headers_data import GENESIS_TIP_NOTIFICATION_BINARY, \
+    GENESIS_HEADER
 
 logger = logging.getLogger("test-esv-client")
 
@@ -143,7 +146,7 @@ async def mock_get_single_header(request: web.Request):
         raise web.HTTPBadRequest(reason=str(e))
 
 
-async def mock_get_headers_by_height(request: web.Request):
+async def mock_get_batched_headers_by_height(request: web.Request):
     try:
         accept_type = request.headers.get('Accept', 'application/json')
         assert accept_type == 'application/octet-stream'
@@ -163,9 +166,9 @@ async def mock_get_headers_by_height(request: web.Request):
 async def mock_get_chain_tips(request: web.Request):
     try:
         accept_type = request.headers.get('Accept')
-        assert accept_type != 'application/octet-stream'
-        tips = [GENESIS_TIP]
-        return web.json_response(tips)
+        assert accept_type == 'application/octet-stream'
+        headers_array = GENESIS_HEADER + bitcoinx.int_to_le_bytes(0)
+        return web.Response(body=headers_array, content_type='application/octet-stream')
     except AssertionError as e:
         raise web.HTTPBadRequest(reason=str(e))
 
@@ -176,7 +179,7 @@ async def mock_headers_websocket(request: web.Request) -> WebSocketResponse:
     ws = web.WebSocketResponse()
     await ws.prepare(request)
     try:
-        await ws.send_json(GENESIS_TIP)
+        await ws.send_bytes(GENESIS_TIP_NOTIFICATION_BINARY)
         return ws
     finally:
         if not ws.closed:
@@ -332,7 +335,7 @@ def create_app():
         web.get("/api/v1/web-socket", mock_general_websocket),
 
         # Headers
-        web.get("/api/v1/headers/by-height", mock_get_headers_by_height),
+        web.get("/api/v1/headers/by-height", mock_get_batched_headers_by_height),
         web.get("/api/v1/headers/tips", mock_get_chain_tips),
         web.get("/api/v1/headers/{hash}", mock_get_single_header),
         web.get("/api/v1/headers/tips/websocket", mock_headers_websocket),
@@ -364,18 +367,18 @@ async def test_get_single_header(mock_app_state: AppStateProxy, aiohttp_client):
 
 
 @unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
-async def test_get_headers_by_height(mock_app_state: AppStateProxy, aiohttp_client):
+async def test_get_batched_headers_by_height(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
-    result = await esv_client.get_headers_by_height(from_height=0, count=2)
+    result = await esv_client.get_batched_headers_by_height(from_height=0, count=2)
     assert result == bytes.fromhex("aa"*80) + bytes.fromhex("bb"*80)
 
 
 @unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
 async def test_get_chain_tips(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    expected_response = [GENESIS_TIP]
+    expected_response = GENESIS_HEADER + bitcoinx.int_to_le_bytes(0)
     test_session = await aiohttp_client(create_app())
     esv_client: ESVClient = await _get_esv_client(test_session)
     result = await esv_client.get_chain_tips()
@@ -448,7 +451,7 @@ async def test_peer_channel_instance_attrs(mock_app_state: AppStateProxy, aiohtt
     assert peer_channel.tokens == MOCK_TOKENS
     callback_url = peer_channel.get_callback_url()
     assert MOCK_CHANNEL_ID in callback_url
-    logger.debug(f"callback_url={callback_url}")
+    logger.debug("callback_url=%s", callback_url)
 
 
 @unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
@@ -459,7 +462,7 @@ async def test_peer_channel_instance_get_write_token(mock_app_state: AppStatePro
     assert isinstance(write_token, PeerChannelToken)
     assert write_token.permissions & TokenPermissions.WRITE_ACCESS \
            == TokenPermissions.WRITE_ACCESS
-    logger.debug(f"write_token={write_token}")
+    logger.debug("write_token=%s", write_token)
 
 
 @unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
@@ -470,7 +473,7 @@ async def test_peer_channel_instance_get_read_token(mock_app_state: AppStateProx
     assert isinstance(read_token, PeerChannelToken)
     assert read_token.permissions & TokenPermissions.READ_ACCESS \
            == TokenPermissions.READ_ACCESS
-    logger.debug(f"read_token={read_token}")
+    logger.debug("read_token=%s", read_token)
 
 
 @unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
@@ -483,7 +486,7 @@ async def test_peer_channel_instance_get_messages(mock_app_state: AppStateProxy,
     assert messages[0]['received'] == '2021-12-30T06:33:40.374Z'
     assert messages[0]['content_type'] == 'application/json'
     assert messages[0]['payload'] == MERKLE_PROOF_CALLBACK
-    logger.debug(f"messages={messages}")
+    logger.debug("messages=%s", messages)
 
 
 @unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
@@ -492,7 +495,7 @@ async def test_peer_channel_instance_get_max_sequence_number(mock_app_state: App
     peer_channel = await _create_peer_channel_instance(aiohttp_client)
     seq = await peer_channel.get_max_sequence_number()
     assert isinstance(seq, int)
-    logger.debug(f"seq={seq}")
+    logger.debug("seq=%s", seq)
 
 
 @unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
@@ -506,7 +509,7 @@ async def test_peer_channel_instance_write_message(mock_app_state: AppStateProxy
     # assert message['received']  # datetime.now()
     assert message['content_type'] == 'application/json'
     assert message['payload'] == MERKLE_PROOF_CALLBACK
-    logger.debug(f"written message info={message}")
+    logger.debug("written message info=%s", message)
 
 
 @unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
@@ -517,7 +520,7 @@ async def test_peer_channel_instance_create_api_token(mock_app_state: AppStatePr
         description="custom description")
     assert isinstance(api_token.api_key, str)
     assert isinstance(api_token.permissions, TokenPermissions)
-    logger.debug(f"api_token={api_token}")
+    logger.debug("api_token=%s", api_token)
 
 
 @unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
@@ -528,5 +531,5 @@ async def test_peer_channel_instance_list_api_tokens(mock_app_state: AppStatePro
     for api_token in api_tokens:
         assert isinstance(api_token.api_key, str)
         assert isinstance(api_token.permissions, TokenPermissions)
-    logger.debug(f"api_tokens={api_tokens}")
+    logger.debug("api_tokens=%s", api_tokens)
 

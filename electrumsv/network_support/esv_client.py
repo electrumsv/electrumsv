@@ -37,23 +37,25 @@
 from __future__ import annotations
 import asyncio
 import base64
+import http
 import json
 from typing import List, Union, Optional, AsyncIterable, Dict, cast
 
 import aiohttp
-from aiohttp import web
-from bitcoinx import hash_to_hex_str
+import bitcoinx
+from aiohttp import web, WSServerHandshakeError
+from bitcoinx import double_sha256, Chain, Header, hash_to_hex_str
 
 from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof
+from ..exceptions import ServiceUnavailableError
+from ..network_support.exceptions import HeaderNotFoundError, HeaderResponseError
 from ..logs import logs
-
-from .esv_client_types import (APITokenViewModelGet, ChannelId,
-    ChannelNotification, Error,
-    GenericJSON, PeerChannelToken, TokenPermissions, MAPICallbackResponse,
-    MessageViewModelGetBinary, MessageViewModelGetJSON, PeerChannelMessage,
-    PeerChannelViewModelGet, RetentionViewModel, ServerConnectionState, TipResponse,
-    tsc_merkle_proof_json_to_binary, TSCMerkleProofJson, WebsocketError)
+from ..network_support.esv_client_types import (APITokenViewModelGet, ChannelId,
+    ChannelNotification, GenericJSON, MessageViewModelGetBinary, MessageViewModelGetJSON,
+    MAPICallbackResponse, PeerChannelToken, PeerChannelMessage, PeerChannelViewModelGet,
+    RetentionViewModel, TokenPermissions, TipResponse, ServerConnectionState, TSCMerkleProofJson,
+    tsc_merkle_proof_json_to_binary)
 
 
 # TODO(1.4.0) Networking. Logging should be per server as before.
@@ -116,12 +118,13 @@ class PeerChannel:
             return None
 
         headers = {"Authorization": f"Bearer {read_token.api_key}"}
-        async with self.state.session.get(url, headers=headers) as resp:
-            if resp.status != 200:
+
+        async with self.state.session.get(url, headers=headers) as response:
+            if response.status != http.HTTPStatus.OK:
                 logger.error("get_messages failed with status: %s, reason: %s",
-                    resp.status, resp.reason)
+                    response.status, response.reason)
                 return None
-            result: List[PeerChannelMessage] = await resp.json()
+            result: List[PeerChannelMessage] = await response.json()
             return result
 
     async def get_max_sequence_number(self) -> Optional[int]:
@@ -132,12 +135,13 @@ class PeerChannel:
             return None
 
         headers = {"Authorization": f"Bearer {read_token.api_key}"}
-        async with self.state.session.head(url, headers=headers) as resp:
-            if resp.status != 200:
+
+        async with self.state.session.head(url, headers=headers) as response:
+            if response.status != http.HTTPStatus.OK:
                 logger.error("get_max_sequence_number failed with status: %s, reason: %s",
-                    resp.status, resp.reason)
+                    response.status, response.reason)
                 return None
-            return int(resp.headers['ETag'])
+            return int(response.headers['ETag'])
 
     async def write_message(self, message: Union[GenericJSON, bytes],
             mime_type: str="application/octet-stream") \
@@ -222,6 +226,14 @@ class ESVClient:
         self._merkle_proofs_queue: asyncio.Queue[MAPICallbackResponse] = asyncio.Queue()
         self._peer_channel_cache: Dict[ChannelId, PeerChannel] = {}
 
+        # must be updated manually via update_tip_and_chain - used for Network server management
+        self.chain: Optional[Chain] = None
+        self.tip: Optional[Header] = None
+
+    def update_tip_and_chain(self, tip_obj: Header, chain: Chain) -> None:
+        self.tip = tip_obj
+        self.chain = chain
+
     # ----- General Websocket ----- #
     async def _fetch_peer_channel_message_job(self,
             peer_channel_message_queue: asyncio.Queue[ChannelNotification]) -> None:
@@ -251,15 +263,18 @@ class ESVClient:
                                 or json_payload["callbackReason"] == "doubleSpendAttempt":
                             self._merkle_proofs_queue.put_nowait(json_payload)
                         else:
-                            logger.error(f"PeerChannelMessage not recognised: {pc_message}")
+                            logger.error("PeerChannelMessage not recognised: %s", pc_message)
 
                     if pc_message['content_type'] == 'application/octet-stream':
-                        logger.error(f"Binary format PeerChannelMessage received - "
-                                     f"not supported yet")
+                        logger.error("Binary format PeerChannelMessage received - "
+                                     "not supported yet")
             else:
                 logger.error("No messages could be returned from channel_id: %s, "
                              "do you have a valid read token?", channel_id)
 
+    # TODO(1.4.0) Merkle Proofs. Write tests for this function
+    # TODO(1.4.0) Merkle Proofs. Make sure that the proof data is added to the TransactionProofs
+    #  table regardless of whether or not it is an orphaned proof
     async def wait_for_merkle_proofs_and_double_spends(self, state: ServerConnectionState) \
             -> AsyncIterable[TSCMerkleProof]:
         """NOTE(AustEcon): This function is not tested yet. It is only intended to show
@@ -270,7 +285,6 @@ class ESVClient:
                 self._fetch_peer_channel_message_job(state.peer_channel_message_queue)))
 
         try:
-            # https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
             while True:
                 # Todo run select query on MAPIBroadcastCallbacks to get libsodium encryption key
                 callback_response: MAPICallbackResponse = await self._merkle_proofs_queue.get()
@@ -288,60 +302,80 @@ class ESVClient:
     # ----- HeaderSV APIs ----- #
     async def get_single_header(self, block_hash: bytes) -> bytes:
         url = f"{self._state.server.url}api/v1/headers/{hash_to_hex_str(block_hash)}"
-        assert self._state.credential_id is not None
-        master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
-        headers = {"Authorization": f"Bearer {master_token}"}
-        headers.update({"Accept": "application/octet-stream"})
-        async with self._state.session.get(url, headers=headers) as response:
-            response.raise_for_status()  # Todo - remove and handle outcomes when we use this
-            raw_header = await response.read()
-            return raw_header
+        headers = {"Accept": "application/octet-stream"}
+        try:
+            async with self._state.session.get(url, headers=headers) as response:
+                if response.status == http.HTTPStatus.NOT_FOUND:
+                    raise HeaderNotFoundError("Header with block hash "
+                                              f"{hash_to_hex_str(block_hash)} not found")
+                elif response.status != http.HTTPStatus.OK:
+                    raise HeaderResponseError("Failed to get header with status: "
+                                              f"{response.status} reason: {response.reason}")
+                return await response.read()
+        except aiohttp.ClientConnectionError:
+            logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
+            raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
-    async def get_headers_by_height(self, from_height: int, count: Optional[int]=None) \
+    async def get_batched_headers_by_height(self, from_height: int, count: Optional[int]=None) \
             -> bytes:
         url = f"{self._state.server.url}api/v1/headers/by-height?height={from_height}"
         if count:
             url += f"&count={count}"
-        assert self._state.credential_id is not None
-        master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
-        headers = {"Authorization": f"Bearer {master_token}"}
-        headers.update({"Accept": "application/octet-stream"})
-        async with self._state.session.get(url, headers=headers) as response:
-            response.raise_for_status()  # Todo - remove and handle outcomes
-            raw_headers_array = await response.read()
-            return raw_headers_array
+        headers = {"Accept": "application/octet-stream"}
+        try:
+            async with self._state.session.get(url, headers=headers) as response:
+                if response.status != http.HTTPStatus.OK:
+                    error_message = f"get_batched_headers_by_height failed with status: " \
+                                    f"{response.status}, reason: {response.reason}"
+                    logger.error(error_message)
+                    raise HeaderResponseError(error_message)
+                raw_headers_array = await response.read()
+                return raw_headers_array
+        except aiohttp.ClientConnectionError:
+            logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
+            raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
-    async def get_chain_tips(self) -> TipResponse:
+    async def get_chain_tips(self) -> bytes:
         url = f"{self._state.server.url}api/v1/headers/tips"
-        assert self._state.credential_id is not None
-        master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
-        headers = {"Authorization": f"Bearer {master_token}"}
-        headers.update({"Accept": "application/json"})
-        async with self._state.session.get(url, headers=headers) as response:
-            response.raise_for_status()  # Todo - remove and handle outcomes
-            json_tip_response: TipResponse = await response.json()
-            return json_tip_response
+        headers = {"Accept": "application/octet-stream"}
+        try:
+            async with self._state.session.get(url, headers=headers) as response:
+                if response.status in {http.HTTPStatus.SERVICE_UNAVAILABLE,
+                        http.HTTPStatus.NOT_FOUND}:
+                    logger.error("The Header API is not enabled for this instance of "
+                                 "ElectrumSV-Reference-Server")
+                    raise ServiceUnavailableError("The Header API is not enabled for this instance "
+                        "of ElectrumSV-Reference-Server")
+
+                if response.status != http.HTTPStatus.OK:
+                    error_message = f"get_chain_tips failed with status: {response.status}, " \
+                                    f"reason: {response.reason}"
+                    logger.error(error_message)
+                    raise HeaderResponseError(error_message)
+                headers_array: bytes = await response.content.read()
+                return headers_array
+        except aiohttp.ClientConnectionError:
+            raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
     async def subscribe_to_headers(self) -> AsyncIterable[TipResponse]:
-        url =  f"{self._state.server.url}api/v1/headers/tips/websocket"
-
-        logger.debug(f"URL IS: {url}")
-        async with self._state.session.ws_connect(url, headers={}, timeout=5.0) as ws:
-            logger.debug(f'Connected to {url}')
-            async for msg in ws:
-                content: Union[TipResponse, Error] = json.loads(msg.data)
-                logger.debug(f'Message new chain tip hash: {content}')
-                if isinstance(content, dict) and content.get('error'):
-                    error_content = cast(Dict[str, WebsocketError], content)
-                    error: Error = Error.from_websocket_dict(error_content)
-                    logger.debug(f"Websocket error: {error}")
-                    if error.status == web.HTTPUnauthorized.status_code:
-                        raise web.HTTPUnauthorized()
-                else:
-                    yield cast(TipResponse, content)
-
-                if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                    break
+        url = f"{self._state.server.url}api/v1/headers/tips/websocket"
+        try:
+            async with self._state.session.ws_connect(url, headers={}, timeout=5.0) as ws:
+                logger.debug("Connected to %s", url)
+                async for msg in ws:
+                    content = cast(bytes, msg.data)
+                    raw_header = content[0:80]
+                    block_hash = hash_to_hex_str(double_sha256(raw_header))
+                    logger.info("Message new chain tip hash: %s", block_hash)
+                    height = bitcoinx.le_bytes_to_int(content[80:84])
+                    yield TipResponse(raw_header, height)
+                    if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
+                        break
+        except WSServerHandshakeError:
+            raise ServiceUnavailableError("Websocket handshake ElectrumSV-Reference Server failed")
+        except (aiohttp.ClientConnectionError, ConnectionRefusedError):
+            logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
+            raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
     # ----- Peer Channel APIs ----- #
     async def create_peer_channel(self, public_read: bool=True, public_write: bool=True,
@@ -399,13 +433,13 @@ class ESVClient:
         assert self._state.credential_id is not None
         master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
         headers = {"Authorization": f"Bearer {master_token}"}
-        async with self._state.session.get(url, headers=headers) as resp:
-            if resp.status != 200:
+        async with self._state.session.get(url, headers=headers) as response:
+            if response.status != http.HTTPStatus.OK:
                 logger.error("get_single_peer_channel failed with status: %s, reason: %s",
-                    resp.status, resp.reason)
+                    response.status, response.reason)
                 return None
 
-            peer_channel = PeerChannel.from_json(await resp.json(), self._state)
+            peer_channel = PeerChannel.from_json(await response.json(), self._state)
             self._peer_channel_cache[channel_id] = peer_channel  # cache
             return peer_channel
 

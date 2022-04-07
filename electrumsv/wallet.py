@@ -38,13 +38,15 @@ import json
 import os
 import random
 import threading
+import time
 from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple, \
     TypedDict, TypeVar, TYPE_CHECKING
 import weakref
 
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
-    BIP32PrivateKey, double_sha256, hash_to_hex_str, hex_str_to_hash, MissingHeader,
-    P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Ops, pack_byte, push_item, Script)
+    BIP32PrivateKey, Chain, double_sha256, Headers, Header, hash_to_hex_str, hex_str_to_hash,
+    MissingHeader, Ops, P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, pack_byte, push_item,
+    Script)
 from electrumsv_database.sqlite import DatabaseContext
 
 from . import coinchooser
@@ -52,15 +54,15 @@ from .app_state import app_state
 from .bitcoin import scripthash_bytes, ScriptTemplate, separate_proof_and_embedded_transaction, \
     TSCMerkleProofError
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
-    API_SERVER_TYPES,
-    CHANGE_SUBPATH, DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
-    DerivationPath, KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags, MAX_VALUE,
-    MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerFlag,
+    API_SERVER_TYPES, CHANGE_SUBPATH, DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB,
+    DerivationType, DerivationPath, KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags,
+    MAX_VALUE, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerFlag,
     NetworkServerType, pack_derivation_path, PaymentFlag,
     PendingHeaderWorkKind, RECEIVING_SUBPATH, ServerCapability, SubscriptionOwnerPurpose,
     SubscriptionType, ScriptType, TransactionImportFlag, TransactionInputFlag,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT, WalletEvent,
-    WalletEventFlag, WalletEventType, WalletSettings)
+    WalletEventFlag, WalletEventType, WalletSettings, NetworkEventNames)
+
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
@@ -72,12 +74,15 @@ from .keystore import (BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore
     instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, SinglesigKeyStoreTypes,
     SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
 from .logs import logs
+from .network import SwitchReason
+from .network_support.esv_client import ESVClient
 from .network_support.api_server import APIServerDefinition, NewServer, \
-    pick_server_candidate_for_account, SelectionCandidate
+    pick_server_candidate_for_account, SelectionCandidate, select_servers
 from .network_support.esv_client_types import ServerConnectionState
-from .network_support.general_api import FilterResponseInvalidError, GeneralAPIError, \
-    maintain_server_connection_async, MerkleProofMissingHeaderError, MerkleProofVerificationError, \
-    request_binary_merkle_proof_async, request_transaction_data_async, TransactionNotFoundError
+from .network_support.exceptions import TransactionNotFoundError, GeneralAPIError, FilterResponseInvalidError
+from .network_support.general_api import maintain_server_connection_async, \
+    MerkleProofMissingHeaderError, MerkleProofVerificationError, \
+    request_binary_merkle_proof_async, request_transaction_data_async
 from .networks import Net, NetworkName
 from .storage import WalletStorage
 from .subscription import SubscriptionManager
@@ -102,15 +107,13 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataProtocol, KeyData,
     KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow,
-    MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
-    NetworkServerRow, PasswordUpdateResult, PaymentRequestReadRow,
-    PaymentRequestRow, PaymentRequestUpdateRow, SpentOutputRow,
-    TransactionDeltaSumRow,
-    TransactionExistsRow, TransactionLinkState, TransactionMetadata,
-    TransactionOutputShortRow, TransactionOutputSpendableRow, TransactionOutputSpendableProtocol,
-    TransactionValueRow, TransactionInputAddRow, TransactionOutputAddRow, TransactionRow,
-    TxProofData,
-    WalletBalance, WalletEventInsertRow, WalletEventRow)
+    MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow, NetworkServerRow,
+    PasswordUpdateResult, PaymentRequestReadRow, PaymentRequestRow, PaymentRequestUpdateRow,
+    SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow, TransactionLinkState,
+    TransactionMetadata, TransactionOutputShortRow, TransactionOutputSpendableRow,
+    TransactionOutputSpendableProtocol, TransactionValueRow, TransactionInputAddRow,
+    TransactionOutputAddRow, TransactionRow, TxProofData, WalletBalance, WalletEventInsertRow,
+    WalletEventRow, TransactionProofRow)
 from .wallet_database.util import create_derivation_data2
 from .wallet_support import late_header_worker
 from .wallet_support.keys import get_pushdata_hash_for_account_key_data
@@ -671,8 +674,6 @@ class AbstractAccount:
             to_datetime: Optional[datetime]=None) -> List[AccountExportEntry]:
         fx = app_state.fx
         assert app_state.headers is not None
-        chain = app_state.headers.longest_chain()
-        server_height = self._network.get_server_height() if self._network else 0
 
         out: List[AccountExportEntry] = []
         for entry in self.get_history():
@@ -770,10 +771,6 @@ class AbstractAccount:
         if app_state.config.fee_per_kb() is None:
             raise Exception('Dynamic fee estimates not available')
 
-        # TODO(MAPI) This needs to be replaced with a fee estimator based on whether the server
-        #   is an ElectrumX server, or a MAPI server. If it is a MAPI server, then we need to
-        #   use a per-server fee quote. Really, we might change `estimate_fee` to instead return
-        #   a fee quote.
         fee_estimator = app_state.config.estimate_fee
 
         tx_context = TransactionContext()
@@ -2023,9 +2020,9 @@ class WalletDataAccess:
         return await self._db_context.run_in_thread_async(
             db_functions.create_mapi_broadcast_callbacks_write, rows)
 
-    # TODO(1.4.0) MAPI management. This is not currently used.
-    def read_mapi_broadcast_callbacks(self) -> List[MAPIBroadcastCallbackRow]:
-        return db_functions.read_mapi_broadcast_callbacks(self._db_context)
+    def read_mapi_broadcast_callbacks(self, tx_hash: Optional[bytes]=None) \
+            -> List[MAPIBroadcastCallbackRow]:
+        return db_functions.read_mapi_broadcast_callbacks(self._db_context, tx_hash)
 
     def update_mapi_broadcast_callbacks(self,
             entries: Iterable[Tuple[MapiBroadcastStatusFlags, bytes]]) -> \
@@ -2222,6 +2219,9 @@ class Wallet:
         self._servers = dict[ServerAccountKey, NewServer]()
 
         self.db_functions_async = db_functions.AsynchronousFunctions(self._db_context)
+        # This manages data that needs to be processed along with a header, but we do not have
+        # the chain of headers up to and including that header yet.
+        self._late_header_worker_queue = app_state.async_.queue()
 
         txdata_cache_size = self.get_cache_size_for_tx_bytedata() * (1024 * 1024)
         self._transaction_cache2 = LRUCache(max_size=txdata_cache_size)
@@ -2237,9 +2237,8 @@ class Wallet:
 
         # This manages data that needs to be processed along with a header, but we do not have
         # the chain of headers up to and including that header yet.
-        self._check_late_header_victims_queue = app_state.async_.queue()
         self._late_header_worker_state = late_header_worker.LateHeaderWorkerState(
-            self._check_late_header_victims_queue)
+            self._late_header_worker_queue)
 
         # Guards `transaction_locks`.
         self._transaction_lock = threading.RLock()
@@ -2248,6 +2247,7 @@ class Wallet:
 
         # Guards the obtaining and processing of missing transactions from race conditions.
         self._obtain_transactions_async_lock = app_state.async_.lock()
+        self._worker_startup_reorg_check: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_obtain_transactions: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_obtain_merkle_proofs: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_late_header_worker: Optional[concurrent.futures.Future[None]] = None
@@ -2278,6 +2278,76 @@ class Wallet:
             assert password is not None, "Expected cached wallet password"
 
         self._load_servers(password)
+
+        self.main_server: Optional[ESVClient] = None
+        self.main_server_candidate: Optional[SelectionCandidate] = None
+        self._main_server_selection_event: asyncio.Event = app_state.async_.event()
+        self._reorg_check_complete: asyncio.Event = app_state.async_.event()
+
+    async def startup_reorg_check_async(self) -> None:
+        """If this is a fresh wallet db migration, the set of block hashes for which we have
+        transaction history is acquired and filtered to leave any orphaned block hashes (if any).
+        The transactions in the orphaned block will be 'reset' to STATE_CLEARED for further
+        processing to get the correct proof data."""
+
+        self._logger.info("Running startup reorg check")
+        assert self._network is not None
+        await self._main_server_selection_event.wait()
+        assert self.main_server_candidate is not None
+        assert self.main_server is not None
+        headers_obj = cast(Headers, app_state.headers)
+
+        # last_tip_hash indicates that any merkle proofs that are present (not null) in the
+        # `Transactions` table are verified for the chain corresponding to this `last_tip_hash`
+        # This allows us to avoid full table scans for reorg processing and instead only update
+        # rows that are above the common parent block hash.
+        last_tip_hash_hex: Optional[str] = self._storage.get('last_tip_hash')
+        while True:
+            # Need a spinner because main_server_candidate may fail to connect and so the
+            # main_server_candidate can change between sleeps. The event is only set if all
+            # headers are synced.
+            if self._network.servers_synced_events[self.main_server_candidate].is_set() and \
+                    self.main_server.chain is not None:
+                break
+            await asyncio.sleep(2)
+
+        last_tip_hash: Optional[bytes] = None
+        if last_tip_hash_hex is not None:
+            last_tip_hash = hex_str_to_hash(last_tip_hash_hex)
+
+        assert self.main_server.chain is not None
+        main_chain = self.main_server.chain
+
+        # Full Transaction table scan and reconciliation to match selected main server chain
+        # NOTE: MissingHeader exception could only happen if the headers mmap store is lost/deleted,
+        # thereby losing the orphaned chain data forever. Nevertheless, it can still reconcile.
+        orphaned_block_hashes = []
+        if not last_tip_hash or self._network.is_missing_header(last_tip_hash):
+            block_hashes = db_functions.read_transaction_block_hashes(self._db_context)
+            for block_hash in block_hashes:
+                try:
+                    header, chain = headers_obj.lookup(block_hash)
+                except MissingHeader:
+                    orphaned_block_hashes.append(block_hash)
+                else:
+                    if main_chain.tip.hash != chain.tip.hash:
+                        orphaned_block_hashes.append(block_hash)
+            await self.on_reorg(orphaned_block_hashes)
+            return
+
+        # Otherwise, check that the last_tip_hash is on the longest chain. Handle as needed.
+        header, old_chain = headers_obj.lookup(last_tip_hash)
+        if main_chain.tip.hash != old_chain.tip.hash:
+            _chain, common_parent_height = main_chain.common_chain_and_height(old_chain)
+            orphaned_block_hashes = [headers_obj.header_at_height(old_chain, h).hash for h
+                in range(common_parent_height + 1, old_chain.tip.height)]
+            await self.on_reorg(orphaned_block_hashes)
+
+        self._reorg_check_complete.set()
+
+    def on_new_tip(self, new_tip: Header, new_chain: Chain) -> None:
+        message = (new_tip, new_chain)
+        self._late_header_worker_queue.put_nowait((PendingHeaderWorkKind.NEW_TIP, message))
 
     def __str__(self) -> str:
         return f"wallet(path='{self._storage.get_path()}')"
@@ -2877,7 +2947,7 @@ class Wallet:
                         tsc_proof_bytes=tsc_proof.to_bytes())
 
                     # Transfer ownership of verifying this transaction to late_header_worker_async
-                    await self._check_late_header_victims_queue.put(
+                    await self._late_header_worker_queue.put(
                         (PendingHeaderWorkKind.MERKLE_PROOF, tsc_proof))
                     assert tx_hash not in self._missing_transactions
                     continue
@@ -2958,7 +3028,7 @@ class Wallet:
                         row.tx_hash, tsc_proof.block_hash, tsc_proof.transaction_index,
                         tsc_proof.to_bytes(), TxFlags.STATE_CLEARED)
 
-                    await self._check_late_header_victims_queue.put(
+                    await self._late_header_worker_queue.put(
                         (PendingHeaderWorkKind.MERKLE_PROOF, exc.merkle_proof))
                     continue
 
@@ -3648,18 +3718,61 @@ class Wallet:
                     return account
         return None
 
-    # TODO(1.4.0) Reorgs. Remove when we have replaced with a reference server equivalent.
-    # def undo_verifications(self, above_height: int) -> None:
-    #     '''Called by network when a reorg has happened'''
-    #     if self._stopped:
-    #         self._logger.debug("undo_verifications on stopped wallet: %d", above_height)
-    #         return
+    async def try_get_mapi_proofs(self, tx_hashes: list[bytes]) \
+            -> tuple[set[bytes], list[TransactionProofRow]]:
+        # Try to get the appropriate merkle proof for the main chain from TransactionProofs table
+        # i.e. we may already have received the mAPI callback for the 'correct chain'
+        assert self._db_context is not None
+        assert self.main_server is not None
+        proofs_on_main_chain: List[TransactionProofRow] = []
+        remaining_tx_hashes = set(tx_hashes)
+        tx_proofs_rows = db_functions.read_merkle_proofs(self._db_context, tx_hashes)
+        for proof_row in tx_proofs_rows:
+            block_hash, tx_hash, proof_data, block_position = proof_row
+            header, chain = cast(Headers, app_state.headers).lookup(block_hash)
+            if chain == self.main_server.chain:
+                proofs_on_main_chain.append(proof_row)
+                remaining_tx_hashes.remove(tx_hash)
+        return remaining_tx_hashes, tx_proofs_rows
 
-    #     tx_hashes = db_functions.read_reorged_transactions(self.get_db_context(), above_height)
-    #     self._logger.info('removing verification of %d transactions above %d',
-    #         len(tx_hashes), above_height)
-    #     future = db_functions.set_transactions_reorged(self.get_db_context(), tx_hashes)
-    #     future.result()
+    async def on_reorg(self, orphaned_block_hashes: List[bytes]) -> None:
+        '''Called by network when a reorg has happened'''
+        assert self._db_context is not None
+        assert self.main_server is not None
+        if self._stopped:
+            block_hashes_as_str = [hash_to_hex_str(h) for h in orphaned_block_hashes]
+            self._logger.debug("Cannot undo verifications on a stopped wallet. "
+                "Orphaned block hashes: %s", block_hashes_as_str)
+            return
+
+        tx_hashes = db_functions.read_reorged_transactions(
+            self._db_context, orphaned_block_hashes)
+
+        block_hashes_as_str = [hash_to_hex_str(h) for h in orphaned_block_hashes]
+        self._logger.info('Removing verification of %d transactions. Orphaned block hashes: %s',
+            len(tx_hashes), block_hashes_as_str)
+        await db_functions.set_transactions_reorged_async(self._db_context, tx_hashes)
+
+        remaining_tx_hashes, proofs_on_main_chain = await self.try_get_mapi_proofs(tx_hashes)
+
+        # TODO(1.4.0) Merkle Proofs. Consider how malleated tx_hashes would be handled
+        # Are we expecting a mAPI merkle proof callback for any of these?
+        for_removal = []
+        for tx_hash in remaining_tx_hashes:
+            rows: list[MAPIBroadcastCallbackRow] = self.data.read_mapi_broadcast_callbacks(tx_hash)
+            if len(rows) != 0:
+                for_removal.append(tx_hash)
+        for tx_hash in for_removal:
+            remaining_tx_hashes.remove(tx_hash)
+
+        # Otherwise, register for utxo spend notifications for these transactions to get proof data
+        # when the transaction is included into a block (on the new chain)
+        if len(remaining_tx_hashes) != 0:
+            for tx_hash in remaining_tx_hashes:
+                tx = self.get_transaction(tx_hash)
+                assert tx is not None
+                self._register_spent_outputs_to_monitor(
+                    [Outpoint(input.prev_hash, input.prev_idx) for input in tx.inputs])
 
     def get_servers_for_account(self, account: AbstractAccount,
             server_type: NetworkServerType) -> List[SelectionCandidate]:
@@ -3812,6 +3925,7 @@ class Wallet:
         Establish connections to all the servers that the wallet uses.
         """
         assert self._network is not None
+        assert self.main_server is not None
         # TODO(1.4.0) Petty cash. In theory each petty cash account maintains a connection. At the
         #     time of writing, we only have one petty cash account per wallet, but there are loose
         #     plans that sets of accounts may hierarchically share different petty cash accounts.
@@ -3826,10 +3940,11 @@ class Wallet:
                 # cash account.
                 # TODO(1.4.0) Networking. This is only connecting to the regtest server for now.
                 #     It is picking an arbitrary capability to use for connection.
-                candidate = pick_server_candidate_for_account(account,
-                    ServerCapability.OUTPUT_SPENDS)
+                # TODO(1.4.0) Likely need to pin this to the self.main_server.base_url
+                #     server to ensure consistent state
+                candidate = self.main_server_candidate
+                assert candidate is not None
                 assert candidate.api_server is not None
-                url = candidate.api_server.url
                 server_state = ServerConnectionState(
                     wallet_data=self.data,
                     session=session,
@@ -4048,6 +4163,21 @@ class Wallet:
             self.response_count = 0
         return self.request_count, self.response_count
 
+    def get_api_servers_for_headers(self) -> List[SelectionCandidate]:
+        assert self._network is not None
+        selection_candidates: List[SelectionCandidate] = []
+        for server_key, server in self._servers.items():
+            is_base_key = server_key.account_id is None
+            if is_base_key and server.database_rows[None].server_flags \
+                    & NetworkServerFlag.CAPABILITY_HEADERS != 0:
+                if not self._network._api_servers.get(server_key):
+                    have_credential, credential_id = server.get_credential_id(None)
+                    if have_credential:
+                        selection_candidate = SelectionCandidate(server.server_type, credential_id,
+                            server)
+                        selection_candidates.append(selection_candidate)
+        return selection_candidates
+
     def start(self, network: Optional[Network]) -> None:
         self._network = network
 
@@ -4055,13 +4185,34 @@ class Wallet:
             self.subscriptions = SubscriptionManager()
             network.add_wallet(self)
 
-        for account in self.get_accounts():
-            account.start(network)
+            # Add all servers with HEADERS capability to the network layer for header tracking
+            for selection_candidate in self.get_api_servers_for_headers():
+                network.new_server_queue.put_nowait(selection_candidate)
 
-        if self._network is not None:
-            # TODO(1.4.0) Networking. Every wallet has connections to reference servers. Is this
-            #     the right place to connect?
+            for account in self.get_accounts():
+                account.start(network)
+
+            main_server: Optional[SelectionCandidate] = None
+
+            server_url = self._storage.get('main_server', "")
+            if server_url == "":
+                # NOTE: Defaults to whatever the first server in the list is
+                main_server = self.get_api_servers_for_headers()[0]
+                assert main_server is not None
+                assert main_server.api_server is not None
+                self._storage.put('main_server', main_server.api_server.url)
+            else:
+                for selection_candidate in self.get_api_servers_for_headers():
+                    assert selection_candidate.api_server is not None
+                    if selection_candidate.api_server.url == server_url:
+                        main_server = selection_candidate
+
+            assert main_server is not None
+            app_state.async_.spawn_and_wait(
+                self._set_main_server, main_server, SwitchReason.user_set)
             self._setup_server_connections()
+            self._worker_startup_reorg_check = app_state.async_.spawn(
+                self.startup_reorg_check_async)
             self._worker_task_obtain_transactions = app_state.async_.spawn(
                 self._obtain_transactions_worker_async)
             self._worker_task_obtain_merkle_proofs = app_state.async_.spawn(
@@ -4084,7 +4235,8 @@ class Wallet:
                 local_height = chain_tip.height
                 chain_tip_hash = chain_tip.hash
         self._storage.put('stored_height', local_height)
-        self._storage.put('last_tip_hash', chain_tip_hash.hex() if chain_tip_hash else None)
+        if self._reorg_check_complete.is_set():
+            self._storage.put('last_tip_hash', chain_tip_hash.hex() if chain_tip_hash else None)
 
         if self._network is not None:
             if self._worker_task_obtain_transactions:
@@ -4129,3 +4281,100 @@ class Wallet:
             if isinstance(keystore, Hardware_KeyStore):
                 plugin = cast('QtPluginBase', keystore.plugin)
                 plugin.replace_gui_handler(window, keystore)
+
+    def update_main_server_tip_and_chain(self, tip: Header, chain: Chain) -> None:
+        assert self.main_server is not None
+        self.main_server.tip = tip
+        self.main_server.chain = chain
+
+    async def _set_main_server(self, selection_candidate: SelectionCandidate,
+            reason: SwitchReason) -> None:
+        '''Set the main server to something new.'''
+        assert self._network is not None
+        assert isinstance(selection_candidate, SelectionCandidate), \
+            f"got invalid server value: {selection_candidate}"
+        logger.info("switching main server to: '%s' reason: %s", selection_candidate, reason.name)
+
+        server_chain_before = None
+        if self.main_server is not None:
+            server_chain_before = self.main_server.chain
+
+        self.main_server_candidate = selection_candidate
+        while True:
+            # The event is only set if all headers are synced.
+            if self._network.servers_synced_events[self.main_server_candidate].is_set() and \
+                    self._network.connected_headers_servers.get(selection_candidate) is not None:
+                break
+            await asyncio.sleep(2)
+        self.main_server = self._network.connected_headers_servers[selection_candidate]
+
+        if server_chain_before:
+            await self.reorg_check_main_chain(server_chain_before, self.main_server.chain)
+
+        self._network.trigger_callback(NetworkEventNames.GENERIC_STATUS)
+        self._main_server_selection_event.set()
+
+    async def maybe_switch_main_server(self, reason: SwitchReason) -> None:
+        assert self._network is not None
+        now = time.time()
+        max_height = max((headers_client.tip.height for headers_client in
+            self._network.connected_headers_servers.values() if headers_client.tip is not None),
+            default=0)
+
+        for selection_candidate, headers_client in self._network.connected_headers_servers.items():
+            if headers_client.tip is not None and headers_client.tip.height > max_height - 2:
+                assert selection_candidate.api_server is not None
+                selection_candidate.api_server \
+                    .api_key_state[selection_candidate.credential_id].last_good = now
+
+        # Give a 60-second breather for a lagging server to catch up
+        good_servers = []
+        for selection_candidate in self._network.connected_headers_servers:
+            assert selection_candidate.api_server is not None
+            last_good = selection_candidate.api_server \
+                .api_key_state[selection_candidate.credential_id].last_good
+            if last_good > now - 60:
+                good_servers.append(selection_candidate)
+
+        if not good_servers:
+            logger.warning('no good servers available')
+
+        elif self.main_server_candidate not in good_servers:
+            if self._network.auto_connect():
+                await self._set_main_server(random.choice(good_servers), reason)
+            else:
+                assert self.main_server is not None
+                logger.warning("main server %s is not good, but retaining it because "
+                    "auto-connect is off", self.main_server._state.server.url)
+
+    async def reorg_check_main_chain(self, old_chain: Chain, new_chain: Chain) -> None:
+        assert app_state.headers is not None
+        assert self._network is not None
+
+        if old_chain.tip != new_chain.tip:
+            _chain, common_parent_height = old_chain.common_chain_and_height(new_chain)
+            orphaned_block_hashes = [app_state.headers.header_at_height(old_chain, h).hash
+                for h in range(common_parent_height + 1, old_chain.tip.height)]
+            new_block_hashes = [app_state.headers.header_at_height(new_chain, h).hash for h in
+                range(common_parent_height + 1, new_chain.tip.height + 1)]
+
+            block_hashes_as_str = [hash_to_hex_str(h) for h in orphaned_block_hashes]
+            logger.info("Reorg detected; undoing wallet verifications for block hashes %s",
+                block_hashes_as_str)
+
+            await self.on_reorg(orphaned_block_hashes)
+        else:
+            new_block_hashes = [app_state.headers.header_at_height(new_chain, h).hash for h in
+                range(old_chain.tip.height + 1, new_chain.tip.height + 1)]
+
+        # New tip notifications from HeaderSV can skip multiple headers
+        # We need to ensure we notify all wallets of each and every new tip so any backlogged
+        # merkle proofs get the required headers for processing.
+        for block_hash in new_block_hashes:
+            new_tip_header: Header = self._network.header_for_hash(block_hash)
+            logger.info("Post-reorg, new tip hash: %s, height: %s",
+                hash_to_hex_str(new_tip_header.hash), new_tip_header.height)
+            self.on_new_tip(new_tip_header, new_chain)
+
+        self._network.trigger_callback(NetworkEventNames.GENERIC_UPDATE)
+

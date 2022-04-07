@@ -412,12 +412,12 @@ class NetworkEventNames(Enum):
     BANNER = "banner"
     SESSIONS = "sessions"
     MAIN_CHAIN = "main_chain"
+    NEW_TIP = "new_tip"
 
 
 class NetworkServerType(IntEnum):
-    ELECTRUMX = 1
-    MERCHANT_API = 2
-    GENERAL = 3
+    MERCHANT_API = 1
+    GENERAL = 2
 
 
 API_SERVER_TYPES = { NetworkServerType.MERCHANT_API, NetworkServerType.GENERAL }
@@ -528,7 +528,7 @@ class PendingHeaderWorkKind(IntEnum):
     # We have a merkle proof for a transaction but no synchronised chain including it.
     MERKLE_PROOF = 1
     # A new header arrived.
-    NEW_HEADER = 2
+    NEW_TIP = 2
 
 
 NO_BLOCK_HASH = bytes(32)

@@ -59,7 +59,7 @@ from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, Blockcha
     PushDataHashHandler, PushDataSearchError, SearchKeyEnumerator
 from ...exceptions import ServerConnectionError
 from ...i18n import _
-from ...network_support.general_api import FilterResponseIncompleteError, FilterResponseInvalidError
+from ...network_support.exceptions import FilterResponseIncompleteError, FilterResponseInvalidError
 from ...logs import logs
 from ...wallet import Wallet
 from ...wallet_database.types import TransactionLinkState, TransactionRow

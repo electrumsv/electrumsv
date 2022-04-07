@@ -36,8 +36,7 @@
 
 from __future__ import annotations
 import json
-from typing import cast, List, Optional, Tuple
-
+from typing import Any, cast, List, Optional, Tuple
 from bitcoinx import ElectrumMnemonic, PublicKey, Wordlists
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
@@ -45,7 +44,7 @@ try:
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
-    import sqlite3 # type: ignore[no-redef]
+    import sqlite3  # type: ignore[no-redef]
 
 from ...constants import AccountFlags, ADDRESS_DERIVATION_TYPES, DerivationType, MasterKeyFlags, \
     ScriptType, WALLET_ACCOUNT_PATH_TEXT
@@ -74,11 +73,13 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     # We have persisted the next identifier for the `Accounts` table in the database.
     cursor = conn.execute("SELECT key, value FROM WalletData "
         "WHERE key='next_account_id' OR key='next_masterkey_id'")
-    wallet_data = { k: int(v) for (k, v) in cast(List[Tuple[str, str]], cursor.fetchall()) }
+    wallet_data: dict[str, Any] = { k: int(v) for (k, v) in cast(List[Tuple[str, str]],
+        cursor.fetchall()) }
     account_id = wallet_data["next_account_id"]
     wallet_data["next_account_id"] += 1
     masterkey_id = wallet_data["next_masterkey_id"]
     wallet_data["next_masterkey_id"] += 1
+    wallet_data["main_server"] = ""
 
     conn.execute("ALTER TABLE MasterKeys ADD COLUMN flags INTEGER NOT NULL DEFAULT 0")
 
@@ -277,6 +278,22 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     # experience and they would see all their transactions strangely revert back to CLEARED and
     # they may not be re-verified until they jump through server hoops.
     conn.execute("UPDATE Transactions SET proof_data=NULL")
+
+    # Transfer all merkle proof data from the Transactions table to the
+    # The pathways for insertion to this table are as follows:
+    #  1) Wallet._obtain_merkle_proofs_worker_async -> Wallet.import_transaction_async
+    #  2) Wallet._obtain_transactions_worker_async -> Wallet.import_transaction_async
+    #  3) wait_for_merkle_proofs_and_double_spends (not yet in use) - mAPI callbacks
+    # All proofs from all chains should be inserted here (i.e. including orphaned proofs). They
+    # can be pruned when the proof on the main server chain is buried by sufficient proof of work .
+    conn.execute("""CREATE TABLE IF NOT EXISTS TransactionProofs (
+        block_hash BLOB,
+        tx_hash BLOB,
+        proof_data BLOB DEFAULT NULL,
+        block_height INTEGER DEFAULT NULL,
+        block_position INTEGER DEFAULT NULL
+    )""")
+    conn.execute("CREATE UNIQUE INDEX idx_tx_proofs ON TransactionProofs (tx_hash, block_hash)")
 
     ## Migration finalisation.
     callbacks.progress(100, _("Update done"))

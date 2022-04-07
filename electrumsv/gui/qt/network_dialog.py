@@ -28,16 +28,10 @@ import dataclasses
 import datetime
 import enum
 from functools import partial
-import socket
-from typing import Any, Callable, cast, Dict, List, NamedTuple, Optional, Sequence, \
-    TYPE_CHECKING, Tuple, Union
-import urllib.parse
+from typing import Any, Callable, cast, List, NamedTuple, Optional, TYPE_CHECKING, Tuple
 import weakref
 
-from aiorpcx import NetAddress
-from bitcoinx import Chain, hash_to_hex_str
-from PyQt5.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, QPoint, Qt, \
-    QThread, QTimer
+from PyQt5.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, Qt, QTimer
 from PyQt5.QtGui import QBrush, QColor, QContextMenuEvent, QIcon, QKeyEvent, \
     QPixmap, QValidator
 from PyQt5.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, \
@@ -53,17 +47,17 @@ from ...crypto import pw_encode
 from ...i18n import _
 from ...logs import logs
 from ...wallet import Wallet
-from ...network import Network, SVServerKey, SVUserAuth, SVProxy, SVSession, SVServer
-from ...network_support.api_server import NewServer, SERVER_CAPABILITIES
+from ...network import Network
+from ...network_support.api_server import CapabilitySupport, NewServer, \
+    SERVER_CAPABILITIES
 from ...types import ServerAccountKey
 from ...util import get_posix_timestamp
 from ...util.network import DEFAULT_SCHEMES, UrlValidationError, validate_url
 from ...wallet_database.types import NetworkServerRow
 
-from .password_dialog import PasswordLineEdit
 from .table_widgets import TableTopButtonLayout
 from .util import Buttons, CloseButton, ExpandableSection, FormSectionWidget,  \
-    HelpButton, HelpDialogButton, icon_path, MessageBox, read_QIcon, WindowModalDialog
+    HelpDialogButton, icon_path, MessageBox, read_QIcon, WindowModalDialog
 
 
 if TYPE_CHECKING:
@@ -79,13 +73,11 @@ logger = logs.get_logger("network-ui")
 
 # These are display ordered for the combo box.
 SERVER_TYPE_ENTRIES = [
-    NetworkServerType.ELECTRUMX,
     NetworkServerType.GENERAL,
     NetworkServerType.MERCHANT_API,
 ]
 
 SERVER_TYPE_LABELS = {
-    NetworkServerType.ELECTRUMX: _("ElectrumX"),
     NetworkServerType.GENERAL: _("General"),
     NetworkServerType.MERCHANT_API: _("MAPI"),
 }
@@ -111,7 +103,6 @@ class ServerListEntry(NamedTuple):
     can_configure_account_access: bool = False
     api_key_supported: bool = False
     api_key_required: bool = False
-    data_electrumx: Optional[SVServer] = None
     data_api: Optional[NewServer] = None
 
 
@@ -127,236 +118,257 @@ PASSWORD_REQUEST_TEXT = _("You have associated a new API key with the wallet '{}
     "encrypt the API key for storage in this wallet, you will need to provide it's password.")
 
 
-def url_to_server_key(url: str) -> SVServerKey:
-    """
-    Convert a URL to a server key.
-
-    This does not do validation in any way, shape or form. It is assumed before we got to this
-    point there was some kind of validation that passed.
-    """
-    result = urllib.parse.urlparse(url)
-    protocol = "s" if result.scheme.startswith("ssl") else "t"
-    if ":" in result.netloc:
-        host, port_str = result.netloc.split(":")
-        port = int(port_str)
-    else:
-        host = result.netloc
-        port = 50002 if protocol == "s" else 50001
-    return SVServerKey(host, port, protocol)
+# TODO(1.4.0) - modify to indicate current chain tips (a representation of the HeaderSV chain tips)
+#  and which chain this wallet is on which at least in the near term will be
+#  coupled to the indexer which always gives a materialized view of the longest chain.
+# class NodesListColumn(enum.IntEnum):
+#     SERVER = 0
+#     HEIGHT = 1
 
 
-class NodesListColumn(enum.IntEnum):
-    SERVER = 0
-    HEIGHT = 1
+# class NodesListWidget(QTreeWidget):
+
+#     def __init__(self, parent: 'BlockchainTab', network: Optional[Network]) -> None:
+#         super().__init__()
+#         self._network = network
+#         self._parent_tab = parent
+#         self.setHeaderLabels([ _('Connected server'), _('Height') ])
+#         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+#         self.customContextMenuRequested.connect(self.create_menu)
+
+#         self._connected_pixmap = QPixmap(icon_path("icons8-data-transfer-80-blue.png")
+#             ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
+#         self._warning_pixmap = QPixmap(icon_path("icons8-error-48-ui.png")
+#             ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
+#         self._connected_icon = QIcon(self._connected_pixmap)
+#         self._lock_pixmap = QPixmap(icon_path("icons8-lock-windows.svg")
+#             ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
+
+#     def create_menu(self, position: QPoint) -> None:
+#         item = self.currentItem()
+#         if not item:
+#             return
+#         server = item.data(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole)
+#         if not server:
+#             return
+
+#         def use_as_server(auto_connect: bool) -> None:
+#             try:
+#                 self._parent_tab._parent.follow_server(server, auto_connect)
+#             except Exception as e:
+#                 MessageBox.show_error(str(e))
+
+#         menu = QMenu()
+#         if self._network is not None:
+#             action = menu.addAction(_("Use as main server"), partial(use_as_server, True))
+#             action.setEnabled(server != self._network.main_server)
+#             if self._network.auto_connect() or server != self._network.main_server:
+#                 action = menu.addAction(_("Lock as main server"), partial(use_as_server, False))
+#                 action.setEnabled(app_state.config.is_modifiable('auto_connect'))
+#             else:
+#                 action = menu.addAction(_("Unlock as main server"), partial(use_as_server, True))
+#                 action.setEnabled(app_state.config.is_modifiable('auto_connect') and \
+#                     server == self._network.main_server)
+#         menu.exec_(self.viewport().mapToGlobal(position))
+
+#     def keyPressEvent(self, event: QKeyEvent) -> None:
+#         if event.key() in [ Qt.Key.Key_F2, Qt.Key.Key_Return ]:
+#             self.on_activated(self.currentItem(), self.currentColumn())
+#         else:
+#             QTreeWidget.keyPressEvent(self, event)
+
+#     def on_activated(self, item: QTreeWidgetItem, _column: int) -> None:
+#         # on 'enter' we show the menu
+#         pt = self.visualItemRect(item).bottomLeft()
+#         pt.setX(50)
+#         self.customContextMenuRequested.emit(pt)
+
+#     def chain_name(self, chain: Chain, our_chain: Chain) -> str:
+#         if chain is our_chain:
+#             return 'our_chain'
+
+#         _chain, common_height = our_chain.common_chain_and_height(chain)
+#         fork_height = common_height + 1
+#         assert app_state.headers is not None
+#         header = app_state.headers.header_at_height(chain, fork_height)
+#         prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
+#         return f'{prefix}@{fork_height}'
+
+#     def update(self) -> None: # type: ignore[override]
+#         self.clear()
+#         if self._network is None:
+#             return
+
+#         assert self._network.main_server is not None
+
+#         chains = self._network.sessions_by_chain()
+#         chain_items = list(chains.items())
+#         host_counts: Dict[str, int] = {}
+#         for chain, sessions in chain_items:
+#             # If someone is connected to two nodes on the same server, indicate the difference.
+#             for i, session in enumerate(sessions):
+#                 host_counts[session.server.host] = host_counts.get(session.server.host, 0) + 1
+
+#         tree_item: Union[NodesListWidget, QTreeWidgetItem]
+#         our_chain = self._network.chain()
+#         for chain, sessions in chain_items:
+#             if len(chains) > 1:
+#                 assert our_chain is not None
+#                 name = self.chain_name(chain, our_chain)
+#                 tree_item = QTreeWidgetItem([name, '%d' % chain.height])
+#                 tree_item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, None)
+#             else:
+#                 tree_item = self
+#             for session in sessions:
+#                 assert session.tip is not None
+#                 extra_name = ""
+#                 if host_counts[session.server.host] > 1:
+#                     extra_name = f" (port: {session.server.port})"
+#                 extra_name += ' (main server)' if session.server is self._network.main_server \
+#                     else ''
+#                 item = QTreeWidgetItem([session.server.host + extra_name,
+#                     str(session.tip.height)])
+#                 item.setIcon(NodesListColumn.SERVER, self._connected_icon)
+#                 if session.server.protocol == "t":
+#                     item.setToolTip(NodesListColumn.SERVER, _("Unencrypted"))
+#                 else:
+#                     item.setToolTip(NodesListColumn.SERVER, _("Encrypted / SSL"))
+#                 item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, session.server)
+#                 if isinstance(tree_item, NodesListWidget):
+#                     tree_item.addTopLevelItem(item)
+#                 else:
+#                     tree_item.addChild(item)
+#             if len(chains) > 1:
+#                 assert isinstance(tree_item, QTreeWidgetItem)
+#                 self.addTopLevelItem(tree_item)
+#                 tree_item.setExpanded(True)
+
+#             height_str = "%d "%(self._network.get_local_height()) + _('blocks')
+#             self._parent_tab.height_label.setText(height_str)
+#             n = len(self._network.sessions)
+#             if n == 0:
+#                 status = _("Not connected")
+#             elif n == 1:
+#                 status = _("Connected to {:d} server.").format(n)
+#             else:
+#                 status = _("Connected to {:d} servers.").format(n)
+#             self._parent_tab.status_label.setText(status)
+
+#             chains2 = self._network.sessions_by_chain().keys()
+#             if len(chains2) > 1:
+#                 our_chain = self._network.chain()
+#                 assert our_chain is not None
+#                 heights = set()
+#                 for chain in chains2:
+#                     if chain != our_chain:
+#                         _chain, common_height = our_chain.common_chain_and_height(chain)
+#                         heights.add(common_height + 1)
+#                 msg = _('Chain split detected at height(s) {}\n').format(
+#                     ','.join(f'{height:,d}' for height in sorted(heights)))
+#             else:
+#                 msg = ''
+#             self._parent_tab.split_label.setText(msg)
+#             self._parent_tab.server_label.setText(self._network.main_server.host)
+
+#             # Ordered pixmaps, show only as many as applicable. Probably a better way to do this.
+#             pixmaps: List[Tuple[Optional[QPixmap], str]] = []
+#             if not self._network.auto_connect():
+#                 pixmaps.append((self._lock_pixmap,
+#                     _("This server is locked into place as the permanent main server.")))
+#             if self._network.main_server.state.last_good <
+#                   self._network.main_server.state.last_try:
+#                 pixmaps.append((self._warning_pixmap,
+#                     _("This server is not known to be up to date.")))
+
+#             while len(pixmaps) < 2:
+#                 pixmaps.append((None, ''))
+
+#             if pixmaps[0][0] is None:
+#                 self._parent_tab.server_label_icon1.clear()
+#             else:
+#                 self._parent_tab.server_label_icon1.setPixmap(pixmaps[0][0])
+#                 self._parent_tab.server_label_icon1.setToolTip(pixmaps[0][1])
+#             if pixmaps[1][0] is None:
+#                 self._parent_tab.server_label_icon2.clear()
+#             else:
+#                 self._parent_tab.server_label_icon2.setPixmap(pixmaps[1][0])
+#                 self._parent_tab.server_label_icon2.setToolTip(pixmaps[1][1])
+
+#         h = self.header()
+#         h.setStretchLastSection(False)
+#         h.setSectionResizeMode(NodesListColumn.SERVER, QHeaderView.ResizeMode.Stretch)
+#         h.setSectionResizeMode(NodesListColumn.HEIGHT, QHeaderView.ResizeMode.ResizeToContents)
 
 
-class NodesListWidget(QTreeWidget):
+# class BlockchainTab(QWidget):
+#     def __init__(self, parent: NetworkTabsLayout, network: Optional[Network]) -> None:
+#         super().__init__()
+#         self._parent = parent
+#         self._network = network
 
-    def __init__(self, parent: 'BlockchainTab', network: Optional[Network]) -> None:
-        super().__init__()
-        self._network = network
-        self._parent_tab = parent
-        self.setHeaderLabels([ _('Connected server'), _('Height') ])
-        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.customContextMenuRequested.connect(self.create_menu)
+#         blockchain_layout = QVBoxLayout(self)
 
-        self._connected_pixmap = QPixmap(icon_path("icons8-data-transfer-80-blue.png")
-            ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
-        self._warning_pixmap = QPixmap(icon_path("icons8-error-48-ui.png")
-            ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
-        self._connected_icon = QIcon(self._connected_pixmap)
-        self._lock_pixmap = QPixmap(icon_path("icons8-lock-windows.svg")
-            ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
+#         form = FormSectionWidget()
+#         self.status_label = QLabel(_("No connections yet."))
+#         form.add_row(_('Status'), self.status_label)
+#         self.server_label = QLabel()
+#         self.server_label_icon1 = QLabel()
+#         self.server_label_icon2 = QLabel()
+#         server_label_layout = QHBoxLayout()
+#         server_label_layout.addWidget(self.server_label)
+#         server_label_layout.addSpacing(4)
+#         server_label_layout.addWidget(self.server_label_icon1)
+#         server_label_layout.addSpacing(4)
+#         server_label_layout.addWidget(self.server_label_icon2)
+#         server_label_layout.addStretch(1)
+#         form.add_row(_('Main server'), server_label_layout)
+#         self.height_label = QLabel('')
+#         form.add_row(_('Blockchain'), self.height_label)
 
-    def create_menu(self, position: QPoint) -> None:
-        item = self.currentItem()
-        if not item:
-            return
-        server = item.data(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole)
-        if not server:
-            return
+#         blockchain_layout.addWidget(form)
 
-        def use_as_server(auto_connect: bool) -> None:
-            try:
-                self._parent_tab._parent.follow_server(server, auto_connect)
-            except Exception as e:
-                MessageBox.show_error(str(e))
+#         self.split_label = QLabel('')
+#         form.add_row(QLabel(""), self.split_label)
+#
 
-        menu = QMenu()
-        if self._network is not None:
-            action = menu.addAction(_("Use as main server"), partial(use_as_server, True))
-            action.setEnabled(server != self._network.main_server)
-            if self._network.auto_connect() or server != self._network.main_server:
-                action = menu.addAction(_("Lock as main server"), partial(use_as_server, False))
-                action.setEnabled(app_state.config.is_modifiable('auto_connect'))
-            else:
-                action = menu.addAction(_("Unlock as main server"), partial(use_as_server, True))
-                action.setEnabled(app_state.config.is_modifiable('auto_connect') and \
-                    server == self._network.main_server)
-        menu.exec_(self.viewport().mapToGlobal(position))
-
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() in [ Qt.Key.Key_F2, Qt.Key.Key_Return ]:
-            self.on_activated(self.currentItem(), self.currentColumn())
-        else:
-            QTreeWidget.keyPressEvent(self, event)
-
-    def on_activated(self, item: QTreeWidgetItem, _column: int) -> None:
-        # on 'enter' we show the menu
-        pt = self.visualItemRect(item).bottomLeft()
-        pt.setX(50)
-        self.customContextMenuRequested.emit(pt)
-
-    def chain_name(self, chain: Chain, our_chain: Chain) -> str:
-        if chain is our_chain:
-            return 'our_chain'
-
-        _chain, common_height = our_chain.common_chain_and_height(chain)
-        fork_height = common_height + 1
-        assert app_state.headers is not None
-        header = app_state.headers.header_at_height(chain, fork_height)
-        prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
-        return f'{prefix}@{fork_height}'
-
-    def update(self) -> None: # type: ignore[override]
-        self.clear()
-        if self._network is None:
-            return
-
-        assert self._network.main_server is not None
-
-        chains = self._network.sessions_by_chain()
-        chain_items = list(chains.items())
-        host_counts: Dict[str, int] = {}
-        for chain, sessions in chain_items:
-            # If someone is connected to two nodes on the same server, indicate the difference.
-            for i, session in enumerate(sessions):
-                host_counts[session.server.host] = host_counts.get(session.server.host, 0) + 1
-
-        tree_item: Union[NodesListWidget, QTreeWidgetItem]
-        our_chain = self._network.chain()
-        for chain, sessions in chain_items:
-            if len(chains) > 1:
-                assert our_chain is not None
-                name = self.chain_name(chain, our_chain)
-                tree_item = QTreeWidgetItem([name, '%d' % chain.height])
-                tree_item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, None)
-            else:
-                tree_item = self
-            for session in sessions:
-                assert session.tip is not None
-                extra_name = ""
-                if host_counts[session.server.host] > 1:
-                    extra_name = f" (port: {session.server.port})"
-                extra_name += ' (main server)' if session.server is self._network.main_server \
-                    else ''
-                item = QTreeWidgetItem([session.server.host + extra_name,
-                    str(session.tip.height)])
-                item.setIcon(NodesListColumn.SERVER, self._connected_icon)
-                if session.server.protocol == "t":
-                    item.setToolTip(NodesListColumn.SERVER, _("Unencrypted"))
-                else:
-                    item.setToolTip(NodesListColumn.SERVER, _("Encrypted / SSL"))
-                item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, session.server)
-                if isinstance(tree_item, NodesListWidget):
-                    tree_item.addTopLevelItem(item)
-                else:
-                    tree_item.addChild(item)
-            if len(chains) > 1:
-                assert isinstance(tree_item, QTreeWidgetItem)
-                self.addTopLevelItem(tree_item)
-                tree_item.setExpanded(True)
-
-            height_str = "%d "%(self._network.get_local_height()) + _('blocks')
-            self._parent_tab.height_label.setText(height_str)
-            n = len(self._network.sessions)
-            if n == 0:
-                status = _("Not connected")
-            elif n == 1:
-                status = _("Connected to {:d} server.").format(n)
-            else:
-                status = _("Connected to {:d} servers.").format(n)
-            self._parent_tab.status_label.setText(status)
-
-            chains2 = self._network.sessions_by_chain().keys()
-            if len(chains2) > 1:
-                our_chain = self._network.chain()
-                assert our_chain is not None
-                heights = set()
-                for chain in chains2:
-                    if chain != our_chain:
-                        _chain, common_height = our_chain.common_chain_and_height(chain)
-                        heights.add(common_height + 1)
-                msg = _('Chain split detected at height(s) {}\n').format(
-                    ','.join(f'{height:,d}' for height in sorted(heights)))
-            else:
-                msg = ''
-            self._parent_tab.split_label.setText(msg)
-            self._parent_tab.server_label.setText(self._network.main_server.host)
-
-            # Ordered pixmaps, show only as many as applicable. Probably a better way to do this.
-            pixmaps: List[Tuple[Optional[QPixmap], str]] = []
-            if not self._network.auto_connect():
-                pixmaps.append((self._lock_pixmap,
-                    _("This server is locked into place as the permanent main server.")))
-            if self._network.main_server.state.last_good < self._network.main_server.state.last_try:
-                pixmaps.append((self._warning_pixmap,
-                    _("This server is not known to be up to date.")))
-
-            while len(pixmaps) < 2:
-                pixmaps.append((None, ''))
-
-            if pixmaps[0][0] is None:
-                self._parent_tab.server_label_icon1.clear()
-            else:
-                self._parent_tab.server_label_icon1.setPixmap(pixmaps[0][0])
-                self._parent_tab.server_label_icon1.setToolTip(pixmaps[0][1])
-            if pixmaps[1][0] is None:
-                self._parent_tab.server_label_icon2.clear()
-            else:
-                self._parent_tab.server_label_icon2.setPixmap(pixmaps[1][0])
-                self._parent_tab.server_label_icon2.setToolTip(pixmaps[1][1])
-
-        h = self.header()
-        h.setStretchLastSection(False)
-        h.setSectionResizeMode(NodesListColumn.SERVER, QHeaderView.ResizeMode.Stretch)
-        h.setSectionResizeMode(NodesListColumn.HEIGHT, QHeaderView.ResizeMode.ResizeToContents)
-
-
-class BlockchainTab(QWidget):
-    def __init__(self, parent: NetworkTabsLayout, network: Optional[Network]) -> None:
-        super().__init__()
-        self._parent = parent
-        self._network = network
-
-        blockchain_layout = QVBoxLayout(self)
-
-        form = FormSectionWidget()
-        self.status_label = QLabel(_("No connections yet."))
-        form.add_row(_('Status'), self.status_label)
-        self.server_label = QLabel()
-        self.server_label_icon1 = QLabel()
-        self.server_label_icon2 = QLabel()
-        server_label_layout = QHBoxLayout()
-        server_label_layout.addWidget(self.server_label)
-        server_label_layout.addSpacing(4)
-        server_label_layout.addWidget(self.server_label_icon1)
-        server_label_layout.addSpacing(4)
-        server_label_layout.addWidget(self.server_label_icon2)
-        server_label_layout.addStretch(1)
-        form.add_row(_('Main server'), server_label_layout)
-        self.height_label = QLabel('')
-        form.add_row(_('Blockchain'), self.height_label)
-
-        blockchain_layout.addWidget(form)
-
-        self.split_label = QLabel('')
-        form.add_row(QLabel(""), self.split_label)
-
-        self.nodes_list_widget = NodesListWidget(self, self._network)
-        blockchain_layout.addWidget(self.nodes_list_widget)
-        blockchain_layout.addStretch(1)
-        self.nodes_list_widget.update()
+# TODO(1.4.0) - modify to indicate current chain tips (a representation of the HeaderSV chain tips)
+#  and which chain this wallet is on which at least in the near term will be
+#  coupled to the indexer which always gives a materialized view of the longest chain.
+# class BlockchainTab(QWidget):
+#
+#     def __init__(self, parent: "NetworkTabsLayout", network: Network) -> None:
+#         super().__init__()
+#         self._parent = parent
+#         self._network = network
+#
+#         blockchain_layout = QVBoxLayout(self)
+#
+#         form = FormSectionWidget()
+#         self.status_label = QLabel(_("No connections yet."))
+#         form.add_row(_('Status'), self.status_label)
+#         self.server_label = QLabel()
+#         self.server_label_icon1 = QLabel()
+#         self.server_label_icon2 = QLabel()
+#         server_label_layout = QHBoxLayout()
+#         server_label_layout.addWidget(self.server_label)
+#         server_label_layout.addSpacing(4)
+#         server_label_layout.addWidget(self.server_label_icon1)
+#         server_label_layout.addSpacing(4)
+#         server_label_layout.addWidget(self.server_label_icon2)
+#         server_label_layout.addStretch(1)
+#         form.add_row(_('Main server'), server_label_layout)
+#         self.height_label = QLabel('')
+#         form.add_row(_('Blockchain'), self.height_label)
+#
+#         blockchain_layout.addWidget(form)
+#
+#         self.split_label = QLabel('')
+#         form.add_row(QLabel(""), self.split_label)
+#
+#         self.nodes_list_widget = NodesListWidget(self, self._network)
+#         blockchain_layout.addWidget(self.nodes_list_widget)
+#         blockchain_layout.addStretch(1)
+#         self.nodes_list_widget.update()
 
 
 @dataclasses.dataclass
@@ -408,10 +420,6 @@ class EditServerDialog(WindowModalDialog):
         # Covers all the accounts in the wallet under their `account_id`.
         self._wallet_state = dict[int, EditServerState]()
 
-        server_type_schemes: Optional[set[str]] = None
-        if entry.server_type == NetworkServerType.ELECTRUMX:
-            server_type_schemes = {"ssl", "tcp"}
-
         self._vbox = QVBoxLayout(self)
 
         # NOTE(server-edit-limitations) We do not allow changing either server type or url for
@@ -460,6 +468,7 @@ class EditServerDialog(WindowModalDialog):
         self._server_url_edit.setText(entry.url)
         default_edit_palette = self._server_url_edit.palette()
         default_base_brush = default_edit_palette.brush(default_edit_palette.Base)
+        server_type_schemes: Optional[set[str]] = None
         self._url_validator = URLValidator(schemes=server_type_schemes)
         self._server_url_edit.setValidator(self._url_validator)
         self._server_url_edit.textChanged.connect(
@@ -746,16 +755,7 @@ class EditServerDialog(WindowModalDialog):
         # given URL regardless of the case used. However, if we are editing the server that was
         # already using the given URL we allow it to be saved and consider it valid.
         server_type = self._get_server_type()
-        if server_type == NetworkServerType.ELECTRUMX:
-            assert self._entry.data_electrumx is not None
-            electrumx_server_key = url_to_server_key(url)
-            if electrumx_server_key in SVServer.all_servers:
-                # If we are editing this server, allow it to save/update with the same URL.
-                if self._is_edit_mode and self._entry.data_electrumx.key() == electrumx_server_key:
-                    pass
-                else:
-                    return _("This URL is already in use.")
-        elif server_type in API_SERVER_TYPES:
+        if server_type in API_SERVER_TYPES:
             existing_urls = set(server_key.url.lower() \
                 for server_key in self._wallet_weakref._servers)
             if url.lower() in existing_urls:
@@ -811,9 +811,7 @@ class EditServerDialog(WindowModalDialog):
         # We normalise the url and remove the suffix to ensure less change of duplicates.
         server_url = self._server_url_edit.text().strip().lower().removesuffix("/")
 
-        if server_type == NetworkServerType.ELECTRUMX:
-            self._save_electrumx_server(server_url)
-        elif server_type in API_SERVER_TYPES:
+        if server_type in API_SERVER_TYPES:
             self._save_api_server(server_type, server_url)
         else:
             raise NotImplementedError(f"Unsupported server type {server_type}")
@@ -920,13 +918,7 @@ class EditServerDialog(WindowModalDialog):
         server_type = self._get_server_type()
 
         validator = cast(URLValidator, self._server_url_edit.validator())
-        if server_type == NetworkServerType.ELECTRUMX:
-            validator.set_schemes({"ssl", "tcp"})
-            self._entry = self._entry._replace(
-                server_type=server_type,
-                can_configure_account_access=False,
-                api_key_supported=False)
-        elif server_type in API_SERVER_TYPES:
+        if server_type in API_SERVER_TYPES:
             validator.set_schemes(DEFAULT_SCHEMES)
             self._entry = self._entry._replace(
                 server_type=server_type,
@@ -945,12 +937,10 @@ class EditServerDialog(WindowModalDialog):
         Update the form contents for the current server type value.
         """
         server_type = self._get_server_type()
-        server_capabilities = SERVER_CAPABILITIES[server_type]
+        server_capabilities: List[CapabilitySupport] = SERVER_CAPABILITIES[server_type]
         assert len(server_capabilities)
         if server_type in API_SERVER_TYPES:
             self._url_validator.set_criteria(allow_path=True)
-        elif server_type == NetworkServerType.ELECTRUMX:
-            self._url_validator.set_criteria(allow_path=False)
         else:
             raise NotImplementedError(f"Unsupported server type {server_type}")
 
@@ -1089,9 +1079,6 @@ class ServersListWidget(QTableWidget):
 
             is_connected = False
             considered_good = False
-            if list_entry.data_electrumx is not None and self._network is not None:
-                is_connected = self._is_server_healthy(list_entry.data_electrumx,
-                    self._network.sessions)
 
             # TODO(1.4.0) Servers. Re-enable server disabling.
             # if self._network.is_server_disabled(list_entry.url, list_entry.server_type):
@@ -1136,12 +1123,15 @@ class ServersListWidget(QTableWidget):
             self.setItem(row_index, 1, item_1)
 
             item_2 = SortableServerQTableWidgetItem()
-            if list_entry.server_type == NetworkServerType.ELECTRUMX and self._network is not None:
-                if list_entry.data_electrumx == self._network.main_server and \
-                        not self._network.auto_connect():
-                    item_2.setIcon(self._lock_icon)
-                    item_2.setToolTip(
-                        _("This server is locked into place as the permanent main server."))
+            # TODO(1.4.0) Network Dialogue. This is kept to make it easier to reinstate
+            #   this behaviour for the new non-electrumx servers at a later date
+            # if list_entry.server_type == NetworkServerType.ELECTRUMX and
+            #       self._network is not None:
+            #     if list_entry.data_electrumx == self._network.main_server and \
+            #             not self._network.auto_connect():
+            #         item_2.setIcon(self._lock_icon)
+            #         item_2.setToolTip(
+            #             _("This server is locked into place as the permanent main server."))
             self.setItem(row_index, 2, item_2)
 
             item_3 = SortableServerQTableWidgetItem()
@@ -1160,30 +1150,6 @@ class ServersListWidget(QTableWidget):
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
         hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-
-    @staticmethod
-    def _is_server_healthy(server: SVServer, sessions: Sequence[SVSession]) -> bool:
-        """Sessions only include currently active SVSessions, hence the for loop and
-        matching pattern - this only applies to ElectrumX type servers"""
-        if not sessions:
-            return False
-
-        for session in sessions:
-            if session.server == server:
-                break
-        else:
-            return False  # The server is unable to connect - there is no SVSession for it
-
-        if session.tip is None:
-            return False
-
-        max_tip_height = max([session.tip.height if session.tip is not None else 0
-            for session in sessions])
-        is_more_than_two_blocks_behind = max_tip_height > session.tip.height + 2
-        if server.state.last_good >= server.state.last_try and not is_more_than_two_blocks_behind:
-            return True
-
-        return False
 
     def _get_selected_entry(self) -> ServerListEntry:
         items = self.selectedItems()
@@ -1222,28 +1188,17 @@ class ServersListWidget(QTableWidget):
             return
         entry = cast(ServerListEntry, items[0].data(Roles.ITEM_DATA))
 
-        def use_as_server(auto_connect: bool) -> None:
-            nonlocal entry
-            assert entry.data_electrumx is not None
-            try:
-                self._parent_tab._parent.follow_server(entry.data_electrumx, auto_connect)
-            except Exception as e:
-                MessageBox.show_error(str(e))
+        # TODO(1.4.0). Network Dialogue. Integrate non-electrumx servers with this
+        # def use_as_server(auto_connect: bool) -> None:
+        #     nonlocal entry
+        #     assert entry.data_electrumx is not None
+        #     try:
+        #         self._parent_tab._parent.follow_server(entry.data_electrumx, auto_connect)
+        #     except Exception as e:
+        #         MessageBox.show_error(str(e))
 
         menu = QMenu(self)
         details_action = menu.addAction("Details")
-
-        if entry.data_electrumx is not None and self._network is not None:
-            is_main_server = entry.data_electrumx == self._network.main_server
-            action = menu.addAction(_("Use as main server"), partial(use_as_server, True))
-            action.setEnabled(not is_main_server)
-            if self._network.auto_connect() or not is_main_server:
-                action = menu.addAction(_("Lock as main server"), partial(use_as_server, False))
-                action.setEnabled(app_state.config.is_modifiable('auto_connect'))
-            else:
-                action = menu.addAction(_("Unlock as main server"), partial(use_as_server, True))
-                action.setEnabled(app_state.config.is_modifiable('auto_connect') and \
-                    is_main_server)
 
         menu.addAction(_("Delete server"), partial(self._on_menu_delete_server, entry))
 
@@ -1343,7 +1298,8 @@ class ServersTab(QWidget):
                 data_api=server))
 
         self._server_list.update_list(items)
-        self._parent._blockchain_tab.nodes_list_widget.update()
+        # TODO(1.4.0) - replace with HeaderSV chain tips and local chain state this wallet follows
+        # self._parent._blockchain_tab.nodes_list_widget.update()
         self._enable_set_broadcast_service()
 
     def _enable_set_broadcast_service(self) -> None:
@@ -1353,199 +1309,36 @@ class ServersTab(QWidget):
             self._server_list.setEnabled(False)
 
 
-class ProxyTab(QWidget):
-
-    def __init__(self, network: Optional[Network]) -> None:
-        super().__init__()
-
-        self._network = network
-
-        grid = QGridLayout(self)
-        grid.setSpacing(8)
-
-        # proxy setting
-        self._proxy_checkbox = QCheckBox(_('Use proxy'))
-        self._proxy_checkbox.clicked.connect(self._check_disable_proxy)
-        self._proxy_checkbox.clicked.connect(self._set_proxy)
-
-        self._proxy_mode_combo = QComboBox()
-        self._proxy_mode_combo.addItems(list(SVProxy.kinds))
-        self._proxy_host_edit = QLineEdit()
-        self._proxy_host_edit.setFixedWidth(200)
-        self._proxy_port_edit = QLineEdit()
-        self._proxy_port_edit.setFixedWidth(100)
-        self._proxy_username_edit = QLineEdit()
-        self._proxy_username_edit.setPlaceholderText(_("Proxy user"))
-        self._proxy_username_edit.setFixedWidth(self._proxy_host_edit.width())
-        self._proxy_password_edit = PasswordLineEdit()
-        self._proxy_password_edit.setPlaceholderText(_("Password"))
-
-        self._proxy_mode_combo.currentIndexChanged.connect(self._set_proxy)
-        self._proxy_host_edit.editingFinished.connect(self._set_proxy)
-        self._proxy_port_edit.editingFinished.connect(self._set_proxy)
-        self._proxy_username_edit.editingFinished.connect(self._set_proxy)
-        self._proxy_password_edit.editingFinished.connect(self._set_proxy)
-
-        self._proxy_mode_combo.currentIndexChanged.connect(self._proxy_settings_changed)
-        self._proxy_host_edit.textEdited.connect(self._proxy_settings_changed)
-        self._proxy_port_edit.textEdited.connect(self._proxy_settings_changed)
-        self._proxy_username_edit.textEdited.connect(self._proxy_settings_changed)
-        self._proxy_password_edit.textEdited.connect(self._proxy_settings_changed)
-
-        self._tor_checkbox = QCheckBox(_("Use Tor Proxy"))
-        self._tor_checkbox.setIcon(read_QIcon("tor_logo.png"))
-        self._tor_checkbox.hide()
-        self._tor_checkbox.clicked.connect(self._use_tor_proxy)
-
-        grid.addWidget(self._tor_checkbox, 1, 0, 1, 3)
-        grid.addWidget(self._proxy_checkbox, 2, 0, 1, 3)
-        grid.addWidget(HelpButton(_('Proxy settings apply to all connections: both '
-                                    'ElectrumSV servers and third-party services.')), 2, 4)
-        grid.addWidget(self._proxy_mode_combo, 4, 1)
-        grid.addWidget(self._proxy_host_edit, 4, 2)
-        grid.addWidget(self._proxy_port_edit, 4, 3)
-        grid.addWidget(self._proxy_username_edit, 5, 2, Qt.AlignmentFlag.AlignTop)
-        grid.addWidget(self._proxy_password_edit, 5, 3, Qt.AlignmentFlag.AlignTop)
-        grid.setRowStretch(7, 1)
-
-        self._fill_in_proxy_settings()
-
-    def _check_disable_proxy(self, b: bool) -> None:
-        if not app_state.config.is_modifiable('proxy'):
-            b = False
-        for w in [ self._proxy_mode_combo, self._proxy_host_edit, self._proxy_port_edit,
-                self._proxy_username_edit, self._proxy_password_edit ]:
-            w.setEnabled(b)
-
-    def _fill_in_proxy_settings(self) -> None:
-        if self._network is None: return
-        self._filling_in = True
-        self._check_disable_proxy(self._network.proxy is not None)
-        self._proxy_checkbox.setChecked(self._network.proxy is not None)
-        proxy = self._network.proxy or SVProxy('localhost:9050', 'SOCKS5', None)
-        self._proxy_mode_combo.setCurrentText(proxy.kind())
-        self._proxy_host_edit.setText(str(proxy.host()))
-        self._proxy_port_edit.setText(str(proxy.port()))
-        self._proxy_username_edit.setText(proxy.username())
-        self._proxy_password_edit.setText(proxy.password())
-        self._filling_in = False
-
-    def set_tor_detector(self) -> None:
-        self.td = td = TorDetector()
-        td.found_proxy.connect(self._suggest_proxy)
-        td.start()
-
-    def _set_proxy(self) -> None:
-        if self._filling_in:
-            return
-        proxy: Optional[SVProxy] = None
-        if self._proxy_checkbox.isChecked():
-            auth: Optional[SVUserAuth]
-            try:
-                address = NetAddress(self._proxy_host_edit.text(), self._proxy_port_edit.text())
-                if self._proxy_username_edit.text():
-                    auth = SVUserAuth(self._proxy_username_edit.text(),
-                        self._proxy_password_edit.text())
-                else:
-                    auth = None
-                proxy = SVProxy(address, self._proxy_mode_combo.currentText(), auth)
-            except Exception:
-                logger.exception('error setting proxy')
-        if not proxy:
-            self._tor_checkbox.setChecked(False)
-
-        # Apply the changes.
-        assert self._network is not None
-        self._network.set_proxy(proxy)
-
-    def _suggest_proxy(self, found_proxy: tuple[str, int]) -> None:
-        self._tor_proxy = found_proxy
-        self._tor_checkbox.setText("Use Tor proxy at port " + str(found_proxy[1]))
-        if (self._proxy_checkbox.isChecked() and
-                self._proxy_mode_combo.currentText() == 'SOCKS5' and
-                self._proxy_host_edit.text() == found_proxy[0] and
-                self._proxy_port_edit.text() == str(found_proxy[1])):
-            self._tor_checkbox.setChecked(True)
-        self._tor_checkbox.show()
-
-    def _use_tor_proxy(self, use_it: bool) -> None:
-        if use_it:
-            self._proxy_mode_combo.setCurrentText('SOCKS5')
-            self._proxy_host_edit.setText(self._tor_proxy[0])
-            self._proxy_port_edit.setText(str(self._tor_proxy[1]))
-            self._proxy_username_edit.setText("")
-            self._proxy_password_edit.setText("")
-            self._proxy_checkbox.setChecked(True)
-        else:
-            self._proxy_checkbox.setChecked(False)
-        self._check_disable_proxy(use_it)
-        self._set_proxy()
-
-    def _proxy_settings_changed(self) -> None:
-        self._tor_checkbox.setChecked(False)
-
-
-class TorDetector(QThread):
-    found_proxy = pyqtSignal(object)
-
-    def __init__(self) -> None:
-        QThread.__init__(self)
-
-    def run(self) -> None:
-        # Probable ports for Tor to listen at
-        ports = [9050, 9150]
-        for p in ports:
-            pair = ('localhost', p)
-            if TorDetector.is_tor_port(pair):
-                self.found_proxy.emit(pair)
-                return
-
-    @staticmethod
-    def is_tor_port(pair: Tuple[str, int]) -> bool:
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.settimeout(0.1)
-            s.connect(pair)
-            # Tor responds uniquely to HTTP-like requests
-            s.send(b"GET\n")
-            if b"Tor is not an HTTP Proxy" in s.recv(1024):
-                return True
-        except socket.error:
-            pass
-        return False
-
-
 class NetworkTabsLayout(QVBoxLayout):
     def __init__(self, main_window_weakref: ElectrumWindow, wallet_weakref: Wallet,
             network: Optional[Network]) -> None:
         super().__init__()
-        self._tor_proxy = None
         self._filling_in = False
 
         self._main_window_weakref = main_window_weakref
         self._wallet_weakref = wallet_weakref
         self._network = network
 
-        self._blockchain_tab = BlockchainTab(self, network)
+        # TODO(1.4.0) - replace with HeaderSV chain tips and local chain state this wallet follows
+        # self._blockchain_tab = BlockchainTab(self, network)
         self._servers_tab = ServersTab(self, main_window_weakref, wallet_weakref, network)
-        self._proxy_tab = ProxyTab(network)
 
         self._tabs = QTabWidget()
         self._tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self._tabs.addTab(self._blockchain_tab, _('Blockchain Status'))
+
+        # TODO(1.4.0) - replace with HeaderSV chain tips and local chain state this wallet follows
+        # self._tabs.addTab(self._blockchain_tab, _('Blockchain Status'))
         self._tabs.addTab(self._servers_tab, _('Servers'))
-        self._tabs.addTab(self._proxy_tab, _('Proxy'))
 
         self.addWidget(self._tabs)
         self.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
-        self._proxy_tab.set_tor_detector()
         self.last_values = None
 
-    def follow_server(self, server: SVServer, auto_connect: bool) -> None:
-        assert self._network is not None
-        self._network.set_server(server, auto_connect)
-        # This updates the blockchain tab too.
-        self._servers_tab.update_servers()
+    # TODO(1.4.0). Network Dialogue. Integrate non-electrumx servers with this
+    # def follow_server(self, server: SVServer, auto_connect: bool) -> None:
+    #     self._network.set_server(server, auto_connect)
+    #     # This updates the blockchain tab too.
+    #     self._servers_tab.update_servers()
 
 
 class NetworkDialog(QDialog):
@@ -1555,7 +1348,7 @@ class NetworkDialog(QDialog):
         super().__init__(flags=Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
         self.setWindowTitle(_('Network for wallet {}').format(wallet.name()))
-        self.setMinimumSize(500, 200)
+        self.setMinimumSize(500, 350)
         self.resize(560, 400)
 
         self._main_window_weakref: ElectrumWindow = weakref.proxy(main_window)
@@ -1568,7 +1361,11 @@ class NetworkDialog(QDialog):
         self._buttons_layout.add_left_button(HelpDialogButton(self, "misc", "network-dialog"))
 
         vbox = QVBoxLayout(self)
-        vbox.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
+
+        # TODO(1.4.0) This SizeConstraint was in place when all three tabs were present but
+        #  with only one tab, it causes distortion. I don't understand why but can put it back
+        #  when the BlockchainTab is reinstated for non-electrumx servers.
+        # vbox.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         vbox.addLayout(self._tabs_layout)
         vbox.addLayout(self._buttons_layout)
 

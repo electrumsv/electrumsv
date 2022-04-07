@@ -7,10 +7,10 @@ from typing import Any, cast, Dict, Optional, List, Set
 import unittest
 import unittest.mock
 
-from bitcoinx import Header, hex_str_to_hash, Ops, Script
+from bitcoinx import hex_str_to_hash, Ops, Script
 import pytest
 
-from electrumsv.constants import (AccountFlags, BlockHeight, CHANGE_SUBPATH, DATABASE_EXT,
+from electrumsv.constants import (AccountFlags, CHANGE_SUBPATH, DATABASE_EXT,
     DerivationType, DatabaseKeyDerivationType, KeystoreTextType,
     MasterKeyFlags, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
     TxFlags, unpack_derivation_path)
@@ -28,7 +28,7 @@ from electrumsv.wallet import (DeterministicAccount, ImportedPrivkeyAccount,
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, TransactionLinkState, \
-    WalletBalance
+    TransactionProofRow, WalletBalance
 
 from .util import MockStorage, PasswordToken, setup_async, tear_down_async, TEST_WALLET_PATH
 
@@ -865,11 +865,15 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         db_context.release_connection(db)
 
 
-# TODO(1.4.0) Reorgs. Needs to be reimplemented based on block hashes, when the tip changes
-#     the wallet should detect it and gather all block hashes that are now invalidated and
-#     process the affected transactions. One place where we currently fail at this is where
-#     a wallet was not loaded when the blockchain changed.
-@pytest.mark.skip(reason="pending 1.4.0 header work")
+async def try_get_mapi_proofs_mock(tx_hashes: list[bytes]) \
+        -> tuple[set[bytes], list[TransactionProofRow]]:
+    return set(), []
+
+
+class MockHeadersClient:
+    pass
+
+
 @pytest.mark.asyncio
 @unittest.mock.patch('electrumsv.wallet.app_state')
 async def test_reorg(mock_app_state, tmp_storage) -> None:
@@ -887,6 +891,8 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
 
     wallet = Wallet(tmp_storage)
+    wallet.try_get_mapi_proofs = try_get_mapi_proofs_mock
+    wallet.main_server = MockHeadersClient()
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
@@ -902,9 +908,10 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
     db_context = tmp_storage.get_db_context()
     db = db_context.acquire_connection()
     try:
-        BLOCK_HASH = b'CAFECAFE'
-        BLOCK_HEIGHT = 1000
+        BLOCK_HASH_REORGED1 = b'HASH_FOR_REORG1'  # which will affect some txs
         BLOCK_POSITION = 3
+
+        BLOCK_HASH_REORGED2 = b'HASH_FOR_REORG2'  # we have no transactions in this block
 
         ## Add a transaction that is settled.
         tx_1 = Transaction.from_hex(tx_hex_funding)
@@ -913,38 +920,25 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         wallet._missing_transactions[tx_hash_1] = MissingTransactionEntry(
             TransactionImportFlag.UNSET)
         link_state = TransactionLinkState()
+
         await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SETTLED,
-            link_state=link_state)
-
-        class FakeHeader:
-            timestamp: int
-            hash: bytes
-
-        fake_header = cast(Header, FakeHeader())
-        fake_header.timestamp = 1
-        fake_header.height = BLOCK_HEIGHT
-        fake_header.hash = BLOCK_HASH
-
-        await wallet.add_transaction_proof(tx_hash_1, fake_header, BLOCK_POSITION,
-            BLOCK_POSITION, [ b'FAFFFAFF' ] * 10)
+            link_state=link_state, block_hash=BLOCK_HASH_REORGED1, block_position=BLOCK_POSITION,
+            tsc_proof_bytes=b'TSC_FAKE_PROOF_BYTES')
 
         tx_metadata_1 = wallet.data.get_transaction_metadata(tx_hash_1)
         assert tx_metadata_1 is not None
-        assert tx_metadata_1.block_hash == BLOCK_HASH
+        assert tx_metadata_1.block_hash == BLOCK_HASH_REORGED1
         assert tx_metadata_1.block_position == BLOCK_POSITION
-        assert tx_metadata_1.fee_value is None # == FEE_VALUE
+        assert tx_metadata_1.fee_value is None  # == FEE_VALUE
 
         # TODO(1.4.0) Reorgs. Verify that spent output registrations would pick this up.
         # ## Verify that the transaction does not qualify for subscriptions.
         # sub_rows = db_functions.read_spent_outputs_to_monitor(db_context)
         # assert not len(sub_rows)
 
-        ## NOP reorg.
-        # This is the height at which the blockchain was re-orged above. It should not affect the
-        # transaction.
-        wallet.undo_verifications(BLOCK_HEIGHT)
-
-        # Check the flags are the same as we set.
+        # Reorg that doesn't affect our transactions
+        # We have no transactions in this block - there should be no effect
+        await wallet.on_reorg([BLOCK_HASH_REORGED2])
         tx_flags1 = db_functions.read_transaction_flags(db_context, tx_hash_1)
         assert tx_flags1 is not None
         assert tx_flags1 == TxFlags.STATE_SETTLED
@@ -952,12 +946,12 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         # Check the mined metadata is the same as we set.
         tx_metadata_1 = wallet.data.get_transaction_metadata(tx_hash_1)
         assert tx_metadata_1 is not None
-        assert tx_metadata_1.block_hash == BLOCK_HASH
+        assert tx_metadata_1.block_hash == BLOCK_HASH_REORGED1
         assert tx_metadata_1.block_position == BLOCK_POSITION
         assert tx_metadata_1.fee_value is None # == FEE_VALUE
 
-        ## Real reorg.
-        wallet.undo_verifications(BLOCK_HEIGHT-1)
+        # Real reorg.
+        await wallet.on_reorg([BLOCK_HASH_REORGED1])
 
         # Check that the expectation is that the nodes have for now moved it back into the mempool.
         tx_flags1 = db_functions.read_transaction_flags(db_context, tx_hash_1)

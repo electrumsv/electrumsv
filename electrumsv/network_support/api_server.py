@@ -62,13 +62,14 @@ from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator, BroadcastResponse, g
 
 
 if TYPE_CHECKING:
-    from ..network import SVServer, Network
+    from ..network import Network
     from ..wallet import AbstractAccount
 
 __all__ = [ "NewServerAccessState", "NewServer" ]
 
 
 STALE_PERIOD_SECONDS = 60 * 60 * 24
+ONE_DAY = 24 * 3600
 
 logger = logs.get_logger("api-server")
 
@@ -117,11 +118,6 @@ SERVER_CAPABILITIES = {
         CapabilitySupport(_("Transaction proofs"), ServerCapability.MERKLE_PROOF_NOTIFICATION,
             is_unsupported=True),
     ],
-    NetworkServerType.ELECTRUMX: [
-        CapabilitySupport(_("Blockchain scanning"), ServerCapability.SCRIPTHASH_HISTORY),
-        CapabilitySupport(_("Transaction broadcast"), ServerCapability.TRANSACTION_BROADCAST),
-        CapabilitySupport(_("Transaction proofs"), ServerCapability.MERKLE_PROOF_REQUEST),
-    ]
 }
 
 
@@ -185,7 +181,7 @@ async def broadcast_transaction(tx: Transaction, network: Network,
             api_server, credential_id, peer_channel, merkle_proof, ds_check)
     except BroadcastFailedError as e:
         account._wallet.data.delete_mapi_broadcast_callbacks(tx_hashes=[tx.hash()])
-        logger.error(f"Error broadcasting to mAPI for tx: {tx.txid()}. Error: {str(e)}")
+        logger.error("Error broadcasting to mAPI for tx: %s. Error: %s", tx.txid(), str(e))
         raise
 
     updates = [(MapiBroadcastStatusFlags.SUCCEEDED, tx.hash())]
@@ -210,6 +206,12 @@ class NewServerAccessState:
         # The fee quote we locally extracted and deserialised from the fee quote response.
         self.last_fee_quote: Optional[FeeQuote] = None
 
+        # TODO(1.4.0) Server Management. Carried forward from previous ElectrumX SVServerState
+        #  code. But the blacklisting and disabling feature is not currently made use of anywhere
+        self.retry_delay = 0
+        self.last_blacklisted = 0.
+        self.is_disabled = False
+
     def __repr__(self) -> str:
         return f"NewServerAccessState(last_try={self.last_try} last_good={self.last_good} " \
                f"last_fee_quote={self.last_fee_quote})"
@@ -219,6 +221,13 @@ class NewServerAccessState:
 
     def record_success(self) -> None:
         self.last_good = datetime.datetime.now(datetime.timezone.utc).timestamp()
+
+    def can_retry(self, now: float) -> bool:
+        return not self.is_disabled and not self.is_blacklisted(now) and \
+            self.last_try + self.retry_delay < now
+
+    def is_blacklisted(self, now: float) -> bool:
+        return self.last_blacklisted > now - ONE_DAY
 
     def update_fee_quote(self, fee_response: JSONEnvelope) -> None:
         """
@@ -416,7 +425,6 @@ class SelectionCandidate(NamedTuple):
     server_type: NetworkServerType
     credential_id: Optional[IndefiniteCredentialId]
     api_server: Optional[NewServer] = None
-    electrumx_server: Optional["SVServer"] = None
 
 
 def select_servers(capability_type: ServerCapability, candidates: List[SelectionCandidate]) \
@@ -511,10 +519,6 @@ def prioritise_broadcast_servers(estimated_tx_size: TransactionSize,
             assert key_state.last_fee_quote is not None
             estimator = MAPIFeeEstimator(key_state.last_fee_quote)
             fee_estimator = estimator.estimate_fee
-        elif candidate.server_type == NetworkServerType.ELECTRUMX:
-            # NOTE At some point if ElectrumX servers stick around maybe they will do their
-            #   own fee quotes.
-            fee_estimator = electrumx_fee_estimator
         else:
             raise NotImplementedError(f"Unsupported server type {candidate.server_type}")
         initial_fee = fee_estimator(estimated_tx_size)
