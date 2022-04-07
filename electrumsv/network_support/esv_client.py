@@ -47,15 +47,21 @@ from aiohttp import web, WSServerHandshakeError
 from bitcoinx import double_sha256, Chain, Header, hash_to_hex_str
 
 from ..app_state import app_state
-from ..bitcoin import TSCMerkleProof
 from ..exceptions import ServiceUnavailableError
-from ..network_support.exceptions import HeaderNotFoundError, HeaderResponseError
 from ..logs import logs
-from ..network_support.esv_client_types import (APITokenViewModelGet, ChannelId,
+from .esv_client_types import (ChannelId,
     ChannelNotification, GenericJSON, MessageViewModelGetBinary, MessageViewModelGetJSON,
-    MAPICallbackResponse, PeerChannelToken, PeerChannelMessage, PeerChannelViewModelGet,
-    RetentionViewModel, TokenPermissions, TipResponse, ServerConnectionState, TSCMerkleProofJson,
-    tsc_merkle_proof_json_to_binary)
+    MAPICallbackResponse, PeerChannelAPITokenViewModelGet, PeerChannelToken, PeerChannelMessage,
+    PeerChannelViewModelGet,
+    TokenPermissions, TipResponse, ServerConnectionState)
+from .exceptions import HeaderNotFoundError, HeaderResponseError
+
+# from .esv_client_types import (, ChannelId,
+#     ChannelNotification, Error,
+#     GenericJSON, PeerChannelToken, TokenPermissions, MAPICallbackResponse,
+#     MessageViewModelGetBinary, MessageViewModelGetJSON, PeerChannelMessage,
+#     PeerChannelViewModelGet, ServerConnectionState, TipResponse,
+#     WebsocketError)
 
 
 # TODO(1.4.0) Networking. Logging should be per server as before.
@@ -65,13 +71,14 @@ logger = logs.get_logger("esv-client")
 class PeerChannel:
     """Represents a single Peer Channel instance"""
 
-    def __init__(self, state: ServerConnectionState, channel_id: str,
+    def __init__(self, state: ServerConnectionState, channel_id: str, url: str,
             tokens: List[PeerChannelToken]) -> None:
         assert len(base64.urlsafe_b64decode(channel_id)) == 64, "Channel id should be 64 bytes"
-        for permissions, api_key in tokens:
+        for remote_token_id, permissions, api_key in tokens:
             assert len(base64.urlsafe_b64decode(api_key)) == 64, "Peer channel tokens should be " \
                                                                  "64 bytes"
         self.channel_id = channel_id
+        self.url = url
         self.tokens = tokens
         self.state = state
 
@@ -80,6 +87,7 @@ class PeerChannel:
 
     @classmethod
     def from_json(cls, json: PeerChannelViewModelGet, state: ServerConnectionState) -> PeerChannel:
+        url = json["href"]
         access_tokens = json['access_tokens']
         tokens = []
         for token in access_tokens:
@@ -88,9 +96,10 @@ class PeerChannel:
                 permissions |= TokenPermissions.READ_ACCESS
             if token['can_write']:
                 permissions |= TokenPermissions.WRITE_ACCESS
-            tokens.append(PeerChannelToken(permissions=permissions, api_key=token['token']))
+            tokens.append(PeerChannelToken(token["id"], permissions=permissions,
+                api_key=token['token']))
 
-        return cls(channel_id=json['id'], tokens=tokens, state=state)
+        return cls(channel_id=json['id'], url=url, tokens=tokens, state=state)
 
     def get_callback_url(self) -> str:
         return f"{self.state.server.url}api/v1/channel/{self.channel_id}"
@@ -171,27 +180,6 @@ class PeerChannel:
                 bin_response: MessageViewModelGetBinary = await response.json()
                 return bin_response
 
-    async def create_api_token(self, can_read: bool=True, can_write: bool=True,
-            description: str="standard token") -> PeerChannelToken:
-        url = f"{self.state.server.url}api/v1/channel/manage/{self.channel_id}/api-token"
-        assert self.state.credential_id is not None
-        master_token = app_state.credentials.get_indefinite_credential(self.state.credential_id)
-        headers = {"Authorization": f"Bearer {master_token}"}
-        body = {
-          "description": description,
-          "can_read": can_read,
-          "can_write": can_write
-        }
-        async with self.state.session.post(url, headers=headers, json=body) as response:
-            response.raise_for_status()  # Todo - remove and handle outcomes when we use this
-            json_token: APITokenViewModelGet = await response.json()
-            permissions: TokenPermissions = TokenPermissions.NONE
-            if json_token['can_read']:
-                permissions |= TokenPermissions.READ_ACCESS
-            if json_token['can_write']:
-                permissions |= TokenPermissions.WRITE_ACCESS
-            return PeerChannelToken(permissions=permissions, api_key=json_token['token'])
-
     async def list_api_tokens(self) -> list[PeerChannelToken]:
         url = f"{self.state.server.url}api/v1/channel/manage/{self.channel_id}/api-token"
         assert self.state.credential_id is not None
@@ -199,7 +187,7 @@ class PeerChannel:
         headers = {"Authorization": f"Bearer {master_token}"}
         async with self.state.session.get(url, headers=headers) as response:
             response.raise_for_status()  # Todo - remove and handle outcomes when we use this
-            json_tokens: list[APITokenViewModelGet] = await response.json()
+            json_tokens: list[PeerChannelAPITokenViewModelGet] = await response.json()
 
             result = []
             for json_token in json_tokens:
@@ -208,7 +196,7 @@ class PeerChannel:
                     permissions |= TokenPermissions.READ_ACCESS
                 if json_token['can_write']:
                     permissions |= TokenPermissions.WRITE_ACCESS
-                result.append(PeerChannelToken(permissions=permissions,
+                result.append(PeerChannelToken(json_token["id"], permissions=permissions,
                     api_key=json_token['token']))
             return result
 
@@ -272,32 +260,30 @@ class ESVClient:
                 logger.error("No messages could be returned from channel_id: %s, "
                              "do you have a valid read token?", channel_id)
 
-    # TODO(1.4.0) Merkle Proofs. Write tests for this function
-    # TODO(1.4.0) Merkle Proofs. Make sure that the proof data is added to the TransactionProofs
-    #  table regardless of whether or not it is an orphaned proof
-    async def wait_for_merkle_proofs_and_double_spends(self, state: ServerConnectionState) \
-            -> AsyncIterable[TSCMerkleProof]:
-        """NOTE(AustEcon): This function is not tested yet. It is only intended to show
-        general intent at this stage."""
-        child_tasks = []
-        for i in range(self._FETCH_JOBS_COUNT):
-            child_tasks.append(asyncio.create_task(
-                self._fetch_peer_channel_message_job(state.peer_channel_message_queue)))
+    # async def wait_for_merkle_proofs_and_double_spends(self, state: ServerConnectionState) \
+    #         -> AsyncIterable[TSCMerkleProof]:
+    #     """NOTE(AustEcon): This function is not tested yet. It is only intended to show
+    #     general intent at this stage."""
+    #     child_tasks = []
+    #     for i in range(self._FETCH_JOBS_COUNT):
+    #         child_tasks.append(asyncio.create_task(
+    #             self._fetch_peer_channel_message_job(state.peer_channel_message_queue)))
 
-        try:
-            while True:
-                # Todo run select query on MAPIBroadcastCallbacks to get libsodium encryption key
-                callback_response: MAPICallbackResponse = await self._merkle_proofs_queue.get()
-                tsc_merkle_proof: TSCMerkleProofJson = \
-                    json.loads(callback_response['callbackPayload'])
+    #     try:
+    #         # https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
+    #         while True:
+    #             # Todo run select query on MAPIBroadcastCallbacks to get libsodium encryption key
+    #             callback_response: MAPICallbackResponse = await self._merkle_proofs_queue.get()
+    #             tsc_merkle_proof: TSCMerkleProofJson = \
+    #                 json.loads(callback_response['callbackPayload'])
 
-                # NOTE(AustEcon) mAPI defaults to targetType == 'header' but the TSC spec defaults
-                # to 'hash' if the targetType field is omitted.
-                target_type = cast(str, tsc_merkle_proof.get('targetType', 'hash'))
-                yield tsc_merkle_proof_json_to_binary(tsc_merkle_proof, target_type=target_type)
-        finally:
-            for task in child_tasks:
-                task.cancel()
+    #             # NOTE(AustEcon) mAPI defaults to targetType == 'header' but the TSC spec defaults
+    #             # to 'hash' if the targetType field is omitted.
+    #             target_type = cast(str, tsc_merkle_proof.get('targetType', 'hash'))
+    #             yield tsc_merkle_proof_json_to_binary(tsc_merkle_proof, target_type=target_type)
+    #     finally:
+    #         for task in child_tasks:
+    #             task.cancel()
 
     # ----- HeaderSV APIs ----- #
     async def get_single_header(self, block_hash: bytes) -> bytes:
@@ -378,32 +364,6 @@ class ESVClient:
             raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 
     # ----- Peer Channel APIs ----- #
-    async def create_peer_channel(self, public_read: bool=True, public_write: bool=True,
-            sequenced: bool=True, retention: Optional[RetentionViewModel]=None) -> PeerChannel:
-        url = f"{self._state.server.url}api/v1/channel/manage"
-        body = {
-          "public_read": public_read,
-          "public_write": public_write,
-          "sequenced": sequenced,
-          "retention": {
-            "min_age_days": 0,
-            "max_age_days": 0,
-            "auto_prune": True
-          }
-        }
-        if retention:
-            body.update(retention)
-
-        assert self._state.credential_id is not None
-        master_token = app_state.credentials.get_indefinite_credential(self._state.credential_id)
-        headers = {"Authorization": f"Bearer {master_token}"}
-
-        async with self._state.session.post(url, headers=headers, json=body) as response:
-            response.raise_for_status()
-            json_response: PeerChannelViewModelGet = await response.json()
-            peer_channel = PeerChannel.from_json(json_response, self._state)
-            self._peer_channel_cache[peer_channel.channel_id] = peer_channel  # cache
-            return peer_channel
 
     async def delete_peer_channel(self, peer_channel: PeerChannel) -> None:
         url = f"{self._state.server.url}api/v1/channel/manage/{peer_channel.channel_id}"

@@ -31,7 +31,7 @@ from typing import Optional, TYPE_CHECKING
 import weakref
 
 from PyQt5.QtCore import pyqtSignal, QPoint, Qt, QTimer
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QIcon
 from PyQt5.QtWidgets import QLabel, QTreeWidgetItem, QMenu, QVBoxLayout
 
 from ...app_state import app_state
@@ -89,7 +89,8 @@ class RequestList(MyTreeWidget):
         self._logger = logs.get_logger("request-list")
 
         MyTreeWidget.__init__(self, receive_view, main_window, self.create_menu, [
-            _('Date'), _('Description'), _('Requested Amount'), _('Received Amount'), _('Status')],
+            _('Date'), _('Description'), _('Requested Amount'), _('Received Amount'),
+            _('Status') ],
             stretch_column=RequestColumn.DESCRIPTION,
             editable_columns=[])
 
@@ -149,7 +150,7 @@ class RequestList(MyTreeWidget):
         if not item.isSelected():
             return
         request_id = item.data(0, Qt.ItemDataRole.UserRole)
-        self._receive_view.show_dialog(request_id)
+        self._receive_view.show_dialog(request_id, PaymentFlag.NONE)
 
     def on_update(self) -> None:
         # This is currently triggered by events like `WalletEvent.TRANSACTION_ADD` from the main
@@ -190,6 +191,18 @@ class RequestList(MyTreeWidget):
                 received_amount_str,
                 pr_tooltips.get(state,'')
             ])
+
+            request_type = row.state & PaymentFlag.MASK_TYPE
+            type_icon: Optional[QIcon] = None
+            if request_type == PaymentFlag.INVOICE:
+                type_icon = read_QIcon("icons8-bill-80-blueui.png")
+            elif request_type == PaymentFlag.MONITORED:
+                type_icon = read_QIcon("icons8-signal-80-blueui.png")
+            elif request_type == PaymentFlag.IMPORTED:
+                type_icon = read_QIcon("icons8-communication-80-blueui.png")
+            if type_icon is not None:
+                item.setIcon(RequestColumn.DATE, type_icon)
+
             item.setData(RequestColumn.DATE, Qt.ItemDataRole.UserRole, row.paymentrequest_id)
             if state != PaymentFlag.UNKNOWN:
                 icon_name = pr_icons.get(state)
@@ -211,7 +224,8 @@ class RequestList(MyTreeWidget):
         column_title = self.headerItem().text(column)
         column_data = item.text(column).strip()
         menu = QMenu(self)
-        menu.addAction(_("Details"), lambda: self._receive_view.show_dialog(request_id))
+        menu.addAction(_("Details"), lambda: self._receive_view.show_dialog(request_id,
+            PaymentFlag.NONE))
         menu.addAction(_("Copy {}").format(column_title),
             lambda: app_state.app_qt.clipboard().setText(column_data))
         menu.addAction(_("Copy URI"),

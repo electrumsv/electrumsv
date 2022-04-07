@@ -129,6 +129,8 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         derivation_data_bytes, MasterKeyFlags.NONE, date_updated, date_updated))
 
     conn.execute("ALTER TABLE Accounts ADD COLUMN flags INTEGER NOT NULL DEFAULT 0")
+    conn.execute("ALTER TABLE Accounts ADD COLUMN indexer_server_id INTEGER DEFAULT NULL")
+    conn.execute("ALTER TABLE Accounts ADD COLUMN peer_channel_server_id INTEGER DEFAULT NULL")
     conn.execute("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
         "account_name, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
         (account_id, account_masterkey_id, ScriptType.P2PKH, "Petty cash",
@@ -154,6 +156,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     # Using a composite key to refer to servers and different tables is awkward, especially
     # as we add dependent tables on servers. For this reason both the base server table and
     # server account table are now merged and there is a primary key `server_id` column.
+    # TODO(1.4.0) Tip filters. `tip_filter_peer_channel_id` may be unnecessary.
     conn.execute("""
         CREATE TABLE Servers2 (
             server_id                   INTEGER     PRIMARY KEY,
@@ -163,12 +166,15 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             server_flags                INTEGER     NOT NULL DEFAULT 0,
             api_key_template            TEXT        DEFAULT NULL,
             encrypted_api_key           TEXT        DEFAULT NULL,
+            payment_key                 BLOB        DEFAULT NULL,
             fee_quote_json              TEXT        DEFAULT NULL,
+            tip_filter_peer_channel_id  INTEGER     DEFAULT NULL,
             date_last_connected         INTEGER     DEFAULT 0,
             date_last_tried             INTEGER     DEFAULT 0,
             date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,
-            FOREIGN KEY (account_id) REFERENCES Accounts (account_id)
+            FOREIGN KEY (account_id) REFERENCES Accounts (account_id),
+            FOREIGN KEY (tip_filter_peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
         )
     """)
     # We ignore the `ServerAccounts` table because if people have account-specific server entries
@@ -259,6 +265,73 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
 
     conn.execute("DROP TABLE PaymentRequests")
     conn.execute("ALTER TABLE PaymentRequests2 RENAME TO PaymentRequests")
+
+    conn.execute("""
+        CREATE TABLE ServerPeerChannels (
+            peer_channel_id             INTEGER     PRIMARY KEY,
+            server_id                   INTEGER     NOT NULL,
+            remote_channel_id           TEXT        DEFAULT NULL,
+            remote_url                  TEXT        DEFAULT NULL,
+            peer_channel_flags          INTEGER     NOT NULL,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (server_id) REFERENCES Servers (server_id)
+        )
+    """)
+
+    # TODO(1.4.0) Peer channels. Consider merging `token_flags` and `permission_flags`.
+    conn.execute("""
+        CREATE TABLE ServerPeerChannelAccessTokens (
+            peer_channel_id             INTEGER     NOT NULL,
+            remote_token_id             INTEGER     NOT NULL,
+            token_flags                 INTEGER     NOT NULL,
+            permission_flags            INTEGER     NOT NULL,
+            access_token                TEXT        NOT NULL,
+            FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
+        )
+    """)
+
+    # TODO(1.4.0) Key usage. How do we relate these to the source? Is there a way to say
+    #     this comes from this active key instance? Maybe it is enough to have a flag that
+    #     says this is from an active key instance. If something needs to know which then it
+    #     can ask the account or go work it out.
+
+    conn.execute("""
+        CREATE TABLE ServerPushDataRegistrations (
+            server_id                   INTEGER     NOT NULL,
+            keyinstance_id              INTEGER     NOT NULL,
+            pushdata_hash               BLOB        NOT NULL,
+            pushdata_flags              INTEGER     NOT NULL,
+            duration_seconds            INTEGER     NOT NULL,
+            date_registered             INTEGER     DEFAULT NULL,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (server_id) REFERENCES Servers (server_id),
+            FOREIGN KEY (keyinstance_id) REFERENCES KeyInstances (keyinstance_id)
+        )
+    """)
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ServerPushDataRegistrations_unique
+            ON ServerPushDataRegistrations(server_id, pushdata_hash)
+    """)
+
+    conn.execute("""
+        CREATE TABLE ServerPushDataMatches (
+            server_id                   INTEGER     NOT NULL,
+            pushdata_hash               BLOB        NOT NULL,
+            transaction_hash            BLOB        NOT NULL,
+            transaction_index           INTEGER     NOT NULL,
+            block_hash                  BLOCK       NULL,
+            match_flags                 INTEGER     NOT NULL,
+            date_created                INTEGER     NOT NULL,
+            FOREIGN KEY (server_id) REFERENCES Servers (server_id)
+        )
+    """)
+    conn.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_ServerPushDataMatches_unique
+            ON ServerPushDataMatches(pushdata_hash, transaction_hash, transaction_index)
+    """)
+
 
     # We need to persist the updated next primary key value for the `Accounts` table.
     # We need to persist the updated next identifier for the `Accounts` table.

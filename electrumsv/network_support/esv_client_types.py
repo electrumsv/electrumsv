@@ -8,19 +8,24 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import enum
+import logging
 import struct
 from enum import IntFlag
-from typing import Any, NamedTuple, Optional, Sequence, TYPE_CHECKING, TypedDict, Union
+from typing import Any, Callable, NamedTuple, Optional, Sequence, TYPE_CHECKING, TypedDict, Union
 
 import aiohttp
 import bitcoinx
 
 from ..bitcoin import TSCMerkleProof
+from ..constants import ServerCapability, ServerConnectionFlag
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
 
 if TYPE_CHECKING:
-    from ..wallet import WalletDataAccess
+    from ..wallet import Wallet, WalletDataAccess
+    from ..wallet_database.types import ServerPeerChannelRow
+
     from .api_server import NewServer
+    from .esv_client import PeerChannel
 
 
 # ----- ESVReferenceServer Error types ----- #
@@ -79,6 +84,7 @@ class TokenPermissions(IntFlag):
 
 
 class PeerChannelToken(NamedTuple):
+    remote_token_id: int
     permissions: TokenPermissions
     api_key: str
 
@@ -124,14 +130,6 @@ class PeerChannelViewModelGet(TypedDict):
     access_tokens: list[PeerChannelAPITokenViewModelGet]
 
 
-class APITokenViewModelGet(TypedDict):
-    id: str
-    token: str
-    description: str
-    can_read: bool
-    can_write: bool
-
-
 class MAPICallbackResponse(TypedDict):
     callbackPayload: str
     apiVersion: str
@@ -152,6 +150,25 @@ class MessageViewModelGetJSON(TypedDict):
     payload: MAPICallbackResponse  # Later this will be a Union of multiple message types
 
 
+class GenericPeerChannelMessage(TypedDict):
+    sequence: int
+    received: str
+    content_type: str
+    payload: Any
+
+
+class TipFilterPushDataMatchesData(TypedDict):
+    blockId: Optional[str]
+    matches: list[TipFilterPushDataMatch]
+
+
+class TipFilterPushDataMatch(TypedDict):
+    pushDataHashHex: str
+    transactionId: str
+    transactionIndex: int
+    flags: int
+
+
 class MessageViewModelGetBinary(TypedDict):
     sequence: int
     received: str
@@ -159,6 +176,7 @@ class MessageViewModelGetBinary(TypedDict):
     payload: str  # hex
 
 
+# TODO(1.4.0) Peer channels. Get rid of this. Use `GenericPeerChannelMessage`
 PeerChannelMessage = Union[MessageViewModelGetJSON, MessageViewModelGetBinary]
 
 
@@ -261,19 +279,103 @@ class AccountMessageKind(enum.IntEnum):
     SPENT_OUTPUT_EVENT = 2
 
 
+class TipFilterRegistrationJobEntry(NamedTuple):
+    pushdata_hash: bytes
+    duration_seconds: int
+    keyinstance_id: int
+
+
+@dataclasses.dataclass
+class TipFilterRegistrationJob:
+    entries: list[TipFilterRegistrationJobEntry]
+
+    # Input: If there is a contextual logger associated with this job it should be set here.
+    logger: Optional[logging.Logger] = None
+    # Input: If there is a payment request associated with this job this will be the id.
+    paymentrequest_id: Optional[int] = None
+    # Input: If there is a refresh callback associated with this job. This is not called the
+    #    registration process, but if necessary by user logic that has a reference to the job.
+    refresh_callback: Optional[Callable[[], None]] = None
+    # Input: If there is a completion callback associated with this job. This is not called the
+    #    registration process, but if necessary by user logic that has a reference to the job.
+    completion_callback: Optional[Callable[[], None]] = None
+
+    # Output: This will be set when the processing of this job starts.
+    start_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+    # Output: This will be set when the processing of this job ends successfully or by error.
+    completed_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+    # Output: If the registration succeeds this will be the UTC date the request expires.
+    date_registered: Optional[int] = None
+    # Output: If the registration errors this will be a description to explain why to the user.
+    failure_reason: Optional[str] = None
+
+
+class TipFilterRegistrationResponse(TypedDict):
+    dateCreated: str
+
+
+class IndexerServerSettings(TypedDict):
+    tipFilterCallbackUrl: Optional[str]
+    tipFilterCallbackToken: Optional[str]
+
+
 @dataclasses.dataclass
 class ServerConnectionState:
+    petty_cash_account_id: int
+    utilised_capabilities: set[ServerCapability]
+    wallet_proxy: Optional[Wallet]
     wallet_data: Optional[WalletDataAccess]
     session: aiohttp.ClientSession
     server: NewServer
 
-    # Incoming peer channel message notifications from the server.
-    peer_channel_message_queue: asyncio.Queue[ChannelNotification]
-    # Incoming spend notifications from the server.
-    output_spend_result_queue: asyncio.Queue[Sequence[OutputSpend]]
-    # Post outpoints here to get them registered with the server.
-    output_spend_registration_queue: asyncio.Queue[Sequence[Outpoint]]
-    # Set this is there are new pushdata hashes that need to be monitored.
-    tip_filter_new_pushdata_event: asyncio.Event
+    credential_id: Optional[IndefiniteCredentialId] = None
+    cached_peer_channels: Optional[dict[str, PeerChannel]] = None
+    cached_peer_channel_rows: Optional[dict[str, ServerPeerChannelRow]] = None
 
-    credential_id: Optional[IndefiniteCredentialId]=None
+    # Incoming peer channel message notifications from the server.
+    indexer_settings: Optional[IndexerServerSettings] = None
+    # Server consuming: Post outpoints here to get them registered with the server.
+    output_spend_registration_queue: asyncio.Queue[Sequence[Outpoint]] = dataclasses.field(
+        default_factory=asyncio.Queue[Sequence[Outpoint]])
+    # Server consuming: Incoming peer channel message notifications from the server.
+    peer_channel_message_queue: asyncio.Queue[str] = dataclasses.field(
+        default_factory=asyncio.Queue[str])
+    # Server consuming: Set this if there are new pushdata hashes that need to be monitored.
+    tip_filter_new_registration_queue: asyncio.Queue[TipFilterRegistrationJob] = \
+        dataclasses.field(default_factory=asyncio.Queue[TipFilterRegistrationJob])
+
+    # Wallet consuming: Post MAPI callback responses here to get them registered with the server.
+    mapi_callback_response_queue: asyncio.Queue[MAPICallbackResponse] = dataclasses.field(
+        default_factory=asyncio.Queue[MAPICallbackResponse])
+    # Wallet consuming: Incoming spend notifications from the server.
+    output_spend_result_queue: asyncio.Queue[Sequence[OutputSpend]] = dataclasses.field(
+        default_factory=asyncio.Queue[Sequence[OutputSpend]])
+    # Wallet consuming: Post tip filter matches here to get them registered with the server.
+    tip_filter_new_matches_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+
+    # The stage of the connection process it has last reached.
+    connection_flags: ServerConnectionFlag = ServerConnectionFlag.INITIALISED
+    stage_change_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+    # Set this if there is a problem with the connection worthy of abandoning it.
+    connection_exit_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+
+    def clear_for_reconnection(self) -> None:
+        # TODO(1.4.0) Servers. We should consider what can be cleared and the repercussions of
+        #     doing so.
+        self.connection_flags = ServerConnectionFlag.INITIALISED
+        self.stage_change_event.clear()
+        self.cached_peer_channels = None
+        self.cached_peer_channel_rows = None
+        self.indexer_settings = None
+        # When we establish a new websocket we will register all the outstanding output spend
+        # registrations that we need, so whatever is left in the queue at this point is redundant.
+        while not self.output_spend_registration_queue.empty():
+            self.output_spend_registration_queue.get_nowait()
+        while not self.peer_channel_message_queue.empty():
+            self.peer_channel_message_queue.get_nowait()
+
+
+class VerifiableKeyData(TypedDict):
+    public_key_hex: str
+    signature_hex: str
+    message_hex: str

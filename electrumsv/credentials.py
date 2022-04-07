@@ -48,10 +48,11 @@
 #   instance for different contexts, so maybe hashing b"ESV.api.key"+ unencrypted_bytes.
 
 from __future__ import annotations
+import asyncio
 import dataclasses
 import threading
 import time
-from typing import cast, Dict, NamedTuple, Optional, Protocol, Tuple
+from typing import Callable, cast, Dict, NamedTuple, Optional, Protocol, Tuple
 import uuid
 
 from bitcoinx import PrivateKey
@@ -92,6 +93,7 @@ class CredentialCache:
     def __init__(self) -> None:
         self._indefinite_credentials: Dict[IndefiniteCredentialId, IndefiniteCredential] = {}
         self._wallet_credentials: Dict[str, WalletCredential] = {}
+        self._request_callbacks: Dict[str, Callable[[Callable[[], None], str], None]] = {}
 
         self._check_thread: Optional[threading.Thread] = None
         self._credential_lock = threading.RLock()
@@ -110,6 +112,23 @@ class CredentialCache:
         with self._credential_lock:
             self._close_event.set()
             self._wallet_credentials = {}
+
+    def set_request_callback(self, wallet_path: str,
+            callback: Optional[Callable[[Callable[[], None], str], None]]) -> None:
+        """
+        In contexts outside of the GUI it may be necessary to request the password if it is not
+        cached and `get_or_request_wallet_password_async` is provided for this purpose. This
+        method should be used to set a non-blocking synchronous callback to initiate the
+        password request process. The callback itself should not block to do the password request
+        but should instead return, and whatever password request process is engaged should
+        call `set_wallet_password` with the standard flush policy.
+        """
+        if callback is None:
+            if wallet_path in self._request_callbacks:
+                del self._request_callbacks[wallet_path]
+        else:
+            assert wallet_path not in self._request_callbacks
+            self._request_callbacks[wallet_path] = callback
 
     def set_wallet_password(self, wallet_path: str, password: str,
             policy: Optional[CredentialPolicyFlag]=None) -> Optional[WalletPasswordToken]:
@@ -141,6 +160,11 @@ class CredentialCache:
 
     def get_wallet_password_and_policy(self, wallet_path: str) \
             -> Tuple[Optional[str], CredentialPolicyFlag]:
+        """
+        If the wallet password is cached, return it. Otherwise return `None`.
+
+        Raises no exceptions.
+        """
         # We ensure all the wallet paths have database extensions so that legacy wallets
         # passwords are applied to the migrated database paths.
         if not wallet_path.endswith(DATABASE_EXT):
@@ -158,6 +182,44 @@ class CredentialCache:
     def get_wallet_password(self, wallet_path: str) -> Optional[str]:
         password, _policy = self.get_wallet_password_and_policy(wallet_path)
         return password
+
+    async def get_or_request_wallet_password_async(self, wallet_path: str,
+            request_reason: str) -> Optional[str]:
+        """
+        If the wallet password is cached, return it. Otherwise try and request the password
+        from an external source. This will likely be prompting the user for the password and
+        displaying the text in `request_reason` to them.
+
+        For headless use cases (like the running ESV as a daemon where access to private keys
+        is required) the password should instead be cached in the credential cache for the
+        lifetime of the wallet instead as there will be no practical avenue for requesting the
+        password.
+
+        This function will block until any existing password request process is complete. If the
+        user leaves their wallet sitting open all day, that can be all day, should that request
+        process be a UI prompt.
+
+        Raises no exceptions.
+        """
+        password = self.get_wallet_password(wallet_path)
+        if password is not None:
+            return password
+
+        callback = self._request_callbacks.get(wallet_path)
+        if callback is None:
+            return None
+
+        def completion_callback() -> None:
+            from .app_state import app_state
+            app_state.async_.loop.call_soon_threadsafe(completion_event.set)
+
+        completion_event = asyncio.Event()
+        # This callback should be non-blocking.
+        callback(completion_callback, request_reason)
+        await completion_event.wait()
+
+        # The password should now be in the cache.
+        return self.get_wallet_password(wallet_path)
 
     def get_wallet_password_token(self, wallet_path: str) -> Optional[WalletPasswordToken]:
         # We ensure all the wallet paths have database extensions so that legacy wallets

@@ -7,8 +7,8 @@ from PyQt5.QtWidgets import (
     QApplication, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QWidget)
 import qrcode
 
-from electrumsv.i18n import _
-from electrumsv.app_state import app_state, get_app_state_qt
+from ...i18n import _
+from ...app_state import app_state, get_app_state_qt
 
 from .util import WindowModalDialog
 
@@ -24,6 +24,7 @@ class QRCodeWidget(QWidget):
         if fixedSize:
             self.setFixedSize(fixedSize, fixedSize)
         self.setData(data)
+        self.setToolTip(_("QR code"))
 
     def enterEvent(self, event: QEvent) -> None:
         get_app_state_qt().app_qt.setOverrideCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -53,9 +54,6 @@ class QRCodeWidget(QWidget):
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        if not self.data:
-            return
-
         black = QColor(0, 0, 0, 255)
         white = QColor(255, 255, 255, 255)
 

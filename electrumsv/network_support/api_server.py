@@ -44,19 +44,19 @@ import os
 from typing import cast, Dict, List, NamedTuple, Optional, TypedDict, TYPE_CHECKING
 
 from electrumsv.wallet_database.types import MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, \
-    NetworkServerRow
+    NetworkServerRow, ServerPeerChannelAccessTokenRow, ServerPeerChannelRow
 from electrumsv.types import IndefiniteCredentialId, ServerAccountKey, TransactionFeeEstimator, \
     TransactionSize
 
 from ..app_state import app_state
-from ..constants import NetworkServerFlag, NetworkServerType, ServerCapability
+from ..constants import NetworkServerFlag, NetworkServerType, PeerChannelAccessTokenFlag, \
+    ServerCapability, ServerPeerChannelFlag
 from ..exceptions import BroadcastFailedError, ServiceUnavailableError
 from ..i18n import _
 from ..logs import logs
 from ..transaction import Transaction
 from ..util import get_posix_timestamp
 
-from .esv_client import ESVClient
 from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator, BroadcastResponse, get_mapi_servers, \
     poll_servers_async, broadcast_transaction_mapi_simple, filter_mapi_servers_for_fee_quote
 
@@ -156,25 +156,52 @@ async def broadcast_transaction(tx: Transaction, network: Network,
     selection_candidates = account._wallet.get_servers_for_account(account,
         NetworkServerType.GENERAL)
 
-    assert broadcast_server.candidate.api_server is not None
-    state = account._wallet._TEMP_get_main_server_state()
-    esv_client = ESVClient(state)
+    state = account._wallet.get_server_state_for_capability(ServerCapability.PEER_CHANNELS)
+    assert state is not None
+    peer_channel_server_id = state.server.server_id
 
-    peer_channel = await esv_client.create_peer_channel()
-    server_id = state.server.database_rows[None].server_id
-    assert server_id is not None
+    from .general_api import create_peer_channel_async, create_peer_channel_api_token_async
+
+    date_created = get_posix_timestamp()
+    peer_channel_row = ServerPeerChannelRow(None, peer_channel_server_id, None, None,
+        ServerPeerChannelFlag.ALLOCATING | ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
+        date_created, date_created)
+    peer_channel_id = await state.wallet_data.create_server_peer_channel_async(peer_channel_row,
+        peer_channel_server_id)
+    peer_channel_row = peer_channel_row._replace(peer_channel_id=peer_channel_id)
+
+    # Peer channel server: create the remotely hosted peer channel.
+    peer_channel = await create_peer_channel_async(state)
+    assert state.cached_peer_channel_rows is not None
+    state.cached_peer_channel_rows[peer_channel.channel_id] = peer_channel_row
+
+    assert peer_channel_row.peer_channel_id is not None
+    assert len(peer_channel.tokens) == 1
+    peer_channel_token = peer_channel.tokens[0]
+    local_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
+        peer_channel_token.remote_token_id,
+        PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE, peer_channel_token.permissions,
+        peer_channel_token.api_key)
+
+    # Local database: Update for the server-side peer channel. Drop the `ALLOCATING` flag and
+    #     add the access token.
+    await state.wallet_data.update_server_peer_channel_async(peer_channel.channel_id,
+        peer_channel.url, ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, peer_channel_id,
+        addable_access_tokens=[local_access_token])
+
     mapi_callback_row = MAPIBroadcastCallbackRow(
         tx_hash=tx.hash(),
         peer_channel_id=peer_channel.channel_id,
         broadcast_date=datetime.datetime.utcnow().isoformat(),
         encrypted_private_key=os.urandom(64),  # libsodium encryption not implemented yet
-        server_id=server_id,
+        server_id=state.server.server_id,
         status_flags=MapiBroadcastStatusFlags.ATTEMPTING
     )
     await account._wallet.data.create_mapi_broadcast_callbacks_async([mapi_callback_row])
+
+    assert broadcast_server.candidate.api_server is not None
     api_server = broadcast_server.candidate.api_server
     credential_id = broadcast_server.candidate.credential_id
-    assert api_server is not None
 
     try:
         result = await broadcast_transaction_mapi_simple(tx.to_bytes(),
@@ -253,12 +280,15 @@ class NewServerAccessState:
 
 
 class NewServer:
-    def __init__(self, url: str, server_type: NetworkServerType) -> None:
+    def __init__(self, url: str, server_type: NetworkServerType, row: NetworkServerRow,
+            credential_id: Optional[IndefiniteCredentialId]) -> None:
         # TODO(1.4.0) Servers. Need to decide on a policy for trailing slashes.
         if not url.endswith("/") and url.find("?") == -1:
             url += "/"
         self.url = url
         self.server_type = server_type
+        assert row.server_id is not None
+        self.server_id = row.server_id
 
         # These are the enabled clients, whether they use an API key and the id if so.
         self.client_api_keys = dict[Optional[int], Optional[IndefiniteCredentialId]]()
@@ -268,6 +298,8 @@ class NewServer:
         # service separated by API key for this reason. We intentionally leave these in place
         # at least for now as they are kind of relative to the given key value.
         self.api_key_state = dict[Optional[IndefiniteCredentialId], NewServerAccessState]()
+
+        self.set_server_account_usage(row, credential_id)
 
     def get_account_ids(self) -> list[Optional[int]]:
         return list(self.client_api_keys)
@@ -338,6 +370,19 @@ class NewServer:
         """ An API server is considered unused if it is not a globally stored one (if it were it
             would have a config object) and it no longer has any loaded wallets using it. """
         return len(self.client_api_keys) == 0
+
+    def get_tip_filter_peer_channel_id(self, account_id: int) -> Optional[int]:
+        row = self.database_rows.get(account_id)
+        if row is None:
+            row = self.database_rows[None]
+        return row.tip_filter_peer_channel_id
+
+    def set_tip_filter_peer_channel_id(self, account_id: int, peer_channel_id: int) -> None:
+        key: Optional[int] = account_id
+        if account_id not in self.database_rows:
+            key = None
+        self.database_rows[key] = self.database_rows[key]._replace(
+            tip_filter_peer_channel_id=peer_channel_id)
 
     def should_request_fee_quote(self, credential_id: Optional[IndefiniteCredentialId]) -> bool:
         """
@@ -418,7 +463,8 @@ class NewServer:
         return results
 
     def __repr__(self) -> str:
-        return f"NewServer(url={self.url} server_type={self.server_type})"
+        return f"NewServer(server_id={self.server_id}, url={self.url} " \
+            f"server_type={self.server_type})"
 
 
 class SelectionCandidate(NamedTuple):
@@ -486,6 +532,18 @@ def pick_server_for_account(account: AbstractAccount, capability: ServerCapabili
     url = candidate.api_server.url
     assert url.endswith("/"), f"bad config url '{url}' lacks trailing slash"
     return url
+
+
+def select_servers_for_account(account: AbstractAccount, capability_flag: NetworkServerFlag) \
+        -> list[NewServer]:
+    selected_servers: List[NewServer] = []
+    candidates = account._wallet.get_servers_for_account(account, NetworkServerType.GENERAL)
+    for candidate in candidates:
+        server = candidate.api_server
+        assert server is not None
+        if server.database_rows[None].server_flags & capability_flag:
+            selected_servers.append(server)
+    return selected_servers
 
 
 class BroadcastCandidate(NamedTuple):

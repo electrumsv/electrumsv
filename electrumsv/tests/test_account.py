@@ -40,7 +40,7 @@ async def test_key_creation(mock_app_state) -> None:
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     account_row = wallet.add_accounts([ raw_account_row ])[0]
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)
@@ -105,7 +105,7 @@ async def test_key_reservation(mock_app_state) -> None:
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     account_row = wallet.add_accounts([ raw_account_row ])[0]
     account = StandardAccount(wallet, account_row)
     wallet.register_account(account.get_id(), account)

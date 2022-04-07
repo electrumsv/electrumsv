@@ -219,6 +219,7 @@ CHANGE_SUBPATH_BYTES = pack_derivation_path(CHANGE_SUBPATH)
 DEFAULT_FEE = 500
 
 WALLET_ACCOUNT_PATH_TEXT: str = "m/50'"
+WALLET_IDENTITY_PATH_TEXT: str = "m/51'"
 
 
 class KeystoreTextType(IntEnum):
@@ -313,8 +314,14 @@ class PaymentFlag(IntFlag):
     PAID                = 1 << 3     # send and propagated
     ARCHIVED            = 1 << 4     # unused until we have UI support for filtering
 
-    MASK_STATE = (UNPAID | EXPIRED | PAID | ARCHIVED)
-    CLEARED_MASK_STATE = ~MASK_STATE
+    LEGACY              = 0b00 << 10
+    INVOICE             = 0b01 << 10
+    IMPORTED            = 0b10 << 10
+    MONITORED           = 0b11 << 10
+
+    MASK_TYPE           = LEGACY | INVOICE | IMPORTED | MONITORED
+    MASK_STATE          = UNPAID | EXPIRED | PAID | ARCHIVED
+    CLEARED_MASK_STATE  = ~MASK_STATE
 
     NOT_ARCHIVED = ~ARCHIVED
 
@@ -532,3 +539,52 @@ class PendingHeaderWorkKind(IntEnum):
 
 
 NO_BLOCK_HASH = bytes(32)
+
+
+class ServerPeerChannelFlag(IntFlag):
+    NONE                                        = 0
+    # This gets set immediately before we create the actual peer channel remotely.
+    ALLOCATING                                  = 1 << 0
+
+    # Bits 16-18: Isolated purposes that the channels are used for.
+    TIP_FILTER_DELIVERY                         = 0b001 << 16
+    MAPI_BROADCAST_CALLBACK                     = 0b010 << 16
+
+    MASK_PURPOSE                                = 0b111 << 16
+
+
+
+class PeerChannelAccessTokenFlag(IntFlag):
+    NONE                                        = 0
+    FOR_TIP_FILTER_SERVER                       = 1 << 0
+    FOR_LOCAL_USAGE                             = 1 << 1
+
+
+class PushDataHashRegistrationFlag(IntFlag):
+    NONE                                        = 0
+    # This gets set immediately before we register the filter remotely.
+    REGISTERING                                 = 1 << 0
+    REGISTRATION_FAILED                         = 1 << 1
+
+
+class ServerConnectionFlag(IntFlag):
+    INITIALISED                                 = 1 << 0
+    STARTING                                    = 1 << 1
+    OUTPUT_SPENDS_READY                         = 1 << 3
+    TIP_FILTER_READY                            = 1 << 4
+    WEB_SOCKET_CONNECTED                        = 1 << 5
+    EXITING                                     = 1 << 6
+    EXITED                                      = 1 << 7
+
+    MASK_COMMON_INITIAL                         = INITIALISED | STARTING
+
+
+class PushDataMatchFlag(IntFlag):
+    NONE                                        = 0
+
+    # Remote flags we receive.
+    OUTPUT                                      = 1 << 0
+    INPUT                                       = 1 << 1
+
+    # Local flags we set.
+    UNPROCESSED                                 = 1 << 31

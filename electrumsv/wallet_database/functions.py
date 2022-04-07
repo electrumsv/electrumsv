@@ -38,8 +38,9 @@ from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, e
     read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
 
 from ..constants import (DerivationType, DerivationPath, KeyInstanceFlag,
-    pack_derivation_path, PaymentFlag, ScriptType, TransactionOutputFlag,
-    TxFlags, unpack_derivation_path, WalletEventFlag)
+    pack_derivation_path, PaymentFlag, PeerChannelAccessTokenFlag, PushDataHashRegistrationFlag,
+    ScriptType,
+    ServerPeerChannelFlag, TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag)
 from ..crypto import pw_decode, pw_encode
 from ..i18n import _
 from ..logs import logs
@@ -56,7 +57,9 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, MAPIBroadcastCallbackRow,
     MapiBroadcastStatusFlags, NetworkServerRow, PasswordUpdateResult,
-    PaymentRequestReadRow, PaymentRequestRow,PaymentRequestUpdateRow,
+    PaymentRequestReadRow, PaymentRequestRow,PaymentRequestUpdateRow, PushDataMatchMetadataRow,
+    PushDataMatchRow, PushDataHashRegistrationRow,
+    ServerPeerChannelAccessTokenRow, ServerPeerChannelRow,
     SpendConflictType, SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
     TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
     TransactionOutputSpendableRow, TransactionValueRow, TransactionMetadata,
@@ -73,7 +76,8 @@ def create_accounts(db_context: DatabaseContext, entries: Iterable[AccountRow]) 
     timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     query = ("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
-        "account_name, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        "account_name, flags, indexer_server_id, peer_channel_server_id, date_created, "
+        "date_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(query, datas)
@@ -426,10 +430,25 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
 
 @replace_db_context_with_connection
 def read_accounts(db: sqlite3.Connection) -> list[AccountRow]:
-    sql = (
-        "SELECT account_id, default_masterkey_id, default_script_type, account_name, flags "
-        "FROM Accounts")
+    sql = """
+        SELECT account_id, default_masterkey_id, default_script_type, account_name, flags,
+            indexer_server_id, peer_channel_server_id
+        FROM Accounts
+    """
     return [ AccountRow(*row) for row in db.execute(sql).fetchall() ]
+
+
+def update_account_server_ids_write(indexer_server_id: Optional[int],
+        peer_channel_server_id: Optional[int], account_id: int,
+        db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql = """
+        UPDATE Accounts
+        SET indexer_server_id=?, peer_channel_server_id=?
+        WHERE account_id=?
+    """
+    cursor = db.execute(sql, (indexer_server_id, peer_channel_server_id, account_id))
+    assert cursor.rowcount == 1
 
 
 @replace_db_context_with_connection
@@ -814,7 +833,7 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
         )
 
         SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value, KP.total_value,
-            PR.expiration, PR.description, PR.date_created
+            PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, PR.date_created
         FROM PaymentRequests PR
         INNER JOIN key_payments KP USING(keyinstance_id)
     """
@@ -828,7 +847,8 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
         raise NotImplementedError("request_id and keyinstance_id not supported")
     t = db.execute(sql, sql_values).fetchone()
     if t is not None:
-        return PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7])
+        return PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7],
+            t[8], t[9])
     return None
 
 
@@ -846,7 +866,8 @@ def read_payment_requests(db: sqlite3.Connection, account_id: int,
     )
 
     SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value, KP.total_value,
-        PR.expiration, PR.description, PR.date_created FROM PaymentRequests PR
+        PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, PR.date_created
+    FROM PaymentRequests PR
     INNER JOIN key_payments KP USING(keyinstance_id)
     """
     sql_values: list[Any] = [ account_id ]
@@ -854,8 +875,159 @@ def read_payment_requests(db: sqlite3.Connection, account_id: int,
     if clause:
         sql += f" WHERE {clause}"
         sql_values.extend(extra_values)
-    return [ PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7])
-        for t in db.execute(sql, sql_values).fetchall() ]
+    return [ PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7],
+        t[8], t[9]) for t in db.execute(sql, sql_values).fetchall() ]
+
+
+def create_pushdata_matches_write(rows: list[PushDataMatchRow],
+        db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql = """
+    INSERT INTO ServerPushDataMatches (server_id, pushdata_hash, transaction_hash,
+        transaction_index, block_hash, match_flags, date_created)
+    VALUES (?,?,?,?,?,?,?)
+    """
+    db.executemany(sql, rows)
+
+
+@replace_db_context_with_connection
+def read_pushdata_match_metadata(db: sqlite3.Connection) \
+        -> list[PushDataMatchMetadataRow]:
+    # TODO(1.4.0) Tip filters. There should be some flag which filters out processed entries
+    #     and the tx import should toggle that flag accordingly.
+    sql = """
+        SELECT KI.account_id, SPDR.pushdata_hash, SPDM.transaction_hash, SPDM.block_hash
+        FROM ServerPushDataRegistrations SPDR
+        INNER JOIN PaymentRequests PR ON PR.keyinstance_id=SPDR.keyinstance_id
+        INNER JOIN KeyInstances KI ON KI.keyinstance_id=SPDR.keyinstance_id
+        INNER JOIN ServerPushDataMatches SPDM ON SPDM.pushdata_hash = SPDR.pushdata_hash
+    """
+    sql_values: tuple[Any, ...] = ()
+    return [ PushDataMatchMetadataRow(*row) for row in db.execute(sql, sql_values) ]
+
+
+
+def create_tip_filter_pushdata_registrations_write(rows: list[PushDataHashRegistrationRow],
+        upsert: bool, db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    assert len(rows) > 0
+    assert len(rows[0]) == 8
+    assert rows[0].date_created > 0
+    assert rows[0].date_created == rows[0].date_updated
+    assert rows[0].duration_seconds > 5 * 60
+    sql = """
+    INSERT INTO ServerPushDataRegistrations (server_id, keyinstance_id, pushdata_hash,
+        pushdata_flags, duration_seconds, date_registered, date_created, date_updated)
+    VALUES (?,?,?,?,?,?,?,?)
+    """
+    if upsert:
+        sql += """
+        ON CONFLICT (server_id, pushdata_hash) DO UPDATE SET
+            pushdata_hash=excluded.pushdata_hash, pushdata_flags=excluded.pushdata_flags,
+            duration_seconds=excluded.duration_seconds, date_registered=excluded.date_registered,
+            date_updated=excluded.date_updated
+        WHERE excluded.server_id=ServerPushDataRegistrations.server_id AND
+              excluded.pushdata_hash=ServerPushDataRegistrations.pushdata_hash
+        """
+    db.executemany(sql, rows)
+
+
+def delete_registered_tip_filter_pushdatas_write(rows: list[tuple[int, int]],
+        db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql = "DELETE FROM ServerPushDataRegistrations WHERE server_id=? AND keyinstance_id=?"
+    db.executemany(sql, rows)
+
+
+@replace_db_context_with_connection
+def read_tip_filter_pushdata_registrations(db: sqlite3.Connection, server_id: int,
+        expiry_timestamp: Optional[int]=None, flags: Optional[PushDataHashRegistrationFlag]=None,
+        mask: Optional[PushDataHashRegistrationFlag]=None) -> list[PushDataHashRegistrationRow]:
+    """
+    We have registered pushdata hashes with an indexing service to watch for occurences of
+    them in new transactions observed either in the mempool or new blocks. These will always
+    have a duration `duration_seconds` observed from a start time `date_created`, which were
+    both provided to the indexing service.
+    """
+    sql = """
+        SELECT server_id, keyinstance_id, pushdata_hash, pushdata_flags, duration_seconds,
+            date_registered, date_created, date_updated
+        FROM ServerPushDataRegistrations
+        WHERE server_id=?"""
+    sql_values: list[Any] = [ server_id ]
+    clause, extra_values = flag_clause("pushdata_flags", flags, mask)
+    if clause:
+        sql += f" AND {clause}"
+        sql_values.extend(extra_values)
+    if expiry_timestamp is not None:
+        # It really does not matter if we do `>` or `>=` here the caller still needs to check.
+        sql += " AND date_created + duration_seconds >= ?"
+        sql_values.append(expiry_timestamp)
+    return [ PushDataHashRegistrationRow(*row) for row in db.execute(sql, sql_values).fetchall() ]
+
+
+@replace_db_context_with_connection
+def read_unregistered_tip_filter_pushdatas(db: sqlite3.Connection) -> list[tuple[bytes, int, int]]:
+    """
+    We have given out an output script or address for some other party to pay to, and we need
+    to watch for usage of it on the blockchain in order to identify which transaction it is used
+    in. This function identifies those we have given out, but do not have a record they are
+    monitored.
+
+    There are two use cases for this:
+    1. The user has forced a key to be flagged as active.
+    2. The user has created a payment request and given out an address or output script to another
+       party for them to pay to.
+
+    We are going to ignore the first case with key forced to active. That can be deferred, the main
+    case we want to support is the second one, where there is a payment request.
+    """
+    # TODO(1.4.0) Key usage. We have deferred keys that have been forced active, and need to
+    #     disallow that for now. Supporting it is a bonus task for the 1.4.0 release.
+    # TODO(petty-cash) This should likely limit results to a given petty cash account
+    sql = """
+        SELECT PR.pushdata_hash, PR.expiration, PR.keyinstance_id
+        FROM PaymentRequests PR
+        INNER JOIN KeyInstances KI ON KI.keyinstance_id=PR.keyinstance_id
+        LEFT JOIN ServerPushDataRegistrations PDR ON KI.keyinstance_id=PDR.keyinstance_id
+        WHERE PDR.keyinstance_id IS NULL AND KI.flags&?=?
+    """
+    sql_values = (KeyInstanceFlag.ACTIVE, KeyInstanceFlag.ACTIVE)
+    return [ cast(tuple[bytes, int, int], row) for row in db.execute(sql, sql_values).fetchall() ]
+
+
+@replace_db_context_with_connection
+def read_registered_tip_filter_pushdata_for_request(db: sqlite3.Connection, request_id: int) \
+        -> Optional[PushDataHashRegistrationRow]:
+    sql = """
+        SELECT PDR.server_id, PDR.keyinstance_id, PDR.pushdata_hash, PDR.pushdata_flags,
+            PDR.duration_seconds, PDR.date_registered, PDR.date_created, PDR.date_updated
+        FROM PaymentRequests PR
+        INNER JOIN KeyInstances KI ON KI.keyinstance_id=PR.keyinstance_id
+        LEFT JOIN ServerPushDataRegistrations PDR ON KI.keyinstance_id=PDR.keyinstance_id
+        WHERE PR.paymentrequest_id=?
+    """
+    row = db.execute(sql, (request_id,)).fetchone()
+    assert row is not None
+    if row[0] is None:
+        return None
+    return PushDataHashRegistrationRow(*row)
+
+
+def update_registered_tip_filter_pushdatas_write(rows: list[tuple[int, int, int, int, int, int]],
+        db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql = "UPDATE ServerPushDataRegistrations SET date_registered=?, date_updated=?, " \
+        "pushdata_flags=(pushdata_flags&?)|? WHERE server_id=? AND keyinstance_id=?"
+    db.executemany(sql, rows)
+
+
+def update_registered_tip_filter_pushdatas_flags_write(rows: list[tuple[int, int, int, int]],
+        db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql = "UPDATE ServerPushDataRegistrations SET pushdata_flags=?, date_updated=? " \
+        "WHERE server_id=? AND keyinstance_id=?"
+    db.executemany(sql, rows)
 
 
 @replace_db_context_with_connection
@@ -1179,8 +1351,8 @@ def read_bip32_keys_gap_size(db: sqlite3.Connection, account_id: int,
 def read_network_servers(db: sqlite3.Connection,
         server_key: Optional[ServerAccountKey]=None) -> list[NetworkServerRow]:
     read_server_row_sql = "SELECT server_id, server_type, url, account_id, server_flags, " \
-        "api_key_template, encrypted_api_key, fee_quote_json, date_last_tried, " \
-        "date_last_connected, date_created, date_updated FROM Servers"
+        "api_key_template, encrypted_api_key, fee_quote_json, tip_filter_peer_channel_id, " \
+        "date_last_tried, date_last_connected, date_created, date_updated FROM Servers"
     params: Sequence[Any] = ()
     if server_key is not None:
         read_server_row_sql += f" WHERE server_type=? AND url=?"
@@ -1188,6 +1360,97 @@ def read_network_servers(db: sqlite3.Connection,
     cursor = db.execute(read_server_row_sql, params)
     # WARNING The order of the fields in this data structure are implicitly linked to the query.
     return [ NetworkServerRow(*r) for r in cursor.fetchall() ]
+
+
+def create_server_peer_channel_write(row: ServerPeerChannelRow,
+        tip_filter_server_id: Optional[int]=None,
+        db: Optional[sqlite3.Connection]=None) -> int:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    flags = row.peer_channel_flags
+    # Ensure the inserted record gets an automatically allocated primary key.
+    assert row.peer_channel_id is None
+    # Ensure the remote id is only non-`None` outside of allocation operations.
+    assert row.remote_channel_id is None or flags & ServerPeerChannelFlag.ALLOCATING == 0
+    # Ensure the remote id is only `None` in an allocation operation.
+    assert row.remote_channel_id is not None or flags & ServerPeerChannelFlag.ALLOCATING != 0
+
+    sql = """
+        INSERT INTO ServerPeerChannels (peer_channel_id, server_id, remote_channel_id,
+            remote_url, peer_channel_flags, date_created, date_updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        RETURNING peer_channel_id
+    """
+    insert_result_1 = db.execute(sql, row).fetchone()
+    if insert_result_1 is None:
+        raise DatabaseUpdateError(f"Failed creating new server peer channel {row}")
+
+    # TODO(1.4.0) Tip filters. Can we get delete the `tip_filter_peer_channel_id` field?
+    #     We should just be able to do a preread based on the flags and enforce it.
+    peer_channel_id = cast(int, insert_result_1[0])
+    if row.peer_channel_flags & ServerPeerChannelFlag.TIP_FILTER_DELIVERY:
+        assert tip_filter_server_id is not None
+        sql = """
+            UPDATE Servers
+            SET tip_filter_peer_channel_id=?
+            WHERE server_id=? AND tip_filter_peer_channel_id IS NULL
+        """
+        cursor = db.execute(sql, (peer_channel_id, tip_filter_server_id))
+        if cursor.rowcount != 1:
+            raise DatabaseUpdateError(f"Server {tip_filter_server_id} already has tip filter "
+                "peer channel")
+
+    return peer_channel_id
+
+
+@replace_db_context_with_connection
+def read_server_peer_channels(db: sqlite3.Connection, server_id: int) \
+        -> list[ServerPeerChannelRow]:
+    sql = """
+        SELECT peer_channel_id, server_id, remote_channel_id, remote_url, peer_channel_flags,
+            date_created, date_updated
+        FROM ServerPeerChannels WHERE server_id=?
+    """
+    sql_values = (server_id,)
+    cursor = db.execute(sql, sql_values)
+    return [ ServerPeerChannelRow(row[0], row[1], row[2], row[3], ServerPeerChannelFlag(row[4]),
+        row[5], row[6]) for row in cursor.fetchall() ]
+
+
+def update_server_peer_channel_write(remote_channel_id: Optional[str],
+        remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
+        peer_channel_id: int, addable_access_tokens: list[ServerPeerChannelAccessTokenRow],
+        db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql = """
+        UPDATE ServerPeerChannels
+        SET remote_channel_id=?, remote_url=?, peer_channel_flags=?
+        WHERE peer_channel_id=?
+    """
+    cursor = db.execute(sql, (remote_channel_id, remote_url, peer_channel_flags,
+        peer_channel_id))
+    assert cursor.rowcount == 1
+
+    if len(addable_access_tokens) > 0:
+        sql = "INSERT INTO ServerPeerChannelAccessTokens (peer_channel_id, remote_token_id, " \
+            "token_flags, permission_flags, access_token) VALUES (?,?,?,?,?)"
+        cursor = db.executemany(sql, addable_access_tokens)
+        assert cursor.rowcount == len(addable_access_tokens)
+
+
+@replace_db_context_with_connection
+def read_server_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_id: int,
+        mask: Optional[PeerChannelAccessTokenFlag], flags: Optional[PeerChannelAccessTokenFlag]) \
+            -> list[ServerPeerChannelAccessTokenRow]:
+    sql = "SELECT peer_channel_id, remote_token_id, token_flags, permission_flags, access_token " \
+        "FROM ServerPeerChannelAccessTokens WHERE peer_channel_id=?"
+    sql_values: list[Any] = [peer_channel_id]
+    clause, extra_values = flag_clause("token_flags", flags, mask)
+    if clause:
+        sql += " AND "+ clause
+        sql_values.extend(extra_values)
+
+    return [ ServerPeerChannelAccessTokenRow(*row)
+        for row in db.execute(sql, sql_values).fetchall() ]
 
 
 @replace_db_context_with_connection
@@ -1884,6 +2147,24 @@ def update_wallet_event_flags(db_context: DatabaseContext,
     return db_context.post_to_thread(_write)
 
 
+def update_network_server_credentials_write(server_id: int, encrypted_api_key: Optional[str],
+        payment_key_bytes: Optional[bytes], db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    update_sql = "UPDATE Servers SET date_updated=?, encrypted_api_key=?, payment_key=? " \
+        "WHERE server_id=?"
+    sql_values = (int(get_posix_timestamp()), encrypted_api_key, payment_key_bytes, server_id)
+    cursor = db.execute(update_sql, sql_values)
+    assert cursor.rowcount == 1
+
+
+def update_network_server_peer_channel_id_write(server_id: int,
+        server_peer_channel_id: Optional[int], db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    update_sql = "UPDATE Servers SET date_updated=?, server_peer_channel_id=? WHERE server_id=?"
+    cursor = db.execute(update_sql, (int(get_posix_timestamp()), server_peer_channel_id, server_id))
+    assert cursor.rowcount == 1
+
+
 def update_network_servers_transaction(db_context: DatabaseContext,
         create_rows: list[NetworkServerRow], update_rows: list[NetworkServerRow],
         deleted_server_ids: list[int], deleted_server_keys: list[ServerAccountKey]) \
@@ -1893,11 +2174,13 @@ def update_network_servers_transaction(db_context: DatabaseContext,
     """
     # These columns should be in the same order as the `NetworkServerRow` tuple.
     insert_prefix_sql = "INSERT INTO Servers (server_id, server_type, url, account_id, " \
-        "server_flags, api_key_template, encrypted_api_key, fee_quote_json, date_last_connected, " \
-        "date_last_tried, date_created, date_updated) VALUES"
+        "server_flags, api_key_template, encrypted_api_key, fee_quote_json, " \
+        "tip_filter_peer_channel_id, date_last_connected, date_last_tried, date_created, " \
+        "date_updated) VALUES"
     insert_suffix_sql = "RETURNING server_id, server_type, url, account_id, " \
-        "server_flags, api_key_template, encrypted_api_key, fee_quote_json, date_last_connected, " \
-        "date_last_tried, date_created, date_updated"
+        "server_flags, api_key_template, encrypted_api_key, fee_quote_json, " \
+        "tip_filter_peer_channel_id, date_last_connected, date_last_tried, " \
+        "date_created, date_updated"
     update_sql = "UPDATE Servers SET date_updated=?, api_key_template=?, encrypted_api_key=?, " \
         "server_flags=? WHERE server_id=?"
     delete_ids_sql = "DELETE FROM Servers WHERE server_id=?"
@@ -2024,7 +2307,7 @@ def read_reorged_transactions(db: sqlite3.Connection,
 def read_merkle_proofs(db: sqlite3.Connection, tx_hashes: list[bytes]=[]) \
         -> list[TransactionProofRow]:
     sql = """
-        SELECT block_hash, tx_hash, proof_data, block_position FROM TransactionProofs 
+        SELECT block_hash, tx_hash, proof_data, block_position FROM TransactionProofs
         WHERE tx_hash in ({})
     """
     return read_rows_by_id(TransactionProofRow, db, sql, [ ], tx_hashes)

@@ -1,27 +1,83 @@
 <h2>The Expected payment dialog</h2>
 <p style="text-align: center"><i>Provisional in-wallet help</i></p>
 <p>
-The Expected payment dialog is used to both view and edit existing incoming payments for the
-selected account.
-
-The Receive tab is used to declare to the wallet that the user expects an incoming payment to
-be received at some point. Unless the user has declared this to the wallet, the wallet will not
-look for the payment and will never know about it. For this reason the user must click
-the <cite>Create</cite> button before a payment destination is reserved and made available to them
-to give out.
+    The Expected payment dialog is used to creare, view and edit expected payments for the
+    selected account. An expected payment declares to the wallet that the user expects to
+    receive an incoming payment at some point. This is useful to keep track of those payments,
+    match them to transactions obtained in some way.
 </p>
 
-<h3>Sharing payment details</h3>
+<h3>Payment type: online invoice</h3>
 <p>
-Once an expected payment has been created, it is useful to share it with whoever is going to
-pay it. There are several ways this can be done.
+    This is the recommended way to receive payments. The user makes use of an invoicing service
+    to generate and host their payment. They then give the link to their invoice on the invoicing
+    server, and the service notifies them when a payment is made.
 </p>
-<h4>Copy payment link</h4>
+<h4>Sharing by copying the payment link</h4>
+<p>
+    When the service has accepted hosting the invoice for you, the "Copy payment link" will be
+    enabled and clicking on it will copy the invoice link to the clipboard. Give it to the party
+    who will be paying you, and they can open it in their wallet and have the process of paying
+    you streamlined.
+</p>
+<h4>Sharing by copying the payment destination</h4>
+<p>
+    This is not supported for invoices. There will be no way to detect any payment they make.
+</p>
+<h4>Sharing by scanning the QR code</h4>
+<p>
+    The QR code encodes the payment link, and using a device that can scan the QR code, it is
+    expected that the device can process that link. It should be scanned by the party that will
+    make the payment. If the wallet owner wishes to give out the link to another party who is
+    not present to scan the QR code, they should use the "Copy payment link" button instead.
+</p>
+
+<h3>Payment type: monitoring the blockchain</h3>
+<p>
+    This is the way that payments were done in the past. The user may have to pay a service to
+    watch for new transactions in order to detect and obtain them. It has a risk in that if the
+    user gives out the payment destination and they have not paid the service, it may become much
+    more expensive to find payment transactions which the service did not know to watch for.
+</p>
+<h4>Sharing by copying the payment link</h4>
+<p>
+    This button copies a <cite>bitcoin:</cite> style link. This link includes all the relevant
+    details including the description, and the BSV amount. This is a BIP21 style link.
+</p>
+<h4>Sharing by copying the payment destination</h4>
+<p>
+    This can either be done by selecting the text in the <cite>Payment destination</cite> field
+    and copying it the same way you would with any other selected text, or you can click the
+    copy button on the right hand side of the field. This copies the shown payment destination
+    whether it is an address or a BIP276-encoded script in the case of accounts that cannot use
+    addresses.
+</p>
+<h4>Sharing by scanning the QR code</h4>
+<p>
+    The QR code encodes the payment link, and using a device that can scan the QR code, it is
+    expected that the device can process that link. It should be scanned by the party that will
+    make the payment.
+</p>
+
+<h3>Payment type: transaction import</h3>
+<p>
+    This is safer than monitoring the blockchain for a payment. The user knows that they can
+    obtain either the transaction id or the transaction itself, from the party that is going to
+    pay them. This might be an exchange, or some other kind of business, that has outdated tools
+    and pays through the blockchain.
+</p>
+<p>
+    The user can either import the transaction data if they have it, or give the transaction id
+    to the wallet, and wallet can try and obtain the transaction. This will also attempt to get
+    the important related data for the transaction, like proofs that it was mined in a given
+    block.
+</p>
+<h4>Sharing by copying the payment link</h4>
 <p>
 This button copies a <cite>bitcoin:</cite> style link. This link includes all the relevant
 details including the description, and the BSV amount. This is a BIP21 style link.
 </p>
-<h4>Copy the payment destination</h4>
+<h4>Sharing by copying the payment destination</h4>
 <p>
 This can either be done by selecting the text in the <cite>Payment destination</cite> field
 and copying it the same way you would with any other selected text, or you can click the
@@ -29,42 +85,49 @@ copy button on the right hand side of the field. This copies the shown payment d
 whether it is an address or a BIP276-encoded script in the case of accounts that cannot use
 addresses.
 </p>
-<h4>The QR code</h4>
+<h4>Sharing by scanning the QR code</h4>
 <p>
 The QR code encodes the payment link, and using a device that can scan the QR code, it is expected
-that the device can process that link.
+that the device can process that link. It should be scanned by the party that will make the
+payment.
 </p>
 
 <h3>Payment fields</h3>
 <h4>Account</h4>
 <p>
-Because it is possible for an expected payment dialog to be open for a different account other
-than the currently selected one, we show the account that the expected payment belongs to.
+    In order to make it clear which account the payment will be credited to, we show the account
+    name here.
 </p>
 <h4>Payment destination</h4>
 <p>
-This is the assigned key for the given payment. If the account is the type that uses addresses
-it will be shown as an address, otherwise it will be shown as a BIP276-encoded script.
+    This is the unique payment destination for the given payment. If the account is the type that
+    uses addresses this will be shown as an address, otherwise it will be shown as a
+    BIP276-encoded script.
+</p>
+<p>
+    However, for invoices this will not be shown at all. Users should use the "Copy payment link"
+    button or QR code to give out the payment URL for the invoice.
 </p>
 <h4>Description (required)</h4>
 <p>
-The <cite>Description</cite> field describes the expected payment so that the user can
-distinguish it from any of their other payments.
+    The <cite>Description</cite> field describes the expected payment so that the user can
+    distinguish it from any of their other payments. When the payment transaction is imported
+    it will be shown in the transaction history and given this description automatically.
 </p>
 <h4>Requested amount (optional)</h4>
 <p>
-The <cite>Requested amount</cite> field if empty, represents an incoming payment of unknown value
-or perhaps the user cannot be bothered to fill out a value. If a value is provided, then the
-expected payment will not be closed out until either sufficient payments are received to meet that
-value, or the expiry period has passed. Address reuse is considered to lower privacy, so it is
-recommended that anyone paying pay as one single transaction and not multiple, unless a separate
-expected payment is created for each transaction.
+    The <cite>Requested amount</cite> field if empty, represents an incoming payment of unknown
+    value or perhaps the user cannot be bothered to fill out a value. If a value is provided, then
+    the expected payment will not be closed out until either sufficient payments are received to
+    meet that value, or the expiry period has passed. Address reuse is considered to lower
+    privacy, so it is recommended that anyone paying pay as one single transaction and not
+    multiple, unless a separate expected payment is created for each transaction.
 </p>
 <p>
-If fiat is enabled for the wallet two fields will be shown here, both BSV and the selected fiat
-currency. If fiat is not enabled, then only the BSV field will be shown here.
+    If fiat is enabled for the wallet two fields will be shown here, both BSV and the selected fiat
+    currency. If fiat is not enabled, then only the BSV field will be shown here.
 </p>
 <h4>Request expires</h4>
 <p>
-This currently describes the expiry period of the payment. It cannot currently be edited.
+    This currently describes the expiry period of the payment. It cannot currently be edited.
 </p>

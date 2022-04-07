@@ -151,13 +151,28 @@ class OutputSpend(NamedTuple):
             (f'"{hash_to_hex_str(self.block_hash)}"' if self.block_hash else 'None') +')'
 
 
-OUTPOINT_FORMAT = ">32sI"
-outpoint_struct = struct.Struct(OUTPOINT_FORMAT)
-outpoint_struct_size = outpoint_struct.size
+class TipFilterRegistrationEntry(NamedTuple):
+    pushdata_hash: bytes
+    duration_seconds: int
 
-OUTPUT_SPEND_FORMAT = ">32sI32sI32s"
-output_spend_struct = struct.Struct(OUTPUT_SPEND_FORMAT)
-output_spend_struct_size = output_spend_struct.size
+    def __repr__(self) -> str:
+        return f"TipFilterRegistrationEntry({self.pushdata_hash.hex()}, {self.duration_seconds})"
+
+
+class TipFilterListEntry(NamedTuple):
+    pushdata_hash: bytes
+    date_created: int
+    duration_seconds: int
+
+    def __repr__(self) -> str:
+        return f"TipFilterListEntry({self.pushdata_hash.hex()}, {self.date_created}, " \
+            f"{self.duration_seconds})"
+
+
+outpoint_struct = struct.Struct(">32sI")
+output_spend_struct = struct.Struct(">32sI32sI32s")
+tip_filter_registration_struct = struct.Struct(">32sI")
+tip_filter_list_struct = struct.Struct(">32sII")
 
 
 ExceptionInfoType = Tuple[Type[BaseException], BaseException, TracebackType]

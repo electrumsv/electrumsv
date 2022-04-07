@@ -390,7 +390,7 @@ class BlockchainScanDialog(WindowModalDialog):
             self._scan_button.setEnabled(False)
 
             # Gather the related import state for the scanned transactions.
-            obtain_tx_keys: List[Tuple[bytes, bool]] = []
+            obtain_tx_keys = list[tuple[bytes, bool]]()
             link_tx_hashes: Set[bytes] = set()
             for tx_hash, import_entry in self._import_state.items():
                 if import_entry.already_imported or import_entry.already_conflicting:

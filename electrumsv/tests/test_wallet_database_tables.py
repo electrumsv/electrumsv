@@ -2,7 +2,7 @@ import base64
 import datetime
 import os
 import tempfile
-from typing import cast, Generator, List, Optional
+from typing import Generator, List, Optional
 import unittest.mock
 
 import bitcoinx
@@ -18,7 +18,8 @@ except ModuleNotFoundError:
 
 from electrumsv.constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
     MasterKeyFlags, NetworkServerFlag, NetworkServerType,
-    PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
+    PaymentFlag, ScriptType, ServerPeerChannelFlag, TransactionOutputFlag, TxFlags,
+    WalletEventFlag, WalletEventType)
 from electrumsv.types import Outpoint, ServerAccountKey
 from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
@@ -26,7 +27,7 @@ from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
     NetworkServerRow, PaymentRequestReadRow, PaymentRequestRow,
-    PaymentRequestUpdateRow, TransactionRow, TransactionOutputShortRow,
+    PaymentRequestUpdateRow, ServerPeerChannelRow, TransactionRow, TransactionOutputShortRow,
     WalletBalance, WalletEventInsertRow)
 
 from .util import PasswordToken
@@ -103,7 +104,7 @@ def test_database_context() -> None:
 
 
 
-def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
+def test_table_masterkeys_CRUD(db_context: DatabaseContext) -> None:
     masterkey_rows = db_functions.read_masterkeys(db_context)
     assert len(masterkey_rows) == 2
     wallet_row = [ row for row in masterkey_rows if row.parent_masterkey_id is None ][0]
@@ -144,7 +145,7 @@ def test_table_masterkeys_crud(db_context: DatabaseContext) -> None:
     # assert masterkey_row1.derivation_data == b'234'
 
 
-def test_table_accounts_crud(db_context: DatabaseContext) -> None:
+def test_table_accounts_CRUD(db_context: DatabaseContext) -> None:
     rows = db_functions.read_accounts(db_context)
     assert len(rows) == 1
     assert rows[0].flags == AccountFlags.IS_PETTY_CASH
@@ -153,9 +154,9 @@ def test_table_accounts_crud(db_context: DatabaseContext) -> None:
     MASTERKEY_ID = 20
 
     line1 = AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name1',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     line2 = AccountRow(ACCOUNT_ID+2, MASTERKEY_ID+1, ScriptType.P2PK, 'name2',
-        AccountFlags(1 << 20))
+        AccountFlags(1 << 20), None, None)
 
     # No effect: The masterkey foreign key constraint will fail as the masterkey does not exist.
     with pytest.raises(sqlite3.IntegrityError):
@@ -220,9 +221,9 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
 
     # Create the accounts.
     account1 = AccountRow(ACCOUNT_ID_1, MASTERKEY_ID_1, ScriptType.P2PKH, 'name1',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     account2 = AccountRow(ACCOUNT_ID_2, MASTERKEY_ID_2, ScriptType.P2PK, 'name2',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
 
     future = db_functions.create_accounts(db_context, [ account1, account2 ])
     future.result()
@@ -288,7 +289,7 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     assert 0 == len(tx_hashes_3)
 
 
-def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
+def test_table_keyinstances_CRUD(db_context: DatabaseContext) -> None:
     rows = db_functions.read_keyinstances(db_context)
     assert len(rows) == 0
 
@@ -321,7 +322,7 @@ def test_table_keyinstances_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID+1, MASTERKEY_ID+1, ScriptType.P2PKH, 'name',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -535,7 +536,7 @@ class TestTransactionTable:
     #         assert proof.branch == merkle_branch1
 
 
-def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
+def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     TX_BYTES_COINBASE = os.urandom(100)
     TX_HASH_COINBASE = bitcoinx.double_sha256(TX_BYTES_COINBASE)
     TX_BYTES = os.urandom(100)
@@ -587,7 +588,7 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -923,7 +924,7 @@ def test_table_transactionoutputs_crud(db_context: DatabaseContext) -> None:
 
 
 @pytest.mark.asyncio
-async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
+async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     TX_BYTES = os.urandom(10)
     TX_HASH = bitcoinx.double_sha256(TX_BYTES)
     TX_INDEX = 1
@@ -960,7 +961,7 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -989,6 +990,8 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
         assert row1.requested_value == row2.requested_value
         assert row1.expiration == row2.expiration
         assert row1.description == row2.description
+        assert row1.script_type == row2.script_type
+        assert row1.pushdata_hash == row2.pushdata_hash
         assert -1 != row2.date_created
 
     # Read all rows in the table.
@@ -1091,7 +1094,7 @@ async def test_table_paymentrequests_crud(db_context: DatabaseContext) -> None:
     assert db_lines[0].paymentrequest_id == line2.paymentrequest_id
 
 
-def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
+def test_table_walletevents_CRUD(db_context: DatabaseContext) -> None:
     MASTERKEY_ID = 10
     ACCOUNT_ID = 10
 
@@ -1114,7 +1117,7 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     future = db_functions.create_accounts(db_context, [ account_row ])
     future.result()
 
@@ -1145,7 +1148,7 @@ def test_table_walletevents_crud(db_context: DatabaseContext) -> None:
 
 
 @unittest.mock.patch('electrumsv.wallet_database.functions.get_posix_timestamp')
-def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContext) -> None:
+def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: DatabaseContext) -> None:
     mock_get_posix_timestamp.side_effect = lambda: 111
 
     db_lines = db_functions.read_invoices_for_account(db_context, 1)
@@ -1189,9 +1192,9 @@ def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContex
 
     # Satisfy the account foreign key constraint by creating the account.
     account_row1 = AccountRow(ACCOUNT_ID_1, MASTERKEY_ID, ScriptType.P2PKH, 'name1',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     account_row2 = AccountRow(ACCOUNT_ID_2, MASTERKEY_ID, ScriptType.P2PKH, 'name2',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     future = db_functions.create_accounts(db_context, [ account_row1, account_row2 ])
     future.result()
 
@@ -1318,6 +1321,45 @@ def test_table_invoice_crud(mock_get_posix_timestamp, db_context: DatabaseContex
     assert db_lines[0].invoice_id == line1_1.invoice_id
 
 
+def test_table_peer_channels_CRUD(db_context: DatabaseContext) -> None:
+    date_created = 1
+
+    # Ensure that the foreign key requirement for an existing server is met.
+    server_row = NetworkServerRow(None, NetworkServerType.GENERAL, "url", None,
+        NetworkServerFlag.NONE, None, None, None, None, 0, 0, date_created, date_created)
+    future = db_functions.update_network_servers_transaction(db_context, [ server_row ], [], [], [])
+    created_server_rows = future.result()
+    assert len(created_server_rows) == 1
+    server_id = created_server_rows[0].server_id
+    assert server_id is not None
+
+    # Check that the foreign key constraint fails on the insert with a non-existing server id.
+    create_row = ServerPeerChannelRow(None, 23, None, None, ServerPeerChannelFlag.ALLOCATING,
+        date_created, date_created)
+    future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
+        create_row)
+    # NOTE(pysqlite3-binary) Different errors on Linux and Windows.
+    #     Windows: "sqlite3.IntegrityError: FOREIGN KEY constraint failed"
+    #     Linux:   "pysqlite3.dbapi2.OperationalError: FOREIGN KEY constraint failed"
+    with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)):
+        future.result()
+
+    # Check that a valid insert succeeds.
+    create_row = ServerPeerChannelRow(None, server_id, None, None, ServerPeerChannelFlag.ALLOCATING,
+        date_created, date_created)
+    future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
+        create_row)
+    peer_channel_id = future.result()
+    assert type(peer_channel_id) is int
+    created_row = create_row._replace(peer_channel_id=peer_channel_id)
+
+    # Check that a read produces the same result as the insert.
+    read_rows = db_functions.read_server_peer_channels(db_context, server_id)
+    assert len(read_rows) == 1
+    read_row = read_rows[0]
+    assert read_row == created_row
+
+
 def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     """
     This test creates the desired non-matches and all the desired matches and verifies that
@@ -1341,11 +1383,11 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     account_row1 = AccountRow(ACCOUNT1_ID, MASTERKEY1_ID, ScriptType.P2PKH, 'name1',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     account_row2 = AccountRow(ACCOUNT2_ID, MASTERKEY2_ID, ScriptType.P2PK, 'name2',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     account_row3 = AccountRow(ACCOUNT3_ID, MASTERKEY3_ID, ScriptType.P2PK, 'name2',
-        AccountFlags.NONE)
+        AccountFlags.NONE, None, None)
     future = db_functions.create_accounts(db_context, [ account_row1, account_row2, account_row3 ])
     future.result()
 
@@ -1472,11 +1514,11 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     URL = "..."
     server_rows = [
         NetworkServerRow(SERVER_ID+1, SERVER_TYPE, URL*1, None, NetworkServerFlag.NONE,
-            None, None, None, 0, 0, date_updated, date_updated),
+            None, None, None, None, 0, 0, date_updated, date_updated),
     ]
     server_account_rows = [
         NetworkServerRow(SERVER_ID+2, SERVER_TYPE, URL*1, ACCOUNT_ID, NetworkServerFlag.NONE,
-            None, None, None, 0, 0, date_updated, date_updated)
+            None, None, None, None, 0, 0, date_updated, date_updated)
     ]
 
     ## Server row creation.
@@ -1531,7 +1573,7 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
         masterkey_future.result(timeout=5)
 
         line1 = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name1',
-            AccountFlags.NONE)
+            AccountFlags.NONE, None, None)
         account_future = db_functions.create_accounts(db_context, [ line1 ])
         account_future.result(timeout=5)
 

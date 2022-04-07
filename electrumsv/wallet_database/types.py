@@ -2,8 +2,9 @@ from enum import IntEnum
 from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Set, Tuple, Union
 
 from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
-    MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag, ScriptType,
-    TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
+    MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag,
+    PeerChannelAccessTokenFlag, PushDataMatchFlag, PushDataHashRegistrationFlag, ScriptType,
+    ServerPeerChannelFlag, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 from ..types import MasterKeyDataTypes
 
 
@@ -13,6 +14,8 @@ class AccountRow(NamedTuple):
     default_script_type: ScriptType
     account_name: str
     flags: AccountFlags
+    indexer_server_id: Optional[int]
+    peer_channel_server_id: Optional[int]
 
 
 class AccountTransactionDescriptionRow(NamedTuple):
@@ -163,6 +166,8 @@ class NetworkServerRow(NamedTuple):
     encrypted_api_key: Optional[str]
     # MAPI specific: used for JSONEnvelope serialised transaction fee quotes.
     mapi_fee_quote_json: Optional[str]
+    # Indexer server specific: used for tip filter notifications.
+    tip_filter_peer_channel_id: Optional[int]
     date_last_try: int
     date_last_good: int
     date_created: int
@@ -175,6 +180,12 @@ class PasswordUpdateResult(NamedTuple):
     masterkey_updates: List[Tuple[int, DerivationType, MasterKeyDataTypes]]
 
 
+class PushDataRegistrationRow(NamedTuple):
+    pushdata_flags: int
+    date_created: int
+    duration_seconds: int
+
+
 class PaymentRequestReadRow(NamedTuple):
     paymentrequest_id: int
     keyinstance_id: int
@@ -183,6 +194,8 @@ class PaymentRequestReadRow(NamedTuple):
     received_value: Optional[int]
     expiration: Optional[int]
     description: Optional[str]
+    script_type: ScriptType
+    pushdata_hash: bytes
     date_created: int = -1
 
 
@@ -519,3 +532,54 @@ class MAPIBroadcastCallbackRow(NamedTuple):
     server_id: int
     status_flags: MapiBroadcastStatusFlags
 
+
+class ServerPeerChannelRow(NamedTuple):
+    peer_channel_id: Optional[int]
+    server_id: int
+    remote_channel_id: Optional[str]
+    remote_url: Optional[str]
+    peer_channel_flags: ServerPeerChannelFlag
+    date_created: int
+    date_updated: int
+
+
+class ServerPeerChannelAccessTokenRow(NamedTuple):
+    peer_channel_id: int
+    remote_token_id: int
+    token_flags: PeerChannelAccessTokenFlag
+    permission_flags: int
+    access_token: str
+
+
+class PushDataHashRegistrationRow(NamedTuple):
+    server_id: int
+    # There are two kinds of registration based on key usage.
+    # 1. Payment requests where an address or payment destination generated for the purpose is
+    #    given out to another party.
+    # 2. Where advanced users have gone to the keys tab and designated a key as forced active.
+    #    this is not currently supported.
+    keyinstance_id: int
+    pushdata_hash: bytes
+    pushdata_flags: PushDataHashRegistrationFlag
+    # How many seconds from `date_created` the registration expires.
+    duration_seconds: int
+    # The date the server returned as the posix timestamp the registration counts from.
+    date_registered: Optional[int]
+    date_created: int
+    date_updated: int
+
+
+class PushDataMatchRow(NamedTuple):
+    server_id: int
+    pushdata_hash: bytes
+    transaction_hash: bytes
+    transaction_index: int
+    block_hash: Optional[bytes]
+    match_flags: PushDataMatchFlag
+    date_created: int
+
+class PushDataMatchMetadataRow(NamedTuple):
+    account_id: int
+    pushdata_hash: bytes
+    transaction_hash: bytes
+    block_hash: Optional[bytes]

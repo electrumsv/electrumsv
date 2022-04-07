@@ -130,9 +130,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     transaction_deleted_signal = pyqtSignal(object, object)
     transaction_verified_signal = pyqtSignal(object, object, object)
     transaction_labels_updated_signal = pyqtSignal(object)
-    payment_requests_paid_signal = pyqtSignal()
+    payment_requests_paid_signal = pyqtSignal(list)
     show_secured_data_signal = pyqtSignal(object)
     wallet_setting_changed_signal = pyqtSignal(str, object)
+    password_request_signal = pyqtSignal(object, str)
     # This signal should only be emitted to. It is just used to dispatch callback execution in
     # the UI thread, without having to do a signal per callback.
     ui_callback_signal = pyqtSignal(object, object)
@@ -154,6 +155,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._account: Optional[AbstractAccount] = wallet.get_default_account()
         self._account_id: Optional[int] = (self._account.get_id() if self._account is not None
             else None)
+
+        app_state.credentials.set_request_callback(wallet.get_storage_path(),
+            self.password_request_signal.emit)
 
         self.network = app_state.daemon.network
         self.contacts = wallet.contacts
@@ -210,6 +214,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.show_secured_data_signal.connect(self._on_show_secured_data)
         self.transaction_labels_updated_signal.connect(self._on_transaction_labels_updated_signal)
         self.transaction_state_signal.connect(self._on_transaction_state_change)
+        self.password_request_signal.connect(self._on_password_request)
         self.ui_callback_signal.connect(self._on_ui_callback_to_dispatch)
         self.history_view.setFocus()
 
@@ -383,8 +388,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # to the balance column being dependent on order. Redirected to the `need_update` flow.
         # self.history_view.update_tx_item(tx_hash, header, tsc_proof)
 
-    def _on_payment_requests_paid(self, event_name: str) -> None:
-        self.payment_requests_paid_signal.emit()
+    def _on_payment_requests_paid(self, event_name: str, paymentrequest_ids: list[int]) -> None:
+        self.payment_requests_paid_signal.emit(paymentrequest_ids)
 
     def _on_account_created(self, event_name: str, new_account_id: int,
             flags: AccountInstantiationFlags) -> None:
@@ -748,12 +753,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._paytomany_menu = tools_menu.addAction(_("&Pay to many"), self.paytomany)
 
         raw_transaction_menu = tools_menu.addMenu(_("&View transaction"))
-        raw_transaction_menu.addAction(_("From &file"), self.do_process_from_file)
-        raw_transaction_menu.addAction(_("From &text"), self.do_process_from_text)
+        raw_transaction_menu.addAction(_("From &file"), self._show_transaction_from_file)
+        raw_transaction_menu.addAction(_("From &text"), self._show_transaction_from_text)
         blockchain_action = raw_transaction_menu.addAction(_("From the &blockchain"),
-            self.do_process_from_txid)
+            self._show_transaction_from_txid)
         blockchain_action.setEnabled(self.network is not None)
-        raw_transaction_menu.addAction(_("From &QR code"), self.do_process_from_qrcode)
+        raw_transaction_menu.addAction(_("From &QR code"), self._show_transaction_from_qrcode)
         self.raw_transaction_menu = raw_transaction_menu
 
         help_menu = menubar.addMenu(_("&Help"))
@@ -2053,47 +2058,63 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             file_content = f.read()
         return self._wallet.load_transaction_from_text(file_content.strip())
 
-    def do_process_from_qrcode(self) -> None:
+    def _show_transaction_from_qrcode(self) -> None:
+        tx, tx_context = self.prompt_obtain_transaction_from_qrcode()
+        if tx is not None:
+            self.show_transaction(self._account, tx, tx_context)
+
+    def prompt_obtain_transaction_from_qrcode(self) \
+            -> tuple[Optional[Transaction], Optional[TransactionContext]]:
         try:
-            tx, context = self.read_tx_from_qrcode()
+            return self.read_tx_from_qrcode()
         except Exception as reason:
             self._logger.exception(reason)
             self.show_critical(_("ElectrumSV was unable to read the transaction:") +
                                "\n" + str(reason))
-        else:
-            if tx is not None:
-                self.show_transaction(self._account, tx)
+            return None, None
 
-    def do_process_from_text(self) -> None:
+    def _show_transaction_from_text(self) -> None:
+        tx, tx_context = self.prompt_obtain_transaction_from_text()
+        if tx is not None:
+            self.show_transaction(self._account, tx, tx_context)
+
+    def prompt_obtain_transaction_from_text(self) \
+            -> tuple[Optional[Transaction], Optional[TransactionContext]]:
         text = text_dialog(self, _('Enter the raw transaction below..'), _("Transaction (hex):"),
                            _("View"))
-        if text is None:
-            return
+        if text is not None:
+            try:
+                return self._wallet.load_transaction_from_text(text)
+            except Exception as reason:
+                self._logger.exception(reason)
+                self.show_critical(_("ElectrumSV was unable to read the transaction:") +
+                                "\n" + str(reason))
+        return None, None
+
+    def _show_transaction_from_file(self) -> None:
+        tx, tx_context = self.prompt_obtain_transaction_from_file()
+        if tx is not None:
+            self.show_transaction(self._account, tx, tx_context)
+
+    def prompt_obtain_transaction_from_file(self) \
+            -> tuple[Optional[Transaction], Optional[TransactionContext]]:
         try:
-            tx, context = self._wallet.load_transaction_from_text(text)
+            return self.read_tx_from_file()
         except Exception as reason:
             self._logger.exception(reason)
             self.show_critical(_("ElectrumSV was unable to read the transaction:") +
                                "\n" + str(reason))
-        else:
-            if tx is not None:
-                self.show_transaction(self._account, tx, context)
+            return None, None
 
-    def do_process_from_file(self) -> None:
-        try:
-            tx, context = self.read_tx_from_file()
-        except Exception as reason:
-            self._logger.exception(reason)
-            self.show_critical(_("ElectrumSV was unable to read the transaction:") +
-                               "\n" + str(reason))
-        else:
-            if tx is not None:
-                self.show_transaction(self._account, tx, context)
+    def _show_transaction_from_txid(self) -> None:
+        tx, tx_context = self.prompt_obtain_transaction_from_txid()
+        if tx is not None:
+            self.show_transaction(self._account, tx, tx_context)
 
-    def do_process_from_txid(self) -> None:
+    def prompt_obtain_transaction_from_txid(self) \
+            -> tuple[Optional[Transaction], Optional[TransactionContext]]:
         # We should have disabled this
         assert self.network is not None
-        from ... import transaction
         prompt = _('Enter the transaction ID:') + '\u2001' * 30   # em quad
         txid, ok = QInputDialog.getText(self, _('Lookup transaction'), prompt)
         if ok and txid:
@@ -2107,9 +2128,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     _("The server was unable to locate the transaction you specified."),
                     exc)
                 d.exec()
-                return
-            tx = transaction.Transaction.from_bytes(rawtx)
-            self.show_transaction(self._account, tx)
+                return None, None
+            tx = Transaction.from_bytes(rawtx)
+            return tx, None
+        return None, None
 
     def do_import_labels(self, account_id: int) -> None:
         from .import_export import LabelImporter
@@ -2201,6 +2223,16 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                                ':\n'+ '\n'.join(bad))
         self.update_history_view()
 
+    def _on_password_request(self, completion_callback: Callable[[], None], reason_text: str) \
+            -> None:
+        """
+        Some process needs to prompt the wallet window to request the wallet password, as it
+        is likely not in the credential cache. This is called in the context of a Qt signal
+        so will not block the caller.
+        """
+        self.password_dialog(reason_text)
+        completion_callback()
+
     def _on_ui_callback_to_dispatch(self, callback: Callable[[Tuple[Any, ...]], None],
             args: Tuple[Any, ...]) -> None:
         callback(args)
@@ -2284,6 +2316,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             event.ignore()
 
     def clean_up(self) -> None:
+        app_state.credentials.set_request_callback(self._wallet.get_storage_path(), None)
         self._wallet.events.unregister_callbacks_for_object(self)
 
         if self.network:

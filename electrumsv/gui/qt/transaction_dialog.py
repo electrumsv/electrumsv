@@ -54,7 +54,6 @@ from ...transaction import (Transaction, TransactionContext, TxFileExtensions,
     TxSerialisationFormat, tx_output_to_display_text, XTxInput, XTxOutput)
 from ...types import Outpoint, WaitingUpdateCallback
 from ...wallet import AbstractAccount
-from ...wallet_database.exceptions import DatabaseUpdateError, TransactionAlreadyExistsError
 from ... import web
 
 from .constants import UIBroadcastSource
@@ -305,19 +304,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         assert self._tx_state & TxFlags.MASK_STATELESS == 0
         assert self._tx_state & TxFlags.MASK_STATE != 0
 
-        def callback(callback_future: concurrent.futures.Future[None]) -> None:
-            if callback_future.cancelled():
-                return
-            try:
-                callback_future.result()
-            except DatabaseUpdateError as update_exception:
-                self.show_error_signal.emit(update_exception.args[0])
-            except TransactionAlreadyExistsError:
-                self.show_error_signal.emit(_("That transaction has already been imported"))
-
-        future = app_state.async_.spawn(self._wallet.add_local_transaction, self._tx_hash, self.tx,
-            self._tx_state, TransactionImportFlag.MANUAL_IMPORT)
-        future.add_done_callback(callback)
+        self._wallet.import_transaction_with_error_callback(self.tx, self._tx_state,
+            self.show_error_signal.emit)
 
     def _on_button_clicked_cosigner_send(self) -> None:
         assert self._account is not None

@@ -448,7 +448,10 @@ class ChooseWalletPage(QWizardPage):
         class TableWidget(QTableWidget):
             def keyPressEvent(self, event: QKeyEvent) -> None:
                 key = event.key()
-                if key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
+                if key == Qt.Key.Key_R and \
+                        bool(int(event.modifiers()) & Qt.KeyboardModifier.ControlModifier):
+                    page._refresh_list()
+                elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
                     page._event_key_selection()
                 else:
                     super(TableWidget, self).keyPressEvent(event)
@@ -707,6 +710,13 @@ class ChooseWalletPage(QWizardPage):
         commit_button.clicked.connect(self._event_click_open_selected_file)
         commit_button.pressed.connect(self._event_press_open_selected_file)
 
+        self._refresh_list()
+
+        self._wallet_table.setFocus()
+
+    def _refresh_list(self) -> None:
+        self._cancel_active_list_refresh()
+
         self._gui_list_reset()
         self._recent_wallet_paths.extend(
             [ candidate_path for candidate_path in
@@ -721,15 +731,16 @@ class ChooseWalletPage(QWizardPage):
         self._list_thread.setDaemon(True)
         self._list_thread.start()
 
-        self._wallet_table.setFocus()
-
-    # Qt default QWizardPage event when page is exited.
-    def on_leave(self) -> None:
+    def _cancel_active_list_refresh(self) -> None:
         if self._list_thread is not None:
             assert self._list_thread_context is not None
             self._list_thread_context.update_list_entry.disconnect()
             self._list_thread_context.stale = True
             self._list_thread = None
+
+    # Qt default QWizardPage event when page is exited.
+    def on_leave(self) -> None:
+        self._cancel_active_list_refresh()
 
         wizard = cast(WalletWizard, self.wizard())
         button = wizard.button(QWizard.CustomButton1)
