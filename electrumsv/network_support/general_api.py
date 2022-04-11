@@ -594,14 +594,15 @@ async def manage_output_spends_async(state: ServerConnectionState) -> None:
         byte_buffer = bytearray(len(outpoints) * outpoint_struct.size)
         for output_index, outpoint in enumerate(outpoints):
             outpoint_struct.pack_into(byte_buffer, output_index * outpoint_struct.size, *outpoint)
+        assert state.credential_id is not None
+        master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
         headers = {
             'Content-Type':     'application/octet-stream',
             'Accept':           'application/octet-stream',
-            'User-Agent':       'ElectrumSV'
+            'User-Agent':       'ElectrumSV',
+            "Authorization":    f"Bearer {master_token}",
         }
-        assert state.credential_id is not None
-        master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
-        headers = {"Authorization": f"Bearer {master_token}"}
+
         spent_outputs: List[OutputSpend] = []
         # TODO(1.4.0) Networking. If any of the error cases below occur we should requeue the
         #     outpoints, but it is not as simple as just doing it. What we want to avoid is being
