@@ -81,6 +81,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         app_state.read_headers()
 
         # Events
+        self.new_server_ready_event = app_state.async_.event()
         self.new_server_connection_event = app_state.async_.event()
         self._shutdown_complete_event = app_state.async_.event()
 
@@ -234,6 +235,9 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         # be indexing server capable).
         server_state.connection_event.set()
 
+        self.new_server_ready_event.set()
+        self.new_server_ready_event.clear()
+
         # TODO(1.4.0) Servers. This establishes a header-only websocket to the server, however if
         #     this is used as an indexing server it will also have a general account websocket to
         #     the server which also sends header events. We should modify this to receive headers
@@ -384,6 +388,9 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 except ServiceUnavailableError:
                     logger.error("Server unavailable: %s", server_key)
                 # TODO(1.4.0) Servers. Connection retrying should have some logic to it.
+                #     - Ideally we would try with a backing off delay, eventually where that
+                #       delay becomes very large. The user might be able to go into the UI
+                #       and force a reconnection.
                 await asyncio.sleep(20)
         finally:
             del self.connected_header_server_states[server_key]

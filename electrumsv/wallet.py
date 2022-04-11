@@ -2855,6 +2855,7 @@ class Wallet:
             # already missing transactions (the `TransactionImportFlag.PROMPTED` check).
             if len(missing_tx_hashes) or import_flags & TransactionImportFlag.PROMPTED:
                 self._check_missing_transactions_event.set()
+                self._check_missing_transactions_event.clear()
             return missing_tx_hashes
 
     async def _obtain_transactions_worker_async(self) -> None:
@@ -2939,7 +2940,6 @@ class Wallet:
             # To get here there must not have been any further missing transactions.
             self._logger.debug("Waiting for more missing transactions")
             await self._check_missing_transactions_event.wait()
-            self._check_missing_transactions_event.clear()
 
     async def _obtain_merkle_proofs_worker_async(self) -> None:
         """
@@ -3026,7 +3026,6 @@ class Wallet:
             # To get here there must not have been any further missing transactions.
             self._logger.debug("Waiting for more missing merkle proofs")
             await self._check_missing_proofs_event.wait()
-            self._check_missing_proofs_event.clear()
 
     async def fetch_raw_transaction_async(self, tx_hash: bytes, account: AbstractAccount) -> bytes:
         """Selects a suitable server and requests the raw transaction.
@@ -3960,10 +3959,6 @@ class Wallet:
                     self._logger.debug("Picking an indexing server, candidates: %s",
                         indexing_server_candidates)
                     while True:
-                        # TODO(1.4.0) Servers. Picking an indexing server should possibly wait for
-                        #     servers being synced to sync if they are doing so in a timely
-                        #     fashion. This would give more chance of options, and not just
-                        #     whatever synced..
                         server_candidates = list[tuple[ServerAccountKey, NewServer]]()
                         for server_key, server in indexing_server_candidates:
                             if self._network.is_header_server_ready(server_key):
@@ -3973,7 +3968,7 @@ class Wallet:
                             break
                         self._logger.debug("Waiting for valid indexing server, candidates: %s",
                             indexing_server_candidates)
-                        await self._network.new_server_connection_event.wait()
+                        await self._network.new_server_ready_event.wait()
 
                     chosen_servers.append((server, { ServerCapability.TIP_FILTER }))
                     new_indexing_server_id = server.server_id
@@ -3989,6 +3984,7 @@ class Wallet:
                             f"id={account_row.indexer_server_id}")
 
                 indexing_server_key = ServerAccountKey(server.url, server.server_type, None)
+                # We may already know the server should be ready from server selection.
                 await self._network.wait_until_header_server_is_ready_async(indexing_server_key)
                 await self._set_indexing_server(indexing_server_key,
                     ServerSwitchReason.INITIALISATION)
@@ -4115,12 +4111,7 @@ class Wallet:
         """
         Process tip filter matches received from a server.
         """
-        # Initial check for processable rows.
-        state.tip_filter_new_matches_event.set()
         while True:
-            await state.tip_filter_new_matches_event.wait()
-            state.tip_filter_new_matches_event.clear()
-
             rows_by_account_id = dict[int, list[PushDataMatchMetadataRow]]()
             metadata_rows = self.data.read_pushdata_match_metadata()
             for metadata_row in metadata_rows:
@@ -4139,6 +4130,8 @@ class Wallet:
                 self._logger.debug("Obtaining %d transactions for account %d, %s",
                     len(obtain_transaction_keys), account_id, obtain_transaction_keys)
                 await self.obtain_transactions_async(account_id, obtain_transaction_keys)
+
+            await state.tip_filter_new_matches_event.wait()
 
     def _register_spent_outputs_to_monitor(self, spent_outpoints: list[Outpoint]) -> None:
         """
@@ -4253,6 +4246,8 @@ class Wallet:
             spending_tx_hash, block_hash, None, None, TxFlags.STATE_CLEARED)
 
         self._check_missing_proofs_event.set()
+        self._check_missing_proofs_event.clear()
+
         # TODO(1.4.0) Technical debt. This is a thing we did to ensure the UI was up to date
         #     when the script hash stuff was the way we did it, we should probably still do it.
         # NOTE 1, 1 are just placeholder arguments to save having to change the ui callback signal
@@ -4443,9 +4438,11 @@ class Wallet:
             assert self.indexing_server_state.chain is not None
             await self.reorg_check_main_chain(server_chain_before, self.indexing_server_state.chain)
 
+        self._indexing_server_ready_event.set()
+        self._indexing_server_ready_event.clear()
+
         self._network.trigger_callback(NetworkEventNames.GENERIC_STATUS)
 
-        self._indexing_server_ready_event.set()
 
     # TODO(1.4.0) Servers. This is no longer used. We will not be switching filtering or peer
     #     channel servers unless the user manually makes it happen. This needs to be factored

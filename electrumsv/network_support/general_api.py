@@ -821,6 +821,7 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
                     logger.debug("Writing %d pushdata matches to the database", len(rows))
                     await state.wallet_data.create_pushdata_matches_async(rows)
                     state.tip_filter_new_matches_event.set()
+                    state.tip_filter_new_matches_event.clear()
                 elif purpose == ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
                     if not isinstance(message["payload"], dict):
                         # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
