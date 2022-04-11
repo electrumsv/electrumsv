@@ -26,11 +26,9 @@ import asyncio
 from aiohttp import ClientSession
 import bitcoinx
 from bitcoinx import Chain, double_sha256, hex_str_to_hash, Header, Headers, MissingHeader
-from collections import defaultdict
 import dataclasses
 import concurrent.futures
 import time
-from enum import IntEnum
 from io import BytesIO
 from typing import Any, cast, Iterable, Optional, TYPE_CHECKING
 
@@ -56,13 +54,6 @@ HEADER_SIZE = 80
 ONE_MINUTE = 60
 ONE_DAY = 24 * 3600
 MAX_CONCEIVABLE_REORG_DEPTH = 500
-
-
-class SwitchReason(IntEnum):
-    '''The reason the main server was changed.'''
-    disconnected = 0
-    lagging = 1
-    user_set = 2
 
 
 def future_callback(future: concurrent.futures.Future[None]) -> None:
@@ -92,8 +83,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         # Events
         self.new_server_connection_event = app_state.async_.event()
         self._shutdown_complete_event = app_state.async_.event()
-        self.servers_synced_events: defaultdict[ServerAccountKey, asyncio.Event] = \
-            defaultdict(app_state.async_.event)
 
         # Add an wallet, remove an wallet, or redo all wallet verifications
         self._wallets: set[Wallet] = set()
@@ -146,7 +135,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         fork.
 
         If two ESV Reference Servers are on the same chain then this function will only
-        be called once per distinct chain (see `_synchronize_initial_headers_async`)"""
+        be called once per distinct chain (see `_synchronise_headers_for_server_tip`)"""
         # start with step = 16 to cut down on network round trips for the first initial header sync
         step = 16
         height_to_test = server_tip.height
@@ -161,9 +150,12 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 height_to_test -= step
                 step = step * 4  # keep doubling the interval until we hit a common header
 
-    async def _synchronize_initial_headers_async(self, server_state: HeaderServerState) \
+    async def _synchronise_headers_for_server_tip(self, server_state: HeaderServerState) \
             -> tuple[Header, Chain]:
         """
+        Identify the chain tip on the remote server, synchronise to that tip and then return
+        to the caller.
+
         NOTE: requesting batched headers by height works because the headers at these heights are
         on the longest chain **for that instance of the ElectrumSV-Reference-Server**
         (emphasis added). For example there could be two persisting forks but requesting batched
@@ -180,9 +172,9 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 tip_header.height + 1)]
             await self._request_and_connect_headers_at_heights_async(server_state, heights)
 
-        server_tip = tip_header
-        header, server_chain = cast(Headers, app_state.headers).lookup(server_tip.hash)
-        return server_tip, server_chain
+        server_tip_header = tip_header
+        header, server_chain = cast(Headers, app_state.headers).lookup(server_tip_header.hash)
+        return server_tip_header, server_chain
 
     async def _connect_tip_and_maybe_backfill(self, server_state: HeaderServerState,
             new_tip: TipResponse) -> None:
@@ -213,7 +205,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         will affect wallet state).
 
         raises `ServiceUnavailableError` via:
-            - `main_server._synchronize_initial_headers_async` or
+            - `main_server._synchronise_headers_for_server_tip` or
             - `main_server.subscribe_to_headers` or
             - `self._connect_tip_and_maybe_backfill`
         """
@@ -221,20 +213,19 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         if server_key not in self.connected_header_server_states:
             return
 
+        # Will not proceed past this point until we have all the headers up to and including
+        # the servers tip header.
         server_state = self.connected_header_server_states[server_key]
+        server_tip_header, server_chain = \
+            await self._synchronise_headers_for_server_tip(server_state)
 
-        # Will not proceed past this point until initial headers sync completes
-        server_tip, server_chain = \
-            await self._synchronize_initial_headers_async(server_state)
-
-        server_state.tip_header = server_tip
+        server_state.tip_header = server_tip_header
         server_state.chain = server_chain
-        for wallet in self._wallets:
-            if wallet.main_server is not None and \
-                    wallet.main_server.server_key.url == server_state.server_key.url:
-                wallet.update_main_server_tip_and_chain(server_state.tip_header, server_state.chain)
 
-        self.servers_synced_events[server_key].set()
+        for wallet in self._wallets:
+            if wallet.indexing_server_state is not None and \
+                    wallet.indexing_server_state.server_key == server_state.server_key:
+                wallet.update_main_server_tip_and_chain(server_state.tip_header, server_state.chain)
 
         server_metadata = self._server_connectivity_metadata[server_key]
         server_metadata.last_try = time.time()
@@ -261,8 +252,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             server_state.chain = server_chain
 
             for wallet in self._wallets:
-                if wallet.main_server is not None and \
-                        wallet.main_server.server_key.url == server_state.server_key.url:
+                if wallet.indexing_server_state is server_state:
                     await wallet.reorg_check_main_chain(server_chain_before, server_chain)
                     wallet.update_main_server_tip_and_chain(server_state.tip_header,
                         server_state.chain)
@@ -295,6 +285,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         A wallet is notifying the network of header-capable servers that they know of. There may
         be some overlap, but this is okay. The networking logic filters out known servers.
         """
+        logger.debug("Queueing wallet header server %s", server_key)
         self._new_server_queue.put_nowait(server_key)
 
     async def _main_loop_async(self, context: MainLoopContext) -> None:
@@ -317,6 +308,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 ideal_url = url.strip().lower()
                 assert url == ideal_url, \
                     f"Skipped bad server with strange url '{url}' != '{ideal_url}'"
+                assert url.endswith("/"), f"All server urls must have trailing slash '{url}'"
 
                 server_key = ServerAccountKey(url, server_type, None)
                 for capability_name in hardcoded_server_config.get("capabilities", []):
@@ -325,6 +317,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                         logger.error("Server '%s' has invalid capability '%s'", url,
                             capability_name)
                     elif capability_value == ServerCapability.HEADERS:
+                        logger.debug("Queuing initial header server %s", server_key)
                         self._new_server_queue.put_nowait(server_key)
 
             while self._main_loop_context is context:
@@ -345,10 +338,12 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 future.cancel()
             self._shutdown_complete_event.set()
 
+    def get_header_server_state(self, server_key: ServerAccountKey) -> HeaderServerState:
+        return self.connected_header_server_states[server_key]
+
     def is_header_server_ready(self, server_key: ServerAccountKey) -> bool:
-        if self.servers_synced_events[server_key].is_set():
-            return self.connected_header_server_states.get(server_key) is not None
-        return False
+        server_state = self.connected_header_server_states.get(server_key)
+        return server_state is not None and server_state.connection_event.is_set()
 
     async def wait_until_header_server_is_ready_async(self, server_key: ServerAccountKey) -> None:
         """
@@ -404,7 +399,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         logger.warning('stopped')
 
     def is_connected(self) -> bool:
-        return all([wallet.main_server is not None for wallet in self._wallets])
+        return all([wallet.indexing_server_state is not None for wallet in self._wallets])
 
     # def is_server_disabled(self, url: str, server_type: NetworkServerType) -> bool:
     #     """
@@ -440,7 +435,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             logger.debug("Fetching %s headers from start height: %s", count, min_height)
             header_array = await get_batched_headers_by_height_async(server_state,
                 self.aiohttp_session, min_height, count)
-            print(header_array)
             stream = BytesIO(header_array)
 
             count_of_raw_headers = len(header_array) // 80
@@ -463,9 +457,9 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
 
     def status(self) -> dict[str, Any]:
         return {
-            # 'server': str(self.main_server.base_url),
+            # 'server': str(self.indexing_server_state.base_url),
             'blockchain_height': self.get_local_height(),
-            # 'server_height': self.main_server.tip.height,
+            # 'server_height': self.indexing_server_state.tip_header.height,
             'spv_nodes': len(self._known_header_server_keys),
             'connected': self.is_connected(),
             'auto_connect': self.auto_connect(),

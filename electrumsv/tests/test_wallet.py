@@ -892,7 +892,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
 
     wallet = Wallet(tmp_storage)
     wallet.try_get_mapi_proofs = try_get_mapi_proofs_mock
-    wallet.main_server = MockHeadersClient()
+    wallet.indexing_server_state = MockHeadersClient()
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',

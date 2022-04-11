@@ -427,6 +427,12 @@ class NetworkServerType(IntEnum):
     GENERAL = 2
 
 
+class ServerSwitchReason(IntEnum):
+    '''The reason the main server was changed.'''
+    NONE                = 0
+    INITIALISATION      = 1
+
+
 API_SERVER_TYPES = { NetworkServerType.MERCHANT_API, NetworkServerType.GENERAL }
 
 

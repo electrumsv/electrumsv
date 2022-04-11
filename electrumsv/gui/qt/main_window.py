@@ -1185,8 +1185,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 text = _("Synchronizing...")
                 text += f' {response_count:,d}/{request_count:,d}'
             else:
-                if self._wallet.main_server is not None:
-                    server_chain_tip = self._wallet.main_server.tip_header
+                if self._wallet.indexing_server_state is not None:
+                    server_chain_tip = self._wallet.indexing_server_state.tip_header
                     server_height = server_chain_tip.height if server_chain_tip else 0
                     server_lag = self.network.get_local_height() - server_height
                     if server_height == 0:

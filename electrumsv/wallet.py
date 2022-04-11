@@ -60,7 +60,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     NetworkServerFlag, NetworkServerType, pack_derivation_path, PaymentFlag,
     PeerChannelAccessTokenFlag,
     PendingHeaderWorkKind, PushDataHashRegistrationFlag, RECEIVING_SUBPATH,
-    ServerCapability, ServerPeerChannelFlag,
+    ServerCapability, ServerPeerChannelFlag, ServerSwitchReason,
     SubscriptionType, ScriptType, TransactionImportFlag, TransactionInputFlag,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT,
     WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag, WalletEventType, WalletSettings)
@@ -75,7 +75,6 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     Imported_KeyStore, instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, \
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
-from .network import SwitchReason
 from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.esv_client_types import ServerConnectionState
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
@@ -2316,73 +2315,11 @@ class Wallet:
         self._cache_identity_keys(password)
         self._load_servers(password)
 
-        self.main_server: Optional[HeaderServerState] = None
-        self.main_server_candidate: Optional[ServerAccountKey] = None
-        self._main_server_selection_event: asyncio.Event = app_state.async_.event()
-        self._reorg_check_complete: asyncio.Event = app_state.async_.event()
+        self.indexing_server_state: Optional[HeaderServerState] = None
+        self._indexing_server_ready_event = app_state.async_.event()
+        self._reorg_check_complete = False
 
-    async def startup_reorg_check_async(self) -> None:
-        """If this is a fresh wallet db migration, the set of block hashes for which we have
-        transaction history is acquired and filtered to leave any orphaned block hashes (if any).
-        The transactions in the orphaned block will be 'reset' to STATE_CLEARED for further
-        processing to get the correct proof data."""
-
-        self._logger.info("Running startup reorg check")
-        assert self._network is not None
-        await self._main_server_selection_event.wait()
-        assert self.main_server_candidate is not None
-        assert self.main_server is not None
-        headers_obj = cast(Headers, app_state.headers)
-
-        # last_tip_hash indicates that any merkle proofs that are present (not null) in the
-        # `Transactions` table are verified for the chain corresponding to this `last_tip_hash`
-        # This allows us to avoid full table scans for reorg processing and instead only update
-        # rows that are above the common parent block hash.
-        last_tip_hash_hex: Optional[str] = self._storage.get('last_tip_hash')
-        while True:
-            # Need a spinner because main_server_candidate may fail to connect and so the
-            # main_server_candidate can change between sleeps. The event is only set if all
-            # headers are synced.
-            if self._network.servers_synced_events[self.main_server_candidate].is_set() and \
-                    self.main_server.chain is not None:
-                break
-            await asyncio.sleep(2)
-
-        last_tip_hash: Optional[bytes] = None
-        if last_tip_hash_hex is not None:
-            last_tip_hash = hex_str_to_hash(last_tip_hash_hex)
-
-        assert self.main_server.chain is not None
-        main_chain = self.main_server.chain
-
-        # Full Transaction table scan and reconciliation to match selected main server chain
-        # NOTE: MissingHeader exception could only happen if the headers mmap store is lost/deleted,
-        # thereby losing the orphaned chain data forever. Nevertheless, it can still reconcile.
-        orphaned_block_hashes = []
-        if not last_tip_hash or not self._network.is_header_present(last_tip_hash):
-            block_hashes = db_functions.read_transaction_block_hashes(self._db_context)
-            for block_hash in block_hashes:
-                try:
-                    header, chain = headers_obj.lookup(block_hash)
-                except MissingHeader:
-                    orphaned_block_hashes.append(block_hash)
-                else:
-                    if main_chain.tip.hash != chain.tip.hash:
-                        orphaned_block_hashes.append(block_hash)
-            await self.on_reorg(orphaned_block_hashes)
-            return
-
-        # Otherwise, check that the last_tip_hash is on the longest chain. Handle as needed.
-        header, old_chain = headers_obj.lookup(last_tip_hash)
-        if main_chain.tip.hash != old_chain.tip.hash:
-            _chain, common_parent_height = main_chain.common_chain_and_height(old_chain)
-            orphaned_block_hashes = [headers_obj.header_at_height(old_chain, h).hash for h
-                in range(common_parent_height + 1, old_chain.tip.height)]
-            await self.on_reorg(orphaned_block_hashes)
-
-        self._reorg_check_complete.set()
-
-    def on_new_tip(self, new_tip: Header, new_chain: Chain) -> None:
+    def _on_new_tip_header(self, new_tip: Header, new_chain: Chain) -> None:
         message = (new_tip, new_chain)
         self._late_header_worker_queue.put_nowait((PendingHeaderWorkKind.NEW_TIP, message))
 
@@ -3782,14 +3719,14 @@ class Wallet:
         # Try to get the appropriate merkle proof for the main chain from TransactionProofs table
         # i.e. we may already have received the mAPI callback for the 'correct chain'
         assert self._db_context is not None
-        assert self.main_server is not None
+        assert self.indexing_server_state is not None
         proofs_on_main_chain: List[TransactionProofRow] = []
         remaining_tx_hashes = set(tx_hashes)
         tx_proofs_rows = db_functions.read_merkle_proofs(self._db_context, tx_hashes)
         for proof_row in tx_proofs_rows:
             block_hash, tx_hash, proof_data, block_position = proof_row
             header, chain = cast(Headers, app_state.headers).lookup(block_hash)
-            if chain == self.main_server.chain:
+            if chain == self.indexing_server_state.chain:
                 proofs_on_main_chain.append(proof_row)
                 remaining_tx_hashes.remove(tx_hash)
         return remaining_tx_hashes, tx_proofs_rows
@@ -3797,7 +3734,7 @@ class Wallet:
     async def on_reorg(self, orphaned_block_hashes: List[bytes]) -> None:
         '''Called by network when a reorg has happened'''
         assert self._db_context is not None
-        assert self.main_server is not None
+        assert self.indexing_server_state is not None
         if self._stopped:
             block_hashes_as_str = [hash_to_hex_str(h) for h in orphaned_block_hashes]
             self._logger.debug("Cannot undo verifications on a stopped wallet. "
@@ -3912,8 +3849,7 @@ class Wallet:
             url = hardcoded_server_config['url']
             ideal_url = url.strip().lower()
             assert url == ideal_url, f"Skipped bad server with strange url '{url}' != '{ideal_url}'"
-            # We remove the suffix to make all lookups consistent.
-            url = url.removesuffix("/")
+            assert url.endswith("/"), f"All server urls must have trailing slash '{url}'"
 
             server_key = ServerAccountKey(url, server_type, None)
 
@@ -3993,11 +3929,6 @@ class Wallet:
         #     plans that sets of accounts may hierarchically share different petty cash accounts.
         # TODO(1.4.0) Networking. These worker tasks should be restarted if they prematurely exit?
 
-        # TODO(1.4.0) Servers. Work out how to refactor this into place.
-            # assert main_server is not None
-            # app_state.async_.spawn_and_wait(
-            #     self._set_main_server, main_server, SwitchReason.user_set)
-
         self._worker_tasks_maintain_server_connection: \
             dict[int, list[tuple[ServerConnectionState, concurrent.futures.Future[None],
                 concurrent.futures.Future[None]]]] = {}
@@ -4056,6 +3987,11 @@ class Wallet:
                         #     to the user and allow a manual retry in some way.
                         raise NotImplementedError("Existing indexing server not found for given "
                             f"id={account_row.indexer_server_id}")
+
+                indexing_server_key = ServerAccountKey(server.url, server.server_type, None)
+                await self._network.wait_until_header_server_is_ready_async(indexing_server_key)
+                await self._set_indexing_server(indexing_server_key,
+                    ServerSwitchReason.INITIALISATION)
 
                 if account_row.peer_channel_server_id is not None:
                     if account_row.peer_channel_server_id == account_row.indexer_server_id:
@@ -4123,8 +4059,6 @@ class Wallet:
                 assert covered_capabilities == { ServerCapability.PEER_CHANNELS,
                     ServerCapability.TIP_FILTER }
 
-        self._worker_startup_reorg_check = app_state.async_.spawn(
-            self.startup_reorg_check_async)
         self._worker_task_obtain_transactions = app_state.async_.spawn(
             self._obtain_transactions_worker_async)
         self._worker_task_obtain_merkle_proofs = app_state.async_.spawn(
@@ -4428,7 +4362,7 @@ class Wallet:
                 local_height = chain_tip.height
                 chain_tip_hash = chain_tip.hash
         self._storage.put('stored_height', local_height)
-        if self._reorg_check_complete.is_set():
+        if self._reorg_check_complete:
             self._storage.put('last_tip_hash', chain_tip_hash.hex() if chain_tip_hash else None)
 
         for account in self.get_accounts():
@@ -4478,38 +4412,44 @@ class Wallet:
                 plugin.replace_gui_handler(window, keystore)
 
     def update_main_server_tip_and_chain(self, tip: Header, chain: Chain) -> None:
-        assert self.main_server is not None
-        self.main_server.tip_header = tip
-        self.main_server.chain = chain
+        assert self.indexing_server_state is not None
+        self.indexing_server_state.tip_header = tip
+        self.indexing_server_state.chain = chain
 
-    async def _set_main_server(self, server_key: ServerAccountKey,
-            reason: SwitchReason) -> None:
-        '''Set the main server to something new.'''
+    async def _set_indexing_server(self, server_key: ServerAccountKey,
+            reason: ServerSwitchReason) -> None:
         assert self._network is not None
-        logger.info("switching main server to: '%s' reason: %s", server_key, reason.name)
+        # The caller should make sure this is a viable server.
+        assert self._network.is_header_server_ready(server_key)
+
+        logger.info("Setting indexing server to: '%s' reason: %s", server_key, reason.name)
+
+        new_indexing_server_state = self._network.get_header_server_state(server_key)
+        if self.indexing_server_state is new_indexing_server_state:
+            logger.error("Attempted to set existing indexing server for wallet again %s",
+                server_key)
+            return
 
         server_chain_before = None
-        if self.main_server is not None:
-            server_chain_before = self.main_server.chain
+        if self.indexing_server_state is not None:
+            server_chain_before = self.indexing_server_state.chain
 
-        self.main_server_candidate = server_key
-        while True:
-            # The event is only set if all headers are synced.
-            if self._network.servers_synced_events[self.main_server_candidate].is_set() and \
-                    self._network.connected_header_server_states.get(server_key) is not None:
-                break
-            await asyncio.sleep(2)
-        self.main_server = self._network.connected_header_server_states[server_key]
+        self.indexing_server_state = new_indexing_server_state
 
-        if server_chain_before:
-            assert self.main_server.chain is not None
-            await self.reorg_check_main_chain(server_chain_before, self.main_server.chain)
+        if reason == ServerSwitchReason.INITIALISATION:
+            assert server_chain_before is None
+            await self._startup_reorg_check_async()
+        elif server_chain_before is not None:
+            assert self.indexing_server_state.chain is not None
+            await self.reorg_check_main_chain(server_chain_before, self.indexing_server_state.chain)
 
         self._network.trigger_callback(NetworkEventNames.GENERIC_STATUS)
-        self._main_server_selection_event.set()
+
+        self._indexing_server_ready_event.set()
 
     # TODO(1.4.0) Servers. This is no longer used. We will not be switching filtering or peer
-    #     channel servers unless the user manually makes it happen.
+    #     channel servers unless the user manually makes it happen. This needs to be factored
+    #     into some design where that is user driven.
     # async def maybe_switch_main_server(self, reason: SwitchReason) -> None:
     #     assert self._network is not None
     #     now = time.time()
@@ -4537,13 +4477,66 @@ class Wallet:
     #     if not good_servers:
     #         logger.warning('no good servers available')
 
-    #     elif self.main_server_candidate not in good_servers:
+    #     elif self._indexing_server_candidate_key not in good_servers:
     #         if self._network.auto_connect():
     #             await self._set_main_server(random.choice(good_servers), reason)
     #         else:
-    #             assert self.main_server is not None
+    #             assert self.indexing_server_state is not None
     #             logger.warning("main server %s is not good, but retaining it because "
-    #                 "auto-connect is off", self.main_server._state.server.url)
+    #                 "auto-connect is off", self.indexing_server_state.server.url)
+
+    async def _startup_reorg_check_async(self) -> None:
+        """If this is a fresh wallet db migration, the set of block hashes for which we have
+        transaction history is acquired and filtered to leave any orphaned block hashes (if any).
+        The transactions in the orphaned block will be 'reset' to STATE_CLEARED for further
+        processing to get the correct proof data."""
+
+        self._logger.info("Starting startup reorg check")
+
+        assert self._network is not None
+        assert self.indexing_server_state is not None
+        assert self.indexing_server_state.chain is not None
+
+        headers_store = cast(Headers, app_state.headers)
+
+        # last_tip_hash indicates that any merkle proofs that are present (not null) in the
+        # `Transactions` table are verified for the chain corresponding to this `last_tip_hash`
+        # This allows us to avoid full table scans for reorg processing and instead only update
+        # rows that are above the common parent block hash.
+        last_tip_hash_hex: Optional[str] = self._storage.get('last_tip_hash')
+        last_tip_hash: Optional[bytes] = None
+        if last_tip_hash_hex is not None:
+            last_tip_hash = hex_str_to_hash(last_tip_hash_hex)
+
+        main_chain = self.indexing_server_state.chain
+
+        # Full Transaction table scan and reconciliation to match selected main server chain
+        # NOTE: MissingHeader exception could only happen if the headers mmap store is lost/deleted,
+        # thereby losing the orphaned chain data forever. Nevertheless, it can still reconcile.
+        orphaned_block_hashes = []
+        if not last_tip_hash or not self._network.is_header_present(last_tip_hash):
+            block_hashes = db_functions.read_transaction_block_hashes(self._db_context)
+            for block_hash in block_hashes:
+                try:
+                    header, chain = headers_store.lookup(block_hash)
+                except MissingHeader:
+                    orphaned_block_hashes.append(block_hash)
+                else:
+                    if main_chain.tip.hash != chain.tip.hash:
+                        orphaned_block_hashes.append(block_hash)
+            await self.on_reorg(orphaned_block_hashes)
+            return
+
+        # Otherwise, check that the last_tip_hash is on the longest chain. Handle as needed.
+        header, old_chain = headers_store.lookup(last_tip_hash)
+        if main_chain.tip.hash != old_chain.tip.hash:
+            _chain, common_parent_height = main_chain.common_chain_and_height(old_chain)
+            orphaned_block_hashes = [headers_store.header_at_height(old_chain, h).hash for h
+                in range(common_parent_height + 1, old_chain.tip.height)]
+            await self.on_reorg(orphaned_block_hashes)
+
+        self._reorg_check_complete = True
+        self._logger.info("Finished startup reorg check")
 
     async def reorg_check_main_chain(self, old_chain: Chain, new_chain: Chain) -> None:
         assert app_state.headers is not None
@@ -4572,7 +4565,7 @@ class Wallet:
             new_tip_header: Header = self._network.header_for_hash(block_hash)
             logger.info("Post-reorg, new tip hash: %s, height: %s",
                 hash_to_hex_str(new_tip_header.hash), new_tip_header.height)
-            self.on_new_tip(new_tip_header, new_chain)
+            self._on_new_tip_header(new_tip_header, new_chain)
 
         self._network.trigger_callback(NetworkEventNames.GENERIC_UPDATE)
 
