@@ -35,14 +35,15 @@
 # THE SOFTWARE.
 
 from __future__ import annotations
+import asyncio
 import concurrent.futures
+from http import HTTPStatus
 import json
-from typing import Any, cast, Dict, List, Optional, TYPE_CHECKING, Tuple, TypedDict
+from typing import Any, cast, Optional, TYPE_CHECKING, TypedDict
 
 import aiohttp
 from bitcoinx import PublicKey
 from aiohttp import ClientConnectorError
-from aiorpcx import SOCKSError, TaskGroup
 
 from .esv_client import PeerChannel
 from ..app_state import app_state
@@ -52,8 +53,7 @@ from ..logs import logs
 
 if TYPE_CHECKING:
     from electrumsv.types import IndefiniteCredentialId
-    from electrumsv.network_support.api_server import NewServer, SelectionCandidate
-    from electrumsv.network import Network
+    from electrumsv.network_support.api_server import NewServer
     from electrumsv.wallet import AbstractAccount
     from electrumsv.types import TransactionSize
 
@@ -82,7 +82,7 @@ class FeeQuote(TypedDict):
     minerId: str
     currentHighestBlockHash: str
     currentHighestBlockHeight: int
-    fees: List[FeeQuoteTypeEntry]
+    fees: list[FeeQuoteTypeEntry]
 
 
 class BroadcastConflict(TypedDict):
@@ -104,7 +104,7 @@ class BroadcastResponse(TypedDict):
     currentHighestBlockHash: str
     currentHighestBlockHeight: int
     txSecondMempoolExpiry: int
-    conflictedWith: List[BroadcastConflict]
+    conflictedWith: list[BroadcastConflict]
 
 
 class JSONEnvelope(TypedDict):
@@ -113,13 +113,6 @@ class JSONEnvelope(TypedDict):
     publicKey: Optional[str]
     encoding: str
     mimetype: str
-
-
-async def decode_response_body(response: aiohttp.ClientResponse) -> Dict[Any, Any]:
-    body = await response.read()
-    if body == b"" or body == b"{}":
-        return {}
-    return cast(Dict[Any, Any], json.loads(body.decode()))
 
 
 # self.mapi_client: Optional[aiohttp.ClientSession] = None
@@ -142,10 +135,10 @@ async def decode_response_body(response: aiohttp.ClientResponse) -> Dict[Any, An
 #         await self.mapi_client.close()
 
 
-def get_mapi_servers(account: "AbstractAccount") -> \
-        List[Tuple["NewServer", Optional["IndefiniteCredentialId"]]]:
+def get_mapi_servers(account: AbstractAccount) -> \
+        list[tuple[NewServer, Optional[IndefiniteCredentialId]]]:
     account_id = account.get_id()
-    server_entries: List[Tuple["NewServer", Optional["IndefiniteCredentialId"]]] = []
+    server_entries: list[tuple[NewServer, Optional[IndefiniteCredentialId]]] = []
     for server, credential_id in account._wallet.get_servers_for_account_id(account_id,
             NetworkServerType.MERCHANT_API):
         if server.should_request_fee_quote(credential_id):
@@ -171,8 +164,7 @@ def filter_mapi_servers_for_fee_quote(
     return filtered
 
 
-def poll_servers(network: "Network", account: "AbstractAccount") \
-        -> Optional[concurrent.futures.Future[None]]:
+def poll_servers(account: AbstractAccount) -> Optional[concurrent.futures.Future[None]]:
     """
     Work out if any servers lack fee quotes and poll them.
 
@@ -186,21 +178,23 @@ def poll_servers(network: "Network", account: "AbstractAccount") \
 
 
 async def poll_servers_async(
-        server_entries: List[Tuple["NewServer", Optional["IndefiniteCredentialId"]]]) -> None:
-    async with TaskGroup() as group:
-        for server, credential_id in server_entries:
-            await group.spawn(get_fee_quote, server, credential_id)
+        server_entries: list[tuple[NewServer, Optional[IndefiniteCredentialId]]]) -> None:
+    tasks = []
+    for server, credential_id in server_entries:
+        tasks.append(get_fee_quote(server, credential_id))
+    for i, result in enumerate(await asyncio.gather(*tasks, return_exceptions=True)):
+        if isinstance(result, Exception):
+            logger.error("Failed to get MAPI fee quote from %s", server_entries[i][0].url,
+                exc_info=result)
 
 
-async def get_fee_quote(server: "NewServer",
-        credential_id: Optional["IndefiniteCredentialId"]) -> None:
+async def get_fee_quote(server: NewServer,
+        credential_id: Optional[IndefiniteCredentialId]) -> None:
     """The last_good and last_try timestamps will be used to include/exclude the mAPI for
     selection"""
     server.api_key_state[credential_id].record_attempt()
 
-    # TODO(1.4.0) Servers. Trailing slash cleanup.
-    url = server.url if server.url.endswith("/") else server.url +"/"
-    url += "feeQuote"
+    url = f"{server.url}feeQuote"
     headers = {'Content-Type': 'application/json'}
     headers.update(server.get_authorization_headers(credential_id))
     is_ssl = url.startswith("https")
@@ -208,23 +202,31 @@ async def get_fee_quote(server: "NewServer",
     async with aiohttp.ClientSession() as client:
         async with client.get(url, headers=headers, ssl=is_ssl) as response:
             try:
-                json_response = await decode_response_body(response)
-            except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
+                body = await response.read()
+            except (ClientConnectorError, ConnectionError, OSError):
                 logger.error("failed connecting to %s", url)
+                return
             else:
-                if response.status != 200:
+                if response.status != HTTPStatus.OK:
                     # We hope that this service will become available later. Until then it
                     # should be excluded by prioritisation/server selection algorithms
                     logger.error("feeQuote request to %s failed with: status: %s, reason: %s",
                         url, response.status, response.reason)
-                else:
-                    assert json_response['encoding'].lower() == 'utf-8'
+                    return
 
-                    fee_quote_response = cast(JSONEnvelope, json_response)
-                    validate_json_envelope(fee_quote_response)
-                    logger.debug("fee quote received from %s", server.url)
+        try:
+            json_response = cast(dict[Any, Any], json.loads(body.decode()))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            logger.error("feeQuote request to %s failed", exc_info=True)
+            return
 
-                    server.api_key_state[credential_id].update_fee_quote(fee_quote_response)
+        assert json_response['encoding'].lower() == 'utf-8'
+
+        fee_quote_response = cast(JSONEnvelope, json_response)
+        validate_json_envelope(fee_quote_response)
+        logger.debug("fee quote received from %s", server.url)
+
+        server.api_key_state[credential_id].update_fee_quote(fee_quote_response)
 
 
 def validate_json_envelope(json_response: JSONEnvelope) -> None:
@@ -244,14 +246,12 @@ def validate_json_envelope(json_response: JSONEnvelope) -> None:
             raise ValueError("MAPI signature invalid")
 
 
-async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: "NewServer",
-        credential_id: Optional["IndefiniteCredentialId"], peer_channel: PeerChannel,
+async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: NewServer,
+        credential_id: Optional[IndefiniteCredentialId], peer_channel: PeerChannel,
         merkle_proof: bool=False, ds_check: bool=False) -> BroadcastResponse:
     server.api_key_state[credential_id].record_attempt()
 
-    # TODO(1.4.0) Servers. Trailing slash cleanup.
-    url = server.url if server.url.endswith("/") else server.url +"/"
-    url += "tx"
+    url = f"{server.url}tx"
     write_token = peer_channel.get_write_token()
     assert write_token is not None, "We generated this peer channel ourselves so we should " \
                                     "definitely possess a valid write token"
@@ -270,34 +270,40 @@ async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: "N
         async with client.post(url, ssl=is_ssl, headers=headers, params=params,
                 data=transaction_bytes) as response:
             try:
-                json_response = await decode_response_body(response)
-            except (ClientConnectorError, ConnectionError, OSError, SOCKSError):
+                body = await response.read()
+            except (ClientConnectorError, ConnectionError, OSError):
                 logger.error("failed connecting to %s", url)
                 raise BroadcastFailedError(f"Broadcast failed for url: {url}, "
                     f"Unable to connect to the server.")
             else:
-                if response.status != 200:
+                if response.status != HTTPStatus.OK:
                     logger.error("Broadcast request to %s failed with: status: %s, reason: %s",
                         url, response.status, response.reason)
                     raise BroadcastFailedError(f"Broadcast failed for url: {url}. "
                         f"status: {response.status}, reason: {response.reason}")
-                else:
-                    assert json_response['encoding'].lower() == 'utf-8'
 
-                    broadcast_response_envelope = cast(JSONEnvelope, json_response)
-                    validate_json_envelope(broadcast_response_envelope)
-                    logger.debug("transaction broadcast via MAPI server: %s", server.url)
+    try:
+        json_response = cast(dict[Any, Any], json.loads(body.decode()))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        logger.error("Broadcast request to %s in question (corrupt payload)", exc_info=True)
+        raise BroadcastFailedError(f"Broadcast in question for url: {url}. Corrupt payload.")
 
-                    # TODO(MAPI) Work out if we should be processing the response.
-                    # TODO(MAPI) Work out if we should be storing the response.
-                    server.api_key_state[credential_id].record_success()
-                    broadcast_response: BroadcastResponse = \
-                        json.loads(broadcast_response_envelope['payload'])
+    assert json_response['encoding'].lower() == 'utf-8'
 
-                    if broadcast_response['returnResult'] == 'failure':
-                        raise BroadcastFailedError(broadcast_response['resultDescription'])
+    broadcast_response_envelope = cast(JSONEnvelope, json_response)
+    validate_json_envelope(broadcast_response_envelope)
+    logger.debug("transaction broadcast via MAPI server: %s", server.url)
 
-                    return broadcast_response
+    # TODO(MAPI) Work out if we should be processing the response.
+    # TODO(MAPI) Work out if we should be storing the response.
+    server.api_key_state[credential_id].record_success()
+    broadcast_response: BroadcastResponse = \
+        json.loads(broadcast_response_envelope['payload'])
+
+    if broadcast_response['returnResult'] == 'failure':
+        raise BroadcastFailedError(broadcast_response['resultDescription'])
+
+    return broadcast_response
 
 
 class MAPIFeeEstimator:

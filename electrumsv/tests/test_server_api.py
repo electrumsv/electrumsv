@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from electrumsv.constants import NetworkServerFlag, NetworkServerType, ServerCapability
+from electrumsv.constants import NetworkServerFlag, NetworkServerType
 from electrumsv.network_support import api_server, mapi
 from electrumsv.types import IndefiniteCredentialId, TransactionSize
 from electrumsv.wallet_database.types import NetworkServerRow
@@ -13,7 +13,7 @@ from electrumsv.wallet_database.types import NetworkServerRow
 def test_get_authorization_headers_credential_none() -> None:
     row = NetworkServerRow(1, NetworkServerType.MERCHANT_API, "url", 1, NetworkServerFlag.NONE,
         None, None, None, None, 0, 0, 1, 1)
-    server = api_server.NewServer("my_url", NetworkServerType.MERCHANT_API, row, None)
+    server = api_server.NewServer("my_url/", NetworkServerType.MERCHANT_API, row, None)
     headers = server.get_authorization_headers(None)
     assert headers == {}
 
@@ -35,7 +35,7 @@ def test_get_authorization_headers_credential_default_header(app_state, params) 
     credential_id = cast(IndefiniteCredentialId, uuid.uuid4())
     row = NetworkServerRow(1, NetworkServerType.MERCHANT_API, "url", 1, NetworkServerFlag.NONE,
         None, None, None, None, 0, 0, 1, 1)
-    server = api_server.NewServer("my_url", NetworkServerType.MERCHANT_API, row, credential_id)
+    server = api_server.NewServer("my_url/", NetworkServerType.MERCHANT_API, row, credential_id)
     mock_row = unittest.mock.Mock()
     mock_row.api_key_template = use_this_value
     server.database_rows[None] = cast(NetworkServerRow, mock_row)
@@ -48,7 +48,7 @@ def test_prioritise_broadcast_servers_invalid_candidate(app_state) -> None:
     row1 = NetworkServerRow(1, NetworkServerType.MERCHANT_API, "url1", 1, NetworkServerFlag.NONE,
         None, None, None, None, 0, 0, 1, 1)
     fake_tx_size = TransactionSize(100, 20)
-    dummy_server = api_server.NewServer("A", NetworkServerType.MERCHANT_API, row1, None)
+    dummy_server = api_server.NewServer("A/", NetworkServerType.MERCHANT_API, row1, None)
     dummy_server.api_key_state[None] = api_server.NewServerAccessState()
     credential_id = cast(Optional[IndefiniteCredentialId], None)
     servers = [
@@ -90,7 +90,7 @@ def test_prioritise_broadcast_servers_single_candidate(app_state) -> None:
     row1 = NetworkServerRow(1, NetworkServerType.MERCHANT_API, "url1", 1, NetworkServerFlag.NONE,
         None, None, None, None, 0, 0, 1, 1)
     fake_tx_size = TransactionSize(100, 20)
-    dummy_server = api_server.NewServer("A", NetworkServerType.MERCHANT_API, row1, None)
+    dummy_server = api_server.NewServer("A/", NetworkServerType.MERCHANT_API, row1, None)
     key_state = dummy_server.api_key_state[None] = api_server.NewServerAccessState()
     key_state.last_fee_quote = FEE_QUOTE_1
     credential_id = cast(Optional[IndefiniteCredentialId], None)
@@ -112,11 +112,11 @@ def test_prioritise_broadcast_servers_ordered_candidates(app_state) -> None:
         None, None, None, None, 0, 0, 1, 1)
     fake_tx_size = TransactionSize(100, 20)
 
-    dummy_server1 = api_server.NewServer("A", NetworkServerType.MERCHANT_API, row1, None)
+    dummy_server1 = api_server.NewServer("A/", NetworkServerType.MERCHANT_API, row1, None)
     key_state1 = dummy_server1.api_key_state[None] = api_server.NewServerAccessState()
     key_state1.last_fee_quote = FEE_QUOTE_1
 
-    dummy_server2 = api_server.NewServer("B", NetworkServerType.MERCHANT_API, row2, None)
+    dummy_server2 = api_server.NewServer("B/", NetworkServerType.MERCHANT_API, row2, None)
     key_state2 = dummy_server2.api_key_state[None] = api_server.NewServerAccessState()
     key_state2.last_fee_quote = FEE_QUOTE_2
 

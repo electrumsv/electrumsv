@@ -23,7 +23,6 @@ import tempfile
 from typing import Any, cast, List, Optional
 
 from aiohttp import web
-import aiorpcx
 import bitcoinx
 import requests
 

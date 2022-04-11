@@ -1,6 +1,5 @@
 aiohttp>=3.7.4.post
 aiohttp_middlewares
-aiorpcX==0.22.1
 bitcoinX==0.6.0
 dmgbuild; platform_system=="Darwin"
 dnspython<2.0

@@ -276,9 +276,8 @@ class NewServer:
     def __init__(self, url: str, server_type: NetworkServerType, row: NetworkServerRow,
             credential_id: Optional[IndefiniteCredentialId]) -> None:
         self.key = ServerAccountKey(url, server_type, None)
-        # TODO(1.4.0) Servers. Need to decide on a policy for trailing slashes.
-        if not url.endswith("/") and url.find("?") == -1:
-            url += "/"
+        # All code that uses the URL expects a trailing slash.
+        assert url.endswith("/")
         self.url = url
         self.server_type = server_type
         assert row.server_id is not None

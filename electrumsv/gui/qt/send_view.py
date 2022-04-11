@@ -311,7 +311,7 @@ class SendView(QWidget):
             return
 
         assert self._account is not None
-        self._mapi_future = mapi.poll_servers(self._main_window.network, self._account)
+        self._mapi_future = mapi.poll_servers(self._account)
         # if self._mapi_future is not None:
         # TODO(MAPI) disable UI waiting for result?
         # ... not sure yet, might be enough to check if this future is complete.

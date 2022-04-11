@@ -24,6 +24,7 @@
 
 '''ElectrumSV application.'''
 
+import asyncio
 import concurrent.futures
 import datetime
 import os
@@ -33,7 +34,6 @@ import sys
 import threading
 from typing import Any, Callable, cast, Coroutine, Iterable, List, Optional, TypeVar
 
-from aiorpcx import run_in_thread
 import PyQt5.QtCore as QtCore
 from PyQt5.QtCore import pyqtSignal, QEvent, QObject, QTimer
 from PyQt5.QtGui import QFileOpenEvent, QGuiApplication, QIcon
@@ -403,11 +403,11 @@ class SVApplication(QApplication):
         future.add_done_callback(task_done)
         return future
 
-    def run_in_thread(self, func: Callable[..., T1], *args: Any,
+    def run_in_thread(self, func: Callable[..., T1], /, *args: Any,
             on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
                 -> concurrent.futures.Future[T1]:
         '''Run func(*args) in a thread.  on_done, if given, is passed the future containing the
         reuslt or exception, and is guaranteed to be called in the context of the GUI
         thread.
         '''
-        return self.run_coro(run_in_thread, func, *args, on_done=on_done)
+        return self.run_coro(asyncio.to_thread, func, *args, on_done=on_done)

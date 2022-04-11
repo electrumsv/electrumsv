@@ -1,3 +1,4 @@
+import asyncio
 from decimal import Decimal
 from concurrent.futures import CancelledError
 import datetime
@@ -9,8 +10,6 @@ import requests
 import sys
 import time
 from typing import Any, cast, Dict, List, Optional, Tuple, TYPE_CHECKING
-
-from aiorpcx import ignore_after, run_in_thread
 
 from .app_state import app_state
 from .bitcoin import COIN
@@ -53,15 +52,15 @@ class ExchangeBase(object):
 
     async def update(self, ccy: str) -> None:
         try:
-            logger.debug(f'getting fx quotes for {ccy}')
-            self.quotes = cast(Dict[str, Decimal], await run_in_thread(self.get_rates, ccy))
-            logger.debug('received fx quotes')
+            logger.debug("getting fx quotes for %s", ccy)
+            self.quotes = cast(Dict[str, Decimal], await asyncio.to_thread(self.get_rates, ccy))
+            logger.debug("received fx quotes")
         except CancelledError:
             pass
         except requests.exceptions.ConnectionError as e:
-            logger.error(f"unable to establish connection: {e}")
+            logger.error("Unable to establish connection: %s", str(e))
         except Exception:
-            logger.exception('exception updating FX quotes')
+            logger.exception("exception updating FX quotes")
 
     def get_rates(self, ccy: str) -> Dict[str, Decimal]:
         raise NotImplementedError()
@@ -92,7 +91,7 @@ class ExchangeBase(object):
     async def get_historical_rates(self, ccy: str, cache_dir: str) -> None:
         try:
             self.history[ccy] = cast(Dict[str, Decimal],
-                await run_in_thread(self._get_historical_rates, ccy, cache_dir))
+                await asyncio.to_thread(self._get_historical_rates, ccy, cache_dir))
         except requests.exceptions.ConnectionError as e:
             logger.error(f"unable to establish connection {e}")
         except Exception:
@@ -279,7 +278,7 @@ class FxTask:
         self.network = network
         self.ccy = self.get_currency()
         self.fetch_history = False
-        self.refresh_event = app_state.async_.event()
+        self._refresh_event = app_state.async_.event()
         self.history_used_spot = False
         self.cache_dir = os.path.join(config.path, 'cache')
         self.set_exchange(self.config_exchange())
@@ -305,13 +304,7 @@ class FxTask:
         return fmt_str.format(rounded_amount)
 
     async def refresh_loop(self) -> None:
-        while True:
-            async with ignore_after(150):
-                await self.refresh_event.wait()
-            self.refresh_event.clear()
-            if not self.is_enabled():
-                continue
-
+        while self.is_enabled():
             if self.fetch_history and self.show_history():
                 self.fetch_history = False
                 await self.exchange.get_historical_rates(self.ccy, self.cache_dir)
@@ -321,6 +314,11 @@ class FxTask:
             await self.exchange.update(self.ccy)
             if self.network:
                 self.network.trigger_callback(NetworkEventNames.EXCHANGE_RATE_QUOTES)
+
+            try:
+                await asyncio.wait_for(self._refresh_event.wait(), 150)
+            except asyncio.TimeoutError:
+                pass
 
     def is_enabled(self) -> bool:
         return bool(self.config.get('use_exchange_rate'))
@@ -356,7 +354,8 @@ class FxTask:
     def trigger_history_refresh(self) -> None:
         logger.debug("trigger_history_refresh")
         self.fetch_history = True
-        self.refresh_event.set()
+        self._refresh_event.set()
+        self._refresh_event.clear()
 
     def set_currency(self, ccy: str) -> None:
         if self.get_currency() != ccy:

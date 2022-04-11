@@ -27,9 +27,7 @@ from functools import partial
 import queue
 import threading
 from types import TracebackType
-from typing import Any, Callable, cast, Coroutine, List, Optional, Set, Tuple, Type, TypeVar, Union
-
-from aiorpcx import instantiate_coroutine
+from typing import Any, Callable, Coroutine, Optional, Set, Type, TypeVar, Union
 
 from .logs import logs
 
@@ -92,9 +90,8 @@ class ASync(object):
         self.loop.close()
 
     def _spawn(self, async_func: Callable[..., Coroutine[Any, Any, T2]],
-            args: Union[Tuple[Any, ...], List[Any]]) -> concurrent.futures.Future[T2]:
-        coro = cast(Coroutine[Any, Any, T2], instantiate_coroutine(async_func, args))
-        return run_coroutine_threadsafe(coro, self.loop)
+            args: Union[tuple[Any, ...], list[Any]]) -> concurrent.futures.Future[T2]:
+        return run_coroutine_threadsafe(async_func(*args), self.loop)
 
     def _collect(self, on_done: Optional[Callable[[concurrent.futures.Future[None]], None]],
             future: concurrent.futures.Future[None]) -> None:

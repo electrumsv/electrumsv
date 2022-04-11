@@ -212,7 +212,7 @@ async def _request_binary_merkle_proof_async(state: ServerConnectionState, tx_ha
     assert state.credential_id is not None
     assert target_type in { "hash", "header", "merkleroot" }
     master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
-    server_url = f"{state.server.url}api/v1/merkle-proof/"
+    server_url = f"{state.server.url}api/v1/merkle-proof/{hash_to_hex_str(tx_hash)}"
     params = {
         "targetType": target_type,
     }

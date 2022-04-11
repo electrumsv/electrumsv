@@ -97,8 +97,6 @@ class ReceiveView(QWidget):
 
         self.update_widgets()
 
-        app_state.app_qt.fiat_ccy_changed.connect(self._on_fiat_ccy_changed)
-        self._main_window_proxy.new_fx_quotes_signal.connect(self._on_ui_exchange_rate_quotes)
         self._main_window_proxy.payment_requests_paid_signal.connect(self._on_payment_requests_paid)
 
     def clean_up(self) -> None:
@@ -107,27 +105,10 @@ class ReceiveView(QWidget):
         """
         self._main_window_proxy.payment_requests_paid_signal.disconnect(
             self._on_payment_requests_paid)
-        self._main_window_proxy.new_fx_quotes_signal.disconnect(self._on_ui_exchange_rate_quotes)
-        app_state.app_qt.fiat_ccy_changed.disconnect(self._on_fiat_ccy_changed)
 
         for dialog in self._dialogs.values():
             dialog.clean_up()
         self._dialogs.clear()
-
-    def _on_fiat_ccy_changed(self) -> None:
-        """
-        Application level event when the user changes a fiat related setting.
-        """
-        flag = bool(app_state.fx and app_state.fx.is_enabled())
-        self._fiat_receive_e.setVisible(flag)
-
-    def _on_ui_exchange_rate_quotes(self) -> None:
-        """
-        Window level event when there is a new known exchange rate for the current currency.
-        """
-        edit = (self._fiat_receive_e
-            if self._fiat_receive_e.is_last_edited else self._receive_amount_e)
-        edit.textEdited.emit(edit.text())
 
     def _on_payment_requests_paid(self, paymentrequest_ids: list[int]) -> None:
         self.update_widgets()

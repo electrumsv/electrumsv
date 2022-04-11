@@ -1,10 +1,10 @@
+import asyncio
 import concurrent.futures
 import json
 import logging
 import time
 from typing import Any, Callable, Iterable, Optional
 
-from aiorpcx import run_in_thread
 from bitcoinx import hash_to_hex_str
 
 from electrumsv.app_state import app_state
@@ -35,7 +35,7 @@ class RESTAPIApplication:
 
     def run_in_thread(self, func, *args,
             on_done: Optional[Callable[[concurrent.futures.Future], None]]=None):
-        return self.run_coro(run_in_thread, func, *args, on_done=on_done)
+        return self.run_coro(asyncio.to_thread, func, *args, on_done=on_done)
 
     def setup_app(self) -> None:
         # app_state.daemon is initialised after app. Setup things dependent on daemon here.
