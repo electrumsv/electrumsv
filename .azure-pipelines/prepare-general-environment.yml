@@ -28,4 +28,4 @@ steps:
     )
   enabled: true
   continueOnError: false
-  failOnStderr: false
+  failOnStderr: true
