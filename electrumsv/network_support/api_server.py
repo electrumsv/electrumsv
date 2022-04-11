@@ -37,7 +37,6 @@
 from __future__ import annotations
 import datetime
 import json
-import random
 import dateutil.parser
 import dataclasses
 import os
@@ -51,7 +50,7 @@ from electrumsv.types import IndefiniteCredentialId, ServerAccountKey, Transacti
 from ..app_state import app_state
 from ..constants import NetworkServerFlag, NetworkServerType, PeerChannelAccessTokenFlag, \
     ServerCapability, ServerPeerChannelFlag
-from ..exceptions import BroadcastFailedError, ServiceUnavailableError
+from ..exceptions import BroadcastFailedError
 from ..i18n import _
 from ..logs import logs
 from ..transaction import Transaction
@@ -142,7 +141,8 @@ async def broadcast_transaction(tx: Transaction, network: Network,
     if len(server_entries) != 0:
         await poll_servers_async(server_entries)
 
-    selection_candidates = account._wallet.get_servers_for_account(account,
+    account_id = account.get_id()
+    selection_candidates = account._wallet.get_servers_for_account_id(account_id,
         NetworkServerType.MERCHANT_API)
     candidates_with_fee_quotes = filter_mapi_servers_for_fee_quote(selection_candidates)
     broadcast_servers: list[BroadcastCandidate] = prioritise_broadcast_servers(
@@ -151,16 +151,12 @@ async def broadcast_transaction(tx: Transaction, network: Network,
     # Select the best ranked broadcast server
     broadcast_server = broadcast_servers[0]
 
-    # For the peer channel callbacks to work on public networks we will
-    # require at least one public ESV Reference Server instance for each network
-    selection_candidates = account._wallet.get_servers_for_account(account,
-        NetworkServerType.GENERAL)
-
     state = account._wallet.get_server_state_for_capability(ServerCapability.PEER_CHANNELS)
     assert state is not None
+    assert state.wallet_data is not None
     peer_channel_server_id = state.server.server_id
 
-    from .general_api import create_peer_channel_async, create_peer_channel_api_token_async
+    from .general_api import create_peer_channel_async
 
     date_created = get_posix_timestamp()
     peer_channel_row = ServerPeerChannelRow(None, peer_channel_server_id, None, None,
@@ -199,13 +195,10 @@ async def broadcast_transaction(tx: Transaction, network: Network,
     )
     await account._wallet.data.create_mapi_broadcast_callbacks_async([mapi_callback_row])
 
-    assert broadcast_server.candidate.api_server is not None
-    api_server = broadcast_server.candidate.api_server
-    credential_id = broadcast_server.candidate.credential_id
-
     try:
         result = await broadcast_transaction_mapi_simple(tx.to_bytes(),
-            api_server, credential_id, peer_channel, merkle_proof, ds_check)
+            broadcast_server.server, broadcast_server.credential_id, peer_channel, merkle_proof,
+            ds_check)
     except BroadcastFailedError as e:
         account._wallet.data.delete_mapi_broadcast_callbacks(tx_hashes=[tx.hash()])
         logger.error("Error broadcasting to mAPI for tx: %s. Error: %s", tx.txid(), str(e))
@@ -282,6 +275,7 @@ class NewServerAccessState:
 class NewServer:
     def __init__(self, url: str, server_type: NetworkServerType, row: NetworkServerRow,
             credential_id: Optional[IndefiniteCredentialId]) -> None:
+        self.key = ServerAccountKey(url, server_type, None)
         # TODO(1.4.0) Servers. Need to decide on a policy for trailing slashes.
         if not url.endswith("/") and url.find("?") == -1:
             url += "/"
@@ -440,28 +434,6 @@ class NewServer:
         header_key, _separator, header_value = authorization_header.partition(": ")
         return { header_key: header_value.format(API_KEY=decrypted_api_key) }
 
-    @property
-    def capabilities(self) -> List[ServerCapability]:
-        results: List[ServerCapability] = []
-        if self.server_type == NetworkServerType.MERCHANT_API:
-            for support in SERVER_CAPABILITIES[NetworkServerType.MERCHANT_API]:
-                results.append(support.type)
-        else:
-            row = self.database_rows[None]
-            if row.server_flags & NetworkServerFlag.CAPABILITY_MERKLE_PROOF_REQUEST:
-                results.append(ServerCapability.MERKLE_PROOF_REQUEST)
-            if row.server_flags & NetworkServerFlag.CAPABILITY_RESTORATION:
-                results.append(ServerCapability.RESTORATION)
-            if row.server_flags & NetworkServerFlag.CAPABILITY_TRANSACTION_REQUEST:
-                results.append(ServerCapability.TRANSACTION_REQUEST)
-            if row.server_flags & NetworkServerFlag.CAPABILITY_HEADERS:
-                results.append(ServerCapability.HEADERS)
-            if row.server_flags & NetworkServerFlag.CAPABILITY_PEER_CHANNELS:
-                results.append(ServerCapability.PEER_CHANNELS)
-            if row.server_flags & NetworkServerFlag.CAPABILITY_OUTPUT_SPENDS:
-                results.append(ServerCapability.OUTPUT_SPENDS)
-        return results
-
     def __repr__(self) -> str:
         return f"NewServer(server_id={self.server_id}, url={self.url} " \
             f"server_type={self.server_type})"
@@ -473,88 +445,17 @@ class SelectionCandidate(NamedTuple):
     api_server: Optional[NewServer] = None
 
 
-def select_servers(capability_type: ServerCapability, candidates: List[SelectionCandidate]) \
-        -> List[SelectionCandidate]:
-    """
-    Create a prioritised list of servers to use for the given capability.
-
-    capability_type: The type of capability the calling code wishes to use.
-    candidates: A list server candidates, this should not be limited to api servers but all kinds
-      of different servers that support capabilities.
-
-    Returns the subset of `candidates` that support the given capability type.
-    """
-    filtered_servers: List[SelectionCandidate] = []
-    for candidate in candidates:
-        # TODO There is some clean up and final decisions that need to be made here with respect
-        #      to `SERVER_CAPABILITIES`. For now for MAPI servers it is probably good enough to
-        #      have this hard-coded selection of services, but it is possible in the longer term
-        #      that different MAPI servers will have different endpoints and no-one but ESV
-        #      reference server will be supporting our "endpoints" declarations. This might mean
-        #      that MAPI servers we offer as defaults might have "capabilities" entries in their
-        #      `config`.
-        capabilities = [ c.type for c in SERVER_CAPABILITIES[candidate.server_type] ]
-        if candidate.api_server is not None:
-            config_capabilities = candidate.api_server.capabilities
-            if config_capabilities:
-                capabilities = config_capabilities
-        for server_capability_type in capabilities:
-            if server_capability_type == capability_type:
-                filtered_servers.append(candidate)
-                break
-    return filtered_servers
-
-
-def pick_server_candidate_for_account(account: AbstractAccount, capability: ServerCapability) \
-        -> SelectionCandidate:
-    """
-    Raises `ServiceUnavailableError` if no servers are known that provide that capability.
-    """
-    all_candidates = account._wallet.get_servers_for_account(
-        account, NetworkServerType.GENERAL)
-    restoration_candidates = select_servers(capability, all_candidates)
-    if not len(restoration_candidates):
-        raise ServiceUnavailableError(_("No servers available."))
-
-    # TODO(1.4.0) Networking. Better choice of which server to use, probably some centralised
-    #     approach.
-    return random.choice(restoration_candidates)
-
-
-def pick_server_for_account(account: AbstractAccount, capability: ServerCapability) -> str:
-    """
-    Raises `ServiceUnavailableError` if no servers are known that provide that capability.
-    """
-    candidate = pick_server_candidate_for_account(account, capability)
-    assert candidate.api_server is not None
-
-    # TODO(1.4.0) Networking. Better endpoint url resolution rather than this hard-coding.
-    url = candidate.api_server.url
-    assert url.endswith("/"), f"bad config url '{url}' lacks trailing slash"
-    return url
-
-
-def select_servers_for_account(account: AbstractAccount, capability_flag: NetworkServerFlag) \
-        -> list[NewServer]:
-    selected_servers: List[NewServer] = []
-    candidates = account._wallet.get_servers_for_account(account, NetworkServerType.GENERAL)
-    for candidate in candidates:
-        server = candidate.api_server
-        assert server is not None
-        if server.database_rows[None].server_flags & capability_flag:
-            selected_servers.append(server)
-    return selected_servers
-
-
 class BroadcastCandidate(NamedTuple):
-    candidate: SelectionCandidate
+    server: NewServer
+    credential_id: Optional[IndefiniteCredentialId]
     estimator: TransactionFeeEstimator
     # Can the calling logic switch servers if they have the same initial fee? Not sure.
     initial_fee: int
 
 
 def prioritise_broadcast_servers(estimated_tx_size: TransactionSize,
-        servers: List[SelectionCandidate]) -> List[BroadcastCandidate]:
+        server_candidates: list[tuple[NewServer, Optional[IndefiniteCredentialId]]]) \
+            -> List[BroadcastCandidate]:
     """
     Prioritise the provided servers based on the base fee they would charge for the transaction.
 
@@ -567,19 +468,17 @@ def prioritise_broadcast_servers(estimated_tx_size: TransactionSize,
     Returns the ordered list of server candidates based on lowest to highest estimated fee for
       a transaction of the given size.
     """
-    electrumx_fee_estimator = app_state.config.estimate_fee
     candidates: List[BroadcastCandidate] = []
     fee_estimator: TransactionFeeEstimator
-    for candidate in servers:
-        if candidate.server_type == NetworkServerType.MERCHANT_API:
-            assert candidate.api_server is not None
-            key_state = candidate.api_server.api_key_state[candidate.credential_id]
+    for server, credential_id in server_candidates:
+        if server.server_type == NetworkServerType.MERCHANT_API:
+            key_state = server.api_key_state[credential_id]
             assert key_state.last_fee_quote is not None
             estimator = MAPIFeeEstimator(key_state.last_fee_quote)
             fee_estimator = estimator.estimate_fee
         else:
-            raise NotImplementedError(f"Unsupported server type {candidate.server_type}")
+            raise NotImplementedError(f"Unsupported server type {server.server_type}")
         initial_fee = fee_estimator(estimated_tx_size)
-        candidates.append(BroadcastCandidate(candidate, fee_estimator, initial_fee))
+        candidates.append(BroadcastCandidate(server, credential_id, fee_estimator, initial_fee))
     candidates.sort(key=lambda entry: entry.initial_fee)
     return candidates

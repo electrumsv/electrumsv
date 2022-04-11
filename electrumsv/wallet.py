@@ -38,7 +38,6 @@ import json
 import os
 import random
 import threading
-import time
 from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple, \
     TypedDict, TypeVar, TYPE_CHECKING
 import weakref
@@ -53,14 +52,6 @@ from . import coinchooser
 from .app_state import app_state
 from .bitcoin import scripthash_bytes, ScriptTemplate, separate_proof_and_embedded_transaction, \
     TSCMerkleProofError
-    # API_SERVER_TYPES, CHANGE_SUBPATH, DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB,
-    # DerivationType, DerivationPath, KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags,
-    # MAX_VALUE, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkServerFlag,
-    # NetworkServerType, pack_derivation_path, PaymentFlag,
-    # PendingHeaderWorkKind, RECEIVING_SUBPATH, ServerCapability, SubscriptionOwnerPurpose,
-    # SubscriptionType, ScriptType, TransactionImportFlag, TransactionInputFlag,
-    # TransactionOutputFlag, TxFlags, unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT, WalletEvent,
-    # WalletEventFlag, WalletEventType, WalletSettings, )
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
     API_SERVER_TYPES, CHANGE_SUBPATH,
     DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
@@ -69,7 +60,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     NetworkServerFlag, NetworkServerType, pack_derivation_path, PaymentFlag,
     PeerChannelAccessTokenFlag,
     PendingHeaderWorkKind, PushDataHashRegistrationFlag, RECEIVING_SUBPATH,
-    ServerCapability, ServerPeerChannelFlag, SubscriptionOwnerPurpose,
+    ServerCapability, ServerPeerChannelFlag,
     SubscriptionType, ScriptType, TransactionImportFlag, TransactionInputFlag,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT,
     WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag, WalletEventType, WalletSettings)
@@ -80,27 +71,20 @@ from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissi
     WalletLoadError)
 from .i18n import _
 from .keys import get_multi_signer_script_template, get_single_signer_script_template
-from .keystore import (BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore, Imported_KeyStore,
-    instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, SinglesigKeyStoreTypes,
-    SignableKeystoreTypes, StandardKeystoreTypes, Xpub)
+from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore, \
+    Imported_KeyStore, instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, \
+    SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
 from .network import SwitchReason
-from .network_support.esv_client import ESVClient
-from .network_support.api_server import APIServerDefinition, NewServer, \
-    SelectionCandidate, select_servers_for_account
+from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.esv_client_types import ServerConnectionState
-from .network_support.exceptions import TransactionNotFoundError, GeneralAPIError, FilterResponseInvalidError
-# from .network_support.general_api import maintain_server_connection_async, \
-#     MerkleProofMissingHeaderError, MerkleProofVerificationError, \
-#     request_binary_merkle_proof_async, request_transaction_data_async
-#     , SelectionCandidate
-from .network_support.general_api import FilterResponseInvalidError, GeneralAPIError, \
-    maintain_server_connection_async, MerkleProofMissingHeaderError, MerkleProofVerificationError, \
-    request_binary_merkle_proof_async, request_transaction_data_async, \
+from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     TransactionNotFoundError
+from .network_support.general_api import maintain_server_connection_async, \
+    MerkleProofMissingHeaderError, MerkleProofVerificationError, \
+    request_binary_merkle_proof_async, request_transaction_data_async
 from .networks import Net
 from .storage import WalletStorage
-from .subscription import SubscriptionManager
 from .transaction import (HardwareSigningMetadata, Transaction, TransactionContext,
     TxSerialisationFormat, NO_SIGNATURE, tx_dict_from_text, XPublicKey, XTxInput, XTxOutput)
 from .types import (SubscriptionDerivationData,
@@ -110,7 +94,6 @@ from .types import (SubscriptionDerivationData,
     MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
     OutputSpend, ServerAccountKey, SubscriptionEntry,
     SubscriptionKey, SubscriptionDerivationScriptHashOwnerContext,
-    SubscriptionOwner, SubscriptionKeyScriptHashOwnerContext,
     Outpoint, WaitingUpdateCallback,
     DatabaseKeyDerivationData)
 from .util import (format_satoshis, get_posix_timestamp, get_wallet_name_from_path,
@@ -138,6 +121,7 @@ from .wallet_support.keys import get_pushdata_hash_for_account_key_data
 
 if TYPE_CHECKING:
     from .network import Network
+    from .network_support.headers import HeaderServerState
     from electrumsv.gui.qt.util import WindowProtocol
     from electrumsv.devices.hw_wallet.qt import QtPluginBase
 
@@ -211,10 +195,6 @@ class AbstractAccount:
         self._wallet: Wallet = cast(Wallet, weakref.proxy(wallet))
         self._row = row
         self._id = row.account_id
-
-        # Monitor active keys for transaction detection.
-        self._subscription_owner_for_keys = SubscriptionOwner(self._wallet._id, self._id,
-            SubscriptionOwnerPurpose.ACTIVE_KEYS)
 
         self._logger = logs.get_logger("account[{}]".format(self.name()))
         self._network: Optional[Network] = None
@@ -329,16 +309,6 @@ class AbstractAccount:
         assert len(key_allocation.derivation_path)
         return { "subpath": key_allocation.derivation_path }
 
-    def _get_subscription_entries_for_keyinstance_ids(self, keyinstance_ids: List[int]) \
-            -> List[SubscriptionEntry]:
-        entries: List[SubscriptionEntry] = []
-        for row in self._wallet.data.read_keyinstance_scripts_by_id(keyinstance_ids):
-            entries.append(
-                SubscriptionEntry(
-                    SubscriptionKey(SubscriptionType.SCRIPT_HASH, row.script_hash),
-                    SubscriptionKeyScriptHashOwnerContext(row.keyinstance_id, row.script_type)))
-        return entries
-
     def set_keyinstance_flags(self, keyinstance_ids: Sequence[int], flags: KeyInstanceFlag,
             mask: Optional[KeyInstanceFlag]=None) \
                 -> concurrent.futures.Future[List[KeyInstanceFlagChangeRow]]:
@@ -381,28 +351,12 @@ class AbstractAccount:
                             subscription_keyinstance_ids.append(keyinstance_id)
 
                 # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
-                # if len(subscription_keyinstance_ids):
-                #     self._wallet.subscriptions.create_entries(
-                #         self._get_subscription_entries_for_keyinstance_ids(
-                #             subscription_keyinstance_ids), self._subscription_owner_for_keys)
-
-                # if len(unsubscription_keyinstance_ids):
-                #     self._wallet.subscriptions.delete_entries(
-                #         self._get_subscription_entries_for_keyinstance_ids(
-                #             unsubscription_keyinstance_ids), self._subscription_owner_for_keys)
 
             self._wallet.events.trigger_callback(WalletEvent.KEYS_UPDATE, self._id, keyinstance_ids)
 
         future = self._wallet.data.set_keyinstance_flags(keyinstance_ids, flags, mask)
         future.add_done_callback(callback)
         return future
-
-    def delete_key_subscriptions(self, keyinstance_ids: List[int]) -> None:
-        assert self._network is not None
-        # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
-        # self._wallet.subscriptions.delete_entries(
-        #     self._get_subscription_entries_for_keyinstance_ids(
-        #         keyinstance_ids), self._subscription_owner_for_keys)
 
     def get_keystore(self) -> Optional[KeyStore]:
         if self._row.default_masterkey_id is not None:
@@ -846,44 +800,12 @@ class AbstractAccount:
 
     def start(self, network: Optional[Network]) -> None:
         self._network = network
-        if network is not None:
-            pass
-            # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
-            # # Set up the key monitoring for the account.
-            # network.subscriptions.set_owner_callback(self._subscription_owner_for_keys,
-            #     # NOTE(typing) The union of callback types does not recognise this case ??
-            #     self._on_network_key_script_hash_result) # type: ignore
-            # # TODO(deferred) This only needs to read keyinstance ids and could be combined with
-            # #   the second call in `_get_subscription_entries_for_keyinstance_ids`
-            # keyinstances = self._wallet.data.read_keyinstances(account_id=self._id,
-            #     mask=KeyInstanceFlag.ACTIVE)
-            # self.register_for_keyinstance_events(keyinstances)
 
     def stop(self) -> None:
         assert not self._stopped
         self._stopped = True
 
         self._logger.debug("stopping account %s", self)
-        if self._network:
-            pass
-            # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
-            # # Unsubscribe from the account's existing subscriptions.
-            # futures = self._network.subscriptions.remove_owner(self._subscription_owner_for_keys)
-            # # We could call `concurrent.futures.wait` on the list, but we want to raise if there
-            # # is an exception. It should never happen.
-            # for future in futures:
-            #     future.result()
-
-    # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
-    # def register_for_keyinstance_events(self, keyinstances: List[KeyInstanceRow]) -> None:
-    #     assert self._network is not None
-    #     if len(keyinstances):
-    #         self._logger.debug("Creating %d active key subscriptions: %s",
-    #             len(keyinstances), [ row.keyinstance_id for row in keyinstances ])
-    #         subscription_keyinstance_ids = [ row.keyinstance_id for row in keyinstances ]
-    #         self._network.subscriptions.create_entries(
-    #             self._get_subscription_entries_for_keyinstance_ids(
-    #                 subscription_keyinstance_ids), self._subscription_owner_for_keys)
 
     # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
     # async def _on_network_key_script_hash_result(self, subscription_key: SubscriptionKey,
@@ -1638,9 +1560,6 @@ class DeterministicAccount(AbstractAccount):
             # NOTE(ActivitySubscription) This represents a key that was not previously active
             #   becoming active and requiring a subscription for events.
             # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
-            # self._wallet.subscriptions.create_entries(
-            #     self._get_subscription_entries_for_keyinstance_ids([ keyinstance_id ]),
-            #         self._subscription_owner_for_keys)
             pass
         return KeyData(keyinstance_id, self._id, masterkey_id, derivation_type,
             derivation_data2)
@@ -2318,8 +2237,6 @@ class Wallet:
     _network: Optional[Network] = None
     _stopped: bool = False
 
-    subscriptions: Optional[SubscriptionManager] = None
-
     def __init__(self, storage: WalletStorage, password: Optional[str]=None) -> None:
         self._id = random.randint(0, (1<<32)-1)
 
@@ -2365,6 +2282,8 @@ class Wallet:
         # Guards the obtaining and processing of missing transactions from race conditions.
         self._obtain_transactions_async_lock = app_state.async_.lock()
         self._worker_startup_reorg_check: Optional[concurrent.futures.Future[None]] = None
+        self._worker_task_manage_server_connections: Optional[concurrent.futures.Future[None]] \
+            = None
         self._worker_task_obtain_transactions: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_obtain_merkle_proofs: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_late_header_worker: Optional[concurrent.futures.Future[None]] = None
@@ -2397,8 +2316,8 @@ class Wallet:
         self._cache_identity_keys(password)
         self._load_servers(password)
 
-        self.main_server: Optional[ESVClient] = None
-        self.main_server_candidate: Optional[SelectionCandidate] = None
+        self.main_server: Optional[HeaderServerState] = None
+        self.main_server_candidate: Optional[ServerAccountKey] = None
         self._main_server_selection_event: asyncio.Event = app_state.async_.event()
         self._reorg_check_complete: asyncio.Event = app_state.async_.event()
 
@@ -2440,7 +2359,7 @@ class Wallet:
         # NOTE: MissingHeader exception could only happen if the headers mmap store is lost/deleted,
         # thereby losing the orphaned chain data forever. Nevertheless, it can still reconcile.
         orphaned_block_hashes = []
-        if not last_tip_hash or self._network.is_missing_header(last_tip_hash):
+        if not last_tip_hash or not self._network.is_header_present(last_tip_hash):
             block_hashes = db_functions.read_transaction_block_hashes(self._db_context)
             for block_hash in block_hashes:
                 try:
@@ -2954,8 +2873,8 @@ class Wallet:
             if self._network is not None and cleared_flags & KeyInstanceFlag.ACTIVE:
                 # This payment request was the only reason the key was active and being monitored
                 # on the indexing server for new transactions. We can now delete the subscription.
-                account = self._accounts[account_id]
-                account.delete_key_subscriptions([ keyinstance_id ])
+                # TODO(1.4.0) Tip filters. Remove this registration, save money.
+                pass
 
             self.events.trigger_callback(WalletEvent.KEYS_UPDATE, account_id, [ keyinstance_id ])
 
@@ -3003,6 +2922,9 @@ class Wallet:
 
     async def _obtain_transactions_worker_async(self) -> None:
         while True:
+            state = self.get_server_state_for_capability(ServerCapability.TIP_FILTER)
+            assert state is not None
+
             while len(self._missing_transactions):
                 tx_hash: bytes
                 entry: MissingTransactionEntry
@@ -3021,7 +2943,7 @@ class Wallet:
                 if entry.with_proof:
                     try:
                         tsc_full_proof, _header_data = await request_binary_merkle_proof_async(
-                            self._network, account, tx_hash, include_transaction=True)
+                            state, tx_hash, include_transaction=True)
                     except ServerConnectionError:
                         # TODO(1.4.0) Networking. Handle `ServerConnectionError` exception.
                         #     No reliable server should cause this, we should stand off the server
@@ -3105,18 +3027,20 @@ class Wallet:
         #     be able to detect problems like this and highlight it to the user, and retry
         #     periodically or when they manually indicate they want to retry.
         while True:
+            state = self.get_server_state_for_capability(ServerCapability.TIP_FILTER)
+            assert state is not None
+
             # We just take the first returned transaction for now (and ignore the rest).
             rows = db_functions.read_proofless_transactions(self.get_db_context())
             tx_hash = rows[0].tx_hash if len(rows) else None
             if len(rows):
                 row = rows[0]
                 tx_hash = row.tx_hash
-                account = self._accounts[row.account_id]
                 logger.debug("Requesting merkle proof from server for transaction %s",
                     hash_to_hex_str(row.tx_hash))
                 try:
                     tsc_proof, (header, header_chain) = await request_binary_merkle_proof_async(
-                        self._network, account, tx_hash, include_transaction=False)
+                        state, tx_hash, include_transaction=False)
                 except ServerConnectionError:
                     # TODO(1.4.0) Networking. Handle `ServerConnectionError` exception.
                     #     No reliable server should cause this, we should stand off the server or
@@ -3177,7 +3101,9 @@ class Wallet:
         # TODO(1.4.0) Petty cash. We intercept this call because the wallet will be funding it
         #     via the petty cash account. Therefore we need to wrap the call to apply the checks
         #     and handling
-        return await request_transaction_data_async(self._network, account, tx_hash)
+        state = self.get_server_state_for_capability(ServerCapability.TIP_FILTER)
+        assert state is not None
+        return await request_transaction_data_async(state, tx_hash)
 
     def get_credential_id_for_server_key(self, key: ServerAccountKey) \
             -> Optional[IndefiniteCredentialId]:
@@ -3760,8 +3686,7 @@ class Wallet:
         account_keyinstance_ids: Dict[int, Set[int]] = defaultdict(set)
         for account_id, keyinstance_id, flags in key_update_rows:
             account_keyinstance_ids[account_id].add(keyinstance_id)
-        for account_id, keyinstance_ids in account_keyinstance_ids.items():
-            self._accounts[account_id].delete_key_subscriptions(list(keyinstance_ids))
+        # TODO(1.4.0) Tip filters. Remove this registration, save money.
 
         if len(transaction_description_update_rows):
             self.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE,
@@ -3919,15 +3844,15 @@ class Wallet:
             identity_private_key.to_hex())
         self._identity_public_key = identity_private_key.public_key
 
-    def get_servers_for_account(self, account: AbstractAccount,
-            server_type: NetworkServerType) -> List[SelectionCandidate]:
-        account_id = account.get_id()
-        results: List[SelectionCandidate] = []
+    def get_servers_for_account_id(self, account_id: int,
+            server_type: NetworkServerType) \
+                -> list[tuple[NewServer, Optional[IndefiniteCredentialId]]]:
+        results = list[tuple[NewServer, Optional[IndefiniteCredentialId]]]()
         for server in self._servers.values():
             if server.server_type == server_type:
                 have_credential, credential_id = server.get_credential_id(account_id)
                 if have_credential:
-                    results.append(SelectionCandidate(server_type, credential_id, server))
+                    results.append((server, credential_id))
         return results
 
     def get_server(self, server_key: ServerAccountKey) -> Optional[NewServer]:
@@ -4058,26 +3983,26 @@ class Wallet:
                 self._servers[server_key] = NewServer(server_key.url, server_key.server_type,
                     row, credential_id)
 
-    def _setup_server_connections(self) -> None:
+    async def _manage_server_connections_async(self) -> None:
         """
         Establish connections to all the servers that the wallet uses.
         """
         assert self._network is not None
-        assert self.main_server is not None
         # TODO(1.4.0) Petty cash. In theory each petty cash account maintains a connection. At the
         #     time of writing, we only have one petty cash account per wallet, but there are loose
         #     plans that sets of accounts may hierarchically share different petty cash accounts.
-        # TODO(1.4.0) Networking. These worker tasks should be restarted if they prematurely exit.
-        session = self._network.get_aiohttp_session()
+        # TODO(1.4.0) Networking. These worker tasks should be restarted if they prematurely exit?
+
+        # TODO(1.4.0) Servers. Work out how to refactor this into place.
+            # assert main_server is not None
+            # app_state.async_.spawn_and_wait(
+            #     self._set_main_server, main_server, SwitchReason.user_set)
+
         self._worker_tasks_maintain_server_connection: \
             dict[int, list[tuple[ServerConnectionState, concurrent.futures.Future[None],
                 concurrent.futures.Future[None]]]] = {}
         for account in self._accounts.values():
             if account.is_petty_cash():
-                # TODO(1.4.0) Main server. The main server should be connected to this
-                #     server selection. There's a larger topic of
-                # candidate = self.main_server_candidate
-
                 account_id = account.get_id()
                 account_row = account.get_row()
 
@@ -4085,13 +4010,40 @@ class Wallet:
                 new_indexing_server_id: Optional[int] = None
                 new_peer_channel_server_id: Optional[int] = None
                 if account_row.indexer_server_id is None:
-                    # TODO(1.4.0) Servers. Consider how we should handle this error. Display
-                    #     to the user and allow a manual retry in some way.
-                    # This can raise `ServiceUnavailableError` if there are no available servers
-                    # that meet the requirements.
-                    indexing_server_candidates = select_servers_for_account(account,
-                        NetworkServerFlag.CAPABILITY_TIP_FILTER)
-                    server = random.choice(indexing_server_candidates)
+                    # We need to select an indexing server for the wallet/user. First work out
+                    # which ones have some form of vetting (they either come from the hard-coded
+                    # configuration or user-entry).
+                    indexing_server_candidates = list[tuple[ServerAccountKey, NewServer]]()
+                    for server_key, server in self._servers.items():
+                        server_row = server.database_rows[None]
+                        if server_row.server_flags & NetworkServerFlag.CAPABILITY_TIP_FILTER:
+                            indexing_server_candidates.append((server_key, server))
+
+                    assert len(indexing_server_candidates) > 0
+
+                    # In `Wallet.start()` the wallet notifies the network of it's internal header
+                    # servers before starting this task. We want to pick one that has fully
+                    # synchronised headers and that we are connected to, as the selected indexing
+                    # server.
+
+                    self._logger.debug("Picking an indexing server, candidates: %s",
+                        indexing_server_candidates)
+                    while True:
+                        # TODO(1.4.0) Servers. Picking an indexing server should possibly wait for
+                        #     servers being synced to sync if they are doing so in a timely
+                        #     fashion. This would give more chance of options, and not just
+                        #     whatever synced..
+                        server_candidates = list[tuple[ServerAccountKey, NewServer]]()
+                        for server_key, server in indexing_server_candidates:
+                            if self._network.is_header_server_ready(server_key):
+                                server_candidates.append((server_key, server))
+                        if len(server_candidates) > 0:
+                            server_key, server = random.choice(server_candidates)
+                            break
+                        self._logger.debug("Waiting for valid indexing server, candidates: %s",
+                            indexing_server_candidates)
+                        await self._network.new_server_connection_event.wait()
+
                     chosen_servers.append((server, { ServerCapability.TIP_FILTER }))
                     new_indexing_server_id = server.server_id
                 else:
@@ -4120,8 +4072,15 @@ class Wallet:
                             raise NotImplementedError("Existing peer channel server not found for "
                                 f"given id={account_row.peer_channel_server_id}")
                 else:
-                    peer_channel_server_candidates = select_servers_for_account(account,
-                        NetworkServerFlag.CAPABILITY_PEER_CHANNELS)
+                    peer_channel_server_candidates = list[NewServer]()
+                    for server_key, server in self._servers.items():
+                        server_row = server.database_rows[None]
+                        # TODO(1.4.0) Servers. Peer channel selection. We need to know that
+                        #     the selected peer channel server is working/available. For now
+                        #     we tie it to the header server.
+                        if server_row.server_flags & NetworkServerFlag.CAPABILITY_PEER_CHANNELS \
+                                and self._network.is_header_server_ready(server_key):
+                            peer_channel_server_candidates.append(server)
                     server = random.choice(peer_channel_server_candidates)
                     if chosen_servers[0][0].server_id == server.server_id:
                         # Both servers are used for indexing and peer channels.
@@ -4152,7 +4111,7 @@ class Wallet:
                         utilised_capabilities=utilised_capabilities,
                         wallet_proxy=weakref.proxy(self),
                         wallet_data=self.data,
-                        session=session,
+                        session=self._network.aiohttp_session,
                         server=api_server,
                         credential_id=api_server.client_api_keys[None])
                     connection_future = app_state.async_.spawn(maintain_server_connection_async,
@@ -4163,6 +4122,16 @@ class Wallet:
                         (server_state, connection_future, wallet_future))
                 assert covered_capabilities == { ServerCapability.PEER_CHANNELS,
                     ServerCapability.TIP_FILTER }
+
+        self._worker_startup_reorg_check = app_state.async_.spawn(
+            self.startup_reorg_check_async)
+        self._worker_task_obtain_transactions = app_state.async_.spawn(
+            self._obtain_transactions_worker_async)
+        self._worker_task_obtain_merkle_proofs = app_state.async_.spawn(
+            self._obtain_merkle_proofs_worker_async)
+        self._worker_task_late_header_worker = app_state.async_.spawn(
+            late_header_worker.late_header_worker_async, self.data,
+            self._late_header_worker_state)
 
     def close_server_connection(self, petty_cash_account_id: int) -> None:
         """
@@ -4427,63 +4396,23 @@ class Wallet:
             self.response_count = 0
         return self.request_count, self.response_count
 
-    def get_api_servers_for_headers(self) -> List[SelectionCandidate]:
-        assert self._network is not None
-        selection_candidates: List[SelectionCandidate] = []
-        for server_key, server in self._servers.items():
-            is_base_key = server_key.account_id is None
-            if is_base_key and server.database_rows[None].server_flags \
-                    & NetworkServerFlag.CAPABILITY_HEADERS != 0:
-                if not self._network._api_servers.get(server_key):
-                    have_credential, credential_id = server.get_credential_id(None)
-                    if have_credential:
-                        selection_candidate = SelectionCandidate(server.server_type, credential_id,
-                            server)
-                        selection_candidates.append(selection_candidate)
-        return selection_candidates
-
     def start(self, network: Optional[Network]) -> None:
         self._network = network
 
         if network is not None:
-            self.subscriptions = SubscriptionManager()
             network.add_wallet(self)
 
             # Add all servers with HEADERS capability to the network layer for header tracking
-            for selection_candidate in self.get_api_servers_for_headers():
-                network.new_server_queue.put_nowait(selection_candidate)
+            for server_key, server in self._servers.items():
+                server_row = server.database_rows[None]
+                if server_row.server_flags & NetworkServerFlag.CAPABILITY_HEADERS:
+                    network.register_wallet_server(server_key)
 
             for account in self.get_accounts():
                 account.start(network)
 
-            main_server: Optional[SelectionCandidate] = None
-
-            server_url = self._storage.get('main_server', "")
-            if server_url == "":
-                # NOTE: Defaults to whatever the first server in the list is
-                main_server = self.get_api_servers_for_headers()[0]
-                assert main_server is not None
-                assert main_server.api_server is not None
-                self._storage.put('main_server', main_server.api_server.url)
-            else:
-                for selection_candidate in self.get_api_servers_for_headers():
-                    assert selection_candidate.api_server is not None
-                    if selection_candidate.api_server.url == server_url:
-                        main_server = selection_candidate
-
-            assert main_server is not None
-            app_state.async_.spawn_and_wait(
-                self._set_main_server, main_server, SwitchReason.user_set)
-            self._setup_server_connections()
-            self._worker_startup_reorg_check = app_state.async_.spawn(
-                self.startup_reorg_check_async)
-            self._worker_task_obtain_transactions = app_state.async_.spawn(
-                self._obtain_transactions_worker_async)
-            self._worker_task_obtain_merkle_proofs = app_state.async_.spawn(
-                self._obtain_merkle_proofs_worker_async)
-            self._worker_task_late_header_worker = app_state.async_.spawn(
-                late_header_worker.late_header_worker_async, self.data,
-                self._late_header_worker_state)
+            self._worker_task_manage_server_connections = app_state.async_.spawn(
+                self._manage_server_connections_async)
 
         self._stopped = False
 
@@ -4506,13 +4435,16 @@ class Wallet:
             account.stop()
 
         if self._network is not None:
-            if self._worker_task_obtain_transactions:
+            if self._worker_task_manage_server_connections is not None:
+                self._worker_task_manage_server_connections.cancel()
+                del self._worker_task_manage_server_connections
+            if self._worker_task_obtain_transactions is not None:
                 self._worker_task_obtain_transactions.cancel()
                 del self._worker_task_obtain_transactions
-            if self._worker_task_obtain_merkle_proofs:
+            if self._worker_task_obtain_merkle_proofs is not None:
                 self._worker_task_obtain_merkle_proofs.cancel()
                 del self._worker_task_obtain_merkle_proofs
-            if self._worker_task_late_header_worker:
+            if self._worker_task_late_header_worker is not None:
                 self._worker_task_late_header_worker.cancel()
                 del self._worker_task_late_header_worker
             self._teardown_server_connections()
@@ -4532,8 +4464,6 @@ class Wallet:
 
         if self._network is not None:
             self._network.remove_wallet(self)
-            assert self.subscriptions is not None
-            self.subscriptions.stop()
 
         self.data.teardown()
         self.db_functions_async.close()
@@ -4549,68 +4479,71 @@ class Wallet:
 
     def update_main_server_tip_and_chain(self, tip: Header, chain: Chain) -> None:
         assert self.main_server is not None
-        self.main_server.tip = tip
+        self.main_server.tip_header = tip
         self.main_server.chain = chain
 
-    async def _set_main_server(self, selection_candidate: SelectionCandidate,
+    async def _set_main_server(self, server_key: ServerAccountKey,
             reason: SwitchReason) -> None:
         '''Set the main server to something new.'''
         assert self._network is not None
-        assert isinstance(selection_candidate, SelectionCandidate), \
-            f"got invalid server value: {selection_candidate}"
-        logger.info("switching main server to: '%s' reason: %s", selection_candidate, reason.name)
+        logger.info("switching main server to: '%s' reason: %s", server_key, reason.name)
 
         server_chain_before = None
         if self.main_server is not None:
             server_chain_before = self.main_server.chain
 
-        self.main_server_candidate = selection_candidate
+        self.main_server_candidate = server_key
         while True:
             # The event is only set if all headers are synced.
             if self._network.servers_synced_events[self.main_server_candidate].is_set() and \
-                    self._network.connected_headers_servers.get(selection_candidate) is not None:
+                    self._network.connected_header_server_states.get(server_key) is not None:
                 break
             await asyncio.sleep(2)
-        self.main_server = self._network.connected_headers_servers[selection_candidate]
+        self.main_server = self._network.connected_header_server_states[server_key]
 
         if server_chain_before:
+            assert self.main_server.chain is not None
             await self.reorg_check_main_chain(server_chain_before, self.main_server.chain)
 
         self._network.trigger_callback(NetworkEventNames.GENERIC_STATUS)
         self._main_server_selection_event.set()
 
-    async def maybe_switch_main_server(self, reason: SwitchReason) -> None:
-        assert self._network is not None
-        now = time.time()
-        max_height = max((headers_client.tip.height for headers_client in
-            self._network.connected_headers_servers.values() if headers_client.tip is not None),
-            default=0)
+    # TODO(1.4.0) Servers. This is no longer used. We will not be switching filtering or peer
+    #     channel servers unless the user manually makes it happen.
+    # async def maybe_switch_main_server(self, reason: SwitchReason) -> None:
+    #     assert self._network is not None
+    #     now = time.time()
+    #     max_height = max((headers_client.tip.height for headers_client in
+    #         self._network.connected_header_server_states.values() \
+    #             if headers_client.tip is not None),
+    #         default=0)
 
-        for selection_candidate, headers_client in self._network.connected_headers_servers.items():
-            if headers_client.tip is not None and headers_client.tip.height > max_height - 2:
-                assert selection_candidate.api_server is not None
-                selection_candidate.api_server \
-                    .api_key_state[selection_candidate.credential_id].last_good = now
+    #     for selection_candidate, headers_client in \
+    #             self._network.connected_header_server_states.items():
+    #         if headers_client.tip is not None and headers_client.tip.height > max_height - 2:
+    #             assert selection_candidate.api_server is not None
+    #             selection_candidate.api_server \
+    #                 .api_key_state[selection_candidate.credential_id].last_good = now
 
-        # Give a 60-second breather for a lagging server to catch up
-        good_servers = []
-        for selection_candidate in self._network.connected_headers_servers:
-            assert selection_candidate.api_server is not None
-            last_good = selection_candidate.api_server \
-                .api_key_state[selection_candidate.credential_id].last_good
-            if last_good > now - 60:
-                good_servers.append(selection_candidate)
+    #     # Give a 60-second breather for a lagging server to catch up
+    #     good_servers = []
+    #     for selection_candidate in self._network.connected_header_server_states:
+    #         assert selection_candidate.api_server is not None
+    #         last_good = selection_candidate.api_server \
+    #             .api_key_state[selection_candidate.credential_id].last_good
+    #         if last_good > now - 60:
+    #             good_servers.append(selection_candidate)
 
-        if not good_servers:
-            logger.warning('no good servers available')
+    #     if not good_servers:
+    #         logger.warning('no good servers available')
 
-        elif self.main_server_candidate not in good_servers:
-            if self._network.auto_connect():
-                await self._set_main_server(random.choice(good_servers), reason)
-            else:
-                assert self.main_server is not None
-                logger.warning("main server %s is not good, but retaining it because "
-                    "auto-connect is off", self.main_server._state.server.url)
+    #     elif self.main_server_candidate not in good_servers:
+    #         if self._network.auto_connect():
+    #             await self._set_main_server(random.choice(good_servers), reason)
+    #         else:
+    #             assert self.main_server is not None
+    #             logger.warning("main server %s is not good, but retaining it because "
+    #                 "auto-connect is off", self.main_server._state.server.url)
 
     async def reorg_check_main_chain(self, old_chain: Chain, new_chain: Chain) -> None:
         assert app_state.headers is not None

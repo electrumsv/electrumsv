@@ -2294,7 +2294,7 @@ def delete_mapi_broadcast_callbacks(db_context: DatabaseContext, tx_hashes: Iter
 
 @replace_db_context_with_connection
 def read_reorged_transactions(db: sqlite3.Connection,
-        orphaned_block_hashes: list[bytes]=[]) -> list[bytes]:
+        orphaned_block_hashes: list[bytes]) -> list[bytes]:
     """
     Identify all transactions that were verified in the orphaned chain as part of a reorg.
     """
@@ -2304,7 +2304,7 @@ def read_reorged_transactions(db: sqlite3.Connection,
 
 
 @replace_db_context_with_connection
-def read_merkle_proofs(db: sqlite3.Connection, tx_hashes: list[bytes]=[]) \
+def read_merkle_proofs(db: sqlite3.Connection, tx_hashes: list[bytes]) \
         -> list[TransactionProofRow]:
     sql = """
         SELECT block_hash, tx_hash, proof_data, block_position FROM TransactionProofs
@@ -2318,7 +2318,7 @@ async def set_transactions_reorged_async(db_context: DatabaseContext, tx_hashes:
     return await db_context.run_in_thread_async(_set_transactions_reorged, tx_hashes)
 
 
-def _set_transactions_reorged(tx_hashes: list[bytes]=[], db: Optional[sqlite3.Connection]=None) \
+def _set_transactions_reorged(tx_hashes: list[bytes], db: Optional[sqlite3.Connection]=None) \
         -> bool:
     """
     Reset transactions back to unverified state as a batch.

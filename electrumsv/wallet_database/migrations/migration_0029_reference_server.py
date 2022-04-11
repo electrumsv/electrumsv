@@ -79,7 +79,6 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     wallet_data["next_account_id"] += 1
     masterkey_id = wallet_data["next_masterkey_id"]
     wallet_data["next_masterkey_id"] += 1
-    wallet_data["main_server"] = ""
 
     conn.execute("ALTER TABLE MasterKeys ADD COLUMN flags INTEGER NOT NULL DEFAULT 0")
 

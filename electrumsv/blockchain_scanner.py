@@ -48,7 +48,7 @@ from bitcoinx import bip32_key_from_string, BIP32PublicKey, PublicKey
 
 from .app_state import app_state
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH, DerivationType,
-    DerivationPath, RECEIVING_SUBPATH, ScriptType)
+    DerivationPath, RECEIVING_SUBPATH, ScriptType, ServerCapability)
 from .exceptions import UnsupportedAccountTypeError
 from .i18n import _
 from .logs import logs
@@ -187,29 +187,10 @@ class PushDataHashHandler:
             means that the connection was closed mid-transmission.
         Raises `ServerConnectionError` if the remote computer cannot be connected to.
         """
-
-        # TODO(1.4.0) Networking. Discuss this with Roger - the fact that we want to pin to the
-        #    main server for the wallet for consistent chain state.
-
-        # all_candidates = self._account._wallet.get_servers_for_account(
-        #     self._account, NetworkServerType.GENERAL)
-        # restoration_candidates = select_servers(ServerCapability.RESTORATION, all_candidates)
-        # if not len(restoration_candidates):
-        #     raise PushDataSearchError(_("No servers available."))
-
-        # # TODO(1.4.0) Networking. Standardised server selection / endpoint url resolution.
-        # candidate = random.choice(restoration_candidates)
-        # assert candidate.api_server is not None
-
-        # url = f"{candidate.api_server.url}api/v1/restoration/search"
-
-        main_server = self._account.get_wallet().main_server
-        if not main_server:
-            raise PushDataSearchError(_("No servers available."))
-
-        url = main_server._state.server.url
-        url = url if url.endswith("/") else url +"/"
-        url = f"{url}api/v1/restoration/search"
+        state = self._account.get_wallet().get_server_state_for_capability(
+            ServerCapability.TIP_FILTER)
+        if state is None:
+            raise PushDataSearchError(_("Not currently connected to a designated indexing server."))
 
         # These are the pushdata hashes that have been passed along.
         entry_mapping: Dict[bytes, SearchEntry] = { entry.item_hash: entry for entry in entries }
@@ -218,11 +199,7 @@ class PushDataHashHandler:
                 entry.item_hash.hex() for entry in entries
             ]
         }
-        credential_id = main_server._state.credential_id
-        assert credential_id is not None
-        master_token = app_state.credentials.get_indefinite_credential(credential_id)
-        async for payload_bytes in post_restoration_filter_request_binary(url, request_data,
-                master_token):
+        async for payload_bytes in post_restoration_filter_request_binary(state, request_data):
             filter_result = unpack_binary_restoration_entry(payload_bytes)
             search_entry = entry_mapping[filter_result.push_data_hash]
             self.record_match_for_entry(filter_result, search_entry)

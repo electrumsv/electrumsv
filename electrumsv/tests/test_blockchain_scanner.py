@@ -239,7 +239,6 @@ async def test_scanner_pump_script(app_state):
 
 @unittest.mock.patch('electrumsv.blockchain_scanner.app_state')
 def test_scanner_bip32_correctness(app_state):
-    # app_state.subscriptions = unittest.mock.Mock()
     assert isinstance(xpub1, BIP32PublicKey)
 
     search_enumerator = SearchKeyEnumerator()

@@ -1,24 +1,26 @@
 from aiohttp import web
 from aiohttp import ClientSession
-from aiohttp.test_utils import TestClient
 from aiohttp.web_ws import WebSocketResponse
 import base64
 import bitcoinx
 from bitcoinx import hash_to_hex_str
 import json
 import logging
-from typing import cast, Union
+from typing import cast
 import unittest.mock
 import uuid
 
 from electrumsv.app_state import AppStateProxy
-from electrumsv.constants import ServerCapability
+from electrumsv.constants import NetworkServerType, ServerCapability
 from electrumsv.network_support.api_server import NewServer
 from electrumsv.network_support.esv_client import ESVClient, PeerChannel
 from electrumsv.network_support.esv_client_types import ChannelNotification, MAPICallbackResponse, \
     PeerChannelToken, ServerConnectionState, ServerWebsocketNotification, TokenPermissions
 from electrumsv.network_support.general_api import create_peer_channel_async, \
     create_peer_channel_api_token_async, list_peer_channels_async
+from electrumsv.network_support.headers import get_batched_headers_by_height_async, \
+    get_chain_tips_async, HeaderServerState, subscribe_to_headers_async
+from electrumsv.types import ServerAccountKey
 
 from ..tests.data.reference_server.headers_data import GENESIS_TIP_NOTIFICATION_BINARY, \
     GENESIS_HEADER
@@ -59,7 +61,16 @@ MOCK_GET_TOKEN_RESPONSE = {
     "can_write": True
 }
 
-MERKLE_PROOF_CALLBACK_PAYLOAD = '{"flags":2,"index":1,"txOrId":"acad8d40b3a17117026ace82ef56d269283753d310ddaeabe7b5d226e8dbe973","target":{"hash":"0e9a2af27919b30a066383d512d64d4569590f935007198dacad9824af643177","confirmations":1,"height":152,"version":536870912,"versionHex":"20000000","merkleroot":"0298acf415976238163cd82b9aab9826fb8fbfbbf438e55185a668d97bf721a8","num_tx":2,"time":1604409778,"mediantime":1604409777,"nonce":0,"bits":"207fffff","difficulty":4.656542373906925e-10,"chainwork":"0000000000000000000000000000000000000000000000000000000000000132","previousblockhash":"62ae67b463764d045f4cbe54f1f7eb63ccf70d52647981ffdfde43ca4979a8ee"},"nodes":["5b537f8fba7b4057971f7e904794c59913d9a9038e6900669d08c1cf0cc48133"]}'
+MERKLE_PROOF_CALLBACK_PAYLOAD = '{"flags":2,"index":1,"txOrId":' \
+    '"acad8d40b3a17117026ace82ef56d269283753d310ddaeabe7b5d226e8dbe973","target":{"hash":' \
+    '"0e9a2af27919b30a066383d512d64d4569590f935007198dacad9824af643177","confirmations":1,'\
+    '"height":152,"version":536870912,"versionHex":"20000000","merkleroot":'\
+    '"0298acf415976238163cd82b9aab9826fb8fbfbbf438e55185a668d97bf721a8","num_tx":2,'\
+    '"time":1604409778,"mediantime":1604409777,"nonce":0,"bits":"207fffff","difficulty"'\
+    ':4.656542373906925e-10,"chainwork":'\
+    '"0000000000000000000000000000000000000000000000000000000000000132","previousblockhash":'\
+    '"62ae67b463764d045f4cbe54f1f7eb63ccf70d52647981ffdfde43ca4979a8ee"},"nodes":['\
+    '"5b537f8fba7b4057971f7e904794c59913d9a9038e6900669d08c1cf0cc48133"]}'
 MERKLE_PROOF_CALLBACK: MAPICallbackResponse = {
     "callbackPayload": MERKLE_PROOF_CALLBACK_PAYLOAD,
     "apiVersion": "1.4.0",
@@ -375,8 +386,8 @@ async def test_get_single_header(mock_app_state: AppStateProxy, aiohttp_client):
 async def test_get_batched_headers_by_height(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
-    esv_client: ESVClient = await _get_esv_client(test_session)
-    result = await esv_client.get_batched_headers_by_height(from_height=0, count=2)
+    state = HeaderServerState(ServerAccountKey(BASE_URL, NetworkServerType.GENERAL, None), None)
+    result = await get_batched_headers_by_height_async(state, test_session, from_height=0, count=2)
     assert result == bytes.fromhex("aa"*80) + bytes.fromhex("bb"*80)
 
 
@@ -385,17 +396,18 @@ async def test_get_chain_tips(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     expected_response = GENESIS_HEADER + bitcoinx.int_to_le_bytes(0)
     test_session = await aiohttp_client(create_app())
-    esv_client: ESVClient = await _get_esv_client(test_session)
-    result = await esv_client.get_chain_tips()
-    assert result == expected_response
+    state = HeaderServerState(ServerAccountKey(BASE_URL, NetworkServerType.GENERAL, None), None)
+    header = await get_chain_tips_async(state, test_session)
+    assert header.height == 0
+    assert header.raw == GENESIS_HEADER
 
 
 @unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
 async def test_subscribe_to_headers(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
-    esv_client: ESVClient = await _get_esv_client(test_session)
-    async for tip in esv_client.subscribe_to_headers():
+    state = HeaderServerState(ServerAccountKey(BASE_URL, NetworkServerType.GENERAL, None), None)
+    async for tip in subscribe_to_headers_async(state, test_session):
         if tip:
             logger.debug(tip)
             assert True

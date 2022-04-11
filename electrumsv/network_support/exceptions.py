@@ -16,3 +16,9 @@ class HeaderNotFoundError(GeneralAPIError):
 
 class HeaderResponseError(GeneralAPIError):
     pass
+
+class InvalidStateError(Exception):
+    pass
+
+class AuthenticationError(Exception):
+    pass

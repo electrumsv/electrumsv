@@ -1,4 +1,4 @@
-from typing import cast
+from typing import cast, Optional
 import unittest.mock
 import uuid
 
@@ -43,62 +43,6 @@ def test_get_authorization_headers_credential_default_header(app_state, params) 
     assert headers == expected_headers
 
 
-def test_select_servers_empty_input() -> None:
-    assert [] == api_server.select_servers(ServerCapability.TRANSACTION_BROADCAST, [])
-
-
-def test_select_servers_filter_all_outputs() -> None:
-    row1 = NetworkServerRow(1, NetworkServerType.MERCHANT_API, "url1", 1, NetworkServerFlag.NONE,
-        None, None, None, None, 0, 0, 1, 1)
-    row2 = NetworkServerRow(2, NetworkServerType.MERCHANT_API, "url2", 1, NetworkServerFlag.NONE,
-        None, None, None, None, 0, 0, 1, 1)
-    servers = [
-        api_server.SelectionCandidate(
-            NetworkServerType.MERCHANT_API,
-            None,
-            api_server.NewServer("A", NetworkServerType.MERCHANT_API, row1, None)),
-        api_server.SelectionCandidate(
-            NetworkServerType.MERCHANT_API,
-            None,
-            api_server.NewServer("B", NetworkServerType.MERCHANT_API, row2, None)),
-    ]
-    fake_row = unittest.mock.Mock()
-    fake_row.server_flags = NetworkServerFlag.NONE
-    assert servers[0].api_server is not None
-    servers[0].api_server.database_rows[None] = cast(NetworkServerRow, fake_row)
-    assert servers[1].api_server is not None
-    servers[1].api_server.database_rows[None] = cast(NetworkServerRow, fake_row)
-
-    selected_candidates = api_server.select_servers(ServerCapability.TRANSACTION_BROADCAST, servers)
-    assert servers == selected_candidates
-
-
-def test_select_servers_filter_reduced_outputs() -> None:
-    row1 = NetworkServerRow(1, NetworkServerType.MERCHANT_API, "url1", 1, NetworkServerFlag.NONE,
-        None, None, None, None, 0, 0, 1, 1)
-    row2 = NetworkServerRow(2, NetworkServerType.GENERAL, "url2", 1, NetworkServerFlag.NONE,
-        None, None, None, None, 0, 0, 1, 1)
-    servers = [
-        api_server.SelectionCandidate(
-            NetworkServerType.MERCHANT_API,
-            None,
-            api_server.NewServer("A", NetworkServerType.MERCHANT_API, row1, None)),
-        api_server.SelectionCandidate(
-            NetworkServerType.GENERAL,
-            None,
-            api_server.NewServer("B", NetworkServerType.GENERAL, row2, None)),
-    ]
-    fake_row = unittest.mock.Mock()
-    fake_row.server_flags = NetworkServerFlag.NONE
-    assert servers[0].api_server is not None
-    servers[0].api_server.database_rows[None] = cast(NetworkServerRow, fake_row)
-    assert servers[1].api_server is not None
-    servers[1].api_server.database_rows[None] = cast(NetworkServerRow, fake_row)
-
-    selected_candidates = api_server.select_servers(ServerCapability.FEE_QUOTE, servers)
-    assert [ servers[0] ] == selected_candidates
-
-
 @unittest.mock.patch('electrumsv.network_support.api_server.app_state')
 def test_prioritise_broadcast_servers_invalid_candidate(app_state) -> None:
     row1 = NetworkServerRow(1, NetworkServerType.MERCHANT_API, "url1", 1, NetworkServerFlag.NONE,
@@ -106,8 +50,9 @@ def test_prioritise_broadcast_servers_invalid_candidate(app_state) -> None:
     fake_tx_size = TransactionSize(100, 20)
     dummy_server = api_server.NewServer("A", NetworkServerType.MERCHANT_API, row1, None)
     dummy_server.api_key_state[None] = api_server.NewServerAccessState()
+    credential_id = cast(Optional[IndefiniteCredentialId], None)
     servers = [
-        api_server.SelectionCandidate(dummy_server.server_type, None, dummy_server),
+        (dummy_server, credential_id),
     ]
     with pytest.raises(AssertionError):
         api_server.prioritise_broadcast_servers(fake_tx_size, servers)
@@ -148,12 +93,14 @@ def test_prioritise_broadcast_servers_single_candidate(app_state) -> None:
     dummy_server = api_server.NewServer("A", NetworkServerType.MERCHANT_API, row1, None)
     key_state = dummy_server.api_key_state[None] = api_server.NewServerAccessState()
     key_state.last_fee_quote = FEE_QUOTE_1
+    credential_id = cast(Optional[IndefiniteCredentialId], None)
     servers = [
-        api_server.SelectionCandidate(dummy_server.server_type, None, dummy_server),
+        (dummy_server, credential_id),
     ]
     results = api_server.prioritise_broadcast_servers(fake_tx_size, servers)
     assert len(results) == 1
-    assert results[0].candidate == servers[0]
+    assert results[0].server == dummy_server
+    assert results[0].credential_id == credential_id
     assert results[0].initial_fee == 60
 
 
@@ -169,23 +116,28 @@ def test_prioritise_broadcast_servers_ordered_candidates(app_state) -> None:
     key_state1 = dummy_server1.api_key_state[None] = api_server.NewServerAccessState()
     key_state1.last_fee_quote = FEE_QUOTE_1
 
-    dummy_server2 = api_server.NewServer("B", NetworkServerType.MERCHANT_API, row1, None)
+    dummy_server2 = api_server.NewServer("B", NetworkServerType.MERCHANT_API, row2, None)
     key_state2 = dummy_server2.api_key_state[None] = api_server.NewServerAccessState()
     key_state2.last_fee_quote = FEE_QUOTE_2
 
+    null_credential_id = cast(Optional[IndefiniteCredentialId], None)
+
     # Pass the candidates in ordered from most to least expensive.
     servers = [
-        api_server.SelectionCandidate(dummy_server1.server_type, None, dummy_server1),
-        api_server.SelectionCandidate(dummy_server2.server_type, None, dummy_server2),
+        (dummy_server1, null_credential_id),
+        (dummy_server2, null_credential_id),
     ]
-
     results = api_server.prioritise_broadcast_servers(fake_tx_size, servers)
     assert len(results) == 2
 
     # Verify that the prioritised candidates are ordered from least to most expensive.
-    assert results[0].candidate == servers[1]
-    assert results[0].initial_fee == 12
+    server_1 = [ result for result in results if result.server.server_id == 1 ][0]
+    assert server_1.server == dummy_server1
+    assert server_1.credential_id == null_credential_id
+    assert server_1.initial_fee == 60
 
-    assert results[1].candidate == servers[0]
-    assert results[1].initial_fee == 60
+    server_2 = [ result for result in results if result.server.server_id == 2 ][0]
+    assert server_2.server == dummy_server2
+    assert server_2.credential_id == null_credential_id
+    assert server_2.initial_fee == 12
 

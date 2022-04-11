@@ -43,15 +43,14 @@ from http import HTTPStatus
 import json
 import struct
 import time
-from typing import Any, AsyncIterable, cast, List, NamedTuple, Optional, TypedDict, \
-    TYPE_CHECKING, Union
+from typing import Any, AsyncIterable, cast, List, NamedTuple, Optional, TypedDict, Union
 
 import aiohttp
 from aiohttp import WSServerHandshakeError
 from bitcoinx import Chain, hash_to_hex_str, hex_str_to_hash, Header, MissingHeader, PrivateKey
 
-from .exceptions import FilterResponseInvalidError, FilterResponseIncompleteError, \
-    TransactionNotFoundError, GeneralAPIError
+from .exceptions import AuthenticationError, FilterResponseInvalidError, \
+    FilterResponseIncompleteError, GeneralAPIError, InvalidStateError, TransactionNotFoundError
 from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof, TSCMerkleProofError, verify_proof
 from ..constants import PushDataHashRegistrationFlag, PushDataMatchFlag, ServerCapability, \
@@ -74,11 +73,6 @@ from .esv_client_types import AccountMessageKind, GenericPeerChannelMessage, \
     RetentionViewModel, ServerConnectionState, TipFilterPushDataMatchesData, \
     TipFilterRegistrationResponse, TokenPermissions, \
     VerifiableKeyData, WebsocketUnauthorizedException
-
-
-if TYPE_CHECKING:
-    from ..network import Network
-    from ..wallet import AbstractAccount
 
 
 logger = logs.get_logger("general-api")
@@ -116,8 +110,8 @@ FILTER_RESPONSE_SIZE = 1 + 32 + 32 + 4 + 32 + 4
 assert struct.calcsize(RESULT_UNPACK_FORMAT) == FILTER_RESPONSE_SIZE
 
 
-async def post_restoration_filter_request_json(url: str, request_data: RestorationFilterRequest) \
-        -> AsyncIterable[RestorationFilterJSONResponse]:
+async def post_restoration_filter_request_json(state: ServerConnectionState,
+        request_data: RestorationFilterRequest) -> AsyncIterable[RestorationFilterJSONResponse]:
     """
     This will stream matches for the given push data hashes from the server in JSON
     structures until there are no more matches.
@@ -125,13 +119,17 @@ async def post_restoration_filter_request_json(url: str, request_data: Restorati
     Raises `HTTPError` if the response status code indicates an error occurred.
     Raises `FilterResponseInvalidError` if the response is not valid.
     """
+    url = f"{state.server.url}api/v1/restoration/search"
+    assert state.credential_id is not None
+    master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     headers={
         'Content-Type':     'application/json',
         'Accept':           'application/json',
-        'User-Agent':       'ElectrumSV'
+        'User-Agent':       'ElectrumSV',
+        'Authorization':    f'Bearer {master_token}'
     }
-    async with aiohttp.ClientSession(headers=headers) as session:
-        async with session.post(url, json=request_data) as response:
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, json=request_data, headers=headers) as response:
             if response.status != HTTPStatus.OK:
                 raise FilterResponseInvalidError(f"Bad response status code {response.status}")
 
@@ -144,8 +142,8 @@ async def post_restoration_filter_request_json(url: str, request_data: Restorati
                 yield json.loads(response_line)
 
 
-async def post_restoration_filter_request_binary(url: str, request_data: RestorationFilterRequest,
-        access_token: str) -> AsyncIterable[bytes]:
+async def post_restoration_filter_request_binary(state: ServerConnectionState,
+        request_data: RestorationFilterRequest) -> AsyncIterable[bytes]:
     """
     This will stream matches for the given push data hashes from the server in packed binary
     structures until there are no more matches.
@@ -155,11 +153,14 @@ async def post_restoration_filter_request_binary(url: str, request_data: Restora
       that the connection was closed mid-transmission.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
+    url = f"{state.server.url}api/v1/restoration/search"
+    assert state.credential_id is not None
+    master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     headers = {
         'Content-Type':     'application/json',
         'Accept':           'application/octet-stream',
         'User-Agent':       'ElectrumSV',
-        'Authorization':    f'Bearer {access_token}'
+        'Authorization':    f'Bearer {master_token}'
     }
     try:
         async with aiohttp.ClientSession() as session:
@@ -196,8 +197,8 @@ def unpack_binary_restoration_entry(entry_data: bytes) -> RestorationFilterResul
 STREAM_CHUNK_SIZE = 16*1024
 
 
-async def _request_binary_merkle_proof_async(server_url: str, tx_hash: bytes,
-        include_transaction: bool=False, target_type: str="hash", access_token: str="") -> bytes:
+async def _request_binary_merkle_proof_async(state: ServerConnectionState, tx_hash: bytes,
+        include_transaction: bool=False, target_type: str="hash") -> bytes:
     """
     Get a TSC merkle proof with optional embedded transaction.
 
@@ -208,7 +209,10 @@ async def _request_binary_merkle_proof_async(server_url: str, tx_hash: bytes,
     Raises `FilterResponseInvalidError` if the response is not valid.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
+    assert state.credential_id is not None
     assert target_type in { "hash", "header", "merkleroot" }
+    master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
+    server_url = f"{state.server.url}api/v1/merkle-proof/"
     params = {
         "targetType": target_type,
     }
@@ -219,26 +223,22 @@ async def _request_binary_merkle_proof_async(server_url: str, tx_hash: bytes,
         'Content-Type':     'application/json',
         'Accept':           'application/octet-stream',
         'User-Agent':       'ElectrumSV',
-        'Authorization':    f'Bearer {access_token}'
+        'Authorization':    f'Bearer {master_token}'
     }
 
-    # TODO(1.4.0) Servers. Trailing slash cleanup.
-    url = server_url if server_url.endswith("/") else server_url + "/"
-    url += hash_to_hex_str(tx_hash)
     try:
-        async with aiohttp.ClientSession(headers=headers) as session:
-            async with session.get(url, params=params) as response:
-                if response.status != HTTPStatus.OK:
-                    raise FilterResponseInvalidError(
-                        f"Bad response status={response.status}, reason={response.reason}")
+        async with state.session.get(server_url, params=params, headers=headers) as response:
+            if response.status != HTTPStatus.OK:
+                raise FilterResponseInvalidError(
+                    f"Bad response status={response.status}, reason={response.reason}")
 
-                content_type, *content_type_extra = response.headers["Content-Type"].split(";")
-                if content_type != "application/octet-stream":
-                    raise FilterResponseInvalidError(
-                        "Invalid response content type, got {}, expected {}".format(content_type,
-                            "octet-stream"))
+            content_type, *content_type_extra = response.headers["Content-Type"].split(";")
+            if content_type != "application/octet-stream":
+                raise FilterResponseInvalidError(
+                    "Invalid response content type, got {}, expected {}".format(content_type,
+                        "octet-stream"))
 
-                return await response.content.read()
+            return await response.content.read()
     except aiohttp.ClientError:
         # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
         #     like this, we should do something to make sure that does not happen. Debug log?
@@ -252,6 +252,7 @@ class MerkleProofError(Exception):
 
         self.merkle_proof = proof
 
+
 class MerkleProofVerificationError(MerkleProofError):
     ...
 
@@ -259,9 +260,8 @@ class MerkleProofMissingHeaderError(MerkleProofError):
     ...
 
 
-async def request_binary_merkle_proof_async(network: Optional[Network], account: AbstractAccount,
-        tx_hash: bytes, include_transaction: bool=False) \
-            -> tuple[TSCMerkleProof, tuple[Header, Chain]]:
+async def request_binary_merkle_proof_async(state: ServerConnectionState, tx_hash: bytes,
+        include_transaction: bool=False) -> tuple[TSCMerkleProof, tuple[Header, Chain]]:
     """
     Requests the merkle proof from a given server, verifies it and returns it.
 
@@ -274,19 +274,11 @@ async def request_binary_merkle_proof_async(network: Optional[Network], account:
     Raises `MerkleProofMissingHeaderError` if the header for the block the transaction is in
         is not known to the application.
     """
-    assert network is not None
     assert app_state.headers is not None
-
-    state = account._wallet.get_server_state_for_capability(ServerCapability.TIP_FILTER)
-    assert state is not None
-    base_server_url = state.server.url
-    assert base_server_url.endswith("/"), f"bad url '{base_server_url}' lacks trailing slash"
-
     assert state.credential_id is not None
-    master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
-    server_url = f"{base_server_url}api/v1/merkle-proof/"
-    tsc_proof_bytes = await _request_binary_merkle_proof_async(server_url, tx_hash,
-        include_transaction=include_transaction, access_token=master_token)
+
+    tsc_proof_bytes = await _request_binary_merkle_proof_async(state, tx_hash,
+        include_transaction=include_transaction)
     logger.debug("Read %d bytes of merkle proof", len(tsc_proof_bytes))
     try:
         tsc_proof = TSCMerkleProof.from_bytes(tsc_proof_bytes)
@@ -306,31 +298,21 @@ async def request_binary_merkle_proof_async(network: Optional[Network], account:
     return tsc_proof, (header, chain)
 
 
-async def request_transaction_data_async(network: Optional[Network], account: AbstractAccount,
-        tx_hash: bytes) -> bytes:
+async def request_transaction_data_async(state: ServerConnectionState, tx_hash: bytes) -> bytes:
     """Selects a suitable server and requests the raw transaction.
 
     Raises `ServerConnectionError` if the remote server is not online (and other networking
         problems).
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     """
-    assert network is not None
-    state = account._wallet.get_server_state_for_capability(ServerCapability.TIP_FILTER)
-    assert state is not None
-    base_server_url = state.server.url
-    assert base_server_url.endswith("/"), f"bad url '{base_server_url}' lacks trailing slash"
-    server_url = f"{base_server_url}api/v1/transaction/"
+    tx_id = hash_to_hex_str(tx_hash)
+    server_url = f"{state.server.url}api/v1/transaction/"+ tx_id
     headers = {
         'Accept':           'application/octet-stream',
         'User-Agent':       'ElectrumSV'
     }
-    # TODO(1.4.0) Servers. Trailing slash cleanup.
-    url = server_url if server_url.endswith("/") else server_url + "/"
-    url += hash_to_hex_str(tx_hash)
-
-    session = network.get_aiohttp_session()
     try:
-        async with session.get(url, headers=headers) as response:
+        async with state.session.get(server_url, headers=headers) as response:
             if response.status == HTTPStatus.NOT_FOUND:
                 logger.error("Transaction for hash %s not found", hash_to_hex_str(tx_hash))
                 raise TransactionNotFoundError()
@@ -349,7 +331,7 @@ async def request_transaction_data_async(network: Optional[Network], account: Ab
         # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
         #     like this, we should do something to make sure that does not happen. Debug log?
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {base_server_url}")
+        raise ServerConnectionError(f"Failed to connect to server at: {state.server.url}")
 
 
 def unpack_server_message_bytes(message_bytes: bytes) \
@@ -377,8 +359,11 @@ async def maintain_server_connection_async(state: ServerConnectionState) -> None
         while state.connection_flags & ServerConnectionFlag.EXITING == 0:
             state.connection_flags &= ServerConnectionFlag.MASK_COMMON_INITIAL
 
-            if not await manage_server_connection_async(state):
-                break
+            try:
+                if not await manage_server_connection_async(state):
+                    break
+            except ServerConnectionError:
+                pass
 
             logger.debug("Server disconnected, clearing state, waiting to retry")
             state.clear_for_reconnection()
@@ -398,6 +383,9 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
     Raises `GeneralAPIError` if non-successful response encountered.
     Raises `AuthenticationError` if response does not give valid payment keys or api keys.
     """
+    assert state.wallet_proxy is not None
+    assert state.wallet_data is not None
+
     # Check if the existing credentials are still valid.
     if state.credential_id is not None:
         master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
@@ -417,8 +405,8 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
                 logger.debug("Existing credentials verified for server %s", state.server.server_id)
                 return
         except aiohttp.ClientConnectorError:
-            logger.debug("Currently unable to connect to server (credential test)")
-            return
+            logger.debug("Failed to connect to server at: %s", account_metadata_url, exc_info=True)
+            raise ServerConnectionError()
 
     # We lookup the password here before we do anything that will change server-side state.
     # If the user is asked to enter it, should it not be in the cache, then we may abort
@@ -448,23 +436,29 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
     payment_key_bytes: Optional[bytes] = None
     api_key: Optional[str] = None
     # TODO(1.4.0) Servers. Need to identify aiohttp exceptions raised here and handle them.
-    async with state.session.post(obtain_server_key_url, json=key_data) as response:
-        if response.status != 200:
-            logger.error("Unexpected status in payment key endpoint response (vkd) %d (%s)",
-                response.status, response.reason)
-            raise GeneralAPIError(
-                f"Bad response status code: {response.status}, reason: {response.reason}")
+    try:
+        async with state.session.post(obtain_server_key_url, json=key_data) as response:
+            if response.status != HTTPStatus.OK:
+                logger.error("Unexpected status in payment key endpoint response (vkd) %d (%s)",
+                    response.status, response.reason)
+                raise GeneralAPIError(
+                    f"Bad response status code: {response.status}, reason: {response.reason}")
 
-        # TODO(1.4.0) Servers. Need to identify aiohttp exceptions raised here and handle them.
-        reader = aiohttp.MultipartReader.from_response(response)
-        while True:
-            part = cast(Optional[aiohttp.BodyPartReader], await reader.next())
-            if part is None:
-                break
-            elif part.name == "key":
-                payment_key_bytes = bytes(await part.read(decode=True))
-            elif part.name == "api-key":
-                api_key = await part.text()
+            # TODO(1.4.0) Servers. Need to identify aiohttp exceptions raised here and handle them.
+            reader = aiohttp.MultipartReader.from_response(response)
+            while True:
+                part = cast(Optional[aiohttp.BodyPartReader], await reader.next())
+                if part is None:
+                    break
+                elif part.name == "key":
+                    payment_key_bytes = bytes(await part.read(decode=True))
+                elif part.name == "api-key":
+                    api_key = await part.text()
+    except aiohttp.ClientError:
+        # TODO(1.4.0) Servers. We do not want to lose error details, when we catch exceptions
+        #     like this, we should do something to make sure that does not happen. Debug log?
+        logger.debug("Failed to connect to server at: %s", obtain_server_key_url, exc_info=True)
+        raise ServerConnectionError()
 
     # TODO(1.4.0) Servers. The user should be shown this as the auth failure reason.
     if payment_key_bytes is None:
@@ -482,7 +476,6 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
         encrypted_api_key, payment_key_bytes)
     state.credential_id = app_state.credentials.add_indefinite_credential(api_key)
     logger.debug("Obtained new credentials for server %s", state.server.server_id)
-
 
 async def manage_server_connection_async(state: ServerConnectionState) -> bool:
     """
@@ -674,6 +667,9 @@ async def manage_tip_filter_registrations_async(state: ServerConnectionState) ->
     assert state.indexer_settings is not None
 
     async def process_registrations_worker_async() -> None:
+        assert state.wallet_proxy is not None
+        assert state.wallet_data is not None
+
         # Before an indexing server will accept tip filter registrations from us we need to
         # have registered a notifications peer channel with it, through which it will deliver
         # any matches.
@@ -753,7 +749,10 @@ async def manage_tip_filter_registrations_async(state: ServerConnectionState) ->
 
 
 async def process_incoming_peer_channel_messages_async(state: ServerConnectionState) -> None:
+    assert state.wallet_proxy is not None
+    assert state.wallet_data is not None
     assert state.cached_peer_channel_rows is not None
+
     logger.debug("Entering process_incoming_peer_channel_messages_async, server_id=%d",
         state.server.server_id)
 
@@ -868,6 +867,9 @@ async def validate_server_data(state: ServerConnectionState) -> None:
       channel closed. We may have some system depending on an expected result, like a merkle proof
       that will now never be received.
     """
+    assert state.wallet_proxy is not None
+    assert state.wallet_data is not None
+
     if ServerCapability.TIP_FILTER in state.utilised_capabilities:
         assert state.indexer_settings is None
         state.indexer_settings = await get_server_indexer_settings(state)
@@ -984,6 +986,9 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
+    assert indexing_server_state.wallet_proxy is not None
+    assert indexing_server_state.wallet_data is not None
+
     # This should only be clear for non-indexer servers.
     assert indexing_server_state.indexer_settings is not None
     assert ServerCapability.TIP_FILTER in indexing_server_state.utilised_capabilities
@@ -991,6 +996,8 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
     peer_channel_server_state = indexing_server_state.wallet_proxy.get_server_state_for_capability(
         ServerCapability.PEER_CHANNELS)
     assert peer_channel_server_state is not None
+    assert peer_channel_server_state.wallet_data is not None
+
     while peer_channel_server_state is not indexing_server_state:
         # The peer channel server is a different server. We do not know that it is ready. Either
         # we should wait for it to become ready, or we should retry this call when it is.
@@ -1223,6 +1230,9 @@ async def mark_peer_channel_read_or_unread(state: ServerConnectionState, channel
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
+    assert state.wallet_proxy is not None
+    assert state.wallet_data is not None
+
     # TODO(1.4.0) Credentials. Access tokens should be encrypted in the credentials cache.
     db_access_tokens = state.wallet_data.read_server_peer_channel_access_tokens(channel_id,
         PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE,
@@ -1289,6 +1299,9 @@ async def list_peer_channel_messages_async(state: ServerConnectionState, channel
     WARNING: This does not set the messages to read when it reads them.. that needs to be done
         manually after this call with another to `mark_peer_channel_read_or_unread`.
     """
+    assert state.wallet_proxy is not None
+    assert state.wallet_data is not None
+
     # TODO(1.4.0) Credentials. Access tokens should be encrypted in the credentials cache.
     db_access_tokens = state.wallet_data.read_server_peer_channel_access_tokens(channel_id,
         PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE,

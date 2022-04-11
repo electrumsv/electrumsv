@@ -12,7 +12,6 @@
             "OUTPUT_SPENDS",
             "TIP_FILTER"
         ],
-        "api_key": "t80Dp_dIk1kqkHK3P9R5cpDf67JfmNixNscexEYG0_xaCbYXKGNm4V_2HKr68ES5bytZ8F19IS0XbJlq41accQ==",
         "api_key_required": true,
         "last_try": 0.0,
         "last_good": 0.0,
@@ -37,7 +36,6 @@
             "TRANSACTION_REQUEST",
             "OUTPUT_SPENDS"
         ],
-        "enabled_for_all_wallets": true,
         "api_key_supported": false,
         "last_try": 0.0,
         "last_good": 0.0,
@@ -55,7 +53,6 @@
             "TRANSACTION_REQUEST",
             "OUTPUT_SPENDS"
         ],
-        "enabled_for_all_wallets": true,
         "api_key_supported": false,
         "last_try": 0.0,
         "last_good": 0.0,
@@ -73,7 +70,6 @@
             "TRANSACTION_REQUEST",
             "OUTPUT_SPENDS"
         ],
-        "enabled_for_all_wallets": true,
         "api_key_supported": false,
         "last_try": 0.0,
         "last_good": 0.0,

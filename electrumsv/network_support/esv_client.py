@@ -39,12 +39,11 @@ import asyncio
 import base64
 import http
 import json
-from typing import List, Union, Optional, AsyncIterable, Dict, cast
+from typing import List, Union, Optional, Dict, cast
 
 import aiohttp
-import bitcoinx
-from aiohttp import web, WSServerHandshakeError
-from bitcoinx import double_sha256, Chain, Header, hash_to_hex_str
+from aiohttp import web
+from bitcoinx import Chain, Header, hash_to_hex_str
 
 from ..app_state import app_state
 from ..exceptions import ServiceUnavailableError
@@ -53,7 +52,7 @@ from .esv_client_types import (ChannelId,
     ChannelNotification, GenericJSON, MessageViewModelGetBinary, MessageViewModelGetJSON,
     MAPICallbackResponse, PeerChannelAPITokenViewModelGet, PeerChannelToken, PeerChannelMessage,
     PeerChannelViewModelGet,
-    TokenPermissions, TipResponse, ServerConnectionState)
+    TokenPermissions, ServerConnectionState)
 from .exceptions import HeaderNotFoundError, HeaderResponseError
 
 # from .esv_client_types import (, ChannelId,
@@ -299,67 +298,6 @@ class ESVClient:
                                               f"{response.status} reason: {response.reason}")
                 return await response.read()
         except aiohttp.ClientConnectionError:
-            logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
-            raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
-
-    async def get_batched_headers_by_height(self, from_height: int, count: Optional[int]=None) \
-            -> bytes:
-        url = f"{self._state.server.url}api/v1/headers/by-height?height={from_height}"
-        if count:
-            url += f"&count={count}"
-        headers = {"Accept": "application/octet-stream"}
-        try:
-            async with self._state.session.get(url, headers=headers) as response:
-                if response.status != http.HTTPStatus.OK:
-                    error_message = f"get_batched_headers_by_height failed with status: " \
-                                    f"{response.status}, reason: {response.reason}"
-                    logger.error(error_message)
-                    raise HeaderResponseError(error_message)
-                raw_headers_array = await response.read()
-                return raw_headers_array
-        except aiohttp.ClientConnectionError:
-            logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
-            raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
-
-    async def get_chain_tips(self) -> bytes:
-        url = f"{self._state.server.url}api/v1/headers/tips"
-        headers = {"Accept": "application/octet-stream"}
-        try:
-            async with self._state.session.get(url, headers=headers) as response:
-                if response.status in {http.HTTPStatus.SERVICE_UNAVAILABLE,
-                        http.HTTPStatus.NOT_FOUND}:
-                    logger.error("The Header API is not enabled for this instance of "
-                                 "ElectrumSV-Reference-Server")
-                    raise ServiceUnavailableError("The Header API is not enabled for this instance "
-                        "of ElectrumSV-Reference-Server")
-
-                if response.status != http.HTTPStatus.OK:
-                    error_message = f"get_chain_tips failed with status: {response.status}, " \
-                                    f"reason: {response.reason}"
-                    logger.error(error_message)
-                    raise HeaderResponseError(error_message)
-                headers_array: bytes = await response.content.read()
-                return headers_array
-        except aiohttp.ClientConnectionError:
-            raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
-
-    async def subscribe_to_headers(self) -> AsyncIterable[TipResponse]:
-        url = f"{self._state.server.url}api/v1/headers/tips/websocket"
-        try:
-            async with self._state.session.ws_connect(url, headers={}, timeout=5.0) as ws:
-                logger.debug("Connected to %s", url)
-                async for msg in ws:
-                    content = cast(bytes, msg.data)
-                    raw_header = content[0:80]
-                    block_hash = hash_to_hex_str(double_sha256(raw_header))
-                    logger.info("Message new chain tip hash: %s", block_hash)
-                    height = bitcoinx.le_bytes_to_int(content[80:84])
-                    yield TipResponse(raw_header, height)
-                    if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                        break
-        except WSServerHandshakeError:
-            raise ServiceUnavailableError("Websocket handshake ElectrumSV-Reference Server failed")
-        except (aiohttp.ClientConnectionError, ConnectionRefusedError):
             logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
             raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
 

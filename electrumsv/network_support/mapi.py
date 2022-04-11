@@ -144,28 +144,26 @@ async def decode_response_body(response: aiohttp.ClientResponse) -> Dict[Any, An
 
 def get_mapi_servers(account: "AbstractAccount") -> \
         List[Tuple["NewServer", Optional["IndefiniteCredentialId"]]]:
+    account_id = account.get_id()
     server_entries: List[Tuple["NewServer", Optional["IndefiniteCredentialId"]]] = []
-    for candidate in account._wallet.get_servers_for_account(account,
+    for server, credential_id in account._wallet.get_servers_for_account_id(account_id,
             NetworkServerType.MERCHANT_API):
-        assert candidate.api_server is not None
-        if candidate.api_server.should_request_fee_quote(candidate.credential_id):
-            server_entries.append((candidate.api_server, candidate.credential_id))
+        if server.should_request_fee_quote(credential_id):
+            server_entries.append((server, credential_id))
     return server_entries
 
 
-def filter_mapi_servers_for_fee_quote(selection_candidates: List[SelectionCandidate]) \
-        -> List[SelectionCandidate]:
+def filter_mapi_servers_for_fee_quote(
+        selection_candidates: list[tuple[NewServer, Optional[IndefiniteCredentialId]]]) \
+            -> list[tuple[NewServer, Optional[IndefiniteCredentialId]]]:
     """raises `ServiceUnavailableError` if there are no merchant APIs with fee quotes"""
     filtered = []
 
-    for selection_candidate in selection_candidates:
-        credential_id = selection_candidate.credential_id
-        api_server = selection_candidate.api_server
-        assert api_server is not None
-        if api_server.api_key_state[credential_id].last_fee_quote is None:
-            logger.error("No fee quote for merchant API at: %s", api_server.url)
+    for server, credential_id in selection_candidates:
+        if server.api_key_state[credential_id].last_fee_quote is None:
+            logger.error("No fee quote for merchant API at: %s", server.url)
             continue
-        filtered.append(selection_candidate)
+        filtered.append((server, credential_id))
 
     if len(filtered) == 0:
         raise ServiceUnavailableError("There are no suitable merchant API servers available")

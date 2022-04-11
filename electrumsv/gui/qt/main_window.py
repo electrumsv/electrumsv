@@ -116,7 +116,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     notify_transactions_signal = pyqtSignal()
     new_fx_quotes_signal = pyqtSignal()
     new_fx_history_signal = pyqtSignal()
-    network_signal = pyqtSignal(str, object)
+    network_signal = pyqtSignal(object, object)
     history_updated_signal = pyqtSignal()
     network_status_signal = pyqtSignal()
     account_created_signal = pyqtSignal(int, object)
@@ -1186,7 +1186,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 text += f' {response_count:,d}/{request_count:,d}'
             else:
                 if self._wallet.main_server is not None:
-                    server_chain_tip = self._wallet.main_server.tip
+                    server_chain_tip = self._wallet.main_server.tip_header
                     server_height = server_chain_tip.height if server_chain_tip else 0
                     server_lag = self.network.get_local_height() - server_height
                     if server_height == 0:
