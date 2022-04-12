@@ -12,6 +12,8 @@ export PYTHONHASHSEED=22
 PYHOME=c:/python3
 PYTHON="wine $PYHOME/python.exe -OO -B"
 
+BUILD_WINE_PATH="$(dirname $(readlink -f $0))"
+CONTRIB_PATH="$BUILD_WINE_PATH/.."
 
 # Let's begin!
 cd `dirname $0`
@@ -19,7 +21,7 @@ echo `pwd`
 set -e
 
 mkdir -p tmp
-cd tmp
+pushd tmp
 
 pushd $WINEPREFIX/drive_c/electrum
 
@@ -33,7 +35,7 @@ VERSION=${RAW_VERSION:3}
 echo "Last commit description: $VERSION"
 
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
-popd
+popd # $WINEPREFIX/drive_c/electrum
 
 cp $WINEPREFIX/drive_c/electrum/LICENCE .
 
@@ -43,29 +45,33 @@ $PYTHON -m pip install -r ../../deterministic-build/win64-py3.10-requirements-hw
 
 pushd $WINEPREFIX/drive_c/electrum
 $PYTHON -m pip install .
-popd
+popd # $WINEPREFIX/drive_c/electrum
 
-cd ..
+popd # tmp
 
 rm -rf dist/
 
 # build standalone and portable versions ... --name $NAME_ROOT-$VERSION
 wine "$PYHOME/scripts/pyinstaller.exe" --noconfirm --ascii --clean deterministic.spec
 
-# set timestamps in dist, in order to make the installer reproducible
+# set timestamps in dist, in order to make the installer reproducible (we do not actually care)
 pushd dist
 find -exec touch -d '2000-11-11T11:11:11+00:00' {} +
-popd
+popd # dist
 
 # build NSIS installer
 # $VERSION could be passed to the electrum.nsi script, but this would require some rewriting in the script iself.
 wine "$WINEPREFIX/drive_c/Program Files (x86)/NSIS/makensis.exe" /DPRODUCT_VERSION=$VERSION electrum.nsi
 
-cd dist
+pushd dist
 mv ElectrumSV-portable.exe $NAME_ROOT-$VERSION-portable.exe
 mv ElectrumSV-setup.exe $NAME_ROOT-$VERSION-setup.exe
 mv ElectrumSV.exe $NAME_ROOT-$VERSION.exe
-cd ..
+
+cp $BUILD_WINE_PATH/libzbar/dist/bin/libzbar-0.dll .
+cp /tmp/electrum-build/libusb/libusb/.libs/libusb-1.0.dll .
+ls -l
+popd
 
 echo "Done."
-sha256sum dist/Electrum*exe
+sha256sum dist/*.*

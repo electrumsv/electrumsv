@@ -1,5 +1,8 @@
 #!/bin/bash
 
+BUILD_WINE_PATH="$(dirname $(readlink -f $0))"
+CONTRIB_PATH="$BUILD_WINE_PATH/.."
+
 # Please update these carefully, some versions won't work under Wine
 NSIS_FILENAME=nsis-3.05-setup.exe
 NSIS_URL=https://prdownloads.sourceforge.net/nsis/$NSIS_FILENAME?download
@@ -19,11 +22,9 @@ PYINSTALLER_REPO="https://github.com/pyinstaller/pyinstaller.git"
 PYINSTALLER_COMMIT="3940e5fc5f9e02bce9f1af53c70a42db81071381"
 
 PYTHON_VERSION=3.10.0
-# TODO Upgrade wine. Windows Python 3.10.4 msis error with our current wine.
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64
-#export WINEARCH='win32'
 
 PYTHON_FOLDER="python3"
 PYHOME="c:/$PYTHON_FOLDER"
@@ -74,12 +75,11 @@ download_if_not_exist() {
 }
 
 # Let's begin!
-here=$(dirname $(readlink -e $0))
 set -e
 
 wine 'wineboot'
 
-cd /tmp/electrum-build
+pushd /tmp/electrum-build
 
 # Install Python
 # note: you might need "sudo apt-get install dirmngr" for the following
@@ -87,7 +87,7 @@ cd /tmp/electrum-build
 echo "Downloading Python dev keyring (may take a few minutes)..."
 KEYRING_PYTHON_DEV=keyring-electrumsv-build-python-dev.gpg
 # The recv keys path just takes ages and randomly fails.  Checking in the keys from https://www.python.org/downloads/#pubkeys.
-gpg --no-default-keyring --keyring $KEYRING_PYTHON_DEV --import $here/python-pubkeys.txt
+gpg --no-default-keyring --keyring $KEYRING_PYTHON_DEV --import $BUILD_WINE_PATH/python-pubkeys.txt
 for msifile in core dev exe lib pip tools; do
     echo "Installing $msifile..."
     wget -N -c "https://www.python.org/ftp/python/$PYTHON_VERSION/amd64/${msifile}.msi"
@@ -98,13 +98,13 @@ done
 
 # upgrade pip
 $PYTHON -m pip install pip --upgrade
-
-$PYTHON -m pip install -r $here/../deterministic-build/win64-py3.10-requirements-pyinstaller.txt
+$PYTHON -m pip install -r $CONTRIB_PATH/deterministic-build/win64-py3.10-requirements-pyinstaller.txt
 
 echo "Compiling PyInstaller bootloader with anti-virus false-positive protection"
 pushd $WINEPREFIX/drive_c/electrum
 GIT_COMMIT_HASH=$(git rev-parse HEAD)
-popd
+popd # $WINEPREFIX/drive_c/electrum
+
 mkdir pyinstaller
 (
     cd pyinstaller
@@ -147,7 +147,7 @@ wine "$PWD/$NSIS_FILENAME" /S
 echo "Compiling libzbar ..."
 mkdir libzbar
 (
-    cd libzbar
+    pushd libzbar
     # Shallow clone
     git init
     git remote add origin $LIBZBAR_REPO
@@ -160,7 +160,7 @@ mkdir libzbar
     host="x86_64-w64-mingw32"
     ./configure \
         $AUTOCONF_FLAGS \
-        --prefix="$here/libzbar/dist" \
+        --prefix="$BUILD_WINE_PATH/libzbar/dist" \
         --host=$host \
         --build=x86_64-pc-linux-gnu \
         --with-x=no \
@@ -181,16 +181,17 @@ mkdir libzbar
         --enable-shared || { echo "Could not configure libzbar. Please make sure you have a C compiler installed and try again."; exit 1; }
     make -j4 || { echo "Could not build libzbar" ; exit 1; }
     make install || { echo "Could not install libzbar" ; exit 1; }
-    . "$here/libzbar/dist/lib/libzbar.la"
-    ${host}-strip $here/libzbar/dist/bin/libzbar-0.dll
+    . "$BUILD_WINE_PATH/libzbar/dist/lib/libzbar.la"
+    ${host}-strip $BUILD_WINE_PATH/libzbar/dist/bin/libzbar-0.dll
+    popd # libzbar
 ) || { echo "libzbar build failed" ; exit 1; }
 
-cp $here/libzbar/dist/bin/libzbar-0.dll $WINEPREFIX/drive_c/$PYTHON_FOLDER/ || { echo "Could not copy libzbar to its destination" ; exit 1; }
+cp $BUILD_WINE_PATH/libzbar/dist/bin/libzbar-0.dll $WINEPREFIX/drive_c/$PYTHON_FOLDER/ || { echo "Could not copy libzbar to its destination" ; exit 1; }
 
 echo "Compiling libusb ..."
 mkdir libusb
 (
-    cd libusb
+    pushd libusb
     # Shallow clone
     git init
     git remote add origin $LIBUSB_REPO
@@ -205,8 +206,11 @@ mkdir libusb
         --build=x86_64-pc-linux-gnu || { echo "Could not run ./configure for libusb" ; exit 1; }
     make -j4 || { echo "Could not build libusb" ; exit 1; }
     ${host}-strip libusb/.libs/libusb-1.0.dll
+    popd # libusb
 ) || { echo "libusb build failed" ; exit 1; }
 
 cp libusb/libusb/.libs/libusb-1.0.dll $WINEPREFIX/drive_c/$PYTHON_FOLDER/ || { echo "Could not copy libusb to its destination" ; exit 1; }
+
+popd # /tmp/electrum-build
 
 echo "Wine is configured."

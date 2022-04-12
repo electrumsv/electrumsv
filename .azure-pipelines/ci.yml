@@ -185,7 +185,7 @@ stages:
       failOnStderr: false
     - task: CopyFiles@2
       inputs:
-        contents: contrib/build-wine/dist/?(*.exe|*.txt)
+        contents: contrib/build-wine/dist/?(*.exe|*.txt|*.dll)
         targetFolder: $(Build.ArtifactStagingDirectory)
         flattenFolders: true
         OverWrite: true
