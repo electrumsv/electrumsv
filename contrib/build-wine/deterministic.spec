@@ -10,15 +10,17 @@ PYHOME = 'c:/python3'
 cmdline_name = "ElectrumSV"
 home = 'C:\\electrum\\'
 
-# Add libusb binary
-binaries = [(PYHOME+"/libusb-1.0.dll", ".")]
+# Add libusb/libzbar binaries.
+binaries = [
+    (PYHOME+"/libusb-1.0.dll", "."),
+    (PYHOME+"/libzbar-0.dll", "."),
+]
 
 # Workaround for "Retro Look":
 binaries += [b for b in collect_dynamic_libs('PyQt5') if 'qwindowsvista' in b[0]]
 
 datas = [
     (home+'electrumsv/data', 'electrumsv/data'),
-    ('C:\\Program Files (x86)\\ZBar\\bin\\', '.'),
 ]
 # rt12 -- As far as I know only trezor has required data files. It will error if it cannot load
 # things like coins.json and so on.

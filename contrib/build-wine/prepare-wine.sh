@@ -12,6 +12,9 @@ ZBAR_SHA256=177e32b272fa76528a3af486b74e9cb356707be1c5ace4ed3fcee9723e2c2c02
 LIBUSB_REPO='https://github.com/libusb/libusb.git'
 LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 
+LIBZBAR_REPO='https://github.com/mchehab/zbar.git'
+LIBZBAR_COMMIT=aac86d5f08d64ab4c3da78188eb622fa3cb07182
+
 PYINSTALLER_REPO="https://github.com/pyinstaller/pyinstaller.git"
 PYINSTALLER_COMMIT="3940e5fc5f9e02bce9f1af53c70a42db81071381"
 
@@ -133,11 +136,6 @@ $PYTHON -m pip install ./pyinstaller || { echo "PyInstaller install failed" ; ex
 
 wine "$PYHOME/scripts/pyinstaller.exe" -v || { echo "Pyinstaller installed but cannot be run." ; exit 1; }
 
-# Install ZBar
-download_if_not_exist $ZBAR_FILENAME "$ZBAR_URL"
-verify_hash $ZBAR_FILENAME "$ZBAR_SHA256"
-wine "$PWD/$ZBAR_FILENAME" /S
-
 # Upgrade setuptools (so Electrum can be installed later)
 $PYTHON -m pip install setuptools --upgrade
 
@@ -145,6 +143,49 @@ $PYTHON -m pip install setuptools --upgrade
 download_if_not_exist $NSIS_FILENAME "$NSIS_URL"
 verify_hash $NSIS_FILENAME "$NSIS_SHA256"
 wine "$PWD/$NSIS_FILENAME" /S
+
+echo "Compiling libzbar ..."
+mkdir libzbar
+(
+    cd libzbar
+    # Shallow clone
+    git init
+    git remote add origin $LIBZBAR_REPO
+    git fetch --depth 1 origin $LIBZBAR_COMMIT
+    git checkout -b pinned FETCH_HEAD
+    export SOURCE_DATE_EPOCH=1530212462
+    echo "libzbar_la_LDFLAGS += -Wc,-static" >> zbar/Makefile.am
+    echo "LDFLAGS += -Wc,-static" >> Makefile.am
+    autoreconf -vfi || { echo "Could not run autoreconf for $pkgname. Please make sure you have automake and libtool installed, and try again."; exit 1; }
+    host="x86_64-w64-mingw32"
+    ./configure \
+        $AUTOCONF_FLAGS \
+        --prefix="$here/libzbar/dist" \
+        --host=$host \
+        --build=x86_64-pc-linux-gnu \
+        --with-x=no \
+        --enable-video=yes \
+        --with-jpeg=no \
+        --with-directshow=yes \
+        --disable-dependency-tracking \
+        --enable-pthread=no \
+        --enable-doc=no \
+        --with-python=no \
+        --with-gtk=no \
+        --with-qt=no \
+        --with-java=no \
+        --with-imagemagick=no \
+        --with-dbus=no \
+        --enable-codes=qrcode \
+        --disable-static \
+        --enable-shared || { echo "Could not configure libzbar. Please make sure you have a C compiler installed and try again."; exit 1; }
+    make -j4 || { echo "Could not build libzbar" ; exit 1; }
+    make install || { echo "Could not install libzbar" ; exit 1; }
+    . "$here/libzbar/dist/lib/libzbar.la"
+    ${host}-strip $here/libzbar/dist/bin/libzbar-0.dll
+) || { echo "libzbar build failed" ; exit 1; }
+
+cp $here/libzbar/dist/bin/libzbar-0.dll $WINEPREFIX/drive_c/$PYTHON_FOLDER/ || { echo "Could not copy libzbar to its destination" ; exit 1; }
 
 echo "Compiling libusb ..."
 mkdir libusb
