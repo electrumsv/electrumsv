@@ -13,12 +13,7 @@ This needs to be done on a system running macOS or OS X Big Sur or later.
 Before starting, make sure that the Xcode command line tools are
 installed (e.g. you have `git`).
 
-#### 1.1 Get Xcode
-
-Building the QR scanner (CalinsQRReader) requires full Xcode (not just
-command line tools).
-
-#### 1.2 Build ElectrumSV
+#### 1.1 Build ElectrumSV
 
     cd electrum-sv
     ./contrib/osx/make_osx
@@ -64,7 +59,7 @@ The password does not have to be your Apple ID password, instead in the
 Developer site you can create an application password that can be used
 for signing instead.
 
-The provider ID is around 10 letters and contains upper-case letters 
+The provider ID is around 10 letters and contains upper-case letters
 mixed with numbers. It usually can be found in your Developer ID certificate
 name, but you can get it other ways. It is necessary in case your Apple ID
 is associated with multiple Apple Developer accounts.

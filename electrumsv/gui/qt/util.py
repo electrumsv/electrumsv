@@ -1,3 +1,4 @@
+from __future__ import annotations
 import concurrent.futures
 from enum import IntEnum
 from functools import partial, lru_cache
@@ -569,15 +570,15 @@ def line_dialog(parent: QWidget, title: str, label: str, ok_label: str,
     return None
 
 
-def text_dialog(parent: QWidget, title: str, label: str, ok_label: str, default: Optional[str]=None,
-        allow_multi: bool=False) -> Optional[str]:
+def text_dialog(window: ElectrumWindow, title: str, label: str, ok_label: str,
+        default: Optional[str]=None, allow_multi: bool=False) -> Optional[str]:
     from .qrtextedit import ScanQRTextEdit
-    dialog = WindowModalDialog(parent, title)
+    dialog = WindowModalDialog(window, title)
     dialog.setMinimumWidth(500)
     l = QVBoxLayout()
     dialog.setLayout(l)
     l.addWidget(QLabel(label))
-    txt = ScanQRTextEdit(allow_multi=allow_multi)
+    txt = ScanQRTextEdit(window, allow_multi=allow_multi)
     if default:
         txt.setText(default)
     l.addWidget(txt)

@@ -49,6 +49,10 @@ class FileImportFailedEncrypted(FileImportFailed):
                 _('Importing encrypted files is not supported.'))
 
 
+class UserFacingException(Exception):
+    pass
+
+
 # Throw this exception to unwind the stack like when an error occurs.
 # However unlike other exceptions the user won't be informed.
 class UserCancelled(Exception):

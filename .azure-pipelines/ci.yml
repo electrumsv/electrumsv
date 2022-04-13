@@ -266,10 +266,9 @@ stages:
         addToPath: true
         architecture: x64
     - script: |
-        sudo pip3 install --upgrade pip setuptools wheel
-        # Calin's QR reader requires SDK 10.14, which is not available in the default Xcode version.
-        /bin/bash -c "sudo xcode-select -s /Applications/Xcode_10.3.app/Contents/Developer"
+        brew install coreutils
         brew install gettext && brew link gettext --force
+        sudo pip3 install --upgrade pip setuptools wheel
         ./contrib/osx/make_osx
       enabled: true
       continueOnError: false

@@ -28,8 +28,9 @@ import platform as os_platform
 import sys
 from typing import NoReturn, Type
 
-from electrumsv.i18n import _
-from electrumsv.logs import logs
+from .i18n import _
+from .logs import logs
+from . import startup
 
 logger = logs.get_logger("platform")
 
@@ -67,6 +68,9 @@ class Platform(object):
                             .format(module, package)))
         raise exception from None
 
+    def extra_libzbar_paths(self) -> list[str]:
+        return []
+
 
 class Darwin(Platform):
     libzbar_name = 'libzbar.dylib'
@@ -99,6 +103,13 @@ class Windows(Platform):
 
     def dbb_user_dir(self) -> str:
         return os.path.join(os.environ["APPDATA"], "DBB")
+
+    def extra_libzbar_paths(self) -> list[str]:
+        if not getattr(sys, "frozen", False):
+            dll_path = os.path.join(startup.base_dir, "contrib", "build-windows", "prebuilt")
+            if os.path.exists(dll_path):
+                return [ dll_path ]
+        return []
 
 
 def _detect() -> Platform:

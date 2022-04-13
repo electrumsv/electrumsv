@@ -1,11 +1,47 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# Includes selected lines from Electrum Core on 2022/04/13. Electrum Core license
+# (follows this paragraph) applies to the copied code, Bitcoin SV license applies to any
+# subsequent modifications.
+#
+# ------- >8 -- Electrum Core license as of 2022/04/13 -- 8< -------
+#
+# The MIT License (MIT)
+#
+# Permission is hereby granted, free of charge, to any person obtaining
+# a copy of this software and associated documentation files (the
+# "Software"), to deal in the Software without restriction, including
+# without limitation the rights to use, copy, modify, merge, publish,
+# distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to
+# the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+# LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+# OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+# WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#
+# ------- >8 -- Electrum Core license as of 2022/04/13 -- 8< -------
+#
 
-build_dir=$(dirname "$0")
-test -n "$build_dir" -a -d "$build_dir" || exit
+set -e
 
-. "$build_dir"/base.sh # functions we use below
+CONTRIB_OSX=$(dirname $(realpath "$0" 2> /dev/null || grealpath "$0"))
+echo "CONTRIB_OSX=$CONTRIB_OSX"
+CONTRIB="$CONTRIB_OSX/.."
+PROJECT_ROOT="$CONTRIB/.."
 
-cd $build_dir/../..
+test -n "$CONTRIB_OSX" -a -d "$CONTRIB_OSX" || exit
+
+. "$CONTRIB"/build_tools_util.sh # functions we use below
+
+cd $PROJECT_ROOT
 
 export PYTHONHASHSEED=22
 
@@ -15,6 +51,7 @@ BUILDDIR=/tmp/electrum-sv-build
 PACKAGE=ElectrumSV
 GIT_REPO_ACCT=https://github.com/electrumsv
 GIT_REPO=$GIT_REPO_ACCT/electrumsv
+
 
 python3 -c "import sys; assert sys.version_info >= (${PYTHON_VERSION//./,})" > /dev/null 2>&1 || fail "Please ensure Python 3.10 is the default 'python3' command and it is later than Python $PYTHON_VERSION"
 
@@ -42,10 +79,28 @@ else
     warn "Code signing DISABLED. Specify a valid macOS Developer identity installed on the system as the first argument to this script to enable signing."
 fi
 
-rm -rf ./dist
+function DoCodeSignMaybe { # ARGS: infoName fileOrDirName codesignIdentity
+    infoName="$1"
+    file="$2"
+    identity="$3"
+    deep=""
+    if [ -z "$identity" ]; then
+        # we are ok with them not passing anything; master script calls us unconditionally even if no identity is specified
+        return
+    fi
+    if [ -d "$file" ]; then
+        deep="--deep"
+    fi
+    if [ -z "$infoName" ] || [ -z "$file" ] || [ -z "$identity" ] || [ ! -e "$file" ]; then
+        fail "Argument error to internal function DoCodeSignMaybe()"
+    fi
+        hardened_arg="--entitlements=contrib/osx/entitlements.plist -o runtime"
 
-git submodule init
-git submodule update
+    info "Code signing ${infoName}..."
+    codesign -f -v $deep -s "$identity" $hardened_arg "$file" || fail "Could not code sign ${infoName}"
+}
+
+rm -rf ./dist
 
 rm  -rf $BUILDDIR > /dev/null 2>&1
 mkdir $BUILDDIR
@@ -53,6 +108,9 @@ mkdir $BUILDDIR
 info "Activating virtualenv $BUILDDIR/venv"
 python3 -m venv $BUILDDIR/venv
 source $BUILDDIR/venv/bin/activate
+
+info "Installing some build-time deps for compilation..."
+brew install autoconf automake libtool gettext coreutils pkgconfig
 
 python3 -m pip install -U pip wheel
 
@@ -105,26 +163,31 @@ python3 --version
 python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
 
 info "Installing requirements..."
-python3 -m pip install -Ir ./contrib/deterministic-build/macos-py3.10-requirements.txt || \
+python3 -m pip install -Ir $CONTRIB/deterministic-build/macos-py3.10-requirements.txt || \
 fail "Could not install requirements"
 
 info "Installing hardware wallet requirements..."
-python3 -m pip install -Ir ./contrib/deterministic-build/macos-py3.10-requirements-hw.txt || \
+python3 -m pip install -Ir $CONTRIB/deterministic-build/macos-py3.10-requirements-hw.txt || \
 fail "Could not install hardware wallet requirements"
 
-info "Extracting libusb..."
-tar xzf ./contrib/osx/binaries/libusb-1.0.21.el_capitan.bottle.tar.gz --directory=$BUILDDIR || fail "Could not extract libusb"
-verify_hash $BUILDDIR/libusb/1.0.21/lib/libusb-1.0.dylib d147e7382dfa676d93e8b17d160d50f68e4b01f58f3647c90a8899a7a0519ca3  # this exits on failure
-cp -fp $BUILDDIR/libusb/1.0.21/lib/libusb-1.0.dylib contrib/osx || fail "Could not copy libusb"
-
-
-info "Building CalinsQRReader..."
-d=contrib/osx/CalinsQRReader
-pushd $d
-rm -fr build
-xcodebuild || fail "Could not build CalinsQRReader"
+pushd .
+if [ ! -f "$PROJECT_ROOT"/electrumsv/libzbar.0.dylib ]; then
+    info "Building ZBar dylib..."
+    "$CONTRIB"/make_zbar.sh || fail "Could not build ZBar dylib"
+else
+    info "Skipping ZBar build: reusing already built dylib."
+fi
+cp "$PROJECT_ROOT"/electrumsv/libzbar.0.dylib "$CONTRIB_OSX"
 popd
-DoCodeSignMaybe "CalinsQRReader.app" "${d}/build/Release/CalinsQRReader.app" "$APP_SIGN"
+
+if [ ! -f "$PROJECT_ROOT"/electrumsv/libusb-1.0.dylib ]; then
+    info "Building libusb dylib..."
+    "$CONTRIB"/make_libusb.sh || fail "Could not build libusb dylib"
+else
+    info "Skipping libusb build: reusing already built dylib."
+fi
+cp "$PROJECT_ROOT"/electrumsv/libusb-1.0.dylib "$CONTRIB_OSX"
+
 
 info "Installing $PACKAGE..."
 python3 -m pip install . > /dev/null || fail "Could not build $PACKAGE"
@@ -139,7 +202,7 @@ RAW_VERSION=`git describe --tags --dirty --always --match sv-*`
 VERSION=${RAW_VERSION:3}
 
 info "Using Pyinstaller to build $PACKAGE version $VERSION"
-pyinstaller --noconfirm --ascii contrib/osx/osx.spec || fail "Could not build binary"
+pyinstaller --noconfirm --ascii $CONTRIB_OSX/osx.spec || fail "Could not build binary"
 
 info "Adding bitcoin URI types to Info.plist"
 plutil -insert 'CFBundleURLTypes' \
@@ -156,13 +219,13 @@ plutil -insert NSRequiresAquaSystemAppearance -bool YES -- dist/$PACKAGE.app/Con
 DoCodeSignMaybe "electrumsv-secp256k1" "dist/ElectrumSV.app/Contents/Resources/electrumsv_secp256k1/.dylibs/libgmp.10.dylib" "$APP_SIGN"
 DoCodeSignMaybe "app bundle" "dist/${PACKAGE}.app"  "$APP_SIGN"
 info "Creating .DMG"
-dmgbuild -D PACKAGE=$PACKAGE -s contrib/osx/dmg-settings.py "" dist/$PACKAGE-$VERSION.dmg || fail "Could not create .DMG"
+dmgbuild -D PACKAGE=$PACKAGE -s $CONTRIB_OSX/dmg-settings.py "" dist/$PACKAGE-$VERSION.dmg || fail "Could not create .DMG"
 DoCodeSignMaybe ".DMG" "dist/${PACKAGE}-${VERSION}.dmg" "$APP_SIGN"
 
 if [ ! -z "$APP_SIGN" ]; then
     if [ ! -z "$APPLE_ID_USER" ]; then
         info "Notarizing .dmg with Apple's central server..."
-        "contrib/osx/notarize_file.sh" "dist/${PACKAGE}-${VERSION}.dmg" || fail "Could not notarize binary."
+        "$CONTRIB_OSX/notarize_file.sh" "dist/${PACKAGE}-${VERSION}.dmg" || fail "Could not notarize binary."
     else
         warn "AppleID details not set! Skipping Apple notarization."
     fi

@@ -25,34 +25,43 @@
 
 import os
 import ctypes
-from typing import Dict
+from typing import Optional
 
-from electrumsv.platform import platform
-from electrumsv.startup import base_dir
-
-
-try:
-    libzbar = ctypes.cdll.LoadLibrary(platform.libzbar_name)
-except OSError:
-    libzbar = None
+from .exceptions import UserFacingException
+from .i18n import _
+from .platform import platform
 
 
-def scan_barcode_ctypes(device: str='', timeout: int=-1, display: bool=True, threaded: bool=False,
-        try_again: bool=True) -> str:
+libzbar: Optional[ctypes.CDLL] = None
+for libzbar_path in platform.extra_libzbar_paths():
+    try:
+        libzbar = ctypes.cdll.LoadLibrary(os.path.join(libzbar_path, platform.libzbar_name))
+        break
+    except OSError:
+        pass
+
+if libzbar is None:
+    try:
+        libzbar = ctypes.cdll.LoadLibrary(platform.libzbar_name)
+    except OSError:
+        pass
+
+
+def scan_barcode(device: str='', timeout: int=-1, display: bool=True, threaded: bool=False)\
+        -> Optional[str]:
     if libzbar is None:
-        raise RuntimeError("Cannot start QR scanner; zbar not available.")
+        raise RuntimeError("Cannot start QR scanner: zbar not available.")
     libzbar.zbar_symbol_get_data.restype = ctypes.c_char_p
     libzbar.zbar_processor_create.restype = ctypes.POINTER(ctypes.c_int)
     libzbar.zbar_processor_get_results.restype = ctypes.POINTER(ctypes.c_int)
     libzbar.zbar_symbol_set_first_symbol.restype = ctypes.POINTER(ctypes.c_int)
+    # libzbar.zbar_set_verbosity(100)  # verbose logs for debugging
     proc = libzbar.zbar_processor_create(threaded)
     libzbar.zbar_processor_request_size(proc, 640, 480)
     if libzbar.zbar_processor_init(proc, device.encode('utf-8'), display) != 0:
-        if try_again:
-            # workaround for a bug in "ZBar for Windows"
-            # libzbar.zbar_processor_init always seem to fail the first time around
-            return scan_barcode(device, timeout, display, threaded, try_again=False)
-        raise RuntimeError("Can not start QR scanner; initialization failed.")
+        raise UserFacingException(
+            _("Cannot start QR scanner: initialization failed.") + "\n" +
+            _("Make sure you have a camera connected and enabled."))
     libzbar.zbar_processor_set_visible(proc)
     if libzbar.zbar_process_one(proc, timeout):
         symbols = libzbar.zbar_processor_get_results(proc)
@@ -60,37 +69,15 @@ def scan_barcode_ctypes(device: str='', timeout: int=-1, display: bool=True, thr
         symbols = None
     libzbar.zbar_processor_destroy(proc)
     if symbols is None:
-        return ""
+        return None
     if not libzbar.zbar_symbol_set_get_size(symbols):
-        return ""
+        return None
     symbol = libzbar.zbar_symbol_set_first_symbol(symbols)
     data = libzbar.zbar_symbol_get_data(symbol)
     return data.decode('utf8')
 
-def scan_barcode_osx(device: str='', timeout: int=-1, display: bool=True, threaded: bool=False,
-        try_again: bool=True) -> str:
-    import subprocess
-    # NOTE: This code needs to be modified if the positions of this file changes with respect
-    # to the helper app!  This assumes the built macOS .app bundle which puts the helper app in
-    # ./CalinsQRReader.app.
-    prog = os.path.join(base_dir, "CalinsQRReader.app/Contents/MacOS/CalinsQRReader")
-    if not os.path.exists(prog):
-        raise RuntimeError("Cannot start QR scanner; helper app not found.")
-    data = ''
-    try:
-        # This will run the "CalinsQRReader" helper app (which gets bundled with the built .app)
-        # Like for zbar the main app will hang until the QR window returns a QR code
-        # (or is closed). Communication with the subprocess is done via stdout.
-        # See contrib/CalinsQRReader for the helper app source code.
-        with subprocess.Popen([prog], stdout=subprocess.PIPE) as p:
-            data = p.stdout.read().decode('utf-8').strip()
-        return data
-    except OSError as e:
-        raise RuntimeError("Cannot start camera helper app; {}".format(e.strerror))
 
-scan_barcode = scan_barcode_osx if platform.name == 'MacOSX' else scan_barcode_ctypes
-
-def find_system_cameras() -> Dict[str, str]:
+def find_system_cameras() -> dict[str, str]:
     device_root = "/sys/class/video4linux"
     devices = {} # Name -> device
     if os.path.exists(device_root):

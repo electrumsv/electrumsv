@@ -5,7 +5,6 @@ from PyQt5.QtCore import QSize, Qt
 from PyQt5.QtWidgets import QAction, QHBoxLayout, QLabel, QMessageBox, QToolBar, QVBoxLayout, \
     QWidget
 
-from ...app_state import app_state
 from ...constants import PaymentFlag, ScriptType
 from ...i18n import _
 from ...logs import logs

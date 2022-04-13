@@ -23,6 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import annotations
 import time
 from decimal import Decimal, InvalidOperation
 from typing import cast, List, Optional, Tuple, TYPE_CHECKING
@@ -61,8 +62,8 @@ class PayToEdit(ScanQRTextEdit):
     ''' timestamp indicating when the user was last warned about using cash addresses. '''
     last_cashaddr_warning = None
 
-    def __init__(self, send_view: 'SendView') -> None:
-        super().__init__()
+    def __init__(self, send_view: SendView) -> None:
+        super().__init__(send_view._main_window.reference())
 
         self._send_view = send_view
         # NOTE(typing) Bad Qt5 type stubs for `contentsChanged`.
@@ -327,11 +328,13 @@ class PayToEdit(ScanQRTextEdit):
                     + self._completer.popup().verticalScrollBar().sizeHint().width())
         self._completer.complete(cr)
 
-    def qr_input(self) -> None:
-        data = super(PayToEdit,self).read_qr_input(ignore_uris=True)
-        if data:
-            try:
-                self._send_view._main_window.pay_to_URI(data)
-            except URIError as e:
-                self._send_view._main_window.show_error(str(e))
-            # TODO: update fee
+    # NOTE(typing) Signature of "qr_input" incompatible with supertype "ScanQRTextEdit"  [override]
+    def qr_input(self) -> None: # type: ignore[override]
+        def callback(text: str) -> None:
+            # TODO(1.4.0): Old comment. Revisit. "update fee"
+            if text:
+                try:
+                    self._send_view._main_window.pay_to_URI(text)
+                except URIError as e:
+                    self._send_view._main_window.show_error(str(e))
+        super(PayToEdit,self).qr_input(callback, ignore_uris=True)

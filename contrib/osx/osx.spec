@@ -12,8 +12,6 @@ base_dir = os.path.abspath(".") + "/"
 
 datas = [
     (base_dir + 'electrumsv/data', 'electrumsv/data'),
-    (base_dir + "contrib/osx/CalinsQRReader/build/Release/CalinsQRReader.app",
-     "CalinsQRReader.app"),
 ]
 
 # rt12 -- As far as I know only trezor has required data files. It will error if it cannot load

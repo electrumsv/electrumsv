@@ -57,7 +57,7 @@ from PyQt5 import sip
 
 # TODO this should be a relative import, is that legal?
 import electrumsv
-from ... import bitcoin, commands, paymentrequest, qrscanner, util
+from ... import bitcoin, commands, paymentrequest, util
 from ...app_state import app_state
 from ...bitcoin import (address_from_string, COIN, script_template_to_string, TSCMerkleProof)
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
@@ -86,6 +86,7 @@ from .contact_list import ContactList, edit_contact_dialog
 from .network_dialog import NetworkDialog
 from .password_dialog import LayoutFields
 from .qrcodewidget import QRDialog
+from .qrreader import scan_qrcode
 from .qrtextedit import ShowQRTextEdit
 from .receive_view import ReceiveView
 from .send_view import SendView
@@ -2033,22 +2034,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
         return password
 
-    def read_tx_from_qrcode(self) -> Tuple[Optional[Transaction], Optional[TransactionContext]]:
-        data = qrscanner.scan_barcode(self.config.get_video_device())
-        if not data:
-            return None, None
-        # if the user scanned a bitcoin URI
-        if web.is_URI(data):
-            self.pay_to_URI(data)
-            return None, None
-        # else if the user scanned an offline signed tx
-        data_bytes = bitcoin.base_decode(data, base=43)
-        if data_bytes.startswith(b"\x1f\x8b"):
-            text = gzip.decompress(data_bytes).decode()
-        else:
-            text = data_bytes.hex()
-        return self._wallet.load_transaction_from_text(text)
-
     def read_tx_from_file(self) -> Tuple[Optional[Transaction], Optional[TransactionContext]]:
         fileName = self.getOpenFileName(_("Select your transaction file"),
             "*.json;;*.txn;;*.txt;;*.*")
@@ -2059,19 +2044,46 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return self._wallet.load_transaction_from_text(file_content.strip())
 
     def _show_transaction_from_qrcode(self) -> None:
-        tx, tx_context = self.prompt_obtain_transaction_from_qrcode()
-        if tx is not None:
-            self.show_transaction(self._account, tx, tx_context)
+        def callback(text: Optional[str]) -> None:
+            assert text is not None
+            tx, tx_context = self._wallet.load_transaction_from_text(text)
+            if tx is not None:
+                self.show_transaction(self._account, tx, tx_context)
+        self.read_qrcode_and_call_callback(callback, expect_transaction=True)
 
-    def prompt_obtain_transaction_from_qrcode(self) \
-            -> tuple[Optional[Transaction], Optional[TransactionContext]]:
-        try:
-            return self.read_tx_from_qrcode()
-        except Exception as reason:
-            self._logger.exception(reason)
-            self.show_critical(_("ElectrumSV was unable to read the transaction:") +
-                               "\n" + str(reason))
-            return None, None
+    def read_qrcode_and_call_callback(self, result_callback: Callable[[Optional[str]], None],
+            expect_transaction: bool=False) -> None:
+        def scan_callback(success: bool, error_text: str, text: Optional[str]) -> None:
+            if not success:
+                if error_text:
+                    self.show_error(error_text)
+                return
+
+            if expect_transaction:
+                if not text:
+                    return
+
+                qrcode_bytes = bitcoin.base_decode(text, base=43)
+                if qrcode_bytes.startswith(b"\x1f\x8b"):
+                    text = gzip.decompress(qrcode_bytes).decode()
+                else:
+                    text = qrcode_bytes.hex()
+
+            result_callback(text)
+
+            # # if the user scanned a bitcoin URI
+            # if web.is_URI(data):
+            #     self.pay_to_URI(data)
+            #     return
+
+            # # else if the user scanned an offline signed tx
+            # data_bytes = bitcoin.base_decode(data, base=43)
+            # if data_bytes.startswith(b"\x1f\x8b"):
+            #     text = gzip.decompress(data_bytes).decode()
+            # else:
+            #     text = data_bytes.hex()
+            # return self._wallet.load_transaction_from_text(text)
+        scan_qrcode(parent=self.top_level_window(), config=self.config, callback=scan_callback)
 
     def _show_transaction_from_text(self) -> None:
         tx, tx_context = self.prompt_obtain_transaction_from_text()

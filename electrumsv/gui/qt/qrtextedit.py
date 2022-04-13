@@ -1,13 +1,16 @@
-from typing import Optional
+from __future__ import annotations
+from typing import Callable, Optional, TYPE_CHECKING
+import weakref
 
 from PyQt5.QtGui import QContextMenuEvent
 from PyQt5.QtWidgets import QFileDialog
 
-from electrumsv import qrscanner
-from electrumsv.app_state import app_state
-from electrumsv.i18n import _
+from ...i18n import _
 
 from .util import ButtonsMode, ButtonsTextEdit, MessageBoxMixin, ColorScheme
+
+if TYPE_CHECKING:
+    from .main_window import ElectrumWindow
 
 
 class ShowQRTextEdit(ButtonsTextEdit):
@@ -34,8 +37,9 @@ class ShowQRTextEdit(ButtonsTextEdit):
 
 class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
 
-    def __init__(self, text: str="", allow_multi: bool=False) -> None:
+    def __init__(self, window: ElectrumWindow, text: str="", allow_multi: bool=False) -> None:
         ButtonsTextEdit.__init__(self, text)
+        self._main_window_proxy = weakref.proxy(window)
         self.allow_multi = allow_multi
         self.setReadOnly(False)
         self.addButton("file.png", self.file_input, _("Read file"))
@@ -58,33 +62,26 @@ class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
             return
         self.setText(data)
 
-    def read_qr_input(self, ignore_uris: bool=False) -> str:
-        """
-        ignore_uris - external logic may already be handling post-processing of scanned data.
-        """
-        video_device = app_state.config.get_video_device()
-        try:
-            data = qrscanner.scan_barcode(video_device)
-        except Exception as e:
-            self.show_error(str(e))
-            data = ''
-        if not data:
-            data = ''
-        if self.allow_multi:
-            new_text = self.text() + data + '\n'
-        else:
-            new_text = data
-        # This should only be set if the subclass is calling itself and knows that it has replaced
-        # this method and it supports the extra parameter. See `PayToEdit.qr_input()`.
-        if ignore_uris:
-            # NOTE(typing) setText is overriden to setPlainText in the `paytoedit.py`.
-            self.setText(new_text, ignore_uris) # type: ignore[call-arg]
-        else:
-            self.setText(new_text)
-        return data
+    def qr_input(self, result_callback: Optional[Callable[[str], None]]=None,
+            ignore_uris: bool=False) -> None:
+        def callback(text: Optional[str]) -> None:
+            if text is None:
+                text = ""
+            if self.allow_multi:
+                new_text = self.text() + text + '\n'
+            else:
+                new_text = text
+            # This should only be set if the subclass is calling itself and knows that it has
+            # replaced this method and it supports the extra parameter. See `PayToEdit.qr_input()`.
+            if ignore_uris:
+                # NOTE(typing) setText is overriden to setPlainText in the `paytoedit.py`.
+                self.setText(new_text, ignore_uris) # type: ignore[call-arg]
+            else:
+                self.setText(new_text)
 
-    def qr_input(self) -> None:
-        self.read_qr_input()
+            if result_callback is not None:
+                result_callback(text)
+        self._main_window_proxy.read_qrcode_and_call_callback(callback)
 
     def contextMenuEvent(self, e: QContextMenuEvent) -> None:
         m = self.createStandardContextMenu()
