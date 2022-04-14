@@ -2,7 +2,7 @@ Building Mac OS binaries
 ========================
 
 This guide explains how to build ElectrumSV binaries for macOS systems.
-We build our binaries on Big Sur (10.15) as this is the current release
+We build our binaries on Big Sur (11) as this is the current release
 of MacOS and we do not have the manpower or resources to commit to
 supporting people that cannot upgrade their computer unfortunately.
 

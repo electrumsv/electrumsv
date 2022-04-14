@@ -318,14 +318,6 @@ and they should also happen automatically.  If you wish to look at the specific 
 handles a given part of the build process, these will be referenced below for the various
 operating systems.  To see how these are engaged, refer to the Azure Pipelines YAML files.
 
-Source Archives
----------------
-
-Run the following to create the release archives under `dist/`::
-
-    ./contrib/make_source_archives.py
-
-
 Mac OS X / macOS
 ----------------
 
