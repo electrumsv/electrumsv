@@ -54,7 +54,7 @@ from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, 
 
 from ...app_state import app_state
 from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, RECEIVING_SUBPATH, \
-    TransactionImportFlag, TxFlags, WalletEvent
+    ServerCapability, ServerConnectionFlag, TransactionImportFlag, TxFlags, WalletEvent
 from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, BlockchainScanner, \
     PushDataHashHandler, PushDataSearchError, SearchKeyEnumerator
 from ...exceptions import ServerConnectionError
@@ -104,7 +104,8 @@ TEXT_NO_IMPORT = _("<center><b>Nothing to import</b></center>"
     "<br/><br/>")
 TEXT_SERVER_CONNECTION_ERROR = _("<center><b>Server connection error</b></center>"
     "<br/>"
-    "The server selected for restoration could not be connected to."
+    "The server cannot currently be connected to, and this means that it is not possible to "
+    "restore this account."
     "<br/><br/>")
 TEXT_SEARCH_ERROR = _("<center><b>Search error</b></center>"
     "<br/>"
@@ -357,6 +358,37 @@ class BlockchainScanDialog(WindowModalDialog):
         self.finished.connect(self._on_dialog_finished)
 
         self.setLayout(vbox)
+
+        self._update_network_status()
+        self._main_window_proxy.network_status_signal.connect(self._update_network_status)
+
+    def _on_dialog_finished(self) -> None:
+        self._main_window_proxy.network_status_signal.disconnect(self._update_network_status)
+
+        if self._stage == ScanDialogStage.IMPORT:
+            self._wallet.events.unregister_callback(self._on_wallet_event)
+        self._main_window_proxy.update_history_view()
+
+    def _on_dialog_rejected(self) -> None:
+        if self._stage == ScanDialogStage.SCAN:
+            logger.debug("Cleaning up 'DISCOVERY' state")
+            self._scanner.shutdown()
+        elif self._stage == ScanDialogStage.IMPORT:
+            pass
+
+    def _update_network_status(self) -> None:
+        if self._stage == ScanDialogStage.PRE_SCAN:
+            # This has to be `TIP_FILTER` and not `RESTORATION` as we set the former as the
+            # lookup and don't do more intelligent lookups.
+            server_state = self._wallet.get_server_state_for_capability(
+                ServerCapability.TIP_FILTER)
+            if server_state is not None and \
+                    server_state.connection_flags & ServerConnectionFlag.WEB_SOCKET_READY:
+                self._scan_button.setEnabled(True)
+                self._about_label.setText(TEXT_PRE_SCAN)
+            else:
+                self._scan_button.setEnabled(False)
+                self._about_label.setText(TEXT_SERVER_CONNECTION_ERROR)
 
     def update_gap_limit(self, subpath: DerivationPath, value: int) -> None:
         # This is a reference to the object the scanner was given. It should only be possible for
@@ -759,18 +791,6 @@ class BlockchainScanDialog(WindowModalDialog):
 
         # Insert the details layout before the button box.
         self.layout().insertLayout(2, self._details_layout)
-
-    def _on_dialog_finished(self) -> None:
-        if self._stage == ScanDialogStage.IMPORT:
-            self._wallet.events.unregister_callback(self._on_wallet_event)
-        self._main_window_proxy.update_history_view()
-
-    def _on_dialog_rejected(self) -> None:
-        if self._stage == ScanDialogStage.SCAN:
-            logger.debug("Cleaning up 'DISCOVERY' state")
-            self._scanner.shutdown()
-        elif self._stage == ScanDialogStage.IMPORT:
-            pass
 
     def _on_scanner_range_extended(self, new_range: int) -> None:
         self._last_range = new_range

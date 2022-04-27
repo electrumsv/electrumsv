@@ -6,6 +6,7 @@ for an ESVReferenceClient and/or use a github submodule in ElectrumSV
 """
 from __future__ import annotations
 import asyncio
+import concurrent.futures
 import dataclasses
 import enum
 import logging
@@ -359,11 +360,17 @@ class ServerConnectionState:
     # Set this if there is a problem with the connection worthy of abandoning it.
     connection_exit_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
 
-    def clear_for_reconnection(self) -> None:
+    wallet_futures: list[concurrent.futures.Future[None]] = dataclasses.field(
+        default_factory=list[concurrent.futures.Future[None]])
+
+    def clear_for_reconnection(self, clear_flags: ServerConnectionFlag=ServerConnectionFlag.NONE) \
+            -> None:
         # TODO(1.4.0) Servers. We should consider what can be cleared and the repercussions of
         #     doing so.
-        self.connection_flags = ServerConnectionFlag.INITIALISED
+        self.connection_flags = clear_flags | ServerConnectionFlag.INITIALISED
+        self.stage_change_event.set()
         self.stage_change_event.clear()
+
         self.cached_peer_channels = None
         self.cached_peer_channel_rows = None
         self.indexer_settings = None

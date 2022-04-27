@@ -24,6 +24,8 @@ class ServerConnectivityMetadata:
     last_try = 0.0
     last_good = 0.0
 
+    consecutive_failed_attempts = 0
+
     retry_delay = 0
     last_blacklisted = 0.0
     is_disabled = False
@@ -37,8 +39,10 @@ class HeaderServerState:
 
     chain: Optional[Chain] = None
     tip_header: Optional[Header] = None
+    synchronisation_data: Optional[tuple[int, int]] = None
 
     connection_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+    synchronisation_update_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
 
 
 async def get_batched_headers_by_height_async(server_state: HeaderServerState,

@@ -574,15 +574,22 @@ class PushDataHashRegistrationFlag(IntFlag):
 
 
 class ServerConnectionFlag(IntFlag):
+    NONE                                        = 0
+
     INITIALISED                                 = 1 << 0
     STARTING                                    = 1 << 1
-    OUTPUT_SPENDS_READY                         = 1 << 3
-    TIP_FILTER_READY                            = 1 << 4
-    WEB_SOCKET_CONNECTED                        = 1 << 5
-    EXITING                                     = 1 << 6
-    EXITED                                      = 1 << 7
+    VERIFYING                                   = 1 << 2
+    ESTABLISHING_WEB_SOCKET                     = 1 << 3
+    OUTPUT_SPENDS_READY                         = 1 << 4
+    TIP_FILTER_READY                            = 1 << 5
+    WEB_SOCKET_READY                            = 1 << 6
+    EXITING                                     = 1 << 7
+    EXITED                                      = 1 << 8
 
-    MASK_COMMON_INITIAL                         = INITIALISED | STARTING
+    FORCE_CLOSED                                = 1 << 20
+    DISCONNECTED                                = 1 << 21
+
+    MASK_COMMON_INITIAL                         = INITIALISED | STARTING | DISCONNECTED
 
 
 class PushDataMatchFlag(IntFlag):
@@ -594,3 +601,12 @@ class PushDataMatchFlag(IntFlag):
 
     # Local flags we set.
     UNPROCESSED                                 = 1 << 31
+
+
+class ServerProgress(IntEnum):
+    NONE                                        = 0
+
+    CONNECTION_PROCESS_STARTED                  = 1
+    WAITING_FOR_VALID_CANDIDATES                = 2
+    WAITING_UNTIL_CANDIDATE_IS_READY            = 3
+    CONNECTION_PROCESS_ACTIVE                   = 4

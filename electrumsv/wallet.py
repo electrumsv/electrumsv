@@ -60,7 +60,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     NetworkServerFlag, NetworkServerType, pack_derivation_path, PaymentFlag,
     PeerChannelAccessTokenFlag,
     PendingHeaderWorkKind, PushDataHashRegistrationFlag, RECEIVING_SUBPATH,
-    ServerCapability, ServerPeerChannelFlag, ServerSwitchReason,
+    ServerCapability, ServerPeerChannelFlag, ServerProgress, ServerSwitchReason,
     SubscriptionType, ScriptType, TransactionImportFlag, TransactionInputFlag,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT,
     WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag, WalletEventType, WalletSettings)
@@ -76,7 +76,7 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
-from .network_support.esv_client_types import ServerConnectionState
+from .network_support.esv_client_types import ServerConnectionFlag, ServerConnectionState
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     TransactionNotFoundError
 from .network_support.general_api import maintain_server_connection_async, \
@@ -2250,6 +2250,7 @@ class Wallet:
         self.events = TriggeredCallbacks[WalletEvent]()
         self.data = WalletDataAccess(self._db_context, self.events)
         self._servers = dict[ServerAccountKey, NewServer]()
+        self._server_progress = dict[int, ServerProgress]()
 
         self.db_functions_async = db_functions.AsynchronousFunctions(self._db_context)
         # This manages data that needs to be processed along with a header, but we do not have
@@ -2300,8 +2301,6 @@ class Wallet:
 
         # TODO(1.4.0) Networking. Need to indicate progress on background network requests.
         self.progress_event = app_state.async_.event()
-        self.request_count = 0
-        self.response_count = 0
 
         # When ElectrumSV is asked to open a wallet it first requests the password and verifies
         # it is correct for the wallet. Then it does the separate open operation and did not
@@ -3928,13 +3927,15 @@ class Wallet:
         #     plans that sets of accounts may hierarchically share different petty cash accounts.
         # TODO(1.4.0) Networking. These worker tasks should be restarted if they prematurely exit?
 
-        self._worker_tasks_maintain_server_connection: \
-            dict[int, list[tuple[ServerConnectionState, concurrent.futures.Future[None],
-                concurrent.futures.Future[None]]]] = {}
+        self._worker_tasks_maintain_server_connection = dict[int, list[ServerConnectionState]]()
+        self._server_progress.clear()
+
         for account in self._accounts.values():
             if account.is_petty_cash():
                 account_id = account.get_id()
                 account_row = account.get_row()
+
+                self._update_server_progress(account_id, ServerProgress.CONNECTION_PROCESS_STARTED)
 
                 chosen_servers: list[tuple[NewServer, set[ServerCapability]]] = []
                 new_indexing_server_id: Optional[int] = None
@@ -3955,6 +3956,9 @@ class Wallet:
                     # servers before starting this task. We want to pick one that has fully
                     # synchronised headers and that we are connected to, as the selected indexing
                     # server.
+
+                    self._update_server_progress(account_id,
+                        ServerProgress.WAITING_FOR_VALID_CANDIDATES)
 
                     self._logger.debug("Picking an indexing server, candidates: %s",
                         indexing_server_candidates)
@@ -3982,6 +3986,9 @@ class Wallet:
                         #     to the user and allow a manual retry in some way.
                         raise NotImplementedError("Existing indexing server not found for given "
                             f"id={account_row.indexer_server_id}")
+
+                self._update_server_progress(account_id,
+                    ServerProgress.WAITING_UNTIL_CANDIDATE_IS_READY)
 
                 indexing_server_key = ServerAccountKey(server.url, server.server_type, None)
                 # We may already know the server should be ready from server selection.
@@ -4034,6 +4041,9 @@ class Wallet:
                     self.data.update_account_server_ids(new_indexing_server_id,
                         new_peer_channel_server_id, account_id)
 
+                # Further connection state is tracked via `_monitor_connection_stage_changes_async`
+                self._update_server_progress(account_id, ServerProgress.CONNECTION_PROCESS_ACTIVE)
+
                 self._worker_tasks_maintain_server_connection[account_id] = []
                 covered_capabilities = set[ServerCapability]()
                 for api_server, utilised_capabilities in chosen_servers:
@@ -4046,12 +4056,15 @@ class Wallet:
                         session=self._network.aiohttp_session,
                         server=api_server,
                         credential_id=api_server.client_api_keys[None])
-                    connection_future = app_state.async_.spawn(maintain_server_connection_async,
-                        server_state)
+                    stage_change_pipeline_future = app_state.async_.spawn(
+                        self._monitor_connection_stage_changes_async, server_state)
+                    connection_future = app_state.async_.spawn(
+                        maintain_server_connection_async, server_state)
                     wallet_future = app_state.async_.spawn(
                         self._manage_server_connection_state_async, server_state)
-                    self._worker_tasks_maintain_server_connection[account_id].append(
-                        (server_state, connection_future, wallet_future))
+                    server_state.wallet_futures.extend([ stage_change_pipeline_future,
+                        connection_future, wallet_future ])
+                    self._worker_tasks_maintain_server_connection[account_id].append(server_state)
                 assert covered_capabilities == { ServerCapability.PEER_CHANNELS,
                     ServerCapability.TIP_FILTER }
 
@@ -4063,18 +4076,41 @@ class Wallet:
             late_header_worker.late_header_worker_async, self.data,
             self._late_header_worker_state)
 
+    async def _monitor_connection_stage_changes_async(self, state: ServerConnectionState) -> None:
+        """
+        Map events where the connection flags are changed (different connection stages) to the
+        wallet event that the UI listens to.
+        """
+        while True:
+            await state.stage_change_event.wait()
+            self.progress_event.set()
+            self.progress_event.clear()
+
+    def _update_server_progress(self, petty_cash_account_id: int, value: ServerProgress) -> None:
+        """
+        Process server pre-connection progress and trigger the wallet event the UI listens to.
+        """
+        self._server_progress[petty_cash_account_id] = value
+        self.progress_event.set()
+        self.progress_event.clear()
+
+    def get_server_progress(self, petty_cash_account_id: Optional[int]=None) -> ServerProgress:
+        if petty_cash_account_id is None:
+            # TODO(1.4.0) Servers. In theory later on we may have multiple petty cash accounts
+            #     but for now that is just too complicated.
+            petty_cash_account_id = self._petty_cash_account.get_id()
+        return self._server_progress.get(petty_cash_account_id, ServerProgress.NONE)
+
     def close_server_connection(self, petty_cash_account_id: int) -> None:
         """
         Raises `KeyError` if the connection is no longer present. This should never get raised
         as all callers should be calling because they know it is still alive and needs to be
         closed. No caller should catch it.
         """
-        for state_, connection_future, manage_connection_state_future in \
-                self._worker_tasks_maintain_server_connection.pop(petty_cash_account_id):
-            manage_connection_state_future.cancel()
-            # This should result in the websocket context manager exiting and closing the
-            # connection.
-            connection_future.cancel()
+        for state in self._worker_tasks_maintain_server_connection.pop(petty_cash_account_id):
+            state.connection_flags |= ServerConnectionFlag.FORCE_CLOSED
+            for future in state.wallet_futures:
+                future.cancel()
 
     def _teardown_server_connections(self) -> None:
         for petty_cash_account_id in list(self._worker_tasks_maintain_server_connection):
@@ -4087,8 +4123,7 @@ class Wallet:
         # TODO(future) In the longer term a wallet will be able to have multiple petty cash
         #     accounts and whatever calls this should provide the relevant `petty_cash_account_id`.
         petty_cash_account_id = self._petty_cash_account.get_id()
-        for state, connection_future_, manage_connection_state_future_ in \
-                self._worker_tasks_maintain_server_connection[petty_cash_account_id]:
+        for state in self._worker_tasks_maintain_server_connection[petty_cash_account_id]:
             if capability in state.utilised_capabilities:
                 return state
         return None
@@ -4318,12 +4353,6 @@ class Wallet:
         """ return last known height if we are offline """
         return (self._network.get_local_height() if self._network else
             self._storage.get_explicit_type(int, 'stored_height', 0))
-
-    def get_request_response_counts(self) -> Tuple[int, int]:
-        if self.request_count <= self.response_count:
-            self.request_count = 0
-            self.response_count = 0
-        return self.request_count, self.response_count
 
     def start(self, network: Optional[Network]) -> None:
         self._network = network

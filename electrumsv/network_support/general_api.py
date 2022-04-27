@@ -53,8 +53,8 @@ from .exceptions import AuthenticationError, FilterResponseInvalidError, \
     FilterResponseIncompleteError, GeneralAPIError, InvalidStateError, TransactionNotFoundError
 from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof, TSCMerkleProofError, verify_proof
-from ..constants import PushDataHashRegistrationFlag, PushDataMatchFlag, ServerCapability, \
-    ServerConnectionFlag, ServerPeerChannelFlag, PeerChannelAccessTokenFlag
+from ..constants import PeerChannelAccessTokenFlag, PushDataHashRegistrationFlag, \
+    PushDataMatchFlag, ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ServerProgress
 from ..crypto import pw_encode
 from ..exceptions import ServerConnectionError
 from ..i18n import _
@@ -366,7 +366,7 @@ async def maintain_server_connection_async(state: ServerConnectionState) -> None
                 pass
 
             logger.debug("Server disconnected, clearing state, waiting to retry")
-            state.clear_for_reconnection()
+            state.clear_for_reconnection(ServerConnectionFlag.DISCONNECTED)
 
             # TODO(1.4.0) Networking. This is an arbitrary timeout, we should factor when this
             #     happens into the UI and how we manage server usage.
@@ -483,7 +483,16 @@ async def manage_server_connection_async(state: ServerConnectionState) -> bool:
     """
     await create_server_account_if_necessary(state)
     assert state.credential_id is not None
+
+    state.connection_flags |= ServerConnectionFlag.VERIFYING
+    state.stage_change_event.set()
+    state.stage_change_event.clear()
+
     await validate_server_data(state)
+
+    state.connection_flags |= ServerConnectionFlag.ESTABLISHING_WEB_SOCKET
+    state.stage_change_event.set()
+    state.stage_change_event.clear()
 
     master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     websocket_url_template = state.server.url + "api/v1/web-socket?token={access_token}"
@@ -508,7 +517,7 @@ async def manage_server_connection_async(state: ServerConnectionState) -> bool:
                 peer_channel_messages_future = app_state.async_.spawn(
                     process_incoming_peer_channel_messages_async, state)
 
-            state.connection_flags |= ServerConnectionFlag.WEB_SOCKET_CONNECTED
+            state.connection_flags |= ServerConnectionFlag.WEB_SOCKET_READY
             state.stage_change_event.set()
             state.stage_change_event.clear()
 
@@ -1006,10 +1015,10 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
         # TODO(1.4.0) Servers. Handle `TimeoutError` in a better way, and this edge case.
         #     If there is no workable peer channel server, then the user should be notified and
         #     they should have to rectify it.
-        if peer_channel_server_state.connection_flags & ServerConnectionFlag.WEB_SOCKET_CONNECTED \
+        if peer_channel_server_state.connection_flags & ServerConnectionFlag.WEB_SOCKET_READY \
                 == 0:
             await asyncio.wait_for(peer_channel_server_state.stage_change_event.wait(), 10)
-        if peer_channel_server_state.connection_flags & ServerConnectionFlag.WEB_SOCKET_CONNECTED \
+        if peer_channel_server_state.connection_flags & ServerConnectionFlag.WEB_SOCKET_READY \
                 == 0:
             raise InvalidStateError(f"Tip filter unable to find peer channel server")
 
@@ -1120,7 +1129,8 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
     # The update is a subset of the overall indexer server settings that we want to update.
     settings_delta_object = cast(IndexerServerSettings, {})
     settings_delta_object["tipFilterCallbackUrl"] = peer_channel.url
-    settings_delta_object["tipFilterCallbackToken"] = tip_filter_access_token.access_token
+    settings_delta_object["tipFilterCallbackToken"] = \
+        f"Bearer {tip_filter_access_token.access_token}"
     settings_object = await update_server_indexer_settings(indexing_server_state,
         settings_delta_object)
     # NOTE(typing) Type is incompatible with same type, who knows? Error message as follows:

@@ -166,16 +166,17 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         Raises `ServiceUnavailableError` via _request_and_connect_headers_at_heights_async
         """
         tip_header = await get_chain_tips_async(server_state, self.aiohttp_session)
+        server_state.tip_header = tip_header
         while not self.is_header_present(tip_header.hash):
             any_common_base_header = await self._find_any_common_header_async(server_state,
                 server_tip=tip_header)
+            server_state.synchronisation_base_height = any_common_base_header.height
             heights = [height for height in range(any_common_base_header.height,
                 tip_header.height + 1)]
             await self._request_and_connect_headers_at_heights_async(server_state, heights)
 
-        server_tip_header = tip_header
-        header, server_chain = cast(Headers, app_state.headers).lookup(server_tip_header.hash)
-        return server_tip_header, server_chain
+        _tip_header, server_chain = cast(Headers, app_state.headers).lookup(tip_header.hash)
+        return tip_header, server_chain
 
     async def _connect_tip_and_maybe_backfill(self, server_state: HeaderServerState,
             new_tip: TipResponse) -> None:
@@ -210,9 +211,12 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             - `main_server.subscribe_to_headers` or
             - `self._connect_tip_and_maybe_backfill`
         """
-        # Already obsolete.
+        # This server is already obsolete.
         if server_key not in self.connected_header_server_states:
             return
+
+        server_metadata = self._server_connectivity_metadata[server_key]
+        server_metadata.last_try = time.time()
 
         # Will not proceed past this point until we have all the headers up to and including
         # the servers tip header.
@@ -228,11 +232,11 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                     wallet.indexing_server_state.server_key == server_state.server_key:
                 wallet.update_main_server_tip_and_chain(server_state.tip_header, server_state.chain)
 
-        server_metadata = self._server_connectivity_metadata[server_key]
-        server_metadata.last_try = time.time()
-
         # This server is ready for wallets to rely on for use as an indexing server (should it
         # be indexing server capable).
+        server_metadata.last_good = time.time()
+        server_metadata.consecutive_failed_attempts = 0
+
         server_state.connection_event.set()
 
         self.new_server_ready_event.set()
@@ -386,7 +390,12 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 try:
                     await self._monitor_chain_tip_task_async(server_key)
                 except ServiceUnavailableError:
-                    logger.error("Server unavailable: %s", server_key)
+                    server_metadata = self._server_connectivity_metadata.get(server_key, None)
+                    if server_metadata is not None:
+                        server_metadata.consecutive_failed_attempts += 1
+                        # We only log the unavailability for the first failed attempt.
+                        if server_metadata.consecutive_failed_attempts == 1:
+                           logger.error("Server unavailable: %s", server_key)
                 # TODO(1.4.0) Servers. Connection retrying should have some logic to it.
                 #     - Ideally we would try with a backing off delay, eventually where that
                 #       delay becomes very large. The user might be able to go into the UI
@@ -431,6 +440,8 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         """
         Raises `ServiceUnavailableError` in `get_batched_headers_by_height_async`
         """
+        assert server_state.synchronisation_data is None
+
         MAX_HEADER_REQUEST_BATCH_SIZE = 2000
         sorted_heights = sorted(heights)
         while len(sorted_heights) != 0:
@@ -440,6 +451,11 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             max_height = batch_heights[-1]
             count = max_height - min_height + 1
             logger.debug("Fetching %s headers from start height: %s", count, min_height)
+
+            server_state.synchronisation_data = min_height, count
+            server_state.synchronisation_update_event.set()
+            server_state.synchronisation_update_event.clear()
+
             header_array = await get_batched_headers_by_height_async(server_state,
                 self.aiohttp_session, min_height, count)
             stream = BytesIO(header_array)
@@ -448,6 +464,10 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             for i in range(count_of_raw_headers):
                 raw_header = stream.read(80)
                 cast(Headers, app_state.headers).connect(raw_header)
+
+        server_state.synchronisation_data = None
+        server_state.synchronisation_update_event.set()
+        server_state.synchronisation_update_event.clear()
 
     def header_at_height(self, height: int) -> Header:
         assert app_state.headers is not None
