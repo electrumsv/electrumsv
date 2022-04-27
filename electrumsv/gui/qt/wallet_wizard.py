@@ -779,6 +779,7 @@ class ChooseWalletPage(QWizardPage):
         return create_file_state(wallet_path)
 
     def _gui_list_reset(self) -> None:
+        self._clear_selection()
         self._recent_wallet_paths = []
         self._recent_wallet_entries = {}
 
