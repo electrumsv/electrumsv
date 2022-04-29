@@ -3759,6 +3759,7 @@ class Wallet:
         for tx_hash in for_removal:
             remaining_tx_hashes.remove(tx_hash)
 
+        # TODO(1.4.0) Reorgs. Are these registered on startup? They may not be registerable here.
         # Otherwise, register for utxo spend notifications for these transactions to get proof data
         # when the transaction is included into a block (on the new chain)
         if len(remaining_tx_hashes) != 0:
@@ -4123,9 +4124,10 @@ class Wallet:
         # TODO(future) In the longer term a wallet will be able to have multiple petty cash
         #     accounts and whatever calls this should provide the relevant `petty_cash_account_id`.
         petty_cash_account_id = self._petty_cash_account.get_id()
-        for state in self._worker_tasks_maintain_server_connection[petty_cash_account_id]:
-            if capability in state.utilised_capabilities:
-                return state
+        if petty_cash_account_id in self._worker_tasks_maintain_server_connection:
+            for state in self._worker_tasks_maintain_server_connection[petty_cash_account_id]:
+                if capability in state.utilised_capabilities:
+                    return state
         return None
 
     async def _manage_server_connection_state_async(self, state: ServerConnectionState) -> None:
@@ -4176,7 +4178,10 @@ class Wallet:
             return
 
         state = self.get_server_state_for_capability(ServerCapability.TIP_FILTER)
-        assert state is not None
+        if state is None:
+            # The server has not started yet.
+            self._logger.debug("Skipping premature output spend registrations")
+            return
         state.output_spend_registration_queue.put_nowait(spent_outpoints)
 
     # TODO(1.4.0) Spent outputs. Unit test malleation replacement of a transaction
