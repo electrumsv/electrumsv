@@ -170,7 +170,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         while not self.is_header_present(tip_header.hash):
             any_common_base_header = await self._find_any_common_header_async(server_state,
                 server_tip=tip_header)
-            server_state.synchronisation_base_height = any_common_base_header.height
             heights = [height for height in range(any_common_base_header.height,
                 tip_header.height + 1)]
             await self._request_and_connect_headers_at_heights_async(server_state, heights)

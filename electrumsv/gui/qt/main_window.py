@@ -61,13 +61,12 @@ from ... import bitcoin, commands, paymentrequest, util
 from ...app_state import app_state
 from ...bitcoin import (address_from_string, COIN, script_template_to_string, TSCMerkleProof)
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
-    ScriptType, ServerCapability, ServerProgress, TransactionImportFlag, TransactionOutputFlag,
-    TxFlags, WalletEvent)
+    ScriptType, ServerCapability, ServerConnectionFlag, ServerProgress, TransactionImportFlag,
+    TransactionOutputFlag, TxFlags, WalletEvent)
 from ...exceptions import UserCancelled
 from ...i18n import _
 from ...logs import logs
 from ...network_support.api_server import broadcast_transaction
-from ...network_support.esv_client_types import ServerConnectionFlag
 from ...network_support.mapi import BroadcastResponse
 from ...networks import Net
 from ...storage import WalletStorage

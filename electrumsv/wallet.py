@@ -60,7 +60,8 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     NetworkServerFlag, NetworkServerType, pack_derivation_path, PaymentFlag,
     PeerChannelAccessTokenFlag,
     PendingHeaderWorkKind, PushDataHashRegistrationFlag, RECEIVING_SUBPATH,
-    ServerCapability, ServerPeerChannelFlag, ServerProgress, ServerSwitchReason,
+    ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ServerProgress,
+    ServerSwitchReason,
     SubscriptionType, ScriptType, TransactionImportFlag, TransactionInputFlag,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT,
     WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag, WalletEventType, WalletSettings)
@@ -76,7 +77,7 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
-from .network_support.esv_client_types import ServerConnectionFlag, ServerConnectionState
+from .network_support.esv_client_types import ServerConnectionState
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     TransactionNotFoundError
 from .network_support.general_api import maintain_server_connection_async, \

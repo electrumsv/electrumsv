@@ -54,7 +54,7 @@ from .exceptions import AuthenticationError, FilterResponseInvalidError, \
 from ..app_state import app_state
 from ..bitcoin import TSCMerkleProof, TSCMerkleProofError, verify_proof
 from ..constants import PeerChannelAccessTokenFlag, PushDataHashRegistrationFlag, \
-    PushDataMatchFlag, ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ServerProgress
+    PushDataMatchFlag, ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag
 from ..crypto import pw_encode
 from ..exceptions import ServerConnectionError
 from ..i18n import _
