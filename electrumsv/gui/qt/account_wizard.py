@@ -39,9 +39,7 @@
 from __future__ import annotations
 import concurrent.futures
 import enum
-from typing import Any, Callable, cast, Dict, List, Optional, Set, Tuple, TYPE_CHECKING, \
-    Union
-from weakref import ProxyType
+from typing import Any, Callable, cast, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
     bip32_key_from_string, PrivateKey, P2SH_Address, bip32_build_chain_string,
@@ -156,19 +154,16 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
     _keystore: Optional[KeyStore] = None
     _keystore_type = AccountCreationType.UNKNOWN
 
-    def __init__(self, main_window: Union[ElectrumWindow, ProxyType[ElectrumWindow]],
+    def __init__(self, main_window_proxy: ElectrumWindow,
             flags: WizardFlags=DEFAULT_WIZARD_FLAGS, parent: Optional[QWidget]=None) -> None:
         if parent is None:
-            if isinstance(main_window, ProxyType):
-                parent = main_window.reference()
-            else:
-                parent = main_window
+            parent = main_window_proxy.reference()
         super().__init__(parent)
 
         self.flags = flags
 
-        self._main_window = main_window
-        self._wallet: Wallet = main_window._wallet
+        self._main_window_proxy = main_window_proxy
+        self._wallet: Wallet = main_window_proxy._wallet
 
         self._text_import_type: Optional[KeystoreTextType] = None
         self._text_import_matches: Optional[KeystoreMatchType] = None
@@ -203,9 +198,9 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
         assert self._selected_device is not None
         return self._selected_device
 
-    def get_main_window(self) -> Union[ElectrumWindow, ProxyType[ElectrumWindow]]:
+    def get_main_window_proxy(self) -> ElectrumWindow:
         "For page access to the parent window."
-        return self._main_window
+        return self._main_window_proxy
 
     def get_wallet(self) -> Wallet:
         "For page access to any wallet."
@@ -400,7 +395,7 @@ class AddAccountWizardPage(QWizardPage):
 
     def _create_new_account(self) -> None:
         wizard = cast(AccountWizard, self.wizard())
-        wallet = wizard.get_main_window()._wallet
+        wallet = wizard.get_wallet()
         password = request_password(self, wallet.get_storage())
         if password is None:
             return
@@ -1622,7 +1617,7 @@ class MultisigAccountCosignerListPage(QWizardPage):
 
         self.setTitle(_("Create a Multi-signature Account") +" - "+ _("Cosigners"))
 
-        self._list = CosignerList(wizard.get_main_window())
+        self._list = CosignerList(wizard.get_main_window_proxy())
 
         vbox = QVBoxLayout()
         vbox.setContentsMargins(0, 0, 0, 0)

@@ -274,9 +274,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # automatically. It may be that at a later time, we allow people to disable this optionally
         # but some users struggle to read the "add account" text or maybe just like to complain.
         if not len(wallet.get_accounts()):
+            main_window_proxy: ElectrumWindow = weakref.proxy(self)
             from . import account_wizard
-            wizard = account_wizard.AccountWizard(self)
-            wizard.show()
+            wizard_window = account_wizard.AccountWizard(main_window_proxy)
+            wizard_window.show()
 
         self.app.timer.timeout.connect(self.timer_actions)
 
@@ -943,10 +944,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # self._update_check_toolbar_update()
 
     def show_account_creation_wizard(self) -> None:
+        main_window_proxy: ElectrumWindow = weakref.proxy(self)
         from . import account_wizard
         # from importlib import reload
         # reload(account_wizard)
-        wizard_window = account_wizard.AccountWizard(self)
+        wizard_window = account_wizard.AccountWizard(main_window_proxy)
         wizard_window.show()
 
     def scan_active_account_manual(self) -> None:

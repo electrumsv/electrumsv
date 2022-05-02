@@ -38,8 +38,7 @@
 # typing checks.
 from __future__ import annotations
 from functools import partial
-from typing import cast, Optional, Union
-from weakref import ProxyType
+from typing import cast, Optional
 
 from bitcoinx import bip32_key_from_string, BIP32PublicKey
 
@@ -82,11 +81,11 @@ class CosignerCard(FormSectionWidget):
 
     cosigner_updated = pyqtSignal(int)
 
-    def __init__(self, main_window: Union[ElectrumWindow, ProxyType[ElectrumWindow]],
-            state: CosignerState, create: bool) -> None:
+    def __init__(self, main_window_proxy: ElectrumWindow, state: CosignerState, create: bool) \
+            -> None:
         super().__init__()
 
-        self._main_window = main_window
+        self._main_window_proxy = main_window_proxy
         self._state = state
         self._create = create
 
@@ -117,7 +116,7 @@ class CosignerCard(FormSectionWidget):
             self._event_click_set_cosigner_key, _("Specify key data"))
         self._show_secured_data_button = key_edit.addButton(
             "icons8-grand-master-key-32-windows.png",
-            partial(self._event_click_show_secured_data, main_window=self._main_window),
+            partial(self._event_click_show_secured_data, main_window_proxy=self._main_window_proxy),
             _("Show secured data"))
         self._key_edit = key_edit
 
@@ -132,13 +131,13 @@ class CosignerCard(FormSectionWidget):
         self._update_keystore(state.keystore)
 
     @protected
-    def _event_click_show_secured_data(self, clicked: bool, *, main_window: ElectrumWindow,
+    def _event_click_show_secured_data(self, clicked: bool, *, main_window_proxy: ElectrumWindow,
             password: str) -> None:
         assert self._state.keystore is not None
         assert not self._state.keystore.is_watching_only()
 
         from .secured_data_dialog import SecuredDataDialog
-        d = SecuredDataDialog(self._main_window, self, self._state.keystore, password)
+        d = SecuredDataDialog(self._main_window_proxy, self, self._state.keystore, password)
         d.exec_()
 
     def _event_click_set_cosigner_key(self) -> None:
@@ -147,7 +146,7 @@ class CosignerCard(FormSectionWidget):
             return
 
         from .account_wizard import AccountWizard
-        child_wizard = AccountWizard(self._main_window, WizardFlags.MULTISIG_MODE, self)
+        child_wizard = AccountWizard(self._main_window_proxy, WizardFlags.MULTISIG_MODE, self)
         subtitle_text = _("Cosigner #{} Key Selection").format(self._state.cosigner_index+1)
         child_wizard.set_subtitle(subtitle_text)
         if child_wizard.run() == QWizard.Accepted:
@@ -250,9 +249,8 @@ class CosignerCard(FormSectionWidget):
 
 
 class CosignerList(QListWidget):
-    def __init__(self, main_window: Union[ElectrumWindow, ProxyType[ElectrumWindow]],
-            create: bool=True) -> None:
-        self._main_window = main_window
+    def __init__(self, main_window_proxy: ElectrumWindow, create: bool=True) -> None:
+        self._main_window_proxy = main_window_proxy
         self._create = create
 
         super().__init__()
@@ -272,7 +270,7 @@ class CosignerList(QListWidget):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
     def add_state(self, state: CosignerState) -> CosignerCard:
-        card = CosignerCard(self._main_window, state, self._create)
+        card = CosignerCard(self._main_window_proxy, state, self._create)
         list_item = QListWidgetItem()
         # The item won't display unless it gets a size hint. It seems to resize horizontally
         # but unless the height is a minimal amount it won't do anything proactive..
