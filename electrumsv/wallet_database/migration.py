@@ -51,7 +51,7 @@ def create_database_file(wallet_path: str) -> None:
     # Python sqlite bindings automatically enter a transaction which prevents the PRAGMA from
     # exiting, which is why we use no isolation level.
     db = sqlite3.connect(db_path, check_same_thread=False, isolation_level=None)
-    db.execute(f"PRAGMA journal_mode=WAL;")
+    db.execute("PRAGMA journal_mode=WAL;")
     create_database(db)
     db.close()
 

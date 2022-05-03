@@ -495,7 +495,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 try:
                     pubkey = PublicKey.from_signed_message(message_sig, message)
                 except Exception:
-                    logger.exception(f"If Digital Bitbox signing failed, this may be why")
+                    logger.exception("If Digital Bitbox signing failed, this may be why")
                     continue
                 if pubkey.verify_message(message_sig, message):
                     return message_sig

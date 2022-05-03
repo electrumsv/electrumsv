@@ -1081,7 +1081,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
         try:
             scanned_devices = devmgr.scan_devices()
         except Exception:
-            logger.exception(f'error scanning devices')
+            logger.exception('Error scanning devices')
         else:
             for device_kind, plugin in supported_devices.items():
                 # plugin init errored?

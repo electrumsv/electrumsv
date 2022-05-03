@@ -375,7 +375,7 @@ class Payment:
     @classmethod
     def from_json(cls, s: str) -> 'Payment':
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
-            raise Bip270Exception(f"Invalid payment, too large")
+            raise Bip270Exception("Invalid payment, too large")
         data = json.loads(s)
         return cls.from_dict(data)
 
@@ -417,7 +417,7 @@ class PaymentACK:
     @classmethod
     def from_json(cls, s: Union[bytes, str]) -> 'PaymentACK':
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
-            raise Bip270Exception(f"Invalid payment ACK, too large")
+            raise Bip270Exception("Invalid payment ACK, too large")
         data = json.loads(s)
         return cls.from_dict(data)
 

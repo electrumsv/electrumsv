@@ -838,10 +838,10 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
         INNER JOIN key_payments KP USING(keyinstance_id)
     """
     if request_id is not None:
-        sql += f" WHERE PR.paymentrequest_id=?"
+        sql += " WHERE PR.paymentrequest_id=?"
         sql_values = [ request_id ]
     elif keyinstance_id is not None:
-        sql += f" WHERE PR.keyinstance_id=?"
+        sql += " WHERE PR.keyinstance_id=?"
         sql_values = [ keyinstance_id ]
     else:
         raise NotImplementedError("request_id and keyinstance_id not supported")
@@ -1241,7 +1241,7 @@ def read_transaction_value_entries(db: sqlite3.Connection, account_id: int, *,
                 "TX.date_created, TX.date_updated "
             "FROM TransactionValues TXV "
             "INNER JOIN Transactions TX ON TX.tx_hash=TXV.tx_hash "
-            f"WHERE account_id=? ")
+            "WHERE account_id=? ")
         if mask is not None:
             sql += f"AND TX.flags&{mask}!=0 "
         sql += "GROUP BY TXV.tx_hash"
@@ -1355,7 +1355,7 @@ def read_network_servers(db: sqlite3.Connection,
         "date_last_tried, date_last_connected, date_created, date_updated FROM Servers"
     params: Sequence[Any] = ()
     if server_key is not None:
-        read_server_row_sql += f" WHERE server_type=? AND url=?"
+        read_server_row_sql += " WHERE server_type=? AND url=?"
         params = (server_key.server_type, server_key.url)
     cursor = db.execute(read_server_row_sql, params)
     # WARNING The order of the fields in this data structure are implicitly linked to the query.
@@ -1574,7 +1574,7 @@ def remove_transaction(db_context: DatabaseContext, tx_hash: bytes) \
     sql1 = "DELETE FROM AccountTransactions WHERE tx_hash=?"
     sql1_values = (tx_hash,)
     sql2 = ("UPDATE TransactionOutputs "
-        f"SET date_updated=?, flags=flags&?, spending_tx_hash=NULL, spending_txi_index=NULL "
+        "SET date_updated=?, flags=flags&?, spending_tx_hash=NULL, spending_txi_index=NULL "
         "WHERE spending_tx_hash=?")
     sql2_values = (timestamp, tx_out_mask, tx_hash)
     sql3 = "UPDATE Invoices SET date_updated=?, tx_hash=NULL WHERE tx_hash=?"

@@ -2,16 +2,15 @@ from __future__ import annotations
 import dataclasses
 import struct
 from types import TracebackType
-from typing import Any, Callable, Coroutine, List, NamedTuple, Optional, Tuple, \
-    Type, TYPE_CHECKING, TypedDict, Union
+from typing import Callable, List, NamedTuple, Optional, Tuple, Type, TYPE_CHECKING, TypedDict, \
+    Union
 import uuid
 
 from bitcoinx import hash_to_hex_str
 from mypy_extensions import Arg, DefaultArg
 
 from .constants import AccountCreationType, DatabaseKeyDerivationType, DerivationType, \
-    DerivationPath, NetworkServerType, NO_BLOCK_HASH, ScriptType, SubscriptionOwnerPurpose, \
-    SubscriptionType, unpack_derivation_path
+    DerivationPath, NetworkServerType, NO_BLOCK_HASH, unpack_derivation_path
 
 
 if TYPE_CHECKING:
@@ -45,79 +44,6 @@ class DatabaseKeyDerivationData:
         return DatabaseKeyDerivationData(derivation_path=derivation_path,
             account_id=row.account_id, masterkey_id=row.masterkey_id,
             keyinstance_id=row.keyinstance_id, source=source)
-
-
-class SubscriptionOwner(NamedTuple):
-    wallet_id: int
-    account_id: int
-    purpose: SubscriptionOwnerPurpose
-
-
-class SubscriptionKey(NamedTuple):
-    value_type: SubscriptionType
-    value: Any
-
-
-class SubscriptionKeyScriptHashOwnerContext(NamedTuple):
-    keyinstance_id: int
-    script_type: ScriptType
-
-    def merge(self, other_object: object) -> None:
-        assert type(self) is type(other_object)
-        raise NotImplementedError
-
-
-class SubscriptionScannerScriptHashOwnerContext(NamedTuple):
-    value: Any
-
-    def merge(self, other_object: object) -> None:
-        assert type(self) is type(other_object)
-        raise NotImplementedError
-
-
-class SubscriptionDerivationScriptHashOwnerContext(NamedTuple):
-    derivation_type_data: SubscriptionDerivationData
-    script_type: ScriptType
-
-    def merge(self, other_object: object) -> None:
-        assert type(self) is type(other_object)
-        raise NotImplementedError
-
-
-SubscriptionOwnerContextType = Union[
-    SubscriptionKeyScriptHashOwnerContext,
-    SubscriptionScannerScriptHashOwnerContext,
-    SubscriptionDerivationScriptHashOwnerContext]
-
-
-class SubscriptionEntry(NamedTuple):
-    key: SubscriptionKey
-    owner_context: Optional[SubscriptionOwnerContextType]
-
-
-class HashSubscriptionEntry(NamedTuple):
-    entry_id: int
-    hash_value: bytes
-
-
-class ScriptHashHistoryEntry(NamedTuple):
-    something: int
-
-ScriptHashHistoryList = List[ScriptHashHistoryEntry]
-
-
-HashSubscriptionCallback = Callable[[List[HashSubscriptionEntry]],
-    Coroutine[Any, Any, None]]
-ScriptHashResultCallback = Callable[[SubscriptionKey, SubscriptionOwnerContextType,
-    ScriptHashHistoryList], Coroutine[Any, Any, None]]
-PushdataHashResultCallback = Callable[[SubscriptionKey, SubscriptionOwnerContextType,
-    bytes], Coroutine[Any, Any, None]]
-
-
-@dataclasses.dataclass
-class SubscriptionCallbacks:
-    script_hash_result_callback: Optional[ScriptHashResultCallback] = None
-    pushdata_hash_result_callback: Optional[PushdataHashResultCallback] = None
 
 
 class Outpoint(NamedTuple):

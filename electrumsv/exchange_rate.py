@@ -80,9 +80,9 @@ class ExchangeBase(object):
     def _get_historical_rates(self, ccy: str, cache_dir: str) -> Dict[str, float]:
         h, timestamp = self.read_historical_rates(ccy, cache_dir)
         if h is None or time.time() - cast(float, timestamp) < 24*3600:
-            logger.debug(f'getting historical FX rates for {ccy}')
+            logger.debug(f'Getting historical FX rates for {ccy}')
             h = self.request_history(ccy)
-            logger.debug(f'received historical FX rates')
+            logger.debug('Received historical FX rates')
             filename = os.path.join(cache_dir, self.name() + '_' + ccy)
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(json.dumps(h))

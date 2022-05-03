@@ -637,7 +637,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # Only keys flagged for a known reason should be left active. We do not want to leak active
     # keys and have user's wallets monitoring arbitrary number of keys we do not know why we are
     # monitoring.
-    conn.execute(f"UPDATE KeyInstances SET flags=flags&? WHERE flags&?=?",
+    conn.execute("UPDATE KeyInstances SET flags=flags&? WHERE flags&?=?",
         (~KeyInstanceFlag_22.IS_ACTIVE,
         KeyInstanceFlag_22.IS_ACTIVE|KeyInstanceFlag_22.IS_PAYMENT_REQUEST|
             KeyInstanceFlag_22.USER_SET_ACTIVE,

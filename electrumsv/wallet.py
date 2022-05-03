@@ -57,12 +57,10 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
     DerivationPath, KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags, MAX_VALUE,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkEventNames,
-    NetworkServerFlag, NetworkServerType, pack_derivation_path, PaymentFlag,
-    PeerChannelAccessTokenFlag,
+    NetworkServerFlag, NetworkServerType, PaymentFlag, PeerChannelAccessTokenFlag,
     PendingHeaderWorkKind, PushDataHashRegistrationFlag, RECEIVING_SUBPATH,
     ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ServerProgress,
-    ServerSwitchReason,
-    SubscriptionType, ScriptType, TransactionImportFlag, TransactionInputFlag,
+    ServerSwitchReason, ScriptType, TransactionImportFlag, TransactionInputFlag,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT,
     WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag, WalletEventType, WalletSettings)
 from .contacts import Contacts
@@ -87,15 +85,10 @@ from .networks import Net
 from .storage import WalletStorage
 from .transaction import (HardwareSigningMetadata, Transaction, TransactionContext,
     TxSerialisationFormat, NO_SIGNATURE, tx_dict_from_text, XPublicKey, XTxInput, XTxOutput)
-from .types import (SubscriptionDerivationData,
-    IndefiniteCredentialId,
-    KeyInstanceDataBIP32SubPath,
+from .types import (IndefiniteCredentialId, KeyInstanceDataBIP32SubPath,
     KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult, MasterKeyDataTypes,
     MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
-    OutputSpend, ServerAccountKey, SubscriptionEntry,
-    SubscriptionKey, SubscriptionDerivationScriptHashOwnerContext,
-    Outpoint, WaitingUpdateCallback,
-    DatabaseKeyDerivationData)
+    OutputSpend, ServerAccountKey, Outpoint, WaitingUpdateCallback, DatabaseKeyDerivationData)
 from .util import (format_satoshis, get_posix_timestamp, get_wallet_name_from_path,
     posix_timestamp_to_datetime, TriggeredCallbacks, ValueLocks)
 from .util.cache import LRUCache
@@ -124,6 +117,7 @@ if TYPE_CHECKING:
     from .network_support.headers import HeaderServerState
     from electrumsv.gui.qt.util import WindowProtocol
     from electrumsv.devices.hw_wallet.qt import QtPluginBase
+
 
 logger = logs.get_logger("wallet")
 
@@ -315,8 +309,7 @@ class AbstractAccount:
         """
         Encapsulate updating the flags for keyinstances belonging to this account.
 
-        This will subscribe or unsubscribe from script hash notifications from any indexer
-        automatically as any flags relating to activeness of the key are set or unset.
+        This used to subscribe and unsubscribe key usage with the indexer and ...
         """
         # There is no situation where keys should be marked active, as this is meaningless.
         # Keys should only be activated with supplementary reasons so we can know if we can
@@ -332,25 +325,7 @@ class AbstractAccount:
             if future.cancelled():
                 return
             # Ensure we abort if there is an error.
-            results = future.result()
-
-            # NOTE(ActivitySubscription) If a key becomes active here through one of the specialised
-            #   activity flags, then we will want to subscribe to it. But if it has one of those
-            #   flags removed this does not mean we will want to unsubscribe. We may still want to
-            #   get notifications to detect whether a transaction has been mined, so that we know
-            #   to request a merkle proof.
-            if self._network is not None:
-                subscription_keyinstance_ids: List[int] = []
-                unsubscription_keyinstance_ids: List[int] = []
-                for keyinstance_id, flags, final_flags in results:
-                    if flags & KeyInstanceFlag.ACTIVE:
-                        if final_flags & KeyInstanceFlag.ACTIVE == 0:
-                            unsubscription_keyinstance_ids.append(keyinstance_id)
-                    else:
-                        if final_flags & KeyInstanceFlag.ACTIVE:
-                            subscription_keyinstance_ids.append(keyinstance_id)
-
-                # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
+            future.result()
 
             self._wallet.events.trigger_callback(WalletEvent.KEYS_UPDATE, self._id, keyinstance_ids)
 
@@ -807,71 +782,6 @@ class AbstractAccount:
 
         self._logger.debug("stopping account %s", self)
 
-    # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
-    # async def _on_network_key_script_hash_result(self, subscription_key: SubscriptionKey,
-    #         context: SubscriptionKeyScriptHashOwnerContext,
-    #         history: ScriptHashHistoryList) -> None:
-    #     """
-    #     Receive an event related to this account and it's active keys.
-
-    #     `history` is in immediately usable order. Transactions are listed in ascending
-    #     block height (height > 0), followed by the unconfirmed (height == 0) and then
-    #     those with unconfirmed parents (height < 0).
-
-    #         [
-    #             { "tx_hash": "e232...", "height": 111 },
-    #             { "tx_hash": "df12...", "height": 222 },
-    #             { "tx_hash": "aa12...", "height": 0, "fee": 400 },
-    #             { "tx_hash": "bb12...", "height": -1, "fee": 300 },
-    #         ]
-
-    #     Use cases handled:
-    #     * Process the information about transactions that use this key.
-    #       - The user has manually marked a key as being actively watched.
-    #       - The user has created a payment request (receiving to a dispensed payment destination).
-    #         o Transactions are only processed as long as the payment request is in UNPAID state.
-    #           There is a good argument we should log an error otherwise.
-    #     """
-    #     if not history:
-    #         return
-
-    #     tx_hashes: List[bytes] = []
-    #     tx_heights: Dict[bytes, int] = {}
-    #     tx_fee_hints: Dict[bytes, Optional[int]] = {}
-    #     for entry in history:
-    #         tx_hash = hex_str_to_hash(entry["tx_hash"])
-    #         tx_hashes.append(tx_hash)
-    #         # NOTE(typing) The storage of mixed type values in the history gives false positives.
-    #         tx_heights[tx_hash] = entry["height"] # type: ignore
-    #         tx_fee_hints[tx_hash] = entry.get("fee") # type: ignore
-
-    #     keyinstance = self._wallet.data.read_keyinstance(account_id=self._id,
-    #         keyinstance_id=context.keyinstance_id)
-    #     assert keyinstance is not None
-
-    #     obtain_missing_transactions = False
-    #     if keyinstance.flags & KeyInstanceFlag.USER_SET_ACTIVE:
-    #         # If a user has told the wallet to fetch all transactions related to a given key by
-    #         # marking it as forced active by the user, then we do as they tell us.
-    #         obtain_missing_transactions = True
-    #     elif keyinstance.flags & KeyInstanceFlag.IS_PAYMENT_REQUEST:
-    #         # We subscribe for events for keys used in unpaid payment requests. So we need to
-    #         # ensure that we fetch the transactins when we receive these events as the model no
-    #         # longer monitors all key usage any more.
-    #         request = self._wallet.data.read_payment_request(
-    #             keyinstance_id=context.keyinstance_id)
-    #         assert request is not None, f"no payment request for key {context.keyinstance_id}"
-    #         if (request.state & (PaymentFlag.UNPAID | PaymentFlag.ARCHIVED)) \
-    #                 == PaymentFlag.UNPAID:
-    #             obtain_missing_transactions = True
-    #     else:
-    #         self._logger.error("received unexpected key subscriptions for id: %d row: %r",
-    #             context.keyinstance_id, keyinstance)
-
-    #     if obtain_missing_transactions:
-    #         await self._wallet.maybe_obtain_transactions_async(tx_hashes, REMOVED
-    #             tx_heights, tx_fee_hints)
-
     def can_export(self) -> bool:
         if self.is_watching_only():
             return False
@@ -1271,13 +1181,11 @@ class ImportedAddressAccount(ImportedAccountBase):
         if len(existing_keys):
             return False
 
-        # TODO(1.4.0) Key usage. Requires pushdata monitoring for spends/receipts.
-        #     Can use spent output events for watching spends.
-        # def callback(future: concurrent.futures.Future[None]) -> None:
-        #     if future.cancelled():
-        #         return
-        #     future.result()
-        #     self.register_for_keyinstance_events(keyinstance_rows)
+        # TODO(key-monitoring) We used to scan for usage of this key and restore the
+        #     transactions/history, however this will not work moving forward as we will not
+        #     have a way to scan beyond the capped height of the restoration index up to the
+        #     tip. It would if we supported it, only be able to catch restorable transactions
+        #     or newly broadcast/mined transactions.
 
         derivation_data_dict: KeyInstanceDataHash = { "hash": address.to_string() }
         derivation_data = json.dumps(derivation_data_dict).encode()
@@ -1286,7 +1194,6 @@ class ImportedAddressAccount(ImportedAccountBase):
             derivation_data2, KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None)
         keyinstance_future, scripthash_future, keyinstance_rows, scripthash_rows = \
             self.create_provided_keyinstances([ raw_keyinstance ])
-        # scripthash_future.add_done_callback(callback)
         return True
 
     def get_public_keys_for_derivation_path(self, derivation_path: DerivationPath) \
@@ -1341,13 +1248,11 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         if len(existing_keys) > 0:
             return private_key_text
 
-        # TODO(1.4.0) Key usage. Requires pushdata monitoring for spends/receipts.
-        #     Can use spent output events for watching spends.
-        # def callback(future: concurrent.futures.Future[None]) -> None:
-        #     if future.cancelled():
-        #         return
-        #     future.result()
-        #     self.register_for_keyinstance_events(keyinstance_rows)
+        # TODO(key-monitoring) We used to scan for usage of this key and restore the
+        #     transactions/history, however this will not work moving forward as we will not
+        #     have a way to scan beyond the capped height of the restoration index up to the
+        #     tip. It would if we supported it, only be able to catch restorable transactions
+        #     or newly broadcast/mined transactions.
 
         enc_private_key_text = pw_encode(private_key_text, password)
         derivation_data_dict: KeyInstanceDataPrivateKey = {
@@ -1360,7 +1265,6 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
             derivation_data2, KeyInstanceFlag.ACTIVE | KeyInstanceFlag.USER_SET_ACTIVE, None)
         keyinstance_future, scripthash_future, keyinstance_rows, scripthash_rows = \
             self.create_provided_keyinstances([ raw_keyinstance ])
-        # scripthash_future.add_done_callback(callback)
         keystore.import_private_key(keyinstance_rows[0].keyinstance_id, public_key,
             enc_private_key_text)
         return private_key_text
@@ -1448,38 +1352,6 @@ class DeterministicAccount(AbstractAccount):
         keystore = cast(BIP32_KeyStore, self.get_keystore())
         return keystore.decrypt_message(derivation_path, message, password)
 
-    def _get_derivation_type_datas(self, masterkey_id: Optional[int],
-            derivation_subpath: DerivationPath, first_derivation_index: int,
-            last_derivation_index: int) \
-                -> List[SubscriptionDerivationData]:
-        """
-        First step in gathering subscription entries for gap limit subscriptions.
-        """
-        derivation_type_datas: List[SubscriptionDerivationData] = []
-        for i in range(first_derivation_index, last_derivation_index+1):
-            derivation_data2 = pack_derivation_path(derivation_subpath + (i,))
-            derivation_type_data = SubscriptionDerivationData(masterkey_id,
-                DerivationType.BIP32_SUBPATH, derivation_data2)
-            derivation_type_datas.append(derivation_type_data)
-        return derivation_type_datas
-
-    def _get_subscription_entries_for_derivations(self,
-            derivation_type_datas: List[SubscriptionDerivationData]) -> List[SubscriptionEntry]:
-        """
-        Second step in gathering subscription entries for gap limit subscriptions.
-        """
-        entries: List[SubscriptionEntry] = []
-        for derivation_type_data in derivation_type_datas:
-            for script_type, script in self.get_possible_scripts_for_derivation(
-                    derivation_type_data.derivation_type, derivation_type_data.derivation_data2):
-                script_hash = scripthash_bytes(script)
-                entries.append(
-                    SubscriptionEntry(
-                        SubscriptionKey(SubscriptionType.SCRIPT_HASH, script_hash),
-                        SubscriptionDerivationScriptHashOwnerContext(derivation_type_data,
-                            script_type)))
-        return entries
-
     def get_next_derivation_index(self, derivation_subpath: DerivationPath) -> int:
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         derivation_entries = self._derivation_sub_paths.get(keystore.get_id(), [])
@@ -1556,11 +1428,6 @@ class DeterministicAccount(AbstractAccount):
 
         self._wallet.events.trigger_callback(WalletEvent.KEYS_UPDATE, self._id, [ keyinstance_id ])
 
-        if final_flags & KeyInstanceFlag.ACTIVE and self._network is not None:
-            # NOTE(ActivitySubscription) This represents a key that was not previously active
-            #   becoming active and requiring a subscription for events.
-            # TODO(1.4.0) Key usage. Dependent on implementation of pushdata monitoring
-            pass
         return KeyData(keyinstance_id, self._id, masterkey_id, derivation_type,
             derivation_data2)
 
@@ -2558,17 +2425,16 @@ class Wallet:
             -> AbstractAccount:
         account = self._instantiate_account(account_row, flags)
 
-        # NOTE(wallet-event-race-condition) For now we block creating this as we want the
-        #   main window to be able to find it present, to display on new account creation.
-        # TODO(1.4.0) Notifications. The above comment is perhaps no longer relevant given that
-        #     we now wait for the insert to complete before sending the event? In theory, the
-        #     main window should either find the insert already there or hear the event if it
-        #     was not there yet.
         date_created = get_posix_timestamp()
         future = self.data.create_wallet_events([
             WalletEventInsertRow(WalletEventType.SEED_BACKUP_REMINDER, account_row.account_id,
                 WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, date_created, date_created)
         ])
+        # The wallet UI needs to find this in the database after the account is created, but
+        # was actually proceeding before the database operation completed. This is why we
+        # originally blocked here waiting for the account creation/notification insert. There
+        # may be other reasons now that rely on this, and all calling contexts would need to be
+        # explored to remove it.
         future.result()
 
         self.events.trigger_callback(WalletEvent.ACCOUNT_CREATE, account_row.account_id, flags)
@@ -2701,17 +2567,8 @@ class Wallet:
         account_row = self.add_accounts([ basic_account_row ])[0]
         account = self._create_account_from_data(account_row, account_flags)
 
-        # TODO(1.4.0) Key usage. Requires pushdata monitoring for spends/receipts.
-        #     Can use spent output events for watching spends.
-        # def callback(future: concurrent.futures.Future[None]) -> None:
-        #     if future.cancelled():
-        #         return
-        #     future.result()
-        #     account.register_for_keyinstance_events(keyinstance_rows)
-
         keyinstance_future, scripthash_future, keyinstance_rows, scripthash_rows = \
             account.create_provided_keyinstances(raw_keyinstance_rows)
-        # scripthash_future.add_done_callback(callback)
 
         if account.type() == AccountType.IMPORTED_PRIVATE_KEY:
             cast(ImportedPrivkeyAccount, account).set_initial_state(keyinstance_rows)
@@ -2810,7 +2667,9 @@ class Wallet:
             if self._network is not None and cleared_flags & KeyInstanceFlag.ACTIVE:
                 # This payment request was the only reason the key was active and being monitored
                 # on the indexing server for new transactions. We can now delete the subscription.
-                # TODO(1.4.0) Tip filters. Remove this registration, save money.
+                # TODO(1.4.0) Payment requests. When the user closes/deletes a payment request
+                #     we need to clean up all resources allocated when the request was created.
+                #     This would include the tip filter.
                 pass
 
             self.events.trigger_callback(WalletEvent.KEYS_UPDATE, account_id, [ keyinstance_id ])
@@ -3623,6 +3482,7 @@ class Wallet:
         for account_id, keyinstance_id, flags in key_update_rows:
             account_keyinstance_ids[account_id].add(keyinstance_id)
         # TODO(1.4.0) Tip filters. Remove this registration, save money.
+        #     This is also linked to the delete payment requests function.
 
         if len(transaction_description_update_rows):
             self.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE,
@@ -3924,7 +3784,7 @@ class Wallet:
         Establish connections to all the servers that the wallet uses.
         """
         assert self._network is not None
-        # TODO(1.4.0) Petty cash. In theory each petty cash account maintains a connection. At the
+        # TODO(petty-cash) In theory each petty cash account maintains a connection. At the
         #     time of writing, we only have one petty cash account per wallet, but there are loose
         #     plans that sets of accounts may hierarchically share different petty cash accounts.
         # TODO(1.4.0) Networking. These worker tasks should be restarted if they prematurely exit?
@@ -4098,7 +3958,7 @@ class Wallet:
 
     def get_server_progress(self, petty_cash_account_id: Optional[int]=None) -> ServerProgress:
         if petty_cash_account_id is None:
-            # TODO(1.4.0) Servers. In theory later on we may have multiple petty cash accounts
+            # TODO(petty-cash) In theory later on we may have multiple petty cash accounts
             #     but for now that is just too complicated.
             petty_cash_account_id = self._petty_cash_account.get_id()
         return self._server_progress.get(petty_cash_account_id, ServerProgress.NONE)

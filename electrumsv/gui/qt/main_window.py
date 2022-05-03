@@ -1315,7 +1315,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _reset_stacked_tab(self, stack_tab: QStackedWidget, create_func: Callable[[int], T]) \
             -> Optional[T]:
         current_widget = stack_tab.currentWidget()
-        assert current_widget is not None, f"should be unavailable or a view of the correct type"
+        assert current_widget is not None, "Should be unavailable or a view of the correct type"
 
         if self._account_id is None:
             assert isinstance(current_widget, QWidget)

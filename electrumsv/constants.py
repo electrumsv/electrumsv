@@ -246,9 +246,9 @@ class KeyInstanceFlag(IntFlag):
     USED = 1 << 1
 
     ## These are the secondary flags for `ACTIVE`.
-    # The user explicitly set this key to be active. It is not intended that the wallet go and
-    # mark it inactive without good reason. The wallet should detect all usage of this key and
-    # obtain any transaction seen to be involved with it.
+    # Deprecated: The user explicitly set this key to be active. The idea was that the wallet
+    # would monitor this key usage as long as the flag was set. However, now we require use
+    # of the tip filter and restoration and do not support this.
     USER_SET_ACTIVE = 1 << 8
 
     ## These are the secondary reason flags that may be set in addition to `USED`.
@@ -259,20 +259,6 @@ class KeyInstanceFlag(IntFlag):
 
     MASK_RESERVATION = IS_PAYMENT_REQUEST | IS_INVOICE
     MASK_ACTIVE_REASON = MASK_RESERVATION | USER_SET_ACTIVE
-
-
-class SubscriptionType(IntEnum):
-    NONE = 0
-    SCRIPT_HASH = 1
-    PUSHDATA_HASH = 2
-
-BYTE_SUBSCRIPTION_TYPES = { SubscriptionType.SCRIPT_HASH, SubscriptionType.PUSHDATA_HASH }
-
-
-class SubscriptionOwnerPurpose(IntEnum):
-    NONE = 0
-    SCANNER = 1
-    ACTIVE_KEYS = 2
 
 
 class TransactionImportFlag(IntFlag):

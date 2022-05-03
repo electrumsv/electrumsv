@@ -1020,7 +1020,7 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
             await asyncio.wait_for(peer_channel_server_state.stage_change_event.wait(), 10)
         if peer_channel_server_state.connection_flags & ServerConnectionFlag.WEB_SOCKET_READY \
                 == 0:
-            raise InvalidStateError(f"Tip filter unable to find peer channel server")
+            raise InvalidStateError("Tip filter unable to find peer channel server")
 
     indexing_server_id = indexing_server_state.server.server_id
     peer_channel_server_id = peer_channel_server_state.server.server_id
