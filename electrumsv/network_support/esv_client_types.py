@@ -26,7 +26,6 @@ if TYPE_CHECKING:
     from ..wallet_database.types import ServerPeerChannelRow
 
     from .api_server import NewServer
-    from .esv_client import PeerChannel
 
 
 # ----- ESVReferenceServer Error types ----- #
@@ -192,6 +191,60 @@ class ServerWebsocketNotification(TypedDict):
     result: ChannelNotification  # Later this will be a Union of multiple message types
 
 
+class JSONEnvelope(TypedDict):
+    payload: str
+    signature: Optional[str]
+    publicKey: Optional[str]
+    encoding: str
+    mimetype: str
+
+
+class FeeQuoteTypeFee(TypedDict):
+    satoshis: int
+    bytes: int
+
+
+class FeeQuoteTypeEntry(TypedDict):
+    feeType: str
+    miningFee: FeeQuoteTypeFee
+    relayFee: FeeQuoteTypeFee
+
+
+# A MAPI fee quote is packaged according to the JSON envelope BRFC.
+# https://github.com/bitcoin-sv-specs/brfc-misc/tree/master/jsonenvelope
+class FeeQuote(TypedDict):
+    # https://github.com/bitcoin-sv-specs/brfc-merchantapi#1-get-fee-quote
+    apiVersion: str
+    timestamp: str
+    expiryTime: str
+    minerId: str
+    currentHighestBlockHash: str
+    currentHighestBlockHeight: int
+    fees: list[FeeQuoteTypeEntry]
+
+
+class BroadcastConflict(TypedDict):
+    txid: str # Canonical hex transaction id.
+    size: int
+    hex: str
+
+
+# A MAPI broadcast response is packaged according to the JSON envelope BRFC.
+# https://github.com/bitcoin-sv-specs/brfc-misc/tree/master/jsonenvelope
+class BroadcastResponse(TypedDict):
+    # https://github.com/bitcoin-sv-specs/brfc-merchantapi#2-submit-transaction
+    apiVersion: str
+    timestamp: str
+    txid: str # Canonical hex transaction id.
+    returnResult: str # "success" or "failure"
+    resultDescription: str # "" or "<error message>"
+    minerId: str
+    currentHighestBlockHash: str
+    currentHighestBlockHeight: int
+    txSecondMempoolExpiry: int
+    conflictedWith: list[BroadcastConflict]
+
+
 def le_int_to_char(le_int: int) -> bytes:
     return struct.pack('<I', le_int)[0:1]
 
@@ -330,7 +383,6 @@ class ServerConnectionState:
     server: NewServer
 
     credential_id: Optional[IndefiniteCredentialId] = None
-    cached_peer_channels: Optional[dict[str, PeerChannel]] = None
     cached_peer_channel_rows: Optional[dict[str, ServerPeerChannelRow]] = None
 
     # Incoming peer channel message notifications from the server.
@@ -346,8 +398,8 @@ class ServerConnectionState:
         dataclasses.field(default_factory=asyncio.Queue[TipFilterRegistrationJob])
 
     # Wallet consuming: Post MAPI callback responses here to get them registered with the server.
-    mapi_callback_response_queue: asyncio.Queue[MAPICallbackResponse] = dataclasses.field(
-        default_factory=asyncio.Queue[MAPICallbackResponse])
+    mapi_callback_response_queue: asyncio.Queue[JSONEnvelope] = dataclasses.field(
+        default_factory=asyncio.Queue[JSONEnvelope])
     # Wallet consuming: Incoming spend notifications from the server.
     output_spend_result_queue: asyncio.Queue[Sequence[OutputSpend]] = dataclasses.field(
         default_factory=asyncio.Queue[Sequence[OutputSpend]])
@@ -371,7 +423,6 @@ class ServerConnectionState:
         self.stage_change_event.set()
         self.stage_change_event.clear()
 
-        self.cached_peer_channels = None
         self.cached_peer_channel_rows = None
         self.indexer_settings = None
         # When we establish a new websocket we will register all the outstanding output spend
@@ -386,3 +437,4 @@ class VerifiableKeyData(TypedDict):
     public_key_hex: str
     signature_hex: str
     message_hex: str
+

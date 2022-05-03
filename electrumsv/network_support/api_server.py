@@ -42,11 +42,6 @@ import dataclasses
 import os
 from typing import cast, Dict, List, NamedTuple, Optional, TypedDict, TYPE_CHECKING
 
-from electrumsv.wallet_database.types import MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, \
-    NetworkServerRow, ServerPeerChannelAccessTokenRow, ServerPeerChannelRow
-from electrumsv.types import IndefiniteCredentialId, ServerAccountKey, TransactionFeeEstimator, \
-    TransactionSize
-
 from ..app_state import app_state
 from ..constants import NetworkServerFlag, NetworkServerType, PeerChannelAccessTokenFlag, \
     ServerCapability, ServerPeerChannelFlag
@@ -54,10 +49,15 @@ from ..exceptions import BroadcastFailedError
 from ..i18n import _
 from ..logs import logs
 from ..transaction import Transaction
+from ..types import IndefiniteCredentialId, ServerAccountKey, TransactionFeeEstimator, \
+    TransactionSize
 from ..util import get_posix_timestamp
+from ..wallet_database.types import MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, \
+    NetworkServerRow
 
-from .mapi import JSONEnvelope, FeeQuote, MAPIFeeEstimator, BroadcastResponse, get_mapi_servers, \
-    poll_servers_async, broadcast_transaction_mapi_simple, filter_mapi_servers_for_fee_quote
+from .esv_client_types import BroadcastResponse, JSONEnvelope, FeeQuote
+from .mapi import broadcast_transaction_mapi_simple, filter_mapi_servers_for_fee_quote, \
+    MAPIFeeEstimator, get_mapi_servers, poll_servers_async
 
 
 if TYPE_CHECKING:
@@ -154,40 +154,19 @@ async def broadcast_transaction(tx: Transaction, network: Network,
     state = account._wallet.get_server_state_for_capability(ServerCapability.PEER_CHANNELS)
     assert state is not None
     assert state.wallet_data is not None
-    peer_channel_server_id = state.server.server_id
 
-    from .general_api import create_peer_channel_async
+    from .general_api import create_peer_channel_locally_and_remotely_async
 
-    date_created = get_posix_timestamp()
-    peer_channel_row = ServerPeerChannelRow(None, peer_channel_server_id, None, None,
-        ServerPeerChannelFlag.ALLOCATING | ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
-        date_created, date_created)
-    peer_channel_id = await state.wallet_data.create_server_peer_channel_async(peer_channel_row,
-        peer_channel_server_id)
-    peer_channel_row = peer_channel_row._replace(peer_channel_id=peer_channel_id)
-
-    # Peer channel server: create the remotely hosted peer channel.
-    peer_channel = await create_peer_channel_async(state)
-    assert state.cached_peer_channel_rows is not None
-    state.cached_peer_channel_rows[peer_channel.channel_id] = peer_channel_row
-
-    assert peer_channel_row.peer_channel_id is not None
-    assert len(peer_channel.tokens) == 1
-    peer_channel_token = peer_channel.tokens[0]
-    local_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
-        peer_channel_token.remote_token_id,
-        PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE, peer_channel_token.permissions,
-        peer_channel_token.api_key)
-
-    # Local database: Update for the server-side peer channel. Drop the `ALLOCATING` flag and
-    #     add the access token.
-    await state.wallet_data.update_server_peer_channel_async(peer_channel.channel_id,
-        peer_channel.url, ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, peer_channel_id,
-        addable_access_tokens=[local_access_token])
+    peer_channel_row, mapi_callback_access_token = \
+        await create_peer_channel_locally_and_remotely_async(
+            state, ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
+            PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE)
+    assert peer_channel_row.remote_channel_id is not None
+    assert peer_channel_row.remote_url is not None
 
     mapi_callback_row = MAPIBroadcastCallbackRow(
         tx_hash=tx.hash(),
-        peer_channel_id=peer_channel.channel_id,
+        peer_channel_id=peer_channel_row.remote_channel_id,
         broadcast_date=datetime.datetime.utcnow().isoformat(),
         encrypted_private_key=os.urandom(64),  # libsodium encryption not implemented yet
         server_id=state.server.server_id,
@@ -197,8 +176,8 @@ async def broadcast_transaction(tx: Transaction, network: Network,
 
     try:
         result = await broadcast_transaction_mapi_simple(tx.to_bytes(),
-            broadcast_server.server, broadcast_server.credential_id, peer_channel, merkle_proof,
-            ds_check)
+            broadcast_server.server, broadcast_server.credential_id, peer_channel_row.remote_url,
+            mapi_callback_access_token, merkle_proof, ds_check)
     except BroadcastFailedError as e:
         account._wallet.data.delete_mapi_broadcast_callbacks(tx_hashes=[tx.hash()])
         logger.error("Error broadcasting to mAPI for tx: %s. Error: %s", tx.txid(), str(e))

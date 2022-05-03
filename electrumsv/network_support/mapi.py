@@ -39,80 +39,28 @@ import asyncio
 import concurrent.futures
 from http import HTTPStatus
 import json
-from typing import Any, cast, Optional, TYPE_CHECKING, TypedDict
+from typing import Any, cast, Optional, TYPE_CHECKING
 
 import aiohttp
 from bitcoinx import PublicKey
 from aiohttp import ClientConnectorError
 
-from .esv_client import PeerChannel
 from ..app_state import app_state
 from ..constants import NetworkServerType
 from ..exceptions import BroadcastFailedError, ServiceUnavailableError
 from ..logs import logs
+from ..wallet_database.types import ServerPeerChannelAccessTokenRow
+
+from .esv_client_types import BroadcastResponse, FeeQuote, FeeQuoteTypeFee, JSONEnvelope
 
 if TYPE_CHECKING:
-    from electrumsv.types import IndefiniteCredentialId
-    from electrumsv.network_support.api_server import NewServer
-    from electrumsv.wallet import AbstractAccount
-    from electrumsv.types import TransactionSize
+    from ..types import IndefiniteCredentialId
+    from ..network_support.api_server import NewServer
+    from ..wallet import AbstractAccount
+    from ..types import TransactionSize
 
 
 logger = logs.get_logger("network-mapi")
-
-
-class FeeQuoteTypeFee(TypedDict):
-    satoshis: int
-    bytes: int
-
-
-class FeeQuoteTypeEntry(TypedDict):
-    feeType: str
-    miningFee: FeeQuoteTypeFee
-    relayFee: FeeQuoteTypeFee
-
-
-# A MAPI fee quote is packaged according to the JSON envelope BRFC.
-# https://github.com/bitcoin-sv-specs/brfc-misc/tree/master/jsonenvelope
-class FeeQuote(TypedDict):
-    # https://github.com/bitcoin-sv-specs/brfc-merchantapi#1-get-fee-quote
-    apiVersion: str
-    timestamp: str
-    expiryTime: str
-    minerId: str
-    currentHighestBlockHash: str
-    currentHighestBlockHeight: int
-    fees: list[FeeQuoteTypeEntry]
-
-
-class BroadcastConflict(TypedDict):
-    txid: str # Canonical hex transaction id.
-    size: int
-    hex: str
-
-
-# A MAPI broadcast response is packaged according to the JSON envelope BRFC.
-# https://github.com/bitcoin-sv-specs/brfc-misc/tree/master/jsonenvelope
-class BroadcastResponse(TypedDict):
-    # https://github.com/bitcoin-sv-specs/brfc-merchantapi#2-submit-transaction
-    apiVersion: str
-    timestamp: str
-    txid: str # Canonical hex transaction id.
-    returnResult: str # "success" or "failure"
-    resultDescription: str # "" or "<error message>"
-    minerId: str
-    currentHighestBlockHash: str
-    currentHighestBlockHeight: int
-    txSecondMempoolExpiry: int
-    conflictedWith: list[BroadcastConflict]
-
-
-class JSONEnvelope(TypedDict):
-    payload: str
-    signature: Optional[str]
-    publicKey: Optional[str]
-    encoding: str
-    mimetype: str
 
 
 # self.mapi_client: Optional[aiohttp.ClientSession] = None
@@ -247,20 +195,18 @@ def validate_json_envelope(json_response: JSONEnvelope) -> None:
 
 
 async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: NewServer,
-        credential_id: Optional[IndefiniteCredentialId], peer_channel: PeerChannel,
+        credential_id: Optional[IndefiniteCredentialId], peer_channel_url: str,
+        peer_channel_token: ServerPeerChannelAccessTokenRow,
         merkle_proof: bool=False, ds_check: bool=False) -> BroadcastResponse:
     server.api_key_state[credential_id].record_attempt()
 
     url = f"{server.url}tx"
-    write_token = peer_channel.get_write_token()
-    assert write_token is not None, "We generated this peer channel ourselves so we should " \
-                                    "definitely possess a valid write token"
     params = {
         'merkleProof': 'false' if not merkle_proof else 'true',
         'merkleFormat': "TSC",
         'dsCheck': 'false' if not ds_check else 'true',
-        'callbackURL': peer_channel.get_callback_url(),
-        'callbackToken': f"Bearer {write_token.api_key}",
+        'callbackURL': peer_channel_url,
+        'callbackToken': f"Bearer {peer_channel_token.access_token}",
         # 'callbackEncryption': None  # Todo: add libsodium encryption
     }
     headers = {"Content-Type": "application/octet-stream"}
@@ -294,11 +240,10 @@ async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: Ne
     validate_json_envelope(broadcast_response_envelope)
     logger.debug("transaction broadcast via MAPI server: %s", server.url)
 
-    # TODO(MAPI) Work out if we should be processing the response.
-    # TODO(MAPI) Work out if we should be storing the response.
+    # TODO(1.4.0) MAPI. Work out if we should be processing the response.
+    # TODO(1.4.0) MAPI. Work out if we should be storing the response.
     server.api_key_state[credential_id].record_success()
-    broadcast_response: BroadcastResponse = \
-        json.loads(broadcast_response_envelope['payload'])
+    broadcast_response: BroadcastResponse = json.loads(broadcast_response_envelope['payload'])
 
     if broadcast_response['returnResult'] == 'failure':
         raise BroadcastFailedError(broadcast_response['resultDescription'])

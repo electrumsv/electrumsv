@@ -1914,8 +1914,8 @@ class WalletDataAccess:
     async def update_server_peer_channel_async(self, remote_channel_id: Optional[str],
             remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
             peer_channel_id: int,
-            addable_access_tokens: list[ServerPeerChannelAccessTokenRow]) -> None:
-        await self._db_context.run_in_thread_async(
+            addable_access_tokens: list[ServerPeerChannelAccessTokenRow]) -> ServerPeerChannelRow:
+        return await self._db_context.run_in_thread_async(
             db_functions.update_server_peer_channel_write, remote_channel_id, remote_url,
                 peer_channel_flags, peer_channel_id, addable_access_tokens)
 
@@ -4149,10 +4149,6 @@ class Wallet:
         self._check_missing_proofs_event.set()
         self._check_missing_proofs_event.clear()
 
-        # TODO(1.4.0) Technical debt. This is a thing we did to ensure the UI was up to date
-        #     when the script hash stuff was the way we did it, we should probably still do it.
-        # NOTE 1, 1 are just placeholder arguments to save having to change the ui callback signal
-        # support. We will revisit this via the 1.4.0 comment above before release.
         self.events.trigger_callback(WalletEvent.TRANSACTION_HEIGHTS_UPDATED, 1, 1)
 
     def have_transaction(self, tx_hash: bytes) -> bool:

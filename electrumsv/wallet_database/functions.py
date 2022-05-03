@@ -1419,22 +1419,29 @@ def read_server_peer_channels(db: sqlite3.Connection, server_id: int) \
 def update_server_peer_channel_write(remote_channel_id: Optional[str],
         remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
         peer_channel_id: int, addable_access_tokens: list[ServerPeerChannelAccessTokenRow],
-        db: Optional[sqlite3.Connection]=None) -> None:
+        db: Optional[sqlite3.Connection]=None) -> ServerPeerChannelRow:
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = """
         UPDATE ServerPeerChannels
         SET remote_channel_id=?, remote_url=?, peer_channel_flags=?
         WHERE peer_channel_id=?
+        RETURNING peer_channel_id, server_id, remote_channel_id, remote_url, peer_channel_flags,
+            date_created, date_updated
     """
     cursor = db.execute(sql, (remote_channel_id, remote_url, peer_channel_flags,
         peer_channel_id))
     assert cursor.rowcount == 1
+    row = cursor.fetchone()
+    result_row = ServerPeerChannelRow(row[0], row[1], row[2], row[3], ServerPeerChannelFlag(row[4]),
+            row[5], row[6])
 
     if len(addable_access_tokens) > 0:
         sql = "INSERT INTO ServerPeerChannelAccessTokens (peer_channel_id, remote_token_id, " \
             "token_flags, permission_flags, access_token) VALUES (?,?,?,?,?)"
         cursor = db.executemany(sql, addable_access_tokens)
         assert cursor.rowcount == len(addable_access_tokens)
+
+    return result_row
 
 
 @replace_db_context_with_connection

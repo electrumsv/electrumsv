@@ -1,29 +1,32 @@
+import base64
+import json
+import logging
+from typing import Any, cast
+import unittest.mock
+import uuid
+
 from aiohttp import web
 from aiohttp import ClientSession
 from aiohttp.web_ws import WebSocketResponse
-import base64
 import bitcoinx
 from bitcoinx import hash_to_hex_str
-import json
-import logging
-from typing import cast
-import unittest.mock
-import uuid
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import NetworkServerType, ServerCapability
 from electrumsv.network_support.api_server import NewServer
-from electrumsv.network_support.esv_client import ESVClient, PeerChannel
 from electrumsv.network_support.esv_client_types import ChannelNotification, MAPICallbackResponse, \
-    PeerChannelToken, ServerConnectionState, ServerWebsocketNotification, TokenPermissions
+    ServerConnectionState, ServerWebsocketNotification, TokenPermissions
 from electrumsv.network_support.general_api import create_peer_channel_async, \
-    create_peer_channel_api_token_async, list_peer_channels_async
+    create_peer_channel_api_token_async, create_peer_channel_message_json_async, \
+    delete_peer_channel_async, get_peer_channel_max_sequence_number_async, \
+    get_peer_channel_async, list_peer_channels_async, list_peer_channel_api_tokens_async, \
+    list_peer_channel_messages_async, unpack_binary_restoration_entry
 from electrumsv.network_support.headers import get_batched_headers_by_height_async, \
-    get_chain_tips_async, HeaderServerState, subscribe_to_headers_async
+    get_chain_tips_async, get_single_header_async, HeaderServerState, subscribe_to_headers_async
 from electrumsv.types import ServerAccountKey
 
-from ..tests.data.reference_server.headers_data import GENESIS_TIP_NOTIFICATION_BINARY, \
-    GENESIS_HEADER
+from .data.reference_server.headers_data import GENESIS_TIP_NOTIFICATION_BINARY, GENESIS_HEADER
+
 
 logger = logging.getLogger("test-esv-client")
 
@@ -36,29 +39,27 @@ MOCK_CHANNEL_ID = base64.urlsafe_b64encode(bytes.fromhex("aa") * 64).decode()
 permissions: TokenPermissions = cast(TokenPermissions,
     TokenPermissions.WRITE_ACCESS | TokenPermissions.READ_ACCESS)
 api_key = base64.urlsafe_b64encode(bytes.fromhex("bb") * 64).decode()
-MOCK_TOKENS = [PeerChannelToken(1, permissions=permissions, api_key=api_key)]
+MOCK_GET_TOKEN_RESPONSE = {
+    "id": 1,
+    "token": api_key,
+    "description": "Owner",
+    "can_read": True,
+    "can_write": True
+}
 MOCK_CREATE_CHANNEL_REQUEST = {
     'public_read': False,
     'public_write': True,
     'sequenced': True,
-    'retention':
-        {
-            'min_age_days': 0,
-            'max_age_days': 0,
-            'auto_prune': True
-        }
+    'retention': {
+        'min_age_days': 0,
+        'max_age_days': 0,
+        'auto_prune': True
+    },
 }
 MOCK_CREATE_TOKEN_REQUEST = {
   "description": "custom description",
   "can_read": True,
   "can_write": True
-}
-MOCK_GET_TOKEN_RESPONSE = {
-    "id": 0,
-    "token": MOCK_TOKENS[0].api_key,
-    "description": "string",
-    "can_read": True,
-    "can_write": True
 }
 
 MERKLE_PROOF_CALLBACK_PAYLOAD = '{"flags":2,"index":1,"txOrId":' \
@@ -90,7 +91,7 @@ MOCK_MESSAGE = {
 
 
 
-def _make_mock_channel_json(channel_id: str, host: str, port: int, tokens: list[PeerChannelToken]):
+def _make_mock_channel_json(channel_id: str, host: str, port: int, access_token: str):
     return {
         "id": channel_id,
         "href": f"http://{host}:{port}/api/v1/channel/{channel_id}",
@@ -108,19 +109,13 @@ def _make_mock_channel_json(channel_id: str, host: str, port: int, tokens: list[
         "access_tokens": [
             {
                 "id": 1,
-                "token": tokens[0].api_key,
+                "token": access_token,
                 "description": "Owner",
                 "can_read": True,
                 "can_write": True
             }
         ]
     }
-
-
-async def _create_peer_channel_instance(aiohttp_client) -> PeerChannel:
-    test_session = await aiohttp_client(create_app())
-    state = _get_server_state(test_session)
-    return await create_peer_channel_async(state)
 
 
 CREDENTIAL_ID = uuid.uuid4()
@@ -137,15 +132,10 @@ def _get_server_state(test_session: ClientSession) -> ServerConnectionState:
         wallet_data=None,
         session=test_session,
         server=server,
-        cached_peer_channels={},
         peer_channel_message_queue=None,
         output_spend_result_queue=None,
         output_spend_registration_queue=None,
         credential_id=CREDENTIAL_ID)
-
-async def _get_esv_client(test_session: ClientSession) -> ESVClient:
-    esv_client = ESVClient(_get_server_state(test_session))
-    return esv_client
 
 
 # ----- Mock Handlers BEGIN ----- #
@@ -218,7 +208,7 @@ async def mock_general_websocket(request: web.Request) -> WebSocketResponse:
             await ws.close()
 
 
-async def mock_create_peer_channel(request: web.Request):
+async def mock_create_peer_channel(request: web.Request) -> web.Response:
     try:
         auth_string = request.headers.get('Authorization', None)
         assert auth_string == f"Bearer {REGTEST_BEARER_TOKEN}"
@@ -226,13 +216,14 @@ async def mock_create_peer_channel(request: web.Request):
         body_content = await request.json()
         assert body_content == MOCK_CREATE_CHANNEL_REQUEST
         response_data = _make_mock_channel_json(MOCK_CHANNEL_ID, request.url.host,
-            request.url.port, MOCK_TOKENS)
+            request.url.port, api_key)
         return web.json_response(response_data)
     except AssertionError as e:
+        logger.error("!QQQQQ '%s'", str(e))
         raise web.HTTPBadRequest(reason=str(e))
 
 
-async def mock_delete_peer_channel(request: web.Request):
+async def mock_delete_peer_channel(request: web.Request) -> web.Response:
     try:
         auth_string = request.headers.get('Authorization', None)
         assert auth_string == f"Bearer {REGTEST_BEARER_TOKEN}"
@@ -245,33 +236,34 @@ async def mock_delete_peer_channel(request: web.Request):
         raise web.HTTPBadRequest(reason=str(e))
 
 
-async def mock_list_peer_channels(request: web.Request):
+async def mock_list_peer_channels(request: web.Request) -> web.Response:
     try:
         auth_string = request.headers.get('Authorization', None)
         assert auth_string == f"Bearer {REGTEST_BEARER_TOKEN}"
         response = [
-            _make_mock_channel_json(MOCK_CHANNEL_ID, request.url.host, request.url.port, MOCK_TOKENS)
+            _make_mock_channel_json(MOCK_CHANNEL_ID, request.url.host, request.url.port,
+                api_key)
         ]
         return web.json_response(response)
     except AssertionError as e:
         raise web.HTTPBadRequest(reason=str(e))
 
 
-async def mock_get_single_peer_channel(request: web.Request):
+async def mock_get_single_peer_channel(request: web.Request) -> web.Response:
     try:
         auth_string = request.headers.get('Authorization', None)
         assert auth_string == f"Bearer {REGTEST_BEARER_TOKEN}"
         response = _make_mock_channel_json(MOCK_CHANNEL_ID, request.url.host, request.url.port,
-            MOCK_TOKENS)
+            api_key)
         return web.json_response(response)
     except AssertionError as e:
         raise web.HTTPBadRequest(reason=str(e))
 
 
-async def mock_get_messages(request: web.Request):
+async def mock_get_messages(request: web.Request) -> web.Response:
     try:
         auth_string = request.headers.get('Authorization', None)
-        assert auth_string == f"Bearer {MOCK_TOKENS[0].api_key}"
+        assert auth_string == f"Bearer {api_key}"
 
         channel_id = request.match_info['channelid']
         mock_channel_id = base64.urlsafe_b64encode(bytes.fromhex("aa") * 64).decode()
@@ -288,10 +280,10 @@ async def mock_get_messages(request: web.Request):
         raise web.HTTPBadRequest(reason=str(e))
 
 
-async def mock_write_message(request: web.Request):
+async def mock_write_message(request: web.Request) -> web.Response:
     try:
         auth_string = request.headers.get('Authorization', None)
-        assert auth_string == f"Bearer {MOCK_TOKENS[0].api_key}"
+        assert auth_string == f"Bearer {api_key}"
 
         channel_id = request.match_info['channelid']
         mock_channel_id = base64.urlsafe_b64encode(bytes.fromhex("aa") * 64).decode()
@@ -311,7 +303,7 @@ async def mock_write_message(request: web.Request):
         raise web.HTTPBadRequest(reason=str(e))
 
 
-async def mock_create_token(request: web.Request):
+async def mock_create_token(request: web.Request) -> web.Response:
     try:
         auth_string = request.headers.get('Authorization', None)
         assert auth_string == f"Bearer {REGTEST_BEARER_TOKEN}"
@@ -328,7 +320,7 @@ async def mock_create_token(request: web.Request):
         raise web.HTTPBadRequest(reason=str(e))
 
 
-async def mock_list_api_tokens(request: web.Request):
+async def mock_list_api_tokens(request: web.Request) -> web.Response:
     try:
         auth_string = request.headers.get('Authorization', None)
         assert auth_string == f"Bearer {REGTEST_BEARER_TOKEN}"
@@ -345,7 +337,7 @@ async def mock_list_api_tokens(request: web.Request):
 
 
 
-def create_app():
+def create_app() -> web.Application:
     app = web.Application()
     app.add_routes([
         web.get("/api/v1/web-socket", mock_general_websocket),
@@ -373,16 +365,17 @@ def create_app():
     return app
 
 
-@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
-async def test_get_single_header(mock_app_state: AppStateProxy, aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+async def test_get_single_header_async(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
-    esv_client: ESVClient = await _get_esv_client(test_session)
-    result = await esv_client.get_single_header(block_hash=bytes.fromhex('deadbeef'))
+    state = HeaderServerState(ServerAccountKey(BASE_URL, NetworkServerType.GENERAL, None), None)
+    result = await get_single_header_async(state, test_session,
+        block_hash=bytes.fromhex('deadbeef'))
     assert result == bytes.fromhex("aa"*80)
 
 
-@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
 async def test_get_batched_headers_by_height(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
@@ -391,7 +384,7 @@ async def test_get_batched_headers_by_height(mock_app_state: AppStateProxy, aioh
     assert result == bytes.fromhex("aa"*80) + bytes.fromhex("bb"*80)
 
 
-@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
 async def test_get_chain_tips(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     expected_response = GENESIS_HEADER + bitcoinx.int_to_le_bytes(0)
@@ -402,7 +395,7 @@ async def test_get_chain_tips(mock_app_state: AppStateProxy, aiohttp_client):
     assert header.raw == GENESIS_HEADER
 
 
-@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
+@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
 async def test_subscribe_to_headers(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
@@ -415,47 +408,42 @@ async def test_subscribe_to_headers(mock_app_state: AppStateProxy, aiohttp_clien
 
 
 @unittest.mock.patch('electrumsv.network_support.general_api.app_state')
-async def test_create_peer_channel(mock_app_state: AppStateProxy, aiohttp_client):
+async def test_create_peer_channel_async(mock_app_state: AppStateProxy, aiohttp_client) -> None:
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
     state = _get_server_state(test_session)
-    peer_channel = await create_peer_channel_async(state)
-    assert isinstance(peer_channel, PeerChannel)
-
-
-@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
-async def test_delete_peer_channel(mock_app_state: AppStateProxy, aiohttp_client) -> None:
-    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    test_session = await aiohttp_client(create_app())
-    esv_client: ESVClient = await _get_esv_client(test_session)
-    # Setup Channel for deletion
-    peer_channel = PeerChannel(esv_client._state, channel_id=MOCK_CHANNEL_ID, url="url",
-        tokens=MOCK_TOKENS)
-    await esv_client.delete_peer_channel(peer_channel)
+    peer_channel_data = await create_peer_channel_async(state)
+    assert isinstance(peer_channel_data, dict)
 
 
 @unittest.mock.patch('electrumsv.network_support.general_api.app_state')
-async def test_list_peer_channels(mock_app_state: AppStateProxy, aiohttp_client):
+async def test_delete_peer_channel_async(mock_app_state: AppStateProxy, aiohttp_client) -> None:
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
     state = _get_server_state(test_session)
-    peer_channels = await list_peer_channels_async(state)
-    assert isinstance(peer_channels, list)
-    for peer_channel in peer_channels:
-        assert isinstance(peer_channel, PeerChannel)
-        assert peer_channel.channel_id == MOCK_CHANNEL_ID
-        assert peer_channel.tokens == MOCK_TOKENS
+    await delete_peer_channel_async(state, MOCK_CHANNEL_ID)
 
 
-@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
-async def test_get_single_peer_channel(mock_app_state: AppStateProxy, aiohttp_client):
+@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+async def test_list_peer_channels_async(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
-    esv_client: ESVClient = await _get_esv_client(test_session)
-    peer_channel = await esv_client.get_single_peer_channel(MOCK_CHANNEL_ID)
-    assert isinstance(peer_channel, PeerChannel)
-    assert peer_channel.channel_id == MOCK_CHANNEL_ID
-    assert peer_channel.tokens == MOCK_TOKENS
+    state = _get_server_state(test_session)
+    peer_channel_jsons = await list_peer_channels_async(state)
+    assert isinstance(peer_channel_jsons, list)
+    for peer_channel_json in peer_channel_jsons:
+        assert peer_channel_json["id"] == MOCK_CHANNEL_ID
+        assert peer_channel_json["access_tokens"] == [ MOCK_GET_TOKEN_RESPONSE ]
+
+
+@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+async def test_get_peer_channel_async(mock_app_state: AppStateProxy, aiohttp_client):
+    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
+    test_session = await aiohttp_client(create_app())
+    state = _get_server_state(test_session)
+    peer_channel_data = await get_peer_channel_async(state, MOCK_CHANNEL_ID)
+    assert peer_channel_data["id"] == MOCK_CHANNEL_ID
+    assert peer_channel_data["access_tokens"] == [ MOCK_GET_TOKEN_RESPONSE ]
 
 
 # Test PeerChannel class
@@ -463,68 +451,55 @@ async def test_get_single_peer_channel(mock_app_state: AppStateProxy, aiohttp_cl
 async def test_peer_channel_instance_attrs(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     # All http endpoints are all mocked so that tests execute fast and they are hassle-free to run
-    peer_channel = await _create_peer_channel_instance(aiohttp_client)
-    assert isinstance(peer_channel, PeerChannel)
-    assert peer_channel.channel_id == MOCK_CHANNEL_ID
-    assert peer_channel.tokens == MOCK_TOKENS
-    callback_url = peer_channel.get_callback_url()
-    assert MOCK_CHANNEL_ID in callback_url
-    logger.debug("callback_url=%s", callback_url)
+    test_session = await aiohttp_client(create_app())
+    state = _get_server_state(test_session)
+    peer_channel_data = await create_peer_channel_async(state)
+    assert peer_channel_data["id"] == MOCK_CHANNEL_ID
+    assert peer_channel_data["access_tokens"] == [ MOCK_GET_TOKEN_RESPONSE ]
 
 
 @unittest.mock.patch('electrumsv.network_support.general_api.app_state')
-async def test_peer_channel_instance_get_write_token(mock_app_state: AppStateProxy, aiohttp_client):
+async def test_list_peer_channel_messages_async(mock_app_state: AppStateProxy, aiohttp_client) \
+        -> None:
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    peer_channel = await _create_peer_channel_instance(aiohttp_client)
-    write_token = peer_channel.get_write_token()
-    assert isinstance(write_token, PeerChannelToken)
-    assert write_token.permissions & TokenPermissions.WRITE_ACCESS \
-           == TokenPermissions.WRITE_ACCESS
-    logger.debug("write_token=%s", write_token)
+    test_session = await aiohttp_client(create_app())
+    state = _get_server_state(test_session)
+    peer_channel_data = await create_peer_channel_async(state)
+    access_token_data = peer_channel_data["access_tokens"][0]
+    message_datas = await list_peer_channel_messages_async(state, peer_channel_data["id"],
+        access_token_data["token"])
+    assert len(message_datas) == 1
+    assert message_datas[0]['sequence'] == 1
+    assert message_datas[0]['received'] == '2021-12-30T06:33:40.374Z'
+    assert message_datas[0]['content_type'] == 'application/json'
+    assert message_datas[0]['payload'] == MERKLE_PROOF_CALLBACK
+    logger.debug("messages=%s", message_datas)
 
 
 @unittest.mock.patch('electrumsv.network_support.general_api.app_state')
-async def test_peer_channel_instance_get_read_token(mock_app_state: AppStateProxy, aiohttp_client):
+async def test_get_peer_channel_max_sequence_number_async(mock_app_state: AppStateProxy,
+        aiohttp_client) -> None:
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    peer_channel = await _create_peer_channel_instance(aiohttp_client)
-    read_token = peer_channel.get_read_token()
-    assert isinstance(read_token, PeerChannelToken)
-    assert read_token.permissions & TokenPermissions.READ_ACCESS \
-           == TokenPermissions.READ_ACCESS
-    logger.debug("read_token=%s", read_token)
-
-
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
-async def test_peer_channel_instance_get_messages(mock_app_state: AppStateProxy, aiohttp_client):
-    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    peer_channel = await _create_peer_channel_instance(aiohttp_client)
-    messages = await peer_channel.get_messages()
-    assert len(messages) == 1
-    assert messages[0]['sequence'] == 1
-    assert messages[0]['received'] == '2021-12-30T06:33:40.374Z'
-    assert messages[0]['content_type'] == 'application/json'
-    assert messages[0]['payload'] == MERKLE_PROOF_CALLBACK
-    logger.debug("messages=%s", messages)
-
-
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
-async def test_peer_channel_instance_get_max_sequence_number(mock_app_state: AppStateProxy, aiohttp_client):
-    mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    peer_channel = await _create_peer_channel_instance(aiohttp_client)
-    seq = await peer_channel.get_max_sequence_number()
+    test_session = await aiohttp_client(create_app())
+    state = _get_server_state(test_session)
+    peer_channel_data = await create_peer_channel_async(state)
+    access_token_data = peer_channel_data["access_tokens"][0]
+    seq = await get_peer_channel_max_sequence_number_async(state, peer_channel_data["id"],
+        access_token_data["token"])
     assert isinstance(seq, int)
     logger.debug("seq=%d", seq)
 
 
 @unittest.mock.patch('electrumsv.network_support.general_api.app_state')
-@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
-async def test_peer_channel_instance_write_message(mock_app_state1: AppStateProxy,
-        mock_app_state2: AppStateProxy, aiohttp_client):
+async def test_create_peer_channel_message_json_async(mock_app_state1: AppStateProxy,
+        aiohttp_client) -> None:
     mock_app_state1.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    mock_app_state2.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    peer_channel = await _create_peer_channel_instance(aiohttp_client)
-    message = await peer_channel.write_message(message=MERKLE_PROOF_CALLBACK,
-        mime_type='application/json')
+    test_session = await aiohttp_client(create_app())
+    state = _get_server_state(test_session)
+    peer_channel_data = await create_peer_channel_async(state)
+    message = await create_peer_channel_message_json_async(state, peer_channel_data["id"],
+        peer_channel_data["access_tokens"][0]["token"],
+        message=cast(dict[str, Any], MERKLE_PROOF_CALLBACK))
     assert isinstance(message, dict)
     assert message['sequence'] == 1
     # assert message['received']  # datetime.now()
@@ -534,31 +509,48 @@ async def test_peer_channel_instance_write_message(mock_app_state1: AppStateProx
 
 
 @unittest.mock.patch('electrumsv.network_support.general_api.app_state')
-@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
-async def test_peer_channel_instance_create_api_token(mock_app_state1: AppStateProxy,
-        mock_app_state2: AppStateProxy, aiohttp_client):
+async def test_create_peer_channel_api_token_async(mock_app_state1: AppStateProxy,
+        aiohttp_client) -> None:
     mock_app_state1.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    mock_app_state2.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
     state = _get_server_state(test_session)
-    peer_channel = await create_peer_channel_async(state)
-    api_token: PeerChannelToken = await create_peer_channel_api_token_async(state,
-        peer_channel.channel_id, description="custom description")
-    assert isinstance(api_token.api_key, str)
-    assert isinstance(api_token.permissions, TokenPermissions)
-    logger.debug("api_token=%s", api_token)
+    peer_channel_data = await create_peer_channel_async(state)
+    token_json = await create_peer_channel_api_token_async(state,
+        peer_channel_data["id"], description="custom description")
+    assert isinstance(token_json["token"], str)
+    logger.debug("api_token=%s", token_json)
 
 
 @unittest.mock.patch('electrumsv.network_support.general_api.app_state')
-@unittest.mock.patch('electrumsv.network_support.esv_client.app_state')
-async def test_peer_channel_instance_list_api_tokens(mock_app_state1: AppStateProxy,
-        mock_app_state2: AppStateProxy, aiohttp_client):
+async def test_list_peer_channel_api_tokens_async(mock_app_state1: AppStateProxy,
+        aiohttp_client) -> None:
     mock_app_state1.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    mock_app_state2.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    peer_channel = await _create_peer_channel_instance(aiohttp_client)
-    api_tokens: list[PeerChannelToken] = await peer_channel.list_api_tokens()
-    for api_token in api_tokens:
-        assert isinstance(api_token.api_key, str)
-        assert isinstance(api_token.permissions, TokenPermissions)
-    logger.debug("api_tokens=%s", api_tokens)
+    test_session = await aiohttp_client(create_app())
+    state = _get_server_state(test_session)
+    peer_channel_data = await create_peer_channel_async(state)
+    access_tokens_data = await list_peer_channel_api_tokens_async(state, peer_channel_data["id"])
+    assert access_tokens_data == peer_channel_data["access_tokens"]
+    logger.debug("api_tokens=%s", access_tokens_data)
 
+
+
+BINARY_RESTORATION_RESPONSE = bytes.fromhex(
+    "0186c73b803ee5229044621b2fb6fb61b7001a92cbfdab1c7314da27a2fee72948fd57f50c35251a260a0317a4"
+    "975579047e89f5544d9a8841f10b3c9d4b73024600000000000000000000000000000000000000000000000000"
+    "000000000000000000000000000000")
+
+MATCH_FLAGS = 1
+PUSHDATA_HASH = bytes.fromhex('86c73b803ee5229044621b2fb6fb61b7001a92cbfdab1c7314da27a2fee72948')
+TRANSACTION_HASH = bytes.fromhex('fd57f50c35251a260a0317a4975579047e89f5544d9a8841f10b3c9d4b730246')
+SPEND_TRANSACTION_HASH = b"\0" * 32
+TRANSACTION_OUTPUT_INDEX = 0
+SPEND_INPUT_INDEX = 0
+
+def test_unpack_binary_restoration_entry() -> None:
+    result = unpack_binary_restoration_entry(BINARY_RESTORATION_RESPONSE)
+    assert result.flags == MATCH_FLAGS
+    assert result.push_data_hash == PUSHDATA_HASH
+    assert result.locking_transaction_hash == TRANSACTION_HASH
+    assert result.locking_output_index == TRANSACTION_OUTPUT_INDEX
+    assert result.unlocking_transaction_hash == SPEND_TRANSACTION_HASH
+    assert result.unlocking_input_index == SPEND_INPUT_INDEX

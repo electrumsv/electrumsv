@@ -67,7 +67,7 @@ from ...exceptions import UserCancelled
 from ...i18n import _
 from ...logs import logs
 from ...network_support.api_server import broadcast_transaction
-from ...network_support.mapi import BroadcastResponse
+from ...network_support.esv_client_types import BroadcastResponse
 from ...networks import Net
 from ...storage import WalletStorage
 from ...transaction import Transaction, TransactionContext
@@ -336,9 +336,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             -> None:
         self.wallet_setting_changed_signal.emit(setting_name, setting_value)
 
-    # TODO(1.4.0) Technical debt. This was called from the transaction script hash event handling.
-    #     It was done after the blocks that transactions were in were updated
-    def _on_transaction_heights_updated(self, args: Tuple[int, int]) -> None:
+    def _on_transaction_heights_updated(self, *args: Any) -> None:
         self.utxo_list.update()
 
     def _dispatch_in_ui_thread(self, event_name: WalletEvent, *args: Any) -> None:

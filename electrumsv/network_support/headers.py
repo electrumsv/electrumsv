@@ -14,7 +14,7 @@ from ..networks import Net
 from ..types import ServerAccountKey
 
 from .esv_client_types import TipResponse
-from .exceptions import HeaderResponseError
+from .exceptions import HeaderNotFoundError, HeaderResponseError
 
 logger = logs.get_logger("header-client")
 
@@ -115,3 +115,21 @@ async def subscribe_to_headers_async(server_state: HeaderServerState,
     except (aiohttp.ClientConnectionError, ConnectionRefusedError):
         logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
         raise ServiceUnavailableError(f"Cannot connect to header API at {url}")
+
+
+async def get_single_header_async(server_state: HeaderServerState, session: aiohttp.ClientSession,
+        block_hash: bytes) -> bytes:
+    url = f"{server_state.server_key.url}api/v1/headers/{hash_to_hex_str(block_hash)}"
+    headers = {"Accept": "application/octet-stream"}
+    try:
+        async with session.get(url, headers=headers) as response:
+            if response.status == http.HTTPStatus.NOT_FOUND:
+                raise HeaderNotFoundError("Header with block hash "
+                                            f"{hash_to_hex_str(block_hash)} not found")
+            elif response.status != http.HTTPStatus.OK:
+                raise HeaderResponseError("Failed to get header with status: "
+                                            f"{response.status} reason: {response.reason}")
+            return await response.read()
+    except aiohttp.ClientConnectionError:
+        logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
+        raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")

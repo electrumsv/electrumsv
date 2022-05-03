@@ -547,9 +547,11 @@ class ServerPeerChannelFlag(IntFlag):
 
 
 class PeerChannelAccessTokenFlag(IntFlag):
+
     NONE                                        = 0
     FOR_TIP_FILTER_SERVER                       = 1 << 0
     FOR_LOCAL_USAGE                             = 1 << 1
+    FOR_MAPI_CALLBACK_USAGE                     = 1 << 2
 
 
 class PushDataHashRegistrationFlag(IntFlag):
