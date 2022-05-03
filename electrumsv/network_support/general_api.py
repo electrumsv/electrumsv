@@ -65,7 +65,7 @@ from ..util import get_posix_timestamp
 from ..wallet_database.types import PushDataMatchRow, PushDataHashRegistrationRow, \
     ServerPeerChannelRow, ServerPeerChannelAccessTokenRow
 
-from .esv_client_types import AccountMessageKind, GenericPeerChannelMessage, \
+from .types import AccountMessageKind, GenericPeerChannelMessage, \
     IndexerServerSettings, JSONEnvelope, MessageViewModelGetBinary, \
     MessageViewModelGetJSON, PeerChannelAPITokenViewModelGet, \
     PeerChannelViewModelGet,  \

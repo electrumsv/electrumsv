@@ -51,7 +51,7 @@ from ..exceptions import BroadcastFailedError, ServiceUnavailableError
 from ..logs import logs
 from ..wallet_database.types import ServerPeerChannelAccessTokenRow
 
-from .esv_client_types import BroadcastResponse, FeeQuote, FeeQuoteTypeFee, JSONEnvelope
+from .types import BroadcastResponse, FeeQuote, FeeQuoteTypeFee, JSONEnvelope
 
 if TYPE_CHECKING:
     from ..types import IndefiniteCredentialId

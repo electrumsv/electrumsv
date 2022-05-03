@@ -37,7 +37,7 @@ from .constants import NetworkEventNames, NetworkServerType, ServerCapability
 from .exceptions import ServiceUnavailableError
 from .logs import logs
 from .network_support.api_server import APIServerDefinition
-from .network_support.esv_client_types import TipResponse
+from .network_support.types import TipResponse
 from .network_support.headers import HeaderServerState, get_batched_headers_by_height_async, \
     get_chain_tips_async, ServerConnectivityMetadata, subscribe_to_headers_async
 from .networks import Net

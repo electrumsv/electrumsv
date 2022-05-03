@@ -55,7 +55,7 @@ from ..util import get_posix_timestamp
 from ..wallet_database.types import MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, \
     NetworkServerRow
 
-from .esv_client_types import BroadcastResponse, JSONEnvelope, FeeQuote
+from .types import BroadcastResponse, JSONEnvelope, FeeQuote
 from .mapi import broadcast_transaction_mapi_simple, filter_mapi_servers_for_fee_quote, \
     MAPIFeeEstimator, get_mapi_servers, poll_servers_async
 

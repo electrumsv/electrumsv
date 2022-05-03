@@ -14,7 +14,7 @@ from bitcoinx import hash_to_hex_str
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import NetworkServerType, ServerCapability
 from electrumsv.network_support.api_server import NewServer
-from electrumsv.network_support.esv_client_types import ChannelNotification, MAPICallbackResponse, \
+from electrumsv.network_support.types import ChannelNotification, MAPICallbackResponse, \
     ServerConnectionState, ServerWebsocketNotification, TokenPermissions
 from electrumsv.network_support.general_api import create_peer_channel_async, \
     create_peer_channel_api_token_async, create_peer_channel_message_json_async, \

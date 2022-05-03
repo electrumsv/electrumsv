@@ -14,7 +14,7 @@ from ...constants import PaymentFlag, PushDataHashRegistrationFlag, ScriptType, 
     ServerConnectionFlag, ServerCapability, TxFlags
 from ...i18n import _
 from ...logs import logs
-from ...network_support.esv_client_types import ServerConnectionState, TipFilterRegistrationJob, \
+from ...network_support.types import ServerConnectionState, TipFilterRegistrationJob, \
     TipFilterRegistrationJobEntry
 from ...networks import Net, TEST_NETWORK_NAMES
 from ...transaction import Transaction, TransactionContext

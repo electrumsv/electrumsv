@@ -67,7 +67,7 @@ from ...exceptions import UserCancelled
 from ...i18n import _
 from ...logs import logs
 from ...network_support.api_server import broadcast_transaction
-from ...network_support.esv_client_types import BroadcastResponse
+from ...network_support.types import BroadcastResponse
 from ...networks import Net
 from ...storage import WalletStorage
 from ...transaction import Transaction, TransactionContext

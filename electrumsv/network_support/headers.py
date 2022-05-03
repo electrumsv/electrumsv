@@ -13,7 +13,7 @@ from ..logs import logs
 from ..networks import Net
 from ..types import ServerAccountKey
 
-from .esv_client_types import TipResponse
+from .types import TipResponse
 from .exceptions import HeaderNotFoundError, HeaderResponseError
 
 logger = logs.get_logger("header-client")
