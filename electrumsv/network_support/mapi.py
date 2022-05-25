@@ -204,6 +204,10 @@ def validate_mapi_callback_response(response_data: MAPICallbackResponse) -> None
             raise ValueError(f"Missing '{field_name}' field")
 
         field_value = response_data[field_name] # type: ignore[literal-required]
+        # You cannot do a `isinstance(value, Dict[str, Any])`, so you need to extract the
+        # `dict` part out and use that as the type. It's close enough.
+        if hasattr(field_type, "__origin__"):
+            field_type = field_type.__origin__
         if not isinstance(field_value, field_type):
             raise ValueError(f"Invalid '{field_name}' type, expected {field_type}, "
                 f"got {type(field_value)}")
@@ -213,11 +217,11 @@ def validate_mapi_callback_response(response_data: MAPICallbackResponse) -> None
 
     block_id = response_data["blockHash"]
     if len(block_id) != 32*2:
-        raise ValueError(f"'blockHash' not 62 characters '{response_data['blockHash']}'")
+        raise ValueError(f"'blockHash' not 64 characters '{response_data['blockHash']}'")
 
     transaction_id = response_data["callbackTxId"]
     if len(transaction_id) != 32*2:
-        raise ValueError(f"'callbackTxId' not 62 characters '{response_data['callbackTxId']}'")
+        raise ValueError(f"'callbackTxId' not 64 characters '{response_data['callbackTxId']}'")
 
 
 async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: NewServer,
