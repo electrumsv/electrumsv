@@ -4900,7 +4900,7 @@ class Wallet:
 
                     if self.is_header_within_current_chain(header.height, tsc_proof.block_hash):
                         await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_SETTLED,
-                            tsc_proof.block_hash, header.height, proof_row=proof_row)
+                            tsc_proof.block_hash, tsc_proof.transaction_index, proof_row=proof_row)
                     else:
                         await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED)
                         await self.data.create_merkle_proofs_async([ proof_row ])
