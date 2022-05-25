@@ -42,7 +42,6 @@ stages:
     - template: run_pylint_static_analysis.yml
       parameters:
         pythonVersion: '3.10'
-        onlyPullRequests: true
 
   - job: Mypy
     displayName: Mypy Static Analysis

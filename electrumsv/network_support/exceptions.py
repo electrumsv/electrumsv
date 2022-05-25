@@ -2,6 +2,9 @@
 class GeneralAPIError(Exception):
     pass
 
+class IndexerResponseMissingError(GeneralAPIError):
+    pass
+
 class FilterResponseInvalidError(GeneralAPIError):
     pass
 

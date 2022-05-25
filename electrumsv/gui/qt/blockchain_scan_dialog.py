@@ -45,7 +45,7 @@ import time
 from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_CHECKING
 import webbrowser
 
-from bitcoinx import Chain, hash_to_hex_str, Header, MissingHeader
+from bitcoinx import hash_to_hex_str
 from PyQt5.QtCore import pyqtSignal, Qt, QPoint, QTimer
 from PyQt5.QtGui import QFontMetrics
 from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, QMenu,
@@ -428,6 +428,8 @@ class BlockchainScanDialog(WindowModalDialog):
                 if import_entry.already_imported or import_entry.already_conflicting:
                     continue
                 if import_entry.is_missing:
+                    # We have no idea if this is in a block. We're going to try and get the proof
+                    # because we have no idea if this is in a block. The wallet can sort it out.
                     obtain_tx_keys.append((tx_hash, True))
                 else:
                     link_tx_hashes.add(tx_hash)
@@ -504,14 +506,10 @@ class BlockchainScanDialog(WindowModalDialog):
             tree_item.setIcon(Columns.STATUS, self._imported_tx_icon)
             tree_item.setToolTip(Columns.STATUS, _("This transaction was imported successfully."))
         if tx_row.flags & TxFlags.STATE_SETTLED:
-            assert app_state.headers is not None
             assert tx_row.block_hash is not None
-            try:
-                header, chain = cast(Tuple[Header, Chain],
-                    app_state.headers.lookup(tx_row.block_hash))
-            except MissingHeader:
-                pass
-            else:
+            lookup_result = self._wallet.lookup_header_for_hash(tx_row.block_hash)
+            if lookup_result is not None:
+                header, _chain = lookup_result
                 tree_item.setText(Columns.HEIGHT, str(header.height))
 
         total_work_units, remaining_work_units = self._get_import_work_units()

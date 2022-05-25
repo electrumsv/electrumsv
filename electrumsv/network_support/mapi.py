@@ -39,7 +39,7 @@ import asyncio
 import concurrent.futures
 from http import HTTPStatus
 import json
-from typing import Any, cast, Optional, TYPE_CHECKING
+from typing import Any, cast, get_type_hints, Optional, TYPE_CHECKING
 
 import aiohttp
 from bitcoinx import PublicKey
@@ -51,7 +51,7 @@ from ..exceptions import BroadcastFailedError, ServiceUnavailableError
 from ..logs import logs
 from ..wallet_database.types import ServerPeerChannelAccessTokenRow
 
-from .types import BroadcastResponse, FeeQuote, FeeQuoteTypeFee, JSONEnvelope
+from .types import BroadcastResponse, FeeQuote, FeeQuoteTypeFee, JSONEnvelope, MAPICallbackResponse
 
 if TYPE_CHECKING:
     from ..types import IndefiniteCredentialId
@@ -192,6 +192,32 @@ def validate_json_envelope(json_response: JSONEnvelope) -> None:
         public_key = PublicKey.from_hex(json_response["publicKey"])
         if not public_key.verify_der_signature(signature_bytes, message_bytes):
             raise ValueError("MAPI signature invalid")
+
+
+MAPI_CALLBACK_REASONS = {"doubleSpend", "doubleSpendAttempt", "merkleProof"}
+
+# TODO(1.4.0) Unit testing. Write unit tests to validate this works correctly.
+#     Examples: https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
+def validate_mapi_callback_response(response_data: MAPICallbackResponse) -> None:
+    for field_name, field_type in get_type_hints(MAPICallbackResponse).items():
+        if field_name not in response_data:
+            raise ValueError(f"Missing '{field_name}' field")
+
+        field_value = response_data[field_name] # type: ignore[literal-required]
+        if not isinstance(field_value, field_type):
+            raise ValueError(f"Invalid '{field_name}' type, expected {field_type}, "
+                f"got {type(field_value)}")
+
+    if response_data["callbackReason"] not in MAPI_CALLBACK_REASONS:
+        raise ValueError(f"Invalid 'callbackReason' '{response_data['callbackReason']}'")
+
+    block_id = response_data["blockHash"]
+    if len(block_id) != 32*2:
+        raise ValueError(f"'blockHash' not 62 characters '{response_data['blockHash']}'")
+
+    transaction_id = response_data["callbackTxId"]
+    if len(transaction_id) != 32*2:
+        raise ValueError(f"'callbackTxId' not 62 characters '{response_data['callbackTxId']}'")
 
 
 async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: NewServer,

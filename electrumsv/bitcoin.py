@@ -28,11 +28,12 @@ from dataclasses import dataclass, field
 from enum import IntEnum, IntFlag
 from io import BufferedIOBase, BytesIO
 import struct
-from typing import cast, Generator, Optional, Tuple, Union
+from typing import cast, Generator, Optional, Tuple, TypedDict, Union
 
-from bitcoinx import double_sha256, hash_to_hex_str, sha256, Address, classify_output_script, \
-    OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_Address, P2SH_Address, \
-    pack_varint, read_varint, Script, Unknown_Output, unpack_header
+import bitcoinx
+from bitcoinx import Address, double_sha256, hash_to_hex_str, classify_output_script, \
+    OP_RETURN_Output, P2MultiSig_Output, P2PK_Output, P2PKH_Address, \
+    P2SH_Address, pack_varint, read_varint, Script, sha256, Unknown_Output, unpack_header
 
 from .bip276 import bip276_decode, bip276_encode, PREFIX_BIP276_SCRIPT
 from .networks import Net
@@ -367,7 +368,8 @@ class TSCMerkleNodeKind(IntEnum):
 
 
 class TSCMerkleProofError(Exception):
-    pass
+    ...
+
 
 
 def validate_proof_flags(flags: int) -> None:
@@ -431,6 +433,40 @@ def verify_proof(proof: TSCMerkleProof, expected_merkle_root_bytes: Optional[byt
     return c == expected_merkle_root_bytes
 
 
+def le_int_to_char(le_int: int) -> bytes:
+    return struct.pack('<I', le_int)[0:1]
+
+class TxOrId(IntEnum):
+    TRANSACTION_ID = 0
+    FULL_TRANSACTION = 1 << 0
+
+
+class TargetType(IntEnum):
+    HASH = 0
+    HEADER = 1 << 1
+    MERKLE_ROOT = 1 << 2
+
+
+class ProofType(IntEnum):
+    MERKLE_BRANCH = 0
+    MERKLE_TREE = 1 << 3
+
+
+class CompositeProof(IntEnum):
+    SINGLE_PROOF = 0
+    COMPOSITE_PROOF = 1 << 4
+
+
+class TSCMerkleProofJson(TypedDict):
+    index: int
+    txOrId: str  # hex
+    targetType: Optional[str]
+    target: str  # hex
+    nodes: list[str]
+
+
+
+
 @dataclass
 class TSCMerkleProof:
     flags: int
@@ -441,6 +477,60 @@ class TSCMerkleProof:
     block_header_bytes: Optional[bytes] = None
     merkle_root_bytes: Optional[bytes] = None
     nodes: List[TSCMerkleNode] = field(default_factory=list)
+
+    @classmethod
+    def from_json(cls, tsc_json: TSCMerkleProofJson) -> TSCMerkleProof:
+        target_type = tsc_json["targetType"]
+
+        flags = 0
+        transaction_index = tsc_json['index']
+        transaction_hash: Optional[bytes] = None
+        transaction_bytes: Optional[bytes] = None
+        block_hash: Optional[bytes] = None
+        block_header_bytes: Optional[bytes] = None
+        merkle_root_bytes: Optional[bytes] = None
+        nodes = list[TSCMerkleNode]()
+
+        include_full_tx = (len(tsc_json['txOrId']) > 64)
+        if include_full_tx:
+            flags = flags | TxOrId.FULL_TRANSACTION
+
+        if target_type == 'hash':
+            flags = flags | TargetType.HASH
+        elif target_type == 'header':
+            flags = flags | TargetType.HEADER
+        elif target_type == 'merkleroot':
+            flags = flags | TargetType.MERKLE_ROOT
+        else:
+            raise NotImplementedError("Caller should have ensured `target_type` is valid.")
+
+        flags = flags | ProofType.MERKLE_BRANCH  # ProofType.MERKLE_TREE not supported
+        flags = flags | CompositeProof.SINGLE_PROOF  # CompositeProof.COMPOSITE_PROOF not supported
+
+        if include_full_tx:
+            transaction_bytes = bytes.fromhex(tsc_json['txOrId'])
+        else:
+            transaction_hash = bitcoinx.hex_str_to_hash(tsc_json['txOrId'])
+
+        if target_type in ('hash', 'merkleroot'):
+            block_hash = bitcoinx.hex_str_to_hash(tsc_json['target'])
+        elif target_type == 'header':
+            block_header_bytes = bytes.fromhex(tsc_json['target'])
+        else:
+            raise NotImplementedError("Caller should have ensured `target_type` is valid.")
+
+        for node in tsc_json['nodes']:
+            value_bytes = b''
+            value_int = 0
+            if node == "*":
+                node_type = TSCMerkleNodeKind.DUPLICATE
+            else:
+                node_type = TSCMerkleNodeKind.HASH
+                value_bytes = bitcoinx.hex_str_to_hash(node)
+            nodes.append(TSCMerkleNode(node_type, value_bytes, value_int))
+
+        return cls(flags, transaction_index, transaction_hash, transaction_bytes, block_hash,
+            block_header_bytes, merkle_root_bytes, nodes)
 
     @classmethod
     def from_bytes(cls, proof_bytes: bytes) -> TSCMerkleProof:

@@ -28,7 +28,7 @@ from electrumsv.wallet import (DeterministicAccount, ImportedPrivkeyAccount,
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, TransactionLinkState, \
-    TransactionProofRow, WalletBalance
+    MerkleProofRow, WalletBalance
 
 from .util import MockStorage, PasswordToken, setup_async, tear_down_async, TEST_WALLET_PATH
 
@@ -557,8 +557,11 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
             prv_keypairs[public_key.to_hex()] = pw_decode(encrypted_prv, initial_password)
 
     password = "654321"
-    future = wallet.update_password(initial_password, password)
+    future, update_completion_event = wallet.update_password(initial_password, password)
+    # Wait for the database update to finish.
     future.result(5)
+    # Wait for the done callback to finish.
+    update_completion_event.wait()
 
     if "standard" == expected_type:
         check_legacy_parent_of_standard_wallet(wallet, password=password,
@@ -866,7 +869,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
 
 
 async def try_get_mapi_proofs_mock(tx_hashes: list[bytes]) \
-        -> tuple[set[bytes], list[TransactionProofRow]]:
+        -> tuple[set[bytes], list[MerkleProofRow]]:
     return set(), []
 
 
@@ -892,7 +895,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
 
     wallet = Wallet(tmp_storage)
     wallet.try_get_mapi_proofs = try_get_mapi_proofs_mock
-    wallet.indexing_server_state = MockHeadersClient()
+    wallet._blockchain_server_state = MockHeadersClient()
     masterkey_row = wallet.create_masterkey_from_keystore(child_keystore)
 
     raw_account_row = AccountRow(-1, masterkey_row.masterkey_id, ScriptType.P2PKH, '...',
@@ -921,9 +924,11 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
             TransactionImportFlag.UNSET)
         link_state = TransactionLinkState()
 
+        proof_row = MerkleProofRow(BLOCK_HASH_REORGED1, BLOCK_POSITION, 232,
+            b'TSC_FAKE_PROOF_BYTES', tx_hash_1)
         await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SETTLED,
             link_state=link_state, block_hash=BLOCK_HASH_REORGED1, block_position=BLOCK_POSITION,
-            tsc_proof_bytes=b'TSC_FAKE_PROOF_BYTES')
+            proof_row=proof_row)
 
         tx_metadata_1 = wallet.data.get_transaction_metadata(tx_hash_1)
         assert tx_metadata_1 is not None

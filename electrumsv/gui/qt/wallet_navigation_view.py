@@ -600,9 +600,9 @@ class WalletNavigationView(QSplitter):
         dialog.exec_()
 
     def _on_menu_blockchain_scan(self, account_id: int) -> None:
-        if not self._main_window_proxy.has_connected_main_server():
-            MessageBox.show_message(_("The wallet is not currently connected to an indexing "
-                "server. As such, the blockchain scanner cannot be used at this time."),
+        if not self._main_window_proxy.has_connected_blockchain_server():
+            MessageBox.show_message(_("The wallet is not currently connected to a blockchain "
+                "server. As such, the account scanner cannot be used at this time."),
                 self._main_window_proxy.reference())
             return
 

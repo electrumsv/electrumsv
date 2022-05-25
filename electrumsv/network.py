@@ -109,24 +109,10 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         await self.aiohttp_session.close()
 
     def get_local_height(self) -> int:
-        chain = self.chain()
+        assert app_state.headers is not None
+        chain = cast(Chain, app_state.headers.longest_chain())
         # This can be called from network_dialog.py when there is no chain
         return cast(int, chain.height) if chain else 0
-
-    def get_local_tip_hash(self) -> bytes:
-        chain = self.chain()
-        assert chain is not None
-        return cast(bytes, chain.tip.hash)
-
-    def is_header_present(self, block_hash: bytes) -> bool:
-        """If the mmap headers store is lost/deleted, the orphaned header will be lost with it.
-        Therefore, on a wallet restoration, the orphaned header will be missing. The fallback
-        is to rescan all transaction history for the new longest chain."""
-        try:
-            _header, _old_chain = cast(Headers, app_state.headers).lookup(block_hash)
-            return True
-        except MissingHeader:
-            return False
 
     async def _find_any_common_header_async(self, server_state: HeaderServerState,
             server_tip: Header) -> Header:
@@ -165,28 +151,35 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
 
         Raises `ServiceUnavailableError` via _request_and_connect_headers_at_heights_async
         """
+        assert app_state.headers is not None
         tip_header = await get_chain_tips_async(server_state, self.aiohttp_session)
         server_state.tip_header = tip_header
-        while not self.is_header_present(tip_header.hash):
+        while True:
+            try:
+                app_state.headers.lookup(tip_header.hash)
+                break
+            except MissingHeader:
+                pass
+
             any_common_base_header = await self._find_any_common_header_async(server_state,
                 server_tip=tip_header)
             heights = [height for height in range(any_common_base_header.height,
                 tip_header.height + 1)]
             await self._request_and_connect_headers_at_heights_async(server_state, heights)
 
-        _tip_header, server_chain = cast(Headers, app_state.headers).lookup(tip_header.hash)
-        return tip_header, server_chain
+        return cast(tuple[Header, Chain], app_state.headers.lookup(tip_header.hash))
 
     async def _connect_tip_and_maybe_backfill(self, server_state: HeaderServerState,
             new_tip: TipResponse) -> None:
+        assert app_state.headers is not None
         try:
-            cast(Headers, app_state.headers).connect(new_tip.header)
+            app_state.headers.connect(new_tip.header_bytes)
         except MissingHeader:
             # The headers store uses the genesis block as the base checkpoint but there is
             # no previous header before the genesis header so when attempting to "connect"
             # the genesis block, it will raise MissingHeader. We can only connect subsequent
             # headers to the genesis block.
-            if bitcoinx.double_sha256(new_tip.header) == hex_str_to_hash(Net._net.GENESIS):
+            if bitcoinx.double_sha256(new_tip.header_bytes) == hex_str_to_hash(Net._net.GENESIS):
                 return None
             # This should only happen if the new_tip notification skips intervening headers e.g.
             # a) There was a reorg
@@ -210,6 +203,8 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             - `main_server.subscribe_to_headers` or
             - `self._connect_tip_and_maybe_backfill`
         """
+        assert app_state.headers is not None
+
         # This server is already obsolete.
         if server_key not in self.connected_header_server_states:
             return
@@ -220,16 +215,11 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         # Will not proceed past this point until we have all the headers up to and including
         # the servers tip header.
         server_state = self.connected_header_server_states[server_key]
-        server_tip_header, server_chain = \
-            await self._synchronise_headers_for_server_tip(server_state)
+        current_tip_header, current_chain = await self._synchronise_headers_for_server_tip(
+            server_state)
 
-        server_state.tip_header = server_tip_header
-        server_state.chain = server_chain
-
-        for wallet in self._wallets:
-            if wallet.indexing_server_state is not None and \
-                    wallet.indexing_server_state.server_key == server_state.server_key:
-                wallet.update_main_server_tip_and_chain(server_state.tip_header, server_state.chain)
+        server_state.tip_header = current_tip_header
+        server_state.chain = current_chain
 
         # This server is ready for wallets to rely on for use as an indexing server (should it
         # be indexing server capable).
@@ -238,11 +228,12 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
 
         server_state.connection_event.set()
 
+        # TODO(1.4.0) Headers. This event should be replaced by in-wallet handling for the sync.
         self.new_server_ready_event.set()
         self.new_server_ready_event.clear()
 
         # TODO(1.4.0) Servers. This establishes a header-only websocket to the server, however if
-        #     this is used as an indexing server it will also have a general account websocket to
+        #     this is used as an blockchain server it will also have a general account websocket to
         #     the server which also sends header events. We should modify this to receive headers
         #     from  the header websocket only if there is not a general websocket connection,
         #     switching back and forwards using some rational heuristic.
@@ -251,18 +242,30 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         async for new_tip in subscribe_to_headers_async(server_state, self.aiohttp_session):
             logger.debug("Got new tip: %s for server: %s", new_tip, server_state.server_key.url)
 
-            server_chain_before = server_chain
+            previous_chain = current_chain
+            previous_tip_header = current_tip_header
             await self._connect_tip_and_maybe_backfill(server_state, new_tip)
-            header, server_chain = cast(Headers, app_state.headers)\
-                .lookup(double_sha256(new_tip.header))
-            server_state.tip_header = header
-            server_state.chain = server_chain
+            current_tip_header, current_chain = app_state.headers.lookup(
+                double_sha256(new_tip.header_bytes))
+
+            # They should not be relied on by the wallet for determining the validity of it's
+            # state. The wallet may still be processing previous header updates. They can however
+            # be used to identify what alternate servers are available and whether they are
+            # synchronised.
+            server_state.tip_header = current_tip_header
+            server_state.chain = current_chain
 
             for wallet in self._wallets:
-                if wallet.indexing_server_state is server_state:
-                    await wallet.reorg_check_main_chain(server_chain_before, server_chain)
-                    wallet.update_main_server_tip_and_chain(server_state.tip_header,
-                        server_state.chain)
+                wallet.process_header_source_update(server_state, previous_chain,
+                    previous_tip_header, current_chain, current_tip_header)
+
+    def get_header_source_state(self, server_state: Optional[HeaderServerState]) \
+            -> tuple[Chain, Header]:
+        if server_state is None:
+            raise NotImplementedError("P2P support not yet implemented")
+        assert server_state.chain is not None
+        assert server_state.tip_header is not None
+        return server_state.chain, server_state.tip_header
 
     # def _available_servers(self) -> List[ServerAccountKey]:
     #     now = time.time()
@@ -413,9 +416,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         await self._shutdown_complete_event.wait()
         logger.warning('stopped')
 
-    def is_connected(self) -> bool:
-        return all([wallet.indexing_server_state is not None for wallet in self._wallets])
-
     # def is_server_disabled(self, url: str, server_type: NetworkServerType) -> bool:
     #     """
     #     Whether the given server is configured to be unusable by anything.
@@ -483,10 +483,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
 
     def status(self) -> dict[str, Any]:
         return {
-            # 'server': str(self.indexing_server_state.base_url),
             'blockchain_height': self.get_local_height(),
-            # 'server_height': self.indexing_server_state.tip_header.height,
             'spv_nodes': len(self._known_header_server_keys),
-            'connected': self.is_connected(),
             'auto_connect': self.auto_connect(),
         }

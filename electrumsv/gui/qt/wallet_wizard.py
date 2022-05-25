@@ -656,8 +656,8 @@ class ChooseWalletPage(QWizardPage):
         # have been occasional error reports where the selection did not match the wallet paths.
         # https://github.com/electrumsv/electrumsv/issues/404
         selected_indexes = self._wallet_table.selectedIndexes()
-        selected_row = selected_indexes[0].row() if len(selected_indexes) else -1
-        if selected_row != WalletPage.UNKNOWN:
+        selected_row = selected_indexes[0].row() if len(selected_indexes) else WalletPage.UNKNOWN
+        if selected_row != WalletPage.UNKNOWN and selected_row < len(self._recent_wallet_paths):
             wallet_path = self._recent_wallet_paths[selected_row]
             entry = self._recent_wallet_entries[wallet_path]
             if entry.requires_upgrade:

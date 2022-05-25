@@ -17,9 +17,9 @@ except ModuleNotFoundError:
     import sqlite3 # type: ignore[no-redef]
 
 from electrumsv.constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
-    MasterKeyFlags, NetworkServerFlag, NetworkServerType,
-    PaymentFlag, ScriptType, ServerPeerChannelFlag, TransactionOutputFlag, TxFlags,
-    WalletEventFlag, WalletEventType)
+    MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag, PeerChannelMessageFlag,
+    ScriptType, ServerPeerChannelFlag, TransactionOutputFlag, TxFlags, WalletEventFlag,
+    WalletEventType)
 from electrumsv.types import Outpoint, ServerAccountKey
 from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
@@ -27,8 +27,8 @@ from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
     NetworkServerRow, PaymentRequestReadRow, PaymentRequestRow,
-    PaymentRequestUpdateRow, ServerPeerChannelRow, TransactionRow, TransactionOutputShortRow,
-    WalletBalance, WalletEventInsertRow)
+    PaymentRequestUpdateRow, ServerPeerChannelRow, ServerPeerChannelMessageRow, TransactionRow,
+    TransactionOutputShortRow, WalletBalance, WalletEventInsertRow)
 
 from .util import PasswordToken
 
@@ -1360,6 +1360,85 @@ def test_table_peer_channels_CRUD(db_context: DatabaseContext) -> None:
     assert read_row == created_row
 
 
+def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
+    date_created = 1
+
+    # Ensure that the foreign key requirement for an existing server is met.
+    server_row = NetworkServerRow(None, NetworkServerType.GENERAL, "url", None,
+        NetworkServerFlag.NONE, None, None, None, None, 0, 0, date_created, date_created)
+    future = db_functions.update_network_servers_transaction(db_context, [ server_row ], [], [], [])
+    created_server_rows = future.result()
+    assert len(created_server_rows) == 1
+    server_id = created_server_rows[0].server_id
+    assert server_id is not None
+
+    # CHANNEL: Check that a valid insert succeeds.
+    create_channel_row1 = ServerPeerChannelRow(None, server_id, "remote id", None,
+        ServerPeerChannelFlag.TIP_FILTER_DELIVERY, date_created,
+        date_created)
+    create_channel_future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
+        create_channel_row1, server_id)
+    peer_channel_id1 = create_channel_future.result()
+    assert type(peer_channel_id1) is int
+
+    # MESSAGE: Create an arbitrary test message.
+    sequence = 111
+    create_message_row = ServerPeerChannelMessageRow(None, peer_channel_id1, b'abc',
+        PeerChannelMessageFlag.NONE, sequence, date_created, date_created, date_created)
+    future2 = db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write,
+        [ create_message_row ])
+    created_message_rows1 = future2.result()
+    assert len(created_message_rows1) == 1
+    assert created_message_rows1[0].message_id is not None
+
+    # MESSAGE: Verify the created result for the arbitrary test message has the expected contents.
+    updated_create_message_row = create_message_row._replace(
+        message_id=created_message_rows1[0].message_id)
+    assert created_message_rows1[0] == updated_create_message_row
+
+    # CHANNEL: Create a second channel to aid in testing filtering.
+    create_channel_row2 = ServerPeerChannelRow(None, server_id, None, None,
+        ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK | ServerPeerChannelFlag.ALLOCATING,
+        date_created, date_created)
+    create_channel_future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
+        create_channel_row2)
+    peer_channel_id2 = create_channel_future.result()
+
+    # MESSAGE: Create an arbitrary test message.
+    future2 = db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write, [
+        ServerPeerChannelMessageRow(None, peer_channel_id2, b'abc',
+            PeerChannelMessageFlag.NONE, sequence+1, date_created, date_created, date_created),
+        ServerPeerChannelMessageRow(None, peer_channel_id2, b'abc',
+            PeerChannelMessageFlag.UNPROCESSED, sequence+2, date_created, date_created,
+                date_created),
+    ])
+    created_message_rows2 = future2.result()
+    assert len(created_message_rows2) == 2
+
+    # MESSAGES: No filtering.
+    read_rows = db_functions.read_server_peer_channel_messages(db_context, None, None, None, None)
+    assert len(read_rows) == 3
+    assert { message_row.message_id for message_row in read_rows } == \
+        { created_message_rows1[0].message_id, created_message_rows2[0].message_id,
+            created_message_rows2[1].message_id }
+
+    # MESSAGES: Filter by server peer channel flag.
+    read_rows = db_functions.read_server_peer_channel_messages(db_context,
+        PeerChannelMessageFlag.NONE, PeerChannelMessageFlag.NONE,
+        ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, ServerPeerChannelFlag.MASK_PURPOSE)
+    assert len(read_rows) == 2
+    assert { message_row.message_id for message_row in read_rows } == \
+        { created_message_rows2[0].message_id, created_message_rows2[1].message_id }
+
+    # MESSAGES: Filter by server peer channel flag.
+    read_rows = db_functions.read_server_peer_channel_messages(db_context,
+        PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
+        ServerPeerChannelFlag.NONE, ServerPeerChannelFlag.NONE)
+    assert len(read_rows) == 1
+    assert read_rows[0].message_id == [ message_row for message_row in created_message_rows2
+        if message_row.message_flags & PeerChannelMessageFlag.UNPROCESSED ][0].message_id
+
+
 def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     """
     This test creates the desired non-matches and all the desired matches and verifies that
@@ -1415,7 +1494,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
         tx_hash=TX_HASH_SETTLED_IGNORED,
         tx_bytes=TX_BYTES_SETTLED_IGNORED,
         flags=TxFlags.STATE_SETTLED, block_hash=b'ddddd',
-        block_position=None, fee_value=None, proof_data=b'fdfdfd',
+        block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
     TX_BYTES_CLEARED_IGNORED = os.urandom(10)
     TX_HASH_CLEARED_IGNORED = bitcoinx.double_sha256(TX_BYTES_CLEARED_IGNORED)
@@ -1423,7 +1502,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
         tx_hash=TX_HASH_CLEARED_IGNORED,
         tx_bytes=TX_BYTES_CLEARED_IGNORED,
         flags=TxFlags.STATE_CLEARED, block_hash=None,
-        block_position=None, fee_value=None, proof_data=None,
+        block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
     TX_BYTES_CLEARED_MATCH1 = os.urandom(10)
     TX_HASH_CLEARED_MATCH1 = bitcoinx.double_sha256(TX_BYTES_CLEARED_MATCH1)
@@ -1431,7 +1510,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
         tx_hash=TX_HASH_CLEARED_MATCH1,
         tx_bytes=TX_BYTES_CLEARED_MATCH1,
         flags=TxFlags.STATE_CLEARED, block_hash=b'fake block hash',
-        block_position=None, fee_value=None, proof_data=None,
+        block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
 
     tx_nonmatches: List[TransactionRow] = []
@@ -1441,14 +1520,18 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
         for is_orphan in (True, False):
             TX_BYTES_NONMATCH = f"nonmatch is_orphan={is_orphan} flags={tx_state!r}".encode()
             TX_HASH_NONMATCH = TX_BYTES_NONMATCH
-            proof_data: Optional[bytes] = None
+            # proof_data: Optional[bytes] = None
+            block_hash: Optional[bytes] = None
+            block_position: Optional[int] = None
             if tx_state == TxFlags.STATE_SETTLED:
-                proof_data = b'nonmatch settled proof data'
+                block_position = 111
+                block_hash = b'ignored block hash'
+                # proof_data = b'nonmatch settled proof data'
             tx_nonmatch = TransactionRow(
                 tx_hash=TX_HASH_NONMATCH,
                 tx_bytes=TX_BYTES_NONMATCH,
-                flags=tx_state, block_hash=None, proof_data=proof_data,
-                block_position=None, fee_value=None,
+                flags=tx_state, block_hash=block_hash,
+                block_position=block_position, fee_value=None,
                 description=None, version=None, locktime=None, date_created=2, date_updated=2)
             if is_orphan:
                 tx_nonmatches_orphans.append(tx_nonmatch)
@@ -1495,9 +1578,10 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     expected_tx_hashes: dict[bytes, int] = {
         TX_HASH_SETTLED_MATCH1: ACCOUNT2_ID,
         TX_HASH_SETTLED_MATCH2: ACCOUNT1_ID,
-        TX_HASH_CLEARED_MATCH1: ACCOUNT1_ID,
+#         TX_HASH_CLEARED_MATCH1: ACCOUNT1_ID,
     }
     remaining_tx_hashes = dict(expected_tx_hashes)
+    print(rows)
     for pltx_row in rows:
         assert pltx_row.tx_hash in remaining_tx_hashes
         assert pltx_row.account_id == remaining_tx_hashes[pltx_row.tx_hash]

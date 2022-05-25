@@ -38,8 +38,8 @@ import json
 import os
 import random
 import threading
-from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Sequence, Set, Tuple, \
-    TypedDict, TypeVar, TYPE_CHECKING
+from typing import Any, Awaitable, Callable, cast, Coroutine, Dict, Iterable, List, Optional, \
+    Sequence, Set, Tuple, TypedDict, TypeVar, TYPE_CHECKING, Union
 import weakref
 
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
@@ -50,17 +50,17 @@ from electrumsv_database.sqlite import DatabaseContext
 
 from . import coinchooser
 from .app_state import app_state
-from .bitcoin import scripthash_bytes, ScriptTemplate, separate_proof_and_embedded_transaction, \
-    TSCMerkleProofError
+from .bitcoin import  scripthash_bytes, ScriptTemplate, separate_proof_and_embedded_transaction, \
+    TSCMerkleProof, TSCMerkleProofError, TSCMerkleProofJson, verify_proof
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
-    API_SERVER_TYPES, CHANGE_SUBPATH,
+    API_SERVER_TYPES, ChainManagementKind, ChainWorkerToken, CHANGE_SUBPATH,
     DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
     DerivationPath, KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags, MAX_VALUE,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkEventNames,
     NetworkServerFlag, NetworkServerType, PaymentFlag, PeerChannelAccessTokenFlag,
-    PendingHeaderWorkKind, PushDataHashRegistrationFlag, RECEIVING_SUBPATH,
+    PeerChannelMessageFlag, PushDataHashRegistrationFlag, PushDataMatchFlag, RECEIVING_SUBPATH,
     ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ServerProgress,
-    ServerSwitchReason, ScriptType, TransactionImportFlag, TransactionInputFlag,
+    ScriptType, TransactionImportFlag, TransactionInputFlag,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT,
     WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag, WalletEventType, WalletSettings)
 from .contacts import Contacts
@@ -75,19 +75,20 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
-from .network_support.types import ServerConnectionState
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
-    TransactionNotFoundError
+    IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import maintain_server_connection_async, \
-    MerkleProofMissingHeaderError, MerkleProofVerificationError, \
     request_binary_merkle_proof_async, request_transaction_data_async
+from .network_support.mapi import validate_mapi_callback_response, validate_json_envelope
+from .network_support.types import GenericPeerChannelMessage, JSONEnvelope, MAPICallbackResponse, \
+    ServerConnectionState, TipFilterPushDataMatchesData
 from .networks import Net
 from .storage import WalletStorage
 from .transaction import (HardwareSigningMetadata, Transaction, TransactionContext,
     TxSerialisationFormat, NO_SIGNATURE, tx_dict_from_text, XPublicKey, XTxInput, XTxOutput)
-from .types import (IndefiniteCredentialId, KeyInstanceDataBIP32SubPath,
-    KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult, MasterKeyDataTypes,
-    MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
+from .types import (ConnectHeaderlessProofWorkerState, IndefiniteCredentialId,
+    KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult,
+    MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
     OutputSpend, ServerAccountKey, Outpoint, WaitingUpdateCallback, DatabaseKeyDerivationData)
 from .util import (format_satoshis, get_posix_timestamp, get_wallet_name_from_path,
     posix_timestamp_to_datetime, TriggeredCallbacks, ValueLocks)
@@ -99,17 +100,17 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataProtocol, KeyData,
     KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow,
-    MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
-    NetworkServerRow, PasswordUpdateResult, PaymentRequestReadRow, PushDataHashRegistrationRow,
-    PaymentRequestRow, PaymentRequestUpdateRow, PushDataMatchMetadataRow, PushDataMatchRow,
-    ServerPeerChannelRow, ServerPeerChannelAccessTokenRow, SpentOutputRow, TransactionDeltaSumRow,
+    MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow, NetworkServerRow,
+    PasswordUpdateResult, PaymentRequestReadRow, PaymentRequestRow, PaymentRequestUpdateRow,
+    MerkleProofUpdateRow, PushDataHashRegistrationRow, PushDataMatchRow, PushDataMatchMetadataRow,
+    ServerPeerChannelRow, ServerPeerChannelAccessTokenRow, ServerPeerChannelMessageRow,
+    SpentOutputRow, TransactionDeltaSumRow,
     TransactionExistsRow, TransactionLinkState, TransactionMetadata,
     TransactionOutputShortRow, TransactionOutputSpendableRow, TransactionOutputSpendableProtocol,
-    TransactionInputAddRow, TransactionOutputAddRow, TransactionProofRow, TransactionRow,
-    TransactionValueRow, TxProofData,
+    TransactionInputAddRow, TransactionOutputAddRow, MerkleProofRow,
+    TransactionProofUpdateRow, TransactionRow, TransactionValueRow, TxProofData,
     WalletBalance, WalletEventInsertRow, WalletEventRow)
 from .wallet_database.util import create_derivation_data2
-from .wallet_support import late_header_worker
 from .wallet_support.keys import get_pushdata_hash_for_account_key_data
 
 if TYPE_CHECKING:
@@ -956,7 +957,7 @@ class AbstractAccount:
                 self.set_transaction_label(tx_hash, tx_context.description)
 
         transaction_future = app_state.async_.spawn(self._wallet.add_local_transaction,
-            tx_hash, tx, tx_flags, import_flags)
+            tx_hash, tx, tx_flags, None, None, import_flags)
         transaction_future.add_done_callback(callback)
         return transaction_future
 
@@ -1831,9 +1832,9 @@ class WalletDataAccess:
         return await self._db_context.run_in_thread_async(
             db_functions.create_mapi_broadcast_callbacks_write, rows)
 
-    def read_mapi_broadcast_callbacks(self, tx_hash: Optional[bytes]=None) \
+    def read_mapi_broadcast_callbacks(self, tx_hashes: Optional[list[bytes]]=None) \
             -> List[MAPIBroadcastCallbackRow]:
-        return db_functions.read_mapi_broadcast_callbacks(self._db_context, tx_hash)
+        return db_functions.read_mapi_broadcast_callbacks(self._db_context, tx_hashes)
 
     def update_mapi_broadcast_callbacks(self,
             entries: Iterable[Tuple[MapiBroadcastStatusFlags, bytes]]) -> \
@@ -1844,6 +1845,16 @@ class WalletDataAccess:
                 concurrent.futures.Future[None]:
         return db_functions.delete_mapi_broadcast_callbacks(self._db_context,
             tx_hashes)
+
+    # Merkle proofs.
+
+    async def create_merkle_proofs_async(self, creation_rows: list[MerkleProofRow]) -> None:
+        await self._db_context.run_in_thread_async(db_functions.create_merkle_proofs_write,
+            creation_rows)
+
+    async def update_merkle_proofs_async(self, update_rows: list[MerkleProofUpdateRow]) -> None:
+        return await self._db_context.run_in_thread_async(
+            db_functions.update_merkle_proofs_write, update_rows)
 
     # Network.
 
@@ -1919,11 +1930,26 @@ class WalletDataAccess:
             db_functions.update_server_peer_channel_write, remote_channel_id, remote_url,
                 peer_channel_flags, peer_channel_id, addable_access_tokens)
 
+    async def create_server_peer_channel_messages_async(self,
+            rows: list[ServerPeerChannelMessageRow]) -> list[ServerPeerChannelMessageRow]:
+        return await self._db_context.run_in_thread_async(
+            db_functions.create_server_peer_channel_messages_write, rows)
+
+    async def read_server_peer_channel_messages_async(self,
+            message_flags: Optional[PeerChannelMessageFlag]=None,
+            message_mask: Optional[PeerChannelMessageFlag]=None,
+            channel_flags: Optional[ServerPeerChannelFlag]=None,
+            channel_mask: Optional[ServerPeerChannelFlag]=None) \
+                -> list[ServerPeerChannelMessageRow]:
+        return db_functions.read_server_peer_channel_messages(self._db_context, message_flags,
+            message_mask, channel_flags, channel_mask)
+
     # Pushdata hashes.
 
-    async def create_pushdata_matches_async(self, rows: list[PushDataMatchRow]) -> None:
+    async def create_pushdata_matches_async(self, rows: list[PushDataMatchRow],
+            processed_message_ids: list[int]) -> None:
         await self._db_context.run_in_thread_async(
-            db_functions.create_pushdata_matches_write, rows)
+            db_functions.create_pushdata_matches_write, rows, processed_message_ids)
 
     def read_pushdata_match_metadata(self) -> list[PushDataMatchMetadataRow]:
         return db_functions.read_pushdata_match_metadata(self._db_context)
@@ -1993,8 +2019,8 @@ class WalletDataAccess:
     def get_transaction_metadata(self, tx_hash: bytes) -> Optional[TransactionMetadata]:
         return db_functions.read_transaction_metadata(self._db_context, tx_hash)
 
-    def read_pending_header_transactions(self) -> list[tuple[bytes, Optional[bytes], bytes]]:
-        return db_functions.read_pending_header_transactions(self._db_context)
+    def read_unconnected_merkle_proofs(self) -> list[MerkleProofRow]:
+        return db_functions.read_unconnected_merkle_proofs(self._db_context)
 
     def read_transaction_proof_data(self, tx_hashes: Sequence[bytes]) -> List[TxProofData]:
         return db_functions.read_transaction_proof_data(self._db_context, tx_hashes)
@@ -2014,16 +2040,22 @@ class WalletDataAccess:
         return db_functions.set_transaction_state(self._db_context, tx_hash, flag,
             ignore_mask)
 
+    async def update_reorged_transactions_async(self, orphaned_block_hashes: list[bytes]) \
+            -> list[bytes]:
+        return await self._db_context.run_in_thread_async(
+            db_functions.update_reorged_transactions_write, orphaned_block_hashes)
+
     async def update_transaction_flags_async(self, entries: list[tuple[TxFlags, TxFlags, bytes]]) \
             -> int:
-        return await self._db_context.run_in_thread_async(db_functions.update_transaction_flags,
-            entries)
+        return await self._db_context.run_in_thread_async(
+            db_functions.update_transaction_flags_write, entries)
 
-    async def update_transaction_proof_async(self, tx_hash: bytes,
-            block_hash: Optional[bytes], block_position: Optional[int], proof_data: Optional[bytes],
-            tx_flags: TxFlags=TxFlags.STATE_SETTLED) -> None:
-        await db_functions.update_transaction_proof_async(self._db_context, tx_hash, block_hash,
-            block_position, proof_data, tx_flags)
+    async def update_transaction_proof_async(self, tx_update_rows: list[TransactionProofUpdateRow],
+            proof_rows: list[MerkleProofRow],
+            proof_update_rows: list[MerkleProofUpdateRow]) -> None:
+        return await self._db_context.run_in_thread_async(
+            db_functions.update_transaction_proof_write, tx_update_rows, proof_rows,
+                proof_update_rows)
 
     # Transaction outputs.
 
@@ -2102,7 +2134,13 @@ class Wallet:
     """
 
     _network: Optional[Network] = None
-    _stopped: bool = False
+    _stopped = False
+    _stopping = False
+
+    _persisted_tip_hash: Optional[bytes] = None
+    _current_chain: Optional[Chain] = None
+    _current_tip_header: Optional[Header] = None
+    _blockchain_server_state: Optional[HeaderServerState] = None
 
     def __init__(self, storage: WalletStorage, password: Optional[str]=None) -> None:
         self._id = random.randint(0, (1<<32)-1)
@@ -2121,9 +2159,6 @@ class Wallet:
         self._server_progress = dict[int, ServerProgress]()
 
         self.db_functions_async = db_functions.AsynchronousFunctions(self._db_context)
-        # This manages data that needs to be processed along with a header, but we do not have
-        # the chain of headers up to and including that header yet.
-        self._late_header_worker_queue = app_state.async_.queue()
 
         txdata_cache_size = self.get_cache_size_for_tx_bytedata() * (1024 * 1024)
         self._transaction_cache2 = LRUCache(max_size=txdata_cache_size)
@@ -2137,15 +2172,14 @@ class Wallet:
 
         self._missing_transactions: Dict[bytes, MissingTransactionEntry] = {}
 
-        # This manages data that needs to be processed along with a header, but we do not have
-        # the chain of headers up to and including that header yet.
-        self._late_header_worker_state = late_header_worker.LateHeaderWorkerState(
-            self._late_header_worker_queue)
+        ## State related to the wallet processing headers from it's header source.
+        self._header_source_synchronised_event = asyncio.Event()
 
-        # Guards `transaction_locks`.
-        self._transaction_lock = threading.RLock()
-        # Guards per-transaction locks to limit blocking to per-transaction activity.
-        self._transaction_locks: Dict[bytes, Tuple[threading.RLock, int]] = {}
+        # It is possible that the wallet receives merkle proofs that it cannot process because
+        # they are either not within the wallet's view of the blockchain (or in the more extreme
+        # case are for a disconnected header).
+        self._connect_headerless_proof_worker_state = ConnectHeaderlessProofWorkerState(
+            asyncio.Event(), asyncio.Event(), asyncio.Queue(), asyncio.Queue(), {})
 
         # Guards the obtaining and processing of missing transactions from race conditions.
         self._obtain_transactions_async_lock = app_state.async_.lock()
@@ -2154,7 +2188,14 @@ class Wallet:
             = None
         self._worker_task_obtain_transactions: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_obtain_merkle_proofs: Optional[concurrent.futures.Future[None]] = None
-        self._worker_task_late_header_worker: Optional[concurrent.futures.Future[None]] = None
+        self._worker_task_connect_headerless_proofs: Optional[concurrent.futures.Future[None]] \
+            = None
+
+        ## ...
+        # Guards `transaction_locks`.
+        self._transaction_lock = threading.RLock()
+        # Guards per-transaction locks to limit blocking to per-transaction activity.
+        self._transaction_locks: Dict[bytes, Tuple[threading.RLock, int]] = {}
 
         self.load_state()
 
@@ -2181,14 +2222,6 @@ class Wallet:
 
         self._cache_identity_keys(password)
         self._load_servers(password)
-
-        self.indexing_server_state: Optional[HeaderServerState] = None
-        self._indexing_server_ready_event = app_state.async_.event()
-        self._reorg_check_complete = False
-
-    def _on_new_tip_header(self, new_tip: Header, new_chain: Chain) -> None:
-        message = (new_tip, new_chain)
-        self._late_header_worker_queue.put_nowait((PendingHeaderWorkKind.NEW_TIP, message))
 
     def __str__(self) -> str:
         return f"wallet(path='{self._storage.get_path()}')"
@@ -2219,13 +2252,21 @@ class Wallet:
         if self._db_context is None:
             return
 
-        self._last_load_height = self._storage.get('stored_height', 0)
-        last_load_hash = self._storage.get('last_tip_hash')
-        if last_load_hash is not None:
-            last_load_hash = hex_str_to_hash(last_load_hash)
-        self._last_load_hash = last_load_hash
-        self._logger.debug("chain %d:%s", self._last_load_height,
-            hash_to_hex_str(last_load_hash) if last_load_hash is not None else None)
+        assert app_state.headers is not None
+
+        # NOTE: This used to be stored but not used as `last_tip_hash` but the logic was broken and
+        #     used reversed hashes for persistence and non-reversed hashes for loading. This means
+        #     that all the historically saved values are useless.
+        last_known_tip_id = self._storage.get_explicit_type(str, "current_tip_hash",
+            None)
+        if last_known_tip_id is not None:
+            last_known_tip_hash = hex_str_to_hash(last_known_tip_id)
+        else:
+            last_known_tip_hash = None
+        self._persisted_tip_hash = last_known_tip_hash
+
+        self._logger.debug("Persisted chain %s",
+            hash_to_hex_str(last_known_tip_hash) if last_known_tip_hash is not None else None)
 
         self._keystores.clear()
         self._accounts.clear()
@@ -2286,7 +2327,7 @@ class Wallet:
         self._storage.check_password(password)
 
     def update_password(self, old_password: str, new_password: str) \
-            -> concurrent.futures.Future[PasswordUpdateResult]:
+            -> tuple[concurrent.futures.Future[PasswordUpdateResult], threading.Event]:
         """
         Update the wallet password and use it to re-encrypt all the values encrypted with the old.
 
@@ -2300,6 +2341,10 @@ class Wallet:
         """
         assert old_password, "wallet migration should have added a password"
         assert new_password, "calling code must provide the new password"
+
+        # There is no way to say "let me know when this future is complete and all the done
+        # events are also complete." So we use this event for that purpose.
+        completion_event = threading.Event()
 
         def update_cached_values(callback_future: concurrent.futures.Future[PasswordUpdateResult]) \
                 -> None:
@@ -2354,9 +2399,11 @@ class Wallet:
                 else:
                     set_encrypted_values(derivation_type, derivation_data, keystore)
 
+            completion_event.set()
+
         future = db_functions.update_password(self.get_db_context(), old_password, new_password)
         future.add_done_callback(update_cached_values)
-        return future
+        return future, completion_event
 
     def get_account(self, account_id: int) -> Optional[AbstractAccount]:
         return self._accounts.get(account_id)
@@ -2666,7 +2713,7 @@ class Wallet:
             cleared_flags = callback_future.result()
             if self._network is not None and cleared_flags & KeyInstanceFlag.ACTIVE:
                 # This payment request was the only reason the key was active and being monitored
-                # on the indexing server for new transactions. We can now delete the subscription.
+                # on the blockchain server for new transactions. We can now delete the subscription.
                 # TODO(1.4.0) Payment requests. When the user closes/deletes a payment request
                 #     we need to clean up all resources allocated when the request was created.
                 #     This would include the tip filter.
@@ -2678,213 +2725,6 @@ class Wallet:
             keyinstance_id)
         future.add_done_callback(callback)
         return future
-
-    ## Data acquisition.
-
-    async def obtain_transactions_async(self, account_id: int, keys: List[Tuple[bytes, bool]],
-            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> Set[bytes]:
-        """
-        Update the registry of transactions we do not have or are in the process of getting.
-
-        It is optional whether the caller wants
-
-        Return the hashes out of `tx_hashes` that do not already exist and will attempt to be
-        acquired.
-        """
-        async with self._obtain_transactions_async_lock:
-            missing_tx_hashes: Set[bytes] = set()
-            existing_tx_hashes = set(r.tx_hash for r in self.data.read_transactions_exist(
-                [ key[0] for key in keys ]))
-            for tx_hash, with_proof in keys:
-                if tx_hash in existing_tx_hashes:
-                    continue
-                if tx_hash in self._missing_transactions:
-                    # These transactions are not in the database, metadata is tracked in the entry
-                    # and we should update it.
-                    self._missing_transactions[tx_hash].import_flags |= import_flags
-                    self._missing_transactions[tx_hash].with_proof |= with_proof
-                    if account_id not in self._missing_transactions[tx_hash].account_ids:
-                        self._missing_transactions[tx_hash].account_ids.append(account_id)
-                else:
-                    self._missing_transactions[tx_hash] = MissingTransactionEntry(import_flags,
-                        with_proof, [ account_id ])
-                    missing_tx_hashes.add(tx_hash)
-            self._logger.debug("Registering %d missing transactions", len(missing_tx_hashes))
-            # Prompt the missing transaction logic to try again if the user is re-registering
-            # already missing transactions (the `TransactionImportFlag.PROMPTED` check).
-            if len(missing_tx_hashes) or import_flags & TransactionImportFlag.PROMPTED:
-                self._check_missing_transactions_event.set()
-                self._check_missing_transactions_event.clear()
-            return missing_tx_hashes
-
-    async def _obtain_transactions_worker_async(self) -> None:
-        while True:
-            state = self.get_server_state_for_capability(ServerCapability.TIP_FILTER)
-            assert state is not None
-
-            while len(self._missing_transactions):
-                tx_hash: bytes
-                entry: MissingTransactionEntry
-                async with self._obtain_transactions_async_lock:
-                    if not len(self._missing_transactions):
-                        break
-                    # In theory this should pick missing transactions in order of insertion.
-                    tx_hash = next(iter(self._missing_transactions))
-                    self._logger.debug("Picked missing transaction %s", hash_to_hex_str(tx_hash))
-                    entry = self._missing_transactions[tx_hash]
-
-                # The request gets billed to the first account to request a transaction.
-                account_id = entry.account_ids[0]
-                account = self._accounts[account_id]
-
-                if entry.with_proof:
-                    try:
-                        tsc_full_proof, _header_data = await request_binary_merkle_proof_async(
-                            state, tx_hash, include_transaction=True)
-                    except ServerConnectionError:
-                        # TODO(1.4.0) Networking. Handle `ServerConnectionError` exception.
-                        #     No reliable server should cause this, we should stand off the server
-                        #     or something similar.
-                        logger.error("Still need to implement handling for inability to connect"
-                            "to a server to get arbitrary merkle proofs, sleeping 60 seconds")
-                        await asyncio.sleep(60)
-                        continue
-                    except FilterResponseInvalidError as response_exception:
-                        # TODO(1.4.0) Networking. Handle `FilterResponseInvalidError` exception.
-                        #     No reliable server should cause this, we should stand off the server
-                        #     or something similar. For now we exit the loop and let the user cause
-                        #     other events that allow retry by setting the event.
-                        logger.error("Server responded to proof request with error %s",
-                            str(response_exception))
-                        break
-                    except (TSCMerkleProofError, MerkleProofVerificationError):
-                        # TODO(1.4.0) Networking. Handle `MerkleProofVerificationError` exception.
-                        # TODO(1.4.0) Networking. Handle `TSCMerkleProofError` exception.
-                        #     No trustable server should cause this, we should disable the server or
-                        #     something similar.
-                        logger.error("Still need to implement handling for inability to connect"
-                            "to a server to get arbitrary merkle proofs")
-                        return
-                    except MerkleProofMissingHeaderError as exc:
-                        # Missing header therefore add the transaction as TxFlags.STATE_CLEARED with
-                        # proof data until the late_header_worker_async gets the required header
-                        tx_bytes, tsc_proof = separate_proof_and_embedded_transaction(
-                            exc.merkle_proof, tx_hash)
-                        tx = Transaction.from_bytes(tx_bytes)
-                        await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
-                            block_hash=tsc_proof.block_hash,
-                            block_position=tsc_proof.transaction_index,
-                            tsc_proof_bytes=tsc_proof.to_bytes())
-
-                        # The late header worker task can verify this proof.
-                        await self._late_header_worker_queue.put(
-                            (PendingHeaderWorkKind.MERKLE_PROOF, tsc_proof))
-                        assert tx_hash not in self._missing_transactions
-                        continue
-
-                    # Separate the transaction data and the proof data for storage.
-                    tx_bytes, tsc_proof = separate_proof_and_embedded_transaction(tsc_full_proof,
-                        tx_hash)
-                    tx = Transaction.from_bytes(tx_bytes)
-                    await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_SETTLED,
-                        block_hash=tsc_proof.block_hash, block_position=tsc_proof.transaction_index,
-                        tsc_proof_bytes=tsc_proof.to_bytes())
-                    assert tx_hash not in self._missing_transactions
-                else:
-                    tx_bytes = await self.fetch_raw_transaction_async(tx_hash, account)
-                    tx = Transaction.from_bytes(tx_bytes)
-                    await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED)
-                    assert tx_hash not in self._missing_transactions
-
-            # To get here there must not have been any further missing transactions.
-            self._logger.debug("Waiting for more missing transactions")
-            await self._check_missing_transactions_event.wait()
-
-    async def _obtain_merkle_proofs_worker_async(self) -> None:
-        """
-        Obtain TSC merkle proofs for transactions we know are mined.
-
-        This is currently only used to obtain merkle proofs for the following cases:
-
-        - We delete the older non-TSC proof from `STATE_SETTLED` transactions in migration 29.
-          Those transactions need a new TSC proof, and that should happen in the first iteration
-          given ability to access and use a server successfully.
-
-        It is planned that this would also handle the following cases:
-
-        - If we have transactions we did not obtain through either restoration scanning (which
-          provides merkle proofs) or through some mechanism where MAPI delivers the proof (either
-          to our channel or another party's channel where they deliver it to us) then we need to
-          manually obtain the proof ourselves. This would need some other external event source
-          where we find out whether transactions have been mined, like output spend notifications.
-        """
-        # TODO(1.4.0) Networking. If the user does not have their internet connection enabled when
-        #     the wallet is first opened, then this will maybe error and exit or block. We should
-        #     be able to detect problems like this and highlight it to the user, and retry
-        #     periodically or when they manually indicate they want to retry.
-        while True:
-            state = self.get_server_state_for_capability(ServerCapability.TIP_FILTER)
-            assert state is not None
-
-            # We just take the first returned transaction for now (and ignore the rest).
-            rows = db_functions.read_proofless_transactions(self.get_db_context())
-            tx_hash = rows[0].tx_hash if len(rows) else None
-            if len(rows):
-                row = rows[0]
-                tx_hash = row.tx_hash
-                logger.debug("Requesting merkle proof from server for transaction %s",
-                    hash_to_hex_str(row.tx_hash))
-                try:
-                    tsc_proof, (header, header_chain) = await request_binary_merkle_proof_async(
-                        state, tx_hash, include_transaction=False)
-                except ServerConnectionError:
-                    # TODO(1.4.0) Networking. Handle `ServerConnectionError` exception.
-                    #     No reliable server should cause this, we should stand off the server or
-                    #     something similar.
-                    logger.error("Still need to implement handling for inability to connect"
-                        "to a server to get arbitrary merkle proofs")
-                    await asyncio.sleep(60)
-                    continue
-                except (TSCMerkleProofError, MerkleProofVerificationError):
-                    # TODO(1.4.0) Networking. Handle `MerkleProofVerificationError` exception.
-                    # TODO(1.4.0) Networking. Handle `TSCMerkleProofError` exception.
-                    #     No trustable server should cause this, we should disable the server or
-                    #     something similar.
-                    logger.error("Still need to implement handling for inability to connect"
-                        "to a server to get arbitrary merkle proofs")
-                    return
-                except MerkleProofMissingHeaderError as exc:
-                    tsc_proof = exc.merkle_proof
-
-                    # We store the proof in a way where we know we obtained it recently, but
-                    # that it is still in need of processing. The late header worker can
-                    # read these in on startup and will get it via the queue at runtime.
-                    assert tsc_proof.block_hash is not None
-                    await db_functions.update_transaction_proof_async(self.get_db_context(),
-                        row.tx_hash, tsc_proof.block_hash, tsc_proof.transaction_index,
-                        tsc_proof.to_bytes(), TxFlags.STATE_CLEARED)
-
-                    await self._late_header_worker_queue.put(
-                        (PendingHeaderWorkKind.MERKLE_PROOF, exc.merkle_proof))
-                    continue
-
-                # Store the proof.
-                assert tsc_proof.block_hash is not None
-                await db_functions.update_transaction_proof_async(self.get_db_context(),
-                    row.tx_hash, tsc_proof.block_hash, tsc_proof.transaction_index,
-                    tsc_proof.to_bytes(), TxFlags.STATE_SETTLED)
-                logger.debug("Storing verified merkle proof for transaction %s",
-                    hash_to_hex_str(row.tx_hash))
-
-                self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, tx_hash, header,
-                    tsc_proof)
-
-                # Process the next proof.
-                continue
-
-            # To get here there must not have been any further missing transactions.
-            self._logger.debug("Waiting for more missing merkle proofs")
-            await self._check_missing_proofs_event.wait()
 
     async def fetch_raw_transaction_async(self, tx_hash: bytes, account: AbstractAccount) -> bytes:
         """Selects a suitable server and requests the raw transaction.
@@ -3289,6 +3129,7 @@ class Wallet:
         return tx
 
     async def add_local_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
+            block_hash: Optional[bytes]=None, block_position: Optional[int]=None,
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
         """
         This is currently only called when an account constructs and signs a transaction
@@ -3299,14 +3140,14 @@ class Wallet:
         """
         link_state = TransactionLinkState()
         link_state.rollback_on_spend_conflict = True
-        await self._import_transaction(tx_hash, tx, flags, link_state, import_flags=import_flags)
+        await self._import_transaction(tx_hash, tx, flags, block_hash, block_position,
+            link_state, import_flags=import_flags)
 
     async def import_transaction_async(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
-            link_state: Optional[TransactionLinkState]=None,
             block_hash: Optional[bytes]=None, block_position: Optional[int]=None,
-            tsc_proof_bytes: Optional[bytes]=None,
-            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) \
-                -> None:
+            link_state: Optional[TransactionLinkState]=None,
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET,
+            proof_row: Optional[MerkleProofRow]=None) -> None:
         """
         This is currently only called when a missing transaction arrives.
 
@@ -3327,15 +3168,14 @@ class Wallet:
 
         if link_state is None:
             link_state = TransactionLinkState()
-        await self._import_transaction(tx_hash, tx, flags, link_state, block_hash=block_hash,
-            block_position=block_position, tsc_proof_bytes=tsc_proof_bytes,
-            import_flags=import_flags)
+        await self._import_transaction(tx_hash, tx, flags, block_hash, block_position, link_state,
+            import_flags=import_flags, proof_row=proof_row)
 
     async def _import_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
+            block_hash: Optional[bytes], block_position: Optional[int],
             link_state: TransactionLinkState,
-            block_hash: Optional[bytes]=None, block_position: Optional[int]=None,
-            tsc_proof_bytes: Optional[bytes]=None,
-            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET,
+            proof_row: Optional[MerkleProofRow]=None) -> None:
         """
         Add an external complete transaction to the database.
 
@@ -3354,7 +3194,6 @@ class Wallet:
         # break down the transaction and related data for it to consume.
         tx_row = TransactionRow(tx_hash, tx.to_bytes(), flags, block_hash, block_position,
             fee_value=None, description=None, version=tx.version, locktime=tx.locktime,
-            proof_data=tsc_proof_bytes,
             date_created=timestamp, date_updated=timestamp)
 
         txi_rows: List[TransactionInputAddRow] = []
@@ -3378,7 +3217,7 @@ class Wallet:
             txo_rows.append(txo_row)
 
         await self.db_functions_async.import_transaction_async(tx_row, txi_rows, txo_rows,
-            link_state)
+            proof_row, link_state)
 
         async with self._obtain_transactions_async_lock:
             if tx_hash in self._missing_transactions:
@@ -3408,7 +3247,7 @@ class Wallet:
                 #     clause, where we would do the appropriate handling. However this is probably
                 #     better to ignore and handle as a general state change.
                 pass
-            elif flags & TxFlags.STATE_CLEARED and tsc_proof_bytes is not None:
+            elif flags & TxFlags.STATE_CLEARED and proof_row is not None:
                 # We have the proof for this transaction but were not able to verify it due to
                 # the lack of the header for the block that the transaction is in.
                 # TODO(1.4.0) Spent outputs. We need to recover from all failure cases here.
@@ -3574,18 +3413,18 @@ class Wallet:
         return None
 
     async def try_get_mapi_proofs(self, tx_hashes: list[bytes]) \
-            -> tuple[set[bytes], list[TransactionProofRow]]:
+            -> tuple[set[bytes], list[MerkleProofRow]]:
         # Try to get the appropriate merkle proof for the main chain from TransactionProofs table
         # i.e. we may already have received the mAPI callback for the 'correct chain'
         assert self._db_context is not None
-        assert self.indexing_server_state is not None
-        proofs_on_main_chain: List[TransactionProofRow] = []
+        assert self._blockchain_server_state is not None
+        proofs_on_main_chain: List[MerkleProofRow] = []
         remaining_tx_hashes = set(tx_hashes)
         tx_proofs_rows = db_functions.read_merkle_proofs(self._db_context, tx_hashes)
         for proof_row in tx_proofs_rows:
-            block_hash, tx_hash, proof_data, block_position = proof_row
+            block_hash, block_position, block_height, proof_data, tx_hash = proof_row
             header, chain = cast(Headers, app_state.headers).lookup(block_hash)
-            if chain == self.indexing_server_state.chain:
+            if chain == self._blockchain_server_state.chain:
                 proofs_on_main_chain.append(proof_row)
                 remaining_tx_hashes.remove(tx_hash)
         return remaining_tx_hashes, tx_proofs_rows
@@ -3593,37 +3432,31 @@ class Wallet:
     async def on_reorg(self, orphaned_block_hashes: List[bytes]) -> None:
         '''Called by network when a reorg has happened'''
         assert self._db_context is not None
-        assert self.indexing_server_state is not None
-        if self._stopped:
-            block_hashes_as_str = [hash_to_hex_str(h) for h in orphaned_block_hashes]
+        if self._stopping or self._stopped:
+            loggable_block_ids = [hash_to_hex_str(h) for h in orphaned_block_hashes]
             self._logger.debug("Cannot undo verifications on a stopped wallet. "
-                "Orphaned block hashes: %s", block_hashes_as_str)
+                "Orphaned block hashes: %s", loggable_block_ids)
             return
 
-        tx_hashes = db_functions.read_reorged_transactions(
-            self._db_context, orphaned_block_hashes)
+        reorged_tx_hashes = await self.data.update_reorged_transactions_async(orphaned_block_hashes)
 
-        block_hashes_as_str = [hash_to_hex_str(h) for h in orphaned_block_hashes]
+        loggable_block_ids = [ hash_to_hex_str(h) for h in orphaned_block_hashes ]
         self._logger.info('Removing verification of %d transactions. Orphaned block hashes: %s',
-            len(tx_hashes), block_hashes_as_str)
-        await db_functions.set_transactions_reorged_async(self._db_context, tx_hashes)
+            len(reorged_tx_hashes), loggable_block_ids)
 
-        remaining_tx_hashes, proofs_on_main_chain = await self.try_get_mapi_proofs(tx_hashes)
+        # We want to get all the proofs we already have
+        remaining_tx_hashes, proofs_on_main_chain = await self.try_get_mapi_proofs(
+            reorged_tx_hashes)
 
         # TODO(1.4.0) Merkle Proofs. Consider how malleated tx_hashes would be handled
         # Are we expecting a mAPI merkle proof callback for any of these?
-        for_removal = []
-        for tx_hash in remaining_tx_hashes:
-            rows: list[MAPIBroadcastCallbackRow] = self.data.read_mapi_broadcast_callbacks(tx_hash)
-            if len(rows) != 0:
-                for_removal.append(tx_hash)
-        for tx_hash in for_removal:
-            remaining_tx_hashes.remove(tx_hash)
+        for mapi_row in self.data.read_mapi_broadcast_callbacks(list(remaining_tx_hashes)):
+            remaining_tx_hashes.remove(mapi_row.tx_hash)
 
-        # TODO(1.4.0) Reorgs. Are these registered on startup? They may not be registerable here.
-        # Otherwise, register for utxo spend notifications for these transactions to get proof data
-        # when the transaction is included into a block (on the new chain)
-        if len(remaining_tx_hashes) != 0:
+        if self._blockchain_server_state is not None:
+            # TODO(1.4.0) Reorgs. Are these registered on startup? They may not be registerablehere.
+            # Otherwise, register for utxo spend notifications for these transactionsto getproofdata
+            # when the transaction is included into a block (on the new chain)
             for tx_hash in remaining_tx_hashes:
                 tx = self.get_transaction(tx_hash)
                 assert tx is not None
@@ -3781,7 +3614,7 @@ class Wallet:
 
     async def _manage_server_connections_async(self) -> None:
         """
-        Establish connections to all the servers that the wallet uses.
+        Manage connections to all the servers that the wallet uses.
         """
         assert self._network is not None
         # TODO(petty-cash) In theory each petty cash account maintains a connection. At the
@@ -3803,37 +3636,37 @@ class Wallet:
                 new_indexing_server_id: Optional[int] = None
                 new_peer_channel_server_id: Optional[int] = None
                 if account_row.indexer_server_id is None:
-                    # We need to select an indexing server for the wallet/user. First work out
+                    # We need to select an blockchain server for the wallet/user. First work out
                     # which ones have some form of vetting (they either come from the hard-coded
                     # configuration or user-entry).
-                    indexing_server_candidates = list[tuple[ServerAccountKey, NewServer]]()
+                    blockchain_server_candidates = list[tuple[ServerAccountKey, NewServer]]()
                     for server_key, server in self._servers.items():
                         server_row = server.database_rows[None]
                         if server_row.server_flags & NetworkServerFlag.CAPABILITY_TIP_FILTER:
-                            indexing_server_candidates.append((server_key, server))
+                            blockchain_server_candidates.append((server_key, server))
 
-                    assert len(indexing_server_candidates) > 0
+                    assert len(blockchain_server_candidates) > 0
 
-                    # In `Wallet.start()` the wallet notifies the network of it's internal header
-                    # servers before starting this task. We want to pick one that has fully
+                    # In `Wallet.start()` the wallet notifies the network object of it's internal
+                    # header servers before starting this task. We want to pick one that has fully
                     # synchronised headers and that we are connected to, as the selected indexing
                     # server.
 
                     self._update_server_progress(account_id,
                         ServerProgress.WAITING_FOR_VALID_CANDIDATES)
 
-                    self._logger.debug("Picking an indexing server, candidates: %s",
-                        indexing_server_candidates)
+                    self._logger.debug("Picking an blockchain server, candidates: %s",
+                        blockchain_server_candidates)
                     while True:
                         server_candidates = list[tuple[ServerAccountKey, NewServer]]()
-                        for server_key, server in indexing_server_candidates:
+                        for server_key, server in blockchain_server_candidates:
                             if self._network.is_header_server_ready(server_key):
                                 server_candidates.append((server_key, server))
                         if len(server_candidates) > 0:
                             server_key, server = random.choice(server_candidates)
                             break
-                        self._logger.debug("Waiting for valid indexing server, candidates: %s",
-                            indexing_server_candidates)
+                        self._logger.debug("Waiting for valid blockchain server, candidates: %s",
+                            blockchain_server_candidates)
                         await self._network.new_server_ready_event.wait()
 
                     chosen_servers.append((server, { ServerCapability.TIP_FILTER }))
@@ -3846,17 +3679,32 @@ class Wallet:
                     else:
                         # TODO(1.4.0) Servers. Consider how we should handle this error. Display
                         #     to the user and allow a manual retry in some way.
-                        raise NotImplementedError("Existing indexing server not found for given "
+                        raise NotImplementedError("Existing blockchain server not found for given "
                             f"id={account_row.indexer_server_id}")
 
                 self._update_server_progress(account_id,
                     ServerProgress.WAITING_UNTIL_CANDIDATE_IS_READY)
 
-                indexing_server_key = ServerAccountKey(server.url, server.server_type, None)
-                # We may already know the server should be ready from server selection.
-                await self._network.wait_until_header_server_is_ready_async(indexing_server_key)
-                await self._set_indexing_server(indexing_server_key,
-                    ServerSwitchReason.INITIALISATION)
+                blockchain_server_key = ServerAccountKey(server.url, server.server_type, None)
+                logger.info("Setting blockchain service to: '%s'", blockchain_server_key)
+
+                # When making the initial choice above about what blockchain server to use, we
+                # stall until we know the server is ready so this should not block in that case.
+                # If the wallet was loaded with an existing blockchain server, we may block
+                # here.
+                await self._network.wait_until_header_server_is_ready_async(blockchain_server_key)
+
+                blockchain_server_state = self._network.get_header_server_state(
+                    blockchain_server_key)
+                assert self._blockchain_server_state is None
+                self._blockchain_server_state = blockchain_server_state
+
+                assert blockchain_server_state.chain is not None
+                assert blockchain_server_state.tip_header is not None
+                await self._reconcile_wallet_with_header_source(blockchain_server_state,
+                    blockchain_server_state.chain, blockchain_server_state.tip_header)
+
+                self._network.trigger_callback(NetworkEventNames.GENERIC_STATUS)
 
                 if account_row.peer_channel_server_id is not None:
                     if account_row.peer_channel_server_id == account_row.indexer_server_id:
@@ -3934,9 +3782,8 @@ class Wallet:
             self._obtain_transactions_worker_async)
         self._worker_task_obtain_merkle_proofs = app_state.async_.spawn(
             self._obtain_merkle_proofs_worker_async)
-        self._worker_task_late_header_worker = app_state.async_.spawn(
-            late_header_worker.late_header_worker_async, self.data,
-            self._late_header_worker_state)
+        self._worker_task_connect_headerless_proofs = app_state.async_.spawn(
+            self._connect_headerless_proofs_worker_async)
 
     async def _monitor_connection_stage_changes_async(self, state: ServerConnectionState) -> None:
         """
@@ -3992,25 +3839,220 @@ class Wallet:
         return None
 
     async def _manage_server_connection_state_async(self, state: ServerConnectionState) -> None:
-        tip_filter_consumer_future = app_state.async_.spawn(
-            self._consume_tip_filter_matches_async, state)
+        mapi_callback_consumer_future = app_state.async_.spawn(
+            self._consume_mapi_callback_messages_async, state)
         output_spends_consumer_future = app_state.async_.spawn(
             self._consume_output_spend_notifications_async, state.output_spend_result_queue)
+        tip_filter_consumer_future = app_state.async_.spawn(
+            self._consume_tip_filter_matches_async, state)
         try:
-            # TODO(1.4.0) Servers. This is a async busy loop. Is there a better way?
-            # Busy loop to give this a lifetime until it is cancelled.
+            # TODO(1.4.0) Clean shutdown. This is a async busy loop for now. When we have slow and
+            #     "complete what you are doing" shutdown this can wait on an event.
             while True:
                 await asyncio.sleep(1)
         finally:
             tip_filter_consumer_future.cancel()
             output_spends_consumer_future.cancel()
+            mapi_callback_consumer_future.cancel()
+            # TODO(1.4.0) Clean shutdown. We should really join on the queues and wait for them to
+            #     empty before exiting. However before doing that we should ensure that the
+            #     peer channel fetching task has been told to exit and has exited.
+
+    async def _consume_mapi_callback_messages_async(self, state: ServerConnectionState) -> None:
+        """
+        Process MAPI callback messages received from a server.
+
+        This will either receive messages directly from the server message loop, or it will
+        process backlogged unprocessed messages on startup.
+        """
+        message_entries = list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]()
+        for message_row in await self.data.read_server_peer_channel_messages_async(
+                PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
+                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, ServerPeerChannelFlag.MASK_PURPOSE):
+            message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
+            message_entries.append((message_row, message))
+        state.mapi_callback_response_queue.put_nowait(message_entries)
+        state.mapi_callback_response_event.set()
+
+        while not (self._stopping or self._stopped):
+            # This blocks until there is pending work and it is safe to perform it.
+            self._logger.debug("Waiting for more MAPI callback messages")
+            await self._wait_for_chain_related_work_async(
+                ChainWorkerToken.MAPI_MESSAGE_CONSUMER, [ state.mapi_callback_response_event.wait ])
+            if self._stopping or self._stopped:
+                return
+
+            # We can now process the next batch of messages.
+            message_entries = state.mapi_callback_response_queue.get_nowait()
+            if state.mapi_callback_response_queue.qsize() == 0:
+                state.mapi_callback_response_event.clear()
+
+            assert self._blockchain_server_state is not None
+            assert self._blockchain_server_state.chain is not None
+
+            tx_update_rows = list[TransactionProofUpdateRow]()
+            proof_rows = list[MerkleProofRow]()
+            headerless_proofs = list[tuple[TSCMerkleProof, MerkleProofRow]]()
+            verified_entries = list[tuple[bytes, Header, TSCMerkleProof]]()
+            date_updated = get_posix_timestamp()
+
+            for message_row, message in message_entries:
+                if not isinstance(message["payload"], dict):
+                    # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+                    self._logger.error("Peer channel MAPI callback payload invalid: '%s'", message)
+                    continue
+
+                envelope = cast(JSONEnvelope, message["payload"])
+                try:
+                    validate_json_envelope(envelope)
+                except ValueError as e:
+                    # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+                    self._logger.error("Peer channel MAPI callback envelope invalid: %s '%s'",
+                        e.args[0], message)
+                    continue
+
+                response = cast(MAPICallbackResponse, json.loads(envelope["payload"]))
+                try:
+                    validate_mapi_callback_response(response)
+                except ValueError as e:
+                    # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+                    self._logger.exception("Peer channel MAPI callback response invalid: %s '%s'",
+                        e.args[0], message)
+                    continue
+
+                if response["callbackReason"] != "merkleProof":
+                    self._logger.error("Peer channel MAPI message not yet supported %s '%s'",
+                        response["callbackReason"], message)
+                    continue
+
+                proof_json = cast(TSCMerkleProofJson, response["callbackPayload"])
+                # TODO(1.4.0) MAPI. Validate the response 'targetType'. We should verify it in
+                #     `validate_mapi_callback_response` or we should handle all target types.
+                assert proof_json["targetType"] == "header"
+                proof = TSCMerkleProof.from_json(proof_json)
+
+                # TODO(1.4.0) MAPI. The MAPI server may send updates if the transaction is reorged,
+                #     this means the lifetime of the channel has to be long enough to catch these.
+
+                if not verify_proof(proof):
+                    # TODO(1.4.0) MAPI. The proof is standalone with embedded header, no failure!
+                    #     If we do get a dud proof then we throw it away.
+                    self._logger.error("Peer channel MAPI proof invalid: '%s'", message)
+                    continue
+
+                assert proof.block_header_bytes is not None
+                assert proof.transaction_hash is not None
+
+                block_hash = double_sha256(proof.block_header_bytes)
+                header_match = self.lookup_header_for_hash(block_hash)
+                if header_match is None:
+                    # Our header source has not processed this header yet, so we cannot do anything
+                    # with this merkle proof as we cannot verify that it is relevant.
+
+                    # Connecting out of band headers (or trying to) does not help this wallet.
+                    header, _chain = app_state.connect_out_of_band_header(proof.block_header_bytes)
+
+                    block_height: int = -1
+                    if header is not None:
+                        block_height = header.height
+
+                    tx_update_rows.append(TransactionProofUpdateRow(block_hash,
+                        proof.transaction_index, TxFlags.STATE_CLEARED, date_updated,
+                        proof.transaction_hash))
+                    proof_row = MerkleProofRow(block_hash, proof.transaction_index,
+                        block_height, proof.to_bytes(), proof.transaction_hash)
+                    proof_rows.append(proof_row)
+                    headerless_proofs.append((proof, proof_row))
+                else:
+                    header, _common_chain = header_match
+                    tx_update_rows.append(TransactionProofUpdateRow(block_hash,
+                        proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
+                        proof.transaction_hash))
+                    proof_rows.append(MerkleProofRow(block_hash, proof.transaction_index,
+                        header.height, proof.to_bytes(), proof.transaction_hash))
+
+                    verified_entries.append((proof.transaction_hash, header, proof))
+                    logger.debug("Storing verified merkle proof for transaction %s",
+                        hash_to_hex_str(proof.transaction_hash))
+
+            # Set the given merkle proof as the one for the active chain on the given transaction
+            # also creating it in the merkle proof table if it is not already there.
+            if len(tx_update_rows) > 0 or len(proof_rows) > 0:
+                await self.data.update_transaction_proof_async(tx_update_rows, proof_rows, [])
+
+            # These are detached proofs, which we do not have a header or chain for. We register
+            # Them so that when the header comes in, they can be considered for use.
+            for headerless_proof in headerless_proofs:
+                self._connect_headerless_proof_worker_state.proof_queue.put_nowait(headerless_proof)
+            self._connect_headerless_proof_worker_state.proof_event.set()
+
+            # We set these proofs on transactions which makes the transactions verified.
+            for verified_entry in verified_entries:
+                self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, *verified_entry)
 
     async def _consume_tip_filter_matches_async(self, state: ServerConnectionState) -> None:
         """
-        Process tip filter matches received from a server.
+        Process tip filter messages received from a server.
+
+        This will either receive messages directly from the server message loop, or it will
+        process backlogged unprocessed messages on startup.
         """
+        message_entries = list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]()
+        for message_row in await self.data.read_server_peer_channel_messages_async(
+                PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
+                ServerPeerChannelFlag.TIP_FILTER_DELIVERY, ServerPeerChannelFlag.MASK_PURPOSE):
+            message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
+            message_entries.append((message_row, message))
+        state.tip_filter_matches_queue.put_nowait(message_entries)
+
         while True:
             rows_by_account_id = dict[int, list[PushDataMatchMetadataRow]]()
+            creation_pushdata_match_rows = list[PushDataMatchRow]()
+            processed_message_ids = list[int]()
+            for message_row, message in await state.tip_filter_matches_queue.get():
+                assert message_row.message_id is not None
+                processed_message_ids.append(message_row.message_id)
+
+                if not isinstance(message["payload"], dict):
+                    # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+                    self._logger.error("Peer channel message payload invalid: '%s'", message)
+                    continue
+
+                pushdata_matches = cast(TipFilterPushDataMatchesData, message["payload"])
+                if "blockId" not in pushdata_matches:
+                    # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+                    self._logger.error("Peer channel message payload invalid: '%s'", message)
+                    continue
+
+                date_created = get_posix_timestamp()
+                block_hash: Optional[bytes] = None
+                if pushdata_matches["blockId"] is not None:
+                    block_hash = hex_str_to_hash(pushdata_matches["blockId"])
+                for tip_filter_match in pushdata_matches["matches"]:
+                    pushdata_hash = bytes.fromhex(tip_filter_match["pushDataHashHex"])
+                    transaction_hash = hex_str_to_hash(tip_filter_match["transactionId"])
+                    transaction_index = tip_filter_match["transactionIndex"]
+                    match_flags = PushDataMatchFlag(tip_filter_match["flags"])
+                    # TODO(1.4.0) Tip filters. See `read_pushdata_match_metadata`
+                    match_flags |= PushDataMatchFlag.UNPROCESSED
+                    creation_pushdata_match_row = PushDataMatchRow(state.server.server_id,
+                        pushdata_hash, transaction_hash, transaction_index, block_hash, match_flags,
+                        date_created)
+                    creation_pushdata_match_rows.append(creation_pushdata_match_row)
+
+            self._logger.debug("Writing %d pushdata matches to the database",
+                len(creation_pushdata_match_rows))
+            # The processed messages will have their `UNPROCESSED` flag removed here as part of an
+            # atomic update, that also inserts their extracted pushdata matches.
+            await self.data.create_pushdata_matches_async(creation_pushdata_match_rows,
+                processed_message_ids)
+
+            # At the moment we read the matches out of the database to associate them with
+            # individual accounts. It should be possible to say we only create pushdata matches
+            # when we want to do this and return that there. Unless we have in-memory state that
+            # allows us to do that mapping, we have to go to the database for it in some way
+            # and this will do for now.
+            # TODO(technical-debt) Double-dipping in the database?
             metadata_rows = self.data.read_pushdata_match_metadata()
             for metadata_row in metadata_rows:
                 if metadata_row.account_id in rows_by_account_id:
@@ -4029,8 +4071,6 @@ class Wallet:
                     len(obtain_transaction_keys), account_id, obtain_transaction_keys)
                 await self.obtain_transactions_async(account_id, obtain_transaction_keys)
 
-            await state.tip_filter_new_matches_event.wait()
-
     def _register_spent_outputs_to_monitor(self, spent_outpoints: list[Outpoint]) -> None:
         """
         Call this to start monitoring outpoints when the wallet needs to know if they are mined.
@@ -4046,7 +4086,6 @@ class Wallet:
         state.output_spend_registration_queue.put_nowait(spent_outpoints)
 
     # TODO(1.4.0) Spent outputs. Unit test malleation replacement of a transaction
-    # TODO(1.4.0) Server state. This could just be given the queue.
     async def _consume_output_spend_notifications_async(self,
             queue: asyncio.Queue[Sequence[OutputSpend]]) -> None:
         """
@@ -4089,6 +4128,7 @@ class Wallet:
                         #     is possible we are legitimately waiting to know how it has been
                         #     included in any transaction by the other party, or... something else?
                         self._logger.error("DOUBLE SPENT OR MALLEATED %r ~ %r", spent_output, row)
+                        assert spent_output.out_tx_hash != bytes(32)
                         # TODO(1.4.0) Spent outputs. Detect malleation by comparing transactions.
                         #     That would probably require extra work like fetching the new
                         #     transaction and then reconciling it.
@@ -4143,11 +4183,12 @@ class Wallet:
             block_hash: bytes) -> None:
         # We indicate that we need to obtain the proof by setting the known block hash and the
         # state to cleared.
-        await db_functions.update_transaction_proof_async(self.get_db_context(),
-            spending_tx_hash, block_hash, None, None, TxFlags.STATE_CLEARED)
+        date_updated = get_posix_timestamp()
+        tx_update_row = TransactionProofUpdateRow(block_hash, None, TxFlags.STATE_CLEARED,
+            date_updated, spending_tx_hash)
+        await self.data.update_transaction_proof_async([ tx_update_row ], [], [])
 
         self._check_missing_proofs_event.set()
-        self._check_missing_proofs_event.clear()
 
         self.events.trigger_callback(WalletEvent.TRANSACTION_HEIGHTS_UPDATED, 1, 1)
 
@@ -4188,6 +4229,9 @@ class Wallet:
         """
         return self._storage.get_explicit_type(bool, str(setting_name), default_value)
 
+    def is_connected_to_blockchain_server(self) -> bool:
+        return self._blockchain_server_state is not None
+
     def is_synchronized(self) -> bool:
         "If all the accounts are synchronized"
         return not (self._network and self._missing_transactions)
@@ -4211,15 +4255,18 @@ class Wallet:
         maximum_size_bytes = maximum_size * (1024 * 1024)
         self._transaction_cache2.set_maximum_size(maximum_size_bytes, force_resize)
 
-    def get_local_height(self) -> int:
-        """ return last known height if we are offline """
-        return (self._network.get_local_height() if self._network else
-            self._storage.get_explicit_type(int, 'stored_height', 0))
-
     def start(self, network: Optional[Network]) -> None:
+        assert app_state.headers is not None
+
         self._network = network
+        self._chain_management_queue = asyncio.Queue[tuple[ChainManagementKind,
+            Union[tuple[Chain, list[bytes], list[Header]], tuple[Chain, list[Header]]]]]()
+        self._chain_management_pending_event = asyncio.Event()
+        self._chain_worker_queue = asyncio.Queue[ChainWorkerToken]()
+        self._is_chain_management_pending = False
 
         if network is not None:
+            # Online mode.
             network.add_wallet(self)
 
             # Add all servers with HEADERS capability to the network layer for header tracking
@@ -4233,23 +4280,23 @@ class Wallet:
 
             self._worker_task_manage_server_connections = app_state.async_.spawn(
                 self._manage_server_connections_async)
+        else:
+            # Offline mode.
+            if self._persisted_tip_hash is not None:
+                try:
+                    header, chain = cast(tuple[Header, Chain], app_state.headers.lookup(
+                        self._persisted_tip_hash))
+                except MissingHeader:
+                    pass
+                else:
+                    self._current_chain = chain
+                    self._current_tip_header = header
 
         self._stopped = False
 
     def stop(self) -> None:
-        assert not self._stopped
-
-        local_height = self._last_load_height
-        chain_tip_hash = self._last_load_hash
-        if self._network is not None:
-            chain = self._network.chain()
-            if chain is not None:
-                chain_tip = chain.tip
-                local_height = chain_tip.height
-                chain_tip_hash = chain_tip.hash
-        self._storage.put('stored_height', local_height)
-        if self._reorg_check_complete:
-            self._storage.put('last_tip_hash', chain_tip_hash.hex() if chain_tip_hash else None)
+        assert not (self._stopping or self._stopped)
+        self._stopping = True
 
         for account in self.get_accounts():
             account.stop()
@@ -4264,9 +4311,9 @@ class Wallet:
             if self._worker_task_obtain_merkle_proofs is not None:
                 self._worker_task_obtain_merkle_proofs.cancel()
                 del self._worker_task_obtain_merkle_proofs
-            if self._worker_task_late_header_worker is not None:
-                self._worker_task_late_header_worker.cancel()
-                del self._worker_task_late_header_worker
+            if self._worker_task_connect_headerless_proofs is not None:
+                self._worker_task_connect_headerless_proofs.cancel()
+                del self._worker_task_connect_headerless_proofs
             self._teardown_server_connections()
 
         for credential_id in self._registered_api_keys.values():
@@ -4296,44 +4343,6 @@ class Wallet:
             if isinstance(keystore, Hardware_KeyStore):
                 plugin = cast('QtPluginBase', keystore.plugin)
                 plugin.replace_gui_handler(window, keystore)
-
-    def update_main_server_tip_and_chain(self, tip: Header, chain: Chain) -> None:
-        assert self.indexing_server_state is not None
-        self.indexing_server_state.tip_header = tip
-        self.indexing_server_state.chain = chain
-
-    async def _set_indexing_server(self, server_key: ServerAccountKey,
-            reason: ServerSwitchReason) -> None:
-        assert self._network is not None
-        # The caller should make sure this is a viable server.
-        assert self._network.is_header_server_ready(server_key)
-
-        logger.info("Setting indexing server to: '%s' reason: %s", server_key, reason.name)
-
-        new_indexing_server_state = self._network.get_header_server_state(server_key)
-        if self.indexing_server_state is new_indexing_server_state:
-            logger.error("Attempted to set existing indexing server for wallet again %s",
-                server_key)
-            return
-
-        server_chain_before = None
-        if self.indexing_server_state is not None:
-            server_chain_before = self.indexing_server_state.chain
-
-        self.indexing_server_state = new_indexing_server_state
-
-        if reason == ServerSwitchReason.INITIALISATION:
-            assert server_chain_before is None
-            await self._startup_reorg_check_async()
-        elif server_chain_before is not None:
-            assert self.indexing_server_state.chain is not None
-            await self.reorg_check_main_chain(server_chain_before, self.indexing_server_state.chain)
-
-        self._indexing_server_ready_event.set()
-        self._indexing_server_ready_event.clear()
-
-        self._network.trigger_callback(NetworkEventNames.GENERIC_STATUS)
-
 
     # TODO(1.4.0) Servers. This is no longer used. We will not be switching filtering or peer
     #     channel servers unless the user manually makes it happen. This needs to be factored
@@ -4369,91 +4378,859 @@ class Wallet:
     #         if self._network.auto_connect():
     #             await self._set_main_server(random.choice(good_servers), reason)
     #         else:
-    #             assert self.indexing_server_state is not None
+    #             assert self._blockchain_server_state is not None
     #             logger.warning("main server %s is not good, but retaining it because "
-    #                 "auto-connect is off", self.indexing_server_state.server.url)
+    #                 "auto-connect is off", self._blockchain_server_state.server.url)
 
-    async def _startup_reorg_check_async(self) -> None:
-        """If this is a fresh wallet db migration, the set of block hashes for which we have
-        transaction history is acquired and filtered to leave any orphaned block hashes (if any).
-        The transactions in the orphaned block will be 'reset' to STATE_CLEARED for further
-        processing to get the correct proof data."""
+    async def _wait_for_chain_related_work_async(self, token: ChainWorkerToken,
+            coroutine_callables: Optional[Sequence[Callable[[], Coroutine[Any, Any, Any]]]]=None) \
+                -> None:
+        """
+        This should be called by a worker task to get permission to do another batch of work.
+        Any worker task using this should be doing work that would otherwise engage in race
+        conditions with the reorg task (should a reorg be in process).
+        """
+        while not self._stopped and not self._stopping:
+            # We can proceed unless the chain management task requesting that we block and let it
+            # work.
+            if not self._is_chain_management_pending:
+                if coroutine_callables is None:
+                    return
+                if len(coroutine_callables) == 0:
+                    return
 
-        self._logger.info("Starting startup reorg check")
+                # We don't just want to wait for work for the caller, we also want to exit and do
+                # the appropriate thing if the chain management becomes pending. We use a task
+                # because that is what `asyncio.wait` returns.
+                chain_task = asyncio.create_task(self._chain_management_pending_event.wait(),
+                    name="chain management task")
+                extended_awaitables: list[Awaitable[Any]] = \
+                    [ entry() for entry in coroutine_callables ]
+                extended_awaitables.append(chain_task)
 
+                awaitables_done, _awaitables_pending = await asyncio.wait(extended_awaitables,
+                    return_when=asyncio.FIRST_COMPLETED)
+
+                # If chain management is pending we stay here. Otherwise we exit to the caller.
+                # If it is not set, one of the caller awaitables must have completed and we exit.
+                if chain_task not in awaitables_done:
+                    return
+                assert self._is_chain_management_pending
+
+            # Signal that we are waiting using the worker queue, then block on the chain management
+            # queue until the chain management task completes it's work.
+            self._chain_worker_queue.put_nowait(token)
+            await self._chain_worker_queue.join()
+
+    async def _chain_management_task(self) -> None:
+        """
+        Decoupled processing of blockchain header updates for the wallet's header source.
+
+        Due to the wait on `_header_source_synchronised_event` this will not process updates until
+        the blockchain server connection process has:
+
+          1. Verified that the network object has finished synchronising the headers from the
+             header source.
+          2. Reconciled the wallet's last persisted blockchain state with the header source's
+             current blockchain state in `_reconcile_wallet_with_header_source`.
+
+        WARNING: We do not want to lose blockchain header updates so we expect certain guarantees.
+            These are based on the asynchronous thread not yielding and the `self._current_chain`
+            variable being used as a flag.
+
+          1. The `process_header_source_update` function sends us updates as long as
+             `self._current_chain` is set.
+          2. The blockchain state reconciliation function `_reconcile_wallet_with_header_source`
+             takes care not to block between getting the current header source blockchain state,
+             processing it and setting `self._current_chain`.
+        """
         assert self._network is not None
-        assert self.indexing_server_state is not None
-        assert self.indexing_server_state.chain is not None
+        await self._header_source_synchronised_event.wait()
+        assert self._current_chain is not None
 
-        headers_store = cast(Headers, app_state.headers)
+        # These are the chain-related worker tasks this management task needs to coordinate with.
+        expected_worker_tokens = {
+            ChainWorkerToken.CONNECT_PROOF_CONSUMER, ChainWorkerToken.MAPI_MESSAGE_CONSUMER,
+            ChainWorkerToken.OBTAIN_PROOF_WORKER, ChainWorkerToken.OBTAIN_TRANSACTION_WORKER,
+        }
 
-        # last_tip_hash indicates that any merkle proofs that are present (not null) in the
-        # `Transactions` table are verified for the chain corresponding to this `last_tip_hash`
-        # This allows us to avoid full table scans for reorg processing and instead only update
-        # rows that are above the common parent block hash.
-        last_tip_hash_hex: Optional[str] = self._storage.get('last_tip_hash')
-        last_tip_hash: Optional[bytes] = None
-        if last_tip_hash_hex is not None:
-            last_tip_hash = hex_str_to_hash(last_tip_hash_hex)
+        while True:
+            item_kind, item_data = await self._chain_management_queue.get()
+            if item_kind == ChainManagementKind.BLOCKCHAIN_EXTENSION:
+                extension_chain, new_headers = cast(tuple[Chain, list[Header]], item_data)
+                assert self._current_chain is extension_chain
+                self._current_tip_header = new_headers[-1]
 
-        main_chain = self.indexing_server_state.chain
+                self._storage.put("current_tip_hash",
+                    hash_to_hex_str(self._current_tip_header.hash))
 
-        # Full Transaction table scan and reconciliation to match selected main server chain
-        # NOTE: MissingHeader exception could only happen if the headers mmap store is lost/deleted,
-        # thereby losing the orphaned chain data forever. Nevertheless, it can still reconcile.
-        orphaned_block_hashes = []
-        if not last_tip_hash or not self._network.is_header_present(last_tip_hash):
-            block_hashes = db_functions.read_transaction_block_hashes(self._db_context)
-            for block_hash in block_hashes:
+                for header in new_headers:
+                    logger.info("Post-reorg, new tip hash: %s, height: %s",
+                        hash_to_hex_str(header.hash), header.height)
+                    self._connect_headerless_proof_worker_state.header_queue.put_nowait(
+                        (header, extension_chain))
+                self._connect_headerless_proof_worker_state.header_event.set()
+
+                self._network.trigger_callback(NetworkEventNames.GENERIC_UPDATE)
+                continue
+            elif item_kind == ChainManagementKind.BLOCKCHAIN_REORGANISATION:
+                new_chain, orphaned_block_hashes, new_headers = cast(
+                    tuple[Chain, list[bytes], list[Header]], item_data)
+            else:
+                raise NotImplementedError(f"Unexpected item kind={item_kind}, data={item_data}")
+
+            # Signal the chain-related workers to complete their current batch and block.
+            self._is_chain_management_pending = True
+            self._chain_management_pending_event.set()
+            # Wait for all the worker tasks to compete their current batches and block.
+            signalled_worker_tokens = set[ChainWorkerToken]()
+            while signalled_worker_tokens != expected_worker_tokens:
                 try:
-                    header, chain = headers_store.lookup(block_hash)
+                    worker_token = await asyncio.wait_for(self._chain_worker_queue.get(), 10.0)
+                except asyncio.TimeoutError:
+                    self._logger.exception("Timed out waiting for a worker to block, have %s",
+                        signalled_worker_tokens)
+                    # It is assumed that if this happens, the code is broken and the reliability
+                    # of the application cannot be guaranteed.
+                    # TODO(1.4.0) Unreliable application indicator. This should never happen.
+                    #     We should do something when these "should never happen" errors happen.
+                    return
+
+                assert worker_token in expected_worker_tokens
+                signalled_worker_tokens.add(worker_token)
+
+            # This blocks the current task so we need to be sure there are not race conditions.
+            # The problem would be with header source updates. However, that does delta changes
+            # relative to the header source's fork, and those are queued for this task to process
+            # so they still happen in order.
+            await self.on_reorg(orphaned_block_hashes)
+            self._update_current_chain(new_chain, new_headers[-1])
+
+            # This task consumes data produced by the wallet header processing we need to ensure
+            # it flushes stale data and starts from the current (post-reorg) database state.
+            self._connect_headerless_proof_worker_state.requires_reload = True
+
+            # Reawaken all the worker tasks
+            self._is_chain_management_pending = False
+            self._chain_management_pending_event.clear()
+            for worker_token in signalled_worker_tokens:
+                self._chain_worker_queue.task_done()
+
+    async def _reconcile_wallet_with_header_source(self,
+            server_state: Optional[HeaderServerState], header_source_chain: Chain,
+            header_source_tip_header: Header) -> None:
+        """
+        Before the wallet starts modifying blockchain related data, it needs to reconcile it's
+        last position (what fork and what height) on the blockchain against the current state
+        of it's header source.
+
+        WARNING: These must be true or the wallet chain state can corrupt it's blockchain data.
+
+            1. The caller must be providing the chain and header for the header source, and
+               they should be the current values for that header source when we are called.
+            2. This function must not block until it has set the `_current_chain` wallet
+               variable. After it is set the incoming updates to the header source will get
+               queued, but before that point
+            3. Ensure that the "header source synchronised" event is only set when we are ready
+               for blockchain related records to be modified in the database.
+        """
+        assert self._network is not None
+        assert app_state.headers is not None
+        assert not self._header_source_synchronised_event.is_set()
+        assert self._current_chain is None
+
+        if self._persisted_tip_hash is not None:
+            assert self._current_tip_header is None
+
+            # Ensure the header store has the current chain tip header for this wallet.
+            try:
+                header, chain = cast(tuple[Header, Chain], app_state.headers.lookup(
+                    self._persisted_tip_hash))
+            except MissingHeader:
+                # Either the header store has been deleted, or the wallet database has been moved
+                # to another computer with a different header store. As the headers are known to be
+                # synchronised, it should be assumed that the fork the wallet has been following
+                # up to now was reorged and is no longer relevant.
+                detached_wallet_tip = True
+            else:
+                detached_wallet_tip = False
+
+                self._update_current_chain(chain, header)
+                # This is essential to do immediately after we set `_current_chain` as we want
+                # the first update to do the transition between the wallet's current blockchain
+                # state and the header source's blockchain state. Other network object updates
+                # coming through will start being applied after `_current_chain` is set, which is
+                # why we need to be certain there is no blocking and this is called immediately.
+                self.process_header_source_update(server_state, chain, header, header_source_chain,
+                    header_source_tip_header)
+
+                self._logger.debug("Continuing existing wallet chain %d:%s", header.height,
+                    hash_to_hex_str(header.hash))
+        else:
+            detached_wallet_tip = True
+
+        if detached_wallet_tip:
+            # Either this is a new wallet or it is an old wallet that predates storage of this
+            # record. We have to do a full table scan to rectify this situation, but none of these
+            # wallets should have that many transactions.
+            orphaned_block_hashes = list[bytes]()
+            for block_hash in db_functions.read_transaction_block_hashes(self._db_context):
+                try:
+                    transaction_header, transaction_chain = cast(tuple[Header, Chain],
+                        app_state.headers.lookup(block_hash))
                 except MissingHeader:
                     orphaned_block_hashes.append(block_hash)
                 else:
-                    if main_chain.tip.hash != chain.tip.hash:
+                    if transaction_chain is header_source_chain:
+                        continue
+
+                    common_chain, common_height = cast(tuple[Optional[Chain], int],
+                        transaction_chain.common_chain_and_height(header_source_chain))
+                    if common_height == -1:
+                        # TODO(1.4.0) Reorgs. Bad header source. We are following a new blockchain!
+                        #     This is a fatal error.
+                        raise Exception("Broken header source; claims to have different blockchain")
+
+                    # This block is on a different fork from the wallet's header source.
+                    if common_height < transaction_header.height:
                         orphaned_block_hashes.append(block_hash)
-            await self.on_reorg(orphaned_block_hashes)
-            return
 
-        # Otherwise, check that the last_tip_hash is on the longest chain. Handle as needed.
-        header, old_chain = headers_store.lookup(last_tip_hash)
-        if main_chain.tip.hash != old_chain.tip.hash:
-            _chain, common_parent_height = main_chain.common_chain_and_height(old_chain)
-            orphaned_block_hashes = [headers_store.header_at_height(old_chain, h).hash for h
-                in range(common_parent_height + 1, old_chain.tip.height)]
-            await self.on_reorg(orphaned_block_hashes)
+            if len(orphaned_block_hashes) > 0:
+                await self.on_reorg(orphaned_block_hashes)
 
-        self._reorg_check_complete = True
-        self._logger.info("Finished startup reorg check")
+            # Reorging blocks this task while the database writes happen and allows the chance that
+            # the header source may have updates in the meantime that get ignored because
+            # `current_chain` is not yet set. These would be lost and result in possible corruption
+            # so we get the current chain and header of the header source, and check for changes
+            # and process them before proceeding.
+            updated_header_source_chain, updated_header_source_tip_header = \
+                self._network.get_header_source_state(server_state)
+            if header_source_tip_header != updated_header_source_tip_header:
+                self.process_header_source_update(server_state, header_source_chain,
+                    header_source_tip_header, updated_header_source_chain,
+                    updated_header_source_tip_header)
 
-    async def reorg_check_main_chain(self, old_chain: Chain, new_chain: Chain) -> None:
+            self._update_current_chain(header_source_chain, header_source_tip_header)
+            self._logger.debug("Processed detached wallet chain %d:%s",
+                header_source_tip_header.height, hash_to_hex_str(header_source_tip_header.hash))
+
+        self._header_source_synchronised_event.set()
+
+    def _update_current_chain(self, chain: Chain, header: Header) -> None:
+        """
+        Update the chain and tip header for the wallet's header source.
+
+        We might be setting this for the first time or updating it for several potential reasons.
+        """
+        # The header store includes our current tip header.
+        self._current_chain = chain
+        self._current_tip_header = header
+
+        self._storage.put("current_tip_hash", hash_to_hex_str(self._current_tip_header.hash))
+
+    def process_header_source_update(self, server_state: Optional[HeaderServerState],
+            previous_chain: Chain, previous_tip_header: Header, current_chain: Chain,
+            current_tip_header: Header) -> None:
+        """
+        Process a change to the headers on one of our header sources. This may be the P2P network
+        or one selected blockchain server the wallet knows of.
+
+        Processing changes and race conditions
+        --------------------------------------
+
+        In the normal case, this task processes delta changes for the header source. However these
+        still need to be linked to the wallet's initial last processed header which was loaded
+        from the database. This happens in `_reconcile_wallet_with_header_source` and it is the
+        one initial case where this is called directly by the wallet, rather than by the network
+        object with updates. It also sets the `current_chain` which will not have been set until
+        then causing all header source updates that were received before then to be discarded.
+
+        Why the central header store is not directly usable
+        ---------------------------------------------------
+
+        A given wallet instance cannot rely on the central bitcoinx header store as an indicator of
+        what block notifications the wallet instance has processed. It must instead follow a
+        specific header source and the choice of followed fork for that header source. The central
+        header store is a superset of any header source ElectrumSV is obtaining headers through,
+        which means a wallet must know how to map it's header source and what state it has
+        processed to the headers in the central header store.
+
+        How we tell when there is a reorg
+        ---------------------------------
+
+        It does not necessarily mean anything that the chain object changed. This does not
+        indicate a reorg, it just indicates that the centralised header store received the
+        header at the given height for this header source after another header at the given
+        height. The first header at that height extends that chain, and any additional headers
+        at that height each become the first header in new "bitcoinx chains".
+
+        The key question is whether we need to look back at previously processed heights and
+        reorg the transactions that have merkle proofs on a different fork. We do not care if
+        the chain object has changed unless this shows that we have forked off at a lower height
+        than we have already processed.
+
+        NOTE The P2P network is not currently supported.
+        """
         assert app_state.headers is not None
         assert self._network is not None
 
-        if old_chain.tip != new_chain.tip:
-            _chain, common_parent_height = old_chain.common_chain_and_height(new_chain)
-            orphaned_block_hashes = [app_state.headers.header_at_height(old_chain, h).hash
-                for h in range(common_parent_height + 1, old_chain.tip.height)]
-            new_block_hashes = [app_state.headers.header_at_height(new_chain, h).hash for h in
-                range(common_parent_height + 1, new_chain.tip.height + 1)]
+        if self._is_wallet_header_source(server_state):
+            # `` needs to be called before we make use of these updates.
+            if self._current_chain is None:
+                return
 
-            block_hashes_as_str = [hash_to_hex_str(h) for h in orphaned_block_hashes]
-            logger.info("Reorg detected; undoing wallet verifications for block hashes %s",
-                block_hashes_as_str)
+            # This update is relevant for the wallet as this is our header source.
+            fork_height = -1
+            last_processed_height = previous_tip_header.height
+            if current_chain is previous_chain:
+                is_reorg = False
+            else:
+                _chain, fork_height = cast(tuple[Optional[Chain], int],
+                    previous_chain.common_chain_and_height(current_chain))
+                if fork_height == -1:
+                    # TODO(1.4.0) Reorgs. Bad header source. We are following a new blockchain!
+                    #     This is a fatal error.
+                    raise Exception("Broken header source; claims to have different blockchain")
+                elif fork_height > last_processed_height:
+                    # The fork happens after the last block header we have processed. When these
+                    # headers are processed, we will switch the current chain to this fork chain.
+                    is_reorg = False
+                else:
+                    # The fork happens on a block header we have already processed.
+                    is_reorg = True
 
-            await self.on_reorg(orphaned_block_hashes)
+            if is_reorg:
+                assert fork_height > -1
+                orphaned_block_hashes = [app_state.headers.header_at_height(previous_chain, h).hash
+                    for h in range(fork_height + 1, last_processed_height + 1)]
+                new_block_headers = [app_state.headers.header_at_height(current_chain, h) for h in
+                    range(fork_height + 1, current_tip_header.height + 1)]
+
+                block_hashes_as_str = [hash_to_hex_str(h) for h in orphaned_block_hashes]
+                logger.info("Reorg detected; undoing wallet verifications for block hashes %s",
+                    block_hashes_as_str)
+
+                self._chain_management_queue.put_nowait(
+                    (ChainManagementKind.BLOCKCHAIN_REORGANISATION,
+                        (current_chain, orphaned_block_hashes, new_block_headers)))
+            else:
+                new_block_headers = [app_state.headers.header_at_height(current_chain, h) for h in
+                    range(last_processed_height + 1, current_tip_header.height + 1)]
+
+                self._chain_management_queue.put_nowait(
+                    (ChainManagementKind.BLOCKCHAIN_EXTENSION, (current_chain, new_block_headers)))
         else:
-            new_block_hashes = [app_state.headers.header_at_height(new_chain, h).hash for h in
-                range(old_chain.tip.height + 1, new_chain.tip.height + 1)]
+            # TODO(1.4.0) Headers. This is not our header source, does it have repercussions for us?
+            #     We can detect a stall. We can detect a longer chain and warn the user if relvnt?
+            pass
 
-        # New tip notifications from HeaderSV can skip multiple headers
-        # We need to ensure we notify all wallets of each and every new tip so any backlogged
-        # merkle proofs get the required headers for processing.
-        for block_hash in new_block_hashes:
-            new_tip_header: Header = self._network.header_for_hash(block_hash)
-            logger.info("Post-reorg, new tip hash: %s, height: %s",
-                hash_to_hex_str(new_tip_header.hash), new_tip_header.height)
-            self._on_new_tip_header(new_tip_header, new_chain)
+    def _is_wallet_header_source(self, server_state: Optional[HeaderServerState]) -> bool:
+        if self._blockchain_server_state is not None:
+            # Header source: The explicitly or implicitly user selected blockchain server.
+            # We have to follow them as a header source because they will be providing results
+            # from their blockchain APIs based on their choice of preferred chain (this may be
+            # automatically the longest or a manual override if perhaps there is an attack on the
+            # chain).
+            return server_state == self._blockchain_server_state
+        elif server_state is not None:
+            # Header source: A server's header API.
+            # TODO(1.4.0) Headers. If no blockchain server wanted / no P2P access. Follow headers
+            #     from the most acceptable chain seen on the <= 5 header API servers we should be
+            #     connecting to.
+            return False
+        else:
+            # Header source: P2P.
+            # TODO(1.4.0) Headers. If no blockchain server wanted, but we have P2P access. Follow
+            #     headers from the most acceptable chain seen through P2P (we should not use
+            #     header API servers in this case at all).
+            return False
 
-        self._network.trigger_callback(NetworkEventNames.GENERIC_UPDATE)
+    async def obtain_transactions_async(self, account_id: int, keys: List[Tuple[bytes, bool]],
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> Set[bytes]:
+        """
+        Update the registry of transactions we do not have or are in the process of getting.
+
+        It is optional whether the caller wants
+
+        Return the hashes out of `tx_hashes` that do not already exist and will attempt to be
+        acquired.
+        """
+        async with self._obtain_transactions_async_lock:
+            missing_tx_hashes: Set[bytes] = set()
+            existing_tx_hashes = set(r.tx_hash for r in self.data.read_transactions_exist(
+                [ key[0] for key in keys ]))
+            for tx_hash, with_proof in keys:
+                if tx_hash in existing_tx_hashes:
+                    continue
+                if tx_hash in self._missing_transactions:
+                    # These transactions are not in the database, metadata is tracked in the entry
+                    # and we should update it.
+                    self._missing_transactions[tx_hash].import_flags |= import_flags
+                    self._missing_transactions[tx_hash].with_proof |= with_proof
+                    if account_id not in self._missing_transactions[tx_hash].account_ids:
+                        self._missing_transactions[tx_hash].account_ids.append(account_id)
+                else:
+                    self._missing_transactions[tx_hash] = MissingTransactionEntry(import_flags,
+                        with_proof, [ account_id ])
+                    missing_tx_hashes.add(tx_hash)
+
+            self._logger.debug("Registering %d missing transactions", len(missing_tx_hashes))
+            # Prompt the missing transaction logic to try again if the user is re-registering
+            # already missing transactions (the `TransactionImportFlag.PROMPTED` check).
+            if len(missing_tx_hashes) or import_flags & TransactionImportFlag.PROMPTED:
+                self._check_missing_transactions_event.set()
+            return missing_tx_hashes
+
+    async def _obtain_transactions_worker_async(self) -> None:
+        assert app_state.headers is not None
+
+        # We need the header source to be fully synchronised before we start.
+        await self._header_source_synchronised_event.wait()
+
+        # To get here there must not have been any further missing transactions.
+        self._check_missing_transactions_event.set()
+        while not (self._stopping or self._stopped):
+            # This blocks until there is pending work and it is safe to perform it.
+            self._logger.debug("Waiting for more missing transactions")
+            await self._wait_for_chain_related_work_async(
+                ChainWorkerToken.OBTAIN_TRANSACTION_WORKER,
+                [ self._check_missing_transactions_event.wait ])
+            if self._stopping or self._stopped:
+                return
+
+            state = self.get_server_state_for_capability(ServerCapability.TIP_FILTER)
+            assert state is not None
+
+            self._check_missing_transactions_event.clear()
+
+            while len(self._missing_transactions):
+                tx_hash: bytes
+                entry: MissingTransactionEntry
+                async with self._obtain_transactions_async_lock:
+                    if not len(self._missing_transactions):
+                        break
+                    # In theory this should pick missing transactions in order of insertion.
+                    tx_hash = next(iter(self._missing_transactions))
+                    self._logger.debug("Picked missing transaction %s", hash_to_hex_str(tx_hash))
+                    entry = self._missing_transactions[tx_hash]
+
+                # The request gets billed to the first account to request a transaction.
+                account_id = entry.account_ids[0]
+                account = self._accounts[account_id]
+
+                if entry.with_proof:
+                    try:
+                        tsc_full_proof_bytes = await request_binary_merkle_proof_async(state,
+                            tx_hash, include_transaction=True)
+                    except ServerConnectionError:
+                        # TODO(1.4.0) Networking. Handle `ServerConnectionError` exception.
+                        #     No reliable server should cause this, we should stand off the server
+                        #     or something similar.
+                        logger.error("Still need to implement handling for inability to connect"
+                            "to a server to get arbitrary merkle proofs, sleeping 60 seconds")
+                        await asyncio.sleep(60)
+                        continue
+                    except IndexerResponseMissingError:
+                        # There is no proof for this transaction. Just get the transaction.
+                        entry.with_proof = False
+                        continue
+                    except FilterResponseInvalidError as response_exception:
+                        # TODO(1.4.0) Networking. Handle `FilterResponseInvalidError` exception.
+                        #     No reliable server should cause this, we should stand off the server
+                        #     or something similar. For now we exit the loop and let the user cause
+                        #     other events that allow retry by setting the event.
+                        logger.error("Server responded to proof request with error %s",
+                            str(response_exception))
+                        break
+
+                    try:
+                        tsc_full_proof = TSCMerkleProof.from_bytes(tsc_full_proof_bytes)
+                    except TSCMerkleProofError:
+                        # TODO(1.4.0) Networking. Handle `TSCMerkleProofError` exception.
+                        #     No trustable server should cause this, we should disable the server or
+                        #     something similar.
+                        self._logger.error("Still need to implement handling for inability to "
+                            "connect to a server to get arbitrary merkle proofs")
+                        return
+
+                    try:
+                        header, chain = app_state.headers.lookup(tsc_full_proof.block_hash)
+                    except MissingHeader:
+                        # Missing header therefore add the transaction as TxFlags.STATE_CLEARED with
+                        # proof data until the late_header_worker_async gets the required header.
+                        tx_bytes, tsc_proof = separate_proof_and_embedded_transaction(
+                            tsc_full_proof, tx_hash)
+                        assert tsc_proof.block_hash is not None
+
+                        tx = Transaction.from_bytes(tx_bytes)
+                        await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED)
+
+                        proof_row = MerkleProofRow(tsc_proof.block_hash,
+                            tsc_proof.transaction_index, -1, tsc_proof.to_bytes(), tx_hash)
+                        await self.data.create_merkle_proofs_async([ proof_row ])
+
+                        # The late header worker task can verify this proof.
+                        self._connect_headerless_proof_worker_state.proof_queue.put_nowait(
+                            (tsc_proof, proof_row))
+                        self._connect_headerless_proof_worker_state.proof_event.set()
+
+                        assert tx_hash not in self._missing_transactions
+                        continue
+
+                    try:
+                        if not verify_proof(tsc_full_proof, header.merkle_root):
+                            # TODO(1.4.0) Networking. Handle invalid merkle proof that fails.
+                            self._logger.error("Still need to implement handling for receiving "
+                                "invalid merkle proofs")
+                            return
+                    except TSCMerkleProofError:
+                        # TODO(1.4.0) Networking. Handle invalid merkle proof that is broken.
+                        self._logger.error("Still need to implement handling for receiving "
+                            "invalid merkle proofs")
+                        return
+
+                    # Separate the transaction data and the proof data for storage.
+                    tx_bytes, tsc_proof = separate_proof_and_embedded_transaction(tsc_full_proof,
+                        tx_hash)
+                    assert tsc_proof.block_hash is not None
+                    tx = Transaction.from_bytes(tx_bytes)
+
+                    proof_row = MerkleProofRow(tsc_proof.block_hash,
+                        tsc_proof.transaction_index, header.height, tsc_proof.to_bytes(), tx_hash)
+
+                    if self.is_header_within_current_chain(header.height, tsc_proof.block_hash):
+                        await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_SETTLED,
+                            tsc_proof.block_hash, header.height, proof_row=proof_row)
+                    else:
+                        await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED)
+                        await self.data.create_merkle_proofs_async([ proof_row ])
+
+                    assert tx_hash not in self._missing_transactions
+                else:
+                    tx_bytes = await self.fetch_raw_transaction_async(tx_hash, account)
+                    tx = Transaction.from_bytes(tx_bytes)
+                    await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED)
+                    assert tx_hash not in self._missing_transactions
+
+    async def _obtain_merkle_proofs_worker_async(self) -> None:
+        """
+        Obtain TSC merkle proofs for transactions we know are mined.
+
+        This is currently only used to obtain merkle proofs for the following cases:
+
+        - We delete the older non-TSC proof from `STATE_SETTLED` transactions in migration 29.
+          Those transactions need a new TSC proof, and that should happen in the first iteration
+          given ability to access and use a server successfully.
+
+        It is planned that this would also handle the following cases:
+
+        - If we have transactions we did not obtain through either restoration scanning (which
+          provides merkle proofs) or through some mechanism where MAPI delivers the proof (either
+          to our channel or another party's channel where they deliver it to us) then we need to
+          manually obtain the proof ourselves. This would need some other external event source
+          where we find out whether transactions have been mined, like output spend notifications.
+        """
+        assert app_state.headers is not None
+
+        # We need the header source to be fully synchronised before we start.
+        await self._header_source_synchronised_event.wait()
+
+        # TODO(1.4.0) Networking. If the user does not have their internet connection enabled when
+        #     the wallet is first opened, then this will maybe error and exit or block. We should
+        #     be able to detect problems like this and highlight it to the user, and retry
+        #     periodically or when they manually indicate they want to retry.
+        self._check_missing_proofs_event.set()
+        while not (self._stopping or self._stopped):
+            # This blocks until there is pending proof connection work and it is safe to perform it.
+            await self._wait_for_chain_related_work_async(ChainWorkerToken.OBTAIN_PROOF_WORKER, [
+                self._check_missing_proofs_event.wait ])
+            if self._stopping or self._stopped:
+                return
+
+            state = self.get_server_state_for_capability(ServerCapability.TIP_FILTER)
+            assert state is not None
+
+            self._check_missing_proofs_event.clear()
+
+            # We just take the first returned transaction for now (and ignore the rest).
+            rows = db_functions.read_proofless_transactions(self.get_db_context())
+            tx_hash = rows[0].tx_hash if len(rows) else None
+            if len(rows):
+                row = rows[0]
+                tx_hash = row.tx_hash
+                self._logger.debug("Requesting merkle proof from server for transaction %s",
+                    hash_to_hex_str(row.tx_hash))
+                try:
+                    tsc_full_proof_bytes = await request_binary_merkle_proof_async(state, tx_hash,
+                        include_transaction=False)
+                except ServerConnectionError:
+                    # TODO(1.4.0) Networking. Handle `ServerConnectionError` exception.
+                    #     No reliable server should cause this, we should stand off the server or
+                    #     something similar.
+                    self._logger.error("Still need to implement handling for inability to connect"
+                        "to a server to get arbitrary merkle proofs")
+                    await asyncio.sleep(60)
+                    continue
+
+                try:
+                    tsc_proof = TSCMerkleProof.from_bytes(tsc_full_proof_bytes)
+                except TSCMerkleProofError:
+                    # TODO(1.4.0) Networking. Handle `TSCMerkleProofError` exception.
+                    #     No trustable server should cause this, we should disable the server or
+                    #     something similar.
+                    self._logger.error("Still need to implement handling for inability to connect"
+                        "to a server to get arbitrary merkle proofs")
+                    return
+
+                assert tsc_proof.block_hash is not None
+                try:
+                    header, chain = app_state.headers.lookup(tsc_proof.block_hash)
+                except MissingHeader:
+                    # We store the proof in a way where we know we obtained it recently, but
+                    # that it is still in need of processing. The late header worker can
+                    # read these in on startup and will get it via the queue at runtime.
+                    # date_updated = get_posix_timestamp()
+                    proof_row = MerkleProofRow(tsc_proof.block_hash,
+                        tsc_proof.transaction_index, -1, tsc_proof.to_bytes(), tx_hash)
+                    await self.data.create_merkle_proofs_async([ proof_row  ])
+
+                    self._connect_headerless_proof_worker_state.proof_queue.put_nowait(
+                        (tsc_proof, proof_row))
+                    self._connect_headerless_proof_worker_state.proof_event.set()
+                    continue
+
+                try:
+                    if not verify_proof(tsc_proof, header.merkle_root):
+                        # TODO(1.4.0) Networking. Handle invalid merkle proof that fails.
+                        self._logger.error("Still need to implement handling for inability to "
+                            "connect to a server to get arbitrary merkle proofs")
+                        return
+                except TSCMerkleProofError:
+                    # TODO(1.4.0) Networking. Handle invalid merkle proof that is broken.
+                    self._logger.error("Still need to implement handling for receiving "
+                        "invalid merkle proofs")
+                    return
+
+                if self.is_header_within_current_chain(header.height, tsc_proof.block_hash):
+                    self._logger.debug("Storing verified merkle proof for transaction %s",
+                        hash_to_hex_str(row.tx_hash))
+
+                    # This proof is valid for the wallet's view of the blockchain.
+                    date_updated = get_posix_timestamp()
+                    tx_update_row = TransactionProofUpdateRow(tsc_proof.block_hash,
+                        tsc_proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
+                        row.tx_hash)
+                    proof_row = MerkleProofRow(tsc_proof.block_hash,
+                        tsc_proof.transaction_index, header.height, tsc_proof.to_bytes(),
+                        row.tx_hash)
+                    await self.data.update_transaction_proof_async([ tx_update_row ],
+                        [ proof_row ], [])
+
+                    self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, tx_hash, header,
+                        tsc_proof)
+                else:
+                    proof_row = MerkleProofRow(tsc_proof.block_hash,
+                        tsc_proof.transaction_index, header.height, tsc_proof.to_bytes(), tx_hash)
+                    await self.data.create_merkle_proofs_async([ proof_row  ])
+
+                    self._connect_headerless_proof_worker_state.proof_queue.put_nowait(
+                        (tsc_proof, proof_row))
+                    self._connect_headerless_proof_worker_state.proof_event.set()
+
+    async def _connect_headerless_proofs_worker_async(self) -> None:
+        # We need the header source to be fully synchronised before we start.
+        await self._header_source_synchronised_event.wait()
+
+        assert self._connect_headerless_proof_worker_state is not None
+
+        state = self._connect_headerless_proof_worker_state
+        state.requires_reload = True
+
+        # TODO(1.4.0) Merkle proofs. What if there is a reorg. Surely we should clear all cached
+        #     data before proceeding. Or maybe we should just be cancelled.
+        while not (self._stopping or self._stopped):
+            if state.requires_reload:
+                state.requires_reload = False
+
+                # Any state that is there is there with the understanding that it is already in
+                # the database or would be reconciled when this task first runs.
+                state.reset()
+
+                # Gather the existing unconnected proofs from the database.
+                for proof_row in self.data.read_unconnected_merkle_proofs():
+                    proof = TSCMerkleProof.from_bytes(proof_row.proof_data)
+                    state.proof_queue.put_nowait((proof, proof_row))
+                # If there is data to process ensure we start right away.
+                if state.proof_queue.qsize() > 0:
+                    state.proof_event.set()
+
+            # This blocks until there is pending proof connection work and it is safe to perform it.
+            await self._wait_for_chain_related_work_async(ChainWorkerToken.CONNECT_PROOF_CONSUMER, [
+                    state.header_event.wait,      # Set when there are pending headers.
+                    state.proof_event.wait,       # Set when there are pending proofs.
+                ])
+            if self._stopping or self._stopped:
+                return
+
+            process_entries = list[tuple[Header, tuple[TSCMerkleProof, MerkleProofRow]]]()
+
+            # This is non-blocking. We know it empties all the pending proofs.
+            if state.proof_event.is_set():
+                pending_proof_entries = list[tuple[TSCMerkleProof, MerkleProofRow]]()
+                while state.proof_queue.qsize() > 0:
+                    pending_proof_entries.append(state.proof_queue.get_nowait())
+                state.proof_event.clear()
+
+                for proof_entry in pending_proof_entries:
+                    proof = proof_entry[0]
+                    assert proof.block_hash is not None
+                    assert proof.transaction_hash is not None
+                    lookup_result = self.lookup_header_for_hash(proof.block_hash)
+                    if lookup_result is None:
+                        logger.debug("Backlogged transaction %s verification waiting for missing "
+                            "header", hash_to_hex_str(proof.transaction_hash))
+                        state.block_transactions[proof.block_hash].append(proof_entry)
+                    else:
+                        header, _common_chain = lookup_result
+                        process_entries.append((header, proof_entry))
+
+            # This is non-blocking. We know it empties all the pending headers.
+            if state.header_event.is_set():
+                pending_headers = list[tuple[Header, Chain]]()
+                while state.header_queue.qsize() > 0:
+                    pending_headers.append(state.header_queue.get_nowait())
+                state.header_event.clear()
+
+                for header, chain in pending_headers:
+                    assert chain == self._current_chain
+                    block_hash = header.hash
+                    if block_hash in state.block_transactions:
+                        for proof_entry in state.block_transactions[block_hash]:
+                            process_entries.append((header, proof_entry))
+                    del state.block_transactions[block_hash]
+
+            date_updated = get_posix_timestamp()
+            transaction_proof_updates = list[TransactionProofUpdateRow]()
+            proof_updates = list[MerkleProofUpdateRow]()
+            verified_proof_entries = list[tuple[Header, tuple[TSCMerkleProof, MerkleProofRow]]]()
+
+            for process_entry in process_entries:
+                header, (proof, proof_row) = process_entry
+                assert proof.transaction_hash is not None
+                if verify_proof(proof, header.merkle_root):
+                    assert proof.block_hash is not None
+
+                    transaction_proof_updates.append(TransactionProofUpdateRow(proof.block_hash,
+                        proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
+                        proof.transaction_hash))
+                    verified_proof_entries.append(process_entry)
+                    proof_updates.append(MerkleProofUpdateRow(header.height,
+                        proof_row.block_hash, proof_row.tx_hash))
+                else:
+                    # TODO(bad-server)
+                    # TODO(1.4.0) Networking. We probably want to know what server this came from
+                    #    so we can treat it as a bad server. And we would want to retry with a good
+                    #    server.
+                    logger.error("Deferred verification transaction %s failed verifying proof",
+                        hash_to_hex_str(proof.transaction_hash))
+                    # Remove the "pending verification" proof and block data from the transaction,
+                    # it should not be necessary to update the UI as the transaction should not have
+                    # changed state and we do not display "pending verification" proofs.
+                    transaction_proof_updates.append(TransactionProofUpdateRow(None,
+                        None, TxFlags.STATE_CLEARED, date_updated, proof.transaction_hash))
+
+            await self.data.update_transaction_proof_async(transaction_proof_updates, [],
+                proof_updates)
+
+            for header, (proof, _proof_row) in verified_proof_entries:
+                self.data.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED,
+                    proof.transaction_hash, header, proof)
+
+    # Helper methods to access blockchain data that can be seen through the wallet's view of the it.
+
+    def get_local_height(self) -> int:
+        """
+        Gets the height of the latest header that the wallet has processed.
+
+        This will return `0` if the wallet has no discernable latest header.
+        """
+        # If we do not know the wallet blockchain state we cannot know the height it is at.
+        if self._current_chain is None:
+            return 0
+
+        assert self._current_tip_header is not None
+        return cast(int, self._current_tip_header.height)
+
+    # TODO(1.4.0) Headers. Unit test that all branches of this work.
+    def is_header_within_current_chain(self, height: int, block_hash: bytes) -> bool:
+        """
+        Identify if the block at the given height on the current chain has the given hash.
+
+        Raises no exceptions.
+        """
+        # If we do not know the wallet blockchain state we cannot lookup any header.
+        if self._current_chain is None:
+            return False
+
+        assert app_state.headers is not None
+        assert self._current_tip_header is not None
+        if height > self._current_tip_header.height:
+            return False
+        try:
+            header_bytes = app_state.headers.raw_header_at_height(self._current_chain, height)
+        except MissingHeader:
+            return False
+        return cast(bytes, double_sha256(header_bytes)) == block_hash
+
+    # TODO(1.4.0) Headers. Unit test that all branches of this work.
+    def lookup_header_for_hash(self, block_hash: bytes) -> Optional[tuple[Header, Chain]]:
+        """
+        Lookup the header based on the wallet's current chain state.
+
+        The wallet cannot allow access to the header store as a way of asserting what the wallet
+        does or does not know about the blockchain. What the wallet knows about the blockchain
+        is dependent on it's header source, which in the case of a blockchain service provider
+        will have to follow the chain state of that provider.
+
+        All chain state access relative to a given wallet should happen through the `Wallet`
+        instance, using helper methods like this.
+        """
+        assert app_state.headers is not None
+
+        # TODO(1.4.0) Headers. The header store is not thread-safe. Reads must happen in the
+        #     same thread as the writes. We can check the thread and enforce it in code.
+
+        # If we do not know the wallet blockchain state we cannot lookup any header.
+        if self._current_chain is None:
+            return None
+
+        try:
+            header, chain = cast(tuple[Header, Chain], app_state.headers.lookup(block_hash))
+        except MissingHeader:
+            return None
+
+        # Case: We are on a fork from the longer chain and the header lies within our fork.
+        # Case: We are on the longer chain and the header lies within it.
+        if chain is self._current_chain:
+            return header, chain
+
+        # Case: We are on a fork and the header lies on the longer chain we are attached to
+        #       but at or below the common height (above that would be a different fork).
+        common_chain: Optional[Chain]
+        common_height: int
+        common_chain, common_height = self._current_chain.common_chain_and_height(chain)
+        # Case: We do not even share the Genesis block with the other chain. We could assert but
+        #       it does not hurt to generically fail.
+        if common_chain is None:
+            return None
+
+        # The header lies on the different fork.
+        if header.height > common_height:
+            return None
+
+        # The header is at the common height or below on the common chain.
+        return header, common_chain
+
+    def _guess_current_tip_hash(self) -> bytes:
+        pass
 

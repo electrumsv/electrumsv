@@ -47,14 +47,15 @@ from typing import Any, AsyncIterable, cast, List, NamedTuple, Optional, TypedDi
 
 import aiohttp
 from aiohttp import WSServerHandshakeError
-from bitcoinx import Chain, hash_to_hex_str, hex_str_to_hash, Header, MissingHeader, PrivateKey
+from bitcoinx import hash_to_hex_str, PrivateKey
 
 from .exceptions import AuthenticationError, FilterResponseInvalidError, \
-    FilterResponseIncompleteError, GeneralAPIError, InvalidStateError, TransactionNotFoundError
+    FilterResponseIncompleteError, GeneralAPIError, IndexerResponseMissingError, \
+    InvalidStateError, TransactionNotFoundError
 from ..app_state import app_state
-from ..bitcoin import TSCMerkleProof, TSCMerkleProofError, verify_proof
 from ..constants import PeerChannelAccessTokenFlag, PushDataHashRegistrationFlag, \
-    PushDataMatchFlag, ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag
+    ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, \
+    PeerChannelMessageFlag
 from ..crypto import pw_encode
 from ..exceptions import ServerConnectionError
 from ..i18n import _
@@ -62,17 +63,14 @@ from ..logs import logs
 from ..types import Outpoint, outpoint_struct, output_spend_struct, OutputSpend, \
     tip_filter_list_struct, tip_filter_registration_struct, TipFilterListEntry
 from ..util import get_posix_timestamp
-from ..wallet_database.types import PushDataMatchRow, PushDataHashRegistrationRow, \
-    ServerPeerChannelRow, ServerPeerChannelAccessTokenRow
+from ..wallet_database.types import PushDataHashRegistrationRow, \
+    ServerPeerChannelRow, ServerPeerChannelAccessTokenRow, ServerPeerChannelMessageRow
 
 from .types import AccountMessageKind, GenericPeerChannelMessage, \
-    IndexerServerSettings, JSONEnvelope, MessageViewModelGetBinary, \
-    MessageViewModelGetJSON, PeerChannelAPITokenViewModelGet, \
-    PeerChannelViewModelGet,  \
-    RetentionViewModel, ServerConnectionState, TipFilterPushDataMatchesData, \
+    IndexerServerSettings, MessageViewModelGetBinary, PeerChannelAPITokenViewModelGet, \
+    PeerChannelViewModelGet,  RetentionViewModel, ServerConnectionState, \
     TipFilterRegistrationResponse, TokenPermissions, \
     VerifiableKeyData, WebsocketUnauthorizedException
-from .mapi import validate_json_envelope
 
 
 logger = logs.get_logger("general-api")
@@ -207,7 +205,7 @@ def unpack_binary_restoration_entry(entry_data: bytes) -> RestorationFilterResul
 STREAM_CHUNK_SIZE = 16*1024
 
 
-async def _request_binary_merkle_proof_async(state: ServerConnectionState, tx_hash: bytes,
+async def request_binary_merkle_proof_async(state: ServerConnectionState, tx_hash: bytes,
         include_transaction: bool=False, target_type: str="hash") -> bytes:
     """
     Get a TSC merkle proof with optional embedded transaction.
@@ -217,6 +215,7 @@ async def _request_binary_merkle_proof_async(state: ServerConnectionState, tx_ha
     for ease of access.
 
     Raises `FilterResponseInvalidError` if the response is not valid.
+    Raises `IndexerResponseMissingError` if the resource does not exist.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
     assert state.credential_id is not None
@@ -238,7 +237,9 @@ async def _request_binary_merkle_proof_async(state: ServerConnectionState, tx_ha
 
     try:
         async with state.session.get(server_url, params=params, headers=headers) as response:
-            if response.status != HTTPStatus.OK:
+            if response.status == HTTPStatus.NOT_FOUND:
+                raise IndexerResponseMissingError()
+            elif response.status != HTTPStatus.OK:
                 raise FilterResponseInvalidError(
                     f"Bad response status={response.status}, reason={response.reason}")
 
@@ -255,57 +256,6 @@ async def _request_binary_merkle_proof_async(state: ServerConnectionState, tx_ha
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
-
-class MerkleProofError(Exception):
-    def __init__(self, proof: TSCMerkleProof, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-
-        self.merkle_proof = proof
-
-
-class MerkleProofVerificationError(MerkleProofError):
-    ...
-
-class MerkleProofMissingHeaderError(MerkleProofError):
-    ...
-
-
-async def request_binary_merkle_proof_async(state: ServerConnectionState, tx_hash: bytes,
-        include_transaction: bool=False) -> tuple[TSCMerkleProof, tuple[Header, Chain]]:
-    """
-    Requests the merkle proof from a given server, verifies it and returns it.
-
-    Raises `FilterResponseInvalidError` if the response is not valid.
-    Raises `ServerConnectionError` if the remote server is not online (and other networking
-        problems).
-    Raises `TSCMerkleProofError` if the proof structure is illegitimate.
-    Raises `MerkleProofVerificationError` if the proof verification fails (this is unexpected if
-        we are requesting proofs from a legitimate server).
-    Raises `MerkleProofMissingHeaderError` if the header for the block the transaction is in
-        is not known to the application.
-    """
-    assert app_state.headers is not None
-    assert state.credential_id is not None
-
-    tsc_proof_bytes = await _request_binary_merkle_proof_async(state, tx_hash,
-        include_transaction=include_transaction)
-    logger.debug("Read %d bytes of merkle proof", len(tsc_proof_bytes))
-    try:
-        tsc_proof = TSCMerkleProof.from_bytes(tsc_proof_bytes)
-    except TSCMerkleProofError:
-        logger.error("Provided merkle proof invalid %s", hash_to_hex_str(tx_hash))
-        raise
-
-    try:
-        header, chain = app_state.headers.lookup(tsc_proof.block_hash)
-    except MissingHeader:
-        raise MerkleProofMissingHeaderError(tsc_proof)
-
-    if not verify_proof(tsc_proof, header.merkle_root):
-        logger.error("Provided merkle proof fails verification %s", hash_to_hex_str(tx_hash))
-        raise MerkleProofVerificationError(tsc_proof)
-
-    return tsc_proof, (header, chain)
 
 
 async def request_transaction_data_async(state: ServerConnectionState, tx_hash: bytes) -> bytes:
@@ -487,6 +437,7 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
     state.credential_id = app_state.credentials.add_indefinite_credential(api_key)
     logger.debug("Obtained new credentials for server %s", state.server.server_id)
 
+
 async def manage_server_connection_async(state: ServerConnectionState) -> bool:
     """
     Manage an open websocket to this ElectrumSV reference server.
@@ -658,11 +609,11 @@ async def manage_output_spends_async(state: ServerConnectionState) -> None:
                     return
 
                 spent_output = OutputSpend.from_network(*output_spend_struct.unpack(response_bytes))
-                logger.debug("Spent output registration returned %r", spent_output)
                 spent_outputs.append(spent_output)
 
                 response_bytes = await response.content.read(output_spend_struct.size)
 
+        logger.debug("Spent output registration returned %d results", len(spent_outputs))
         await state.output_spend_result_queue.put(spent_outputs)
 
     state.connection_flags |= ServerConnectionFlag.OUTPUT_SPENDS_READY
@@ -799,79 +750,50 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
         messages = await list_peer_channel_messages_async(state, remote_channel_id,
             db_access_tokens[0].access_token, unread_only=True)
         if len(messages) == 0:
-            logger.error("Asked peer channel %d for new messages and received none",
+            # This may happen legitimately if we had several new message notifications backlogged
+            # for the same channel, but processing a leading notification picks up the messages
+            # for the trailing notification.
+            logger.debug("Asked peer channel %d for new messages and received none",
                 peer_channel_row.peer_channel_id)
             continue
 
-        # TODO(1.4.0) Peer channels. It might be worth tying toggling messages read when we
-        #     know we have them in the database.
-        #     - If for instance we inserted the pushdata match database here, then marked the
-        #       messages as read after the loop.
-        #     - We would want to do the same for the mapi callbacks.
-        #     - Maybe we should even delete the messages.
-        max_sequence = max(message["sequence"] for message in messages)
-        await mark_peer_channel_read_or_unread_async(state, remote_channel_id,
-            db_access_tokens[0].access_token, max_sequence, older=True, is_read=True)
-
+        date_created = get_posix_timestamp()
+        creation_message_rows = list[ServerPeerChannelMessageRow]()
+        message_map = dict[int, GenericPeerChannelMessage]()
         for message in messages:
-            if message["content_type"] == "application/json":
-                purpose = peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE
-                if purpose == ServerPeerChannelFlag.TIP_FILTER_DELIVERY:
-                    if not isinstance(message["payload"], dict):
-                        # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
-                        logger.error("Peer channel message payload invalid: '%s'", message)
-                        continue
-                    pushdata_matches = cast(TipFilterPushDataMatchesData, message["payload"])
-                    if "blockId" not in pushdata_matches:
-                        # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
-                        logger.error("Peer channel message payload invalid: '%s'", message)
-                        continue
+            message_json_bytes = json.dumps(message).encode()
+            received_iso8601_text = message["received"].replace("Z", "+00:00")
+            received_datetime = datetime.fromisoformat(received_iso8601_text)
+            creation_message_rows.append(ServerPeerChannelMessageRow(None,
+                peer_channel_row.peer_channel_id, message_json_bytes,
+                PeerChannelMessageFlag.UNPROCESSED, message["sequence"],
+                int(received_datetime.timestamp()),
+                date_created, date_created))
+            message_map[message["sequence"]] = message
 
-                    date_created = get_posix_timestamp()
-                    rows = list[PushDataMatchRow]()
-                    block_hash: Optional[bytes] = None
-                    if pushdata_matches["blockId"] is not None:
-                        block_hash = hex_str_to_hash(pushdata_matches["blockId"])
-                    for tip_filter_match in pushdata_matches["matches"]:
-                        pushdata_hash = bytes.fromhex(tip_filter_match["pushDataHashHex"])
-                        transaction_hash = hex_str_to_hash(tip_filter_match["transactionId"])
-                        transaction_index = tip_filter_match["transactionIndex"]
-                        match_flags = PushDataMatchFlag(tip_filter_match["flags"])
-                        # TODO(1.4.0) Tip filters. See `read_pushdata_match_metadata`
-                        match_flags |= PushDataMatchFlag.UNPROCESSED
-                        row = PushDataMatchRow(state.server.server_id, pushdata_hash,
-                            transaction_hash, transaction_index, block_hash, match_flags,
-                            date_created)
-                        rows.append(row)
+        # These cached values are passed on to whatever other system processes these types of
+        # messages.
+        message_entries = list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]()
+        for message_row in await state.wallet_data.create_server_peer_channel_messages_async(
+                creation_message_rows):
+            message_entries.append((message_row, message_map[message_row.sequence]))
 
-                    logger.debug("Writing %d pushdata matches to the database", len(rows))
-                    await state.wallet_data.create_pushdata_matches_async(rows)
-                    state.tip_filter_new_matches_event.set()
-                    state.tip_filter_new_matches_event.clear()
-                elif purpose == ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
-                    if not isinstance(message["payload"], dict):
-                        # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
-                        logger.error("Peer channel MAPI callback payload invalid: '%s'", message)
-                        continue
+        # Now that we have all these messages stored locally we can delete the remote copies.
+        for sequence in message_map:
+            await delete_peer_channel_message_async(state, remote_channel_id,
+                db_access_tokens[0].access_token, sequence)
 
-                    mapi_callback_envelope = cast(JSONEnvelope, message["payload"])
-                    try:
-                        validate_json_envelope(mapi_callback_envelope)
-                    except ValueError as e:
-                        # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
-                        logger.error("Peer channel MAPI callback envelope invalid: %s '%s'",
-                            e.args[0], message)
-                        continue
-
-                    await state.mapi_callback_response_queue.put(mapi_callback_envelope)
-                else:
-                    # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
-                    logger.error("Received peer channel %d message of unhandled purpose '%s'",
-                        peer_channel_row.peer_channel_id, purpose)
-            else:
-                # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
-                logger.error("Received peer channel %d message with unexpected content type '%s'",
-                    peer_channel_row.peer_channel_id, message['content_type'])
+        peer_channel_purpose = \
+            peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE
+        if peer_channel_purpose == ServerPeerChannelFlag.TIP_FILTER_DELIVERY:
+            await state.tip_filter_matches_queue.put(message_entries)
+        elif peer_channel_purpose == ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
+            state.mapi_callback_response_queue.put_nowait(message_entries)
+            state.mapi_callback_response_event.set()
+        else:
+            # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+            logger.error("Received peer channel %d messages of unhandled purpose '%s'",
+                peer_channel_row.peer_channel_id, peer_channel_purpose)
 
     logger.debug("Exiting process_incoming_peer_channel_messages_async, server_id=%d",
         state.server.server_id)
@@ -1173,7 +1095,7 @@ async def create_peer_channel_locally_and_remotely_async(
     # Local database: Update for the server-side peer channel. Drop the `ALLOCATING` flag and
     #     add the access token.
     peer_channel_row = await wallet_data.update_server_peer_channel_async(remote_peer_channel_id,
-        peer_channel_url, ServerPeerChannelFlag.TIP_FILTER_DELIVERY, peer_channel_id,
+        peer_channel_url, third_party_peer_channel_flag, peer_channel_id,
         addable_access_tokens=[third_party_access_token, default_access_token])
 
     return peer_channel_row, third_party_access_token
@@ -1373,7 +1295,7 @@ async def delete_peer_channel_async(state: ServerConnectionState, remote_channel
 
 async def create_peer_channel_message_json_async(state: ServerConnectionState,
         remote_channel_id: str, access_token: str, message: dict[str, Any]) \
-            -> Optional[MessageViewModelGetJSON]:
+            -> Optional[GenericPeerChannelMessage]:
     """returns sequence number"""
     server_url = f"{state.server.url}api/v1/channel/{remote_channel_id}"
     headers = {
@@ -1388,7 +1310,7 @@ async def create_peer_channel_message_json_async(state: ServerConnectionState,
             if response.status != HTTPStatus.OK:
                 raise GeneralAPIError(
                     f"Bad response status code: {response.status}, reason: {response.reason}")
-            return cast(MessageViewModelGetJSON, await response.json())
+            return cast(GenericPeerChannelMessage, await response.json())
     except aiohttp.ClientError:
         # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
         #     like this, we should do something to make sure that does not happen. Debug log?
@@ -1446,6 +1368,28 @@ async def list_peer_channel_messages_async(state: ServerConnectionState, remote_
         #     like this, we should do something to make sure that does not happen. Debug log?
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {url}")
+
+
+async def delete_peer_channel_message_async(state: ServerConnectionState, remote_channel_id: str,
+        access_token: str, sequence: int) -> None:
+    """
+    Use the reference peer channel implementation API for deleting a message in a peer channel.
+
+    Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
+    Raises `ServerConnectionError` if the remote computer does not accept the connection.
+    """
+    server_url = f"{state.server.url}api/v1/channel/{remote_channel_id}/{sequence}"
+    headers = {"Authorization": f"Bearer {access_token}"}
+    try:
+        async with state.session.delete(server_url, headers=headers) as response:
+            if response.status != HTTPStatus.OK:
+                raise GeneralAPIError(
+                    f"Bad response status code: {response.status}, reason: {response.reason}")
+    except aiohttp.ClientError:
+        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
+        #     like this, we should do something to make sure that does not happen. Debug log?
+        logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
+        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
 
 async def create_peer_channel_api_token_async(state: ServerConnectionState, channel_id: str,

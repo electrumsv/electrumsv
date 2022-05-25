@@ -65,14 +65,14 @@ class TestWalletDataTable:
         values = dict(db_functions.read_wallet_datas(self.db_context))
         assert len(values) == 0
 
-        future = db_functions.set_wallet_datas(self.db_context, [ WalletDataRow("A", "B") ])
+        future = db_functions.post_update_wallet_datas(self.db_context, [ WalletDataRow("A", "B") ])
         future.result()
 
         values = dict(db_functions.read_wallet_datas(self.db_context))
         assert len(values) == 1
         assert values["A"] == "B"
 
-        future = db_functions.set_wallet_datas(self.db_context, [ WalletDataRow("A", "C") ])
+        future = db_functions.post_update_wallet_datas(self.db_context, [ WalletDataRow("A", "C") ])
         future.result()
 
         values = dict(db_functions.read_wallet_datas(self.db_context))
@@ -83,14 +83,14 @@ class TestWalletDataTable:
         k = os.urandom(10).hex()
         v = [ os.urandom(10).hex() ]
 
-        future = db_functions.set_wallet_datas(self.db_context, [ WalletDataRow(k, v) ])
+        future = db_functions.post_update_wallet_datas(self.db_context, [ WalletDataRow(k, v) ])
         future.result()
 
         values = dict(db_functions.read_wallet_datas(self.db_context))
         assert len(values) == 1
         assert values[k] == v
 
-        future = db_functions.delete_wallet_data(self.db_context, k)
+        future = db_functions.post_delete_wallet_data(self.db_context, k)
         future.result()
 
         values = dict(db_functions.read_wallet_datas(self.db_context))

@@ -290,6 +290,20 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         )
     """)
 
+    conn.execute("""
+        CREATE TABLE ServerPeerChannelMessages (
+            message_id                  INTEGER     PRIMARY KEY,
+            peer_channel_id             INTEGER     NOT NULL,
+            message_data                BLOB        NOT NULL,
+            message_flags               INTEGER     NOT NULL,
+            sequence                    INTEGER     NOT NULL,
+            date_received               INTEGER     NOT NULL,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
+        )
+    """)
+
     # TODO(1.4.0) Key usage. How do we relate these to the source? Is there a way to say
     #     this comes from this active key instance? Maybe it is enough to have a flag that
     #     says this is from an active key instance. If something needs to know which then it
@@ -331,7 +345,6 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             ON ServerPushDataMatches(pushdata_hash, transaction_hash, transaction_index)
     """)
 
-
     # We need to persist the updated next primary key value for the `Accounts` table.
     # We need to persist the updated next identifier for the `Accounts` table.
     conn.executemany("UPDATE WalletData SET value=? WHERE key=?",
@@ -349,7 +362,10 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     # the same. The reason we do not clear the SETTLED flag is that this would be a bad user
     # experience and they would see all their transactions strangely revert back to CLEARED and
     # they may not be re-verified until they jump through server hoops.
-    conn.execute("UPDATE Transactions SET proof_data=NULL")
+    conn.execute("ALTER TABLE Transactions DROP COLUMN proof_data")
+    # This is a column we were supposed to remove in an earlier migration but the versions of
+    # SQLite we could require as a dependency did not support it at the time.
+    conn.execute("ALTER TABLE Transactions DROP COLUMN block_height")
 
     # Transfer all merkle proof data from the Transactions table to the
     # The pathways for insertion to this table are as follows:
@@ -359,11 +375,12 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     # All proofs from all chains should be inserted here (i.e. including orphaned proofs). They
     # can be pruned when the proof on the main server chain is buried by sufficient proof of work .
     conn.execute("""CREATE TABLE IF NOT EXISTS TransactionProofs (
-        block_hash BLOB,
-        tx_hash BLOB,
-        proof_data BLOB DEFAULT NULL,
-        block_height INTEGER DEFAULT NULL,
-        block_position INTEGER DEFAULT NULL
+        block_hash                      BLOB        NOT NULL,
+        tx_hash                         BLOB        NOT NULL,
+        proof_data                      BLOB        NOT NULL,
+        block_position                  INTEGER     NOT NULL,
+        block_height                    INTEGER     NOT NULL,
+        FOREIGN KEY (tx_hash) REFERENCES Transactions (tx_hash)
     )""")
     conn.execute("CREATE UNIQUE INDEX idx_tx_proofs ON TransactionProofs (tx_hash, block_hash)")
 

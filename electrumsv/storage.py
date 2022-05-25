@@ -239,6 +239,12 @@ class AbstractStore:
         return ret
 
     def put(self, key: str, value: Any, already_persisted: bool=False) -> None:
+        """
+        This caches the update in `self._data` and also posts a database operation to the
+        writer thread to update the wallet database. This function should therefore be
+        non-blocking except when there is lock contention. However for the asynchronous thread
+        this will block the scheduler and will not yield to other tasks, allowing race conditions.
+        """
         # Both key and value should be JSON serialisable.
         json.dumps([ key, value ])
 
@@ -348,12 +354,12 @@ class DatabaseStore(AbstractStore):
     def _on_value_modified(self, key: str, value: Any, already_persisted: bool=False) -> None:
         # Queued write, we do not wait for it to complete. Closing the DB context will wait.
         if not already_persisted:
-            db_functions.set_wallet_datas(self._db_context, [ WalletDataRow(key, value) ])
+            db_functions.post_update_wallet_datas(self._db_context, [ WalletDataRow(key, value) ])
 
     def _on_value_deleted(self, key: str, already_persisted: bool=False) -> None:
         # Queued write, we do not wait for it to complete. Closing the DB context will wait.
         if not already_persisted:
-            db_functions.delete_wallet_data(self._db_context, key)
+            db_functions.post_delete_wallet_data(self._db_context, key)
 
     def _write(self) -> None:
         pass

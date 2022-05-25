@@ -3,7 +3,8 @@ from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Set, Tuple, 
 
 from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
     MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag,
-    PeerChannelAccessTokenFlag, PushDataMatchFlag, PushDataHashRegistrationFlag, ScriptType,
+    PeerChannelAccessTokenFlag, PeerChannelMessageFlag, PushDataMatchFlag,
+    PushDataHashRegistrationFlag, ScriptType,
     ServerPeerChannelFlag, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 from ..types import MasterKeyDataTypes
 
@@ -45,7 +46,7 @@ class SpentOutputRow(NamedTuple):
 class HistoryListRow(NamedTuple):
     tx_hash: bytes
     tx_flags: TxFlags
-    block_hash: Optional[int]
+    block_hash: Optional[bytes]
     block_position: Optional[int]
     description: Optional[str]
     value_delta: int
@@ -438,16 +439,30 @@ class TransactionRow(NamedTuple):
     description: Optional[str]
     version: Optional[int]
     locktime: Optional[int]
-    proof_data: Optional[bytes]     = None
     date_created: int               = -1
     date_updated: int               = -1
 
 
-class TransactionProofRow(NamedTuple):
+class MerkleProofRow(NamedTuple):
+    block_hash: bytes
+    block_position: int
+    block_height: int
+    proof_data: bytes
+    tx_hash: bytes
+
+
+class MerkleProofUpdateRow(NamedTuple):
+    block_height: int
     block_hash: bytes
     tx_hash: bytes
-    proof_data: bytes
-    block_position: int
+
+
+class TransactionProofUpdateRow(NamedTuple):
+    block_hash: Optional[bytes]
+    block_position: Optional[int]
+    tx_flags: TxFlags
+    date_updated: int
+    tx_hash: bytes
 
 
 class TransactionProoflessRow(NamedTuple):
@@ -462,11 +477,6 @@ class TransactionValueRow(NamedTuple):
     block_hash: Optional[bytes]
     date_created: int
     date_updated: int
-
-
-class TxProofResult(NamedTuple):
-    tx_hash: bytes
-    proof: Optional[bytes]
 
 
 class TxProofData(NamedTuple):
@@ -549,6 +559,17 @@ class ServerPeerChannelAccessTokenRow(NamedTuple):
     token_flags: PeerChannelAccessTokenFlag
     permission_flags: int
     access_token: str
+
+
+class ServerPeerChannelMessageRow(NamedTuple):
+    message_id: Optional[int]
+    peer_channel_id: int
+    message_data: bytes
+    message_flags: PeerChannelMessageFlag
+    sequence: int
+    date_received: int
+    date_created: int
+    date_updated: int
 
 
 class PushDataHashRegistrationRow(NamedTuple):

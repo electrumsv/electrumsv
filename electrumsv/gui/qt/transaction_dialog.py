@@ -40,7 +40,7 @@ from PyQt5.QtGui import QBrush, QCloseEvent, QCursor, QFont
 from PyQt5.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
     QToolTip, QTreeWidgetItem, QVBoxLayout, QWidget)
 
-from bitcoinx import hash_to_hex_str, Header, MissingHeader, Unknown_Output
+from bitcoinx import hash_to_hex_str, Header, Unknown_Output
 
 from ...app_state import app_state
 from ...bitcoin import base_encode, TSCMerkleProof
@@ -824,12 +824,9 @@ class TxDialog(QDialog, MessageBoxMixin):
                 fee = metadata.fee_value
 
                 if metadata.block_hash is not None:
-                    assert app_state.headers is not None
-                    try:
-                        header, _chain = app_state.headers.lookup(metadata.block_hash)
-                        date_mined = header.timestamp
-                    except MissingHeader:
-                        pass
+                    header_and_chain = wallet.lookup_header_for_hash(metadata.block_hash)
+                    if header_and_chain is not None:
+                        date_mined = header_and_chain[0].timestamp
 
                 assert self._account is not None
                 label = self._account.get_transaction_label(self._tx_hash)

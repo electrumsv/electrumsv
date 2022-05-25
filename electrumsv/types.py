@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import dataclasses
 import struct
 from types import TracebackType
@@ -6,23 +7,41 @@ from typing import Callable, List, NamedTuple, Optional, Tuple, Type, TYPE_CHECK
     Union
 import uuid
 
-from bitcoinx import hash_to_hex_str
+from bitcoinx import Chain, hash_to_hex_str, Header
 from mypy_extensions import Arg, DefaultArg
 
-from .constants import AccountCreationType, DatabaseKeyDerivationType, DerivationType, \
-    DerivationPath, NetworkServerType, NO_BLOCK_HASH, unpack_derivation_path
+from .constants import AccountCreationType, DatabaseKeyDerivationType, DerivationPath, \
+    DerivationType, NetworkServerType, NO_BLOCK_HASH, unpack_derivation_path
 
 
 if TYPE_CHECKING:
+    from .bitcoin import TSCMerkleProof
     from .keystore import KeyStore
-    from .wallet_database.types import KeyDataProtocol, NetworkServerRow
+    from .wallet_database.types import KeyDataProtocol, NetworkServerRow, MerkleProofRow
 
 
-@dataclasses.dataclass(frozen=True)
-class SubscriptionDerivationData:
-    masterkey_id: Optional[int]
-    derivation_type: DerivationType
-    derivation_data2: Optional[bytes]
+
+@dataclasses.dataclass
+class ConnectHeaderlessProofWorkerState:
+    header_event: asyncio.Event
+    proof_event: asyncio.Event
+    header_queue: asyncio.Queue[tuple[Header, Chain]]
+    proof_queue: asyncio.Queue[tuple[TSCMerkleProof, MerkleProofRow]]
+    block_transactions: dict[bytes, list[tuple[TSCMerkleProof, MerkleProofRow]]]
+    requires_reload: bool = False
+
+    def reset(self) -> None:
+        while self.header_queue.qsize() > 0:
+            self.header_queue.get_nowait()
+            self.header_queue.task_done()
+        self.header_event.clear()
+
+        while self.proof_queue.qsize() > 0:
+            self.proof_queue.get_nowait()
+            self.proof_queue.task_done()
+        self.proof_event.clear()
+
+        self.block_transactions.clear()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -72,8 +91,9 @@ class OutputSpend(NamedTuple):
         return OutputSpend(out_tx_hash, out_index, in_tx_hash, in_index, block_hash)
 
     def __repr__(self) -> str:
-        return f'OutputSpend("{hash_to_hex_str(self.out_tx_hash)}", {self.out_index}, ' \
-            f'"{hash_to_hex_str(self.in_tx_hash)}", {self.in_index}, ' + \
+        return f'OutputSpend(out_tx_hash="{hash_to_hex_str(self.out_tx_hash)}", ' \
+            f'out_index={self.out_index}, in_tx_hash="{hash_to_hex_str(self.in_tx_hash)}", ' \
+            f'in_index={self.in_index}, block_hash=' + \
             (f'"{hash_to_hex_str(self.block_hash)}"' if self.block_hash else 'None') +')'
 
 

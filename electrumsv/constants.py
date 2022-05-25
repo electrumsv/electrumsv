@@ -413,12 +413,6 @@ class NetworkServerType(IntEnum):
     GENERAL = 2
 
 
-class ServerSwitchReason(IntEnum):
-    '''The reason the main server was changed.'''
-    NONE                = 0
-    INITIALISATION      = 1
-
-
 API_SERVER_TYPES = { NetworkServerType.MERCHANT_API, NetworkServerType.GENERAL }
 
 
@@ -523,13 +517,6 @@ class CredentialPolicyFlag(IntFlag):
 MAX_VALUE = -1
 
 
-class PendingHeaderWorkKind(IntEnum):
-    # We have a merkle proof for a transaction but no synchronised chain including it.
-    MERKLE_PROOF = 1
-    # A new header arrived.
-    NEW_TIP = 2
-
-
 NO_BLOCK_HASH = bytes(32)
 
 
@@ -545,10 +532,15 @@ class ServerPeerChannelFlag(IntFlag):
     MASK_PURPOSE                                = 0b111 << 16
 
 
+class PeerChannelMessageFlag(IntFlag):
+    NONE                                        = 0
+
+    UNPROCESSED                                 = 1 << 31
+
 
 class PeerChannelAccessTokenFlag(IntFlag):
-
     NONE                                        = 0
+
     FOR_TIP_FILTER_SERVER                       = 1 << 0
     FOR_LOCAL_USAGE                             = 1 << 1
     FOR_MAPI_CALLBACK_USAGE                     = 1 << 2
@@ -598,3 +590,15 @@ class ServerProgress(IntEnum):
     WAITING_FOR_VALID_CANDIDATES                = 2
     WAITING_UNTIL_CANDIDATE_IS_READY            = 3
     CONNECTION_PROCESS_ACTIVE                   = 4
+
+
+class ChainWorkerToken(IntEnum):
+    MAPI_MESSAGE_CONSUMER                       = 1
+    CONNECT_PROOF_CONSUMER                      = 2
+    OBTAIN_PROOF_WORKER                         = 3
+    OBTAIN_TRANSACTION_WORKER                   = 4
+
+
+class ChainManagementKind(IntEnum):
+    BLOCKCHAIN_EXTENSION                        = 1
+    BLOCKCHAIN_REORGANISATION                   = 2

@@ -978,8 +978,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.w = payment.PaymentWindow(self._api, parent=self)
         self.w.show()
 
-    def has_connected_main_server(self) -> bool:
-        return self.network is not None and self.network.is_connected()
+    def has_connected_blockchain_server(self) -> bool:
+        return self._wallet.is_connected_to_blockchain_server()
 
     def show_about(self) -> None:
         QMessageBox.about(self, "ElectrumSV",
@@ -1010,7 +1010,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _notify_tx_cb(self) -> None:
         n_ok = 0
-        if self.network and self.network.is_connected():
+        if self._wallet.is_connected_to_blockchain_server():
             num_txns = len(self.tx_notifications)
             if num_txns:
                 # Combine the transactions
@@ -1161,14 +1161,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.update_status_bar()
         self._navigation_view.refresh_account_balances()
         self._navigation_view.refresh_notifications()
-        if self._wallet.is_synchronized() or not self.network or not self.network.is_connected():
+        if not self.network or self._wallet.is_synchronized() or \
+                not self._wallet.is_connected_to_blockchain_server():
             self.update_tabs()
 
     def update_status_bar(self) -> None:
         "Update the entire status bar."
         fiat_status: Optional[Tuple[Optional[str], Optional[str]]] = None
         # Display if offline. Display if online. Do not display if synchronizing.
-        if self.network and self.network.is_connected():
+        if self._wallet.is_connected_to_blockchain_server():
             # append fiat balance and price
             assert app_state.fx is not None
             if app_state.fx.is_enabled():
@@ -1233,8 +1234,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 tooltip_text = _("..")
 
             # TODO(1.4.0) Servers. We should show header synchronisation updates.
-            # if self._wallet.indexing_server_state is not None:
-            #     server_chain_tip = self._wallet.indexing_server_state.tip_header
+            # if self._wallet._blockchain_server_state is not None:
+            #     server_chain_tip = self._wallet._blockchain_server_state.tip_header
             #     server_height = server_chain_tip.height if server_chain_tip else 0
             #     server_lag = self.network.get_local_height() - server_height
             #     if server_height == 0:

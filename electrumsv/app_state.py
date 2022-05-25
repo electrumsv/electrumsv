@@ -40,6 +40,8 @@ import time
 from types import TracebackType
 from typing import Any, Callable, cast, Coroutine, Optional, Tuple, Type, TYPE_CHECKING, TypeVar
 
+from bitcoinx import Chain, Header, MissingHeader
+
 from .async_ import ASync
 from .cached_headers import read_cached_headers, write_cached_headers
 from .constants import MAX_INCOMING_ELECTRUMX_MESSAGE_MB
@@ -170,6 +172,21 @@ class AppStateProxy(object):
             Net.CHECKPOINT)
         for n, chain in enumerate(self.headers.chains(), start=1):
             logger.info(f'chain #{n}: {chain.desc()}')
+
+    def connect_out_of_band_header(self, header_bytes: bytes) \
+            -> tuple[Optional[Header], Optional[Chain]]:
+        """
+        There is nothing wrong with connecting out of band headers. Wallets do not
+        follow the updates to the header store, they follow specific notifications
+        of synchronisation work for a header source (P2P or blockchain server).
+        """
+        assert self.headers is not None
+        try:
+            return cast(tuple[Header, Chain], self.headers.connect(header_bytes))
+        except MissingHeader:
+            # TODO(1.4.0) Headers. We may be able to connect this later (low priority)
+            #     although whether there is any benefit to this I do not know (rt12).
+            return None, None
 
     def on_stop(self) -> None:
         self._write_header_cache()

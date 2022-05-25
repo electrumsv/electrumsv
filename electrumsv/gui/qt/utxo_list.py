@@ -31,7 +31,7 @@ from PyQt5.QtCore import QItemSelectionModel, QPoint, Qt
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QAbstractItemView, QMenu, QTreeWidgetItem, QWidget
 
-from bitcoinx import hash_to_hex_str, MissingHeader
+from bitcoinx import hash_to_hex_str
 
 from ...app_state import app_state
 from ...constants import TransactionOutputFlag
@@ -126,9 +126,6 @@ class UTXOList(MyTreeWidget):
                 if tx_label_row.description:
                     tx_labels[tx_label_row.tx_hash] = tx_label_row.description
 
-        assert app_state.headers is not None
-        lookup_header = app_state.headers.lookup
-
         for utxo in utxo_rows:
             prevout_str = f"{hash_to_hex_str(utxo.tx_hash)}:{utxo.txo_index}"
             prevout_str = prevout_str[0:10] + '...' + prevout_str[-2:]
@@ -136,11 +133,9 @@ class UTXOList(MyTreeWidget):
             amount = app_state.format_amount(utxo.value, whitespaces=True)
             height = 0
             if utxo.block_hash is not None:
-                try:
-                    header, _chain = lookup_header(utxo.block_hash)
-                    height = header.height
-                except MissingHeader:
-                    pass
+                header_and_chain = self._wallet.lookup_header_for_hash(utxo.block_hash)
+                if header_and_chain is not None:
+                    height = header_and_chain[0].height
             utxo_item = SortableTreeWidgetItem(
                 [ prevout_str, label, amount, str(height) ])
             # set this here to avoid sorting based on Qt.UserRole+1
