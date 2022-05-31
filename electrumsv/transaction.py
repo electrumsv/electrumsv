@@ -288,8 +288,10 @@ class XTxInput(TxInput):
 
     def to_bytes(self) -> bytes:
         if self.x_pubkeys:
-            self.script_sig = create_script_sig(self.script_type, self.threshold, self.x_pubkeys,
-                self.signatures)
+            # NOTE(typing) Trying to assign name "script_sig" that is not in "__slots__" of type
+            #     "electrumsv.transaction.XTxInput"
+            self.script_sig = create_script_sig(self.script_type, self.threshold, # type: ignore
+                self.x_pubkeys, self.signatures)
         return super().to_bytes()
 
     def signatures_present(self) -> List[bytes]:
@@ -685,9 +687,13 @@ class Transaction(Tx):
     def estimated_size(self) -> int:
         '''Return an estimated tx size in bytes.'''
         saved_inputs = self.inputs
-        self.inputs: List[XTxInput] = []
+        # NOTE(typing) Trying to assign name "inputs" that is not in "__slots__" of type
+        #     "electrumsv.transaction.Transaction"
+        self.inputs: List[XTxInput] = [] # type: ignore
         size_without_inputs = len(self.to_bytes())
-        self.inputs = saved_inputs
+        # NOTE(typing) Trying to assign name "inputs" that is not in "__slots__" of type
+        #     "electrumsv.transaction.Transaction"
+        self.inputs = saved_inputs # type: ignore
         input_size = sum(txin.estimated_size() for txin in self.inputs)
         return size_without_inputs + input_size
 

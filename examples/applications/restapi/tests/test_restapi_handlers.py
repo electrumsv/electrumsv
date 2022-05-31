@@ -582,6 +582,9 @@ class TestDefaultEndpoints:
             def get_debug(self):
                 return
 
+            def is_running(self) -> bool:
+                return True
+
         def _fake_get_event_loop():
             return MockEventLoop()
 
@@ -616,6 +619,10 @@ class TestDefaultEndpoints:
 
             def get_debug(self):
                 return
+
+            def is_running(self) -> bool:
+                return True
+
 
         def _fake_get_event_loop():
             return MockEventLoop()

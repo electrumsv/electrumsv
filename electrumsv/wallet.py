@@ -895,7 +895,10 @@ class AbstractAccount:
         tx_deltas: Dict[Tuple[bytes, int], int] = defaultdict(int)
         new_txos: List[Tuple[bytes, int, int, TransactionOutputFlag, KeyInstanceRow,
             ScriptTemplate]] = []
-        for output_index, output in relevant_txos or enumerate(tx.outputs):
+        # NOTE(typing) Item "List[Tuple[int, XTxOutput]]" of
+        #     "Union[Iterator[Tuple[int, XTxOutput]], List[Tuple[int, XTxOutput]],
+        #     enumerate[Any]]" has no attribute "__next__"
+        for output_index, output in relevant_txos or enumerate(tx.outputs): # type: ignore
             utxo = self.get_utxo(tx_hash, output_index)
             if utxo is not None:
                 continue

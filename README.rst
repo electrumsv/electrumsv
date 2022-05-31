@@ -18,7 +18,7 @@ ElectrumSV - Lightweight Bitcoin SV client
   Licence: Open BSV
   Maintainers: Neil Booth, Roger Taylor, AustEcon
   Project Lead: Roger Taylor
-  Language: Python (>=3.7.8)
+  Language: Python (requires version 3.7.9, later versions unsupported)
   Homepage: https://electrumsv.io/
 
 Getting started on Linux/MacOS
@@ -35,15 +35,21 @@ which at this time is `releases/1.3`. The `master` branch is used for the latest
 changes and is not guaranteed to be as stable, or to have guaranteed long term support for some of
 the more advanced features we may have added and later remove.
 
-Ensuring you have at least Python 3.7.8
----------------------------------------
+Ensuring you have Python 3.7.9
+------------------------------
 
-You need to ensure you can use Python 3.7.8, ensure the following command looks like this::
+The ElectrumSV builds are created using Python 3.7.9 because these are the last release for
+Python 3.7 that the Python development team do binary releases for. This is the recommended
+version of Python to use, and you should use it. Maybe you can get away with compiling and using
+the latest version of 3.7 after this, but if you encounter problems the answer you get from us
+may be "Try again with 3.7.9 and come back to us if it is still a problem".
+
+You need to ensure you have Python 3.7.9, the following command should look like this::
 
     $ python3 --version
-    Python 3.7.8
+    Python 3.7.9
 
-If you see a lower version, you can use pyenv to install Python 3.7.8. First install pyenv::
+You can use pyenv to install Python 3.7.9. First install pyenv::
 
     curl -L https://raw.githubusercontent.com/pyenv/pyenv-installer/master/bin/pyenv-installer | bash
 
@@ -51,22 +57,22 @@ Edit your .bashrc file as described, and then ensure the changes are put into ef
 
     $ source ~/.profile
 
-Now you can install Python 3.7.8 using pyenv::
+Now you can install Python 3.7.9 using pyenv::
 
-    $ pyenv install 3.7.8
+    $ pyenv install 3.7.9
 
 If you encounter errors during that process, you can refer to the
 `pyenv common problems <https://github.com/pyenv/pyenv/wiki/common-build-problems>`_.
 
-At this point, you should be able to make Python 3.7.8 the default Python on your computer::
+At this point, you should be able to make Python 3.7.9 the default Python on your computer::
 
-    $ pyenv global 3.7.8
+    $ pyenv global 3.7.9
 
-And you can check that your `python3` version is indeed 3.7.8, by confirming the following command
+And you can check that your `python3` version is indeed 3.7.9, by confirming the following command
 now looks like this::
 
     $ python3 --version
-    Python 3.7.8
+    Python 3.7.9
 
 Ensuring you have at least Sqlite 3.31.1
 ----------------------------------------
@@ -144,10 +150,6 @@ If you encounter problems referring to "Python.h", first check your Python versi
 
     python3 --version
 
-If it says "3.6", then install the following::
-
-    sudo apt install python3.6-dev
-
 If it says "3.7", then install the following::
 
     sudo apt install python3.7-dev
@@ -172,7 +174,7 @@ it's SHA-256 hash to the hash we provide for the same file name.
 You can also run from the Git repository directly, which is useful if you wish to customise
 or help us develop ElectrumSV.
 
-You need to be sure that you are using a version of Python either 3.7.8 or higher. And that the
+You need to be sure that you are using a version of Python either 3.7.9 or higher. And that the
 version you are using has a version of Sqlite either 3.31.1 or higher. If you are for instance
 using a version of Python 3.8 that has a lower version of Sqlite, then update your Python 3.8
 installation.

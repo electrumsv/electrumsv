@@ -15,7 +15,7 @@ LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 PYINSTALLER_REPO='https://github.com/ElectrumSV/pyinstaller.git'
 PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
 
-PYTHON_VERSION=3.7.8
+PYTHON_VERSION=3.7.9
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64

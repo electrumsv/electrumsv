@@ -28,13 +28,9 @@ import os.path as path
 import platform
 import sys
 
-MINIMUM_PYTHON_VERSION = (3, 7, 8)
+# NOTE(Python) 3.7.9 is the last version with binary releases for Windows or MacOS.
+MINIMUM_PYTHON_VERSION = (3, 7, 9)
 MINIMUM_SQLITE_VERSION = (3, 31, 1)
-if platform.system() == "Linux":
-    # We allow 3.7.7 on Linux as that is the latest Azure has pre-available at this time.
-    #   https://github.com/actions/virtual-environments/
-    # The next release of their Ubuntu 16.04 image will have 3.7.8 and we will remove this.
-    MINIMUM_PYTHON_VERSION = (3, 7, 7)
 
 vtuple = sys.version_info[:3]
 if vtuple < MINIMUM_PYTHON_VERSION:
@@ -48,7 +44,7 @@ if platform.system() == "Linux":
         import pysqlite3 as sqlite3
     except ModuleNotFoundError:
         # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
-        # Windows builds use the official Python 3.7.8 builds and version of 3.31.1.
+        # Windows builds use the official Python 3.7.9 builds and version of 3.31.1.
         import sqlite3 # type: ignore
 else:
     import sqlite3 # type: ignore

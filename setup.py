@@ -10,8 +10,9 @@ import sys
 
 from setuptools import setup, find_packages
 
-if sys.version_info[:3] < (3, 7, 8):
-    sys.exit("Error: ElectrumSV requires Python version >= 3.7.8...")
+# NOTE(Python) 3.7.9 is the last version with binary releases for Windows or MacOS.
+if sys.version_info[:3] < (3, 7, 9):
+    sys.exit("Error: ElectrumSV requires Python version >= 3.7.9...")
 
 with open('contrib/requirements/requirements.txt') as f:
     requirements = f.read().splitlines()

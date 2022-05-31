@@ -19,6 +19,9 @@ steps:
     python3 -m pip install -r contrib/deterministic-build/requirements-hw.txt
     python3 -m pip install -r contrib/deterministic-build/requirements-binaries.txt
     python3 -m pip install pysqlite3-binary
+    # There is some poor quality issues with pip and it erroring with vague and completely
+    # irrelevant errors like "WARNING: There was an error checking the latest version of pip."
+    python3 -m pip install -U pip
   displayName: Prepare general environment
   condition: |
     and(

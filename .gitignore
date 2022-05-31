@@ -7,6 +7,7 @@ dist/
 /electrum.py
 /contrib/pyinstaller/
 /contrib/build-windows/downloads/
+/contrib/build-windows/amd64/
 /contrib/build-windows/win32/
 ElectrumSV.egg-info/
 /electrumsv/locale/

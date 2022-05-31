@@ -122,6 +122,43 @@ stages:
         parameters:
           pythonVersion: '3.8'
 
+  - job: MainUnittestsPy37
+    displayName: Main Unittests (Python 3.7)
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - template: prepare-general-environment.yml
+        parameters:
+          pythonVersion: '3.7'
+      - template: run_main_unittests.yml
+        parameters:
+          pythonVersion: '3.7'
+
+  - job: RESTAPIUnittestsPy37
+    displayName: REST API tests (Python 3.7)
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - template: prepare-general-environment.yml
+        parameters:
+          pythonVersion: '3.7'
+      - template: run_restapi_unittests.yml
+        parameters:
+          pythonVersion: '3.7'
+
+  - job: TestFunctionalPy37
+    displayName: Functional tests (Python 3.7)
+    pool:
+      vmImage: 'ubuntu-latest'
+    steps:
+      - template: prepare-general-environment.yml
+        parameters:
+          pythonVersion: '3.7'
+      - template: run_functional_tests.yml
+        parameters:
+          pythonVersion: '3.7'
+
+
 
 - stage: 'Build'
   displayName: 'Build ElectrumSV'
@@ -290,7 +327,7 @@ stages:
     dependsOn:
     - Preparation
     pool:
-      vmImage: 'macOS-10.14'
+      vmImage: 'macOS-10.15'
     steps:
     - task: UsePythonVersion@0
       inputs:
@@ -300,7 +337,8 @@ stages:
     - script: |
         sudo pip3 install --upgrade pip setuptools wheel
         # Calin's QR reader requires SDK 10.14, which is not available in the default Xcode version.
-        /bin/bash -c "sudo xcode-select -s /Applications/Xcode_10.3.app/Contents/Developer"
+        sudo xcode-select -s /Applications/Xcode_10.3.app/Contents/Developer
+        sudo xcodebuild -license accept
         brew install gettext && brew link gettext --force
         ./contrib/osx/make_osx
       enabled: true

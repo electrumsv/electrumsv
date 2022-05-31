@@ -447,13 +447,6 @@ def get_payment_request(url: str) -> PaymentRequest:
                 error = response.content.decode()
             else:
                 error = "payment URL not pointing to a valid server"
-    elif u.scheme == 'file':
-        try:
-            with open(u.path, 'r', encoding='utf-8') as f:
-                data = f.read()
-        except IOError:
-            data = None
-            error = "payment URL not pointing to a valid file"
     else:
         error = f"unknown scheme {url}"
 
