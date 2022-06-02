@@ -6,7 +6,7 @@ What changed in ElectrumSV 1.4.0b1?
 :authors: The ElectrumSV Developers
 :summary: This pre-release beta test update includes a variety of bug fixes and improvements. Read this illustrated overview to find out more.
 :category: releases
-:status: published
+:status: hidden
 :unfurlimage: articles/electrumsv-1.4.0b1/receiving-a-payment-02-expected-payment-dialog.png
 
 .. |br| raw:: html
