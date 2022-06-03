@@ -11,9 +11,17 @@ Categories=Finance;Network;
 StartupNotify=false
 Terminal=false
 Type=Application
-MimeType=x-scheme-handler/bitcoinsv;
-Actions=Testnet;
+MimeType=x-scheme-handler/bitcoinsv;x-scheme-handler/pay;
+Actions=Testnet;Scaling Testnet;Regtest;
 
 [Desktop Action Testnet]
 Exec=electrum-sv --testnet %u
 Name=Testnet mode
+
+[Desktop Action Scaling Testnet]
+Exec=electrum-sv --scaling-testnet %u
+Name=Scaling Testnet mode
+
+[Desktop Action Regtest]
+Exec=electrum-sv --regtest %u
+Name=Regtest mode

@@ -58,7 +58,7 @@
   VIAddVersionKey ProductName "${PRODUCT_NAME} Installer"
   VIAddVersionKey Comments "The installer for ${PRODUCT_NAME}"
   VIAddVersionKey CompanyName "${PRODUCT_NAME}"
-  VIAddVersionKey LegalCopyright "2013-2016 ${PRODUCT_PUBLISHER}"
+  VIAddVersionKey LegalCopyright "2018-2022 ${PRODUCT_PUBLISHER}"
   VIAddVersionKey FileDescription "${PRODUCT_NAME} Installer"
   VIAddVersionKey FileVersion ${PRODUCT_VERSION}
   VIAddVersionKey ProductVersion ${PRODUCT_VERSION}
@@ -130,13 +130,21 @@ Section
   CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\Uninstall.lnk" "$INSTDIR\Uninstall.exe" "" "$INSTDIR\Uninstall.exe" 0
   CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME}.lnk" "$INSTDIR\ElectrumSV-${PRODUCT_VERSION}.exe" "" "$INSTDIR\ElectrumSV-${PRODUCT_VERSION}.exe" 0
   CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME} Testnet.lnk" "$INSTDIR\ElectrumSV-${PRODUCT_VERSION}.exe" "--testnet" "$INSTDIR\ElectrumSV-${PRODUCT_VERSION}.exe" 0
+  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME} Scaling Testnet.lnk" "$INSTDIR\ElectrumSV-${PRODUCT_VERSION}.exe" "--scaling-testnet" "$INSTDIR\ElectrumSV-${PRODUCT_VERSION}.exe" 0
+  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\${PRODUCT_NAME} Regtest.lnk" "$INSTDIR\ElectrumSV-${PRODUCT_VERSION}.exe" "--regtest" "$INSTDIR\ElectrumSV-${PRODUCT_VERSION}.exe" 0
 
 
-  ;Links bitcoin: URI's to Electrum
-  WriteRegStr HKCU "Software\Classes\bitcoinsv" "" "URL:bitcoin SV Protocol"
+  ;Links bitcoinsv: URI's to Electrum
+  WriteRegStr HKCU "Software\Classes\bitcoinsv" "" "URL:bitcoin BSV Protocol"
   WriteRegStr HKCU "Software\Classes\bitcoinsv" "URL Protocol" ""
   WriteRegStr HKCU "Software\Classes\bitcoinsv" "DefaultIcon" "$\"$INSTDIR\electrum-sv.ico, 0$\""
   WriteRegStr HKCU "Software\Classes\bitcoinsv\shell\open\command" "" "$\"$INSTDIR\ElectrumSV-${PRODUCT_VERSION}.exe$\" $\"%1$\""
+
+  ;Links pay: URI's to Electrum
+  WriteRegStr HKCU "Software\Classes\pay" "" "URL:pay BSV Protocol"
+  WriteRegStr HKCU "Software\Classes\pay" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\pay" "DefaultIcon" "$\"$INSTDIR\electrum-sv.ico, 0$\""
+  WriteRegStr HKCU "Software\Classes\pay\shell\open\command" "" "$\"$INSTDIR\ElectrumSV-${PRODUCT_VERSION}.exe$\" $\"%1$\""
 
   ;Adds an uninstaller possibilty to Windows Uninstall or change a program section
   WriteRegStr HKCU "${PRODUCT_UNINST_KEY}" "DisplayName" "$(^Name)"
@@ -168,6 +176,7 @@ Section "Uninstall"
   RMDir  "$SMPROGRAMS\${PRODUCT_NAME}"
 
   DeleteRegKey HKCU "Software\Classes\bitcoinsv"
+  DeleteRegKey HKCU "Software\Classes\pay"
   DeleteRegKey HKCU "Software\${PRODUCT_NAME}"
   DeleteRegKey HKCU "${PRODUCT_UNINST_KEY}"
 SectionEnd
