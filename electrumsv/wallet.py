@@ -2179,7 +2179,7 @@ class Wallet:
         # they are either not within the wallet's view of the blockchain (or in the more extreme
         # case are for a disconnected header).
         self._connect_headerless_proof_worker_state = ConnectHeaderlessProofWorkerState(
-            asyncio.Event(), asyncio.Event(), asyncio.Queue(), asyncio.Queue(), {})
+            asyncio.Event(), asyncio.Event(), asyncio.Queue(), asyncio.Queue(), defaultdict(list))
 
         # Guards the obtaining and processing of missing transactions from race conditions.
         self._obtain_transactions_async_lock = app_state.async_.lock()

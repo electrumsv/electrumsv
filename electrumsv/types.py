@@ -2,6 +2,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import struct
+from collections import defaultdict
 from types import TracebackType
 from typing import Callable, List, NamedTuple, Optional, Tuple, Type, TYPE_CHECKING, TypedDict, \
     Union
@@ -27,7 +28,7 @@ class ConnectHeaderlessProofWorkerState:
     proof_event: asyncio.Event
     header_queue: asyncio.Queue[tuple[Header, Chain]]
     proof_queue: asyncio.Queue[tuple[TSCMerkleProof, MerkleProofRow]]
-    block_transactions: dict[bytes, list[tuple[TSCMerkleProof, MerkleProofRow]]]
+    block_transactions: defaultdict[bytes, list[tuple[TSCMerkleProof, MerkleProofRow]]]
     requires_reload: bool = False
 
     def reset(self) -> None:
