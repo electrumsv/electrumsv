@@ -5089,6 +5089,8 @@ class Wallet:
                     if lookup_result is None:
                         logger.debug("Backlogged transaction %s verification waiting for missing "
                             "header", hash_to_hex_str(proof.transaction_hash))
+                        if state.block_transactions.get(proof.block_hash) is None:
+                            state.block_transactions[proof.block_hash] = []
                         state.block_transactions[proof.block_hash].append(proof_entry)
                     else:
                         header, _common_chain = lookup_result
