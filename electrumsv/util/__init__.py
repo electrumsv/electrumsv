@@ -22,7 +22,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from collections import defaultdict
 from decimal import Decimal
 from datetime import datetime, timedelta, tzinfo
 import json
@@ -375,7 +374,7 @@ EventType = TypeVar('EventType')
 
 class TriggeredCallbacks(Generic[EventType]):
     def __init__(self) -> None:
-        self._callbacks: Dict[EventType, List[Callable[..., None]]] = defaultdict(list)
+        self._callbacks = dict[EventType, list[Callable[..., None]]]()
         self._callback_lock = threading.Lock()
         self._callback_logger = logs.get_logger("callback-logger")
 
@@ -383,10 +382,13 @@ class TriggeredCallbacks(Generic[EventType]):
             -> None:
         with self._callback_lock:
             for event in events:
-                if callback in self._callbacks[event]:
-                    self._callback_logger.error("Callback reregistered %s %s", event, callback)
-                    continue
-                self._callbacks[event].append(callback)
+                if event in self._callbacks:
+                    if callback in self._callbacks[event]:
+                        self._callback_logger.error("Callback reregistered %s %s", event, callback)
+                        continue
+                    self._callbacks[event].append(callback)
+                else:
+                    self._callbacks[event] = [ callback ]
 
     def unregister_callback(self, callback: Callable[..., None]) -> None:
         with self._callback_lock:
@@ -404,6 +406,8 @@ class TriggeredCallbacks(Generic[EventType]):
 
     def trigger_callback(self, event: EventType, *args: Any) -> None:
         with self._callback_lock:
+            if event not in self._callbacks:
+                return
             callbacks = self._callbacks[event][:]
         [callback(event, *args) for callback in callbacks]
 

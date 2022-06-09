@@ -20,7 +20,6 @@ are long running, in which case they should be handed off to a worker thread.
 
 """
 
-from collections import defaultdict
 import concurrent.futures
 import json
 import os
@@ -2001,7 +2000,7 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
         result = PasswordUpdateResult(
             password_token=password_token,
             masterkey_updates=[],
-            account_private_key_updates=defaultdict(list))
+            account_private_key_updates={})
 
         def reencrypt_bip32_masterkey(data: MasterKeyDataBIP32) -> bool:
             modified = False
@@ -2063,7 +2062,10 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
             data["prv"] = pw_encode(pw_decode(data["prv"], old_password), new_password)
             keyinstance_updates.append((date_updated, json.dumps(data).encode(),
                 keyinstance_id))
-            result.account_private_key_updates[account_id].append((keyinstance_id, data["prv"]))
+            if account_id in result.account_private_key_updates:
+                result.account_private_key_updates[account_id].append((keyinstance_id, data["prv"]))
+            else:
+                result.account_private_key_updates[account_id] = [ (keyinstance_id, data["prv"]) ]
         if len(keyinstance_updates):
             db.executemany(keyinstance_update_sql, keyinstance_updates)
 

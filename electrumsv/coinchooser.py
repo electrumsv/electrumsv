@@ -23,7 +23,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from collections import defaultdict
 from math import floor, log10
 from typing import Any, Callable, cast, Dict, List, NamedTuple, Sequence, Set, Tuple, TypeVar
 
@@ -115,9 +114,12 @@ class CoinChooserBase:
         return cast(List[int], coin_keyinstance_ids)
 
     def bucketize_coins(self, coins: List[XTxInput]) -> List[Bucket]:
-        buckets: Dict[int, List[XTxInput]] = defaultdict(list)
+        buckets: Dict[int, List[XTxInput]] = {}
         for keyinstance_id, coin in zip(self.keys(coins), coins):
-            buckets[keyinstance_id].append(coin)
+            if keyinstance_id in buckets:
+                buckets[keyinstance_id].append(coin)
+            else:
+                buckets[keyinstance_id] = [ coin ]
 
         def make_Bucket(desc: int, coins: List[XTxInput]) -> Bucket:
             size = sum(coin.estimated_size() for coin in coins)

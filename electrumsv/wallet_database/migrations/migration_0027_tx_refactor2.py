@@ -1,4 +1,3 @@
-from collections import defaultdict
 import json
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
@@ -153,17 +152,16 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # gap limit beyond that. Because the creation and detection of the use of these is driven by
     # the indexer/electrumx telling us they have been used, it is not guaranteed that we will have
     # them all.
-    keyinstances: Dict[int, KeyInstanceRow_27] = {}
+    keyinstances = dict[int, KeyInstanceRow_27]()
     # For accounts with masterkeys. {(account_id, masterkey_id): { derivation_path: keyinstance }}
-    mk_keyinstance_data: Dict[Tuple[int, int], Dict[DerivationPath, KeyInstanceRow_27]] = \
-        defaultdict(dict)
+    mk_keyinstance_data = dict[tuple[int, int], dict[DerivationPath, KeyInstanceRow_27]]()
     # For other account types. {account_id: [keyinstance,..]}
-    other_keyinstance_data: Dict[int, List[KeyInstanceRow_27]] = defaultdict(list)
+    other_keyinstance_data =  dict[int, list[KeyInstanceRow_27]]()
     cursor = conn.execute("SELECT keyinstance_id, account_id, masterkey_id, derivation_type, "
         "derivation_data, flags, description FROM KeyInstances")
     rows = cursor.fetchall()
     cursor.close()
-    keyinstance_updates: List[Tuple[bytes, int, int]] = []
+    keyinstance_updates: list[tuple[bytes, int, int]] = []
     for row in rows:
         derivation_data_dict = cast(KeyInstanceDataTypes1, json.loads(row[4]))
         derivation_data2 = create_derivation_data2(row[3], derivation_data_dict)
@@ -174,14 +172,20 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             assert krow.derivation_type == DerivationType.BIP32_SUBPATH
             derivation_path = tuple(
                 cast(KeyInstanceDataBIP32SubPath1, derivation_data_dict)["subpath"])
+            if (krow.account_id, krow.masterkey_id) not in mk_keyinstance_data:
+                mk_keyinstance_data[(krow.account_id, krow.masterkey_id)] =  {}
             mk_keyinstance_data[(krow.account_id, krow.masterkey_id)][derivation_path] = krow
         else:
             # Used to calculate script hashes.
-            other_keyinstance_data[krow.account_id].append(KeyInstanceRow_27(
+            ki27_row = KeyInstanceRow_27(
                 keyinstance_id=krow.keyinstance_id, account_id=krow.account_id,
                 masterkey_id=krow.masterkey_id, derivation_type=krow.derivation_type,
                 derivation_data=krow.derivation_data, derivation_data2=derivation_data2,
-                flags=krow.flags, description=krow.description))
+                flags=krow.flags, description=krow.description)
+            if krow.account_id in other_keyinstance_data:
+                other_keyinstance_data[krow.account_id].append(ki27_row)
+            else:
+                other_keyinstance_data[krow.account_id] = [ ki27_row ]
 
         keyinstance_updates.append((derivation_data2, date_updated, row[0]))
 
@@ -336,7 +340,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             # generating them for used keys, as we do not know which the user has given out.
             mk_row = mk_rows[masterkey_id]
             mk_derivation_data = cast(MasterKeyDataBIP32_26, json.loads(mk_row.derivation_data))
-            mk_watermarks: Dict[DerivationPath, int] = defaultdict(int)
+            mk_watermarks = dict[DerivationPath, int]()
             for derivation_path, next_index in mk_derivation_data["subpaths"]:
                 mk_watermarks[tuple(derivation_path)] = next_index
 
@@ -345,6 +349,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                 ms_keystore = cast(Multisig_KeyStore, keystore)
                 child_ms_keystores = ms_keystore.get_cosigner_keystores()
                 for subpath in (CHANGE_SUBPATH, RECEIVING_SUBPATH):
+                    if subpath not in mk_watermarks:
+                        continue
                     # We only look at the keys the account already has enumerated from the
                     # derivation path. The assumption is that if further keys are enumerated by the
                     # account later, they will get mapped and matched then.
@@ -362,6 +368,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             else:
                 ss_keystore = cast(SinglesigKeyStoreTypes, keystore)
                 for subpath in (CHANGE_SUBPATH, RECEIVING_SUBPATH):
+                    if subpath not in mk_watermarks:
+                        continue
                     for i in range(mk_watermarks[subpath]):
                         derivation_path = tuple(subpath) + (i,)
                         public_key = ss_keystore.derive_pubkey(derivation_path)
@@ -378,7 +386,6 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
 
     callbacks.progress(50, _("Populating additional data"))
 
-    # tx_deltas: Dict[Tuple[bytes, int], int] = defaultdict(int)
     for script_hash, txo_datas in txo_script_hashes.items():
         for txo_data in txo_datas:
             # We are mapping in TXO usage of keys, so if the script is unknown (likely because the
@@ -404,7 +411,6 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
                             "Transaction output spending key does not match"
                     else:
                         # EFFECT: Account for a previously unrecognised spend.
-                        # tx_deltas[(txi_spend.tx_hash, keyinstance_id)] -= txo_data.value
                         txo_flags |= TransactionOutputFlag.SPENT
                     spending_tx_hash = txi_spend.tx_hash
                     spending_txi_index = txi_spend.txi_index

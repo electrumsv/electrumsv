@@ -1,5 +1,5 @@
 from enum import IntEnum
-from typing import Any, Dict, List, NamedTuple, Optional, Protocol, Set, Tuple, Union
+from typing import Any, NamedTuple, Optional, Protocol, Union
 
 from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
     MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag,
@@ -177,8 +177,8 @@ class NetworkServerRow(NamedTuple):
 
 class PasswordUpdateResult(NamedTuple):
     password_token: str
-    account_private_key_updates: Dict[int, List[Tuple[int, str]]]
-    masterkey_updates: List[Tuple[int, DerivationType, MasterKeyDataTypes]]
+    account_private_key_updates: dict[int, list[tuple[int, str]]]
+    masterkey_updates: list[tuple[int, DerivationType, MasterKeyDataTypes]]
 
 
 class PushDataRegistrationRow(NamedTuple):
@@ -220,7 +220,7 @@ class PaymentRequestUpdateRow(NamedTuple):
     paymentrequest_id: int
 
 
-SpendConflictType = Tuple[bytes, int, bytes, int]
+SpendConflictType = tuple[bytes, int, bytes, int]
 
 
 class TransactionDeltaSumRow(NamedTuple):
@@ -258,7 +258,7 @@ class TransactionLinkState:
     rollback_on_spend_conflict: bool = False
     # Results.
     has_spend_conflicts: bool = False
-    account_ids: Optional[Set[int]] = None
+    account_ids: Optional[set[int]] = None
 
 
 class TransactionMetadata(NamedTuple):

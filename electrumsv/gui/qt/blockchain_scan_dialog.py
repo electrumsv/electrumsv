@@ -35,7 +35,6 @@
 # THE SOFTWARE.
 
 from __future__ import annotations
-from collections import defaultdict
 import concurrent.futures
 from dataclasses import dataclass, field
 from enum import IntEnum
@@ -423,7 +422,7 @@ class BlockchainScanDialog(WindowModalDialog):
 
             # Gather the related import state for the scanned transactions.
             obtain_tx_keys = list[tuple[bytes, bool]]()
-            link_tx_hashes: Set[bytes] = set()
+            link_tx_hashes = set[bytes]()
             for tx_hash, import_entry in self._import_state.items():
                 if import_entry.already_imported or import_entry.already_conflicting:
                     continue
@@ -588,13 +587,20 @@ class BlockchainScanDialog(WindowModalDialog):
             # Initial update for `PRE_IMPORT` stage.
             result_count: int = 0
             transaction_count: int = 0
-            tx_hashes: Dict[bytes, int] = defaultdict(int)
+            tx_hashes = dict[bytes, int]()
             assert self._pushdata_handler is not None
             for match in self._pushdata_handler.get_results():
                 result_count += 1
+
+                if match.filter_result.locking_transaction_hash not in tx_hashes:
+                    tx_hashes[match.filter_result.locking_transaction_hash] = 0
                 tx_hashes[match.filter_result.locking_transaction_hash] += 1
+
                 if match.filter_result.unlocking_transaction_hash != EMPTY_HASH:
+                    if match.filter_result.unlocking_transaction_hash not in tx_hashes:
+                        tx_hashes[match.filter_result.unlocking_transaction_hash] = 0
                     tx_hashes[match.filter_result.unlocking_transaction_hash] += 1
+
             transaction_count = len(tx_hashes)
 
             if self._stage == ScanDialogStage.SCAN:
@@ -662,7 +668,7 @@ class BlockchainScanDialog(WindowModalDialog):
         self._scan_end_time = int(time.time())
 
         all_tx_hashes: List[bytes] = []
-        subpath_indexes: Dict[DerivationPath, int] = defaultdict(int)
+        subpath_indexes = dict[DerivationPath, int]()
         self._import_state = {}
 
         assert self._pushdata_handler is not None
@@ -698,8 +704,12 @@ class BlockchainScanDialog(WindowModalDialog):
 
             assert push_data_match.search_entry.parent_path is not None
             key_subpath = push_data_match.search_entry.parent_path.subpath
-            subpath_indexes[key_subpath] = max(subpath_indexes[key_subpath],
-                push_data_match.search_entry.parent_index)
+            if key_subpath in subpath_indexes:
+                subpath_indexes[key_subpath] = max(subpath_indexes[key_subpath],
+                    push_data_match.search_entry.parent_index)
+            else:
+                assert push_data_match.search_entry.parent_index > -1
+                subpath_indexes[key_subpath] = push_data_match.search_entry.parent_index
 
 
         # The linking of transaction to accounts cannot be done unless the keys exist with their
