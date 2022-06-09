@@ -1838,6 +1838,14 @@ def update_transaction_proof_write(tx_update_rows: list[TransactionProofUpdateRo
         db.executemany(sql, proof_update_rows)
 
 
+def update_transaction_proof_and_flag_write(tx_update_rows: list[TransactionProofUpdateRow],
+        flag_entries: list[tuple[TxFlags, TxFlags, bytes]],
+        db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None
+    update_transaction_proof_write(tx_update_rows, [], [], db)
+    update_transaction_flags_write(flag_entries, db)
+
+
 def post_update_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDataRow]) \
         -> concurrent.futures.Future[None]:
     sql = ("INSERT INTO WalletData (key, value, date_created, date_updated) VALUES (?, ?, ?, ?) "

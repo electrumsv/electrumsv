@@ -44,7 +44,6 @@ from bitcoinx import Chain, Header, MissingHeader
 
 from .async_ import ASync
 from .cached_headers import read_cached_headers, write_cached_headers
-from .constants import MAX_INCOMING_ELECTRUMX_MESSAGE_MB
 from .credentials import CredentialCache
 from .logs import logs
 from .networks import Net
@@ -184,8 +183,8 @@ class AppStateProxy(object):
         try:
             return cast(tuple[Header, Chain], self.headers.connect(header_bytes))
         except MissingHeader:
-            # TODO(1.4.0) Headers. We may be able to connect this later (low priority)
-            #     although whether there is any benefit to this I do not know (rt12).
+            # TODO(low priority) Headers. We may be able to connect this later although whether
+            #      there is any benefit to this I do not know (rt12).
             return None, None
 
     def on_stop(self) -> None:
@@ -227,16 +226,6 @@ class AppStateProxy(object):
         else:
             fiat_text = ''
         return bitcoin_text, fiat_text
-
-    # TODO(1.4.0) Networking. Replace with non-electrumx equivalent
-    def electrumx_message_size_limit(self) -> int:
-        return max(0,
-            self.config.get_explicit_type(int, 'electrumx_message_size_limit',
-                MAX_INCOMING_ELECTRUMX_MESSAGE_MB))
-
-    def set_electrumx_message_size_limit(self, maximum_size: int) -> None:
-        assert maximum_size >= 0, f"invalid cache size {maximum_size}"
-        self.config.set_key('electrumx_message_size_limit', max(0, maximum_size))
 
 
 

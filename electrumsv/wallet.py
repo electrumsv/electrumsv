@@ -2057,6 +2057,12 @@ class WalletDataAccess:
             db_functions.update_transaction_proof_write, tx_update_rows, proof_rows,
                 proof_update_rows)
 
+    async def update_transaction_proofs_and_flags(self,
+            tx_update_rows: list[TransactionProofUpdateRow],
+            flag_entries: list[tuple[TxFlags, TxFlags, bytes]]) -> None:
+        await self._db_context.run_in_thread_async(
+            db_functions.update_transaction_proof_and_flag_write, tx_update_rows, flag_entries)
+
     # Transaction outputs.
 
     def read_account_transaction_outputs_with_key_data(self, account_id: int,
@@ -3966,10 +3972,14 @@ class Wallet:
         This will either receive messages directly from the server message loop, or it will
         process backlogged unprocessed messages on startup.
 
-        It must be safe to cancel this task at any blocking points, as there is no way to say
-        only interrupt this task if it is blocked on the queue.
+        * It is safe to cancel this task rather than tell it to exit.
+          * It queues all outstanding messages as an initial batch on startup.
+          * It will do a first loop which may or may not process any messages, but will start the
+            process of obtaining all message-related missing transactions.
+          * The update is atomic so:
+            * If the batch is processed then it is no longer valid.
+            * If the batch is processed (task cancelled) then it will be picked up next restart.
         """
-        # TODO(1.4.0): Clean exit. Verify that it is safe for this to exit at each blocking point.
         message_entries = list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]()
         for message_row in await self.data.read_server_peer_channel_messages_async(
                 PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
@@ -4064,10 +4074,12 @@ class Wallet:
         """
         Process spent output results received from a server.
 
-        It must be safe to cancel this task at any blocking points, as there is no way to say
-        only interrupt this task if it is blocked on the queue.
+        * It is safe to cancel this task rather than tell it to exit.
+          * It only receives events from the network requests or events.
+          * The update is atomic so:
+            * If the network data is processed then it is not requested again -> `STATE_CLEARED`.
+            * If the network data is not processed it is requested again.
         """
-        # TODO(1.4.0): Clean exit. Verify that it is safe for this to exit at each blocking point.
         while not (self._stopping or self._stopped):
             spent_outputs = await queue.get()
 
@@ -4145,29 +4157,32 @@ class Wallet:
                         # probably came in during the registration as the initial state.
                         pass
 
+            tx_update_rows = list[TransactionProofUpdateRow]()
             for tx_hash, block_hash in mined_transactions:
-                await self._process_received_spent_output_mined_event(tx_hash, block_hash)
+                # We indicate that we need to obtain the proof by setting the known block hash and
+                # the state to cleared.
+                date_updated = get_posix_timestamp()
+                tx_update_row = TransactionProofUpdateRow(block_hash, None, TxFlags.STATE_CLEARED,
+                    date_updated, tx_hash)
+                tx_update_rows.append(tx_update_row)
 
-            if len(mempool_transactions):
-                entries = [ (TxFlags.MASK_STATELESS, TxFlags.STATE_CLEARED, tx_hash)
-                    for tx_hash in mempool_transactions ]
-                await self.data.update_transaction_flags_async(entries)
-                for tx_hash, tx_flags in mempool_transactions.items():
-                    self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, -1,
-                        tx_hash, (tx_flags & TxFlags.MASK_STATE) | TxFlags.STATE_CLEARED)
+            flag_update_rows = [ (TxFlags.MASK_STATELESS, TxFlags.STATE_CLEARED, tx_hash)
+                for tx_hash in mempool_transactions ]
 
-    async def _process_received_spent_output_mined_event(self, spending_tx_hash: bytes,
-            block_hash: bytes) -> None:
-        # We indicate that we need to obtain the proof by setting the known block hash and the
-        # state to cleared.
-        date_updated = get_posix_timestamp()
-        tx_update_row = TransactionProofUpdateRow(block_hash, None, TxFlags.STATE_CLEARED,
-            date_updated, spending_tx_hash)
-        await self.data.update_transaction_proof_async([ tx_update_row ], [], [])
+            # This is an atomic update. If it succeeds then the missing proofs will get triggered
+            # below. If it does not succeed (maybe the task is cancelled) then the next time
+            # this task starts the data will be reprocessed again.
+            if len(tx_update_rows) > 0 or len(flag_update_rows) > 0:
+                await self.data.update_transaction_proofs_and_flags(tx_update_rows,
+                    flag_update_rows)
 
-        self._check_missing_proofs_event.set()
+            if len(tx_update_rows) > 0:
+                self._check_missing_proofs_event.set()
+                self.events.trigger_callback(WalletEvent.TRANSACTION_HEIGHTS_UPDATED, 1, 1)
 
-        self.events.trigger_callback(WalletEvent.TRANSACTION_HEIGHTS_UPDATED, 1, 1)
+            for tx_hash, tx_flags in mempool_transactions.items():
+                self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, -1,
+                    tx_hash, (tx_flags & TxFlags.MASK_STATE) | TxFlags.STATE_CLEARED)
 
     def have_transaction(self, tx_hash: bytes) -> bool:
         return self.data.get_transaction_flags(tx_hash) is not None

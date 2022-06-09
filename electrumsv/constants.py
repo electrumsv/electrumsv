@@ -314,8 +314,6 @@ class PaymentFlag(IntFlag):
 
 # Transaction limits
 MAX_MESSAGE_BYTES = 99000
-# This will be the JSON message, not the final data.
-MAX_INCOMING_ELECTRUMX_MESSAGE_MB = 50
 
 MINIMUM_TXDATA_CACHE_SIZE_MB = 0
 DEFAULT_TXDATA_CACHE_SIZE_MB = 32
