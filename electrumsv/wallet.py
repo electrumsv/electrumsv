@@ -4376,6 +4376,9 @@ class Wallet:
                 if state.mapi_callback_consumer_future is not None:
                     pending_futures.add(state.mapi_callback_consumer_future)
                 # These are manually cancelled and it should be safe to do so.
+                if state.connection_future is not None:
+                    state.connection_future.cancel()
+                    pending_futures.add(state.connection_future)
                 if state.output_spends_consumer_future is not None:
                     state.output_spends_consumer_future.cancel()
                     pending_futures.add(state.output_spends_consumer_future)

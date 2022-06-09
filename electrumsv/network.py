@@ -104,10 +104,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         # Futures swallow exceptions if there are no callbacks to collect the exception.
         self._main_loop_future.add_done_callback(future_callback)
 
-    # TODO(1.4.0) Servers. Call or remove. Just call it directly wherever.
-    async def close_aiohttp_session(self) -> None:
-        await self.aiohttp_session.close()
-
     def get_local_height(self) -> int:
         assert app_state.headers is not None
         chain = cast(Chain, app_state.headers.longest_chain())
@@ -414,6 +410,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         self._main_loop_context = None
         self._main_loop_future.cancel()
         await self._shutdown_complete_event.wait()
+        await self.aiohttp_session.close()
         logger.warning('stopped')
 
     # def is_server_disabled(self, url: str, server_type: NetworkServerType) -> bool:
