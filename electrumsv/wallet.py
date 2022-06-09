@@ -59,10 +59,10 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkEventNames,
     NetworkServerFlag, NetworkServerType, PaymentFlag, PeerChannelAccessTokenFlag,
     PeerChannelMessageFlag, PushDataHashRegistrationFlag, PushDataMatchFlag, RECEIVING_SUBPATH,
-    ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ServerProgress,
-    ScriptType, TransactionImportFlag, TransactionInputFlag,
-    TransactionOutputFlag, TxFlags, unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT,
-    WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag, WalletEventType, WalletSettings)
+    ServerCapability, ServerPeerChannelFlag, ServerProgress, ScriptType, TransactionImportFlag,
+    TransactionInputFlag, TransactionOutputFlag, TxFlags, unpack_derivation_path,
+    WALLET_ACCOUNT_PATH_TEXT, WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag,
+    WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
 from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
@@ -2186,6 +2186,7 @@ class Wallet:
         self._worker_startup_reorg_check: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_manage_server_connections: Optional[concurrent.futures.Future[None]] \
             = None
+        self._worker_task_chain_management: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_obtain_transactions: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_obtain_merkle_proofs: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_connect_headerless_proofs: Optional[concurrent.futures.Future[None]] \
@@ -3766,14 +3767,19 @@ class Wallet:
                         session=self._network.aiohttp_session,
                         server=api_server,
                         credential_id=api_server.client_api_keys[None])
-                    stage_change_pipeline_future = app_state.async_.spawn(
+
+                    server_state.stage_change_pipeline_future = app_state.async_.spawn(
                         self._monitor_connection_stage_changes_async, server_state)
-                    connection_future = app_state.async_.spawn(
+                    server_state.connection_future = app_state.async_.spawn(
                         maintain_server_connection_async, server_state)
-                    wallet_future = app_state.async_.spawn(
-                        self._manage_server_connection_state_async, server_state)
-                    server_state.wallet_futures.extend([ stage_change_pipeline_future,
-                        connection_future, wallet_future ])
+                    server_state.mapi_callback_consumer_future = app_state.async_.spawn(
+                        self._consume_mapi_callback_messages_async, server_state)
+                    server_state.output_spends_consumer_future = app_state.async_.spawn(
+                        self._consume_output_spend_notifications_async,
+                        server_state.output_spend_result_queue)
+                    server_state.tip_filter_consumer_future = app_state.async_.spawn(
+                        self._consume_tip_filter_matches_async, server_state)
+
                     self._worker_tasks_maintain_server_connection[account_id].append(server_state)
                 assert covered_capabilities == { ServerCapability.PEER_CHANNELS,
                     ServerCapability.TIP_FILTER }
@@ -3810,23 +3816,6 @@ class Wallet:
             petty_cash_account_id = self._petty_cash_account.get_id()
         return self._server_progress.get(petty_cash_account_id, ServerProgress.NONE)
 
-    def close_server_connection(self, petty_cash_account_id: int) -> None:
-        """
-        Raises `KeyError` if the connection is no longer present. This should never get raised
-        as all callers should be calling because they know it is still alive and needs to be
-        closed. No caller should catch it.
-        """
-        for state in self._worker_tasks_maintain_server_connection.pop(petty_cash_account_id):
-            state.connection_flags |= ServerConnectionFlag.FORCE_CLOSED
-            for future in state.wallet_futures:
-                future.cancel()
-
-    def _teardown_server_connections(self) -> None:
-        for petty_cash_account_id in list(self._worker_tasks_maintain_server_connection):
-            self.close_server_connection(petty_cash_account_id)
-
-        del self._worker_tasks_maintain_server_connection
-
     def get_server_state_for_capability(self, capability: ServerCapability) \
             -> Optional[ServerConnectionState]:
         # TODO(future) In the longer term a wallet will be able to have multiple petty cash
@@ -3837,26 +3826,6 @@ class Wallet:
                 if capability in state.utilised_capabilities:
                     return state
         return None
-
-    async def _manage_server_connection_state_async(self, state: ServerConnectionState) -> None:
-        mapi_callback_consumer_future = app_state.async_.spawn(
-            self._consume_mapi_callback_messages_async, state)
-        output_spends_consumer_future = app_state.async_.spawn(
-            self._consume_output_spend_notifications_async, state.output_spend_result_queue)
-        tip_filter_consumer_future = app_state.async_.spawn(
-            self._consume_tip_filter_matches_async, state)
-        try:
-            # TODO(1.4.0) Clean shutdown. This is a async busy loop for now. When we have slow and
-            #     "complete what you are doing" shutdown this can wait on an event.
-            while True:
-                await asyncio.sleep(1)
-        finally:
-            tip_filter_consumer_future.cancel()
-            output_spends_consumer_future.cancel()
-            mapi_callback_consumer_future.cancel()
-            # TODO(1.4.0) Clean shutdown. We should really join on the queues and wait for them to
-            #     empty before exiting. However before doing that we should ensure that the
-            #     peer channel fetching task has been told to exit and has exited.
 
     async def _consume_mapi_callback_messages_async(self, state: ServerConnectionState) -> None:
         """
@@ -3996,7 +3965,11 @@ class Wallet:
 
         This will either receive messages directly from the server message loop, or it will
         process backlogged unprocessed messages on startup.
+
+        It must be safe to cancel this task at any blocking points, as there is no way to say
+        only interrupt this task if it is blocked on the queue.
         """
+        # TODO(1.4.0): Clean exit. Verify that it is safe for this to exit at each blocking point.
         message_entries = list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]()
         for message_row in await self.data.read_server_peer_channel_messages_async(
                 PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
@@ -4005,7 +3978,7 @@ class Wallet:
             message_entries.append((message_row, message))
         state.tip_filter_matches_queue.put_nowait(message_entries)
 
-        while True:
+        while not (self._stopping or self._stopped):
             rows_by_account_id = dict[int, list[PushDataMatchMetadataRow]]()
             creation_pushdata_match_rows = list[PushDataMatchRow]()
             processed_message_ids = list[int]()
@@ -4090,8 +4063,12 @@ class Wallet:
             queue: asyncio.Queue[Sequence[OutputSpend]]) -> None:
         """
         Process spent output results received from a server.
+
+        It must be safe to cancel this task at any blocking points, as there is no way to say
+        only interrupt this task if it is blocked on the queue.
         """
-        while True:
+        # TODO(1.4.0): Clean exit. Verify that it is safe for this to exit at each blocking point.
+        while not (self._stopping or self._stopped):
             spent_outputs = await queue.get()
 
             # Match the received state to the current database state.
@@ -4261,7 +4238,7 @@ class Wallet:
         self._network = network
         self._chain_management_queue = asyncio.Queue[tuple[ChainManagementKind,
             Union[tuple[Chain, list[bytes], list[Header]], tuple[Chain, list[Header]]]]]()
-        self._chain_management_pending_event = asyncio.Event()
+        self._chain_management_interrupt_event = asyncio.Event()
         self._chain_worker_queue = asyncio.Queue[ChainWorkerToken]()
         self._is_chain_management_pending = False
 
@@ -4280,6 +4257,7 @@ class Wallet:
 
             self._worker_task_manage_server_connections = app_state.async_.spawn(
                 self._manage_server_connections_async)
+            self._worker_task_chain_management = app_state.async_.spawn(self._chain_management_task)
         else:
             # Offline mode.
             if self._persisted_tip_hash is not None:
@@ -4302,19 +4280,7 @@ class Wallet:
             account.stop()
 
         if self._network is not None:
-            if self._worker_task_manage_server_connections is not None:
-                self._worker_task_manage_server_connections.cancel()
-                del self._worker_task_manage_server_connections
-            if self._worker_task_obtain_transactions is not None:
-                self._worker_task_obtain_transactions.cancel()
-                del self._worker_task_obtain_transactions
-            if self._worker_task_obtain_merkle_proofs is not None:
-                self._worker_task_obtain_merkle_proofs.cancel()
-                del self._worker_task_obtain_merkle_proofs
-            if self._worker_task_connect_headerless_proofs is not None:
-                self._worker_task_connect_headerless_proofs.cancel()
-                del self._worker_task_connect_headerless_proofs
-            self._teardown_server_connections()
+            self._shutdown_network_related_tasks()
 
         for credential_id in self._registered_api_keys.values():
             app_state.credentials.remove_indefinite_credential(credential_id)
@@ -4337,6 +4303,64 @@ class Wallet:
         self._storage.close()
         self._network = None
         self._stopped = True
+
+    def _shutdown_network_related_tasks(self) -> None:
+        # Collect the futures we are waiting to complete.
+        pending_futures = set[concurrent.futures.Future[None]]()
+
+        # The following tasks can be cancelled directly and do not need to shutdown cleanly.
+        if self._worker_task_manage_server_connections is not None:
+            self._worker_task_manage_server_connections.cancel()
+            pending_futures.add(self._worker_task_manage_server_connections)
+            self._worker_task_manage_server_connections = None
+        if self._worker_task_chain_management is not None:
+            self._worker_task_chain_management.cancel()
+            pending_futures.add(self._worker_task_chain_management)
+            self._worker_task_chain_management = None
+
+        async def trigger_chain_management_interrupt_event() -> None:
+            # `Event.set` is not thread-safe, needs to be executed in the async thread.
+            self._chain_management_interrupt_event.set()
+            await asyncio.sleep(0)
+
+        # This blocks the current thread, but we are exiting and it is not expected that
+        # anything should take a noticeable amount of time to exit.
+        app_state.async_.spawn_and_wait(trigger_chain_management_interrupt_event)
+
+        # These were signalled to exit by the chain management interrupt event.
+        if self._worker_task_obtain_transactions is not None:
+            pending_futures.add(self._worker_task_obtain_transactions)
+            self._worker_task_obtain_transactions = None
+        if self._worker_task_obtain_merkle_proofs is not None:
+            pending_futures.add(self._worker_task_obtain_merkle_proofs)
+            self._worker_task_obtain_merkle_proofs = None
+        if self._worker_task_connect_headerless_proofs is not None:
+            pending_futures.add(self._worker_task_connect_headerless_proofs)
+            self._worker_task_connect_headerless_proofs = None
+
+        for petty_cash_account_id in list(self._worker_tasks_maintain_server_connection):
+            for state in self._worker_tasks_maintain_server_connection.pop(petty_cash_account_id):
+                # This was signalled to exit by the chain management interrupt event.
+                if state.mapi_callback_consumer_future is not None:
+                    pending_futures.add(state.mapi_callback_consumer_future)
+                # These are manually cancelled and it should be safe to do so.
+                if state.output_spends_consumer_future is not None:
+                    state.output_spends_consumer_future.cancel()
+                    pending_futures.add(state.output_spends_consumer_future)
+                if state.tip_filter_consumer_future is not None:
+                    state.tip_filter_consumer_future.cancel()
+                    pending_futures.add(state.tip_filter_consumer_future)
+        del self._worker_tasks_maintain_server_connection
+
+        while len(pending_futures) > 0:
+            self._logger.debug("Shutdown waiting for %d tasks to exit: %s", len(pending_futures),
+                pending_futures)
+            # Cancelled tasks clean up when they get a chance to run next. Python will complain
+            # on exit about tasks that are not cleaned up.
+            app_state.async_.spawn_and_wait(asyncio.sleep, 0)
+            done, not_done = concurrent.futures.wait(pending_futures, 1.0)
+            pending_futures = not_done
+        self._logger.debug("Shutdown network tasks cleanly")
 
     def create_gui_handler(self, window: WindowProtocol, account: AbstractAccount) -> None:
         for keystore in account.get_keystores():
@@ -4402,8 +4426,8 @@ class Wallet:
                 # We don't just want to wait for work for the caller, we also want to exit and do
                 # the appropriate thing if the chain management becomes pending. We use a task
                 # because that is what `asyncio.wait` returns.
-                chain_task = asyncio.create_task(self._chain_management_pending_event.wait(),
-                    name="chain management task")
+                chain_task = asyncio.create_task(self._chain_management_interrupt_event.wait(),
+                    name="chain management interrupt")
                 extended_awaitables: list[Awaitable[Any]] = \
                     [ entry() for entry in coroutine_callables ]
                 extended_awaitables.append(chain_task)
@@ -4411,9 +4435,10 @@ class Wallet:
                 awaitables_done, _awaitables_pending = await asyncio.wait(extended_awaitables,
                     return_when=asyncio.FIRST_COMPLETED)
 
+                # If there is a network shutdown event
                 # If chain management is pending we stay here. Otherwise we exit to the caller.
                 # If it is not set, one of the caller awaitables must have completed and we exit.
-                if chain_task not in awaitables_done:
+                if self._stopping or chain_task not in awaitables_done:
                     return
                 assert self._is_chain_management_pending
 
@@ -4465,8 +4490,8 @@ class Wallet:
                     hash_to_hex_str(self._current_tip_header.hash))
 
                 for header in new_headers:
-                    logger.info("Post-reorg, new tip hash: %s, height: %s",
-                        hash_to_hex_str(header.hash), header.height)
+                    logger.info("New tip hash: %s, height: %s", hash_to_hex_str(header.hash),
+                        header.height)
                     self._connect_headerless_proof_worker_state.header_queue.put_nowait(
                         (header, extension_chain))
                 self._connect_headerless_proof_worker_state.header_event.set()
@@ -4481,7 +4506,7 @@ class Wallet:
 
             # Signal the chain-related workers to complete their current batch and block.
             self._is_chain_management_pending = True
-            self._chain_management_pending_event.set()
+            self._chain_management_interrupt_event.set()
             # Wait for all the worker tasks to compete their current batches and block.
             signalled_worker_tokens = set[ChainWorkerToken]()
             while signalled_worker_tokens != expected_worker_tokens:
@@ -4512,7 +4537,7 @@ class Wallet:
 
             # Reawaken all the worker tasks
             self._is_chain_management_pending = False
-            self._chain_management_pending_event.clear()
+            self._chain_management_interrupt_event.clear()
             for worker_token in signalled_worker_tokens:
                 self._chain_worker_queue.task_done()
 
@@ -4713,7 +4738,7 @@ class Wallet:
                 self._chain_management_queue.put_nowait(
                     (ChainManagementKind.BLOCKCHAIN_REORGANISATION,
                         (current_chain, orphaned_block_hashes, new_block_headers)))
-            else:
+            elif last_processed_height != current_tip_header.height:
                 new_block_headers = [app_state.headers.header_at_height(current_chain, h) for h in
                     range(last_processed_height + 1, current_tip_header.height + 1)]
 
@@ -5109,7 +5134,7 @@ class Wallet:
                     if block_hash in state.block_transactions:
                         for proof_entry in state.block_transactions[block_hash]:
                             process_entries.append((header, proof_entry))
-                    del state.block_transactions[block_hash]
+                        del state.block_transactions[block_hash]
 
             date_updated = get_posix_timestamp()
             transaction_proof_updates = list[TransactionProofUpdateRow]()

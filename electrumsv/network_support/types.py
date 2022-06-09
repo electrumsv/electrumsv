@@ -320,8 +320,12 @@ class ServerConnectionState:
     # Set this if there is a problem with the connection worthy of abandoning it.
     connection_exit_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
 
-    wallet_futures: list[concurrent.futures.Future[None]] = dataclasses.field(
-        default_factory=list[concurrent.futures.Future[None]])
+    # ...
+    stage_change_pipeline_future: Optional[concurrent.futures.Future[None]] = None
+    connection_future: Optional[concurrent.futures.Future[None]] = None
+    mapi_callback_consumer_future: Optional[concurrent.futures.Future[None]] = None
+    output_spends_consumer_future: Optional[concurrent.futures.Future[None]] = None
+    tip_filter_consumer_future: Optional[concurrent.futures.Future[None]] = None
 
     def clear_for_reconnection(self, clear_flags: ServerConnectionFlag=ServerConnectionFlag.NONE) \
             -> None:

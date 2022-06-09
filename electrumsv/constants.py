@@ -566,7 +566,6 @@ class ServerConnectionFlag(IntFlag):
     EXITING                                     = 1 << 7
     EXITED                                      = 1 << 8
 
-    FORCE_CLOSED                                = 1 << 20
     DISCONNECTED                                = 1 << 21
 
     MASK_COMMON_INITIAL                         = INITIALISED | STARTING | DISCONNECTED
