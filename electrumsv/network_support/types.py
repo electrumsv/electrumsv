@@ -129,10 +129,10 @@ class PeerChannelViewModelGet(TypedDict):
 
 
 class MAPICallbackResponse(TypedDict):
-    callbackPayload: dict[str, Any]
+    callbackPayload: str
     apiVersion: str
     timestamp: str
-    minerId: str
+    minerId: Optional[str]
     blockHash: str
     blockHeight: int
     callbackTxId: str

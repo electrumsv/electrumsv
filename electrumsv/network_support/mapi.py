@@ -39,7 +39,7 @@ import asyncio
 import concurrent.futures
 from http import HTTPStatus
 import json
-from typing import Any, cast, get_type_hints, Optional, TYPE_CHECKING
+from typing import Any, cast, get_type_hints, Optional, TYPE_CHECKING, Union
 
 import aiohttp
 from bitcoinx import PublicKey
@@ -196,20 +196,23 @@ def validate_json_envelope(json_response: JSONEnvelope) -> None:
 
 MAPI_CALLBACK_REASONS = {"doubleSpend", "doubleSpendAttempt", "merkleProof"}
 
-# TODO(1.4.0) Unit testing. WRT MAPI callback response validation.
-#     Examples: https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
 def validate_mapi_callback_response(response_data: MAPICallbackResponse) -> None:
+    """
+    MAPI callback response validation.
+    Examples: https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
+    """
     for field_name, field_type in get_type_hints(MAPICallbackResponse).items():
         if field_name not in response_data:
             raise ValueError(f"Missing '{field_name}' field")
 
         field_value = response_data[field_name] # type: ignore[literal-required]
-        # You cannot do a `isinstance(value, Dict[str, Any])`, so you need to extract the
-        # `dict` part out and use that as the type. It's close enough.
-        if hasattr(field_type, "__origin__"):
-            field_type = field_type.__origin__
-        if not isinstance(field_value, field_type):
-            raise ValueError(f"Invalid '{field_name}' type, expected {field_type}, "
+
+        if hasattr(field_type, "__origin__") and field_type.__origin__ is Union:
+            check_type = field_type.__args__ # Each of the union types.
+        else:
+            check_type = field_type
+        if not isinstance(field_value, check_type):
+            raise ValueError(f"Invalid '{field_name}' type, expected {check_type}, "
                 f"got {type(field_value)}")
 
     if response_data["callbackReason"] not in MAPI_CALLBACK_REASONS:
@@ -222,6 +225,12 @@ def validate_mapi_callback_response(response_data: MAPICallbackResponse) -> None
     transaction_id = response_data["callbackTxId"]
     if len(transaction_id) != 32*2:
         raise ValueError(f"'callbackTxId' not 64 characters '{response_data['callbackTxId']}'")
+
+    # This is optional and should be a 33 byte public key encoding.
+    # https://github.com/bitcoin-sv-specs/brfc-minerid#321-static-coinbasedocument-template
+    miner_id = response_data["minerId"]
+    if miner_id is not None and len(miner_id) != 33*2:
+        raise ValueError(f"'minerId' not 66 characters '{response_data['minerId']}'")
 
 
 async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: NewServer,

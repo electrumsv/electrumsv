@@ -1,8 +1,9 @@
 import json
 import pytest
-from typing import cast
+from typing import cast, get_type_hints
 
 from electrumsv.network_support import mapi
+from electrumsv.network_support.types import MAPICallbackResponse
 from electrumsv.transaction import Transaction
 from electrumsv.types import TransactionSize
 
@@ -105,3 +106,96 @@ def test_calculate_mapi_transaction_size() -> None:
     sizes = tx.estimated_size()
     assert sizes.data_size == 206
     assert sizes.standard_size == 234
+
+# Taken from:
+#   https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
+DOUBLE_SPEND_RESPONSE: MAPICallbackResponse = {
+    "callbackPayload": "{\"doubleSpendTxId\":\"f1f8d3de162f3558b97b052064ce1d0c45805490c210bdbc4d4f8b44cd0f143e\", \"payload\":\"01000000014979e6d8237d7579a19aa657a568a3db46a973f737c120dffd6a8ba9432fa3f6010000006a47304402205fc740f902ccdadc2c3323f0258895f597fb75f92b13d14dd034119bee96e5f302207fd0feb68812dfa4a8e281f9af3a5b341a6fe0d14ff27648ae58c9a8aacee7d94121027ae06a5b3fe1de495fa9d4e738e48810b8b06fa6c959a5305426f78f42b48f8cffffffff018c949800000000001976a91482932cf55b847ffa52832d2bbec2838f658f226788ac00000000\"}", # pylint: disable=line-too-long
+    "apiVersion": "1.4.0",
+    "timestamp": "2021-11-03T13:24:31.233647Z",
+    "minerId": "030d1fe5c1b560efe196ba40540ce9017c20daa9504c4c4cec6184fc702d9f274e",
+    "blockHash": "34bbc00697512058cb040e1c7bbba5d03a2e94270093eb28114747430137f9b7",
+    "blockHeight": 153,
+    "callbackTxId": "8750e986a296d39262736ed8b8f8061c6dce1c262844e1ad674a3bc134772167",
+    "callbackReason": "doubleSpend"
+}
+
+DOUBLE_SPEND_ATTEMPT_RESPONSE: MAPICallbackResponse = {
+    "callbackPayload": "{\"doubleSpendTxId\":\"7ea230b1610768374285150537323add313c1b9271b1b8110f5ddc629bf77f46\", \"payload\":\"0100000001e75284dc47cb0beae5ebc7041d04dd2c6d29644a000af67810aad48567e879a0000000006a47304402203d13c692142b4b50737141145795ccb5bb9f5f8505b2d9b5a35f2f838b11feb102201cee2f2fe33c3d592f5e990700861baf9605b3b0199142bbc69ae88d1a28fa964121027ae06a5b3fe1de495fa9d4e738e48810b8b06fa6c959a5305426f78f42b48f8cffffffff018c949800000000001976a91482932cf55b847ffa52832d2bbec2838f658f226788ac00000000\"}", # pylint: disable=line-too-long
+    "apiVersion": "1.4.0",
+    "timestamp": "2021-11-03T13:24:31.233647Z",
+    "minerId": "030d1fe5c1b560efe196ba40540ce9017c20daa9504c4c4cec6184fc702d9f274e",
+    "blockHash": "34bbc00697512058cb040e1c7bbba5d03a2e94270093eb28114747430137f9b7",
+    "blockHeight": 153,
+    "callbackTxId": "8750e986a296d39262736ed8b8f8061c6dce1c262844e1ad674a3bc134772167",
+    "callbackReason": "doubleSpendAttempt"
+}
+
+MERKLE_PROOF_CALLBACK_RESPONSE: MAPICallbackResponse = {
+    "callbackPayload": "{\"index\":1,\"txOrId\":\"e7b3eefab33072e62283255f193ef5d22f26bbcfc0a80688fe2cc5178a32dda6\",\"targetType\":\"header\",\"target\":\"00000020a552fb757cf80b7341063e108884504212da2f1e1ce2ad9ffc3c6163955a27274b53d185c6b216d9f4f8831af1249d7b4b8c8ab16096cb49dda5e5fbd59517c775ba8b60ffff7f2000000000\",\"nodes\":[\"30361d1b60b8ca43d5cec3efc0a0c166d777ada0543ace64c4034fa25d253909\",\"e7aa15058daf38236965670467ade59f96cfc6ec6b7b8bb05c9a7ed6926b884d\",\"dad635ff856c81bdba518f82d224c048efd9aae2a045ad9abc74f2b18cde4322\",\"6f806a80720b0603d2ad3b6dfecc3801f42a2ea402789d8e2a77a6826b50303a\"]}", # pylint: disable=line-too-long
+    "apiVersion": "1.4.0",
+    "timestamp": "2021-04-30T08:06:13.4129624Z",
+    "minerId": "030d1fe5c1b560efe196ba40540ce9017c20daa9504c4c4cec6184fc702d9f274e",
+    "blockHash": "2ad8af91739e9dc41ea155a9ab4b14ab88fe2a0934f14420139867babf5953c4",
+    "blockHeight": 105,
+    "callbackTxId": "e7b3eefab33072e62283255f193ef5d22f26bbcfc0a80688fe2cc5178a32dda6",
+    "callbackReason": "merkleProof"
+}
+
+
+def test_validate_mapi_callback_response_double_spend() -> None:
+    # Check that a valid response passes.
+    mapi.validate_mapi_callback_response(DOUBLE_SPEND_RESPONSE)
+
+
+def test_validate_mapi_callback_response_double_spend_attempt() -> None:
+    # Check that a valid response passes.
+    mapi.validate_mapi_callback_response(DOUBLE_SPEND_ATTEMPT_RESPONSE)
+
+
+def test_validate_mapi_callback_response_double_merkle_proof() -> None:
+    # Check that a valid response passes.
+    mapi.validate_mapi_callback_response(MERKLE_PROOF_CALLBACK_RESPONSE)
+
+
+def test_validate_mapi_callback_response_invalid_reason() -> None:
+    modified_response = DOUBLE_SPEND_RESPONSE.copy()
+    modified_response["callbackReason"] = "unexpected value"
+    with pytest.raises(ValueError):
+        mapi.validate_mapi_callback_response(modified_response)
+
+
+def test_validate_mapi_callback_response_check_sha256_hashes() -> None:
+    modified_response = DOUBLE_SPEND_RESPONSE.copy()
+    for field_name in ("blockHash", "callbackTxId"):
+        for new_value in ("", "too_short", "c"*63, "c"*65):
+            modified_response[field_name] = new_value
+            with pytest.raises(ValueError) as exception_info:
+                mapi.validate_mapi_callback_response(modified_response)
+            assert "not 64 characters" in exception_info.value.args[0]
+
+
+def test_validate_mapi_callback_response_check_miner_id() -> None:
+    # This should be a 33 byte public key encoding.
+    modified_response = DOUBLE_SPEND_RESPONSE.copy()
+    for new_value in ("", "too_short", "c"*32, "c"*34):
+        modified_response["minerId"] = new_value
+        with pytest.raises(ValueError) as exception_info:
+            mapi.validate_mapi_callback_response(modified_response)
+        assert "not 66 characters" in exception_info.value.args[0]
+
+    # The field is optional, cover that case.
+    modified_response["minerId"] = None
+    mapi.validate_mapi_callback_response(modified_response)
+
+
+def test_validate_mapi_callback_response_all_fields_required() -> None:
+    # Remove each field in turn from a fresh copy and check it's absence is missed.
+    for field_name, _field_type in get_type_hints(MAPICallbackResponse).items():
+        modified_response = DOUBLE_SPEND_RESPONSE.copy()
+        del modified_response[field_name]
+
+        with pytest.raises(ValueError) as exception_info:
+            mapi.validate_mapi_callback_response(modified_response)
+        assert field_name in exception_info.value.args[0]
+
