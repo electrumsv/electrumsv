@@ -1,6 +1,6 @@
 import asyncio
 import os
-from typing import Dict, List, NamedTuple, Sequence, Tuple, Optional
+from typing import NamedTuple, Sequence, Tuple, Optional
 import unittest.mock
 
 from bitcoinx import bip32_key_from_string, BIP32PublicKey, hash_to_hex_str, sha256
@@ -35,13 +35,13 @@ class InputLine(NamedTuple):
 
 
 async def generate_bip32_input_lines(script_types: Sequence[ScriptType]) \
-        -> Tuple[List[InputLine], Dict[bytes, InputLine]]:
+        -> Tuple[list[InputLine], dict[bytes, InputLine]]:
     global xpub1
     assert isinstance(xpub1, BIP32PublicKey)
     receiving_xpub = xpub1.child_safe(RECEIVING_SUBPATH[0])
 
-    input_lines: List[InputLine] = []
-    input_line_map: Dict[bytes, InputLine] = {}
+    input_lines: list[InputLine] = []
+    input_line_map: dict[bytes, InputLine] = {}
     for i in range(10):
         public_key = receiving_xpub.child_safe(i)
         if i % len(script_types):
@@ -62,7 +62,7 @@ async def generate_bip32_input_lines(script_types: Sequence[ScriptType]) \
 @pytest.mark.asyncio
 @pytest.mark.timeout(2)
 @unittest.mock.patch('electrumsv.blockchain_scanner.app_state')
-async def test_scanner_pump_mixed(app_state):
+async def test_scanner_scan_for_bip32_and_explicit_key_usage(app_state) -> None:
     """
     We register the receiving path and a few scripts.
     For the scanner to exit successfully, we need to generate a matching result for each script
@@ -135,7 +135,7 @@ async def test_scanner_pump_mixed(app_state):
 @pytest.mark.asyncio
 @pytest.mark.timeout(2)
 @unittest.mock.patch('electrumsv.blockchain_scanner.app_state')
-async def test_scanner_pump_bip32(app_state):
+async def test_scanner_with_gap_limit_extension(app_state) -> None:
     """
     We only register the receiving path.
     We fake a result for each and use our random script hash for several to verify they get placed.
@@ -188,7 +188,7 @@ async def test_scanner_pump_bip32(app_state):
 @pytest.mark.asyncio
 @pytest.mark.timeout(2)
 @unittest.mock.patch('electrumsv.blockchain_scanner.app_state')
-async def test_scanner_pump_script(app_state):
+async def test_scanner_scan_for_explicit_key_usage(app_state) -> None:
     input_lines = [
         InputLine(pushdata_hash=b'1', keyinstance_id=111,
             result=RestorationFilterResult(0, b'1', b'lock', 0, b'unlock', 2)),
@@ -236,7 +236,7 @@ async def test_scanner_pump_script(app_state):
 
 
 @unittest.mock.patch('electrumsv.blockchain_scanner.app_state')
-def test_scanner_bip32_correctness(app_state):
+def test_key_enumerator_bip32_correctness(app_state) -> None:
     assert isinstance(xpub1, BIP32PublicKey)
 
     search_enumerator = SearchKeyEnumerator()

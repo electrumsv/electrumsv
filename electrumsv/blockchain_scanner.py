@@ -65,7 +65,6 @@ if TYPE_CHECKING:
 logger = logs.get_logger("scanner")
 
 # TODO(1.4.0) Networking. Handle disconnection problems cleanly.
-# TODO(1.4.0) Unit testing. Blockchain scanner.
 
 ExtendRangeCallback = Callable[[int], None]
 
@@ -215,10 +214,6 @@ class PushDataHashHandler:
 
 
 class BlockchainScanner:
-    """
-    NOTE(rt12) At this time, only one `Scanner` instance is supported. The main reason for this
-    is that.. I do not remember! Work out why this should be the case or not before using more.
-    """
     def __init__(self,
             handler: PushDataHashHandler,
             enumerator: SearchKeyEnumerator,
@@ -349,9 +344,6 @@ class SearchKeyEnumerator:
             item_hash: bytes) -> None:
         self._pending_subscriptions.append(SearchEntry(SearchEntryKind.EXPLICIT,
             keyinstance_id, script_type, item_hash))
-
-    def has_sources(self) -> bool:
-        return len(self._bip32_paths) > 0 or len(self._pending_subscriptions) > 0
 
     def is_done(self) -> bool:
         if len(self._pending_subscriptions) == 0:
