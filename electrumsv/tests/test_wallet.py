@@ -936,10 +936,9 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_metadata_1.block_position == BLOCK_POSITION
         assert tx_metadata_1.fee_value is None  # == FEE_VALUE
 
-        # TODO(1.4.0) Unit testing. WRT reorgs. Verify that spent output registrations work.
-        # ## Verify that the transaction does not qualify for subscriptions.
-        # sub_rows = db_functions.read_spent_outputs_to_monitor(db_context)
-        # assert not len(sub_rows)
+        # Verify that the transaction does not qualify for subscriptions.
+        sub_rows = db_functions.read_spent_outputs_to_monitor(db_context)
+        assert not len(sub_rows)
 
         # Reorg that doesn't affect our transactions
         # We have no transactions in this block - there should be no effect
@@ -970,13 +969,17 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_metadata_1.block_position is None
         assert tx_metadata_1.fee_value is None
 
-        # TODO(1.4.0) Unit testing. WRT reorgs. Verify that spent output registrations work.
-        # ## Verify that the transaction now qualify for subscriptions, which would mean that
-        # ## we would listen for re-mining events.
-        # sub_rows = db_functions.read_spent_outputs_to_monitor(db_context)
-        # assert len(sub_rows) == 1
-        # assert sub_rows[0].tx_hash == tx_hash_1
-        # assert sub_rows[0].put_type == 1 # Output
+        ## Verify that the transaction now qualify for subscriptions, which would mean that
+        ## we would listen for re-mining events.
+        sub_rows = db_functions.read_spent_outputs_to_monitor(db_context)
+        assert len(sub_rows) == 1
+        # This is an output that tx_1 spends, we do not actually know what it is to compare,
+        # but it will be output 1 in whatever transaction that input spends.
+        # assert sub_rows[0].out_tx_hash == tx_hash_1
+        assert sub_rows[0].out_index == 1
+        assert sub_rows[0].in_tx_hash == tx_hash_1
+        assert sub_rows[0].in_index == 0
+        assert sub_rows[0].block_hash is None
     finally:
         db_context.release_connection(db)
 
