@@ -1,5 +1,3 @@
-# TODO(1.4.0) Unit testing. WRT account restoration. Rewrite for pushdata instead of script hashes.
-
 import asyncio
 import os
 from typing import Dict, List, NamedTuple, Sequence, Tuple, Optional
