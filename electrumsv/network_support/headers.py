@@ -89,7 +89,7 @@ async def get_chain_tips_async(server_state: HeaderServerState, session: aiohttp
             data: bytes = await response.content.read()
             raw_header = data[0:80]
             height = bitcoinx.le_bytes_to_int(data[80:84])
-            # TODO(1.4.0) Network. This is not right. Look into why is it doing `._net`?
+            # TODO(technical-debt) Look into why this is not `Net.COIN`?
             return Net._net.COIN.deserialized_header(raw_header, height)
     except aiohttp.ClientConnectionError:
         raise ServiceUnavailableError(f"Cannot connect to header API at {url}")

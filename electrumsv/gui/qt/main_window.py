@@ -801,7 +801,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._account_menu.setEnabled(False)
 
     def _show_network_dialog(self) -> None:
-        # TODO(1.4.0) Servers. Need to change the dialog to be offline friendly.
+        # TODO(1.4.0) Networking. WRT offline mode. Make the dialog offline friendly.
         # if not app_state.daemon.network:
         #     parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
         #                           'ElectrumSV if you want to get connected'), title=_('Offline'))
@@ -862,7 +862,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     def _update_show_menu(self, checked: bool = False) -> None:
         self._update_menu.exec(QCursor.pos())
 
-    # TODO(1.4.0) Notifications. Make sure this is revisited and reused if possible.
+    # TODO(1.4.0) Notifications. WRT updates. Make sure this is revisited and reused if possible.
     # def _update_check_toolbar_update(self) -> None:
     #     update_check_state = "default"
     #     check_result: Optional[ReleaseDocumentType] = self.config.get('last_update_check')
@@ -1233,7 +1233,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 text = _("UNKNOWN CONNECTION STATE")
                 tooltip_text = _("..")
 
-            # TODO(1.4.0) Servers. We should show header synchronisation updates.
+            # TODO(1.4.0) Networking. WRT blockchains state. Show header synchronisation updates.
             # if self._wallet._blockchain_server_state is not None:
             #     server_chain_tip = self._wallet._blockchain_server_state.tip_header
             #     server_height = server_chain_tip.height if server_chain_tip else 0

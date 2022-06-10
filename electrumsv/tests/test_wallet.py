@@ -936,7 +936,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_metadata_1.block_position == BLOCK_POSITION
         assert tx_metadata_1.fee_value is None  # == FEE_VALUE
 
-        # TODO(1.4.0) Reorgs. Verify that spent output registrations would pick this up.
+        # TODO(1.4.0) Unit testing. WRT reorgs. Verify that spent output registrations work.
         # ## Verify that the transaction does not qualify for subscriptions.
         # sub_rows = db_functions.read_spent_outputs_to_monitor(db_context)
         # assert not len(sub_rows)
@@ -970,7 +970,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_metadata_1.block_position is None
         assert tx_metadata_1.fee_value is None
 
-        # TODO(1.4.0) Reorgs. Verify that spent output registrations would pick this up.
+        # TODO(1.4.0) Unit testing. WRT reorgs. Verify that spent output registrations work.
         # ## Verify that the transaction now qualify for subscriptions, which would mean that
         # ## we would listen for re-mining events.
         # sub_rows = db_functions.read_spent_outputs_to_monitor(db_context)

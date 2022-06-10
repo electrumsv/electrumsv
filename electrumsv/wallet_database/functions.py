@@ -559,13 +559,9 @@ def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> list[OutputSpend]:
     """
     Retrieve all the outpoints we need to monitor (and why) via the 'output-spend' API. Remember
     that the goal is to detect either the appearance of these in the mempool or a block.
+
+    We intentionally do not monitor output spends for MAPI broadcasts.
     """
-    # TODO(1.4.0) MAPI management. This is used to get the spent outputs we want to monitor, but
-    #     we do not monitor the ones where the MAPI broadcast covers mining/proof obtaining.
-    #     - Consider whether we do actually want to monitor MAPI broadcasted transactions also
-    #       and not necessarly fetch a proof, but reconcile MAPI failure.
-    #     - If we are excluding MAPI, then we need to ensure the exclusion constraint in the
-    #       query is correct.
     sql = f"""
     SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index, TX.block_hash
     FROM TransactionInputs TXI
@@ -580,11 +576,10 @@ def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> list[OutputSpend]:
 
 
 @replace_db_context_with_connection
-def read_spent_outputs(db: sqlite3.Connection, outpoints: Sequence[Outpoint]) \
+def read_existing_output_spends(db: sqlite3.Connection, outpoints: list[Outpoint]) \
         -> list[SpentOutputRow]:
     """
-    Get the metadata for how any of the given outpoints are spent. This is used to reconcile
-    against any incoming state from a service about those given outpoints.
+    Get metadata for any existing spends of the provided outpoints.
     """
     sql = """
     SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index, TX.block_hash,
@@ -978,8 +973,8 @@ def read_unregistered_tip_filter_pushdatas(db: sqlite3.Connection) -> list[tuple
     We are going to ignore the first case with key forced to active. That can be deferred, the main
     case we want to support is the second one, where there is a payment request.
     """
-    # TODO(1.4.0) Key usage. We have deferred keys that have been forced active, and need to
-    #     disallow that for now. Supporting it is a bonus task for the 1.4.0 release.
+    # TODO(forced-active-keys) We have deferred keys that have been forced active, and need to
+    #     disallow that for now. It is not likely we will ever support it.
     # TODO(petty-cash) This should likely limit results to a given petty cash account
     sql = """
         SELECT PR.pushdata_hash, PR.expiration, PR.keyinstance_id

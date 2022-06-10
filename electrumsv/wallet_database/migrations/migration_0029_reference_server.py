@@ -205,8 +205,6 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             FOREIGN KEY(keyinstance_id) REFERENCES KeyInstances (keyinstance_id)
         )
     """)
-    # TODO(1.4.0) Key usage. Copy across the existing records and populate the two new columns
-    #     with the correct value.
 
     masterkey_rows: list[MasterKeyRow_27] = [ MasterKeyRow_27(t[0], t[1], DerivationType(t[2]),
         t[3], MasterKeyFlags(t[4])) for t in conn.execute("""
@@ -278,7 +276,6 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         )
     """)
 
-    # TODO(1.4.0) Peer channels. Consider merging `token_flags` and `permission_flags`.
     conn.execute("""
         CREATE TABLE ServerPeerChannelAccessTokens (
             peer_channel_id             INTEGER     NOT NULL,
@@ -303,11 +300,6 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
         )
     """)
-
-    # TODO(1.4.0) Key usage. How do we relate these to the source? Is there a way to say
-    #     this comes from this active key instance? Maybe it is enough to have a flag that
-    #     says this is from an active key instance. If something needs to know which then it
-    #     can ask the account or go work it out.
 
     conn.execute("""
         CREATE TABLE ServerPushDataRegistrations (

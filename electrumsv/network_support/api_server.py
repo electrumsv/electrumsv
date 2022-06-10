@@ -205,8 +205,7 @@ class NewServerAccessState:
         # The fee quote we locally extracted and deserialised from the fee quote response.
         self.last_fee_quote: Optional[FeeQuote] = None
 
-        # TODO(1.4.0) Server Management. Carried forward from previous ElectrumX SVServerState
-        #  code. But the blacklisting and disabling feature is not currently made use of anywhere
+        # TODO(1.4.0) Servers. WRT observing blacklisting and retry delays. Not currently used.
         self.retry_delay = 0
         self.last_blacklisted = 0.
         self.is_disabled = False

@@ -2083,6 +2083,9 @@ class WalletDataAccess:
     def read_spent_outputs_to_monitor(self) -> list[OutputSpend]:
         return db_functions.read_spent_outputs_to_monitor(self._db_context)
 
+    def read_existing_output_spends(self, outpoints: list[Outpoint]) -> list[SpentOutputRow]:
+        return db_functions.read_existing_output_spends(self._db_context, outpoints)
+
     def read_transaction_outputs_with_key_data(self, *, account_id: Optional[int]=None,
             tx_hash: Optional[bytes]=None, txo_keys: Optional[list[Outpoint]]=None,
             derivation_data2s: Optional[list[bytes]]=None, require_keys: bool=False) \
@@ -2214,7 +2217,6 @@ class Wallet:
         # have the proof.
         self._check_missing_proofs_event = app_state.async_.event()
 
-        # TODO(1.4.0) Networking. Need to indicate progress on background network requests.
         self.progress_event = app_state.async_.event()
 
         # When ElectrumSV is asked to open a wallet it first requests the password and verifies
@@ -2747,7 +2749,7 @@ class Wallet:
             problems).
         Raises `GeneralAPIError` if a connection was established but the request errored.
         """
-        # TODO(1.4.0) Petty cash. We intercept this call because the wallet will be funding it
+        # TODO(petty-cash). We intercept this call because the wallet will be funding it
         #     via the petty cash account. Therefore we need to wrap the call to apply the checks
         #     and handling
         state = self.get_server_state_for_capability(ServerCapability.TIP_FILTER)
@@ -2806,8 +2808,6 @@ class Wallet:
                 updated_states.append((server_row, credential_id))
 
                 # Create the base server for the wallet.
-                # TODO(1.4.0) Servers. Need to make sure the base server is created if it does not
-                #     exist.
                 if server_row.account_id is None:
                     assert server_key not in self._servers
                     self._servers[server_key] = NewServer(server_key.url, server_key.server_type,
@@ -2816,8 +2816,6 @@ class Wallet:
             for server_row in updated_server_rows:
                 assert server_row.server_id is not None
                 server_key = ServerAccountKey.from_row(server_row)
-                # TODO(1.4.0) Servers. Need to work out how to correctly encrypt the key.
-                #server_row = server_row._replace(encrypted_api_key=???)
                 updated_states.append((server_row, self._registered_api_keys.get(server_key)))
 
             for server_row, credential_id in updated_states:
@@ -3277,9 +3275,11 @@ class Wallet:
                 #     - Other failure cases?
                 pass
             else:
-                # TODO(1.4.0) Spent outputs. We can do more intelligent selection of spent outputs
+                # TODO(output-spends) This can do more intelligent selection of spent outputs
                 #     to monitor. We really only care about UTXOs that affect us, but it is
                 #     likely that in most cases it is simpler to care about them all.
+                #     - List the higher level code that triggers this so we know we are clear on
+                #       when this is being triggered.
                 self._register_spent_outputs_to_monitor(
                     [ Outpoint(input.prev_hash, input.prev_idx) for input in tx.inputs ])
 
@@ -3287,10 +3287,6 @@ class Wallet:
         # specific change.
         self.events.trigger_callback(WalletEvent.TRANSACTION_ADD, tx_hash, tx, link_state,
             import_flags)
-
-        # NOTE It is kind of arbitrary that this returns a future, let alone the one for closed
-        #   payment requests. In the future, perhaps this will return a grouped set of futures
-        #   for all the related dependent updates?
         app_state.async_.spawn(self._close_paid_payment_requests_async)
 
     def import_transaction_with_error_callback(self, tx: Transaction, tx_state: TxFlags,
@@ -3472,7 +3468,10 @@ class Wallet:
         remaining_tx_hashes, proofs_on_main_chain = await self.try_get_mapi_proofs(
             reorged_tx_hashes)
 
-        # TODO(1.4.0) Merkle Proofs. Consider how malleated tx_hashes would be handled
+        # TODO(malleation) Merkle Proofs. Consider how malleated tx_hashes would be handled. The
+        #     problem would be if the reorged-to block had malleated transactions and not the
+        #     exact transaction we knew to be in the reorged-from block.
+
         # Are we expecting a mAPI merkle proof callback for any of these?
         for mapi_row in self.data.read_mapi_broadcast_callbacks(list(remaining_tx_hashes)):
             remaining_tx_hashes.remove(mapi_row.tx_hash)
@@ -3514,6 +3513,12 @@ class Wallet:
         return self._servers.get(server_key)
 
     def _load_servers(self, password: str) -> None:
+        """
+        Load into the wallet all the known servers.
+
+        This will include both the servers known in the wallet database, and it will also import
+        the servers that are not known in the wallet database but are hardcoded into ElectrumSV.
+        """
         self._registered_api_keys: dict[ServerAccountKey, IndefiniteCredentialId] = {}
         credential_id: Optional[IndefiniteCredentialId] = None
 
@@ -3624,6 +3629,11 @@ class Wallet:
                     credential_id = server.client_api_keys[row.account_id]
                     server.set_server_account_usage(updated_row, credential_id)
             else:
+                # This server is hardcoded into ElectrumSV and this wallet does not know about it.
+                # We add it to the wallet database, as an option. This may be flawed in that if
+                # the wallet user has managed to delete it, we are adding it back in. However,
+                # that is not in the scope of preventing in the original design and we likely do
+                # not allow users to delete servers yet.
                 encrypted_api_key: Optional[str] = None
                 credential_id = None
                 row = NetworkServerRow(None, server_key.server_type, server_key.url, None,
@@ -3701,8 +3711,7 @@ class Wallet:
                             chosen_servers.append((server, { ServerCapability.TIP_FILTER }))
                             break
                     else:
-                        # TODO(1.4.0) Servers. Consider how we should handle this error. Display
-                        #     to the user and allow a manual retry in some way.
+                        # TODO(1.4.0) User visible. WRT fatally broken database state?
                         raise NotImplementedError("Existing blockchain server not found for given "
                             f"id={account_row.indexer_server_id}")
 
@@ -3740,8 +3749,7 @@ class Wallet:
                                 chosen_servers.append((server, { ServerCapability.PEER_CHANNELS }))
                                 break
                         else:
-                            # TODO(1.4.0) Servers. Consider how we should handle this error.
-                            #     Display to the user and allow a manual retry in some way.
+                            # TODO(1.4.0) User visible. WRT fatally broken database state?
                             raise NotImplementedError("Existing peer channel server not found for "
                                 f"given id={account_row.peer_channel_server_id}")
                 else:
@@ -3890,7 +3898,8 @@ class Wallet:
 
             for message_row, message in message_entries:
                 if not isinstance(message["payload"], dict):
-                    # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+                    # TODO(1.4.0) Unreliable server. WRT peer channel message, show user.
+                    #     #usererror3.
                     self._logger.error("Peer channel MAPI callback payload invalid: '%s'", message)
                     continue
 
@@ -3898,7 +3907,7 @@ class Wallet:
                 try:
                     validate_json_envelope(envelope)
                 except ValueError as e:
-                    # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+                    # TODO(1.4.0) Unreliable server. WRT peer channel message, show user.
                     self._logger.error("Peer channel MAPI callback envelope invalid: %s '%s'",
                         e.args[0], message)
                     continue
@@ -3907,7 +3916,7 @@ class Wallet:
                 try:
                     validate_mapi_callback_response(response)
                 except ValueError as e:
-                    # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+                    # TODO(1.4.0) Unreliable server. WRT peer channel message, show user.
                     self._logger.exception("Peer channel MAPI callback response invalid: %s '%s'",
                         e.args[0], message)
                     continue
@@ -3918,17 +3927,18 @@ class Wallet:
                     continue
 
                 proof_json = cast(TSCMerkleProofJson, response["callbackPayload"])
-                # TODO(1.4.0) MAPI. Validate the response 'targetType'. We should verify it in
-                #     `validate_mapi_callback_response` or we should handle all target types.
+                # TODO(1.4.0) Unreliable server. Validate the response 'targetType'. We should
+                #     verify it in `validate_mapi_callback_response` or we should handle all
+                #     target types.
                 assert proof_json["targetType"] == "header"
                 proof = TSCMerkleProof.from_json(proof_json)
 
-                # TODO(1.4.0) MAPI. The MAPI server may send updates if the transaction is reorged,
+                # TODO(mapi) The MAPI server may send updates if the transaction is reorged,
                 #     this means the lifetime of the channel has to be long enough to catch these.
 
                 if not verify_proof(proof):
-                    # TODO(1.4.0) MAPI. The proof is standalone with embedded header, no failure!
-                    #     If we do get a dud proof then we throw it away.
+                    # TODO(1.4.0) Unreliable server. The MAPI proof is standalone with embedded
+                    #     header, no failure! If we do get a dud proof then we throw it away.
                     self._logger.error("Peer channel MAPI proof invalid: '%s'", message)
                     continue
 
@@ -4014,13 +4024,13 @@ class Wallet:
                 processed_message_ids.append(message_row.message_id)
 
                 if not isinstance(message["payload"], dict):
-                    # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+                    # TODO(1.4.0) Unreliable server. WRT tip filter match, show user.
                     self._logger.error("Peer channel message payload invalid: '%s'", message)
                     continue
 
                 pushdata_matches = cast(TipFilterPushDataMatchesData, message["payload"])
-                if "blockId" not in pushdata_matches:
-                    # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+                if "blockId" not in pushdata_matches or "matches" not in pushdata_matches:
+                    # TODO(1.4.0) Unreliable server. WRT tip filter match, show user.
                     self._logger.error("Peer channel message payload invalid: '%s'", message)
                     continue
 
@@ -4085,7 +4095,7 @@ class Wallet:
             return
         state.output_spend_registration_queue.put_nowait(spent_outpoints)
 
-    # TODO(1.4.0) Spent outputs. Unit test malleation replacement of a transaction
+    # TODO(malleation) Spent outputs. Unit test malleation replacement of a transaction
     async def _consume_output_spend_notifications_async(self,
             queue: asyncio.Queue[Sequence[OutputSpend]]) -> None:
         """
@@ -4104,8 +4114,7 @@ class Wallet:
             rows_by_outpoint: dict[Outpoint, list[SpentOutputRow]] = {}
             spent_outpoints = { Outpoint(spent_output.out_tx_hash, spent_output.out_index)
                 for spent_output in spent_outputs }
-            for spent_output_row in db_functions.read_spent_outputs(self.get_db_context(),
-                    list(spent_outpoints)):
+            for spent_output_row in self.data.read_existing_output_spends(list(spent_outpoints)):
                 spent_outpoint = Outpoint(spent_output_row.spent_tx_hash,
                     spent_output_row.spent_txo_index)
                 if spent_outpoint not in rows_by_outpoint:
@@ -4118,57 +4127,83 @@ class Wallet:
             for spent_output in spent_outputs:
                 spent_outpoint = Outpoint(spent_output.out_tx_hash, spent_output.out_index)
                 if spent_outpoint not in rows_by_outpoint:
-                    # TODO(1.4.0) Spent outputs. The user would have had to delete the transaction
-                    #     from the database if that is even possible? Is that correct? Should we do
-                    #     something here? Need to finalise this.
+                    # TODO(server-reliability) Spent outputs. The user would have had to delete the
+                    #     transaction from the database if that is even possible? Is that correct?
+                    #     Should we do something here?
                     self._logger.error("No database entries for spent output notification %r",
                         spent_output)
                     continue
 
+                # TODO(output-spends) Finalise handling of all the different cases when
+                #     processing notifications from a blockchain server.
                 for row in rows_by_outpoint[spent_outpoint]:
                     if row.spending_tx_hash != spent_output.in_tx_hash:
-                        # TODO(1.4.0) Spent outputs. If this was a final transaction that we were
-                        #     watching and since we do not handle incomplete or non-final
-                        #     transactions yet as far as I can recall, it should be, then it has
-                        #     either been double spent or malleated. If it is not final, then it
-                        #     is possible we are legitimately waiting to know how it has been
-                        #     included in any transaction by the other party, or... something else?
-                        self._logger.error("DOUBLE SPENT OR MALLEATED %r ~ %r", spent_output, row)
-                        assert spent_output.out_tx_hash != bytes(32)
-                        # TODO(1.4.0) Spent outputs. Detect malleation by comparing transactions.
-                        #     That would probably require extra work like fetching the new
-                        #     transaction and then reconciling it.
+                        # We have this outpoint being spent by a different transaction than the
+                        # blockchain server is telling us it has been spent by. These are the
+                        # suspected causes:
+                        #
+                        # - Double spend.
+                        # - Malleation (we ignore this problem for now as unlikely).
+                        # - Bad testing environment where an old wallet was loaded against a
+                        #   reset blockchain? (developer needs to reset wallets).
+                        # - Non-final transaction has been finalised without notice by another
+                        #   involved party by broadcasting before we received any communication.
+                        #   (we do not support non-final transactions yet)
+                        #
+                        # Note that this may be a notification related to a transaction we
+                        # considered already broadcast, or about a transaction that we (and maybe
+                        # other involved parties) have locally.
+
+                        # TODO(malleation) We would want to compare both transactions, the old and
+                        #     the new, and identify if it is a malleation or something else. This
+                        #     will have to be done elsewhere and started here, as it will involve
+                        #     synchronous time consuming work like fetching the malleating
+                        #     transaction.
+
+                        self._logger.error("Ignored output spend notification. This may be a "
+                            "double spend, malleation, a developer not resetting their test "
+                            "wallet or a non-final transaction being finalised by broadcast. "
+                            "Details: %r ~ %r", spent_output, row)
                     elif row.block_hash != spent_output.block_hash:
                         if spent_output.block_hash is None:
-                            # We do not process this at this time because the new tip reorg
-                            # detection should already do it. However, we might use it to double
-                            # check data consistency later.
+                            # The blockchain server has informed us that the transaction is back
+                            # in the mempool. The wallet believes that the transaction is in a
+                            # block. We should never apply this change here, it should be
+                            # applied by the processing of updates from our header source.
+
+                            # TODO(reorgs) Consider using this output spend to check consistency.
                             self._logger.debug("Unspent output event, transaction is back in "
                                 "mempool %r ~ %r", spent_output, row)
                         elif row.block_hash is None:
+                            # The blockchain server has informed us that the transaction is in
+                            # a block. The wallet believes the transaction was either in the
+                            # mempool already or is watching to see if someone else broadcasts it.
+                            if row.flags & TxFlags.MASK_STATE_LOCAL:
+                                # Process someone else broadcasting this transaction.
+                                # TODO(1.4.0) User visible. WRT output spend / local transaction.
+                                pass
+
                             self._logger.debug("Unspent output event, transaction has been mined "
                                 " %r ~ %r", spent_output, row)
-                            mined_transactions.add((row.spending_tx_hash,
-                                spent_output.block_hash))
+                            mined_transactions.add((row.spending_tx_hash, spent_output.block_hash))
                         else:
-                            # We do not process this at this time because the new tip reorg
-                            # detection should already do it. However, we might use it to double
-                            # check data consistency later.
-                            # TODO(1.4.0) Spent outputs. Consider if we should have unregistered
-                            #     from this outpoint, and whether we should never get here because
-                            #     the only way we would detect reorgs was by received headers.
+                            # The blockchain server has informed us that the transaction is in a
+                            # block. The wallet believes that the transaction is in a different
+                            # block. We should never apply this change here, it should be
+                            # applied by the processing of updates from our header source.
+
+                            # TODO(reorgs) Consider using this output spend to check consistency.
                             self._logger.debug("Unspent output event, transaction reorged %r ~ %r",
                                 spent_output, row)
                     elif row.block_hash is None and row.flags & TxFlags.MASK_STATE_LOCAL:
-                        # Both local state and notification have no block hash and the state
-                        # indicates we think this transaction is not broadcast. Because we have
-                        # a spent output result for it, we know it is broadcast and because there
-                        # is no block hash we know it is in the mempool.
+                        # The blockchain server has informed us that a transaction we do not
+                        # know to be broadcast, has been broadcast and is in the mempool.
+
+                        # TODO(1.4.0) User visible. WRT output spend / local transaction.
+
                         self._logger.debug("Unspent output event, local transaction has been "
                             "broadcast %r ~ %r", spent_output, row)
                         mempool_transactions[spent_output.in_tx_hash] = row.flags
-                        # TODO(1.4.0) If a transaction we did not expect to get mined, becomes
-                        #     mined then there should be some flow where the user gets notified.
                     else:
                         # Nothing is different than what we already have. Ignore the result. It
                         # probably came in during the registration as the initial state.
@@ -4333,6 +4368,7 @@ class Wallet:
         self.data.teardown()
         self.db_functions_async.close()
         self._storage.close()
+
         self._network = None
         self._stopped = True
 
@@ -4402,44 +4438,6 @@ class Wallet:
             if isinstance(keystore, Hardware_KeyStore):
                 plugin = cast('QtPluginBase', keystore.plugin)
                 plugin.replace_gui_handler(window, keystore)
-
-    # TODO(1.4.0) Servers. This is no longer used. We will not be switching filtering or peer
-    #     channel servers unless the user manually makes it happen. This needs to be factored
-    #     into some design where that is user driven.
-    # async def maybe_switch_main_server(self, reason: SwitchReason) -> None:
-    #     assert self._network is not None
-    #     now = time.time()
-    #     max_height = max((headers_client.tip.height for headers_client in
-    #         self._network.connected_header_server_states.values() \
-    #             if headers_client.tip is not None),
-    #         default=0)
-
-    #     for selection_candidate, headers_client in \
-    #             self._network.connected_header_server_states.items():
-    #         if headers_client.tip is not None and headers_client.tip.height > max_height - 2:
-    #             assert selection_candidate.api_server is not None
-    #             selection_candidate.api_server \
-    #                 .api_key_state[selection_candidate.credential_id].last_good = now
-
-    #     # Give a 60-second breather for a lagging server to catch up
-    #     good_servers = []
-    #     for selection_candidate in self._network.connected_header_server_states:
-    #         assert selection_candidate.api_server is not None
-    #         last_good = selection_candidate.api_server \
-    #             .api_key_state[selection_candidate.credential_id].last_good
-    #         if last_good > now - 60:
-    #             good_servers.append(selection_candidate)
-
-    #     if not good_servers:
-    #         logger.warning('no good servers available')
-
-    #     elif self._indexing_server_candidate_key not in good_servers:
-    #         if self._network.auto_connect():
-    #             await self._set_main_server(random.choice(good_servers), reason)
-    #         else:
-    #             assert self._blockchain_server_state is not None
-    #             logger.warning("main server %s is not good, but retaining it because "
-    #                 "auto-connect is off", self._blockchain_server_state.server.url)
 
     async def _wait_for_chain_related_work_async(self, token: ChainWorkerToken,
             coroutine_callables: Optional[Sequence[Callable[[], Coroutine[Any, Any, Any]]]]=None) \
@@ -4552,8 +4550,7 @@ class Wallet:
                         signalled_worker_tokens)
                     # It is assumed that if this happens, the code is broken and the reliability
                     # of the application cannot be guaranteed.
-                    # TODO(1.4.0) Unreliable application indicator. This should never happen.
-                    #     We should do something when these "should never happen" errors happen.
+                    # TODO(1.4.0) User visible. WRT unexpected unreliable application behaviour.
                     return
 
                 assert worker_token in expected_worker_tokens
@@ -4647,8 +4644,7 @@ class Wallet:
                     common_chain, common_height = cast(tuple[Optional[Chain], int],
                         transaction_chain.common_chain_and_height(header_source_chain))
                     if common_height == -1:
-                        # TODO(1.4.0) Reorgs. Bad header source. We are following a new blockchain!
-                        #     This is a fatal error.
+                        # TODO(1.4.0) User visible. WRT unexpected unreliable application behaviour.
                         raise Exception("Broken header source; claims to have different blockchain")
 
                     # This block is on a different fork from the wallet's header source.
@@ -4748,8 +4744,7 @@ class Wallet:
                 _chain, fork_height = cast(tuple[Optional[Chain], int],
                     previous_chain.common_chain_and_height(current_chain))
                 if fork_height == -1:
-                    # TODO(1.4.0) Reorgs. Bad header source. We are following a new blockchain!
-                    #     This is a fatal error.
+                    # TODO(1.4.0) User visible. WRT unexpected unreliable application behaviour.
                     raise Exception("Broken header source; claims to have different blockchain")
                 elif fork_height > last_processed_height:
                     # The fork happens after the last block header we have processed. When these
@@ -4883,7 +4878,7 @@ class Wallet:
                         tsc_full_proof_bytes = await request_binary_merkle_proof_async(state,
                             tx_hash, include_transaction=True)
                     except ServerConnectionError:
-                        # TODO(1.4.0) Networking. Handle `ServerConnectionError` exception.
+                        # TODO(1.4.0) Unreliable server. Handle `ServerConnectionError` exception.
                         #     No reliable server should cause this, we should stand off the server
                         #     or something similar.
                         logger.error("Still need to implement handling for inability to connect"
@@ -4895,7 +4890,7 @@ class Wallet:
                         entry.with_proof = False
                         continue
                     except FilterResponseInvalidError as response_exception:
-                        # TODO(1.4.0) Networking. Handle `FilterResponseInvalidError` exception.
+                        # TODO(1.4.0) Unreliable server. Handle `FilterResponseInvalidError` exc..
                         #     No reliable server should cause this, we should stand off the server
                         #     or something similar. For now we exit the loop and let the user cause
                         #     other events that allow retry by setting the event.
@@ -4906,7 +4901,7 @@ class Wallet:
                     try:
                         tsc_full_proof = TSCMerkleProof.from_bytes(tsc_full_proof_bytes)
                     except TSCMerkleProofError:
-                        # TODO(1.4.0) Networking. Handle `TSCMerkleProofError` exception.
+                        # TODO(1.4.0) Unreliable server. Handle `TSCMerkleProofError` exception.
                         #     No trustable server should cause this, we should disable the server or
                         #     something similar.
                         self._logger.error("Still need to implement handling for inability to "
@@ -4939,12 +4934,12 @@ class Wallet:
 
                     try:
                         if not verify_proof(tsc_full_proof, header.merkle_root):
-                            # TODO(1.4.0) Networking. Handle invalid merkle proof that fails.
+                            # TODO(1.4.0) Unreliable server. Handle invalid merkle proof that fails.
                             self._logger.error("Still need to implement handling for receiving "
                                 "invalid merkle proofs")
                             return
                     except TSCMerkleProofError:
-                        # TODO(1.4.0) Networking. Handle invalid merkle proof that is broken.
+                        # TODO(1.4.0) Unreliable server. Handle invalid merkle proof that is broken.
                         self._logger.error("Still need to implement handling for receiving "
                             "invalid merkle proofs")
                         return
@@ -5035,7 +5030,7 @@ class Wallet:
                 try:
                     tsc_proof = TSCMerkleProof.from_bytes(tsc_full_proof_bytes)
                 except TSCMerkleProofError:
-                    # TODO(1.4.0) Networking. Handle `TSCMerkleProofError` exception.
+                    # TODO(1.4.0) Unreliable server. Handle `TSCMerkleProofError` exception.
                     #     No trustable server should cause this, we should disable the server or
                     #     something similar.
                     self._logger.error("Still need to implement handling for inability to connect"
@@ -5061,12 +5056,12 @@ class Wallet:
 
                 try:
                     if not verify_proof(tsc_proof, header.merkle_root):
-                        # TODO(1.4.0) Networking. Handle invalid merkle proof that fails.
+                        # TODO(1.4.0) Unreliable server. Handle invalid merkle proof that fails.
                         self._logger.error("Still need to implement handling for inability to "
                             "connect to a server to get arbitrary merkle proofs")
                         return
                 except TSCMerkleProofError:
-                    # TODO(1.4.0) Networking. Handle invalid merkle proof that is broken.
+                    # TODO(1.4.0) Unreliable server. Handle invalid merkle proof that is broken.
                     self._logger.error("Still need to implement handling for receiving "
                         "invalid merkle proofs")
                     return
@@ -5106,8 +5101,6 @@ class Wallet:
         state = self._connect_headerless_proof_worker_state
         state.requires_reload = True
 
-        # TODO(1.4.0) Merkle proofs. What if there is a reorg. Surely we should clear all cached
-        #     data before proceeding. Or maybe we should just be cancelled.
         while not (self._stopping or self._stopped):
             if state.requires_reload:
                 state.requires_reload = False
@@ -5189,10 +5182,9 @@ class Wallet:
                     proof_updates.append(MerkleProofUpdateRow(header.height,
                         proof_row.block_hash, proof_row.tx_hash))
                 else:
-                    # TODO(bad-server)
-                    # TODO(1.4.0) Networking. We probably want to know what server this came from
-                    #    so we can treat it as a bad server. And we would want to retry with a good
-                    #    server.
+                    # TODO(1.4.0) Unreliable server. We probably want to know what server this
+                    #    came from so we can treat it as a bad server. And we would want to retry
+                    #     with a good server.
                     logger.error("Deferred verification transaction %s failed verifying proof",
                         hash_to_hex_str(proof.transaction_hash))
                     # Remove the "pending verification" proof and block data from the transaction,
@@ -5223,7 +5215,7 @@ class Wallet:
         assert self._current_tip_header is not None
         return cast(int, self._current_tip_header.height)
 
-    # TODO(1.4.0) Headers. Unit test that all branches of this work.
+    # TODO(1.4.0) Unit testing. WRT Headers. Unit test that all branches of this work.
     def is_header_within_current_chain(self, height: int, block_hash: bytes) -> bool:
         """
         Identify if the block at the given height on the current chain has the given hash.
@@ -5244,7 +5236,7 @@ class Wallet:
             return False
         return cast(bytes, double_sha256(header_bytes)) == block_hash
 
-    # TODO(1.4.0) Headers. Unit test that all branches of this work.
+    # TODO(1.4.0) Unit testing. WRT Headers. Unit test that all branches of this work.
     def lookup_header_for_hash(self, block_hash: bytes) -> Optional[tuple[Header, Chain]]:
         """
         Lookup the header based on the wallet's current chain state.

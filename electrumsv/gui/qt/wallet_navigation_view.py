@@ -380,13 +380,13 @@ class WalletNavigationView(QSplitter):
 
         def update_tree_item(item: QTreeWidgetItem, balance: WalletBalance) -> None:
             nonlocal fx
-            # TODO(1.4.0) Balances. There is an unresolved decision about what balance to display
-            #     where. The user gets confused if their balance is not shown, but they don't have
-            #     the full balance to spend, as only confirmed and maybe unconfirmed (depending
-            #     on preferences) are available and not allocated or unmatured.
-            #     We would probably benefit from some easy way for users to see what coins are
-            #     available for spending and why. One idea would be to add a table of available
-            #     balances on the dashboard.
+            # TODO(1.4.0) User experience. WRT balances. There is an unresolved decision about what
+            #     balance to display where. The user gets confused if their balance is not shown,
+            #     but they don't have the full balance to spend, as only confirmed and maybe
+            #     unconfirmed (depending on preferences) are available and not allocated or
+            #     unmatured. We would probably benefit from some easy way for users to see what
+            #     coins are available for spending and why. One idea would be to add a table of
+            #     available balances on the dashboard.
 
             # This is the correct balance to display for the navigation pane summaries. It should
             # match the sum of the balances in all the accounts history tabs, and this will of
@@ -509,7 +509,7 @@ class WalletNavigationView(QSplitter):
 
         scan_action = menu.addAction(_("&Restore account"),
             main_window_proxy.scan_active_account_manual)
-        # TODO(1.4.0) Account restoration. We need to restore non-deterministic accounts, like
+        # TODO(1.4.0) Account restoration. Implement restoring non-deterministic accounts, like
         #     imported keys. But we should go over all account types to be sure we do it right.
         scan_action.setEnabled(account.is_deterministic())
         menu.addSeparator()

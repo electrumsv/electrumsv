@@ -196,7 +196,7 @@ def validate_json_envelope(json_response: JSONEnvelope) -> None:
 
 MAPI_CALLBACK_REASONS = {"doubleSpend", "doubleSpendAttempt", "merkleProof"}
 
-# TODO(1.4.0) Unit testing. Write unit tests to validate this works correctly.
+# TODO(1.4.0) Unit testing. WRT MAPI callback response validation.
 #     Examples: https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
 def validate_mapi_callback_response(response_data: MAPICallbackResponse) -> None:
     for field_name, field_type in get_type_hints(MAPICallbackResponse).items():

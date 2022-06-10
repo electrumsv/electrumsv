@@ -331,7 +331,7 @@ class PayToEdit(ScanQRTextEdit):
     # NOTE(typing) Signature of "qr_input" incompatible with supertype "ScanQRTextEdit"  [override]
     def qr_input(self) -> None: # type: ignore[override]
         def callback(text: str) -> None:
-            # TODO(1.4.0): Old comment. Revisit. "update fee"
+            # TODO Old comment. Revisit. "update fee"
             if text:
                 try:
                     self._send_view._main_window.pay_to_URI(text)

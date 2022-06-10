@@ -329,8 +329,6 @@ class ServerConnectionState:
 
     def clear_for_reconnection(self, clear_flags: ServerConnectionFlag=ServerConnectionFlag.NONE) \
             -> None:
-        # TODO(1.4.0) Servers. We should consider what can be cleared and the repercussions of
-        #     doing so.
         self.connection_flags = clear_flags | ServerConnectionFlag.INITIALISED
         self.stage_change_event.set()
         self.stage_change_event.clear()

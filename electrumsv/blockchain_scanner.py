@@ -65,7 +65,7 @@ if TYPE_CHECKING:
 logger = logs.get_logger("scanner")
 
 # TODO(1.4.0) Networking. Handle disconnection problems cleanly.
-# TODO(1.4.0) Unit tests. Blockchain scanner.
+# TODO(1.4.0) Unit testing. Blockchain scanner.
 
 ExtendRangeCallback = Callable[[int], None]
 

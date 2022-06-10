@@ -224,15 +224,9 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
 
         server_state.connection_event.set()
 
-        # TODO(1.4.0) Headers. This event should be replaced by in-wallet handling for the sync.
         self.new_server_ready_event.set()
         self.new_server_ready_event.clear()
 
-        # TODO(1.4.0) Servers. This establishes a header-only websocket to the server, however if
-        #     this is used as an blockchain server it will also have a general account websocket to
-        #     the server which also sends header events. We should modify this to receive headers
-        #     from  the header websocket only if there is not a general websocket connection,
-        #     switching back and forwards using some rational heuristic.
         new_tip: TipResponse
         # iterator yields forever
         async for new_tip in subscribe_to_headers_async(server_state, self.aiohttp_session):
@@ -335,8 +329,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 self._known_header_server_keys.add(server_key)
                 self._server_connectivity_metadata[server_key] = ServerConnectivityMetadata()
 
-                # TODO(1.4.0) Servers. Need some logic that limits how many servers are
-                #     connected to.
                 assert self._connect_to_server_async(context, server_key)
         finally:
             logger.debug("Network maintain connections task exiting.")
@@ -394,10 +386,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                         # We only log the unavailability for the first failed attempt.
                         if server_metadata.consecutive_failed_attempts == 1:
                            logger.error("Server unavailable: %s", server_key)
-                # TODO(1.4.0) Servers. Connection retrying should have some logic to it.
-                #     - Ideally we would try with a backing off delay, eventually where that
-                #       delay becomes very large. The user might be able to go into the UI
-                #       and force a reconnection.
                 await asyncio.sleep(20)
         finally:
             del self.connected_header_server_states[server_key]
@@ -474,13 +462,8 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         header, _chains = app_state.headers.lookup(block_hash)
         return header
 
-    # TODO(1.4.0) Network Dialogue. This needs to be re-connected to the Network Dialogue GUI
-    def auto_connect(self) -> bool:
-        return app_state.config.get_explicit_type(bool, 'auto_connect', True)
-
     def status(self) -> dict[str, Any]:
         return {
             'blockchain_height': self.get_local_height(),
             'spv_nodes': len(self._known_header_server_keys),
-            'auto_connect': self.auto_connect(),
         }

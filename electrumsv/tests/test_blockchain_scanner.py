@@ -1,4 +1,4 @@
-# TODO(1.4.0) Restoration. This needs to be rewritten to test pushdata.
+# TODO(1.4.0) Unit testing. WRT account restoration. Rewrite for pushdata instead of script hashes.
 
 import asyncio
 import os

@@ -351,10 +351,10 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
         master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
         headers = {"Authorization": f"Bearer {master_token}"}
         account_metadata_url = f"{state.server.url}api/v1/account"
-        # TODO(1.4.0) Servers. Need to identify other aiohttp exceptions raised here and handle.
+        # TODO(technical-debt) aiohttp exceptions. What aiohttp exceptions are raised here??
         try:
             async with state.session.get(account_metadata_url, headers=headers) as response:
-                if response.status != 200:
+                if response.status != HTTPStatus.OK:
                     logger.error("Unexpected status in payment key endpoint response (vkd) %d (%s)",
                         response.status, response.reason)
                     raise GeneralAPIError(
@@ -395,7 +395,7 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
 
     payment_key_bytes: Optional[bytes] = None
     api_key: Optional[str] = None
-    # TODO(1.4.0) Servers. Need to identify aiohttp exceptions raised here and handle them.
+    # TODO(technical-debt) aiohttp exceptions. What aiohttp exceptions are raised here??
     try:
         async with state.session.post(obtain_server_key_url, json=key_data) as response:
             if response.status != HTTPStatus.OK:
@@ -404,7 +404,7 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
                 raise GeneralAPIError(
                     f"Bad response status code: {response.status}, reason: {response.reason}")
 
-            # TODO(1.4.0) Servers. Need to identify aiohttp exceptions raised here and handle them.
+            # TODO(technical-debt) aiohttp exceptions. What aiohttp exceptions are raised here??
             reader = aiohttp.MultipartReader.from_response(response)
             while True:
                 part = cast(Optional[aiohttp.BodyPartReader], await reader.next())
@@ -420,11 +420,11 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
         logger.debug("Failed to connect to server at: %s", obtain_server_key_url, exc_info=True)
         raise ServerConnectionError()
 
-    # TODO(1.4.0) Servers. The user should be shown this as the auth failure reason.
+    # TODO(1.4.0) User visible. WRT unexpected unreliable server behaviour.
     if payment_key_bytes is None:
         raise AuthenticationError("No payment key received for server")
 
-    # TODO(1.4.0) Servers. The user should be shown this as the auth failure reason.
+    # TODO(1.4.0) User visible. WRT unexpected unreliable server behaviour.
     if api_key is None:
         raise AuthenticationError("No api key received for server")
 
@@ -535,10 +535,9 @@ def register_output_spends_async(state: ServerConnectionState) -> None:
     These registrations only persist as long as that websocket connection is alive.
     """
     # Feed the initial state into the worker task.
-    # TODO(1.4.0) Petty cash. This should when we support multiple petty cash accounts we
-    #     should specify which grouping of accounts are funded by a given petty cash
-    #     account. It is possible we may end up mapping the petty cash account id to
-    #     those accounts in the database.
+    # TODO(petty-cash) This should when we support multiple petty cash accounts we should specify
+    #     which grouping of accounts are funded by a given petty cash account. It is possible we
+    #     may end up mapping the petty cash account id to those accounts in the database.
     assert state.wallet_data is not None
     output_spends = state.wallet_data.read_spent_outputs_to_monitor()
     logger.debug("Registering %d existing output spend notification requirements",
@@ -732,7 +731,7 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
 
         peer_channel_row = state.cached_peer_channel_rows.get(remote_channel_id)
         if peer_channel_row is None:
-            # TODO(1.4.0) Servers. Error handling for unknown peer channel.
+            # TODO(1.4.0) User visible. WRT unexpected unreliable server behaviour / peer channels.
             #     a) The server is buggy and has sent us a message intended for someone else.
             #     b) We are buggy and we have not correctly tracked peer channels.
             #     We should flag this to the user in some user-friendly way as a reliability
@@ -791,7 +790,7 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
             state.mapi_callback_response_queue.put_nowait(message_entries)
             state.mapi_callback_response_event.set()
         else:
-            # TODO(1.4.0) Servers. Unreliable server (peer channel message) show user.
+            # TODO(1.4.0) User visible. WRT unexpected unreliable server behaviour, peer channels.
             logger.error("Received peer channel %d messages of unhandled purpose '%s'",
                 peer_channel_row.peer_channel_id, peer_channel_purpose)
 
@@ -877,7 +876,7 @@ async def validate_server_data(state: ServerConnectionState) -> None:
                 #     - Expiry date edge case? Clock error?
                 #     - Purged account due to abuse or other reason?
                 raise InvalidStateError(
-                    f"TODO(1.4.0) Handle missing server tip filter registration {tip_filter_row}")
+                    f"Handle missing server tip filter registration {tip_filter_row}")
 
             server_tip_filter = server_tip_filter_by_pushdata_hash[pushdata_hash]
             # 2. Does the server tip filter have the same registration duration?
@@ -886,7 +885,7 @@ async def validate_server_data(state: ServerConnectionState) -> None:
                 #     - Maybe the user changed the duration on the registration?
                 #       - If the user did this, we would want to update both at the same time
                 #         and coordinate it. Do not allow it if they are offline.
-                raise InvalidStateError("TODO(1.4.0) Handle filter duration mismatch")
+                raise InvalidStateError("Handle filter duration mismatch")
 
             if tip_filter_row.pushdata_flags & PushDataHashRegistrationFlag.REGISTERING:
                 # The pushdata hash is registered on the server.
@@ -900,7 +899,7 @@ async def validate_server_data(state: ServerConnectionState) -> None:
             elif tip_filter_row.date_registered != server_tip_filter.date_created:
                 # TODO(1.4.0) Tip filters. Server registration mismatch in date registered.
                 #     - Using the same wallet in different installations?
-                raise InvalidStateError("TODO(1.4.0) Handle filter date created mismatch")
+                raise InvalidStateError("Handle filter date created mismatch")
             matched_server_filter_pushdata_hashes.add(pushdata_hash)
 
         # Apply the deletions and updates to the database.
@@ -919,7 +918,7 @@ async def validate_server_data(state: ServerConnectionState) -> None:
                     continue
                 # TODO(1.4.0) Tip filters. Server has registered pushdatas we do not know about.
                 #     - Using the same wallet in different installations?
-                raise InvalidStateError("TODO(1.4.0) Handle orphaned server registration mismatch")
+                raise InvalidStateError("Handle orphaned server registration mismatch")
 
 
 async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerConnectionState) \

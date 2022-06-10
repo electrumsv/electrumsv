@@ -459,7 +459,6 @@ class ReceiveDialog(QDialog):
                 indexing_server_state = wallet.get_server_state_for_capability(
                     ServerCapability.TIP_FILTER)
 
-                # TODO(1.4.0) Tip filtering. This needs to be a lot simpler.
                 monitored_row = wallet.data.read_registered_tip_filter_pushdata_for_request(
                     self._request_id)
                 if monitored_row is None:
@@ -677,16 +676,20 @@ class ReceiveDialog(QDialog):
                 "payment request."), self)
             return
 
-        # TODO(1.4.0) Transaction state. This should register for output spend events to detect
-        #     whether the transaction has been broadcast. Right?
+        # NOTE(output-spends) This will trigger registration for output spend events to monitor
+        #     if this transaction gets broadcast externally.
         tx_state = TxFlags.STATE_RECEIVED
         wallet.import_transaction_with_error_callback(tx, tx_state, self.show_error_signal.emit)
         # Importing a transaction implicitly closes any payment requests that are reliant
         # on the payment in that transaction to be satisfied. We also support multiple
         # payments satisfying a payment request (address reuse..) so there's also that.
 
-        # TODO(1.4.0) Transaction import. Is this related to the payment request?
-        # - Maybe not view the transaction, but we could show it in a list.
+        # TODO(1.4.0) User experience. WRT transaction import. We want to show this transaction
+        #     has been imported visually. Just popping up the transaction dialog does not make
+        #     much sense. Having a list on the payment request window and adding it there is a
+        #     better idea. We should have a user visible notification that a payment request
+        #     has been fully paid, but that would be triggered generally in the wallet code not the
+        #     UI code.
 
     def _on_menu_import_from_file(self) -> None:
         tx, tx_context = self._main_window_proxy.prompt_obtain_transaction_from_file()

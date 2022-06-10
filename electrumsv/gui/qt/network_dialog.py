@@ -118,7 +118,7 @@ PASSWORD_REQUEST_TEXT = _("You have associated a new API key with the wallet '{}
     "encrypt the API key for storage in this wallet, you will need to provide it's password.")
 
 
-# TODO(1.4.0) - modify to indicate current chain tips (a representation of the HeaderSV chain tips)
+# TODO(1.4.0) Network dialog. WRT HeaderSV chain tips and needing to be updated for it.
 #  and which chain this wallet is on which at least in the near term will be
 #  coupled to the indexer which always gives a materialized view of the longest chain.
 # class NodesListColumn(enum.IntEnum):
@@ -331,7 +331,7 @@ PASSWORD_REQUEST_TEXT = _("You have associated a new API key with the wallet '{}
 #         form.add_row(QLabel(""), self.split_label)
 #
 
-# TODO(1.4.0) - modify to indicate current chain tips (a representation of the HeaderSV chain tips)
+# TODO(1.4.0) Network dialog. WRT HeaderSV chain tips and needing to be updated for it.
 #  and which chain this wallet is on which at least in the near term will be
 #  coupled to the indexer which always gives a materialized view of the longest chain.
 # class BlockchainTab(QWidget):
@@ -664,7 +664,8 @@ class EditServerDialog(WindowModalDialog):
                     credential_id = wallet.get_credential_id_for_server_key(server_key)
                     assert credential_id is not None
                     all_account_state.encrypted_api_key = server_row.encrypted_api_key
-                    # TODO(1.4.0) Servers. We should consider only decrypting on use.
+                    # TODO(1.4.0) Credentials. We should consider only decrypting when we need to
+                    #     access the value, rather than decrypting it here.
                     all_account_state.decrypted_api_key = \
                         app_state.credentials.get_indefinite_credential(credential_id)
             all_account_state.initial_state = InitialServerState.create_from(all_account_state)
@@ -680,7 +681,8 @@ class EditServerDialog(WindowModalDialog):
                     credential_id = wallet.get_credential_id_for_server_key(server_key)
                     assert credential_id is not None
                     state.encrypted_api_key = server_account_row.encrypted_api_key
-                    # TODO(1.4.0) Servers. We should consider only decrypting on use.
+                    # TODO(1.4.0) Credentials. We should consider only decrypting when we need to
+                    #     access the value, rather than decrypting it here.
                     state.decrypted_api_key = \
                         app_state.credentials.get_indefinite_credential(credential_id)
                 state.initial_state = InitialServerState.create_from(state)
@@ -1124,7 +1126,7 @@ class ServersListWidget(QTableWidget):
             self.setItem(row_index, 1, item_1)
 
             item_2 = SortableServerQTableWidgetItem()
-            # TODO(1.4.0) Network Dialogue. This is kept to make it easier to reinstate
+            # TODO(1.4.0) Network Dialog. This is kept to make it easier to reinstate
             #   this behaviour for the new non-electrumx servers at a later date
             # if list_entry.server_type == NetworkServerType.ELECTRUMX and
             #       self._network is not None:
@@ -1189,7 +1191,7 @@ class ServersListWidget(QTableWidget):
             return
         entry = cast(ServerListEntry, items[0].data(Roles.ITEM_DATA))
 
-        # TODO(1.4.0). Network Dialogue. Integrate non-electrumx servers with this
+        # TODO(1.4.0) Network Dialog. Integrate non-electrumx servers with this
         # def use_as_server(auto_connect: bool) -> None:
         #     nonlocal entry
         #     assert entry.data_electrumx is not None
@@ -1299,7 +1301,7 @@ class ServersTab(QWidget):
                 data_api=server))
 
         self._server_list.update_list(items)
-        # TODO(1.4.0) - replace with HeaderSV chain tips and local chain state this wallet follows
+        # TODO(1.4.0) Network dialog. WRT HeaderSV chain tips and needing to be updated for it.
         # self._parent._blockchain_tab.nodes_list_widget.update()
         self._enable_set_broadcast_service()
 
@@ -1320,26 +1322,20 @@ class NetworkTabsLayout(QVBoxLayout):
         self._wallet_weakref = wallet_weakref
         self._network = network
 
-        # TODO(1.4.0) - replace with HeaderSV chain tips and local chain state this wallet follows
+        # TODO(1.4.0) Network dialog. WRT HeaderSV chain tips and needing to be updated for it.
         # self._blockchain_tab = BlockchainTab(self, network)
         self._servers_tab = ServersTab(self, main_window_weakref, wallet_weakref, network)
 
         self._tabs = QTabWidget()
         self._tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # TODO(1.4.0) - replace with HeaderSV chain tips and local chain state this wallet follows
+        # TODO(1.4.0) Network dialog. WRT HeaderSV chain tips and needing to be updated for it.
         # self._tabs.addTab(self._blockchain_tab, _('Blockchain Status'))
         self._tabs.addTab(self._servers_tab, _('Servers'))
 
         self.addWidget(self._tabs)
         self.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         self.last_values = None
-
-    # TODO(1.4.0). Network Dialogue. Integrate non-electrumx servers with this
-    # def follow_server(self, server: SVServer, auto_connect: bool) -> None:
-    #     self._network.set_server(server, auto_connect)
-    #     # This updates the blockchain tab too.
-    #     self._servers_tab.update_servers()
 
 
 class NetworkDialog(QDialog):
@@ -1363,9 +1359,10 @@ class NetworkDialog(QDialog):
 
         vbox = QVBoxLayout(self)
 
-        # TODO(1.4.0) This SizeConstraint was in place when all three tabs were present but
-        #  with only one tab, it causes distortion. I don't understand why but can put it back
-        #  when the BlockchainTab is reinstated for non-electrumx servers.
+        # TODO(1.4.0) Network dialog. WRT HeaderSV chain tips and needing to be updated for it.
+        #     This SizeConstraint was in place when all three tabs were present but
+        #     with only one tab, it causes distortion. I don't understand why but can put it back
+        #     when the BlockchainTab is reinstated for non-electrumx servers.
         # vbox.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         vbox.addLayout(self._tabs_layout)
         vbox.addLayout(self._buttons_layout)
