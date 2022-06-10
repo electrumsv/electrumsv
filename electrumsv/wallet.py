@@ -5215,7 +5215,6 @@ class Wallet:
         assert self._current_tip_header is not None
         return cast(int, self._current_tip_header.height)
 
-    # TODO(1.4.0) Unit testing. WRT Headers. Unit test that all branches of this work.
     def is_header_within_current_chain(self, height: int, block_hash: bytes) -> bool:
         """
         Identify if the block at the given height on the current chain has the given hash.
@@ -5236,7 +5235,6 @@ class Wallet:
             return False
         return cast(bytes, double_sha256(header_bytes)) == block_hash
 
-    # TODO(1.4.0) Unit testing. WRT Headers. Unit test that all branches of this work.
     def lookup_header_for_hash(self, block_hash: bytes) -> Optional[tuple[Header, Chain]]:
         """
         Lookup the header based on the wallet's current chain state.

@@ -7,7 +7,7 @@ from typing import Any, cast, Dict, Optional, List, Set
 import unittest
 import unittest.mock
 
-from bitcoinx import hex_str_to_hash, Ops, Script
+from bitcoinx import Chain, double_sha256, Header, hex_str_to_hash, MissingHeader, Ops, Script
 import pytest
 
 from electrumsv.constants import (AccountFlags, CHANGE_SUBPATH, DATABASE_EXT,
@@ -1376,3 +1376,105 @@ async def test_extend_transaction_sequence() -> None:
     finally:
         db_context.release_connection(db)
 
+
+@unittest.mock.patch('electrumsv.wallet.app_state')
+def test_is_header_within_current_chain(app_state) -> None:
+    header_bytes = b"fake header"
+    block_hash = double_sha256(header_bytes)
+
+    app_state.headers = unittest.mock.Mock()
+    app_state.headers.raw_header_at_height = lambda chain_arg, height_arg: header_bytes
+    app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+
+    mock_storage = cast(WalletStorage, MockStorage("password"))
+    wallet = Wallet(mock_storage)
+
+    # No current chain, always returns `False`.
+    assert wallet._current_chain is None
+    assert not wallet.is_header_within_current_chain(10, b'ignored')
+
+    # header_height > current_tip_header.height -> False (beyond current chain scope)
+    wallet._current_chain = unittest.mock.Mock()
+    wallet._current_tip_header = unittest.mock.Mock()
+    wallet._current_tip_header.height = 5
+    assert not wallet.is_header_within_current_chain(10, b'ignored')
+
+    # block hash does not match the header at that height -> False
+    wallet._current_chain = unittest.mock.Mock()
+    wallet._current_tip_header = unittest.mock.Mock()
+    wallet._current_tip_header.height = 10
+    assert not wallet.is_header_within_current_chain(5, b'not the block hash')
+
+    # block hash does match the header at that height -> True
+    wallet._current_chain = unittest.mock.Mock()
+    wallet._current_tip_header = unittest.mock.Mock()
+    wallet._current_tip_header.height = 10
+    assert wallet.is_header_within_current_chain(5, block_hash)
+
+
+@unittest.mock.patch('electrumsv.wallet.app_state')
+def test_lookup_header_for_hash(app_state) -> None:
+    header_bytes = b"fake header"
+    block_hash = double_sha256(header_bytes)
+    fake_header1 = unittest.mock.Mock()
+    fake_header2 = unittest.mock.Mock()
+    fake_chain1 = unittest.mock.Mock()
+    fake_chain2 = unittest.mock.Mock()
+
+    def lookup_header_fail(block_hash: bytes) -> tuple[Header, Chain]:
+        raise MissingHeader
+
+    def lookup_header_succeed1(lookup_block_hash: bytes) -> tuple[Header, Chain]:
+        assert lookup_block_hash == block_hash
+        return cast(Header, fake_header1), cast(Chain, fake_chain1)
+
+    def lookup_header_succeed2(lookup_block_hash: bytes) -> tuple[Header, Chain]:
+        assert lookup_block_hash == block_hash
+        return cast(Header, fake_header2), cast(Chain, fake_chain2)
+
+    def common_chain_and_height_fail(chain_arg: Chain) -> tuple[Optional[Chain], int]:
+        return None, -1
+
+    def common_chain_and_height_is_1(chain_arg: Chain) -> tuple[Optional[Chain], int]:
+        return fake_chain1, 3
+
+    app_state.headers = unittest.mock.Mock()
+    app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+
+    mock_storage = cast(WalletStorage, MockStorage("password"))
+    wallet = Wallet(mock_storage)
+
+    # If we do not know the wallet blockchain state we cannot lookup any header.
+    assert wallet._current_chain is None
+    assert wallet.lookup_header_for_hash(b'ignored') is None
+
+    # Header not present.
+    app_state.headers.lookup = lookup_header_fail
+    assert wallet.lookup_header_for_hash(b'ignored') is None
+
+    # Case: We are on a fork from the longer chain and the header lies within our fork.
+    # Case: We are on the longer chain and the header lies within it.
+    app_state.headers.lookup = lookup_header_succeed1
+    wallet._current_chain = cast(Chain, fake_chain1)
+    assert wallet.lookup_header_for_hash(block_hash) == (fake_header1, fake_chain1)
+
+    # Case: We do not even share the Genesis block with the other chain. We could assert but
+    #       it does not hurt to generically fail.
+    app_state.headers.lookup = lookup_header_succeed2
+    wallet._current_chain = cast(Chain, fake_chain1)
+    fake_chain1.common_chain_and_height = common_chain_and_height_fail
+    assert wallet.lookup_header_for_hash(block_hash) is None
+
+    # The header lies on the different fork.
+    app_state.headers.lookup = lookup_header_succeed2
+    fake_header2.height = 10
+    wallet._current_chain = cast(Chain, fake_chain1)
+    fake_chain1.common_chain_and_height = common_chain_and_height_is_1
+    assert wallet.lookup_header_for_hash(block_hash) is None
+
+    # The header is at the common height or below on the common chain.
+    app_state.headers.lookup = lookup_header_succeed2
+    fake_header2.height = 3
+    wallet._current_chain = cast(Chain, fake_chain1)
+    fake_chain1.common_chain_and_height = common_chain_and_height_is_1
+    assert wallet.lookup_header_for_hash(block_hash) == (fake_header2, fake_chain1)
