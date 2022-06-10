@@ -26,9 +26,10 @@ from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
-    NetworkServerRow, PaymentRequestReadRow, PaymentRequestRow,
-    PaymentRequestUpdateRow, ServerPeerChannelRow, ServerPeerChannelMessageRow, TransactionRow,
-    TransactionOutputShortRow, WalletBalance, WalletEventInsertRow)
+    MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestReadRow,
+    PaymentRequestRow, PaymentRequestUpdateRow, ServerPeerChannelRow, ServerPeerChannelMessageRow,
+    TransactionOutputShortRow, TransactionProofUpdateRow, TransactionRow, WalletBalance,
+    WalletEventInsertRow)
 
 from .util import PasswordToken
 
@@ -504,36 +505,114 @@ class TestTransactionTable:
         result_tx_hashes = set(self._get_store_hashes())
         assert get_tx_hashes == result_tx_hashes
 
-    # TODO(1.4.0) Unit testing. WRT update for the new TSC proof storage.
-    # @pytest.mark.asyncio
-    # async def test_proof(self) -> None:
-    #     assert self.db_context is not None
 
-    #     tx_bytes = os.urandom(10)
-    #     tx_hash = bitcoinx.double_sha256(tx_bytes)
-    #     tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
-    #         block_hash=b'11', block_position=None, fee_value=2, description=None,
-    #         version=None, locktime=None, date_created=1, date_updated=1)
-    #     future = db_functions.create_transactions_UNITTEST(self.db_context, [ tx_row ])
-    #     future.result(timeout=5)
+def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
+    tx_bytes_1 = os.urandom(10)
+    tx_hash_1 = bitcoinx.double_sha256(tx_bytes_1)
+    tx_bytes_2 = os.urandom(10)
+    tx_hash_2 = bitcoinx.double_sha256(tx_bytes_2)
+    BLOCK_HASH_1 = b'block hash 1'
+    BLOCK_HASH_2 = b'block hash 2'
+    BLOCK_HASH_3 = b'block hash 3'
+    BLOCK_HASH_4 = b'block hash 4'
+    PROOF_DATA_1 = b'proof data 1'
+    PROOF_DATA_2 = b'proof data 2'
+    PROOF_DATA_3 = b'proof data 3'
+    PROOF_DATA_4 = b'proof data 4'
+    merkle_proof_row_1 = MerkleProofRow(BLOCK_HASH_1, 1, 1, PROOF_DATA_1, tx_hash_1)
+    merkle_proof_row_2 = MerkleProofRow(BLOCK_HASH_2, 1, 1, PROOF_DATA_2, tx_hash_1)
+    merkle_proof_row_3 = MerkleProofRow(BLOCK_HASH_3, 1, 1, PROOF_DATA_3, tx_hash_2)
+    merkle_proof_row_4 = MerkleProofRow(BLOCK_HASH_4, 1, 1, PROOF_DATA_4, tx_hash_2)
 
-    #     with db_functions.AsynchronousFunctions(self.db_context) as db_functions_async:
-    #         position1 = 10
-    #         merkle_branch1 = [ os.urandom(32) for i in range(10) ]
-    #         proof = TxProof(position1, merkle_branch1)
-    #         block_hash = os.urandom(32)
-    #         await db_functions_async.update_transaction_proof_async(tx_hash, block_hash, position1,
-    #             proof)
+    tx_row_1 = TransactionRow(tx_hash=tx_hash_1, tx_bytes=tx_bytes_1,
+        flags=TxFlags.STATE_CLEARED,
+        block_hash=BLOCK_HASH_1, block_position=None, fee_value=None,
+        description=None, version=None, locktime=None, date_created=1, date_updated=1)
+    tx_row_2 = TransactionRow(tx_hash=tx_hash_2, tx_bytes=tx_bytes_2,
+        flags=TxFlags.STATE_SIGNED,
+        block_hash=None, block_position=None, fee_value=None,
+        description=None, version=None, locktime=None, date_created=1, date_updated=1)
+    future = db_functions.create_transactions_UNITTEST(db_context, [ tx_row_1, tx_row_2 ])
+    future.result(timeout=5)
 
-    #         rows = db_functions.read_transaction_proof(self.db_context, [ self.tx_hash ])
-    #         assert len(rows) == 0
+    merkle_proof_rows = [ merkle_proof_row_1 ]
+    db_connection = db_context.acquire_connection()
+    try:
+        # This should create the merkle proofs.
+        db_functions.create_merkle_proofs_write(merkle_proof_rows, db_connection)
 
-    #         rows = db_functions.read_transaction_proof(self.db_context, [ tx_hash ])
-    #         assert len(rows) == 1
-    #         assert rows[0].tx_hash == tx_hash
-    #         proof = rows[0].unpack_proof()
-    #         assert proof.position == position1
-    #         assert proof.branch == merkle_branch1
+        # This should create the extra proof but leave the existing one alone.
+        merkle_proof_rows.append(merkle_proof_row_2)
+        db_functions.create_merkle_proofs_write(merkle_proof_rows, db_connection)
+
+        proofs = db_functions.read_merkle_proofs(db_context, [ b'no match tx hash' ])
+        assert len(proofs) == 0
+
+        proofs = db_functions.read_merkle_proofs(db_context, [ tx_hash_1 ])
+        assert len(proofs) == 2
+        proofs_by_block_hash = { row.block_hash: row for row in proofs }
+        assert BLOCK_HASH_1 in proofs_by_block_hash
+        assert proofs_by_block_hash[BLOCK_HASH_1] == merkle_proof_row_1
+        assert BLOCK_HASH_2 in proofs_by_block_hash
+        assert proofs_by_block_hash[BLOCK_HASH_2] == merkle_proof_row_2
+
+        db_functions.update_merkle_proofs_write([ MerkleProofUpdateRow(10, BLOCK_HASH_2, tx_hash_1) ],
+            db_connection)
+        proofs = db_functions.read_merkle_proofs(db_context, [ tx_hash_1 ])
+        assert len(proofs) == 2
+        proofs_by_block_hash = { row.block_hash: row for row in proofs }
+        assert proofs_by_block_hash[BLOCK_HASH_1] == merkle_proof_row_1
+        assert proofs_by_block_hash[BLOCK_HASH_2] == merkle_proof_row_2._replace(block_height=10)
+
+        proof_datas = db_functions.read_transaction_proof_data(db_context, [])
+        assert len(proof_datas) == 0
+        proof_datas = db_functions.read_transaction_proof_data(db_context, [ tx_hash_1 ])
+        assert len(proof_datas) == 1
+        assert proof_datas[0].flags == TxFlags.STATE_CLEARED
+        assert proof_datas[0].block_hash == BLOCK_HASH_1
+        assert proof_datas[0].proof_bytes == PROOF_DATA_1
+
+        # This is a transaction with block hash, no block position, STATE_CLEARED.
+        unconnected_proofs = db_functions.read_unconnected_merkle_proofs(db_context)
+        assert len(unconnected_proofs) == 1
+        assert unconnected_proofs[0] == merkle_proof_row_1
+
+        # This associates proof 3 with tx 3.
+        tx_proof_update_row = TransactionProofUpdateRow(merkle_proof_row_3.block_hash,
+            merkle_proof_row_3.block_position, TxFlags.STATE_SETTLED, 1, merkle_proof_row_3.tx_hash)
+        # This updates the height to 20.
+        proof_update_row = MerkleProofUpdateRow(20, BLOCK_HASH_1, tx_hash_1)
+        db_functions.update_transaction_proof_write([ tx_proof_update_row ], [ merkle_proof_row_3,
+            merkle_proof_row_4 ], [ proof_update_row ], db_connection)
+
+        # Confirm the block height is now 20.
+        proofs = db_functions.read_merkle_proofs(db_context, [ tx_hash_1 ])
+        assert len(proofs) == 2
+        proofs_by_block_hash = { row.block_hash: row for row in proofs }
+        assert proofs_by_block_hash[BLOCK_HASH_1].block_height == 20
+
+        # Confirm that proof 3 is associated with tx 3.
+        proof_datas = db_functions.read_transaction_proof_data(db_context, [ tx_hash_2 ])
+        assert len(proof_datas) == 1
+        assert TxFlags(proof_datas[0].flags) == TxFlags.STATE_SETTLED
+        assert proof_datas[0].block_hash == BLOCK_HASH_3
+        assert proof_datas[0].proof_bytes == PROOF_DATA_3
+
+        # This associates proof 4 with tx 3.
+        tx_proof_update_row = TransactionProofUpdateRow(merkle_proof_row_4.block_hash,
+            merkle_proof_row_4.block_position, TxFlags.STATE_SETTLED, 1, tx_hash_2)
+        flag_update_entry = (TxFlags(~TxFlags.PAYS_INVOICE), TxFlags.PAYS_INVOICE, tx_hash_2)
+        db_functions.update_transaction_proof_and_flag_write([ tx_proof_update_row ],
+            [ flag_update_entry ], db_connection)
+
+        # Confirm that proof 4 is associated with tx 3.
+        proof_datas = db_functions.read_transaction_proof_data(db_context, [ tx_hash_2 ])
+        assert len(proof_datas) == 1
+        assert proof_datas[0].block_hash == BLOCK_HASH_4
+        assert proof_datas[0].proof_bytes == PROOF_DATA_4
+        assert TxFlags(proof_datas[0].flags) == TxFlags.STATE_SETTLED|TxFlags.PAYS_INVOICE
+    finally:
+        db_context.release_connection(db_connection)
 
 
 def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
