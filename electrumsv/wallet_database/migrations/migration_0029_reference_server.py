@@ -253,7 +253,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
 
         conn.execute("""
             INSERT INTO PaymentRequests2 (paymentrequest_id, keyinstance_id, state, description,
-                expiration, value, script_type, pushdata_hash, date_created, date_updated) "
+                expiration, value, script_type, pushdata_hash, date_created, date_updated)
             SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.description,
                 PR.expiration, PR.value, ?, ?, PR.date_created, PR.date_updated
             FROM PaymentRequests AS PR

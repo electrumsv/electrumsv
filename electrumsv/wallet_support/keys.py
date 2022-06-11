@@ -72,6 +72,13 @@ def get_pushdata_hash_for_keystore_key_data(keystore: KeyStore, key_data: KeyDat
     if key_data.derivation_type == DerivationType.PRIVATE_KEY:
         public_keys = [ PublicKey.from_bytes(key_data.derivation_data2) ]
         return get_pushdata_hash_for_public_keys(script_type, public_keys)
+    elif key_data.derivation_type == DerivationType.BIP32_SUBPATH:
+        assert key_data.derivation_data2 is not None
+        derivation_path = unpack_derivation_path(key_data.derivation_data2)
+        from ..keystore import Xpub
+        xpub_keystore = cast(Xpub, keystore)
+        public_keys = [ xpub_keystore.derive_pubkey(derivation_path) ]
+        return get_pushdata_hash_for_public_keys(script_type, public_keys)
     elif keystore.type() == KeystoreType.MULTISIG:
         assert script_type in MULTI_SIGNER_SCRIPT_TYPES
         assert key_data.derivation_type == DerivationType.BIP32_SUBPATH
