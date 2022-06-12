@@ -204,12 +204,15 @@ class PreferencesDialog(QDialog):
 
         # qr_label = HelpLabel(_('Video Device') + ':',
         #                      _("Install the zbar package to enable this."))
+        selected_device_id = app_state_qt.config.get_video_device()
+
         qr_combo = QComboBox()
-        qr_combo.addItem("Default", "default")
+        qr_combo.addItem("Default", b"")
         system_cameras = qrreader.find_system_cameras()
         for camera_name, device_id in system_cameras.items():
             qr_combo.addItem(camera_name, device_id)
-        qr_combo.setCurrentIndex(qr_combo.findData(app_state_qt.config.get_video_device()))
+            if device_id == selected_device_id:
+                qr_combo.setCurrentIndex(qr_combo.count()-1)
         qr_combo.setEnabled(qrscanner.libzbar is not None)
         def on_video_device(index: int) -> None:
             device_id = cast(bytes, qr_combo.itemData(index))
