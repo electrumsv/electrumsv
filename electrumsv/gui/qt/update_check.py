@@ -1,10 +1,9 @@
 from distutils.version import StrictVersion
 import requests
-from typing import cast
 
-from PyQt5.QtCore import QTimer
-from PyQt5.QtGui import QCloseEvent
-from PyQt5.QtWidgets import QDialogButtonBox, QLabel, QProgressBar, QVBoxLayout, QWidget
+from PyQt6.QtCore import QTimer
+from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtWidgets import QDialogButtonBox, QLabel, QProgressBar, QVBoxLayout, QWidget
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
@@ -58,15 +57,15 @@ class UpdateCheckDialog(WindowModalDialog):
 
         widget: QWidget = read_qt_ui("updater_widget.ui")
 
-        layout = cast(QVBoxLayout, widget.findChild(QVBoxLayout, "vertical_layout"))
-        self._title_label = cast(QLabel, widget.findChild(QLabel, "title_label"))
+        layout = widget.findChild(QVBoxLayout, "vertical_layout")
+        self._title_label = widget.findChild(QLabel, "title_label")
         self._title_label.setText(_(MSG_TITLE_CHECK))
-        self._progressbar = cast(QProgressBar, widget.findChild(QProgressBar))
+        self._progressbar = widget.findChild(QProgressBar)
         self._progressbar.setValue(1)
-        self._message_label = cast(QLabel, widget.findChild(QLabel, "message_label"))
+        self._message_label = widget.findChild(QLabel, "message_label")
         self._message_label.setText(_(MSG_BODY_CHECK))
-        self._buttonbar = cast(QDialogButtonBox, widget.findChild(QDialogButtonBox))
-        self._buttonbar.rejected.connect(self.close)
+        self._buttonbar = widget.findChild(QDialogButtonBox)
+        self._buttonbar.rejected.connect(self._close)
 
         self.setLayout(layout)
 
@@ -89,6 +88,10 @@ class UpdateCheckDialog(WindowModalDialog):
 
         app_state.app_qt.update_check_signal.connect(self._on_update_result)
         app_state.app_qt.update_check()
+
+    def _close(self) -> None:
+        # We provide this so the type signature of the signal method is correct.
+        self.close()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         self._close_cleanup()

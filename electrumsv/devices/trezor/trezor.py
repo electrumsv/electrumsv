@@ -16,6 +16,8 @@ from ...transaction import classify_tx_output, HardwareSigningMetadata, Transact
 from ...wallet import MultisigAccount, StandardAccount
 from ...wallet_database.types import KeyListRow
 
+from ...gui.qt.util import window_query_choice
+
 from ..hw_wallet.plugin import HW_PluginBase, LibraryFoundButUnusable
 
 if TYPE_CHECKING:
@@ -183,27 +185,33 @@ class TrezorPlugin(HW_PluginBase):
         ).format(self.device, self.device)
         choices = [
             # Must be short as QT doesn't word-wrap radio button text
-            (TIM_NEW, _("Let the device generate a completely new seed randomly")),
-            (TIM_RECOVER, _("Recover from a seed you have previously written down")),
+            _("Let the device generate a completely new seed randomly"),
+            _("Recover from a seed you have previously written down"),
         ]
+        methods = [ TIM_NEW, TIM_RECOVER ]
         client = cast(Optional[TrezorClientSV], app_state.device_manager.client_by_id(device_id))
         assert client is not None
         model = client.get_trezor_model()
-        def f(method: int) -> None:
+        choice_index = window_query_choice(wizard, _('Initialize Device'), msg, choices)
+        if choice_index is not None:
+            method = methods[choice_index]
+
             import threading
-            settings = cast("QtPlugin", self).request_trezor_init_settings(wizard, method, model)
+            settings = cast("QtPlugin", self).request_trezor_init_settings(wizard, method,
+                model)
             t = threading.Thread(target=self._initialize_device_safe,
-                                 args=(settings, method, device_id, wizard, handler))
+                args=(settings, method, device_id, wizard, handler))
             t.setDaemon(True)
             t.start()
-            exit_code = wizard.loop.exec_()
-            if exit_code != 0:
-                # this method (initialize_device) was called with the expectation
-                # of leaving the device in an initialized state when finishing.
-                # signal that this is not the case:
-                raise UserCancelled()
-        wizard.choice_dialog(title=_('Initialize Device'), message=msg,
-                             choices=choices, run_next=f)
+
+            # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+            1/0 # pylint: disable=pointless-statement
+            # exit_code = wizard.loop.exec()
+            # if exit_code != 0:
+            #     # this method (initialize_device) was called with the expectation
+            #     # of leaving the device in an initialized state when finishing.
+            #     # signal that this is not the case:
+            #     raise UserCancelled()
 
     def _initialize_device_safe(self, settings: Tuple[int, str, bool, bool, Optional[int]],
             method: int, device_id: str, wizard: "AccountWizard",
@@ -218,7 +226,9 @@ class TrezorPlugin(HW_PluginBase):
             handler.show_error(str(e))
             exit_code = 1
         finally:
-            wizard.loop.exit(exit_code)
+            # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+            pass
+            # wizard.loop.exit(exit_code)
 
     def _initialize_device(self, settings: Tuple[int, str, bool, bool, Optional[int]],
             method: int, device_id: str, wizard: "AccountWizard", handler: "QtHandler") -> None:

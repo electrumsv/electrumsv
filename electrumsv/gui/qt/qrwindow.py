@@ -25,8 +25,8 @@
 
 from typing import Optional
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (QLabel, QLineEdit, QGridLayout, QWidget,
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (QLabel, QLineEdit, QGridLayout, QWidget,
     QPlainTextEdit)
 
 from electrumsv.app_state import app_state
@@ -41,32 +41,32 @@ class QR_Window(QWidget):
         self.setWindowTitle('ElectrumSV - ' + _('Payment Request'))
         self.label = ''
         self.amount = 0
-        self.setFocusPolicy(Qt.NoFocus)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
         layout = QGridLayout()
 
         self.qrw = QRCodeWidget()
-        layout.addWidget(self.qrw, 0, 0, 1, 4, Qt.AlignHCenter)
+        layout.addWidget(self.qrw, 0, 0, 1, 4, Qt.AlignmentFlag.AlignHCenter)
 
         self._address_label = QLabel(_("Destination") +":")
-        layout.addWidget(self._address_label, 1, 1, 1, 1, Qt.AlignRight)
+        layout.addWidget(self._address_label, 1, 1, 1, 1, Qt.AlignmentFlag.AlignRight)
         self._address_edit = QPlainTextEdit()
         self._address_edit.setReadOnly(True)
         self._address_edit.setMinimumWidth(300)
-        layout.addWidget(self._address_edit, 1, 2, 1, 1, Qt.AlignLeft)
+        layout.addWidget(self._address_edit, 1, 2, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
         self._message_label = QLabel(_("Message") +":")
-        layout.addWidget(self._message_label, 2, 1, 1, 1, Qt.AlignRight)
+        layout.addWidget(self._message_label, 2, 1, 1, 1, Qt.AlignmentFlag.AlignRight)
         self._message_edit = QPlainTextEdit()
         self._message_edit.setReadOnly(True)
         self._message_edit.setMinimumWidth(300)
-        layout.addWidget(self._message_edit, 2, 2, 1, 1, Qt.AlignLeft)
+        layout.addWidget(self._message_edit, 2, 2, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
         self._amount_label = QLabel(_("Amount") +":")
-        layout.addWidget(self._amount_label, 3, 1, 1, 1, Qt.AlignRight)
+        layout.addWidget(self._amount_label, 3, 1, 1, 1, Qt.AlignmentFlag.AlignRight)
         self._amount_edit = QLineEdit()
         self._message_edit.setReadOnly(True)
-        layout.addWidget(self._amount_edit, 3, 2, 1, 1, Qt.AlignLeft)
+        layout.addWidget(self._amount_edit, 3, 2, 1, 1, Qt.AlignmentFlag.AlignLeft)
 
         self.setLayout(layout)
 

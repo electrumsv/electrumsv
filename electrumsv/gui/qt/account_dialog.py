@@ -3,8 +3,8 @@
 from __future__ import annotations
 from typing import cast, Optional
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QComboBox, QDialog, QLabel, QLineEdit, QSizePolicy, QSpacerItem, \
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QComboBox, QDialog, QLabel, QLineEdit, QSizePolicy, QSpacerItem, \
     QVBoxLayout, QWidget
 
 from ...constants import ACCOUNT_SCRIPT_TYPES, DerivationType, KeystoreType, ScriptType
@@ -16,6 +16,7 @@ from ...wallet import Wallet
 from .cosigners_view import CosignerState, CosignerList
 from .main_window import ElectrumWindow
 from .qrtextedit import ShowQRTextEdit
+from .receive_view import ReceiveView
 from .util import Buttons, CloseButton, FormSectionWidget
 
 
@@ -81,7 +82,7 @@ class AccountDialog(QDialog):
             if current_script_type != new_script_type:
                 account.set_default_script_type(new_script_type)
 
-                view = self._main_window_proxy.get_receive_view(account.get_id())
+                view = cast(ReceiveView, self._main_window_proxy.get_receive_view(account.get_id()))
                 view.update_script_type(new_script_type)
 
         update_script_types()
@@ -116,7 +117,7 @@ class AccountDialog(QDialog):
             elif account.is_deterministic():
                 mpk_list = account.get_master_public_keys()
                 mpk_text = ShowQRTextEdit()
-                mpk_text.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
+                mpk_text.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
                 mpk_text.addCopyButton()
                 mpk_text.setText(mpk_list[0])
                 mpk_text.repaint()   # macOS hack for Electrum #4777

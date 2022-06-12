@@ -263,21 +263,25 @@ class KeepKeyPlugin(HW_PluginBase):
         ).format(self.device, self.device)
         choices = [
             # Must be short as QT doesn't word-wrap radio button text
-            (TIM_NEW, _("Let the device generate a completely new seed randomly")),
-            (TIM_RECOVER, _("Recover from a seed you have previously written down")),
-            (TIM_MNEMONIC, _("Upload a BIP39 mnemonic to generate the seed")),
-            (TIM_PRIVKEY, _("Upload a master private key"))
+            _("Let the device generate a completely new seed randomly"),
+            _("Recover from a seed you have previously written down"),
+            _("Upload a BIP39 mnemonic to generate the seed"),
+            _("Upload a master private key"),
         ]
-        def f(method: int) -> None:
+        methods = [ TIM_NEW, TIM_RECOVER, TIM_MNEMONIC, TIM_PRIVKEY ]
+        from ...gui.qt.util import window_query_choice
+        choice_index = window_query_choice(wizard, _('Initialize Device'), msg, choices)
+        if choice_index is not None:
+            method = methods[choice_index]
+
             settings = cast("Plugin", self).request_trezor_init_settings(
                 wizard, method, self.device)
             t = threading.Thread(target = self._initialize_device_safe,
                                  args=(settings, method, device_id, wizard, handler))
             t.setDaemon(True)
             t.start()
-            wizard.loop.exec_()
-        wizard.choice_dialog(title=_('Initialize Device'), message=msg,
-                             choices=choices, run_next=f)
+            # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+            # wizard.loop.exec()
 
     def _initialize_device_safe(self, settings: Tuple[Union[int, str], str, Union[bool, str], bool],
             method: int, device_id: str, wizard: "AccountWizard", handler: "QtHandler") -> None:
@@ -290,7 +294,9 @@ class KeepKeyPlugin(HW_PluginBase):
             handler.show_error(str(e))
             exit_code = 1
         finally:
-            wizard.loop.exit(exit_code)
+            # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+            pass
+            # wizard.loop.exit(exit_code)
 
     def _initialize_device(self, settings: Tuple[Union[int, str], str, Union[bool, str], bool],
             method: int, device_id: str, wizard: "AccountWizard", handler: "QtHandler") -> None:

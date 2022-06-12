@@ -32,8 +32,7 @@ from .validator import (QrReaderValidatorResult, AbstractQrReaderValidator,
                         QrReaderValidatorStrong, QrReaderValidatorCounted)
 
 
-def find_system_cameras() -> Mapping[str, str]:
+def find_system_cameras() -> Mapping[str, bytes]:
     """Returns a camera_description -> camera_path map."""
-    from PyQt5.QtMultimedia import QCameraInfo
-    system_cameras = QCameraInfo.availableCameras()
-    return {cam.description(): cam.deviceName() for cam in system_cameras}
+    from PyQt6.QtMultimedia import QMediaDevices
+    return { device.description(): device.id().data() for device in QMediaDevices.videoInputs() }

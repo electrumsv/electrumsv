@@ -31,12 +31,12 @@ from functools import partial
 from typing import Any, Callable, cast, List, NamedTuple, Optional, TYPE_CHECKING, Tuple
 import weakref
 
-from PyQt5.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, Qt, QTimer
-from PyQt5.QtGui import QBrush, QColor, QContextMenuEvent, QIcon, QKeyEvent, \
+from PyQt6.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, Qt, QTimer
+from PyQt6.QtGui import QBrush, QColor, QContextMenuEvent, QIcon, QKeyEvent, \
     QPixmap, QValidator
-from PyQt5.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, \
+from PyQt6.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, \
     QFrame, QGridLayout, QHBoxLayout, QHeaderView, QItemDelegate, QLabel, QLineEdit, QMenu, \
-    QMessageBox, QPushButton, QStyleOptionViewItem, \
+    QPushButton, QStyleOptionViewItem, \
     QSizePolicy, QTableWidget, QTableWidgetItem, QTabWidget, QTreeWidget, QTreeWidgetItem, \
     QVBoxLayout, QWidget
 
@@ -169,7 +169,7 @@ PASSWORD_REQUEST_TEXT = _("You have associated a new API key with the wallet '{}
 #                 action = menu.addAction(_("Unlock as main server"), partial(use_as_server, True))
 #                 action.setEnabled(app_state.config.is_modifiable('auto_connect') and \
 #                     server == self._network.main_server)
-#         menu.exec_(self.viewport().mapToGlobal(position))
+#         menu.exec(self.viewport().mapToGlobal(position))
 
 #     def keyPressEvent(self, event: QKeyEvent) -> None:
 #         if event.key() in [ Qt.Key.Key_F2, Qt.Key.Key_Return ]:
@@ -453,9 +453,9 @@ class EditServerDialog(WindowModalDialog):
             # Change the background to indicate whether the edit field contents are valid or not.
             palette = edit.palette()
             if error_message is None:
-                palette.setBrush(palette.Base, default_brush)
+                palette.setBrush(palette.ColorRole.Base, default_brush)
             else:
-                palette.setBrush(palette.Base, QColor(Qt.GlobalColor.yellow).lighter(167))
+                palette.setBrush(palette.ColorRole.Base, QColor(Qt.GlobalColor.yellow).lighter(167))
             edit.setPalette(palette)
 
             if error_message is not None:
@@ -467,7 +467,7 @@ class EditServerDialog(WindowModalDialog):
         self._server_url_edit.setMinimumWidth(300)
         self._server_url_edit.setText(entry.url)
         default_edit_palette = self._server_url_edit.palette()
-        default_base_brush = default_edit_palette.brush(default_edit_palette.Base)
+        default_base_brush = default_edit_palette.brush(default_edit_palette.ColorRole.Base)
         server_type_schemes: Optional[set[str]] = None
         self._url_validator = URLValidator(schemes=server_type_schemes)
         self._server_url_edit.setValidator(self._url_validator)
@@ -530,7 +530,7 @@ class EditServerDialog(WindowModalDialog):
                 # we only do that at point of committing an update.
                 edit_state.encrypted_api_key = None
 
-                text = cast(QLineEdit, editor.text()).strip()
+                text = cast(QLineEdit, editor).text().strip()
                 if text:
                     if not edit_state.enabled:
                         edit_state.enabled = True
@@ -586,7 +586,7 @@ class EditServerDialog(WindowModalDialog):
         # NOTE(copy-paste) Generic separation line code used elsewhere as well.
         button_box_line = QFrame()
         button_box_line.setStyleSheet("QFrame { border: 1px solid #E3E2E2; }")
-        button_box_line.setFrameShape(QFrame.HLine)
+        button_box_line.setFrameShape(QFrame.Shape.HLine)
         button_box_line.setFixedHeight(1)
 
         help_button = QPushButton(_("Help"))
@@ -698,8 +698,7 @@ class EditServerDialog(WindowModalDialog):
         all_accounts_item = QTreeWidgetItem([ _("All accounts in this wallet"),
             api_key_placeholder_text ])
         if self._entry.api_key_supported:
-            all_accounts_item.setFlags(
-                Qt.ItemFlag(int(all_accounts_item.flags()) | Qt.ItemFlag.ItemIsEditable))
+            all_accounts_item.setFlags(all_accounts_item.flags() | Qt.ItemFlag.ItemIsEditable)
         all_accounts_item.setCheckState(0, Qt.CheckState.Checked if all_account_state.enabled
             else Qt.CheckState.Unchecked)
         all_accounts_item.setDisabled(not self._entry.can_configure_account_access)
@@ -719,8 +718,7 @@ class EditServerDialog(WindowModalDialog):
                 f"Account {account.get_id()}: {account.display_name()}", api_key_placeholder_text ])
             account_item.setData(0, Qt.ItemDataRole.UserRole, account.get_id())
             if self._entry.api_key_supported:
-                account_item.setFlags(
-                    Qt.ItemFlag(int(account_item.flags()) | Qt.ItemFlag.ItemIsEditable))
+                account_item.setFlags(account_item.flags() | Qt.ItemFlag.ItemIsEditable)
             account_item.setCheckState(0, Qt.CheckState.Checked if account_state.enabled else
                 Qt.CheckState.Unchecked)
             account_item.setDisabled(not self._entry.can_configure_account_access)
@@ -1042,8 +1040,8 @@ class ServersListWidget(QTableWidget):
         self.doubleClicked.connect(self._event_double_clicked)
         self.server_disconnected_signal.connect(self._event_server_deleted)
 
-        self.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         # Tab should move to the next UI element, not to the next link in the table. The user
         # should be able to use cursor keys to move selected lines.
         self.setTabKeyNavigation(False)
@@ -1056,7 +1054,7 @@ class ServersListWidget(QTableWidget):
         self.setHorizontalHeaderLabels(self.COLUMN_NAMES)
 
         vh = self.verticalHeader()
-        vh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        vh.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         vh.hide()
 
         hh = self.horizontalHeader()
@@ -1122,7 +1120,7 @@ class ServersListWidget(QTableWidget):
             # Unless we remove this flag, it seems for some reason this field is editable and when
             # it is double clicked it turns into a line edit as well as opening the edit dialog.
             # It's probably a default flag set when `setText` is called.
-            item_1.setFlags(Qt.ItemFlag(int(item_1.flags()) & ~Qt.ItemFlag.ItemIsEditable))
+            item_1.setFlags(item_1.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.setItem(row_index, 1, item_1)
 
             item_2 = SortableServerQTableWidgetItem()
@@ -1149,10 +1147,10 @@ class ServersListWidget(QTableWidget):
         # pushed right and clipped with only partial text displayed.
         hh = self.horizontalHeader()
         hh.setStretchLastSection(False)
-        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(1, QHeaderView.Stretch)
-        hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
 
     def _get_selected_entry(self) -> ServerListEntry:
         items = self.selectedItems()
@@ -1162,7 +1160,7 @@ class ServersListWidget(QTableWidget):
     def _view_entry(self, entry: ServerListEntry) -> None:
         dialog = EditServerDialog(self._parent_tab, self._main_window_weakref, self._wallet_weakref,
             self._network, title="Edit Server", edit_mode=True, entry=entry)
-        if dialog.exec() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             self._parent_tab.update_servers()
 
     # Qt signal handler.
@@ -1205,7 +1203,7 @@ class ServersListWidget(QTableWidget):
 
         menu.addAction(_("Delete server"), partial(self._on_menu_delete_server, entry))
 
-        action = menu.exec_(self.mapToGlobal(event.pos()))
+        action = menu.exec(self.mapToGlobal(event.pos()))
         if action == details_action:
             self._view_entry(entry)
 
@@ -1261,21 +1259,13 @@ class ServersTab(QWidget):
         grid.addWidget(self._server_list, 2, 0, 1, 5)
         self.update_servers()
 
-    def _show_help(self) -> None:
-        b = QMessageBox()
-        b.setIcon(QMessageBox.Information)
-        b.setTextFormat(Qt.TextFormat.AutoText)
-        b.setText(self.help_text)
-        b.setWindowTitle("Help")
-        b.exec()
-
     def _event_button_clicked_refresh_list(self) -> None:
         self.update_servers()
 
     def _event_button_clicked_add_server(self) -> None:
         dialog = EditServerDialog(self, self._main_window_weakref, self._wallet_weakref,
             self._network, title="Add Server")
-        if dialog.exec() == QDialog.Accepted:
+        if dialog.exec() == QDialog.DialogCode.Accepted:
             self.update_servers()
 
     def update_servers(self) -> None:
@@ -1327,7 +1317,7 @@ class NetworkTabsLayout(QVBoxLayout):
         self._servers_tab = ServersTab(self, main_window_weakref, wallet_weakref, network)
 
         self._tabs = QTabWidget()
-        self._tabs.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         # TODO(1.4.0) Network dialog. WRT HeaderSV chain tips and needing to be updated for it.
         # self._tabs.addTab(self._blockchain_tab, _('Blockchain Status'))

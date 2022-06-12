@@ -7,8 +7,8 @@ steps:
 - script: |
     python3 -m pip install mypy
     python3 -m pip install types-certifi types-pkg_resources types-python-dateutil types-requests types-attrs
-    # These PyQt5 stubs are not updated often enough. Even the versions at the tip at the time of
+    # These PyQt6 stubs are not updated often enough. Even the versions at the tip at the time of
     # this commit are not good enough and have gaps.
-    pip install git+https://github.com/python-qt-tools/PyQt5-stubs.git@166af25fbe0886f95ef0b1a1b57bbdc893e9144d
+    pip install git+https://github.com/python-qt-tools/PyQt6-stubs.git@f623a641cd5cdff53342177e4fbbf9cae8172336
     python3 -m mypy --config-file mypy.ini --python-version ${{ parameters.pythonVersion }}
   displayName: 'Mypy static analysis'

@@ -261,11 +261,12 @@ class SimpleConfig:
         # The configured fee rate does not differentiate between standard and data sizes.
         return self.fee_per_kb() * sum(size) // 1000
 
-    def get_video_device(self) -> str:
-        device = self.get_explicit_type(str, "video_device", "default")
-        if device == 'default':
-            device = ''
-        return device
+    def get_video_device(self) -> bytes:
+        device_id_hex = self.get_explicit_type(str, "video_device", "default")
+        try:
+            return bytes.fromhex(device_id_hex)
+        except ValueError:
+            return b''
 
 
 def read_user_config(path: str) -> Dict[str, Any]:

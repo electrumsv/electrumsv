@@ -30,67 +30,66 @@ ecdsa==0.17.0 \
     --hash=sha256:5cf31d5b33743abe0dfc28999036c849a69d548f994b535e527ee3cb7f3ef676 \
     --hash=sha256:b9f500bb439e4153d0330610f5d26baaf18d17b8ced1bc54410d189385ea68aa
     # via
-    #   keepkey
+    #   electrumsv-keepkey
     #   trezor
-hidapi==0.11.2 \
-    --hash=sha256:0053afb387e660273db3cf252434cd5181c561725ed442cd44024ec2b5c97bbe \
-    --hash=sha256:0be398136fa5fd6ed7648ca7df675100312a2158c39e1de059ea1d4f88e61046 \
-    --hash=sha256:1752c396e0d22ba896712005d9e9dfdad3ac3217446bef0008de126b51dc82c6 \
-    --hash=sha256:175588e3e671198668d9d67ed6e8d48b10d02f46e1998e734f1c212e76f7df6f \
-    --hash=sha256:1c799d60ec870106c3aea58ac09239849f42ca062ecad5dccadf516e205c55a5 \
-    --hash=sha256:3a031dab7380de39f2e81974e7d788f81a5ea7de3862cec42a382ecae9f20885 \
-    --hash=sha256:3af72e81caa8678c82764ea6f09e3d5b616ada59415a6c1e2ae791a604e60a82 \
-    --hash=sha256:41b16d2df7eaaa5d47773b0d768d6a05d3731728ccb6ef4c2e19caa6d7e39136 \
-    --hash=sha256:4955c649edb0e1418110bfb6591ec5eda29f2b978a8e87b18d0a8bd8e28ffb63 \
-    --hash=sha256:5100b267e60eac1ef5e023342838029c41800b61fe9a4de31d94d9126eab4211 \
-    --hash=sha256:54137df3e14d679db0b7574dcb21cbdb001a2faa3ec47c49b17cd4f1e237dce3 \
-    --hash=sha256:54ddf36f9b71d37846c60cc0a7777824a078b4e65c06c6dbd201eec538ecfbd3 \
-    --hash=sha256:5827fd38577304a20268a4da22f4766af3052c33706760fec04f90326dcca5d5 \
-    --hash=sha256:6308ec52a970a491a5a7d888f081d08d523d06a912bdf84fc4d3b109f69876b8 \
-    --hash=sha256:6cf804d58fd6b7f7064577f5ded6487e1466005815a9d83f1f3329432c7e418c \
-    --hash=sha256:7539ec488e91839c2c17d4a394990fa64ae4149e397ea859596ef6669b6aa23d \
-    --hash=sha256:80b1c110f87af3a6fedad3a0aa1a7a55745aee60470f271d3c333b61da0b1113 \
-    --hash=sha256:8320e916dda08d8b38f2552c3fbf63e77212a15b0c1f04dcb604fdd3b3fb825d \
-    --hash=sha256:8e3b01acd0ea20d3635284eb3b1b64c322b86b3036f91367dc4f0bf11281013a \
-    --hash=sha256:94da1fd2f83a5a378069c4365624ad55f009284c056c3edd7a811184464b4c78 \
-    --hash=sha256:95a50f408716eb3a36bf16939c4f5b7a7940c8ca704272e67144c5eecb27c5c5 \
-    --hash=sha256:990683ca81eda551cb0e14efa487fb552a11901be06293167f60bf92e80b7cc3 \
-    --hash=sha256:a10fd1d7071e47c5b16a9ad8014adbce2b5dafacd50c7ffcec56e19c8efc50ae \
-    --hash=sha256:a202b2a83feacffe9bad076d3b01cd43589d80456d23dd4cfede78e45b27242d \
-    --hash=sha256:b2f03f03027c53d3b427c015937515faaf72d42fc3ef8ac7b8cffafb9e03c44c \
-    --hash=sha256:b3452b5e4cd9ab330ff098cfe7c71ecf3418874efe94f121353ac1b5208fa14f \
-    --hash=sha256:c65b5de57d078ce4b723be1341afe479ad0987d4ba859ae3b1085f21643e13f3 \
-    --hash=sha256:c984b7ec2fc2ea987cd44cf06947e55572498ed2d43c64890b4ab58b29af72bc \
-    --hash=sha256:ce9347211e1c9e57fed8784fc8a9dec3295d14a4ea955e62c8f00a28eaac662e \
-    --hash=sha256:cfd605193ebc0aa3ae71595a9aa33e0a1bbfb172a02c97bbd51bed5e03404fbf \
-    --hash=sha256:d1c4ceea536e3a323c057f1dd1b2394a5db13c73393e17b6127e9d9ff9dba276 \
-    --hash=sha256:e63a7904f2fadab3976240695adc0775f4a473817fa0bcd9230383e70793f538 \
-    --hash=sha256:f9319f8ea5d6f28737355a8462e1ccee6019b3d2d81a462e54b43acc53f63c36 \
-    --hash=sha256:fbac1cdd5277aef5c682e31a02638b8b88bbd2b7fdfa271561a86181ef231428
+electrumsv-keepkey==7.0.3 \
+    --hash=sha256:0f5e55650b167e62b9ba210e659fe382b4e2c79b761f831a93a8257724ad2e86
+    # via -r /Users/rt12/src/electrumsv/contrib/requirements/requirements-hw.txt
+hidapi==0.12.0.post2 \
+    --hash=sha256:00bad74617622b7b7abbb24eae5c11bd91957bb87217d62d8feea15c971a77b5 \
+    --hash=sha256:0292a29325b905fbfbb39cc368055cda63339fed684eceb7d4d241acc5e60d50 \
+    --hash=sha256:0363a9947545b200cf401011049139e266aa1faa6849d4bd6bac32bd294ef5fa \
+    --hash=sha256:0db60ba3e9356b7eab9097be49a5dff82cad25881d0ff77a47efd5b9100e8d36 \
+    --hash=sha256:1068d46bd70593c388eb17360ba48bcc4a06dc0cc4e8f55713db65d2dea62d6e \
+    --hash=sha256:1b001e2561a9581dd5b0c0610c8cb5acf875e454ba7ca93f0d15384ce5830684 \
+    --hash=sha256:26e3dbd652913b36737a7dba9d7bdc336e95224ceaeeafcf003472ab242abc7c \
+    --hash=sha256:3b3216316faa70652bebaa38476b973a4e5bdfe1f5947e25dfb9d272eeaee0e7 \
+    --hash=sha256:3f3e22e054fa975cbbbd6ef67ed9a1ade7b9db325fd7d3d27d199103997a0852 \
+    --hash=sha256:4050e62e1142eb68a9b3a9f87b9cbc97cb8595c9c1c1e9226ea9018fd4a9a410 \
+    --hash=sha256:45b3fa6db05c7f5e8e423f354517e11648934217d23f1ba917618c4175dbb924 \
+    --hash=sha256:50e13ed715513f6c834c4577b63ab695ab5ca753bd6cabdd06e228699cf9442e \
+    --hash=sha256:59d3cc1d446f91236a984e8784a1644de9892647d09e387a4be7c47dd2441d1e \
+    --hash=sha256:5fa7b0857c7fd166162ada07c95c106ae6bb47550f2556e268caae8347e26219 \
+    --hash=sha256:79ad3c78078df8eddad643e1f82c8afe247643a4074894f111b84691f7d5dd6b \
+    --hash=sha256:8050851c2f821d8f1497d4179db3980807c4d12ef7983482793067105cf21baa \
+    --hash=sha256:869fe5cc9113b8808785fefb0f219bc892ae70c822141e60a4ee0aeb967c69ec \
+    --hash=sha256:88aa70fef0e858e5f65958d5fdf561f4f90c7d03424a46fe7d0770adf97d5aa0 \
+    --hash=sha256:8ebb2117be8b27af5c780936030148e1971b6b7fda06e0581ff0bfb15e94ed76 \
+    --hash=sha256:9eb1e0a95deabf6ba61c5826f4ad1a0534a8d99e8ff4ce5f0ac391c84cd9c608 \
+    --hash=sha256:ac2775dde0db5ed61aaa6047410137c9fa3ba1d78065482fe4163a6d702677a8 \
+    --hash=sha256:aea9c0c620f72b26ce0588e63af0e1b740ab04781ac7b631922ebdbfa93a6cb0 \
+    --hash=sha256:bff634b6283b518f066dbc328bedeb0c60c16d30d297d94b6ef170d869be9452 \
+    --hash=sha256:c066819634434d7f2cdb884db0f6681231049644f7b82378986a7c2fe7310da3 \
+    --hash=sha256:c353e08bee985a56bfd21eb07b26d1774dc3d088644599e584823400da174790 \
+    --hash=sha256:c82fdc5fcdb5601c99c811002649ce902cdd8f323cd2bca97238be7507c1c9b0 \
+    --hash=sha256:cf9b605165e4d8a3ed66eedd82091f77bb9a283f28d1998672eb079587a28711 \
+    --hash=sha256:d3de94ea727242966b4e545e91eebace0ec2b6600d4f8871568053bd5b9d0240 \
+    --hash=sha256:ddc85cd7372f7156af4f71e6a684be2430d9ca4d27bfaf5804811fd8b1b83524 \
+    --hash=sha256:defa19649b0cd2fc76e80b738fd917614e11b9b5d8107f289dbe3e3c9db518bd \
+    --hash=sha256:e04dd30f599d589883ae37f5663aeaf5301237379f307951b6171ec5bf7540ea \
+    --hash=sha256:e471e672175a38aa7892f7ddd79bac24af7ac701a550425043ffdb96c3846c03 \
+    --hash=sha256:e8621ca0c49621a0a7ba9e27696e9e5630b90344b2d7dff50695679587ee9c53 \
+    --hash=sha256:edc9bd6506723e019e606fbf2400a2819e68370ddbacf432048332ef687522a4
     # via
     #   btchip-python
-    #   keepkey
+    #   electrumsv-keepkey
 idna==3.3 \
     --hash=sha256:84d9dd047ffa80596e0f246e2eab0b391788b0503584e8945f2368256d2735ff \
     --hash=sha256:9d643ff0a55b762d5cdb124b8eaa99c66322e2157b69160bc32796e824360e6d
     # via requests
-keepkey==6.3.1 \
-    --hash=sha256:88e2b5291c85c8e8567732f675697b88241082884aa1aba32257f35ee722fc09 \
-    --hash=sha256:cef1e862e195ece3e42640a0f57d15a63086fd1dedc8b5ddfcbc9c2657f0bb1e
-    # via -r /Users/rt12/src/electrumsv/contrib/requirements/requirements-hw.txt
 libusb1==3.0.0 \
     --hash=sha256:083f75e5d15cb5e2159e64c308c5317284eae926a820d6dce53a9505d18be3b2 \
     --hash=sha256:0e652b04cbe85ec8e74f9ee82b49f861fb14b5320ae51399387ad2601ccc0500 \
     --hash=sha256:5792a9defee40f15d330a40d9b1800545c32e47ba7fc66b6f28f133c9fcc8538 \
     --hash=sha256:6f6bb010632ada35c661d17a65e135077beef0fbb2434d5ffdb3a4a911fd9490
     # via
-    #   keepkey
+    #   electrumsv-keepkey
     #   trezor
 mnemonic==0.20 \
     --hash=sha256:7c6fb5639d779388027a77944680aee4870f0fcd09b1e42a5525ee2ce4c625f6 \
     --hash=sha256:acd2168872d0379e7a10873bb3e12bf6c91b35de758135c4fbd1015ef18fafc5
     # via
-    #   keepkey
+    #   electrumsv-keepkey
     #   trezor
 protobuf==3.20.1 \
     --hash=sha256:06059eb6953ff01e56a25cd02cca1a9649a75a7e65397b5b9b4e929ed71d10cf \
@@ -119,10 +118,10 @@ protobuf==3.20.1 \
     --hash=sha256:ff8d8fa42675249bb456f5db06c00de6c2f4c27a065955917b28c4f15978b9c3
     # via
     #   -r /Users/rt12/src/electrumsv/contrib/requirements/requirements-hw.txt
-    #   keepkey
-requests==2.27.1 \
-    --hash=sha256:68d7c56fd5a8999887728ef304a6d12edc7be74f1cfa47714fc8b414525c9a61 \
-    --hash=sha256:f22fa1e554c9ddfd16e6e41ac79759e17be9e492b3587efa038054674760e72d
+    #   electrumsv-keepkey
+requests==2.28.0 \
+    --hash=sha256:bc7861137fbce630f17b03d3ad02ad0bf978c844f3536d0edda6499dafce2b6f \
+    --hash=sha256:d568723a7ebd25875d8d1eaf5dfa068cd2fc8194b2e483d7b1f7c81918dbec6b
     # via
     #   -r /Users/rt12/src/electrumsv/contrib/requirements/requirements-hw.txt
     #   trezor
@@ -146,9 +145,9 @@ urllib3==1.26.9 \
     #   requests
 
 # The following packages are considered to be unsafe in a requirements file:
-setuptools==62.3.2 \
-    --hash=sha256:68e45d17c9281ba25dc0104eadd2647172b3472d9e01f911efa57965e8d51a36 \
-    --hash=sha256:a43bdedf853c670e5fed28e5623403bad2f73cf02f9a2774e91def6bda8265a7
+setuptools==62.3.3 \
+    --hash=sha256:d1746e7fd520e83bbe210d02fff1aa1a425ad671c7a9da7d246ec2401a087198 \
+    --hash=sha256:e7d11f3db616cda0751372244c2ba798e8e56a28e096ec4529010b803485f3fe
     # via
     #   hidapi
     #   trezor

@@ -36,10 +36,10 @@ import webbrowser
 
 from bitcoinx import Address, bip32_build_chain_string, hash_to_hex_str, sha256
 
-from PyQt5.QtCore import QAbstractItemModel, QModelIndex, Qt, QPoint, \
+from PyQt6.QtCore import QAbstractItemModel, QModelIndex, Qt, QPoint, \
     QSortFilterProxyModel, QTimer
-from PyQt5.QtGui import QBrush, QColor, QFont, QFontMetrics, QKeyEvent, QKeySequence
-from PyQt5.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
+from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QKeyEvent, QKeySequence
+from PyQt6.QtWidgets import QTableView, QAbstractItemView, QHeaderView, QMenu
 
 from ...i18n import _
 from ...app_state import app_state
@@ -345,15 +345,14 @@ class _ItemModel(QAbstractItemModel):
                 if column == LABEL_COLUMN:
                     return line.description
 
-    def flags(self, model_index: QModelIndex) -> Qt.ItemFlags:
+    def flags(self, model_index: QModelIndex) -> Qt.ItemFlag:
         if model_index.isValid():
             column = model_index.column()
             flags = super().flags(model_index)
             if column == LABEL_COLUMN:
-                flags = Qt.ItemFlags( # type: ignore[call-overload]
-                    int(flags) | Qt.ItemFlag.ItemIsEditable)
+                flags = flags | Qt.ItemFlag.ItemIsEditable
             return flags
-        return Qt.ItemFlags(Qt.ItemFlag.ItemIsEnabled)
+        return Qt.ItemFlag.ItemIsEnabled
 
     def headerData(self, section: int, orientation: Qt.Orientation,
             role: int=Qt.ItemDataRole.DisplayRole) -> Any:
@@ -522,19 +521,19 @@ class KeyView(QTableView):
         horizontalHeader.resizeSection(STATE_COLUMN, fw(COLUMN_NAMES[STATE_COLUMN]))
         horizontalHeader.resizeSection(KEY_COLUMN, fw("42:1:m/00/92"))
         horizontalHeader.resizeSection(USAGES_COLUMN, fw("Usages"))
-        horizontalHeader.setSectionResizeMode(ADDRESS_COLUMN, QHeaderView.Stretch)
-        horizontalHeader.setSectionResizeMode(LABEL_COLUMN, QHeaderView.Stretch)
+        horizontalHeader.setSectionResizeMode(ADDRESS_COLUMN, QHeaderView.ResizeMode.Stretch)
+        horizontalHeader.setSectionResizeMode(LABEL_COLUMN, QHeaderView.ResizeMode.Stretch)
         balance_width = mw(app_state.format_amount(123, whitespaces=True))
         horizontalHeader.resizeSection(BALANCE_COLUMN, balance_width)
 
         verticalHeader = self.verticalHeader()
-        verticalHeader.setSectionResizeMode(QHeaderView.Fixed)
+        verticalHeader.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         # This value will get pushed out if the contents are larger, so it does not have to be
         # correct, it just has to be minimal.
         lineHeight = defaultFontMetrics.height()
         verticalHeader.setDefaultSectionSize(lineHeight)
 
-        self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         # New selections clear existing selections, unless the user holds down control.
@@ -549,7 +548,7 @@ class KeyView(QTableView):
         app_state.app_qt.labels_changed_signal.connect(self.update_labels)
         app_state.app_qt.num_zeros_changed.connect(self._on_balance_display_change)
 
-        self.setEditTriggers(QAbstractItemView.DoubleClicked)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
         self.doubleClicked.connect(self._event_double_clicked)
 
         self._last_not_synced = 0.
@@ -611,7 +610,7 @@ class KeyView(QTableView):
             self.reset_table()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.matches(QKeySequence.Copy):
+        if event.matches(QKeySequence.StandardKey.Copy):
             selected_indexes = self.selectedIndexes()
             if len(selected_indexes):
                 # This is an index on the sort/filter model, translate it to the base model.
@@ -1055,4 +1054,4 @@ class KeyView(QTableView):
             if coins and self._account.type() != AccountType.IMPORTED_ADDRESS:
                 menu.addAction(_("Spend from"), partial(self._main_window.spend_coins, coins))
 
-        menu.exec_(self.viewport().mapToGlobal(position))
+        menu.exec(self.viewport().mapToGlobal(position))

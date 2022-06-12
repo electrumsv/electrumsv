@@ -1,7 +1,7 @@
 chardet==3.0.4 # aiohttp 3.7.3 caps the version at this, requests also uses it.
 protobuf==3.20.1  # Protobuf 4.0 errors and tells us to pin to 3.20 (required by at least Keepkey).
 trezor==0.12.0
-keepkey>=6.3.1
+electrumsv-keepkey==7.0.3
 btchip-python==0.1.31
 requests
 urllib3>=1.26.4

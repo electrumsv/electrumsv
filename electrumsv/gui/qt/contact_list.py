@@ -24,13 +24,13 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-from typing import Any, Optional, Tuple, TYPE_CHECKING
+from typing import Any, cast, Optional, Tuple, TYPE_CHECKING
 
-from PyQt5.QtCore import Qt, QSortFilterProxyModel, QObject, QSize
-from PyQt5.QtGui import QPainter, QPaintEvent, QPixmap
-from PyQt5.QtWidgets import (QVBoxLayout, QLabel,
+from PyQt6.QtCore import Qt, QSortFilterProxyModel, QObject, QSize
+from PyQt6.QtGui import QAction, QPainter, QPaintEvent, QPixmap
+from PyQt6.QtWidgets import (QVBoxLayout, QLabel,
     QLineEdit, QComboBox, QCompleter, QGridLayout, QWidget, QHBoxLayout, QSizePolicy,
-    QStyle, QStyleOption, QPushButton, QToolBar, QAction, QListWidget, QListWidgetItem)
+    QStyle, QStyleOption, QPushButton, QToolBar, QListWidget, QListWidgetItem)
 
 from electrumsv.contacts import (get_system_id, IDENTITY_SYSTEM_NAMES, IdentitySystem,
     ContactDataError, IdentityCheckResult, ContactEntry, ContactIdentity)
@@ -83,8 +83,8 @@ class ContactList(QWidget):
 
         toolbar = QToolBar(self)
         toolbar.setMovable(False)
-        toolbar.setOrientation(Qt.Vertical)
-        toolbar.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        toolbar.setOrientation(Qt.Orientation.Vertical)
+        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         toolbar.addAction(add_contact_action)
         toolbar.addAction(sort_action)
 
@@ -107,11 +107,11 @@ class ContactList(QWidget):
         if self._sort_type == 1:
             self._sort_type = -1
             self._sort_action.setIcon(read_QIcon("icons8-alphabetical-sorting-80-blueui.png"))
-            self._cards._list.sortItems(Qt.DescendingOrder)
+            self._cards._list.sortItems(Qt.SortOrder.DescendingOrder)
         else:
             self._sort_type = 1
             self._sort_action.setIcon(read_QIcon("icons8-alphabetical-sorting-2-80-blueui.png"))
-            self._cards._list.sortItems(Qt.AscendingOrder)
+            self._cards._list.sortItems(Qt.SortOrder.AscendingOrder)
 
 
 class ContactCards(QWidget):
@@ -146,7 +146,7 @@ class ContactCards(QWidget):
             self._layout.addWidget(self._list)
 
         test_card = ContactCard(self._context, contact, identity)
-        test_card.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Minimum)
+        test_card.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Minimum)
 
         list_item = QListWidgetItem()
         list_item.setText(contact.label)
@@ -160,7 +160,7 @@ class ContactCards(QWidget):
         assert self._list is not None
         for i in range(self._list.count()-1, -1, -1):
             item = self._list.item(i)
-            widget = self._list.itemWidget(item)
+            widget = cast(ContactCard, self._list.itemWidget(item))
             if identity is None and widget._contact.contact_id == contact.contact_id:
                 self._list.takeItem(i)
             elif widget._identity.identity_id == identity.identity_id:
@@ -184,7 +184,7 @@ class ContactCards(QWidget):
 
     def _add_empty_label(self) -> None:
         label = QLabel(_("You do not currently have any contacts."))
-        label.setAlignment(Qt.AlignmentFlag(Qt.AlignHCenter | Qt.AlignVCenter))
+        label.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
         self._layout.addWidget(label)
         self._empty_label = label
 
@@ -212,8 +212,8 @@ class ContactCard(QWidget):
         avatar_label.setToolTip(_("What your contact avatar looks like."))
 
         label = QLabel("...")
-        label.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Preferred)
-        label.setAlignment(Qt.AlignHCenter)
+        label.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
+        label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         name_layout = QVBoxLayout()
         name_layout.setContentsMargins(0, 0, 0, 0)
@@ -284,7 +284,7 @@ class ContactCard(QWidget):
         opt = QStyleOption()
         opt.initFrom(self)
         p = QPainter(self)
-        self.style().drawPrimitive(QStyle.PE_Widget, opt, p, self)
+        self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, p, self)
 
     def _update(self) -> None:
         self._name_label.setText(self._contact.label)
@@ -316,11 +316,11 @@ def edit_contact_dialog(wallet_api: WalletAPI, contact_key: Optional[Tuple[int, 
 
     # add a filter model to filter matching items
     contact_filter_model = QSortFilterProxyModel(combo1)
-    contact_filter_model.setFilterCaseSensitivity(Qt.CaseInsensitive)
+    contact_filter_model.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
     contact_filter_model.setSourceModel(combo1.model())
 
     contact_completer = QCompleter(contact_filter_model, combo1)
-    contact_completer.setCompletionMode(QCompleter.UnfilteredPopupCompletion)
+    contact_completer.setCompletionMode(QCompleter.CompletionMode.UnfilteredPopupCompletion)
     combo1.setCompleter(contact_completer)
 
     ok_button = OkButton(d)
@@ -415,7 +415,7 @@ def edit_contact_dialog(wallet_api: WalletAPI, contact_key: Optional[Tuple[int, 
         name_line.setText(entry.label)
         name_line.setFocus()
 
-    if d.exec_():
+    if d.exec():
         name_text = name_line.text().strip()
         identity_text = identity_line.text().strip()
         system_id = get_system_id(combo1.currentText())

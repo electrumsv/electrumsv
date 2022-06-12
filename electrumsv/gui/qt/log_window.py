@@ -28,8 +28,8 @@ import logging
 from types import TracebackType
 from typing import Optional, Set, Type
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
     QDialog, QPlainTextEdit, QHBoxLayout, QVBoxLayout, QLabel, QComboBox, QWidget
 )
 

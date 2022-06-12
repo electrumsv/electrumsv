@@ -25,8 +25,8 @@
 
 from typing import Optional
 
-from PyQt5.QtGui import QPixmap, QPainter, QPaintEvent
-from PyQt5.QtWidgets import QWidget
+from PyQt6.QtGui import QPixmap, QPainter, QPaintEvent
+from PyQt6.QtWidgets import QWidget
 
 
 class QrReaderVideoWidget(QWidget):
@@ -46,7 +46,7 @@ class QrReaderVideoWidget(QWidget):
             return
         painter = QPainter(self)
         if self.USE_BILINEAR_FILTER:
-            painter.setRenderHint(QPainter.SmoothPixmapTransform)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.drawPixmap(self.rect(), self.pixmap, self.pixmap.rect())
 
     def setPixmap(self, pixmap: QPixmap) -> None:

@@ -35,12 +35,13 @@
 # THE SOFTWARE.
 
 from enum import IntFlag
-from typing import Any, NamedTuple, Optional
+from typing import Any, cast, NamedTuple, Optional
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QWidget, QWizard
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QWidget, QWizard
 
 from .help_dialog import HelpDialog
+from .types import WizardPageProtocol
 from .util import FormSectionWidget
 
 
@@ -75,12 +76,12 @@ class BaseWizard(QWizard):
         super().__init__(parent, Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
 
-        self.setOption(QWizard.IndependentPages, False)
-        self.setOption(QWizard.NoDefaultButton, True)
+        self.setOption(QWizard.WizardOption.IndependentPages, False)
+        self.setOption(QWizard.WizardOption.NoDefaultButton, True)
         # The help button is either made visible or hidden when a page is entered, depending
         # on whether the page declares a `HELP_CONTEXT` value.
-        self.setOption(QWizard.HaveHelpButton, True)
-        self.setOption(QWizard.HelpButtonOnRight, False)
+        self.setOption(QWizard.WizardOption.HaveHelpButton, True)
+        self.setOption(QWizard.WizardOption.HelpButtonOnRight, False)
 
         self.currentIdChanged.connect(self._event_wizard_page_changed)
         self.helpRequested.connect(self._event_help_requested)
@@ -99,20 +100,20 @@ class BaseWizard(QWizard):
     # TODO: Look at using `initializePage` and `cleanupPage`.
     def _event_wizard_page_changed(self, page_id: int) -> None:
         if self._last_page_id:
-            page = self.page(self._last_page_id)
+            page = cast(WizardPageProtocol, self.page(self._last_page_id))
             if hasattr(page, "on_leave"):
                 page.on_leave()
 
         self._last_page_id = page_id
-        page = self.page(page_id)
+        page = cast(WizardPageProtocol, self.page(page_id))
         # Only show the help button if there is help to show for the given page.
         help_context: Optional[HelpContext] = getattr(page, "HELP_CONTEXT", None)
-        self.button(QWizard.HelpButton).setVisible(help_context is not None)
+        self.button(QWizard.WizardButton.HelpButton).setVisible(help_context is not None)
 
         if hasattr(page, "on_enter"):
             page.on_enter()
         else:
-            button = self.button(QWizard.CustomButton1)
+            button = self.button(QWizard.WizardButton.CustomButton1)
             button.setVisible(False)
 
     def _event_help_requested(self) -> None:

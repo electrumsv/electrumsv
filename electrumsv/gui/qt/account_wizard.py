@@ -45,10 +45,10 @@ from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
     bip32_key_from_string, PrivateKey, P2SH_Address, bip32_build_chain_string,
     BIP39Mnemonic, ElectrumMnemonic, Wordlists)
 
-from PyQt5.QtCore import QObject, QSize, Qt
-from PyQt5.QtGui import QBrush, QColor, QKeyEvent, QPainter, QPaintEvent, QPalette, QPen, \
+from PyQt6.QtCore import QObject, QSize, Qt
+from PyQt6.QtGui import QBrush, QColor, QKeyEvent, QPainter, QPaintEvent, QPalette, QPen, \
     QPixmap, QTextOption
-from PyQt5.QtWidgets import (
+from PyQt6.QtWidgets import (
     QCheckBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QProgressBar, QRadioButton, QSizePolicy, QSlider, QTextEdit,
     QVBoxLayout, QWidget, QWizard, QWizardPage
@@ -171,8 +171,8 @@ class AccountWizard(BaseWizard, MessageBoxMixin):
         self.set_subtitle("")
         self.setModal(True)
         self.setMinimumSize(600, 600)
-        self.setOption(QWizard.HaveCustomButton1, True)
-        self.button(QWizard.CustomButton1).setVisible(False)
+        self.setOption(QWizard.WizardOption.HaveCustomButton1, True)
+        self.button(QWizard.WizardButton.CustomButton1).setVisible(False)
 
         self.setPage(AccountPage.ADD_ACCOUNT_MENU, AddAccountWizardPage(self))
         self.setPage(AccountPage.IMPORT_ACCOUNT_TEXT, ImportWalletTextPage(self))
@@ -320,15 +320,15 @@ class AddAccountWizardPage(QWizardPage):
         wizard.set_keystore_result(KeyStoreResult(AccountCreationType.UNKNOWN))
         # The click event arrives after the standard wizard next page handling. We use it to
         # perform actions that finish on the current page.
-        next_button = wizard.button(QWizard.NextButton)
+        next_button = wizard.button(QWizard.WizardButton.NextButton)
         next_button.clicked.connect(self._event_click_next_button)
-        self._restore_button_text = wizard.buttonText(QWizard.NextButton)
+        self._restore_button_text = wizard.buttonText(QWizard.WizardButton.NextButton)
 
     def on_leave(self) -> None:
         wizard = cast(AccountWizard, self.wizard())
-        next_button = wizard.button(QWizard.NextButton)
+        next_button = wizard.button(QWizard.WizardButton.NextButton)
         next_button.clicked.disconnect(self._event_click_next_button)
-        wizard.setButtonText(QWizard.NextButton, self._restore_button_text)
+        wizard.setButtonText(QWizard.WizardButton.NextButton, self._restore_button_text)
 
     # Qt method called to determine if 'Next' or 'Finish' should be enabled or disabled.
     # Overriding this requires us to emit the 'completeChanges' signal where applicable.
@@ -365,7 +365,7 @@ class AddAccountWizardPage(QWizardPage):
         else:
             button_text = self._restore_button_text
             self._option_detail.setText(self._get_entry_detail())
-        wizard.setButtonText(QWizard.NextButton, button_text)
+        wizard.setButtonText(QWizard.WizardButton.NextButton, button_text)
         self.completeChanged.emit()
 
     def _event_key_press_selection(self) -> None:
@@ -540,7 +540,7 @@ class ImportWalletTextPage(QWizardPage):
         self.text_area = QTextEdit()
         self.text_area.textChanged.connect(self._on_text_changed)
         self.text_area.setAcceptRichText(False)
-        self.text_area.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.text_area.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.text_area.setTabChangesFocus(True)
 
         self._label = QLabel(_("Please enter some text and any valid matches will be "
@@ -637,7 +637,7 @@ class ImportWalletTextPage(QWizardPage):
     def _on_match_type_selected(self, match_type: Optional[KeystoreTextType]) -> None:
         self._checked_match_type = match_type
 
-        button = self.wizard().button(QWizard.CustomButton1)
+        button = self.wizard().button(QWizard.WizardButton.CustomButton1)
         button.setEnabled(self._checked_match_type is not None and \
             self._checked_match_type not in { KeystoreTextType.ADDRESSES,
                 KeystoreTextType.PRIVATE_KEYS, KeystoreTextType.ELECTRUM_OLD_SEED_WORDS })
@@ -747,7 +747,7 @@ class ImportWalletTextPage(QWizardPage):
         self._next_page_id = AccountPage.UNKNOWN
         wizard = cast(AccountWizard, self.wizard())
 
-        button = wizard.button(QWizard.CustomButton1)
+        button = wizard.button(QWizard.WizardButton.CustomButton1)
         button.setText(_("&Customize"))
         button.setContentsMargins(10, 0, 10, 0)
         button.clicked.connect(self._on_customize_button_clicked)
@@ -757,7 +757,7 @@ class ImportWalletTextPage(QWizardPage):
         self._set_matches(self._matches)
 
     def on_leave(self) -> None:
-        button = self.wizard().button(QWizard.CustomButton1)
+        button = self.wizard().button(QWizard.WizardButton.CustomButton1)
         button.clicked.disconnect()
         button.setVisible(False)
         self._next_page_id = AccountPage.UNKNOWN
@@ -928,7 +928,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
         return self._selected_device is not None
 
     def on_enter(self) -> None:
-        button = self.wizard().button(QWizard.CustomButton1)
+        button = self.wizard().button(QWizard.WizardButton.CustomButton1)
         button.setText(_("&Rescan"))
         button.setContentsMargins(10, 0, 10, 0)
         button.clicked.connect(self._on_rescan_clicked)
@@ -942,7 +942,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
     def on_leave(self) -> None:
         self._show_rescan_button(False)
         self._alive = False
-        button = self.wizard().button(QWizard.CustomButton1)
+        button = self.wizard().button(QWizard.WizardButton.CustomButton1)
         button.clicked.disconnect()
 
     def _on_rescan_clicked(self, checked: bool=False) -> None:
@@ -1046,7 +1046,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
     def _show_rescan_button(self, is_shown: bool) -> None:
         if not self._alive:
             return
-        button = self.wizard().button(QWizard.CustomButton1)
+        button = self.wizard().button(QWizard.WizardButton.CustomButton1)
         button.setVisible(is_shown)
 
     def _initiate_scan(self) -> None:
@@ -1364,12 +1364,12 @@ class CosignWidget(QWidget):
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:
-        bgcolor = self.palette().color(QPalette.Background)
+        bgcolor = self.palette().color(QPalette.ColorRole.Window) # PyQt5: Was Background
         pen = QPen(bgcolor, 7, Qt.PenStyle.SolidLine)
         qp = QPainter()
         qp.begin(self)
         qp.setPen(pen)
-        qp.setRenderHint(QPainter.Antialiasing)
+        qp.setRenderHint(QPainter.RenderHint.Antialiasing)
         qp.setBrush(Qt.GlobalColor.gray)
         x = int((self.width() - self._size) / 2)
         for i in range(self.n):
@@ -1441,9 +1441,9 @@ class CreateMultisigAccountSettingsWidget(WizardFormSection):
         self._form_context = form_context
 
         m_edit = QSlider(Qt.Orientation.Horizontal, self)
-        m_edit.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Maximum)
+        m_edit.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Maximum)
         n_edit = QSlider(Qt.Orientation.Horizontal, self)
-        n_edit.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Maximum)
+        n_edit.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Maximum)
         n_edit.setMinimum(2)
         n_edit.setMaximum(MAXIMUM_COSIGNER_COUNT)
         m_edit.setMinimum(1)
@@ -1519,7 +1519,7 @@ class CreateMultisigAccountPage(QWizardPage):
     def on_enter(self) -> None:
         self._next_page_id = AccountPage.CREATE_MULTISIG_ACCOUNT_COSIGNERS
 
-        button = self.wizard().button(QWizard.CustomButton1)
+        button = self.wizard().button(QWizard.WizardButton.CustomButton1)
         button.setText(_("&Customize"))
         button.setContentsMargins(10, 0, 10, 0)
         button.clicked.connect(self._on_customize_button_clicked)
@@ -1533,7 +1533,7 @@ class CreateMultisigAccountPage(QWizardPage):
         self.setLayout(self._create_layout())
 
     def on_leave(self) -> None:
-        button = self.wizard().button(QWizard.CustomButton1)
+        button = self.wizard().button(QWizard.WizardButton.CustomButton1)
         button.clicked.disconnect()
         button.setVisible(False)
 

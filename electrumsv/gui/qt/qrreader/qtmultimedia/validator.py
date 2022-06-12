@@ -27,8 +27,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QColor
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 
 from .....i18n import _
 from .....qrreader.abstract_base import QrCodeResult
@@ -119,8 +119,8 @@ class QrReaderValidatorColorizing(QrReaderValidatorCounting):
     based on the counts maintained by `QrReaderValidatorCounting`.
     """
 
-    WEAK_COLOR: QColor = QColor(Qt.red)
-    STRONG_COLOR: QColor = QColor(Qt.green)
+    WEAK_COLOR: QColor = QColor(Qt.GlobalColor.red)
+    STRONG_COLOR: QColor = QColor(Qt.GlobalColor.green)
 
     strong_count: int = 10
 

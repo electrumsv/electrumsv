@@ -47,7 +47,7 @@ if libzbar is None:
         pass
 
 
-def scan_barcode(device: str='', timeout: int=-1, display: bool=True, threaded: bool=False)\
+def scan_barcode(device_id: bytes=b'', timeout: int=-1, display: bool=True, threaded: bool=False)\
         -> Optional[str]:
     if libzbar is None:
         raise RuntimeError("Cannot start QR scanner: zbar not available.")
@@ -58,7 +58,8 @@ def scan_barcode(device: str='', timeout: int=-1, display: bool=True, threaded: 
     # libzbar.zbar_set_verbosity(100)  # verbose logs for debugging
     proc = libzbar.zbar_processor_create(threaded)
     libzbar.zbar_processor_request_size(proc, 640, 480)
-    if libzbar.zbar_processor_init(proc, device.encode('utf-8'), display) != 0:
+    # TODO(1.4.0) Camera. Is the device_id right for zbar.
+    if libzbar.zbar_processor_init(proc, device_id, display) != 0:
         raise UserFacingException(
             _("Cannot start QR scanner: initialization failed.") + "\n" +
             _("Make sure you have a camera connected and enabled."))
@@ -77,19 +78,19 @@ def scan_barcode(device: str='', timeout: int=-1, display: bool=True, threaded: 
     return data.decode('utf8')
 
 
-def find_system_cameras() -> dict[str, str]:
+def find_system_cameras() -> dict[str, bytes]:
     device_root = "/sys/class/video4linux"
     devices = {} # Name -> device
     if os.path.exists(device_root):
         for device in os.listdir(device_root):
-            path = os.path.join(device_root, device, 'name')
+            path = os.path.join(device_root, device, "name")
             try:
-                with open(path, encoding='utf-8') as f:
+                with open(path, encoding="utf-8") as f:
                     name = f.read()
             except Exception:
                 continue
-            name = name.strip('\n')
-            devices[name] = os.path.join("/dev", device)
+            name = name.strip("\n")
+            devices[name] = os.path.join("/dev", device).encode("utf-8")
     return devices
 
 

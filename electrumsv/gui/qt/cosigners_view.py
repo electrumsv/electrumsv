@@ -42,9 +42,9 @@ from typing import cast, Optional
 
 from bitcoinx import bip32_key_from_string, BIP32PublicKey
 
-from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtGui import QPainter, QPaintEvent
-from PyQt5.QtWidgets import (QAbstractItemView, QAbstractScrollArea, QLabel, QLineEdit, QListWidget,
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QPainter, QPaintEvent
+from PyQt6.QtWidgets import (QAbstractItemView, QAbstractScrollArea, QLabel, QLineEdit, QListWidget,
     QListWidgetItem, QSizePolicy, QStyle, QStyleOption, QWizard)
 
 from electrumsv.constants import DerivationType, KeystoreTextType
@@ -121,7 +121,8 @@ class CosignerCard(FormSectionWidget):
         self._key_edit = key_edit
 
         signed_by_label = QLabel()
-        signed_by_label.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.MinimumExpanding)
+        signed_by_label.setSizePolicy(QSizePolicy.Policy.MinimumExpanding,
+            QSizePolicy.Policy.MinimumExpanding)
         self._signed_by_label = signed_by_label
 
         self.add_row(_("Master public key"), key_edit, True)
@@ -138,7 +139,7 @@ class CosignerCard(FormSectionWidget):
 
         from .secured_data_dialog import SecuredDataDialog
         d = SecuredDataDialog(self._main_window_proxy, self, self._state.keystore, password)
-        d.exec_()
+        d.exec()
 
     def _event_click_set_cosigner_key(self) -> None:
         if self._state.keystore is not None:
@@ -149,7 +150,7 @@ class CosignerCard(FormSectionWidget):
         child_wizard = AccountWizard(self._main_window_proxy, WizardFlags.MULTISIG_MODE, self)
         subtitle_text = _("Cosigner #{} Key Selection").format(self._state.cosigner_index+1)
         child_wizard.set_subtitle(subtitle_text)
-        if child_wizard.run() == QWizard.Accepted:
+        if child_wizard.run() == QWizard.DialogCode.Accepted:
             assert child_wizard.has_result(), "accepted result-less wizard"
             self._update_keystore(cast(BIP32_KeyStore, child_wizard.get_keystore()))
         else:
@@ -245,7 +246,7 @@ class CosignerCard(FormSectionWidget):
         opt = QStyleOption()
         opt.initFrom(self)
         p = QPainter(self)
-        self.style().drawPrimitive(QStyle.PE_Widget, opt, p, self)
+        self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, p, self)
 
 
 class CosignerList(QListWidget):
@@ -264,10 +265,10 @@ class CosignerList(QListWidget):
         """)
 
         self.setSortingEnabled(False)
-        self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
-        self.setSizeAdjustPolicy(QAbstractScrollArea.AdjustToContents)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
     def add_state(self, state: CosignerState) -> CosignerCard:
         card = CosignerCard(self._main_window_proxy, state, self._create)

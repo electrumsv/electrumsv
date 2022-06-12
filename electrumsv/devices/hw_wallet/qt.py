@@ -30,10 +30,11 @@ import threading
 from typing import Any, Callable, cast, Iterable, Optional, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import QObject, pyqtSignal
-from PyQt5.QtWidgets import QAction, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, \
+from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, \
     QWidget
-from PyQt5 import sip
+from PyQt6 import sip
 
 from ...app_state import app_state
 from ...exceptions import UserCancelled
@@ -185,7 +186,7 @@ class QtHandlerBase(QObject):
         text.returnPressed.connect(dialog.accept)
         hbox.addWidget(text)
         hbox.addStretch(1)
-        dialog.exec_()  # Firmware cannot handle cancellation
+        dialog.exec()  # Firmware cannot handle cancellation
         self.word = text.text()
         self.done.set()
 

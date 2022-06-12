@@ -31,9 +31,9 @@ import webbrowser
 
 from bitcoinx import hash_to_hex_str, Header
 
-from PyQt5.QtCore import Qt, QPoint
-from PyQt5.QtGui import QBrush, QIcon, QColor, QFont
-from PyQt5.QtWidgets import QMenu, QMessageBox, QTreeWidgetItem, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt, QPoint
+from PyQt6.QtGui import QBrush, QIcon, QColor, QFont
+from PyQt6.QtWidgets import QMenu, QMessageBox, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from ...app_state import app_state
 from ...bitcoin import COINBASE_MATURITY, TSCMerkleProof
@@ -413,7 +413,7 @@ class HistoryList(MyTreeWidget):
 
             menu.addAction(_("Remove from account"), partial(self._delete_transaction, tx_hash))
 
-        menu.exec_(self.viewport().mapToGlobal(position))
+        menu.exec(self.viewport().mapToGlobal(position))
 
     def _broadcast_transaction(self, tx_hash: bytes) -> None:
         tx = self._wallet.get_transaction(tx_hash)
@@ -433,7 +433,7 @@ class HistoryList(MyTreeWidget):
                 "<br/><br/>" +
                 _("This removes the transaction from all associated accounts and frees up any "
                 "coins that are allocated for it."), title=_("Remove transaction"),
-                icon=QMessageBox.Warning):
+                icon=QMessageBox.Icon.Warning):
             try:
                 self._wallet.remove_transaction(tx_hash)
             except TransactionRemovalError as e:

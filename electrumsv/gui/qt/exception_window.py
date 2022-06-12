@@ -34,13 +34,13 @@ from types import TracebackType
 from typing import Any, Dict, List, Optional, Tuple, Type, TYPE_CHECKING
 
 import requests
-from PyQt5.QtCore import QObject, pyqtSignal, Qt
-from PyQt5.QtGui import QCloseEvent
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import QObject, pyqtSignal, Qt
+from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTextEdit, QMessageBox,
 )
 
-from electrumsv.app_state import ExceptionHandlerABC
+from electrumsv.app_state import app_state, ExceptionHandlerABC
 from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.types import ExceptionInfoType
@@ -128,12 +128,16 @@ class Exception_Window(QDialog):
         buttons.addWidget(never_button)
 
         close_button = QPushButton(_('Not Now'))
-        close_button.clicked.connect(self.close)
+        close_button.clicked.connect(self._close)
         buttons.addWidget(close_button)
 
         main_box.addLayout(buttons)
 
         self.setLayout(main_box)
+
+    def _close(self) -> None:
+        # We provide this so the type signature of the signal method is correct.
+        self.close()
 
     def send_report(self) -> None:
         report = self.get_traceback_info()
@@ -149,7 +153,7 @@ class Exception_Window(QDialog):
         self.close()
 
     def show_never(self) -> None:
-        self.app.config.set_key("show_crash_reporter", False)
+        app_state.config.set_key("show_crash_reporter", False)
         self.close()
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -217,7 +221,7 @@ class Exception_Hook(QObject):
         cls = Exception_Window
         if not cls._active_window:
             cls._active_window = cls(self.app, exc_triple)
-            cls._active_window.exec_()
+            cls._active_window.exec()
 
 
 ExceptionHandlerABC.register(Exception_Hook)

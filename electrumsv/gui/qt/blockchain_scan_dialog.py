@@ -45,9 +45,9 @@ from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_C
 import webbrowser
 
 from bitcoinx import hash_to_hex_str
-from PyQt5.QtCore import pyqtSignal, Qt, QPoint, QTimer
-from PyQt5.QtGui import QFontMetrics
-from PyQt5.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, QMenu,
+from PyQt6.QtCore import pyqtSignal, Qt, QPoint, QTimer
+from PyQt6.QtGui import QFontMetrics
+from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, QMenu,
     QProgressBar, QPushButton, QSizePolicy, QSpinBox, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
     QWidget)
 
@@ -286,14 +286,14 @@ class BlockchainScanDialog(WindowModalDialog):
 
         expand_details_button = self._expand_details_button = QPushButton("+")
         expand_details_button.setStyleSheet("padding: 2px;")
-        expand_details_button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+        expand_details_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
         expand_details_button.clicked.connect(self._on_clicked_button_expand_details)
         expand_details_button.setMinimumWidth(15)
 
         # NOTE(copy-paste) Generic separation line code used elsewhere as well.
         details_header_line = QFrame()
         details_header_line.setStyleSheet("QFrame { border: 1px solid #C3C2C2; }")
-        details_header_line.setFrameShape(QFrame.HLine)
+        details_header_line.setFrameShape(QFrame.Shape.HLine)
         details_header_line.setFixedHeight(1)
 
         details_header = QHBoxLayout()
@@ -305,12 +305,12 @@ class BlockchainScanDialog(WindowModalDialog):
         tree.header().setStretchLastSection(False)
         tree.setHeaderLabels([ "", "Transaction ID", "Block Height" ])
         tree.setColumnCount(Columns.COLUMN_COUNT)
-        tree.header().setSectionResizeMode(Columns.STATUS, QHeaderView.ResizeToContents)
-        tree.header().setSectionResizeMode(Columns.TX_ID, QHeaderView.Stretch)
-        tree.header().setSectionResizeMode(Columns.HEIGHT, QHeaderView.ResizeToContents)
+        tree.header().setSectionResizeMode(Columns.STATUS, QHeaderView.ResizeMode.ResizeToContents)
+        tree.header().setSectionResizeMode(Columns.TX_ID, QHeaderView.ResizeMode.Stretch)
+        tree.header().setSectionResizeMode(Columns.HEIGHT, QHeaderView.ResizeMode.ResizeToContents)
         tree.setVisible(False)
         tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        tree.setSelectionMode(tree.ExtendedSelection)
+        tree.setSelectionMode(tree.SelectionMode.ExtendedSelection)
         tree.customContextMenuRequested.connect(self._on_tree_scan_context_menu)
         self._scan_tree_indexes: Dict[bytes, int] = {}
 
@@ -321,7 +321,7 @@ class BlockchainScanDialog(WindowModalDialog):
         # NOTE(copy-paste) Generic separation line code used elsewhere as well.
         button_box_line = QFrame()
         button_box_line.setStyleSheet("QFrame { border: 1px solid #E3E2E2; }")
-        button_box_line.setFrameShape(QFrame.HLine)
+        button_box_line.setFrameShape(QFrame.Shape.HLine)
         button_box_line.setFixedHeight(1)
 
         # We intentionally do not use a QDialogButtonBox because it gives us no apparent control
@@ -356,6 +356,7 @@ class BlockchainScanDialog(WindowModalDialog):
         self.rejected.connect(self._on_dialog_rejected)
         self.finished.connect(self._on_dialog_finished)
 
+        self._layout = vbox
         self.setLayout(vbox)
 
         self._update_network_status()
@@ -569,7 +570,7 @@ class BlockchainScanDialog(WindowModalDialog):
 
     def _on_clicked_button_advanced(self) -> None:
         dialog = AdvancedScanOptionsDialog(self)
-        dialog.exec_()
+        dialog.exec()
 
     def _on_clicked_button_exit(self) -> None:
         if self._import_end_time == -1:
@@ -798,7 +799,7 @@ class BlockchainScanDialog(WindowModalDialog):
         self._scan_detail_tree.insertTopLevelItems(0, tree_items)
 
         # Insert the details layout before the button box.
-        self.layout().insertLayout(2, self._details_layout)
+        self._layout.insertLayout(2, self._details_layout)
 
     def _on_scanner_range_extended(self, new_range: int) -> None:
         self._last_range = new_range
@@ -823,7 +824,7 @@ class BlockchainScanDialog(WindowModalDialog):
             partial(self._on_menu_copy_entry_json_to_clipboard, entries))
         menu.addAction(_("View on block explorer"),
             partial(self._on_menu_view_on_block_explorer, entries))
-        menu.exec_(tree.viewport().mapToGlobal(position))
+        menu.exec(tree.viewport().mapToGlobal(position))
 
     def _on_menu_copy_entry_json_to_clipboard(self, entries: List[TransactionScanState]) -> None:
         entries_text = json.dumps(list(
@@ -846,10 +847,11 @@ class BlockchainScanDialog(WindowModalDialog):
 
 
 class AdvancedScanOptionsDialog(WindowModalDialog):
-    def __init__(self, parent: WindowModalDialog) -> None:
+    def __init__(self, parent: BlockchainScanDialog) -> None:
         super().__init__(parent, TEXT_SCAN_ADVANCED_TITLE)
 
         account = parent._wallet.get_account(parent._account_id)
+        assert account is not None
 
         self.setMinimumWidth(400)
         self.setMaximumWidth(400)
@@ -902,13 +904,13 @@ class AdvancedScanOptionsDialog(WindowModalDialog):
         # NOTE(copy-paste) Generic separation line code used elsewhere as well.
         line = QFrame()
         line.setStyleSheet("QFrame { border: 1px solid #E3E2E2; }")
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame.Shape.HLine)
         line.setFixedHeight(1)
 
         help_button = QPushButton(_("Help"))
         help_button.clicked.connect(self._on_clicked_button_help)
         close_button = QPushButton(_("Close"))
-        close_button.clicked.connect(self.close)
+        close_button.clicked.connect(self._close)
 
         button_box = QHBoxLayout()
         button_box.addWidget(help_button)
@@ -923,15 +925,20 @@ class AdvancedScanOptionsDialog(WindowModalDialog):
         vbox.addLayout(button_box)
         self.setLayout(vbox)
 
+    def _close(self) -> None:
+        # We provide this so the type signature of the signal method is correct.
+        self.close()
+
     def _on_value_changed_receiving(self, new_value: int) -> None:
-        self.parent().update_gap_limit(RECEIVING_SUBPATH, new_value)
+        cast(BlockchainScanDialog, self.parent()).update_gap_limit(RECEIVING_SUBPATH, new_value)
 
     def _on_value_changed_change(self, new_value: int) -> None:
-        self.parent().update_gap_limit(CHANGE_SUBPATH, new_value)
+        cast(BlockchainScanDialog, self.parent()).update_gap_limit(CHANGE_SUBPATH, new_value)
 
     def _on_clicked_button_help(self) -> None:
         from .help_dialog import HelpDialog
-        h = HelpDialog(self.parent()._main_window.reference(), HELP_FOLDER_NAME,
+        parent = cast(BlockchainScanDialog, self.parent())
+        h = HelpDialog(parent._main_window_proxy.reference(), HELP_FOLDER_NAME,
             HELP_SCAN_ADVANCED_FILE_NAME)
         h.run()
 

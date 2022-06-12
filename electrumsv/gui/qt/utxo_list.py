@@ -27,9 +27,9 @@ from enum import IntEnum
 from typing import cast, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import QItemSelectionModel, QPoint, Qt
-from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QAbstractItemView, QMenu, QTreeWidgetItem, QWidget
+from PyQt6.QtCore import QItemSelectionModel, QPoint, Qt
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import QAbstractItemView, QMenu, QTreeWidgetItem, QWidget
 
 from bitcoinx import hash_to_hex_str
 
@@ -79,7 +79,7 @@ class UTXOList(MyTreeWidget):
 
         self._main_window.account_change_signal.connect(self._on_account_change)
 
-        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.setSortingEnabled(True)
 
         self._monospace_font = QFont(platform.monospace_font)
@@ -210,7 +210,7 @@ class UTXOList(MyTreeWidget):
             if any_c_frozen:
                 menu.addAction(_("Unfreeze Coins"), unfreeze_coins)
 
-        menu.exec_(self.viewport().mapToGlobal(position))
+        menu.exec(self.viewport().mapToGlobal(position))
 
     def on_permit_edit(self, item: QTreeWidgetItem, column: int) -> bool:
         # disable editing fields in this tab (labels)
@@ -233,8 +233,8 @@ class UTXOList(MyTreeWidget):
                 continue
             items.append(item)
             row_index = self.indexFromItem(item)
-            selection_model.select(row_index, QItemSelectionModel.SelectionFlag(
-                QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows))
+            selection_model.select(row_index,
+                QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
             found += 1
 
         if len(items):

@@ -34,10 +34,10 @@ import sys
 import threading
 from typing import Any, Callable, cast, Coroutine, Iterable, List, Optional, TypeVar
 
-import PyQt5.QtCore as QtCore
-from PyQt5.QtCore import pyqtSignal, QEvent, QObject, QTimer
-from PyQt5.QtGui import QFileOpenEvent, QGuiApplication, QIcon
-from PyQt5.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QDialog
+import PyQt6.QtCore as QtCore
+from PyQt6.QtCore import pyqtSignal, QEvent, QObject, QTimer
+from PyQt6.QtGui import QFileOpenEvent, QGuiApplication, QIcon
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QDialog
 
 from ...app_state import app_state, ExceptionHandlerABC
 from ...contacts import ContactEntry, ContactIdentity
@@ -105,7 +105,6 @@ class SVApplication(QApplication):
     identity_removed_signal = pyqtSignal(object, object)
 
     def __init__(self, argv: List[str]) -> None:
-        QtCore.QCoreApplication.setAttribute(QtCore.Qt.ApplicationAttribute.AA_X11InitThreads)
         if hasattr(QtCore.Qt, "AA_ShareOpenGLContexts"):
             QtCore.QCoreApplication.setAttribute(
                 QtCore.Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
@@ -137,7 +136,7 @@ class SVApplication(QApplication):
     def _start(self) -> None:
         self.setWindowIcon(read_QIcon("electrum-sv.png"))
         self.installEventFilter(OpenFileEventFilter(self.windows))
-        self.create_new_window_signal.connect(self.start_new_window)
+        self.create_new_window_signal.connect(self._start_new_window_signal)
         self.async_tasks_done.connect(app_state.async_.run_pending_callbacks)
         self.num_zeros_changed.connect(partial(self._signal_all, 'on_num_zeros_changed'))
         self.fiat_ccy_changed.connect(partial(self._signal_all, 'on_fiat_ccy_changed'))
@@ -276,6 +275,10 @@ class SVApplication(QApplication):
                 return w
         return None
 
+    def _start_new_window_signal(self, wallet_path: Optional[str], uri: Optional[str]=None,
+            is_startup: bool=False) -> None:
+        self.start_new_window(wallet_path, uri, is_startup)
+
     def start_new_window(self, wallet_path: Optional[str], uri: Optional[str]=None,
             is_startup: bool=False) -> Optional[ElectrumWindow]:
         '''Raises the window for the wallet if it is open.  Otherwise
@@ -302,7 +305,7 @@ class SVApplication(QApplication):
                 result = wizard_window.run()
                 # This will return Accepted in some failure cases, like migration failure, due
                 # to wallet wizard standard buttons not being easily dynamically changeable.
-                if result != QDialog.Accepted:
+                if result != QDialog.DialogCode.Accepted:
                     return None
                 wallet_path = wizard_window.get_wallet_path()
                 if wallet_path is None:
@@ -317,7 +320,7 @@ class SVApplication(QApplication):
 
         w.bring_to_top()
         w.setWindowState(QtCore.Qt.WindowState(
-            (int(w.windowState()) & ~QtCore.Qt.WindowState.WindowMinimized) |
+            w.windowState() & ~QtCore.Qt.WindowState.WindowMinimized |
                 QtCore.Qt.WindowState.WindowActive))
         # this will activate the window
         w.activateWindow()
@@ -379,7 +382,7 @@ class SVApplication(QApplication):
         self.timer.timeout.connect(app_state.device_manager.timeout_clients)
 
         QTimer.singleShot(0, self.event_loop_started)
-        self.exec_()
+        self.exec()
 
         logs.remove_handler(self.log_handler)
         # Shut down the timer cleanly

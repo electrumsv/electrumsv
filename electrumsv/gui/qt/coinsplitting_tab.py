@@ -1,11 +1,14 @@
 import concurrent.futures
+from functools import partial
 import threading
 from typing import Any, Callable, cast, NamedTuple, Optional
 import weakref
 
-from PyQt5.QtCore import Qt, pyqtSignal, QUrl
-from PyQt5.QtGui import QDesktopServices
-from PyQt5.QtWidgets import QFrame, QGridLayout, QLabel, QHBoxLayout, QVBoxLayout, \
+from bitcoinx import P2PKH_Address
+
+from PyQt6.QtCore import Qt, pyqtSignal, QUrl
+from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtWidgets import QFrame, QGridLayout, QLabel, QHBoxLayout, QVBoxLayout, \
     QProgressDialog, QSizePolicy, QWidget
 
 from ...app_state import app_state
@@ -20,6 +23,7 @@ from ...wallet import AbstractAccount
 
 from .main_window import ElectrumWindow
 from .password_dialog import LayoutFields
+from .tab_widget import TabWidget
 from .util import EnterButton, HelpDialogButton
 
 
@@ -49,7 +53,7 @@ class AllocatedKeyState(NamedTuple):
     script_type: ScriptType
 
 
-class CoinSplittingTab(QWidget):
+class CoinSplittingTab(TabWidget):
     _allocated_key_state: Optional[AllocatedKeyState] = None
     unfrozen_balance = None
     frozen_balance = None
@@ -186,7 +190,8 @@ class CoinSplittingTab(QWidget):
         assert self._allocated_key_state is not None
         self.split_stage = STAGE_OBTAINING_DUST
 
-        address_text = self._allocated_key_state.script_template.to_string()
+        # The only script template type with an address is `P2PKH_Address`.
+        address_text = cast(P2PKH_Address, self._allocated_key_state.script_template).to_string()
         QDesktopServices.openUrl(QUrl("{}/?addr={}".format(Net.FAUCET_URL, address_text)))
 
         # Wait for the transaction to arrive.  How long it takes before the progress bar
@@ -357,7 +362,8 @@ class CoinSplittingTab(QWidget):
         self._intro_label = QLabel()
         self._intro_label.setWordWrap(True)
         self._intro_label.setMaximumWidth(600)
-        self._intro_label.setSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.MinimumExpanding)
+        self._intro_label.setSizePolicy(QSizePolicy.Policy.MinimumExpanding,
+            QSizePolicy.Policy.MinimumExpanding)
         self._intro_label.setText(intro_text)
         self._intro_label.setMinimumHeight(self._intro_label.sizeHint().height() + 8)
 
@@ -390,7 +396,7 @@ class CoinSplittingTab(QWidget):
 
         line = QFrame()
         line.setStyleSheet("QFrame { border: 1px solid #E3E2E2; }")
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame.Shape.HLine)
         line.setFixedHeight(1)
 
         grid.addWidget(line, row_index, 1, 1, 2)
@@ -402,7 +408,7 @@ class CoinSplittingTab(QWidget):
 
         line = QFrame()
         line.setStyleSheet("QFrame { border: 1px solid #E3E2E2; }")
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame.Shape.HLine)
         line.setFixedHeight(1)
 
         grid.addWidget(line, row_index, 1, 1, 2)
@@ -414,7 +420,7 @@ class CoinSplittingTab(QWidget):
 
         line = QFrame()
         line.setStyleSheet("QFrame { border: 1px solid #E3E2E2; }")
-        line.setFrameShape(QFrame.HLine)
+        line.setFrameShape(QFrame.Shape.HLine)
         line.setFixedHeight(1)
 
         grid.addWidget(line, row_index, 1, 1, 2)
@@ -477,7 +483,9 @@ class SplitWaitingDialog(QProgressDialog):
             self.accept()
             on_done(future)
         future = app_state.app_qt.run_in_thread(func, self, on_done=_on_done)
-        self.accepted.connect(future.cancel)
+        def _cancel_future(future: concurrent.futures.Future[int]) -> None:
+            future.cancel()
+        self.accepted.connect(partial(_cancel_future, future))
         def _on_rejected() -> None:
             self.was_rejected = True
             future.cancel()

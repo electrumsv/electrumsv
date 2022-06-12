@@ -25,9 +25,9 @@
 from decimal import Decimal
 from typing import Callable, Optional
 
-from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtGui import QPalette, QPainter, QPaintEvent
-from PyQt5.QtWidgets import (QLineEdit, QStyle, QStyleOptionFrame, QWidget)
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QPalette, QPainter, QPaintEvent
+from PyQt6.QtWidgets import (QLineEdit, QStyle, QStyleOptionFrame, QWidget)
 
 from electrumsv.app_state import app_state
 from electrumsv.util import format_satoshis_plain
@@ -36,9 +36,9 @@ from electrumsv.util import format_satoshis_plain
 class MyLineEdit(QLineEdit):
     frozen = pyqtSignal()
 
-    def setFrozen(self, b: bool) -> None:
-        self.setReadOnly(b)
-        self.setFrame(not b)
+    def setFrozen(self, flag: bool) -> None:
+        self.setReadOnly(flag)
+        self.setFrame(not flag)
         self.frozen.emit()
 
 
@@ -86,7 +86,8 @@ class AmountEdit(MyLineEdit):
                 self)
             textRect.adjust(2, 0, -10, 0)
             painter = QPainter(self)
-            painter.setPen(self.help_palette.brush(QPalette.Disabled, QPalette.Text).color())
+            painter.setPen(self.help_palette.brush(QPalette.ColorGroup.Disabled,
+                QPalette.ColorRole.Text).color())
             painter.drawText(textRect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
                 self.base_unit_func())
 

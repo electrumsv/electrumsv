@@ -25,11 +25,11 @@
 '''ElectrumSV Preferences dialog.'''
 
 from functools import partial
-from typing import Callable, List, Optional, Tuple, TYPE_CHECKING
+from typing import Callable, cast, List, Optional, Tuple, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import (
     QCheckBox, QComboBox, QDialog, QGroupBox, QHBoxLayout, QLabel, QSpinBox, QTabWidget,
     QVBoxLayout, QWidget
 )
@@ -44,6 +44,7 @@ import electrumsv.web as web
 from electrumsv.wallet import AbstractAccount, Wallet
 
 from .amountedit import BTCSatsByteEdit
+from . import qrreader
 from .util import Buttons, CloseButton, EnterButton, FormSectionWidget, HelpButton, MessageBox
 
 if TYPE_CHECKING:
@@ -205,13 +206,14 @@ class PreferencesDialog(QDialog):
         #                      _("Install the zbar package to enable this."))
         qr_combo = QComboBox()
         qr_combo.addItem("Default", "default")
-        system_cameras = qrscanner.find_system_cameras()
-        for camera, device in system_cameras.items():
-            qr_combo.addItem(camera, device)
-        qr_combo.setCurrentIndex(qr_combo.findData(app_state_qt.config.get("video_device")))
+        system_cameras = qrreader.find_system_cameras()
+        for camera_name, device_id in system_cameras.items():
+            qr_combo.addItem(camera_name, device_id)
+        qr_combo.setCurrentIndex(qr_combo.findData(app_state_qt.config.get_video_device()))
         qr_combo.setEnabled(qrscanner.libzbar is not None)
         def on_video_device(index: int) -> None:
-            app_state_qt.config.set_key("video_device", qr_combo.itemData(index), True)
+            device_id = cast(bytes, qr_combo.itemData(index))
+            app_state_qt.config.set_key("video_device", device_id.hex(), True)
         qr_combo.currentIndexChanged.connect(on_video_device)
 
         updatecheck_box = QGroupBox()

@@ -1,9 +1,9 @@
 from typing import cast, Optional, Tuple, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QPainter, QPaintEvent, QPixmap
-from PyQt5.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QStatusBar,
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QPainter, QPaintEvent, QPixmap
+from PyQt6.QtWidgets import (QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QStatusBar,
     QStyle, QStyleOptionToolButton, QToolButton, QWidget, QWidgetAction)
 
 from ...app_state import app_state
@@ -22,7 +22,7 @@ class XToolButton(QToolButton):
         super().__init__(parent)
 
         self.pad = 2     # padding between the icon and the button frame
-        sizePolicy = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        sizePolicy = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
         self.setSizePolicy(sizePolicy)
 
     def paintEvent(self, event: QPaintEvent) -> None:
@@ -96,7 +96,7 @@ class StatusBar(QStatusBar):
         estimate_icon_label.setPixmap(QPixmap(icon_path("sb_fiat.png")))
         hbox = QHBoxLayout()
         hbox.setSpacing(2)
-        hbox.setSizeConstraint(hbox.SetFixedSize)
+        hbox.setSizeConstraint(hbox.SizeConstraint.SetFixedSize)
         hbox.addWidget(estimate_icon_label)
         self._fiat_bsv_label = QLabel("")
         hbox.addWidget(self._fiat_bsv_label)
@@ -105,7 +105,7 @@ class StatusBar(QStatusBar):
         hbox.addWidget(approximate_icon_label)
         self._fiat_value_label = QLabel("")
         fm = self._fiat_bsv_label.fontMetrics()
-        width = fm.width("1,000.00 CUR")
+        width = fm.boundingRect("1,000.00 CUR").width()
         self._fiat_value_label.setMinimumWidth(width)
         hbox.addWidget(self._fiat_value_label)
         self._fiat_widget.setLayout(hbox)
@@ -118,7 +118,7 @@ class StatusBar(QStatusBar):
         hbox.setSpacing(2)
         hbox.addWidget(network_icon_label)
         self._network_label = QLabel("")
-        sp = QSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        sp = QSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         sp.setHorizontalStretch(1)
         self._network_label.setSizePolicy(sp)
         hbox.addWidget(self._network_label)

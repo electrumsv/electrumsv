@@ -25,11 +25,11 @@
 from functools import partial
 from typing import Any, cast, Dict, Optional, Tuple, TYPE_CHECKING, Union
 
-from bitcoinx import bip32_key_from_string, BIP32PrivateKey
+from bitcoinx import bip32_key_from_string #, BIP32PrivateKey
 
-from PyQt5.QtCore import Qt, QEventLoop, pyqtSignal, QRegExp
-from PyQt5.QtGui import QKeyEvent, QRegExpValidator
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import Qt, QEventLoop, pyqtSignal, QRegularExpression
+from PyQt6.QtGui import QKeyEvent, QRegularExpressionValidator
+from PyQt6.QtWidgets import (
     QGridLayout, QTabWidget, QPushButton, QVBoxLayout, QLabel, QHBoxLayout,
     QLineEdit, QGroupBox, QButtonGroup, QRadioButton, QCheckBox, QTextEdit,
     QMessageBox, QWidget, QSlider
@@ -88,7 +88,7 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
     def show_settings_dialog(self, window: "ElectrumWindow", keystore: Hardware_KeyStore) -> None:
         device_id = self.choose_device(keystore)
         if device_id:
-            SettingsDialog(window, self, keystore, device_id).exec_()
+            SettingsDialog(window, self, keystore, device_id).exec()
 
     def request_trezor_init_settings(self, wizard: "AccountWizard", method: int, device: str) \
             -> Tuple[Union[int, str], str, Union[bool, str], bool]:
@@ -140,7 +140,8 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
                 def set_enabled() -> None:
                     assert text is not None
                     key = bip32_key_from_string(clean_text(text))
-                    wizard.next_button.setEnabled(isinstance(key, BIP32PrivateKey))
+                    # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+                    # wizard.next_button.setEnabled(isinstance(key, BIP32PrivateKey))
                 msg = _("Enter the master private key beginning with xprv:")
                 text.textChanged.connect(set_enabled)
                 next_enabled = False
@@ -148,7 +149,8 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
             vbox.addWidget(QLabel(msg))
             vbox.addWidget(text)
             pin = QLineEdit()
-            pin.setValidator(QRegExpValidator(QRegExp('[1-9]{0,10}')))
+            # TODO(PyQt5) Check this QRegExp replacement works.
+            pin.setValidator(QRegularExpressionValidator(QRegularExpression('[1-9]{0,10}')))
             pin.setMaximumWidth(100)
             hbox_pin = QHBoxLayout()
             hbox_pin.addWidget(QLabel(_("Enter your PIN (digits 1-9):")))
@@ -166,7 +168,9 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
         vbox.addWidget(passphrase_warning)
         vbox.addWidget(cb_phrase)
 
-        wizard.exec_layout(vbox, next_enabled=next_enabled)
+        # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+        1/0 # pylint: disable=pointless-statement
+        # wizard.execlayout(vbox, next_enabled=next_enabled)
 
         item: Union[int, str]
         pin_value: Union[bool, str]
@@ -269,7 +273,7 @@ class CharacterDialog(WindowModalDialog):
         self.word_pos = word_pos
         self.character_pos = character_pos
         self.refresh()
-        if self.loop.exec_():
+        if self.loop.exec():
             self.data = None  # User cancelled
         return self.data
 
@@ -307,7 +311,7 @@ class QtHandler(QtHandlerBase):
         vbox.addWidget(matrix)
         vbox.addLayout(Buttons(CancelButton(dialog), OkButton(dialog)))
         dialog.setLayout(vbox)
-        dialog.exec_()
+        dialog.exec()
         self.response = str(matrix.get_value())
         self.done.set()
 
@@ -419,7 +423,7 @@ class SettingsDialog(WindowModalDialog):
                 msg = _("Are you SURE you want to wipe the device?\n"
                         "Your wallet still has bitcoins in it!")
                 if not self.question(msg, title=title,
-                                     icon=QMessageBox.Critical):
+                                     icon=QMessageBox.Icon.Critical):
                     return
             invoke_client('wipe_device', unpair_after=True)
 
@@ -502,7 +506,7 @@ class SettingsDialog(WindowModalDialog):
         timeout_slider.setRange(1, 60)
         timeout_slider.setSingleStep(1)
         timeout_slider.setTickInterval(5)
-        timeout_slider.setTickPosition(QSlider.TicksBelow)
+        timeout_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         timeout_slider.setTracking(True)
         timeout_msg = QLabel(
             _("Clear the session after the specified period "

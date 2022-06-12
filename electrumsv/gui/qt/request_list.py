@@ -30,9 +30,9 @@ import time
 from typing import Optional, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import pyqtSignal, QPoint, Qt, QTimer
-from PyQt5.QtGui import QFont, QIcon
-from PyQt5.QtWidgets import QLabel, QTreeWidgetItem, QMenu, QVBoxLayout
+from PyQt6.QtCore import pyqtSignal, QPoint, Qt, QTimer
+from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtWidgets import QLabel, QTreeWidgetItem, QMenu, QVBoxLayout
 
 from ...app_state import app_state
 from ...bitcoin import script_template_to_string
@@ -236,7 +236,7 @@ class RequestList(MyTreeWidget):
         # TODO: Revisit when there is a identity and hosted service.
         action.setEnabled(False)
         menu.addAction(_("Delete"), partial(self._delete_payment_request, request_id))
-        menu.exec_(self.viewport().mapToGlobal(position))
+        menu.exec(self.viewport().mapToGlobal(position))
 
     def _get_request_URI(self, pr_id: int) -> str:
         assert self._account is not None
@@ -269,7 +269,7 @@ class RequestList(MyTreeWidget):
         if fileName:
             with open(fileName, "w") as f:
                 f.write(pr_data)
-            self.show_message(_("Request saved successfully"))
+            MessageBox.show_message(_("Request saved successfully"))
 
     def _delete_payment_request(self, request_id: int) -> None:
         assert self._account_id is not None and self._account is not None
@@ -299,4 +299,4 @@ class RequestList(MyTreeWidget):
         vbox.addWidget(pr_e)
         vbox.addLayout(Buttons(CopyCloseButton(pr_e.text, app_state.app_qt, dialog)))
         dialog.setLayout(vbox)
-        dialog.exec_()
+        dialog.exec()

@@ -1,10 +1,10 @@
-from typing import Any, cast, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, cast, List, Optional, Tuple
 
-from PyQt5.QtCore import QAbstractItemModel, QEvent, QModelIndex, QSize, Qt, \
+from PyQt6.QtCore import QAbstractItemModel, QAbstractProxyModel, QEvent, QModelIndex, QSize, Qt, \
     QSortFilterProxyModel, QObject, pyqtSignal
-from PyQt5.QtGui import QKeyEvent, QPainter, QPaintEvent, QPixmap, QPalette, QStandardItemModel, \
-    QStandardItem
-from PyQt5.QtWidgets import QAbstractItemView, QAction, QComboBox, QCompleter, QDialog, \
+from PyQt6.QtGui import QAction, QKeyEvent, QPainter, QPaintEvent, QPixmap, QPalette, \
+    QStandardItemModel, QStandardItem
+from PyQt6.QtWidgets import QAbstractItemView, QComboBox, QCompleter, QDialog, \
     QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QMenu, QPushButton, QSizePolicy, \
     QStyledItemDelegate, QTabWidget, QVBoxLayout, QWidget, QStyleOptionViewItem, QStyle, \
     QStyleOption, QTableView
@@ -15,9 +15,8 @@ from electrumsv.i18n import _
 from .util import FormSectionWidget, icon_path, read_QIcon
 from .wallet_api import WalletAPI
 
-if TYPE_CHECKING:
-    from .main_window import ElectrumWindow
 
+# TODO(PyQt6) Payee badges. Clicking on a filtered contact crashes.
 
 # Payment UI:
 #   Tab 1: Details
@@ -85,6 +84,10 @@ payee_badge_css = """
     }
 """
 
+class PaymentLineEdit(QLineEdit):
+    balance_currency: Optional[str]
+    balance_amount: Optional[str]
+
 
 class DetailFormContext(QObject):
     set_payment_amount = pyqtSignal(object)
@@ -118,11 +121,11 @@ class PaymentAmountWidget(QWidget):
         currency_combo.setEditable(True)
 
         filter_model = QSortFilterProxyModel(currency_combo)
-        filter_model.setFilterCaseSensitivity(Qt.CaseInsensitive)
+        filter_model.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         filter_model.setSourceModel(currency_combo.model())
 
         contact_completer = QCompleter(filter_model, currency_combo)
-        contact_completer.setCompletionMode(QCompleter.UnfilteredPopupCompletion)
+        contact_completer.setCompletionMode(QCompleter.CompletionMode.UnfilteredPopupCompletion)
         currency_combo.setCompleter(contact_completer)
 
         # base unit.
@@ -136,7 +139,7 @@ class PaymentAmountWidget(QWidget):
             options.append(fiat_unit)
 
         currency_combo.addItems(options)
-        currency_combo.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        currency_combo.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
 
         layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
@@ -149,9 +152,11 @@ class PaymentAmountWidget(QWidget):
         self._amount_widget = amount_widget
         self._form_context.set_payment_amount.connect(self._set_payment_amount)
 
-    def _set_payment_amount(self, balance_widget: QLineEdit) -> None:
+    def _set_payment_amount(self, balance_widget: PaymentLineEdit) -> None:
         currency = balance_widget.balance_currency
         amount = balance_widget.balance_amount
+        assert currency is not None
+        assert amount is not None
 
         idx = self._currency_combo_options.index(currency)
         self._currency_combo.setCurrentIndex(idx)
@@ -190,10 +195,10 @@ class FundsSelectionWidget(QWidget):
         tableView.setModel(model)
         tableView.verticalHeader().setVisible(False)
         tableView.horizontalHeader().setVisible(False)
-        tableView.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        tableView.setSelectionBehavior(QAbstractItemView.SelectRows)
+        tableView.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        tableView.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         tableView.setAutoScroll(False)
-        tableView.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        tableView.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         # Show more compact rows, this will actually be larger forced out by the contents to be
         # just the necessary size.
         tableView.setRowHeight(0, 20)
@@ -227,18 +232,18 @@ class FundsSelectionWidget(QWidget):
         balance_icon_label.setToolTip(_("The balance of the selected account."))
         hlayout2.addWidget(balance_icon_label)
         hlayout2.addSpacing(4)
-        sv_balance = QLineEdit(sv_text)
+        sv_balance = PaymentLineEdit(sv_text)
         # NOTE(typing) We store attributes on these objects because this is Python..
         base_unit = form_context.wallet_api.get_base_unit()
         base_amount = form_context.wallet_api.get_base_amount(balance)
-        sv_balance.balance_currency = base_unit # type: ignore[attr-defined]
-        sv_balance.balance_amount = base_amount # type: ignore[attr-defined]
-        sv_balance.setAlignment(Qt.AlignHCenter)
-        sv_balance.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+        sv_balance.balance_currency = base_unit
+        sv_balance.balance_amount = base_amount
+        sv_balance.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        sv_balance.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         sv_balance.setReadOnly(True)
         hlayout2.addWidget(sv_balance)
 
-        fiat_balance: Optional[QLineEdit] = None
+        fiat_balance: Optional[PaymentLineEdit] = None
         if fiat_text:
             hlayout2.addSpacing(2)
             balance_equals_label = QLabel("")
@@ -247,12 +252,12 @@ class FundsSelectionWidget(QWidget):
             hlayout2.addSpacing(2)
             fiat_unit = form_context.wallet_api.get_fiat_unit()
             fiat_amount = form_context.wallet_api.get_fiat_amount(balance)
-            fiat_balance = QLineEdit(fiat_text)
+            fiat_balance = PaymentLineEdit(fiat_text)
             # NOTE(typing) We store attributes on these objects because this is Python..
-            fiat_balance.balance_currency = fiat_unit # type: ignore[attr-defined]
-            fiat_balance.balance_amount = fiat_amount # type: ignore[attr-defined]
+            fiat_balance.balance_currency = fiat_unit
+            fiat_balance.balance_amount = fiat_amount
 
-            fiat_balance.setAlignment(Qt.AlignHCenter)
+            fiat_balance.setAlignment(Qt.AlignmentFlag.AlignHCenter)
             fiat_balance.setReadOnly(True)
             hlayout2.addWidget(fiat_balance)
 
@@ -275,7 +280,7 @@ class FundsSelectionWidget(QWidget):
         opt = QStyleOption()
         opt.initFrom(self)
         p = QPainter(self)
-        self.style().drawPrimitive(QStyle.PE_Widget, opt, p, self)
+        self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, p, self)
 
     def eventFilter(self, event_object: QObject, event: QEvent) -> bool:
         # Clicking a balance field sets the amount currency and the amount.
@@ -285,11 +290,11 @@ class FundsSelectionWidget(QWidget):
         return False
 
     def _checkLineEditEvent(self, event: QEvent) -> bool:
-        if event.type() == QEvent.MouseButtonPress:
+        if event.type() == QEvent.Type.MouseButtonPress:
             return True
-        if event.type() == QEvent.KeyPress:
+        if event.type() == QEvent.Type.KeyPress:
             key_event = cast(QKeyEvent, event)
-            return key_event.key() in { Qt.Key_Return, Qt.Key_Space, Qt.Key_Enter }
+            return key_event.key() in { Qt.Key.Key_Return, Qt.Key.Key_Space, Qt.Key.Key_Enter }
         return False
 
 
@@ -319,7 +324,7 @@ class PayeeBadge(QWidget):
 
             clear_action = QAction("Clear", self)
             clear_action.setIcon(read_QIcon("icons8-delete.svg"))
-            clear_action.setShortcut(Qt.Key_Delete)
+            clear_action.setShortcut(Qt.Key.Key_Delete)
             clear_action.setShortcutVisibleInContextMenu(True)
             self.clear_action = clear_action
             clear_action.triggered.connect(self._action_clear)
@@ -357,7 +362,7 @@ class PayeeBadge(QWidget):
         opt = QStyleOption()
         opt.initFrom(self)
         p = QPainter(self)
-        self.style().drawPrimitive(QStyle.PE_Widget, opt, p, self)
+        self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, p, self)
 
 
 class PayeeSearchModel(QAbstractItemModel):
@@ -383,11 +388,11 @@ class PayeeSearchModel(QAbstractItemModel):
         return QModelIndex()
 
     def data(self, index: QModelIndex, role: int=Qt.ItemDataRole.DisplayRole) -> Any:
-        if role == Qt.EditRole:
+        if role == Qt.ItemDataRole.EditRole:
             if index.isValid():
                 return self._identities[index.row()][0].label
             return None
-        elif role == Qt.DisplayRole:
+        elif role == Qt.ItemDataRole.DisplayRole:
             if index.isValid():
                 return self._identities[index.row()][0].label
             return None
@@ -398,8 +403,10 @@ class PayeeSearchModel(QAbstractItemModel):
 
 
 def get_source_index(model_index: QModelIndex) -> QModelIndex:
-    while not isinstance(model_index.model(), PayeeSearchModel):
-        model_index = model_index.model().mapToSource(model_index)
+    model = model_index.model()
+    while isinstance(model, QAbstractProxyModel):
+        model_index = model.mapToSource(model_index)
+        model = model_index.model()
     return model_index
 
 
@@ -418,11 +425,14 @@ class PayeeBadgeDelegate(QStyledItemDelegate):
         # calculate render anchor point
         point = option.rect.topLeft()
         source_index = get_source_index(model_index)
-        contact, identity = source_index.model()._get_identity(source_index.row())
+        model = source_index.model()
+        assert isinstance(model, PayeeSearchModel)
+        contact, identity = model._get_identity(source_index.row())
         widget = self._create_payee_badge(parent, self._form_context, contact, identity)
-        if int(option.state) & QStyle.State_Selected == QStyle.State_Selected:
-            p = option.palette
-            p.setColor(QPalette.Background, p.color(QPalette.Active, QPalette.Highlight))
+        if option.state & QStyle.StateFlag.State_Selected == QStyle.StateFlag.State_Selected:
+            p = option.palette # PyQt5: Was Background
+            p.setColor(QPalette.ColorRole.Window, p.color(QPalette.ColorGroup.Active,
+                QPalette.ColorRole.Highlight))
             widget.setPalette(p)
         # TODO: This appears to render with an unexpected margin at the top.
         widget.render(painter, point)
@@ -433,7 +443,8 @@ class PayeeBadgeDelegate(QStyledItemDelegate):
     def sizeHint(self, option: QStyleOptionViewItem, model_index: QModelIndex) -> QSize:
         # TODO: This appears to calculate an incorrect size.
         # source_index = get_source_index(model_index)
-        # contact, identity = source_index.model()._get_identity(source_index.row())
+        # payee_search_model = cast(PayeeSearchModel, source_index.model())
+        # contact, identity = payee_search_model._get_identity(source_index.row())
         # widget = self._create_payee_badge(self.parent(), self._form_context, contact, identity)
         # size = widget.sizeHint()
         # dummyWidget = QWidget()
@@ -466,16 +477,18 @@ class PayeeSearchWidget(QWidget):
         filter_model.setSourceModel(model)
 
         contact_completer = QCompleter(filter_model, edit_field)
-        contact_completer.setCompletionMode(QCompleter.PopupCompletion)
+        contact_completer.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         contact_completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         # pylint: disable=unsubscriptable-object
         contact_completer.activated[QModelIndex].connect(self._on_entry_selected)
         edit_field.setCompleter(contact_completer)
 
         popup = contact_completer.popup()
-        popup.setUniformItemSizes(True)
+        # TODO(PyQt6) Method no longer present.
+        #popup.setUniformItemSizes(True)
         popup.setItemDelegate(PayeeBadgeDelegate(form_context, edit_field))
-        popup.setSpacing(0)
+        # TODO(PyQt6) Method no longer present.
+        #popup.setSpacing(0)
         popup.setStyleSheet("""
             .QListView {
                 background-color: #F2F2F2;
@@ -498,12 +511,14 @@ class PayeeSearchWidget(QWidget):
         opt = QStyleOption()
         opt.initFrom(self)
         p = QPainter(self)
-        self.style().drawPrimitive(QStyle.PE_Widget, opt, p, self)
+        self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, p, self)
 
     def _on_entry_selected(self, model_index: QModelIndex) -> None:
         source_index = get_source_index(model_index)
-        contact, identity = source_index.model()._get_identity(source_index.row())
-        self.parent().set_selected_contact(contact, identity)
+        payee_search_model = cast(PayeeSearchModel, source_index.model())
+        contact, identity = payee_search_model._get_identity(source_index.row())
+        payee_widget = cast(PayeeWidget, self.parent())
+        payee_widget.set_selected_contact(contact, identity)
 
     def _on_contact_change(self, added: bool, contact: ContactEntry,
             identity: ContactIdentity) -> None:
@@ -731,11 +746,11 @@ class PaymentWindow(QDialog):
         confirm_idx = tabs.addTab(confirm_details_widget, _("Confirm"))
         tabs.setTabEnabled(confirm_idx, False)
 
-        bbox = QDialogButtonBox(QDialogButtonBox.Close)
+        bbox = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         bbox.rejected.connect(self.reject)
         bbox.accepted.connect(self.accept)
 
-        close_button = bbox.button(QDialogButtonBox.Close)
+        close_button = bbox.button(QDialogButtonBox.StandardButton.Close)
         close_button.setAutoDefault(False)
 
         vlayout = QVBoxLayout()

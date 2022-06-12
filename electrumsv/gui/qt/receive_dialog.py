@@ -3,9 +3,9 @@ import concurrent.futures
 from typing import Any, cast, Optional, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import pyqtSignal, Qt, QTimer
-from PyQt5.QtGui import QCloseEvent, QCursor, QFontMetrics, QKeyEvent
-from PyQt5.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLayout, QLineEdit, \
+from PyQt6.QtCore import pyqtSignal, Qt, QTimer
+from PyQt6.QtGui import QCloseEvent, QCursor, QFontMetrics, QKeyEvent
+from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLayout, QLineEdit, \
     QMenu, QToolTip, QVBoxLayout
 
 from ...app_state import app_state, get_app_state_qt
@@ -174,8 +174,7 @@ class ReceiveDialog(QDialog):
         do not want to refresh the whole wallet.
         """
         key = event.key()
-        if key == Qt.Key.Key_R and \
-                bool(int(event.modifiers()) & Qt.KeyboardModifier.ControlModifier):
+        if key == Qt.Key.Key_R and bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier):
             self._update_destination()
             self._update_receive_qr()
             self._update_form()

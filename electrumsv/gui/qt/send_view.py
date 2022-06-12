@@ -42,9 +42,9 @@ import weakref
 
 from bitcoinx import hash_to_hex_str
 
-from PyQt5.QtCore import pyqtSignal, QPoint, QStringListModel, Qt
-from PyQt5.QtWidgets import (QCheckBox, QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QMenu,
-    QLabel, QSizePolicy, QTreeView, QTreeWidgetItem, QVBoxLayout, QWidget)
+from PyQt6.QtCore import pyqtSignal, QPoint, QStringListModel, Qt
+from PyQt6.QtWidgets import (QCheckBox, QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QMenu,
+    QLabel, QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ...app_state import app_state
 from ...constants import MAX_VALUE, PaymentFlag, TransactionImportFlag, WalletSettings
@@ -63,6 +63,7 @@ from . import dialogs
 from .invoice_list import InvoiceList
 from .paytoedit import PayToEdit
 from .table_widgets import TableTopButtonLayout
+from .types import FrozenEditProtocol
 from .util import (ColorScheme, EnterButton, HelpDialogButton, HelpLabel, MyTreeWidget,
     UntrustedMessageDialog, update_fixed_tree_height)
 
@@ -180,7 +181,7 @@ class SendView(QWidget):
                  'contacts (a list of completions will be proposed), or an alias '
                  '(email-like address that forwards to a Bitcoin SV address)'))
         payto_label = HelpLabel(_('Pay to'), msg, self)
-        payto_label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
+        payto_label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
         grid.addWidget(payto_label, 2, 0)
         grid.addWidget(self._payto_e, 2, 1, 1, -1)
 
@@ -203,7 +204,7 @@ class SendView(QWidget):
             lambda: self._fiat_send_e.setFrozen(self.amount_e.isReadOnly()))
 
         self._max_button = EnterButton(_("Max"), self._spend_max, self)
-        self._max_button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+        self._max_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         grid.addWidget(self._max_button, 3, 3)
 
         completer = QCompleter()
@@ -365,13 +366,14 @@ class SendView(QWidget):
         self._payment_request = None
         self._payto_e.is_pr = False
 
-        edit_fields = (self._payto_e, self.amount_e, self._fiat_send_e, self._message_e)
+        edit_fields: tuple[FrozenEditProtocol, ...] = \
+            (self._payto_e, self.amount_e, self._fiat_send_e, self._message_e)
         for edit_field in edit_fields:
             # TODO: Does this work with refresh given the ' ' refresh note in some edit.
             edit_field.setText('')
             edit_field.setFrozen(False)
 
-        for tree in self.findChildren(QTreeView):
+        for tree in self.findChildren(QTreeWidget):
             tree.clear()
 
         self._max_button.setDisabled(False)
@@ -399,7 +401,7 @@ class SendView(QWidget):
         item = self._from_list.itemAt(position)
         menu = QMenu()
         menu.addAction(_("Remove"), lambda: self._on_from_list_menu_remove(item))
-        menu.exec_(self._from_list.viewport().mapToGlobal(position))
+        menu.exec(self._from_list.viewport().mapToGlobal(position))
 
     def redraw_from_list(self) -> None:
         self._from_list.clear()
@@ -495,7 +497,7 @@ class SendView(QWidget):
             self._main_window.show_message(_("Your fee is too high.  Max is 50 sat/byte."))
             return
         except Exception as e:
-            self.logger.exception("")
+            self._logger.exception("")
             self._main_window.show_message(str(e))
             return
 
@@ -637,7 +639,8 @@ class SendView(QWidget):
 
     def prepare_for_payment_request(self) -> None:
         self._payto_e.is_pr = True
-        for widget in [self._payto_e, self.amount_e, self._message_e]:
+        edit_widgets: list[FrozenEditProtocol] = [self._payto_e, self.amount_e, self._message_e]
+        for widget in edit_widgets:
             widget.setFrozen(True)
         self._max_button.setDisabled(True)
         self._payto_e.setText(_("please wait..."))

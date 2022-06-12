@@ -14,7 +14,8 @@ steps:
     architecture: x64
 - script: |
     sudo apt-get update
-    sudo apt-get install libusb-1.0-0-dev libudev-dev
+    # PyQt6 cannot find `libEGL.so.1` when `PyQt6.QtGui` is imported, unless we do `libegl1`.
+    sudo apt-get install libusb-1.0-0-dev libudev-dev libegl1
     python3 -m pip install -U pip
     python3 -m pip install -r contrib/deterministic-build/linux-py3.10-requirements.txt
     python3 -m pip install -r contrib/deterministic-build/linux-py3.10-requirements-hw.txt

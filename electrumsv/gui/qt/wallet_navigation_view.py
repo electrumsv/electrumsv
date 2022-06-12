@@ -45,9 +45,9 @@ import time
 from typing import Any, cast, Dict, List, Optional, Sequence
 from weakref import proxy
 
-from PyQt5.QtCore import QEvent, QItemSelectionModel, QModelIndex, QPoint, pyqtSignal, QSize, Qt
-from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import (QGroupBox, QHBoxLayout, QHeaderView, QLabel, QTreeWidget,
+from PyQt6.QtCore import QEvent, QItemSelectionModel, QModelIndex, QPoint, pyqtSignal, QSize, Qt
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (QGroupBox, QHBoxLayout, QHeaderView, QLabel, QTreeWidget,
     QTreeWidgetItem, QMenu, QSplitter, QStackedWidget, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from ...app_state import app_state
@@ -107,13 +107,10 @@ class WalletNavigationView(QSplitter):
         # We subclass QListWidget so accounts cannot be deselected.
         class CustomTreeWidget(QTreeWidget):
             def selectionCommand(self, index: QModelIndex, event: Optional[QEvent]=None) \
-                    -> QItemSelectionModel.SelectionFlags:
+                    -> QItemSelectionModel.SelectionFlag:
                 flags = super().selectionCommand(index, event)
-                if flags == \
-                        QItemSelectionModel.SelectionFlags(
-                            QItemSelectionModel.SelectionFlag.Deselect):
-                    return QItemSelectionModel.SelectionFlags(
-                        QItemSelectionModel.SelectionFlag.NoUpdate)
+                if flags == QItemSelectionModel.SelectionFlag.Deselect:
+                    return QItemSelectionModel.SelectionFlag.NoUpdate
                 return flags
 
         self._account_tree_items: Dict[int, QTreeWidgetItem] = {}
@@ -370,9 +367,11 @@ class WalletNavigationView(QSplitter):
         self._selection_tree.header().setStretchLastSection(False)
         self._selection_tree.header().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self._selection_tree.header().setSectionResizeMode(TreeColumns.MAIN, QHeaderView.Stretch)
+        self._selection_tree.header().setSectionResizeMode(TreeColumns.MAIN,
+            QHeaderView.ResizeMode.Stretch)
         for column in range(1, len(headers)):
-            self._selection_tree.header().setSectionResizeMode(column, QHeaderView.ResizeToContents)
+            self._selection_tree.header().setSectionResizeMode(column,
+                QHeaderView.ResizeMode.ResizeToContents)
 
     def _update_tree_balances(self) -> None:
         fx = app_state.fx
@@ -488,7 +487,7 @@ class WalletNavigationView(QSplitter):
         #     attributes. This means that everything accessed is an `Any` and we leak those
         #     and it introduces silent typing problems everywhere it touches.
         self.add_menu_items(menu, account, self._main_window_proxy)
-        menu.exec_(self._selection_tree.viewport().mapToGlobal(position))
+        menu.exec(self._selection_tree.viewport().mapToGlobal(position))
 
     def add_menu_items(self, menu: QMenu, account: AbstractAccount,
             main_window_proxy: ElectrumWindow) -> None:
@@ -589,7 +588,7 @@ class WalletNavigationView(QSplitter):
 
     def _show_account_information(self, account_id: int) -> None:
         dialog = AccountDialog(self._main_window_proxy, self._wallet, account_id, self)
-        dialog.exec_()
+        dialog.exec()
 
     def _on_menu_generate_destinations(self, account_id: int) -> None:
         from . import payment_destinations_dialog
@@ -597,7 +596,7 @@ class WalletNavigationView(QSplitter):
         reload(payment_destinations_dialog)
         dialog = payment_destinations_dialog.PaymentDestinationsDialog(self._main_window_proxy,
             self._wallet, account_id, self)
-        dialog.exec_()
+        dialog.exec()
 
     def _on_menu_blockchain_scan(self, account_id: int) -> None:
         if not self._main_window_proxy.has_connected_blockchain_server():
@@ -611,7 +610,7 @@ class WalletNavigationView(QSplitter):
         # reload(blockchain_scan_dialog)
         dialog = blockchain_scan_dialog.BlockchainScanDialog(self._main_window_proxy,
             self._wallet, account_id, ScanDialogRole.MANUAL_RESCAN)
-        dialog.exec_()
+        dialog.exec()
 
     def _can_view_secured_data(self, account: AbstractAccount) -> bool:
         return bool(not account.is_watching_only() and not isinstance(account, MultisigAccount)
@@ -633,7 +632,7 @@ class WalletNavigationView(QSplitter):
             from .secured_data_dialog import SecuredDataDialog
             assert password is not None
             d = SecuredDataDialog(self._main_window_proxy, self, keystore, password)
-            d.exec_()
+            d.exec()
         else:
             MessageBox.show_message(_("This type of account has no secured data. You are advised "
                 "to manually back up this wallet."), self._main_window_proxy.reference())
@@ -749,7 +748,7 @@ class WalletNavigationView(QSplitter):
         d.finished.connect(on_dialog_closed)
         threading.Thread(target=privkeys_thread).start()
 
-        if not d.exec_():
+        if not d.exec():
             done = True
             return
 

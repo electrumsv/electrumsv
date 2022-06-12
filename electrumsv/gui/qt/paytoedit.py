@@ -30,9 +30,9 @@ from typing import cast, List, Optional, Tuple, TYPE_CHECKING
 
 from bitcoinx import Address, cashaddr, Script, ScriptError
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QKeyEvent, QFontMetrics, QTextCursor
-from PyQt5.QtWidgets import QCompleter, QPlainTextEdit
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QKeyEvent, QFontMetrics, QTextCursor
+from PyQt6.QtWidgets import QCompleter, QPlainTextEdit
 
 from electrumsv.bitcoin import string_to_bip276_script
 from electrumsv.bip276 import PREFIX_BIP276_SCRIPT
@@ -67,7 +67,7 @@ class PayToEdit(ScanQRTextEdit):
 
         self._send_view = send_view
         # NOTE(typing) Bad Qt5 type stubs for `contentsChanged`.
-        self.document().contentsChanged.connect(self.update_size) # type: ignore[attr-defined]
+        self.document().contentsChanged.connect(self.update_size)
         self.heightMin = 0
         self.heightMax = 150
         self._completer: Optional[QCompleter] = None
@@ -80,11 +80,11 @@ class PayToEdit(ScanQRTextEdit):
         self.update_size()
         self._payto_script: Optional[Script] = None
 
-    def setFrozen(self, b: bool) -> None:
-        self.setReadOnly(b)
-        self.setStyleSheet(frozen_style if b else normal_style)
+    def setFrozen(self, flag: bool) -> None:
+        self.setReadOnly(flag)
+        self.setStyleSheet(frozen_style if flag else normal_style)
         for button in self.buttons:
-            button.setHidden(b)
+            button.setHidden(flag)
 
     def set_validated(self) -> None:
         self.setStyleSheet(util.ColorScheme.GREEN.as_stylesheet(True))
@@ -275,14 +275,14 @@ class PayToEdit(ScanQRTextEdit):
             return
         tc = self.textCursor()
         extra = len(completion) - len(self._completer.completionPrefix())
-        tc.movePosition(QTextCursor.Left)
-        tc.movePosition(QTextCursor.EndOfWord)
+        tc.movePosition(QTextCursor.MoveOperation.Left)
+        tc.movePosition(QTextCursor.MoveOperation.EndOfWord)
         tc.insertText(completion[-extra:])
         self.setTextCursor(tc)
 
     def _get_text_under_cursor(self) -> str:
         tc = self.textCursor()
-        tc.select(QTextCursor.WordUnderCursor)
+        tc.select(QTextCursor.SelectionType.WordUnderCursor)
         return tc.selectedText()
 
     def keyPressEvent(self, e: QKeyEvent) -> None:
@@ -311,7 +311,7 @@ class PayToEdit(ScanQRTextEdit):
             return
 
         eow = "~!@#$%^&*()_+{}|:\"<>?,./;'[]\\-="
-        hasModifier = (e.modifiers() != Qt.KeyboardModifiers(Qt.KeyboardModifier.NoModifier)) and \
+        hasModifier = (e.modifiers() != Qt.KeyboardModifier.NoModifier) and \
             not ctrlOrShift
         completionPrefix = self._get_text_under_cursor()
 

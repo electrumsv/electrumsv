@@ -34,8 +34,8 @@ from typing import Any, Callable, cast, Dict, Optional, Tuple, TYPE_CHECKING
 
 from bitcoinx.aes import aes_decrypt_with_iv, aes_encrypt_with_iv
 from bitcoinx.errors import DecryptionError
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QDialog, QFileDialog, QMessageBox, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QDialog, QFileDialog, QMessageBox, QPushButton, QVBoxLayout, QWidget
 
 from electrumsv.app_state import app_state
 from electrumsv.exceptions import InvalidPassword, UserCancelled
@@ -44,8 +44,8 @@ from electrumsv.i18n import _
 from electrumsv.logs import logs
 from electrumsv.wallet import AbstractAccount
 
-from .util import (Buttons, EnterButton, FormSectionWidget, FramedTextWidget, OkButton,
-    WindowModalDialog)
+from .util import (Buttons, EnterButton, FormSectionWidget, FramedTextWidget, MessageBoxMixin,
+    OkButton, WindowModalDialog)
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
@@ -328,7 +328,7 @@ class LabelSync(object):
         vbox.addWidget(form)
         vbox.addSpacing(20)
         vbox.addLayout(Buttons(OkButton(d)))
-        d.exec_()
+        d.exec()
 
     def on_pulled(self, account: AbstractAccount, updates: Any) -> None:
         app_state.app_qt.labels_changed_signal.emit(account._wallet.get_storage_path(),
@@ -337,9 +337,9 @@ class LabelSync(object):
     def on_exception(self, dialog: QWidget, exception: BaseException) -> None:
         if not isinstance(exception, UserCancelled):
             logger.exception("")
-            d = QMessageBox(QMessageBox.Warning, _('Error'), str(exception), parent=dialog)
-            d.setWindowModality(Qt.WindowModal)
-            d.exec_()
+            d = QMessageBox(QMessageBox.Icon.Warning, _('Error'), str(exception), parent=dialog)
+            d.setWindowModality(Qt.WindowModality.WindowModal)
+            d.exec()
 
     def run_in_thread(self, dialog: QWidget, button: QPushButton, func: FUNC, *args: Any) -> None:
         def on_done(future: concurrent.futures.Future[Any]) -> None:
@@ -351,7 +351,7 @@ class LabelSync(object):
             else:
                 if DISABLE_INTEGRATION:
                     if data is None:
-                        dialog.show_message(_("No labels were present."))
+                        cast(MessageBoxMixin, dialog).show_message(_("No labels were present."))
                     else:
                         filename = 'electrumsv_labelsync_labels.json'
                         directory = os.path.expanduser('~')
@@ -364,7 +364,8 @@ class LabelSync(object):
                         with open(filename, "w") as f:
                             f.write(json_text)
                 else:
-                    dialog.show_message(_("Your labels have been synchronised."))
+                    cast(MessageBoxMixin, dialog).show_message(
+                        _("Your labels have been synchronised."))
 
         button.setEnabled(False)
         app_state.app_qt.run_in_thread(func, *args, on_done=on_done)

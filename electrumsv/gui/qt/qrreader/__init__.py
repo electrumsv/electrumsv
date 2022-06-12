@@ -24,7 +24,7 @@
 from __future__ import annotations
 from typing import Callable, Mapping, Optional, TYPE_CHECKING
 
-from PyQt5.QtWidgets import QMessageBox, QWidget
+from PyQt6.QtWidgets import QMessageBox, QWidget
 
 from ....exceptions import UserFacingException
 from ....i18n import _
@@ -49,7 +49,7 @@ def scan_qrcode(*, parent: Optional[QWidget], config: SimpleConfig,
         _scan_qrcode_using_zbar(parent=parent, config=config, callback=callback)
 
 
-def find_system_cameras() -> Mapping[str, str]:
+def find_system_cameras() -> Mapping[str, bytes]:
     """Returns a camera_description -> camera_path map."""
     if platform.name in ('Windows', 'MacOSX'):
         try:
@@ -94,7 +94,7 @@ def _scan_qrcode_using_qtmultimedia(*, parent: Optional[QWidget], config: Simple
         from .qtmultimedia.camera_dialog import QrReaderCameraDialog, CameraError, \
             MissingQrDetectionLib
     except ImportError as e:
-        icon = QMessageBox.Warning
+        icon = QMessageBox.Icon.Warning
         title = _("QR Reader Error")
         message = _("QR reader failed to load. This may happen if "
                     "you are using an older version of PyQt5.") + "\n\n" + str(e)

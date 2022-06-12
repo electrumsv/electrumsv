@@ -25,8 +25,8 @@ import enum
 import time
 from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QCheckBox, QDialog, QMessageBox, QWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QCheckBox, QDialog, QMessageBox, QWidget
 
 from electrumsv.app_state import app_state
 from electrumsv.i18n import _
@@ -94,7 +94,7 @@ class BoxBase(object):
         dialog.setContentsMargins(margins)
         _set_window_title_and_icon(dialog)
         if parent:
-            dialog.setWindowModality(Qt.WindowModal)
+            dialog.setWindowModality(Qt.WindowModality.WindowModal)
         dialog.setCheckBox(cb)
         return dialog
 
@@ -103,22 +103,22 @@ class BoxBase(object):
 
 
 class InfoBox(BoxBase):
-    icon = QMessageBox.Information
+    icon = QMessageBox.Icon.Information
 
     def show_dialog(self, parent: Optional[QWidget], **kwargs: Any) -> Tuple[bool, bool]:
         cb = QCheckBox(_('Do not show me again'))
-        dialog = self.message_box(QMessageBox.Ok, parent, cb, **kwargs)
+        dialog = self.message_box(QMessageBox.StandardButton.Ok, parent, cb, **kwargs)
         _set_window_title_and_icon(dialog)
-        dialog.exec_()
+        dialog.exec()
         return cb.isChecked(), True
 
 
 class WarningBox(InfoBox):
-    icon = QMessageBox.Warning
+    icon = QMessageBox.Icon.Warning
 
 
 class YesNoBox(BoxBase):
-    icon = QMessageBox.Question
+    icon = QMessageBox.Icon.Question
 
     def __init__(self, name: str, main_text: str, info_text: str, yes_text: str, no_text: str,
             default: bool, frequency: Optional[DisplayFrequency]=None) -> None:
@@ -132,12 +132,14 @@ class YesNoBox(BoxBase):
 
     def show_dialog(self, parent: Optional[QWidget], **kwargs: str) -> Tuple[bool, bool]:
         cb = QCheckBox(_('Do not ask me again'))
-        dialog = self.message_box(QMessageBox.NoButton, parent, cb, **kwargs)
-        yes_button = dialog.addButton(kwargs.get('yes_text', self.yes_text), QMessageBox.YesRole)
-        no_button = dialog.addButton(kwargs.get('no_text', self.no_text), QMessageBox.NoRole)
+        dialog = self.message_box(QMessageBox.StandardButton.NoButton, parent, cb, **kwargs)
+        yes_button = dialog.addButton(kwargs.get('yes_text', self.yes_text),
+            QMessageBox.ButtonRole.YesRole)
+        no_button = dialog.addButton(kwargs.get('no_text', self.no_text),
+            QMessageBox.ButtonRole.NoRole)
         dialog.setDefaultButton(yes_button if self.default else no_button)
         _set_window_title_and_icon(dialog)
-        result = dialog.exec_()
+        result = dialog.exec()
         return cb.isChecked(), dialog.clickedButton() is yes_button
 
 
@@ -194,10 +196,10 @@ def _set_window_title_and_icon(dialog: QDialog) -> None:
 
 
 def error_dialog(main_text: str, *, info_text: str='', parent: Optional[QWidget]=None) -> None:
-    dialog = QMessageBox(QMessageBox.Critical, '', main_text,
-                         buttons=QMessageBox.Ok, parent=parent)
+    dialog = QMessageBox(QMessageBox.Icon.Critical, '', main_text,
+                         buttons=QMessageBox.StandardButton.Ok, parent=parent)
     dialog.setInformativeText(info_text)
     _set_window_title_and_icon(dialog)
     if parent:
-        dialog.setWindowModality(Qt.WindowModal)
-    dialog.exec_()
+        dialog.setWindowModality(Qt.WindowModality.WindowModal)
+    dialog.exec()

@@ -35,8 +35,8 @@
 # THE SOFTWARE.
 
 
-from PyQt5.QtCore import QUrl
-from PyQt5.QtWidgets import QTextBrowser, QVBoxLayout, QWidget
+from PyQt6.QtCore import QUrl
+from PyQt6.QtWidgets import QTextBrowser, QVBoxLayout, QWidget
 
 from electrumsv.i18n import _
 from electrumsv.util import text_resource_path
@@ -65,4 +65,4 @@ class HelpDialog(WindowModalDialog):
         vbox.addLayout(Buttons(OkButton(self)))
 
     def run(self) -> int:
-        return self.exec_()
+        return self.exec()

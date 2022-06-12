@@ -3,8 +3,9 @@ import weakref
 
 from bitcoinx import classify_output_script
 
-from PyQt5.QtCore import Qt, QAbstractItemModel, QPoint
-from PyQt5.QtWidgets import QAbstractItemView, QHeaderView, QLabel, QMenu, QMessageBox, QVBoxLayout
+from PyQt6.QtCore import Qt, QAbstractItemModel, QPoint
+from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, \
+    QVBoxLayout
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentFlag
@@ -61,11 +62,11 @@ class InvoiceDialog(WindowModalDialog):
         vbox.addWidget(form)
 
         self._table = table = ButtonsTableWidget()
-        table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        table.setSelectionMode(QAbstractItemView.SingleSelection)
+        table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
 
         vh = table.verticalHeader()
-        vh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        vh.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         vh.hide()
 
         table.setColumnCount(3)
@@ -103,7 +104,7 @@ class InvoiceDialog(WindowModalDialog):
 
         def do_delete() -> None:
             if self.question(_('Are you sure you want to delete this invoice?'),
-                    title=_("Delete invoice"), icon=QMessageBox.Warning):
+                    title=_("Delete invoice"), icon=QMessageBox.Icon.Warning):
                 self._main_window.delete_invoice(row.invoice_id)
                 self.close()
 
@@ -120,11 +121,11 @@ class InvoiceDialog(WindowModalDialog):
 
         if menu_source_index.row() != -1:
             menu_column = menu_source_index.column()
-            item = self._table.cellWidget(menu_source_index.row(), menu_column)
+            item = cast(QLineEdit, self._table.cellWidget(menu_source_index.row(), menu_column))
             column_title = self._table_column_names[menu_column]
             copy_text = item.text().strip()
             menu.addAction(_("Copy {}").format(column_title),
                 cast(Callable[[], None],
                     lambda: self._main_window.app.clipboard().setText(copy_text)))
 
-        menu.exec_(self._table.viewport().mapToGlobal(position))
+        menu.exec(self._table.viewport().mapToGlobal(position))

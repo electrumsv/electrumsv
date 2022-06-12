@@ -1,8 +1,9 @@
 from typing import Dict, List, Optional, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import QSize, Qt
-from PyQt5.QtWidgets import QAction, QHBoxLayout, QLabel, QMessageBox, QToolBar, QVBoxLayout, \
+from PyQt6.QtCore import QSize, Qt
+from PyQt6.QtGui import QAction
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QToolBar, QVBoxLayout, \
     QWidget
 
 from ...constants import PaymentFlag, ScriptType
@@ -10,7 +11,7 @@ from ...i18n import _
 from ...logs import logs
 
 from .amountedit import BTCAmountEdit
-from .receive_dialog import EXPIRATION_VALUES, ReceiveDialog
+from .receive_dialog import ReceiveDialog
 from .request_list import RequestList
 from .table_widgets import TableTopButtonLayout
 from .util import read_QIcon
@@ -165,7 +166,7 @@ class ReceiveView(QWidget):
                 "ElectrumSV. Any payments to the payment destination will not be detected "
                 "on the blockchain automatically.\n\nAre you sure you wish to do this?"),
                 title=_("Create hand-off payment"),
-                parent=self._main_window_proxy.reference(), icon=QMessageBox.Warning):
+                parent=self._main_window_proxy.reference(), icon=QMessageBox.Icon.Warning):
             return
 
         self._common_create_button_clicked_handling(PaymentFlag.NONE)
@@ -173,16 +174,9 @@ class ReceiveView(QWidget):
     def _on_create_monitored_button_clicked(self) -> None:
         self._common_create_button_clicked_handling(PaymentFlag.MONITORED)
 
-    def _clear_form(self) -> None:
-        self._receive_message_e.setText("")
-        self._receive_amount_e.setAmount(None)
-        # Default the current index to one hour or the last entry if that cannot be found for some
-        # reason.
-        current_index = 0
-        for current_index, expiration_entry in enumerate(EXPIRATION_VALUES):
-            if expiration_entry[1] == 60*60:
-                break
-        self._expires_combo.setCurrentIndex(current_index)
+    def _common_create_button_clicked_handling(self, payment_flag: PaymentFlag) -> None:
+        # TODO(1.4.0) Incomplete. Payment request creation types.
+        pass
 
     def show_dialog(self, request_id: Optional[int], request_type: PaymentFlag) -> None:
         """

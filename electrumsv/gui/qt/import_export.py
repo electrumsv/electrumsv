@@ -41,8 +41,8 @@ from typing import cast, Dict, Optional, Tuple, TYPE_CHECKING
 
 from bitcoinx import bip32_build_chain_string, hash_to_hex_str
 
-from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtWidgets import QDialog, QHBoxLayout, QLabel, QTableWidget, QVBoxLayout
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtWidgets import QDialog, QHBoxLayout, QLabel, QTableWidget, QVBoxLayout
 
 from ...app_state import app_state
 from ...constants import DerivationPath, DerivationType, pack_derivation_path

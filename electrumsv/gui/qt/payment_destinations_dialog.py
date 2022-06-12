@@ -1,8 +1,8 @@
 import os
 from typing import List
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QDialog, QLabel, QSpinBox, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QDialog, QLabel, QSpinBox, QVBoxLayout, QWidget
 
 from electrumsv.constants import RECEIVING_SUBPATH
 from electrumsv.i18n import _

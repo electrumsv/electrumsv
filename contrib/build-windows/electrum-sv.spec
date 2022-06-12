@@ -30,7 +30,7 @@ binaries = [
 ]
 
 # Workaround for "Retro Look":
-binaries += [b for b in collect_dynamic_libs('PyQt5') if 'qwindowsvista' in b[0]]
+binaries += [b for b in collect_dynamic_libs('PyQt6') if 'qwindowsvista' in b[0]]
 
 datas = [
     (str(home / 'data'), 'electrumsv/data'),

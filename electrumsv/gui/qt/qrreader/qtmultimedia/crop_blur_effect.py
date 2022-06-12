@@ -25,9 +25,9 @@
 
 from typing import Optional
 
-from PyQt5.QtWidgets import QGraphicsBlurEffect, QGraphicsEffect
-from PyQt5.QtGui import QPainter, QTransform, QRegion
-from PyQt5.QtCore import QObject, QRect, QPoint, Qt
+from PyQt6.QtWidgets import QGraphicsBlurEffect, QGraphicsEffect
+from PyQt6.QtGui import QPainter, QTransform, QRegion
+from PyQt6.QtCore import QObject, QRect, QPoint, Qt
 
 
 class QrReaderCropBlurEffect(QGraphicsBlurEffect):
@@ -58,7 +58,7 @@ class QrReaderCropBlurEffect(QGraphicsBlurEffect):
 
         # Fill with black and set opacity so that the blurred region is drawn darker
         if self.BLUR_DARKEN > 0.0:
-            painter.fillRect(painter.viewport(), Qt.black)
+            painter.fillRect(painter.viewport(), Qt.GlobalColor.black)
             painter.setOpacity(1 - self.BLUR_DARKEN)
 
         # Draw the blur effect
@@ -69,7 +69,8 @@ class QrReaderCropBlurEffect(QGraphicsBlurEffect):
         painter.setOpacity(1.0)
 
         # Get the source pixmap
-        pixmap, offset = self.sourcePixmap(Qt.DeviceCoordinates, QGraphicsEffect.NoPad)
+        pixmap, offset = self.sourcePixmap(Qt.CoordinateSystem.DeviceCoordinates,
+            QGraphicsEffect.PixmapPadMode.NoPad)
         painter.setWorldTransform(QTransform())
 
         # Get the source by adding the offset to the crop location

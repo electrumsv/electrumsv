@@ -29,9 +29,9 @@ from typing import cast, TYPE_CHECKING, Optional
 import urllib.parse
 import weakref
 
-from PyQt5.QtCore import Qt, QPoint, QTimer
-from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QHeaderView, QTreeWidgetItem, QMenu
+from PyQt6.QtCore import Qt, QPoint, QTimer
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import QHeaderView, QTreeWidgetItem, QMenu
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentFlag
@@ -74,7 +74,7 @@ class InvoiceList(MyTreeWidget):
 
         self._monospace_font = QFont(platform.monospace_font)
         self.setSortingEnabled(True)
-        self.header().setSectionResizeMode(COL_REQUESTOR, QHeaderView.Interactive)
+        self.header().setSectionResizeMode(COL_REQUESTOR, QHeaderView.ResizeMode.Interactive)
         self.setColumnWidth(COL_REQUESTOR, 200)
 
         # This is used if there is a pending expiry.
@@ -224,7 +224,7 @@ class InvoiceList(MyTreeWidget):
         if flags & PaymentFlag.UNPAID:
             menu.addAction(_("Pay Now"), partial(self.pay_invoice, row.invoice_id))
         menu.addAction(_("Delete"), lambda: self._delete_invoice(invoice_id))
-        menu.exec_(self.viewport().mapToGlobal(position))
+        menu.exec(self.viewport().mapToGlobal(position))
 
     def _show_invoice_window(self, row: InvoiceRow) -> None:
         assert self._send_view._account is not None

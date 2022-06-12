@@ -35,9 +35,9 @@ from typing import Any, cast, Dict, NamedTuple, Optional, Set, TYPE_CHECKING, Un
 import weakref
 import webbrowser
 
-from PyQt5.QtCore import pyqtBoundSignal, pyqtSignal, QPoint, Qt
-from PyQt5.QtGui import QBrush, QCloseEvent, QCursor, QFont
-from PyQt5.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
+from PyQt6.QtCore import pyqtBoundSignal, pyqtSignal, QPoint, Qt
+from PyQt6.QtGui import QBrush, QCloseEvent, QCursor, QFont
+from PyQt6.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
     QToolTip, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from bitcoinx import hash_to_hex_str, Header, Unknown_Output
@@ -248,7 +248,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         b.clicked.connect(self._on_button_clicked_broadcast)
 
         self.cancel_button = b = QPushButton(_("Close"))
-        b.clicked.connect(self.close)
+        b.clicked.connect(self._close)
         b.setDefault(True)
 
         qr_button = QPushButton()
@@ -285,6 +285,10 @@ class TxDialog(QDialog, MessageBoxMixin):
         main_window.history_updated_signal.connect(self.update_tx_if_in_wallet)
         main_window.transaction_added_signal.connect(self._on_transaction_added)
         main_window.transaction_verified_signal.connect(self._on_transaction_verified)
+
+    def _close(self) -> None:
+        # We provide this so the type signature of the signal method is correct.
+        self.close()
 
     def _on_transaction_added(self, tx_hash: bytes, tx: Transaction, account_ids: Set[int]) \
             -> None:
@@ -1003,14 +1007,14 @@ class InputTreeWidget(MyTreeWidget):
             devtools_menu.addAction(_("Debug this spend"),
                 partial(self._event_debug_spend, tx_hash, spent_input_index))
 
-        menu.exec_(self.viewport().mapToGlobal(position))
+        menu.exec(self.viewport().mapToGlobal(position))
 
     def _event_menu_open_url(self, url: str) -> None:
         webbrowser.open(url)
 
     def _show_other_transaction(self, tx_hash: bytes) -> None:
-        dialog = self.parent()
-        tx = self.parent()._wallet.get_transaction(tx_hash)
+        dialog = cast(TxDialog, self.parent())
+        tx = dialog._wallet.get_transaction(tx_hash)
         if tx is not None:
             self._main_window.show_transaction(dialog._account, tx)
         else:
@@ -1068,11 +1072,11 @@ class OutputTreeWidget(MyTreeWidget):
             account_id = item.data(OutputColumn.INDEX, Role.ACCOUNT_ID)
             menu.addAction(_("Select coins in Coins tab"),
                 partial(parent.select_in_coins_tab, account_id, txo_keys))
-        menu.exec_(self.viewport().mapToGlobal(position))
+        menu.exec(self.viewport().mapToGlobal(position))
 
     def _show_other_transaction(self, tx_hash: bytes) -> None:
-        dialog = self.parent()
-        tx = self._wallet.get_transaction(tx_hash)
+        dialog = cast(TxDialog, self.parent())
+        tx = dialog._wallet.get_transaction(tx_hash)
         if tx is not None:
             self._main_window.show_transaction(dialog._account, tx)
         else:

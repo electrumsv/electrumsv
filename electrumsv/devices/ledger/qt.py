@@ -1,7 +1,7 @@
-from typing import Any, Callable, Dict, Optional, TYPE_CHECKING
+from typing import Any, Callable, cast, Dict, Optional
 
-from PyQt5.QtCore import pyqtSignal
-from PyQt5.QtWidgets import QInputDialog, QLineEdit, QVBoxLayout, QLabel
+from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtWidgets import QInputDialog, QLineEdit, QVBoxLayout, QLabel
 
 from electrumsv.i18n import _
 from electrumsv.keystore import Hardware_KeyStore
@@ -10,10 +10,6 @@ from electrumsv.gui.qt.util import WindowProtocol, WindowModalDialog
 
 from .ledger import LedgerPlugin, Ledger_KeyStore
 from ..hw_wallet.qt import QtHandlerBase, QtPluginBase
-
-
-if TYPE_CHECKING:
-    from ...gui.qt.main_window import ElectrumWindow
 
 
 class Plugin(LedgerPlugin, QtPluginBase):
@@ -26,7 +22,7 @@ class Plugin(LedgerPlugin, QtPluginBase):
     def show_settings_dialog(self, window: WindowProtocol,
             keystore: Hardware_KeyStore) -> None:
         assert keystore.handler_qt is not None
-        keystore.handler_qt.setup_dialog()
+        cast(Ledger_Handler, keystore.handler_qt).setup_dialog()
 
 
 class Ledger_Handler(QtHandlerBase):
@@ -40,7 +36,7 @@ class Ledger_Handler(QtHandlerBase):
 
     def word_dialog(self, msg: str) -> None:
         response = QInputDialog.getText(self.top_level_window(),
-            "Ledger Wallet Authentication", msg, QLineEdit.Password)
+            "Ledger Wallet Authentication", msg, QLineEdit.EchoMode.Password)
         if not response[1]:
             self.word = None
         else:
@@ -62,7 +58,7 @@ class Ledger_Handler(QtHandlerBase):
             self.message_dialog(str(e))
             return
         dialog = LedgerAuthDialog(self, keystore, data)
-        dialog.exec_()
+        dialog.exec()
         self.word = dialog.pin
         self.done.set()
 
@@ -80,6 +76,6 @@ class Ledger_Handler(QtHandlerBase):
     def setup_dialog(self) -> None:
         #from btchip.btchipPersoWizard import StartBTChipPersoDialog
         #dialog = StartBTChipPersoDialog()
-        #dialog.exec_()
+        #dialog.exec()
         # rt12 -- Ledger settings use PyQt4, which we do not have.
         self.show_error(_('This button does nothing.'))

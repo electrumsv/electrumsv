@@ -9,18 +9,18 @@ from typing import Any, Callable, cast, Iterable, Generator, List, Optional, Pro
     Tuple, TYPE_CHECKING, TypeVar, Union
 import weakref
 
-from PyQt5.QtCore import (pyqtSignal, Qt, QCoreApplication, QDir, QEvent, QLocale, QPoint,
-    QProcess, QModelIndex, QSize, QTimer)
-from PyQt5.QtGui import QColor, QCursor, QFont, QIcon, QKeyEvent, QMouseEvent, QPalette, QPixmap, \
-    QResizeEvent
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import (pyqtSignal, QAbstractProxyModel, QDir, QEvent, QLocale, QPoint,
+    QProcess, QModelIndex, QSize, Qt, QTimer)
+from PyQt6.QtGui import QColor, QCursor, QFont, QGuiApplication, QIcon, QKeyEvent, QMouseEvent, \
+    QPalette, QPixmap, QResizeEvent, QEnterEvent
+from PyQt6.QtWidgets import (
     QAbstractButton, QButtonGroup, QDialog, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
     QHeaderView, QLabel, QLayout, QLineEdit, QMessageBox, QFrame, QPlainTextEdit, QProgressBar,
     QPushButton, QRadioButton, QSizePolicy, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
     QTableWidget, QToolButton, QToolTip, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
     QWizard
 )
-from PyQt5.uic import loadUi
+from PyQt6.uic import loadUi
 
 from electrumsv.app_state import app_state, get_app_state_qt
 from electrumsv.simple_config import SimpleConfig
@@ -83,7 +83,7 @@ class WWLabel(QLabel):
 class HelpLabel(QLabel):
     def __init__(self, text: str, help_text: str, parent: Optional[QWidget]=None) -> None:
         super().__init__(text, parent)
-        app = QCoreApplication.instance()
+        app = cast(QGuiApplication, QGuiApplication.instance())
         assert app is not None
         self.app = app
         self._font = QFont()
@@ -95,7 +95,7 @@ class HelpLabel(QLabel):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         QMessageBox.information(self, 'Help', self.help_text)
 
-    def enterEvent(self, event: QEvent) -> None:
+    def enterEvent(self, event: QEnterEvent) -> None:
         self._font.setUnderline(True)
         self.setFont(self._font)
         self.app.setOverrideCursor(QCursor(Qt.CursorShape.PointingHandCursor))
@@ -121,7 +121,7 @@ class HelpButton(QPushButton):
 
     def _on_clicked(self) -> None:
         b = QMessageBox()
-        b.setIcon(QMessageBox.Information)
+        b.setIcon(QMessageBox.Icon.Information)
         b.setTextFormat(self.textFormat)
         b.setText(self.help_text)
         b.setWindowTitle(self.title)
@@ -167,16 +167,17 @@ class CloseButton(QPushButton):
 
 
 class CopyButton(QPushButton):
-    def __init__(self, text_getter: Callable[[], str], app: QCoreApplication) -> None:
+    def __init__(self, text_getter: Callable[[], str], app: QGuiApplication) -> None:
         QPushButton.__init__(self, _("Copy"))
         self.clicked.connect(lambda: app.clipboard().setText(text_getter()))
 
 class CopyCloseButton(QPushButton):
-    def __init__(self, text_getter: Callable[[], str], app: QCoreApplication,
+    def __init__(self, text_getter: Callable[[], str], app: QGuiApplication,
             dialog: QDialog) -> None:
         QPushButton.__init__(self, _("Copy and Close"))
         self.clicked.connect(lambda: app.clipboard().setText(text_getter()))
-        self.clicked.connect(dialog.close)
+        def close_dialog() -> None: dialog.close()
+        self.clicked.connect(close_dialog)
         self.setDefault(True)
 
 class OkButton(QPushButton):
@@ -227,13 +228,14 @@ class WindowProtocol(Protocol):
         raise NotImplementedError
 
 
-def window_query_choice(window: QWidget, msg: str, choices: Iterable[str]) -> Optional[int]:
-    dialog = WindowModalDialog(window)
+def window_query_choice(window: QWidget, title: Optional[str], msg: str,
+        choices: Iterable[str]) -> Optional[int]:
+    dialog = WindowModalDialog(window, title=title)
     clayout = ChoicesLayout(msg, choices)
     vbox = QVBoxLayout(dialog)
     vbox.addLayout(clayout.layout())
     vbox.addLayout(Buttons(OkButton(dialog)))
-    if not dialog.exec_():
+    if not dialog.exec():
         return None
     return clayout.selected_index()
 
@@ -253,39 +255,39 @@ class MessageBoxMixin(object):
 
     def question(self, msg: str, parent: Optional[QWidget]=None, title: Optional[str]=None,
             icon: Optional[QMessageBox.Icon]=None) -> bool:
-        Yes, No = QMessageBox.Yes, QMessageBox.No
-        return self.msg_box(icon or QMessageBox.Question,
+        Yes, No = QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No
+        return self.msg_box(icon or QMessageBox.Icon.Question,
                             parent, title or '',
                             msg, buttons=Yes|No, defaultButton=No) == Yes
 
-    def query_choice(self, msg: str, choices: Iterable[str], parent: Optional[QWidget]=None) \
-            -> Optional[int]:
+    def query_choice(self, msg: str, choices: Iterable[str], parent: Optional[QWidget]=None,
+            title: Optional[str]=None) -> Optional[int]:
         parent = parent or self.top_level_window()
-        return window_query_choice(parent, msg, choices)
+        return window_query_choice(parent, title, msg, choices)
 
     def show_error(self, msg: str, parent: Optional[QWidget]=None) -> int:
-        return self.msg_box(QMessageBox.Warning, parent,
+        return self.msg_box(QMessageBox.Icon.Warning, parent,
                             _('Error'), msg)
 
     def show_warning(self, msg: str, parent: Optional[QWidget]=None,
             title: Optional[str]=None) -> int:
-        return self.msg_box(QMessageBox.Warning, parent,
+        return self.msg_box(QMessageBox.Icon.Warning, parent,
                             title or _('Warning'), msg)
 
     def show_critical(self, msg: str, parent: Optional[QWidget]=None,
             title: Optional[str]=None) -> int:
-        return self.msg_box(QMessageBox.Critical, parent,
+        return self.msg_box(QMessageBox.Icon.Critical, parent,
                             title or _('Critical Error'), msg)
 
     def show_message(self, msg: str, parent: Optional[QWidget]=None,
             title: Optional[str]=None) -> int:
-        return self.msg_box(QMessageBox.Information, parent,
+        return self.msg_box(QMessageBox.Icon.Information, parent,
                             title or _('Information'), msg)
 
     def msg_box(self, icon: QMessageBox.Icon, parent: Optional[QWidget], title: str,
             text: str,
-            buttons: QMessageBox.StandardButtons=QMessageBox.StandardButtons(QMessageBox.Ok),
-            defaultButton: QMessageBox.StandardButton=QMessageBox.NoButton) -> int:
+            buttons: QMessageBox.StandardButton=QMessageBox.StandardButton.Ok,
+            defaultButton: QMessageBox.StandardButton=QMessageBox.StandardButton.NoButton) -> int:
         parent = parent or self.top_level_window()
         d = QMessageBox(icon, title, str(text), buttons, parent)
         if not app_state.config.get('ui_disable_modal_dialogs', False):
@@ -293,7 +295,7 @@ class MessageBoxMixin(object):
         window_flags = int(d.windowFlags()) & ~Qt.WindowType.WindowContextHelpButtonHint
         d.setWindowFlags(Qt.WindowType(window_flags))
         d.setDefaultButton(defaultButton)
-        return d.exec_()
+        return d.exec()
 
 
 
@@ -301,33 +303,33 @@ class MessageBox:
     @classmethod
     def show_message(cls, msg: str, parent: Optional[QWidget]=None,
             title: Optional[str]=None) -> int:
-        return cls.msg_box(QMessageBox.Information, parent, title or _('Information'), msg)
+        return cls.msg_box(QMessageBox.Icon.Information, parent, title or _('Information'), msg)
 
     @classmethod
     def question(cls, msg: str, parent: Optional[QWidget]=None, title: Optional[str]=None,
             icon: Optional[QMessageBox.Icon]=None) -> int:
-        Yes, No = QMessageBox.Yes, QMessageBox.No
-        return cls.msg_box(icon or QMessageBox.Question, parent, title or '',
+        Yes, No = QMessageBox.StandardButton.Yes, QMessageBox.StandardButton.No
+        return cls.msg_box(icon or QMessageBox.Icon.Question, parent, title or '',
                            msg, buttons=Yes|No, defaultButton=No) == Yes
 
     @classmethod
     def show_warning(cls, msg: str, parent: Optional[QWidget]=None,
             title: Optional[str]=None) -> int:
-        return cls.msg_box(QMessageBox.Warning, parent, title or _('Warning'), msg)
+        return cls.msg_box(QMessageBox.Icon.Warning, parent, title or _('Warning'), msg)
 
     @classmethod
     def show_error(cls, msg: str, parent: Optional[QWidget]=None, title: Optional[str]=None) -> int:
-        return cls.msg_box(QMessageBox.Warning, parent, title or _('Error'), msg)
+        return cls.msg_box(QMessageBox.Icon.Warning, parent, title or _('Error'), msg)
 
     @classmethod
     def msg_box(cls, icon: QMessageBox.Icon, parent: Optional[QWidget], title: str, text: str,
-            buttons: QMessageBox.StandardButtons=QMessageBox.StandardButtons(QMessageBox.Ok),
-            defaultButton: QMessageBox.StandardButton=QMessageBox.NoButton) -> int:
+            buttons: QMessageBox.StandardButton=QMessageBox.StandardButton.Ok,
+            defaultButton: QMessageBox.StandardButton=QMessageBox.StandardButton.NoButton) -> int:
         d = QMessageBox(icon, title, str(text), buttons, parent)
         window_flags = int(d.windowFlags()) & ~Qt.WindowType.WindowContextHelpButtonHint
         d.setWindowFlags(Qt.WindowType(window_flags))
         d.setDefaultButton(defaultButton)
-        return d.exec_()
+        return d.exec()
 
 
 class UntrustedMessageDialog(QDialog):
@@ -529,9 +531,6 @@ class WaitingDialog(WindowModalDialog):
             self.accept()
         QTimer.singleShot(0, partial(on_done_callback, future))
 
-    def _relay_watch_event(self) -> None:
-        self.watch_signal.emit(self)
-
     def update_message(self, extra_message: Optional[str]=None) -> None:
         self._main_label.setText(self._base_message)
         self._secondary_label.setText(extra_message or ' ')
@@ -565,7 +564,7 @@ def line_dialog(parent: QWidget, title: str, label: str, ok_label: str,
     txt.setFocus()
     txt.selectAll()
     l.addLayout(Buttons(CancelButton(dialog), ok_button))
-    if dialog.exec_():
+    if dialog.exec():
         return txt.text().strip()
     return None
 
@@ -583,7 +582,7 @@ def text_dialog(window: ElectrumWindow, title: str, label: str, ok_label: str,
         txt.setText(default)
     l.addWidget(txt)
     l.addLayout(Buttons(CancelButton(dialog), OkButton(dialog, ok_label)))
-    if dialog.exec_():
+    if dialog.exec():
         return txt.toPlainText()
     return None
 
@@ -700,7 +699,7 @@ class MyTreeWidget(QTreeWidget):
         self.insertChild = self.insertTopLevelItem
 
         # Control which columns are editable
-        self.editor: Optional[QWidget] = None
+        self.editor: Optional[QLineEdit] = None
         self.pending_update = False
         if stretch_column is None:
             self.editable_columns = []
@@ -717,17 +716,17 @@ class MyTreeWidget(QTreeWidget):
         self.setHeaderLabels(headers)
         self.header().setStretchLastSection(False)
         for col in range(len(headers)):
-            sm = (QHeaderView.Stretch if col == self.stretch_column
-                  else QHeaderView.ResizeToContents)
+            sm = (QHeaderView.ResizeMode.Stretch if col == self.stretch_column
+                  else QHeaderView.ResizeMode.ResizeToContents)
             self.header().setSectionResizeMode(col, sm)
 
     def editItem(self, item: QTreeWidgetItem, column: int=0) -> None:
         if column in self.editable_columns:
             self.editing_itemcol = (item, column, item.text(column))
             # Calling setFlags causes on_changed events for some reason
-            item.setFlags(Qt.ItemFlag(int(item.flags()) | Qt.ItemFlag.ItemIsEditable))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsEditable)
             QTreeWidget.editItem(self, item, column)
-            item.setFlags(Qt.ItemFlag(int(item.flags()) & ~Qt.ItemFlag.ItemIsEditable))
+            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in [ Qt.Key.Key_F2, Qt.Key.Key_Return ] and self.editor is None:
@@ -754,9 +753,9 @@ class MyTreeWidget(QTreeWidget):
 
     def createEditor(self, parent: QWidget, option: QStyleOptionViewItem,
             index: QModelIndex) -> QWidget:
-        self.editor = QStyledItemDelegate.createEditor(
+        self.editor = cast(QLineEdit, QStyledItemDelegate.createEditor(
             cast(QStyledItemDelegate, self.itemDelegate()),
-            parent, option, index)
+            parent, option, index))
         self.editor.editingFinished.connect(self.editing_finished)
         return self.editor
 
@@ -906,6 +905,11 @@ class ButtonsWidget(QWidget):
         return self.addButton("icons8-copy-to-clipboard-32.png", self._on_copy,
             tooltipText)
 
+    # TODO(1.4.0) Manual test. Copuying from any of the parent widgets should still work.
+    #     ButtonsLineEdit, ButtonsTextEdit.
+    def text(self) -> str:
+        return ""
+
     def _on_copy(self) -> None:
         get_app_state_qt().app_qt.clipboard().setText(self.text())
         QToolTip.showText(QCursor.pos(), _("Text copied to clipboard"), self)
@@ -933,7 +937,7 @@ class ButtonsTextEdit(QPlainTextEdit, ButtonsWidget):
     def __init__(self, text: Optional[str]=None) -> None:
         QPlainTextEdit.__init__(self, text)
         self.setText = self.setPlainText
-        self.text = self.toPlainText
+        self.text = self.toPlainText # type: ignore[assignment]
         self.buttons: List[QAbstractButton] = []
 
     def resizeEvent(self, event: QResizeEvent) -> None:
@@ -987,8 +991,8 @@ class ColorScheme:
     YELLOW = ColorSchemeItem("yellow", "yellow")
 
     @staticmethod
-    def has_dark_background(widget: QWidget) -> bool:
-        brightness = sum(widget.palette().color(QPalette.Background).getRgb()[0:3])
+    def has_dark_background(widget: QWidget) -> bool: # PyQt5: Was Background
+        brightness = sum(widget.palette().color(QPalette.ColorRole.Window).getRgb()[0:3])
         return brightness < (255*3/2)
 
     @staticmethod
@@ -1078,8 +1082,8 @@ def icon_path(icon_basename: str) -> str:
     return resource_path('icons', icon_basename)
 
 def read_qt_ui(ui_name: str) -> QWidget:
-    # NOTE(typing) This is not typed by PyQt5-stubs.
-    return cast(QWidget, loadUi(resource_path("ui", ui_name))) # type: ignore
+    # NOTE(typing) This is not typed by PyQt6-stubs.
+    return cast(QWidget, loadUi(resource_path("ui", ui_name)))
 
 @lru_cache()
 def read_QIcon(icon_basename: str) -> QIcon:
@@ -1088,7 +1092,7 @@ def read_QIcon(icon_basename: str) -> QIcon:
 def get_source_index(model_index: QModelIndex, klass: Any) -> QModelIndex:
     model = model_index.model()
     while model is not None and not isinstance(model, klass):
-        model_index = model.mapToSource(model_index)
+        model_index = cast(QAbstractProxyModel, model).mapToSource(model_index)
         model = model_index.model()
     return model_index
 
@@ -1180,7 +1184,7 @@ class FormSeparatorLine(QFrame):
         super().__init__()
 
         self.setObjectName("FormSeparatorLine")
-        self.setFrameShape(QFrame.HLine)
+        self.setFrameShape(QFrame.Shape.HLine)
         self.setFixedHeight(1)
 
 
@@ -1232,7 +1236,7 @@ class FormSectionWidget(QWidget):
     def create_title(self, title_text: str) -> QLabel:
         label = QLabel(title_text)
         label.setObjectName("FormSectionTitle")
-        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         return label
 
     def add_title(self, title_text: str) -> None:
@@ -1265,7 +1269,7 @@ class FormSectionWidget(QWidget):
                 label_text += ":"
             label = QLabel(label_text)
         label.setObjectName("FormSectionLabel")
-        label.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
+        label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
 
         self._frame_layout.addRow(label, field_object)
 
@@ -1285,7 +1289,7 @@ class FramedTextWidget(QLabel):
         super().__init__(parent)
 
         self.setWordWrap(True)
-        self.setFrameStyle(QFrame.Panel | QFrame.Raised)
+        self.setFrameStyle(QFrame.Shape.Panel | QFrame.Shadow.Raised)
         self.setMargin(10)
 
 
@@ -1318,7 +1322,7 @@ class AspectRatioPixmapLabel(QLabel):
             (self._pixmap.height() * width) // self._pixmap.width()
 
     def sizeHint(self) -> QSize:
-        width = self.parent().width()
+        width = cast(QWidget, self.parent()).width()
         return QSize(width, self.heightForWidth(width))
 
     def _scaled_pixmap(self) -> QPixmap:
@@ -1351,14 +1355,14 @@ class ExpandableSection(QWidget):
                 self._child.setVisible(True)
 
         expand_details_button.setStyleSheet("padding: 2px;")
-        expand_details_button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Minimum)
+        expand_details_button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
         expand_details_button.clicked.connect(on_clicked_button_expand_details)
         expand_details_button.setMinimumWidth(15)
 
         # NOTE(copy-paste) Generic separation line code used elsewhere as well.
         details_header_line = QFrame()
         details_header_line.setStyleSheet("QFrame { border: 1px solid #C3C2C2; }")
-        details_header_line.setFrameShape(QFrame.HLine)
+        details_header_line.setFrameShape(QFrame.Shape.HLine)
         details_header_line.setFixedHeight(1)
 
         details_header = QHBoxLayout()

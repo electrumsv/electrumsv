@@ -53,9 +53,9 @@ from typing import Any, cast, List, NamedTuple, Optional
 from bitcoinx import classify_output_script, InterpreterLimits, MinerPolicy, minimal_push_opcode, \
     Ops, P2SH_Address, Script, TruncatedScriptError, Tx, TxInputContext, TxOutput
 
-from PyQt5.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, QPoint, Qt
-from PyQt5.QtGui import QBrush, QColor, QColorConstants, QFont, QKeyEvent
-from PyQt5.QtWidgets import QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QMenu, \
+from PyQt6.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, QPoint, Qt
+from PyQt6.QtGui import QBrush, QColor, QColorConstants, QFont, QKeyEvent
+from PyQt6.QtWidgets import QAbstractItemView, QHBoxLayout, QHeaderView, QLabel, QMenu, \
     QPushButton, QStackedWidget, QTableView, QVBoxLayout, QWidget
 
 from ...bitcoin import CustomInterpreterState, CustomLimitedStack, generate_matches, ScriptMatch
@@ -83,11 +83,11 @@ class ScriptControls(ButtonLayout):
 
         self._step_forward_button = self.add_button("icons8-forward-96-windows.png",
             self.step_forward_signal.emit, _("Step forward"))
-        self._step_forward_button.setShortcut(Qt.Key_F10)
+        self._step_forward_button.setShortcut(Qt.Key.Key_F10)
 
         self._continue_button = self.add_button("icons8-play-96-windows.png",
             self.continue_signal.emit, _("Continue"))
-        self._continue_button.setShortcut(Qt.Key_F5)
+        self._continue_button.setShortcut(Qt.Key.Key_F5)
 
         self._reset_button = self.add_button("icons8-close-96-windows.png",
             self.reset_signal.emit, _("Clear"))
@@ -299,17 +299,16 @@ class TableModel(QAbstractItemModel):
                 if column == Columns.TEXT and self._can_edit_line(line):
                     return line.text
 
-    def flags(self, model_index: QModelIndex) -> Qt.ItemFlags:
+    def flags(self, model_index: QModelIndex) -> Qt.ItemFlag:
         if model_index.isValid():
             row = model_index.row()
             column = model_index.column()
             item_flags = super().flags(model_index)
             line = self._data[row]
             if column == Columns.TEXT and self._can_edit_line(line):
-                item_flags = Qt.ItemFlags( # type: ignore[call-overload]
-                    int(item_flags) | Qt.ItemFlag.ItemIsEditable)
+                item_flags = item_flags | Qt.ItemFlag.ItemIsEditable
             return item_flags
-        return Qt.ItemFlags(Qt.ItemFlag.ItemIsEnabled)
+        return Qt.ItemFlag(Qt.ItemFlag.ItemIsEnabled)
 
     def index(self, row_index: int, column_index: int,
             parent: QModelIndex=QModelIndex()) -> QModelIndex:
@@ -342,6 +341,7 @@ class TableModel(QAbstractItemModel):
                     updated_line.flags &= ~LineFlags.IS_PLACEHOLDER
                     updated_line.flags |= LineFlags.HAS_NUMBER
 
+                assert isinstance(self._view._widget, ScriptView)
                 if not self._view._widget.process_line_edit(row, existing_line, updated_line):
                     return False
 
@@ -412,7 +412,7 @@ class TableView(QTableView):
         self._active_bg_brush = QBrush(QColor.fromRgb(0xB6, 0xD8, 0xF2))
         self._error_bg_brush = QBrush(QColor.fromRgb(0xC5, 0xB4, 0x6C))
 
-        self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
 
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -424,9 +424,9 @@ class TableView(QTableView):
         horizontalHeader = self.horizontalHeader()
         horizontalHeader.setVisible(False)
         horizontalHeader.setMinimumSectionSize(20)
-        horizontalHeader.setSectionResizeMode(Columns.ICON, QHeaderView.ResizeToContents)
-        horizontalHeader.setSectionResizeMode(Columns.LINE, QHeaderView.ResizeToContents)
-        horizontalHeader.setSectionResizeMode(Columns.TEXT, QHeaderView.Stretch)
+        horizontalHeader.setSectionResizeMode(Columns.ICON, QHeaderView.ResizeMode.ResizeToContents)
+        horizontalHeader.setSectionResizeMode(Columns.LINE, QHeaderView.ResizeMode.ResizeToContents)
+        horizontalHeader.setSectionResizeMode(Columns.TEXT, QHeaderView.ResizeMode.Stretch)
         self.verticalHeader().setVisible(False)
 
     def get_line(self, row_index: int) -> TableLine:
@@ -747,7 +747,7 @@ class ScriptView(BaseTableWidget):
                 menu.addSeparator()
             menu.addAction(_("Toggle breakpoint"), partial(self._toggle_breakpoint, row))
 
-        menu.exec_(self._table_view.viewport().mapToGlobal(position))
+        menu.exec(self._table_view.viewport().mapToGlobal(position))
 
     def _event_clicked(self, index: QModelIndex) -> None:
         row = index.row()
@@ -756,7 +756,7 @@ class ScriptView(BaseTableWidget):
             self._toggle_breakpoint(row)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() == Qt.Key_F9:
+        if event.key() == Qt.Key.Key_F9:
             index = self._table_view.currentIndex()
             self._toggle_breakpoint(index.row())
         else:

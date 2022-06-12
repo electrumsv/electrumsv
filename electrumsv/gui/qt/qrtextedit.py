@@ -2,8 +2,8 @@ from __future__ import annotations
 from typing import Callable, Optional, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtGui import QContextMenuEvent
-from PyQt5.QtWidgets import QFileDialog
+from PyQt6.QtGui import QContextMenuEvent
+from PyQt6.QtWidgets import QFileDialog
 
 from ...i18n import _
 
@@ -27,12 +27,12 @@ class ShowQRTextEdit(ButtonsTextEdit):
             s = str(self.toPlainText())
         except Exception:
             s = self.toPlainText()
-        QRDialog(s).exec_()
+        QRDialog(s).exec()
 
     def contextMenuEvent(self, event: QContextMenuEvent) -> None:
         m = self.createStandardContextMenu()
         m.addAction(_("Show as QR code"), self.qr_show)
-        m.exec_(event.globalPos())
+        m.exec(event.globalPos())
 
 
 class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
@@ -86,4 +86,4 @@ class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
     def contextMenuEvent(self, e: QContextMenuEvent) -> None:
         m = self.createStandardContextMenu()
         m.addAction(_("Read QR code"), self.qr_input)
-        m.exec_(e.globalPos())
+        m.exec(e.globalPos())

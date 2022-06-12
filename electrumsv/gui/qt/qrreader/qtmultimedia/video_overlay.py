@@ -25,9 +25,9 @@
 
 from typing import cast, Optional
 
-from PyQt5.QtCore import QPoint, QSize, QRect, QRectF, Qt
-from PyQt5.QtGui import QPainter, QPaintEvent, QPen, QPainterPath, QColor, QTransform
-from PyQt5.QtWidgets import QWidget
+from PyQt6.QtCore import QPoint, QSize, QRect, QRectF, Qt
+from PyQt6.QtGui import QPainter, QPaintEvent, QPen, QPainterPath, QColor, QTransform
+from PyQt6.QtWidgets import QWidget
 
 from .....qrreader.abstract_base import QrCodePoint, QrCodeResult
 
@@ -53,16 +53,16 @@ class QrReaderVideoOverlay(QWidget):
         self.resolution: Optional[QSize] = None
 
         self.qr_outline_pen = QPen()
-        self.qr_outline_pen.setColor(Qt.red)
+        self.qr_outline_pen.setColor(Qt.GlobalColor.red)
         self.qr_outline_pen.setWidth(3)
-        self.qr_outline_pen.setStyle(Qt.DotLine)
+        self.qr_outline_pen.setStyle(Qt.PenStyle.DotLine)
 
         self.text_pen = QPen()
-        self.text_pen.setColor(Qt.black)
+        self.text_pen.setColor(Qt.GlobalColor.black)
 
         self.bg_rect_pen = QPen()
-        self.bg_rect_pen.setColor(Qt.black)
-        self.bg_rect_pen.setStyle(Qt.DotLine)
+        self.bg_rect_pen.setColor(Qt.GlobalColor.black)
+        self.bg_rect_pen.setStyle(Qt.PenStyle.DotLine)
         self.bg_rect_fill = QColor(255, 255, 255, int(255 * self.BG_RECT_OPACITY))
 
     def set_results(self, results: list[QrCodeResult], flip_x: bool,
@@ -102,7 +102,7 @@ class QrReaderVideoOverlay(QWidget):
             return QPoint(point[0], point[1])
 
         # Starting from here we care about AA
-        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         # Draw all the QR code results
         for res in self.results:
@@ -149,12 +149,11 @@ class QrReaderVideoOverlay(QWidget):
             padding = self.BG_RECT_PADDING
             bg_rect_pos: QPoint = center_pos - QPoint(padding, data_metrics.height() + padding)
             # NOTE(typing) Unsupported operand types for * ("QSize" and "int")  [operator]
-            bg_rect_size: QSize = data_metrics + \
-                cast(QSize, (QSize(padding, padding) * 2)) # type: ignore[operator]
+            bg_rect_size: QSize = data_metrics + QSize(padding, padding) * 2
             bg_rect = QRect(bg_rect_pos, bg_rect_size)
             bg_rect_path = QPainterPath()
             radius = self.BG_RECT_CORNER_RADIUS
-            bg_rect_path.addRoundedRect(QRectF(bg_rect), radius, radius, Qt.AbsoluteSize)
+            bg_rect_path.addRoundedRect(QRectF(bg_rect), radius, radius, Qt.SizeMode.AbsoluteSize)
             painter.setPen(self.bg_rect_pen)
             painter.fillPath(bg_rect_path, self.bg_rect_fill)
             painter.drawPath(bg_rect_path)

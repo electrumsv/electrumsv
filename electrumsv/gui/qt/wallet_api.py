@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Any, cast, Optional, Iterable, List, Tuple, TYPE_CHECKING
 import weakref
 
-from PyQt5.QtCore import pyqtSignal, QObject
+from PyQt6.QtCore import pyqtSignal, QObject
 
 from electrumsv.app_state import app_state
 from electrumsv.constants import WalletEventFlag

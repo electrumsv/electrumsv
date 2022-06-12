@@ -42,10 +42,10 @@ import threading
 from typing import Any, cast, Dict, List, NamedTuple, Optional, TYPE_CHECKING
 
 from bitcoinx import DecryptionError
-from PyQt5.QtCore import pyqtSignal, Qt, QItemSelection, QModelIndex, QObject
-from PyQt5.QtGui import QContextMenuEvent, QKeyEvent, QPixmap
-from PyQt5.QtWidgets import (
-    QAbstractItemView, QAction, QDialog,
+from PyQt6.QtCore import pyqtSignal, Qt, QItemSelection, QModelIndex, QObject
+from PyQt6.QtGui import QAction, QContextMenuEvent, QKeyEvent, QPixmap
+from PyQt6.QtWidgets import (
+    QAbstractItemView, QDialog,
     QFileDialog, QHeaderView, QHBoxLayout, QLabel, QMenu,
     QProgressBar, QPushButton, QSizePolicy, QSpacerItem, QTableWidget, QTextBrowser,
     QVBoxLayout, QWidget, QWizard, QWizardPage
@@ -267,7 +267,7 @@ class WalletWizard(BaseWizard):
             self.setStartId(WalletPage.MIGRATE_OLDER_WALLET)
             return
 
-        self.setOption(QWizard.HaveCustomButton1, True)
+        self.setOption(QWizard.WizardOption.HaveCustomButton1, True)
 
         if is_startup:
             self.setStartId(WalletPage.SPLASH_SCREEN)
@@ -281,7 +281,7 @@ class WalletWizard(BaseWizard):
         # page after the migration finishes, and in the meantime the wallet password drops out
         # of the credential cache. If we re-request the password here, it'll be immediately
         # used by the GUI application logic that invokes this wizard.
-        if result == QDialog.Accepted and self._completed_migration_entry is not None:
+        if result == QDialog.DialogCode.Accepted and self._completed_migration_entry is not None:
             assert self._wallet_path is not None
             storage = WalletStorage(self._wallet_path)
             try:
@@ -382,14 +382,14 @@ class SplashScreenPage(QWizardPage):
     def on_enter(self) -> None:
         self._on_reset_next_page()
 
-        button = self.wizard().button(QWizard.CustomButton1)
+        button = self.wizard().button(QWizard.WizardButton.CustomButton1)
         button.setVisible(True)
         button.setText("    "+ _("Release notes") +"    ")
         button.setContentsMargins(10, 0, 10, 0)
         button.clicked.connect(self._on_release_notes_clicked)
 
     def on_leave(self) -> None:
-        button = self.wizard().button(QWizard.CustomButton1)
+        button = self.wizard().button(QWizard.WizardButton.CustomButton1)
         button.setVisible(False)
         button.clicked.disconnect()
 
@@ -436,7 +436,8 @@ class ChooseWalletPage(QWizardPage):
         super().__init__(parent)
 
         self.setTitle(_("Select an existing wallet"))
-        self.setButtonText(QWizard.CommitButton, "  "+ _("Open &Selected Wallet") +"  ")
+        self.setButtonText(QWizard.WizardButton.CommitButton, "  "+ _("Open &Selected Wallet")
+            +"  ")
         self.setCommitPage(True)
 
         self._recent_wallet_paths: List[str] = []
@@ -449,7 +450,7 @@ class ChooseWalletPage(QWizardPage):
             def keyPressEvent(self, event: QKeyEvent) -> None:
                 key = event.key()
                 if key == Qt.Key.Key_R and \
-                        bool(int(event.modifiers()) & Qt.KeyboardModifier.ControlModifier):
+                        bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier):
                     page._refresh_list()
                 elif key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
                     page._event_key_selection()
@@ -477,7 +478,7 @@ class ChooseWalletPage(QWizardPage):
                     show_file_action = menu.addAction(SHOW_IN_FINDER)
                     show_directory_action = menu.addAction(OPEN_FOLDER_IN_FINDER)
 
-                action = menu.exec_(self.mapToGlobal(event.pos()))
+                action = menu.exec(self.mapToGlobal(event.pos()))
                 if action == show_file_action:
                     assert entry.path is not None
                     show_in_file_explorer(entry.path)
@@ -487,7 +488,7 @@ class ChooseWalletPage(QWizardPage):
                     show_in_file_explorer(path)
 
         self._wallet_table = TableWidget()
-        self._wallet_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._wallet_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self._wallet_table.selectionModel().selectionChanged.connect(
             self._event_selection_changed)
         self._wallet_table.doubleClicked.connect(self._event_entry_doubleclicked)
@@ -496,11 +497,11 @@ class ChooseWalletPage(QWizardPage):
         hh.setStretchLastSection(True)
 
         vh = self._wallet_table.verticalHeader()
-        vh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        vh.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         vh.hide()
 
         self._wallet_table.setColumnCount(1)
-        self._wallet_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._wallet_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._wallet_table.setStyleSheet("""
             QTableView {
                 selection-background-color: #F5F8FA;
@@ -521,7 +522,7 @@ class ChooseWalletPage(QWizardPage):
 
         tablebutton_layout = QHBoxLayout()
         self.file_button = QPushButton("  "+ _("Open &Other Wallet") +"  ")
-        self.file_button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        self.file_button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         self.file_button.clicked.connect(self._event_click_open_file)
         tablebutton_layout.addStretch()
         tablebutton_layout.addWidget(self.file_button, Qt.AlignmentFlag.AlignRight)
@@ -593,7 +594,8 @@ class ChooseWalletPage(QWizardPage):
 
                 if entry.requires_upgrade:
                     self._next_page_id = WalletPage.MIGRATE_OLDER_WALLET
-                    migration_page = wizard.page(WalletPage.MIGRATE_OLDER_WALLET)
+                    migration_page = cast(OlderWalletMigrationPage,
+                        wizard.page(WalletPage.MIGRATE_OLDER_WALLET))
                     migration_page.set_migration_data(entry, storage)
                     # Give the storage object to the migration page, which we are going to.
                     storage = None
@@ -694,19 +696,19 @@ class ChooseWalletPage(QWizardPage):
         self._clear_selection()
 
         wizard = cast(WalletWizard, self.wizard())
-        button = wizard.button(QWizard.CustomButton1)
+        button = wizard.button(QWizard.WizardButton.CustomButton1)
         button.setVisible(True)
         button.setText("  "+ _("Create &New Wallet") +"  ")
         button.clicked.connect(self._event_click_create_wallet)
         button.show()
 
-        cancel_button = wizard.button(QWizard.CancelButton)
+        cancel_button = wizard.button(QWizard.WizardButton.CancelButton)
         cancel_button.show()
 
         # The commit button will try and do a "next page" and fail because the next page
         # will be -1, and there is no next page. The click event will follow that and we will
         # do the correct next page or finish action depending on wallet type.
-        commit_button = wizard.button(QWizard.CommitButton)
+        commit_button = wizard.button(QWizard.WizardButton.CommitButton)
         commit_button.clicked.connect(self._event_click_open_selected_file)
         commit_button.pressed.connect(self._event_press_open_selected_file)
 
@@ -743,11 +745,11 @@ class ChooseWalletPage(QWizardPage):
         self._cancel_active_list_refresh()
 
         wizard = cast(WalletWizard, self.wizard())
-        button = wizard.button(QWizard.CustomButton1)
+        button = wizard.button(QWizard.WizardButton.CustomButton1)
         button.setVisible(False)
         button.clicked.disconnect(self._event_click_create_wallet)
 
-        commit_button = wizard.button(QWizard.CommitButton)
+        commit_button = wizard.button(QWizard.WizardButton.CommitButton)
         commit_button.clicked.disconnect(self._event_click_open_selected_file)
 
     def _populate_list_in_thread(self, context: ListPopulationContext) -> None:
@@ -871,8 +873,8 @@ class OlderWalletMigrationPage(QWizardPage):
             "in your wallet."))
         self._progress_label.setWordWrap(True)
         self._progress_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._progress_label.setSizePolicy(QSizePolicy.MinimumExpanding,
-            QSizePolicy.MinimumExpanding)
+        self._progress_label.setSizePolicy(QSizePolicy.Policy.MinimumExpanding,
+            QSizePolicy.Policy.MinimumExpanding)
 
         vbox = QVBoxLayout()
         vbox.setContentsMargins(0, 0, 20, 0)
@@ -921,10 +923,10 @@ class OlderWalletMigrationPage(QWizardPage):
 
     def on_enter(self) -> None:
         wizard = cast(WalletWizard, self.wizard())
-        wizard.setOption(QWizard.HaveCustomButton1, False)
-        wizard.setOption(QWizard.NoCancelButton, True)
+        wizard.setOption(QWizard.WizardOption.HaveCustomButton1, False)
+        wizard.setOption(QWizard.WizardOption.NoCancelButton, True)
 
-        cancel_button = wizard.button(QWizard.CancelButton)
+        cancel_button = wizard.button(QWizard.WizardButton.CancelButton)
         cancel_button.hide()
 
         assert self._migration_entry is not None
@@ -936,7 +938,7 @@ class OlderWalletMigrationPage(QWizardPage):
         self._future = app_state.app_qt.run_in_thread(self._migrate_wallet,
             on_done=self._on_migration_completed)
 
-        wizard.button(QWizard.HelpButton).setFocus(Qt.FocusReason.OtherFocusReason)
+        wizard.button(QWizard.WizardButton.HelpButton).setFocus(Qt.FocusReason.OtherFocusReason)
 
     def on_leave(self) -> None:
         self._future.cancel()

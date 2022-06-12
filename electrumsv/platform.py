@@ -38,7 +38,7 @@ logger = logs.get_logger("platform")
 class Platform(object):
 
     module_map = {
-        'PyQt5': 'PyQt5',
+        'PyQt6': 'PyQt6',
         'SimpleWebSocketServer': 'SimpleWebSocketServer',
         'dateutil': 'python-dateutil',
         'electrumsv_secp256k1': 'electrumsv-secp256k1',

@@ -1,8 +1,8 @@
 from typing import Callable, Optional
 
-from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtGui import QCursor
-from PyQt5.QtWidgets import QHBoxLayout, QToolButton, QWidget
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QCursor
+from PyQt6.QtWidgets import QHBoxLayout, QToolButton, QWidget
 
 from electrumsv.i18n import _
 

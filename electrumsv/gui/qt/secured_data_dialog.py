@@ -42,8 +42,8 @@ from weakref import ProxyType
 
 from bitcoinx import bip32_key_from_string, BIP39Mnemonic, ElectrumMnemonic, Wordlists
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
 
 from ...constants import DerivationType, SEED_PREFIX
 from ...i18n import _

@@ -1,9 +1,9 @@
 from functools import partial
 from typing import Any, cast, Optional, Tuple, TYPE_CHECKING
 
-from PyQt5.QtCore import Qt, QEventLoop, pyqtSignal
-from PyQt5.QtGui import QKeyEvent
-from PyQt5.QtWidgets import QGridLayout, QPushButton, \
+from PyQt6.QtCore import Qt, QEventLoop, pyqtSignal
+from PyQt6.QtGui import QKeyEvent
+from PyQt6.QtWidgets import QGridLayout, QPushButton, \
     QVBoxLayout, QLabel, QCheckBox, QDialog, QLineEdit, QHBoxLayout, \
     QGroupBox, QButtonGroup, QRadioButton, QFileDialog, QMessageBox, \
     QSlider, QTabWidget, QWidget
@@ -106,7 +106,7 @@ class MatrixDialog(WindowModalDialog):
     def get_matrix(self, num: int) -> None:
         self.num = num
         self.refresh()
-        self.loop.exec_()
+        self.loop.exec()
 
 
 class QtHandler(QtHandlerBase):
@@ -161,7 +161,7 @@ class QtHandler(QtHandlerBase):
         vbox.addWidget(matrix)
         vbox.addLayout(Buttons(CancelButton(dialog), OkButton(dialog)))
         dialog.setLayout(vbox)
-        dialog.exec_()
+        dialog.exec()
         self.response = str(matrix.get_value())
         self.done.set()
 
@@ -184,7 +184,7 @@ class QtPlugin(QtPluginBase):
     def show_settings_dialog(self, window: "ElectrumWindow", keystore: "Hardware_KeyStore") -> None:
         device_id = self.choose_device(keystore)
         if device_id:
-            SettingsDialog(window, cast(Plugin, self), keystore, device_id).exec_()
+            SettingsDialog(window, cast(Plugin, self), keystore, device_id).exec()
 
     def request_trezor_init_settings(self, wizard: "AccountWizard", method: int, model: str) \
             -> Tuple[int, str, bool, bool, Optional[int]]:
@@ -251,7 +251,9 @@ class QtPlugin(QtPluginBase):
         else:
             bg_rectype = None
 
-        wizard.exec_layout(vbox, next_enabled=next_enabled)
+        # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+        1/0 # pylint: disable=pointless-statement
+        # wizard.execlayout(vbox, next_enabled=next_enabled)
 
         item = bg_numwords.checkedId()
         pin = cb_pin.isChecked()
@@ -399,7 +401,7 @@ class SettingsDialog(WindowModalDialog):
                 title = _("Confirm Device Wipe")
                 msg = _("Are you SURE you want to wipe the device?\n"
                         "Your wallet still has bitcoins in it!")
-                if not self.question(msg, title=title, icon=QMessageBox.Critical):
+                if not self.question(msg, title=title, icon=QMessageBox.Icon.Critical):
                     return
             invoke_client('wipe_device', unpair_after=True)
 
@@ -506,7 +508,7 @@ class SettingsDialog(WindowModalDialog):
         timeout_slider.setRange(1, 60)
         timeout_slider.setSingleStep(1)
         timeout_slider.setTickInterval(5)
-        timeout_slider.setTickPosition(QSlider.TicksBelow)
+        timeout_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         timeout_slider.setTracking(True)
         timeout_msg = QLabel(
             _("Clear the session after the specified period "

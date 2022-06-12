@@ -28,9 +28,9 @@ import math
 import re
 from typing import Any, Callable, List, Optional, Tuple, Union
 
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap
+from PyQt6.QtWidgets import (
     QGridLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 )
 
@@ -88,7 +88,7 @@ class PasswordLineEdit(QWidget):
         keyboard_button = self.pw.addButton("keyboard.png", self.toggle_keyboard,
             _("Virtual keyboard"))
         keyboard_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.pw.setEchoMode(QLineEdit.Password)
+        self.pw.setEchoMode(QLineEdit.EchoMode.Password)
         self.keyboard = VirtualKeyboard(self.pw)
         self.keyboard.setVisible(False)
         layout = QVBoxLayout()
@@ -116,11 +116,11 @@ class PasswordLineEdit(QWidget):
         self.keyboard.setVisible(not self.keyboard.isVisible())
 
     def toggle_visible(self) -> None:
-        if self.pw.echoMode() == QLineEdit.Password:
-            self.pw.setEchoMode(QLineEdit.Normal)
+        if self.pw.echoMode() == QLineEdit.EchoMode.Password:
+            self.pw.setEchoMode(QLineEdit.EchoMode.Normal)
             self.reveal_button.setIcon(read_QIcon(self.hide_png))
         else:
-            self.pw.setEchoMode(QLineEdit.Password)
+            self.pw.setEchoMode(QLineEdit.EchoMode.Password)
             self.reveal_button.setIcon(read_QIcon(self.reveal_png))
 
 
@@ -281,7 +281,7 @@ class ChangePasswordDialog(WindowModalDialog):
 
     def run(self) -> Tuple[bool, Optional[str], Optional[str]]:
         try:
-            if not self.exec_():
+            if not self.exec():
                 return False, None, None
             if self._on_custom_button_used:
                 return (True, self._custom_button_result, self._custom_button_result)
@@ -376,7 +376,7 @@ class PasswordDialog(WindowModalDialog):
 
     def run(self) -> Optional[str]:
         try:
-            if not self.exec_():
+            if not self.exec():
                 return None
             return self.pw.text()
         finally:

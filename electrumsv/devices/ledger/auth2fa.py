@@ -1,8 +1,8 @@
 import copy
 from typing import Any, cast, Dict, TYPE_CHECKING, Union
 
-from PyQt5.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QLabel
-from PyQt5.QtWidgets import QWidget, QHBoxLayout, QComboBox
+from PyQt6.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QLabel
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QComboBox
 from btchip.btchip import BTChipException
 from btchip.btchipComm import HIDDongleHIDAPI
 

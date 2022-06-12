@@ -27,7 +27,7 @@ from typing import Optional, Sequence
 
 from bitcoinx import Header
 
-from PyQt5.QtWidgets import QComboBox, QLabel, QVBoxLayout
+from PyQt6.QtWidgets import QComboBox, QLabel, QVBoxLayout
 
 from ...bitcoin import script_template_to_string, TSCMerkleProof
 from ...constants import ACCOUNT_SCRIPT_TYPES, ScriptType

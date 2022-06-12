@@ -9,7 +9,7 @@ echo %ScriptDir%
 PUSHD %ScriptDir%
 
 py -m pip install types-certifi types-pkg_resources types-python-dateutil types-requests types-attrs
-py -m pip install git+https://github.com/python-qt-tools/PyQt5-stubs.git@166af25fbe0886f95ef0b1a1b57bbdc893e9144d
+py -m pip install git+https://github.com/python-qt-tools/PyQt6-stubs.git@f623a641cd5cdff53342177e4fbbf9cae8172336
 py -m mypy --install-types --non-interactive
 py -m mypy --config=%TLD%\mypy.ini %TLD%\electrumsv  --python-version 3.10
 

@@ -30,10 +30,10 @@ import sys
 import traceback
 from typing import Any, cast, Callable, Dict, List, Optional, TextIO
 
-from PyQt5 import QtCore, QtWidgets
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QKeyEvent, QMouseEvent, QResizeEvent, QTextCursor, QTextOption
-from PyQt5.QtWidgets import QWidget
+from PyQt6 import QtCore, QtWidgets
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont, QKeyEvent, QMouseEvent, QResizeEvent, QTextCursor, QTextOption
+from PyQt6.QtWidgets import QWidget
 
 from electrumsv import util
 from electrumsv.i18n import _
@@ -83,9 +83,9 @@ class Console(QtWidgets.QPlainTextEdit):
         self.construct: List[str] = []
 
         self.setGeometry(50, 75, 600, 400)
-        self.setWordWrapMode(QTextOption.WrapAnywhere)
+        self.setWordWrapMode(QTextOption.WrapMode.WrapAnywhere)
         self.setUndoRedoEnabled(False)
-        self.document().setDefaultFont(QFont(platform.monospace_font, 10, QFont.Normal))
+        self.document().setDefaultFont(QFont(platform.monospace_font, 10, QFont.Weight.Normal))
         self.showMessage(startup_message)
 
         self.updateNamespace({'run': self.run_script})
@@ -142,7 +142,7 @@ class Console(QtWidgets.QPlainTextEdit):
         self.completions_visible = False
 
         self.appendPlainText(prompt)
-        self.moveCursor(QTextCursor.End)
+        self.moveCursor(QTextCursor.MoveOperation.End)
 
     def getCommand(self) -> str:
         doc = self.document()
@@ -157,13 +157,13 @@ class Console(QtWidgets.QPlainTextEdit):
 
         doc = self.document()
         curr_line = doc.findBlockByLineNumber(doc.lineCount() - 1).text()
-        self.moveCursor(QTextCursor.End)
+        self.moveCursor(QTextCursor.MoveOperation.End)
         for i in range(len(curr_line) - len(self.prompt)):
-            self.moveCursor(QTextCursor.Left, QTextCursor.KeepAnchor)
+            self.moveCursor(QTextCursor.MoveOperation.Left, QTextCursor.MoveMode.KeepAnchor)
 
         self.textCursor().removeSelectedText()
         self.textCursor().insertText(command)
-        self.moveCursor(QTextCursor.End)
+        self.moveCursor(QTextCursor.MoveOperation.End)
 
     def show_completions(self, completions: List[str]) -> None:
         if self.completions_visible:
@@ -179,7 +179,7 @@ class Console(QtWidgets.QPlainTextEdit):
         c.insertText(t)
         self.completions_end = c.position()
 
-        self.moveCursor(QTextCursor.End)
+        self.moveCursor(QTextCursor.MoveOperation.End)
         self.completions_visible = True
 
     def hide_completions(self) -> None:
@@ -190,7 +190,7 @@ class Console(QtWidgets.QPlainTextEdit):
         for x in range(self.completions_end - self.completions_pos):
             c.deleteChar()
 
-        self.moveCursor(QTextCursor.End)
+        self.moveCursor(QTextCursor.MoveOperation.End)
         self.completions_visible = False
 
     def getConstruct(self, command: str) -> str:
@@ -240,9 +240,9 @@ class Console(QtWidgets.QPlainTextEdit):
         return c.position() - c.block().position() - len(self.prompt)
 
     def setCursorPosition(self, position: int) -> None:
-        self.moveCursor(QTextCursor.StartOfLine)
+        self.moveCursor(QTextCursor.MoveOperation.StartOfLine)
         for i in range(len(self.prompt) + position):
-            self.moveCursor(QTextCursor.Right)
+            self.moveCursor(QTextCursor.MoveOperation.Right)
 
     def runCommand(self) -> None:
         command = self.getCommand()
@@ -321,7 +321,7 @@ class Console(QtWidgets.QPlainTextEdit):
             self.setCommand(self.getNextHistoryEntry())
             return
         elif event.key() == QtCore.Qt.Key.Key_L and \
-                event.modifiers() == Qt.KeyboardModifiers(Qt.KeyboardModifier.ControlModifier):
+                event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             self.clear()
 
         super().keyPressEvent(event)
@@ -380,4 +380,4 @@ if __name__ == '__main__':
     console = Console(startup_message=welcome_message)
     console.updateNamespace({'myVar1': app, 'myVar2': 1234})
     console.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())

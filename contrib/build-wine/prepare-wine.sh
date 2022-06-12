@@ -19,7 +19,7 @@ LIBZBAR_REPO='https://github.com/mchehab/zbar.git'
 LIBZBAR_COMMIT=aac86d5f08d64ab4c3da78188eb622fa3cb07182
 
 PYINSTALLER_REPO="https://github.com/pyinstaller/pyinstaller.git"
-PYINSTALLER_COMMIT="3940e5fc5f9e02bce9f1af53c70a42db81071381"
+PYINSTALLER_COMMIT="4b9fd01d7dc5a0aae3ba7c100437547915464f0e"
 
 PYTHON_VERSION=3.10.0
 

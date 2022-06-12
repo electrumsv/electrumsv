@@ -37,9 +37,9 @@
 from functools import partial
 from typing import Any, cast, List, Optional
 
-from PyQt5.QtCore import QObject, Qt, pyqtSignal
-from PyQt5.QtGui import QPainter, QPaintEvent, QPixmap
-from PyQt5.QtWidgets import (QAction,  QHBoxLayout, QLabel, QListWidget,
+from PyQt6.QtCore import QObject, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QPainter, QPaintEvent, QPixmap
+from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QListWidget,
     QListWidgetItem, QStyle, QStyleOption, QToolBar, QVBoxLayout, QWidget)
 
 from electrumsv.constants import WalletEventFlag, WalletEventType
@@ -200,7 +200,7 @@ class Cards(QWidget):
         list = cast(QListWidget, self._list)
         for i in range(list.count()-1, -1, -1):
             item = list.item(i)
-            widget = list.itemWidget(item)
+            widget = cast(NotificationCard, list.itemWidget(item))
             if self._context.compare_rows(widget._row, row):
                 list.takeItem(i)
 

@@ -26,7 +26,7 @@ from functools import partial
 import random
 from typing import Callable, Optional
 
-from PyQt5.QtWidgets import QGridLayout, QLineEdit, QPushButton, QWidget
+from PyQt6.QtWidgets import QGridLayout, QLineEdit, QPushButton, QWidget
 
 from electrumsv.i18n import _
 

@@ -1,9 +1,9 @@
 import os
 from typing import Optional
 
-from PyQt5.QtCore import pyqtSignal, QEvent, Qt
-from PyQt5.QtGui import QColor, QCursor, QMouseEvent, QPainter, QPaintEvent
-from PyQt5.QtWidgets import (
+from PyQt6.QtCore import pyqtSignal, QEvent, Qt
+from PyQt6.QtGui import QColor, QCursor, QEnterEvent, QMouseEvent, QPainter, QPaintEvent
+from PyQt6.QtWidgets import (
     QApplication, QVBoxLayout, QTextEdit, QHBoxLayout, QPushButton, QWidget)
 import qrcode
 
@@ -26,7 +26,7 @@ class QRCodeWidget(QWidget):
         self.setData(data)
         self.setToolTip(_("QR code"))
 
-    def enterEvent(self, event: QEvent) -> None:
+    def enterEvent(self, event: QEnterEvent) -> None:
         get_app_state_qt().app_qt.setOverrideCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         super().enterEvent(event)
 
