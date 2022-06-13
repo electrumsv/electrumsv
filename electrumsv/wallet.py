@@ -31,7 +31,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import dataclasses
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import IntFlag
 import json
 import os
@@ -90,8 +90,8 @@ from .types import (ConnectHeaderlessProofWorkerState, IndefiniteCredentialId,
     KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult,
     MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
     OutputSpend, ServerAccountKey, Outpoint, WaitingUpdateCallback, DatabaseKeyDerivationData)
-from .util import (format_satoshis, get_posix_timestamp, get_wallet_name_from_path,
-    posix_timestamp_to_datetime, TriggeredCallbacks, ValueLocks)
+from .util import format_satoshis, get_posix_timestamp, get_wallet_name_from_path, \
+    TriggeredCallbacks, ValueLocks
 from .util.cache import LRUCache
 from .wallet_database.exceptions import DatabaseUpdateError, KeyInstanceNotFoundError, \
     TransactionAlreadyExistsError
@@ -627,26 +627,27 @@ class AbstractAccount:
         for entry in self.get_history():
             history_line = entry.row
 
-            timestamp = datetime.utcnow()
+            entry_utc_date = datetime.now(tz=timezone.utc)
             block_height = -0
             if history_line.block_hash is not None:
                 try:
                     header, _chain = app_state.headers.lookup(history_line.block_hash)
-                    block_height = header.height
-                    timestamp = posix_timestamp_to_datetime(header.timestamp)
                 except MissingHeader:
                     # Most likely a transaction with a merkle proof that is waiting on the header
-                    logger.warning("Missing header for %s in export_history.",
+                    logger.warning("Missing header for %s in export_history",
                         history_line.block_hash)
+                else:
+                    block_height = header.height
+                    entry_utc_date = datetime.fromtimestamp(header.timestamp, tz=timezone.utc)
 
-            if from_datetime and timestamp < from_datetime:
+            if from_datetime and entry_utc_date < from_datetime:
                 continue
-            if to_datetime and timestamp >= to_datetime:
+            if to_datetime and entry_utc_date >= to_datetime:
                 continue
             export_entry = AccountExportEntry(
                 txid=hash_to_hex_str(history_line.tx_hash),
                 height=block_height,
-                timestamp=timestamp.isoformat(),
+                timestamp=entry_utc_date.isoformat(),
                 value=format_satoshis(history_line.value_delta,
                     is_diff=True) if history_line.value_delta is not None else '--',
                 balance=format_satoshis(entry.balance),
@@ -654,9 +655,10 @@ class AbstractAccount:
                 fiat_value=None,
                 fiat_balance=None)
             if fx:
-                date = timestamp
-                export_entry['fiat_value'] = fx.historical_value_str(history_line.value_delta, date)
-                export_entry['fiat_balance'] = fx.historical_value_str(entry.balance, date)
+                export_entry['fiat_value'] = fx.historical_value_str(history_line.value_delta,
+                    entry_utc_date)
+                export_entry['fiat_balance'] = fx.historical_value_str(entry.balance,
+                    entry_utc_date)
             out.append(export_entry)
         return out
 

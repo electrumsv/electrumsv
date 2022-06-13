@@ -117,8 +117,9 @@ class PreferencesDialog(QDialog):
         unconf_cb = QCheckBox(_('Spend only confirmed coins'))
         unconf_cb.setToolTip(_('Spend only confirmed inputs.'))
         unconf_cb.setChecked(app_state_qt.config.get_explicit_type(bool, 'confirmed_only', False))
-        def on_unconf(state: Qt.CheckState) -> None:
-            app_state_qt.config.set_key('confirmed_only', state != Qt.CheckState.Unchecked)
+        def on_unconf(state_value: int) -> None:
+            app_state_qt.config.set_key('confirmed_only',
+                Qt.CheckState(state_value) != Qt.CheckState.Unchecked)
         unconf_cb.stateChanged.connect(on_unconf)
 
         options_box = QGroupBox()
@@ -226,17 +227,18 @@ class PreferencesDialog(QDialog):
         updatecheck_cb = QCheckBox(_("Automatically check for software updates"))
         updatecheck_cb.setChecked(
             app_state_qt.config.get_explicit_type(bool, 'check_updates', True))
-        def on_set_updatecheck(v: Qt.CheckState) -> None:
-            app_state_qt.config.set_key('check_updates', v == Qt.CheckState.Checked, save=True)
+        def on_set_updatecheck(state_value: int) -> None:
+            app_state_qt.config.set_key('check_updates',
+                Qt.CheckState(state_value) == Qt.CheckState.Checked, save=True)
         updatecheck_cb.stateChanged.connect(on_set_updatecheck)
         updatecheck_vbox.addWidget(updatecheck_cb)
         # The secondary checkbox, which determines if unstable releases result in notifications.
         updatecheck_unstable_cb = QCheckBox(_("Ignore unstable releases"))
         updatecheck_unstable_cb.setChecked(
             app_state_qt.config.get_explicit_type(bool, 'check_updates_ignore_unstable', True))
-        def on_set_updatecheck_unstable(v: Qt.CheckState) -> None:
-            app_state_qt.config.set_key('check_updates_ignore_unstable', v == Qt.CheckState.Checked,
-                save=True)
+        def on_set_updatecheck_unstable(state_value: int) -> None:
+            app_state_qt.config.set_key('check_updates_ignore_unstable',
+                Qt.CheckState(state_value) == Qt.CheckState.Checked, save=True)
         updatecheck_unstable_cb.stateChanged.connect(on_set_updatecheck_unstable)
         updatecheck_vbox.addWidget(updatecheck_unstable_cb)
 
@@ -316,16 +318,18 @@ class PreferencesDialog(QDialog):
             if fx and fx.is_enabled() and exchange and exchange != fx.exchange.name():
                 fx.set_exchange(exchange)
 
-        def on_history(state: Qt.CheckState) -> None:
+        def on_history(state_value: int) -> None:
             fx = app_state_qt.fx
             if fx:
+                state = Qt.CheckState(state_value)
                 fx.set_history_config(state == Qt.CheckState.Checked)
                 update_exchanges()
                 app_state_qt.app_qt.fiat_history_changed.emit()
 
-        def on_fiat_balance(state: Qt.CheckState) -> None:
+        def on_fiat_balance(state_value: int) -> None:
             fx = app_state_qt.fx
             if fx:
+                state = Qt.CheckState(state_value)
                 fx.set_fiat_address_config(state == Qt.CheckState.Checked)
                 app_state_qt.app_qt.fiat_balance_changed.emit()
 
@@ -398,8 +402,8 @@ class PreferencesDialog(QDialog):
             _('Using a different change key each time improves your privacy by '
               'making it more difficult for others to analyze your transactions.')
         )
-        def on_usechange(state: Qt.CheckState) -> None:
-            should_enable = state == Qt.CheckState.Checked
+        def on_usechange(state_value: int) -> None:
+            should_enable = Qt.CheckState(state_value) == Qt.CheckState.Checked
             if wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True) != should_enable:
                 wallet.set_boolean_setting(WalletSettings.USE_CHANGE, should_enable)
                 multiple_change_cb.setEnabled(should_enable)
@@ -414,8 +418,8 @@ class PreferencesDialog(QDialog):
               'up large coin amounts and obfuscate the recipient key.'),
             _('This will result in a nominally increased fee.')
         ]))
-        def on_multiple_change_toggled(state: Qt.CheckState) -> None:
-            multiple = state == Qt.CheckState.Checked
+        def on_multiple_change_toggled(state_value: int) -> None:
+            multiple = Qt.CheckState(state_value) == Qt.CheckState.Checked
             if wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True) != multiple:
                 wallet.set_boolean_setting(WalletSettings.MULTIPLE_CHANGE, multiple)
         multiple_change_cb.stateChanged.connect(on_multiple_change_toggled)
@@ -428,8 +432,8 @@ class PreferencesDialog(QDialog):
             _('Whether to feature the the option to add Bitcoin SV only data to the transaction '
               'on the Send tab. Will only be shown for compatible account types.')
         )
-        def on_coinsplitting_option_cb(state: Qt.CheckState) -> None:
-            should_enable = state == Qt.CheckState.Checked
+        def on_coinsplitting_option_cb(state_value: int) -> None:
+            should_enable = Qt.CheckState(state_value) == Qt.CheckState.Checked
             if wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT) != should_enable:
                 wallet.set_boolean_setting(WalletSettings.ADD_SV_OUTPUT, should_enable)
         coinsplitting_option_cb.stateChanged.connect(on_coinsplitting_option_cb)
@@ -485,9 +489,9 @@ class PreferencesDialog(QDialog):
             "you from experiencing these problems."))
         modal_cb.setChecked(
             app_state_qt.config.get_explicit_type(bool, 'ui_disable_modal_dialogs', False))
-        def on_unconf(state: Qt.CheckState) -> None:
+        def on_unconf(state_value: int) -> None:
             app_state_qt.config.set_key('ui_disable_modal_dialogs',
-                state != Qt.CheckState.Unchecked)
+                Qt.CheckState(state_value) != Qt.CheckState.Unchecked)
         modal_cb.stateChanged.connect(on_unconf)
 
         options_box = QGroupBox()

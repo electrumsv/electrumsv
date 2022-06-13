@@ -229,8 +229,8 @@ class SendView(QWidget):
         self._coinsplitting_checkbox.setVisible(self._show_splitting_option())
         # Hardware wallets can only sign a small set of fixed types of scripts (not this kind).
         self._coinsplitting_checkbox.setEnabled(not self._account.involves_hardware_wallet())
-        def coinsplitting_checkbox_cb(state: Qt.CheckState) -> None:
-            if state != Qt.CheckState.Checked:
+        def coinsplitting_checkbox_cb(state_value: int) -> None:
+            if Qt.CheckState(state_value) != Qt.CheckState.Checked:
                 dialogs.show_named('sv-only-disabled')
         self._coinsplitting_checkbox.stateChanged.connect(coinsplitting_checkbox_cb)
         grid.addWidget(self._coinsplitting_checkbox, 5, 1, 1, -1)

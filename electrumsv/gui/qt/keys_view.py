@@ -701,9 +701,9 @@ class KeyView(QTableView):
         self._update_keys(account, updates, pending_state)
 
         for action in pending_actions:
-            if ListActions.RESET_BALANCES:
+            if action == ListActions.RESET_BALANCES:
                 self._base_model.invalidate_column(BALANCE_COLUMN)
-            elif ListActions.RESET_FIAT_BALANCES:
+            elif action == ListActions.RESET_FIAT_BALANCES:
                 fx = app_state.fx
                 flag = fx is not None and fx.get_fiat_address_config()
                 # This will show or hide the relevant columns as applicable.
