@@ -120,6 +120,10 @@ class AppStateProxy(object):
 
         self._migrate()
 
+        # The network listens for new connected headers and tracks the longest valid chain.
+        # This event should be triggered when someone calls `connect` on our `Headers` store.
+        self.headers_update_event = self.async_.event()
+
     def _migrate(self) -> None:
         # Remove the old headers file that used checkpointing in 1.3.13 and earlier, and had gaps
         # that needed to be filled before the checkpoint. It is easier to just delete it and
@@ -181,11 +185,14 @@ class AppStateProxy(object):
         """
         assert self.headers is not None
         try:
-            return cast(tuple[Header, Chain], self.headers.connect(header_bytes))
+            header, chain = cast(tuple[Header, Chain], self.headers.connect(header_bytes))
         except MissingHeader:
             # TODO(low priority) Headers. We may be able to connect this later although whether
             #      there is any benefit to this I do not know (rt12).
             return None, None
+        else:
+            self.headers_update_event.set()
+            return header, chain
 
     def on_stop(self) -> None:
         self._write_header_cache()

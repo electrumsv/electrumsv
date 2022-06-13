@@ -30,7 +30,8 @@ from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, TransactionLinkState, \
     MerkleProofRow, WalletBalance
 
-from .util import MockStorage, PasswordToken, setup_async, tear_down_async, TEST_WALLET_PATH
+from .util import mock_headers, MockStorage, PasswordToken, setup_async, tear_down_async, \
+    TEST_WALLET_PATH
 
 
 class _TestableWallet(Wallet):
@@ -53,7 +54,11 @@ def get_categorised_files2(wallet_path: str, exclude_suffix: str="") -> List[Wal
 
 @pytest.fixture()
 def tmp_storage(tmpdir):
-    return MockStorage("password")
+    with unittest.mock.patch(
+        "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+        as migration29_app_state:
+            migration29_app_state.headers = mock_headers()
+            return MockStorage("password")
 
 @pytest.fixture(params=[SVMainnet, SVTestnet])
 def network(request):
@@ -507,8 +512,9 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
     if storage_info.kind == StorageKind.HYBRID:
         pytest.fail("old development database not supported yet")
 
-    has_password = True
     storage = WalletStorage(wallet_path)
+
+    has_password = True
     if "passworded" in expected_subtypes:
         text_store = storage.get_text_store()
         text_store.load_data(text_store.decrypt(initial_password))
@@ -519,11 +525,15 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
     else:
         has_password = False
 
-    try:
-        storage.upgrade(has_password, password_token)
-    except IncompatibleWalletError as exc:
-        validate_wallet_migration_failure_message(storage_info, exc.args[0])
-        return
+    with unittest.mock.patch(
+        "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+        as migration29_app_state:
+            migration29_app_state.headers = mock_headers()
+            try:
+                storage.upgrade(has_password, password_token)
+            except IncompatibleWalletError as exc:
+                validate_wallet_migration_failure_message(storage_info, exc.args[0])
+                return
 
     add_indefinite_credential_mock = unittest.mock.Mock()
     with unittest.mock.patch(
@@ -1098,41 +1108,44 @@ def test_wallet_migration_database_script_metadata(mock_app_state) -> None:
     Net.set_to(SVTestnet)
     try:
         storage = WalletStorage(wallet_path)
-        storage.upgrade(has_password, password_token)
+        with unittest.mock.patch(
+            "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+            as migration29_app_state:
+                migration29_app_state.headers = mock_headers()
+                storage.upgrade(has_password, password_token)
 
         wallet = Wallet(storage)
-        with unittest.mock.patch("electrumsv.wallet.app_state"):
-            wallet.start(None)
-            try:
-                db_context = wallet.get_db_context()
+        wallet.start(None)
+        try:
+            db_context = wallet.get_db_context()
 
-                tx_hash = hex_str_to_hash(
-                    "2d04beb35232461d9eb27cd7bf2375e86a1e8e396ce6842a09549ed58ceddc93")
-                tx_data = db_functions.read_transaction_bytes(db_context, tx_hash)
-                assert tx_data is not None
+            tx_hash = hex_str_to_hash(
+                "2d04beb35232461d9eb27cd7bf2375e86a1e8e396ce6842a09549ed58ceddc93")
+            tx_data = db_functions.read_transaction_bytes(db_context, tx_hash)
+            assert tx_data is not None
 
-                txi_rows = db_functions.read_transaction_inputs_full(db_context)
-                assert len(txi_rows) == 10
-                assert txi_rows[0].txi_index == 0
-                assert txi_rows[0].script_offset == 42
-                assert txi_rows[0].script_length == 106
-                script = Script(tx_data[txi_rows[0].script_offset:txi_rows[0].script_offset +
-                    txi_rows[0].script_length])
-                assert list(script.ops()) == [b"0D\x02 ?\x8e^ht\xdd\xd7\xd1s^\x0f)\x18\x0b,\x7fB\x1f\xe7i(\\\xc7\x8f>\x1c\x8eHM\x94\x080\x02 \x07`\x82\xfb\xaf\xdf\xa9\x00'\xb9\xd89RY\xa7\xad\x9f\xcb\x83\xf2\xbe\xabC\x0e\xe7G|\x99*'\x11tA", b'\x02\x1f\x03\xb5\xa2\xf6T+\xaca\x9a\xa3\x82n\xdb\x90\x04k\xb2\x8c\xc8ot\xd3\xf5{\xa9ie\x81\xb5\x95"']
+            txi_rows = db_functions.read_transaction_inputs_full(db_context)
+            assert len(txi_rows) == 10
+            assert txi_rows[0].txi_index == 0
+            assert txi_rows[0].script_offset == 42
+            assert txi_rows[0].script_length == 106
+            script = Script(tx_data[txi_rows[0].script_offset:txi_rows[0].script_offset +
+                txi_rows[0].script_length])
+            assert list(script.ops()) == [b"0D\x02 ?\x8e^ht\xdd\xd7\xd1s^\x0f)\x18\x0b,\x7fB\x1f\xe7i(\\\xc7\x8f>\x1c\x8eHM\x94\x080\x02 \x07`\x82\xfb\xaf\xdf\xa9\x00'\xb9\xd89RY\xa7\xad\x9f\xcb\x83\xf2\xbe\xabC\x0e\xe7G|\x99*'\x11tA", b'\x02\x1f\x03\xb5\xa2\xf6T+\xaca\x9a\xa3\x82n\xdb\x90\x04k\xb2\x8c\xc8ot\xd3\xf5{\xa9ie\x81\xb5\x95"']
 
-                txo_rows = db_functions.read_transaction_outputs_full(db_context)
-                assert len(txo_rows) == 1
+            txo_rows = db_functions.read_transaction_outputs_full(db_context)
+            assert len(txo_rows) == 1
 
-                assert txo_rows[0].txo_index == 0
-                assert txo_rows[0].script_offset == 1489
-                assert txo_rows[0].script_length == 25
-                script = Script(tx_data[txo_rows[0].script_offset:txo_rows[0].script_offset +
-                    txo_rows[0].script_length])
-                assert list(script.ops()) == [Ops.OP_DUP, Ops.OP_HASH160,
-                    b'\xe0\xc1\x90\x14\xa3j\x8f\x94\x91\xcf=\xf2\x14+\xa3b2\xc4\n!',
-                    Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG]
-            finally:
-                wallet.stop()
+            assert txo_rows[0].txo_index == 0
+            assert txo_rows[0].script_offset == 1489
+            assert txo_rows[0].script_length == 25
+            script = Script(tx_data[txo_rows[0].script_offset:txo_rows[0].script_offset +
+                txo_rows[0].script_length])
+            assert list(script.ops()) == [Ops.OP_DUP, Ops.OP_HASH160,
+                b'\xe0\xc1\x90\x14\xa3j\x8f\x94\x91\xcf=\xf2\x14+\xa3b2\xc4\n!',
+                Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG]
+        finally:
+            wallet.stop()
     finally:
         Net.set_to(SVMainnet)
 
@@ -1142,6 +1155,7 @@ def test_extend_transaction_complete_hex() -> None:
     tx_context = TransactionContext()
 
     mock_storage = cast(WalletStorage, MockStorage("password"))
+
     with unittest.mock.patch("electrumsv.wallet.app_state") as mock_app_state:
         mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
         wallet = Wallet(mock_storage)

@@ -78,6 +78,7 @@ from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidEr
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import maintain_server_connection_async, \
     request_binary_merkle_proof_async, request_transaction_data_async
+from .network_support.headers import get_longest_valid_chain
 from .network_support.mapi import validate_mapi_callback_response, validate_json_envelope
 from .network_support.types import GenericPeerChannelMessage, JSONEnvelope, MAPICallbackResponse, \
     ServerConnectionState, TipFilterPushDataMatchesData
@@ -2192,8 +2193,10 @@ class Wallet:
         # Guards the obtaining and processing of missing transactions from race conditions.
         self._obtain_transactions_async_lock = app_state.async_.lock()
         self._worker_startup_reorg_check: Optional[concurrent.futures.Future[None]] = None
+        self._worker_task_initialise_headers: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_manage_server_connections: Optional[concurrent.futures.Future[None]] \
             = None
+        self._worker_tasks_maintain_server_connection = dict[int, list[ServerConnectionState]]()
         self._worker_task_chain_management: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_obtain_transactions: Optional[concurrent.futures.Future[None]] = None
         self._worker_task_obtain_merkle_proofs: Optional[concurrent.futures.Future[None]] = None
@@ -2273,7 +2276,7 @@ class Wallet:
             last_known_tip_hash = None
         self._persisted_tip_hash = last_known_tip_hash
 
-        self._logger.debug("Persisted chain %s",
+        self._logger.debug("Existing persisted chain is %s",
             hash_to_hex_str(last_known_tip_hash) if last_known_tip_hash is not None else None)
 
         self._keystores.clear()
@@ -3646,11 +3649,44 @@ class Wallet:
                 self._servers[server_key] = NewServer(server_key.url, server_key.server_type,
                     row, credential_id)
 
+    def is_blockchain_server_active(self) -> bool:
+        """
+        Determine if the wallet has a configured and in use blockchain server.
+        """
+        for account in self._accounts.values():
+            if account.is_petty_cash():
+                account_row = account.get_row()
+                return account_row.indexer_server_id is not None
+        return False
+
+    async def _initialise_headers_from_header_store(self) -> None:
+        """
+        On startup if the wallet does not have an active blockchain server it will initialise
+        it's knowledge of the blockchain from the header store.
+
+        This ensures that wallets that are not able to connect, whether offline or with a
+        bad internet connection, start with knowledge of at least the distributed set of headers.
+        """
+        logger.debug("Initialising headers from header store")
+        current_chain = get_longest_valid_chain()
+        current_tip_header = cast(Header, current_chain.tip)
+        await self._reconcile_wallet_with_header_source(None, current_chain, current_tip_header)
+
+        if self._network is not None:
+            self._worker_task_manage_server_connections = app_state.async_.spawn(
+                self._manage_server_connections_async)
+
     async def _manage_server_connections_async(self) -> None:
         """
         Manage connections to all the servers that the wallet uses.
+
+        This will attempt to connect to a blockchain server if successful will record it as
+        the active blockchain server. It will then be used for all future blockchain server needs
+        (as there is server-dependent state).
         """
         assert self._network is not None
+        logger.debug("Starting server connection process")
+
         # TODO(petty-cash) In theory each petty cash account maintains a connection. At the
         #     time of writing, we only have one petty cash account per wallet, but there are loose
         #     plans that sets of accounts may hierarchically share different petty cash accounts.
@@ -4309,6 +4345,8 @@ class Wallet:
         self._chain_worker_queue = asyncio.Queue[ChainWorkerToken]()
         self._is_chain_management_pending = False
 
+        is_blockchain_server_active = self.is_blockchain_server_active()
+
         if network is not None:
             # Online mode.
             network.add_wallet(self)
@@ -4322,20 +4360,23 @@ class Wallet:
             for account in self.get_accounts():
                 account.start(network)
 
-            self._worker_task_manage_server_connections = app_state.async_.spawn(
-                self._manage_server_connections_async)
             self._worker_task_chain_management = app_state.async_.spawn(self._chain_management_task)
+
+            # If there is already a configured blockchain server it is the header source and
+            # is responsible for engaging the wallet logic that processes new headers. Otherwise
+            # the wallet will first sync to the header store before considering starting
+            if is_blockchain_server_active:
+                # We can start trying to connect to the blockchain server we are already using.
+                self._worker_task_manage_server_connections = app_state.async_.spawn(
+                    self._manage_server_connections_async)
         else:
             # Offline mode.
-            if self._persisted_tip_hash is not None:
-                try:
-                    header, chain = cast(tuple[Header, Chain], app_state.headers.lookup(
-                        self._persisted_tip_hash))
-                except MissingHeader:
-                    pass
-                else:
-                    self._current_chain = chain
-                    self._current_tip_header = header
+            pass
+
+        if not is_blockchain_server_active:
+            # Wallets start off following the longest valid chain.
+            self._worker_task_initialise_headers = app_state.async_.spawn(
+                self._initialise_headers_from_header_store)
 
         self._stopped = False
 
@@ -4377,6 +4418,10 @@ class Wallet:
         pending_futures = set[concurrent.futures.Future[None]]()
 
         # The following tasks can be cancelled directly and do not need to shutdown cleanly.
+        if self._worker_task_initialise_headers is not None:
+            self._worker_task_initialise_headers.cancel()
+            pending_futures.add(self._worker_task_initialise_headers)
+            self._worker_task_initialise_headers = None
         if self._worker_task_manage_server_connections is not None:
             self._worker_task_manage_server_connections.cancel()
             pending_futures.add(self._worker_task_manage_server_connections)
@@ -4591,7 +4636,6 @@ class Wallet:
             3. Ensure that the "header source synchronised" event is only set when we are ready
                for blockchain related records to be modified in the database.
         """
-        assert self._network is not None
         assert app_state.headers is not None
         assert not self._header_source_synchronised_event.is_set()
         assert self._current_chain is None
@@ -4660,7 +4704,7 @@ class Wallet:
             # so we get the current chain and header of the header source, and check for changes
             # and process them before proceeding.
             updated_header_source_chain, updated_header_source_tip_header = \
-                self._network.get_header_source_state(server_state)
+                self.get_header_source_state(server_state)
             if header_source_tip_header != updated_header_source_tip_header:
                 self.process_header_source_update(server_state, header_source_chain,
                     header_source_tip_header, updated_header_source_chain,
@@ -4731,7 +4775,7 @@ class Wallet:
         assert self._network is not None
 
         if self._is_wallet_header_source(server_state):
-            # `` needs to be called before we make use of these updates.
+            # `_reconcile_wallet_with_header_source` sets this before we make use of these updates.
             if self._current_chain is None:
                 return
 
@@ -5201,6 +5245,17 @@ class Wallet:
                     proof.transaction_hash, header, proof)
 
     # Helper methods to access blockchain data that can be seen through the wallet's view of the it.
+
+    def get_header_source_state(self, server_state: Optional[HeaderServerState]) \
+            -> tuple[Chain, Header]:
+        if server_state is None:
+            chain = get_longest_valid_chain()
+            tip_header = cast(Header, chain.tip)
+            return chain, tip_header
+
+        assert server_state.chain is not None
+        assert server_state.tip_header is not None
+        return server_state.chain, server_state.tip_header
 
     def get_local_height(self) -> int:
         """

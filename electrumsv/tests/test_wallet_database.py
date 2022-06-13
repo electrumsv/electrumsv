@@ -1,5 +1,6 @@
 import os
 from typing import Generator, NamedTuple
+import unittest.mock
 
 from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, SQLITE_MAX_VARS
 import pytest
@@ -15,7 +16,7 @@ from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.migration import create_database, update_database
 from electrumsv.wallet_database.types import WalletDataRow
 
-from .util import PasswordToken
+from .util import mock_headers, PasswordToken
 
 
 @pytest.fixture
@@ -39,7 +40,12 @@ class TestWalletDataTable:
         # lifetime of the tests.
         cls.db = cls.db_context.acquire_connection()
         create_database(cls.db)
-        update_database(cls.db, password_token)
+
+        with unittest.mock.patch(
+            "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+            as migration29_app_state:
+                migration29_app_state.headers = mock_headers()
+                update_database(cls.db, password_token)
 
     @classmethod
     def teardown_class(cls):

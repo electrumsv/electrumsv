@@ -1,9 +1,12 @@
 import os
+from typing import NoReturn
+import unittest.mock
 
-from electrumsv_database.sqlite import DatabaseContext
+import bitcoinx
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.credentials import PasswordTokenProtocol
+from electrumsv_database.sqlite import DatabaseContext
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.wallet_database import functions as db_functions
 
@@ -57,7 +60,12 @@ class MockStorage:
         password_token = PasswordToken(password)
         from electrumsv.wallet_database.migration import create_database, update_database
         create_database(self.db)
-        update_database(self.db, password_token)
+
+        with unittest.mock.patch(
+            "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+            as migration29_app_state:
+                migration29_app_state.headers = mock_headers()
+                update_database(self.db, password_token)
 
         self._data = {}
         for row in db_functions.read_wallet_datas(self.db_context):
@@ -88,3 +96,12 @@ class UnittestSimpleConfig(SimpleConfig):
         return r"Q:\fluff"
 
 
+def _no_header(chain: bitcoinx.Chain, height: int) -> NoReturn:
+    raise bitcoinx.MissingHeader()
+
+def mock_headers() -> unittest.mock.Mock:
+    longest_chain = unittest.mock.Mock()
+    headers = unittest.mock.Mock()
+    headers.longest_chain = lambda: longest_chain
+    headers.header_at_height = _no_header
+    return headers

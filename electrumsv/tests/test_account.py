@@ -12,7 +12,7 @@ from electrumsv.wallet_database.exceptions import KeyInstanceNotFoundError
 from electrumsv.wallet_database.types import AccountRow
 from electrumsv.storage import WalletStorage
 
-from .util import MockStorage, PasswordToken, setup_async, tear_down_async
+from .util import mock_headers, MockStorage, PasswordToken, setup_async, tear_down_async
 
 
 def setUpModule():
@@ -24,11 +24,14 @@ def tearDownModule():
 
 
 @pytest.mark.asyncio
+@unittest.mock.patch(
+    "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state")
 @unittest.mock.patch('electrumsv.wallet.app_state')
-async def test_key_creation(mock_app_state) -> None:
+async def test_key_creation(mock_app_state1, mock_app_state2) -> None:
     password = 'password'
-    mock_app_state.credentials = unittest.mock.Mock()
-    mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
+    mock_app_state1.credentials = unittest.mock.Mock()
+    mock_app_state1.credentials.get_wallet_password = lambda wallet_path: password
+    mock_app_state2.headers = mock_headers()
 
     tmp_storage = cast(WalletStorage, MockStorage(password))
     # Boilerplate setting up of a deterministic account. This is copied from above.
@@ -87,13 +90,16 @@ async def test_key_creation(mock_app_state) -> None:
 
 
 @pytest.mark.asyncio
+@unittest.mock.patch(
+    "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state")
 @unittest.mock.patch('electrumsv.wallet.app_state')
-async def test_key_reservation(mock_app_state) -> None:
+async def test_key_reservation(mock_app_state1, mock_app_state2) -> None:
     """
     Verify that the allocate a key on demand database function works as expected for an account.
     """
     password = 'password'
-    mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
+    mock_app_state1.credentials.get_wallet_password = lambda wallet_path: password
+    mock_app_state2.headers = mock_headers()
 
     tmp_storage = cast(WalletStorage, MockStorage(password))
     # Boilerplate setting up of a deterministic account. This is copied from above.

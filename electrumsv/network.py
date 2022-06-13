@@ -25,7 +25,7 @@
 import asyncio
 from aiohttp import ClientSession
 import bitcoinx
-from bitcoinx import Chain, double_sha256, hex_str_to_hash, Header, Headers, MissingHeader
+from bitcoinx import Chain, double_sha256, hex_str_to_hash, Header, MissingHeader
 import dataclasses
 import concurrent.futures
 import time
@@ -38,8 +38,9 @@ from .exceptions import ServiceUnavailableError
 from .logs import logs
 from .network_support.api_server import APIServerDefinition
 from .network_support.types import TipResponse
-from .network_support.headers import HeaderServerState, get_batched_headers_by_height_async, \
-    get_chain_tips_async, ServerConnectivityMetadata, subscribe_to_headers_async
+from .network_support.headers import get_batched_headers_by_height_async, get_chain_tips_async, \
+    get_longest_valid_chain, HeaderServerState, ServerConnectivityMetadata, \
+    subscribe_to_headers_async
 from .networks import Net
 from .types import ServerAccountKey
 from .util import TriggeredCallbacks
@@ -119,6 +120,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
 
         If two ESV Reference Servers are on the same chain then this function will only
         be called once per distinct chain (see `_synchronise_headers_for_server_tip`)"""
+        assert app_state.headers is not None
         # start with step = 16 to cut down on network round trips for the first initial header sync
         step = 16
         height_to_test = server_tip.height
@@ -126,7 +128,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             raw_header = await get_batched_headers_by_height_async(server_state,
                 self.aiohttp_session, from_height=max(height_to_test, 0), count=1)
             try:
-                self.header_for_hash(double_sha256(raw_header))
+                app_state.headers.lookup(double_sha256(raw_header))
                 common_header = Net._net.COIN.deserialized_header(raw_header, height_to_test)
                 return common_header
             except MissingHeader:
@@ -184,6 +186,10 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             heights = [height for height in range(
                 new_tip.height-MAX_CONCEIVABLE_REORG_DEPTH, new_tip.height + 1)]
             await self._request_and_connect_headers_at_heights_async(server_state, heights)
+        else:
+            # We don't know that we connected a new header, but the "longest chain" task can
+            # work out if it is getting redundant notifications.
+            app_state.headers_update_event.set()
 
         return None
 
@@ -249,14 +255,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 wallet.process_header_source_update(server_state, previous_chain,
                     previous_tip_header, current_chain, current_tip_header)
 
-    def get_header_source_state(self, server_state: Optional[HeaderServerState]) \
-            -> tuple[Chain, Header]:
-        if server_state is None:
-            raise NotImplementedError("P2P support not yet implemented")
-        assert server_state.chain is not None
-        assert server_state.tip_header is not None
-        return server_state.chain, server_state.tip_header
-
     # def _available_servers(self) -> List[ServerAccountKey]:
     #     now = time.time()
     #     all_available_server_keys = self._known_header_server_keys - self._chosen_servers
@@ -293,6 +291,11 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         Pre-populate the header servers from the hard-coded configuration.
         When new wallets are loaded they will push new, unique servers to the queue
         """
+        future = app_state.async_.spawn(self._follow_longest_valid_chain)
+        # Futures swallow exceptions if there are no callbacks to collect the exception.
+        future.add_done_callback(future_callback)
+        context.futures.append(future)
+
         try:
             # Make sure this has been created.
             for hardcoded_server_config in cast(list[APIServerDefinition], Net.DEFAULT_SERVERS_API):
@@ -335,6 +338,28 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             for future in context.futures:
                 future.cancel()
             self._shutdown_complete_event.set()
+
+    async def _follow_longest_valid_chain(self) -> None:
+        assert app_state.headers is not None
+        current_chain = get_longest_valid_chain()
+        current_tip_header = cast(Header, current_chain.tip)
+        while True:
+            await app_state.headers_update_event.wait()
+            # We are the only listener to this event so we can safely clear it.
+            app_state.headers_update_event.clear()
+
+            previous_chain = current_chain
+            previous_tip_header = current_tip_header
+
+            current_chain = get_longest_valid_chain()
+            current_tip_header = cast(Header, current_chain.tip)
+            # It is possible for this to be sent when there is no change.
+            if current_tip_header == previous_tip_header:
+                continue
+
+            for wallet in self._wallets:
+                wallet.process_header_source_update(None, previous_chain,
+                    previous_tip_header, current_chain, current_tip_header)
 
     def get_header_server_state(self, server_key: ServerAccountKey) -> HeaderServerState:
         return self.connected_header_server_states[server_key]
@@ -416,14 +441,12 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         """ This wallet has been unloaded and is no longer using this network. """
         self._wallets.remove(wallet)
 
-    def chain(self) -> Chain:
-        return cast(Headers, app_state.headers).longest_chain()
-
     async def _request_and_connect_headers_at_heights_async(self, server_state: HeaderServerState,
             heights: Iterable[int]) -> None:
         """
         Raises `ServiceUnavailableError` in `get_batched_headers_by_height_async`
         """
+        assert app_state.headers is not None
         assert server_state.synchronisation_data is None
 
         MAX_HEADER_REQUEST_BATCH_SIZE = 2000
@@ -447,20 +470,13 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             count_of_raw_headers = len(header_array) // 80
             for i in range(count_of_raw_headers):
                 raw_header = stream.read(80)
-                cast(Headers, app_state.headers).connect(raw_header)
+                app_state.headers.connect(raw_header)
+
+            app_state.headers_update_event.set()
 
         server_state.synchronisation_data = None
         server_state.synchronisation_update_event.set()
         server_state.synchronisation_update_event.clear()
-
-    def header_at_height(self, height: int) -> Header:
-        assert app_state.headers is not None
-        return app_state.headers.header_at_height(self.chain(), height)
-
-    def header_for_hash(self, block_hash: bytes) -> Header:
-        assert app_state.headers is not None
-        header, _chains = app_state.headers.lookup(block_hash)
-        return header
 
     def status(self) -> dict[str, Any]:
         return {

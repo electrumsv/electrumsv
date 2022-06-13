@@ -35,9 +35,13 @@
 # THE SOFTWARE.
 
 from __future__ import annotations
+from io import BytesIO
 import json
 from typing import Any, cast, List, Optional, Tuple
-from bitcoinx import ElectrumMnemonic, PublicKey, Wordlists
+
+import bitcoinx
+from bitcoinx import Chain, double_sha256, ElectrumMnemonic, Header, MissingHeader, PublicKey, \
+    Wordlists
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
     import pysqlite3 as sqlite3
@@ -46,6 +50,9 @@ except ModuleNotFoundError:
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
     import sqlite3  # type: ignore[no-redef]
 
+from ...app_state import app_state
+from ...bitcoin import ProofTargetFlags, TSCMerkleNode, TSCMerkleNodeKind, TSCMerkleProof, \
+    verify_proof
 from ...constants import AccountFlags, ADDRESS_DERIVATION_TYPES, DerivationType, MasterKeyFlags, \
     ScriptType, WALLET_ACCOUNT_PATH_TEXT
 from ...credentials import PasswordTokenProtocol
@@ -342,23 +349,6 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     conn.executemany("UPDATE WalletData SET value=? WHERE key=?",
         [ (v, k) for (k, v) in wallet_data.items() ])
 
-    ## Database cleanup.
-    # Remove vestigal traces of `HasProofData` transaction flag (we cleared others in migration 22).
-    clear_bits_args = (~TxFlags_22.HasProofData, TxFlags_22.HasProofData)
-    cursor = conn.execute("UPDATE Transactions SET flags=(flags&?) WHERE flags&?", clear_bits_args)
-    logger.debug("cleared HasProofData flag from %d transactions", cursor.rowcount)
-
-    # We are deleting the existing non-TSC proofs for all transaction rows and we will reacquire
-    # TSC versions of them. This is fine as there is no guarantee we have proofs for all legacy
-    # transactions anyway and they would need to be acquired, so acquiring more is just more of
-    # the same. The reason we do not clear the SETTLED flag is that this would be a bad user
-    # experience and they would see all their transactions strangely revert back to CLEARED and
-    # they may not be re-verified until they jump through server hoops.
-    conn.execute("ALTER TABLE Transactions DROP COLUMN proof_data")
-    # This is a column we were supposed to remove in an earlier migration but the versions of
-    # SQLite we could require as a dependency did not support it at the time.
-    conn.execute("ALTER TABLE Transactions DROP COLUMN block_height")
-
     # Transfer all merkle proof data from the Transactions table to the
     # The pathways for insertion to this table are as follows:
     #  1) Wallet._obtain_merkle_proofs_worker_async -> Wallet.import_transaction_async
@@ -375,6 +365,101 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         FOREIGN KEY (tx_hash) REFERENCES Transactions (tx_hash)
     )""")
     conn.execute("CREATE UNIQUE INDEX idx_tx_proofs ON TransactionProofs (tx_hash, block_hash)")
+
+    ## Database cleanup.
+
+    # We are going to try and convert the ElectrumX proofs to TSC proofs.
+    def unpack_proof(raw: bytes) -> tuple[int, list[bytes]]:
+        io = BytesIO(raw)
+        pack_version = bitcoinx.read_varint(io.read)
+        if pack_version != 1:
+            return -1, []
+        position = bitcoinx.read_varint(io.read)
+        branch_count = bitcoinx.read_varint(io.read)
+        merkle_branch = [ bitcoinx.read_varbytes(io.read) for i in range(branch_count) ]
+        return position, merkle_branch
+
+    def merkle_root_hash_from_proof(hash: bytes, branch: list[bytes], index:int) -> Optional[bytes]:
+        '''From ElectrumX.'''
+        for elt in branch:
+            if index & 1:
+                hash = double_sha256(elt + hash)
+            else:
+                hash = double_sha256(hash + elt)
+            index >>= 1
+        if index:
+            return None
+        return hash
+
+    assert app_state.headers is not None
+    longest_chain = cast(Chain, app_state.headers.longest_chain())
+    cursor = conn.execute("SELECT tx_hash, block_height, proof_data FROM Transactions "
+        "WHERE proof_data IS NOT NULL")
+    updated_tx_rows = list[tuple[bytes, int, bytes]]()
+    new_proof_rows = list[tuple[bytes, bytes, bytes, int, int]]()
+    for tx_hash, block_height, proof_data in \
+            cast(list[tuple[bytes, int, bytes]], cursor.fetchall()):
+        proof_index, merkle_branch = unpack_proof(proof_data)
+        if proof_index == -1 or block_height < 1:
+            logger.error("Invalid ElectrumX packed proof for transaction %s",
+                bitcoinx.hash_to_hex_str(tx_hash))
+            continue
+        # There is no guarantee we have this header. The user may have deleted the headers or
+        # have an older application version they used to a height longer than the headers this
+        # application version has.
+        try:
+            header = cast(Header, app_state.headers.header_at_height(longest_chain, block_height))
+        except MissingHeader:
+            logger.warning("Missing ElectrumX proof header for transaction %s",
+                bitcoinx.hash_to_hex_str(tx_hash))
+            continue
+        # It is possible that the proof is for an old longest chain and is incorrect.
+        merkle_root_bytes = cast(bytes, header.merkle_root)
+        proof_merkle_root_bytes = merkle_root_hash_from_proof(tx_hash, merkle_branch, proof_index)
+        if merkle_root_bytes == proof_merkle_root_bytes:
+            tsc_proof_nodes = list[TSCMerkleNode]()
+            for branch_hash in merkle_branch:
+                tsc_proof_nodes.append(TSCMerkleNode(TSCMerkleNodeKind.HASH, branch_hash))
+
+            # Needs transaction hash by default.
+            # Needs block hash by default.
+            tsc_proof = TSCMerkleProof(ProofTargetFlags.BLOCK_HASH, proof_index,
+                transaction_hash=tx_hash, block_hash=header.hash, nodes=tsc_proof_nodes)
+            if verify_proof(tsc_proof, merkle_root_bytes):
+                new_proof_rows.append((header.hash, tx_hash, tsc_proof.to_bytes(), proof_index,
+                    block_height))
+                updated_tx_rows.append((header.hash, proof_index, tx_hash))
+            else:
+                logger.error("Invalid proof for transaction %s", bitcoinx.hash_to_hex_str(tx_hash))
+        else:
+            logger.error("Invalid proof merkle root for transaction %s",
+                bitcoinx.hash_to_hex_str(tx_hash))
+
+    if len(new_proof_rows) > 0:
+        logger.debug("Converted and inserted %d transaction proofs", len(new_proof_rows))
+        conn.executemany("UPDATE Transactions SET block_hash=?, block_position=? WHERE tx_hash=?",
+            updated_tx_rows)
+        conn.executemany("INSERT INTO TransactionProofs (block_hash, tx_hash, proof_data, "
+            "block_position, block_height) VALUES (?,?,?,?,?)", new_proof_rows)
+
+    # We cannot guarantee that SETTLED transactions now have a TSC proof.
+    # - Older wallets never kept the proof data.
+    # - Some of our transactions are missing their proof data!
+    # - The convertion process may have failed.
+    # The reason we do not clear the SETTLED flag for transactions that do not have one of these
+    # proofs is that this would be a bad user experience and they would see all their transactions
+    # strangely revert back to CLEARED and they may not be re-verified until they jump through
+    # server hoops.
+    conn.execute("ALTER TABLE Transactions DROP COLUMN proof_data")
+    # This is a column we were supposed to remove in an earlier migration but the versions of
+    # SQLite we could require as a dependency did not support it at the time.
+    conn.execute("ALTER TABLE Transactions DROP COLUMN block_height")
+
+    # Remove vestigial traces of `HasProofData` transaction flag (we cleared others in migration
+    # 22).
+    clear_bits_args = (~TxFlags_22.HasProofData, TxFlags_22.HasProofData)
+    cursor = conn.execute("UPDATE Transactions SET flags=(flags&?) WHERE flags&?", clear_bits_args)
+    logger.debug("cleared HasProofData flag from %d transactions", cursor.rowcount)
 
     ## Migration finalisation.
     callbacks.progress(100, _("Update done"))

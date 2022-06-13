@@ -10,7 +10,7 @@ from electrumsv.wallet import Wallet, MultisigAccount, ImportedAddressAccount
 
 from electrumsv.tests.test_wallet import WalletTestCase
 
-from .util import setup_async, tear_down_async, PasswordToken
+from .util import mock_headers, setup_async, tear_down_async, PasswordToken
 
 
 def setUpModule():
@@ -462,20 +462,27 @@ class TestStorageUpgrade(WalletTestCase):
         storage = self._load_storage_from_json_string(wallet_json)
         storage.write()
 
-        if accounts == 1:
-            self.assertFalse(storage._store.requires_split())
-            if storage.requires_upgrade():
-                original_path = storage.get_path()
-                storage.upgrade(False, password_token)
-                self._sanity_check_upgraded_storage(storage, original_path, expect_backup=True)
-        else:
-            self.assertTrue(storage._store.requires_split())
-            new_paths = storage.split_accounts(False, password_token)
-            self.assertEqual(accounts, len(new_paths))
-            for new_path in new_paths:
-                new_storage = WalletStorage(new_path)
-                self._sanity_check_upgraded_storage(new_storage, new_path, expect_backup=False)
-                new_storage.close()
+        with unittest.mock.patch(
+            "electrumsv.wallet_database.migrations.migration_0029_reference_server"
+            ".app_state") as migration29_app_state:
+                migration29_app_state.headers = mock_headers()
+                if accounts == 1:
+                    self.assertFalse(storage._store.requires_split())
+                    if storage.requires_upgrade():
+                        original_path = storage.get_path()
+                        storage.upgrade(False, password_token)
+                        self._sanity_check_upgraded_storage(storage, original_path,
+                            expect_backup=True)
+                else:
+                    self.assertTrue(storage._store.requires_split())
+                    new_paths = storage.split_accounts(False, password_token)
+                    assert new_paths is not None
+                    self.assertEqual(accounts, len(new_paths))
+                    for new_path in new_paths:
+                        new_storage = WalletStorage(new_path)
+                        self._sanity_check_upgraded_storage(new_storage, new_path,
+                            expect_backup=False)
+                        new_storage.close()
 
     def _sanity_check_upgraded_storage(self, storage: WalletStorage, original_path: str,
             expect_backup=False):

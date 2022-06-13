@@ -31,7 +31,7 @@ from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow,
     TransactionOutputShortRow, TransactionProofUpdateRow, TransactionRow, WalletBalance,
     WalletEventInsertRow)
 
-from .util import PasswordToken
+from .util import mock_headers, PasswordToken
 
 
 
@@ -55,7 +55,13 @@ def _db_context():
     wallet_path = os.path.join(tempfile.mkdtemp(), "wallet_create")
     assert not os.path.exists(wallet_path)
     migration.create_database_file(wallet_path)
-    migration.update_database_file(wallet_path, password_token)
+
+    with unittest.mock.patch(
+        "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+        as migration29_app_state:
+            migration29_app_state.headers = mock_headers()
+            migration.update_database_file(wallet_path, password_token)
+
     return DatabaseContext(wallet_path)
 
 @pytest.fixture

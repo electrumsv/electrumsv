@@ -8,6 +8,7 @@ import aiohttp
 import bitcoinx
 from bitcoinx import Chain, double_sha256, hash_to_hex_str, Header
 
+from ..app_state import app_state
 from ..exceptions import ServiceUnavailableError
 from ..logs import logs
 from ..networks import Net
@@ -133,3 +134,15 @@ async def get_single_header_async(server_state: HeaderServerState, session: aioh
     except aiohttp.ClientConnectionError:
         logger.error("Cannot connect to ElectrumSV-Reference Server at %s", url)
         raise ServiceUnavailableError(f"Cannot connect to ElectrumSV-Reference Server at {url}")
+
+
+def get_longest_valid_chain() -> Chain:
+    # TODO(1.4.0) Headers. This should filter out chains the user wants to ignore.
+    #     It is envisaged that this will be done through the network dialog.
+    assert app_state.headers is not None
+    chains = cast(list[Chain], app_state.headers.chains())
+    longest_chain = chains[0]
+    for chain in chains:
+        if chain.work > longest_chain.work:
+            longest_chain = chain
+    return longest_chain

@@ -12,7 +12,11 @@ from typing import cast, Optional
 from ..constants import DATABASE_EXT, MIGRATION_CURRENT, MIGRATION_FIRST
 from ..credentials import PasswordTokenProtocol
 from ..exceptions import DatabaseMigrationError
+from ..logs import logs
 from ..util.misc import ProgressCallbacks
+
+
+logger = logs.get_logger("database-migration")
 
 
 def _get_migration(db: sqlite3.Connection) -> int:
@@ -60,6 +64,7 @@ def update_database(conn: sqlite3.Connection, password_token: PasswordTokenProto
         callbacks: Optional[ProgressCallbacks]=None) -> None:
     # This will error if the database has not been created correctly with the metadata.
     version = _get_migration(conn)
+    logger.debug("Upgrading wallet from migration %d", version)
 
     # Use a dummy set of callbacks if none are provided.
     if callbacks is None:

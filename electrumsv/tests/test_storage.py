@@ -1,14 +1,14 @@
 import os
 import pytest
 import shutil
-
+import unittest.mock
 from unittest.mock import patch
 
 from electrumsv.constants import MIGRATION_CURRENT, MIGRATION_FIRST, DATABASE_EXT, StorageKind
 from electrumsv.storage import (backup_wallet_file, categorise_file, get_categorised_files,
     DatabaseStore, TextStore, WalletStorageInfo, IncompatibleWalletError, WalletStorage)
 
-from .util import PasswordToken, TEST_WALLET_PATH
+from .util import mock_headers, PasswordToken, TEST_WALLET_PATH
 
 
 FILE_SUFFIXES = [ "", DATABASE_EXT ]
@@ -180,7 +180,12 @@ def _check_database_store_version_init_set(db_store, version) -> None:
     # Verify that the seed version is really present independently.
     assert db_store.get("migration") == version
 
-def test_database_store_from_text_store_version_init_set(tmp_path) -> None:
+
+@unittest.mock.patch(
+    "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state")
+def test_database_store_from_text_store_version_init_set(mock_app_state, tmp_path) -> None:
+    mock_app_state.headers = mock_headers()
+
     wallet_path = os.path.join(tmp_path, "database")
     password_token = PasswordToken("123456")
     try:
@@ -193,7 +198,12 @@ def test_database_store_from_text_store_version_init_set(tmp_path) -> None:
         db_store.close()
         text_store.close()
 
-def test_database_store_version_init_set(tmp_path) -> None:
+
+@unittest.mock.patch(
+    "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state")
+def test_database_store_version_init_set(mock_app_state, tmp_path) -> None:
+    mock_app_state.headers = mock_headers()
+
     wallet_path = os.path.join(tmp_path, "database")
     password_token = PasswordToken("123456")
     db_store = DatabaseStore(wallet_path, password_token=password_token)
@@ -202,7 +212,11 @@ def test_database_store_version_init_set(tmp_path) -> None:
     finally:
         db_store.close()
 
-def test_database_store_requires_split(tmp_path) -> None:
+@unittest.mock.patch(
+    "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state")
+def test_database_store_requires_split(mock_app_state, tmp_path) -> None:
+    mock_app_state.headers = mock_headers()
+
     wallet_path = os.path.join(tmp_path, "database")
     password_token = PasswordToken("123456")
     db_store = DatabaseStore(wallet_path, password_token=password_token)
@@ -211,7 +225,11 @@ def test_database_store_requires_split(tmp_path) -> None:
     finally:
         db_store.close()
 
-def test_database_store_new_never_requires_upgrade(tmp_path) -> None:
+@unittest.mock.patch(
+    "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state")
+def test_database_store_new_never_requires_upgrade(mock_app_state, tmp_path) -> None:
+    mock_app_state.headers = mock_headers()
+
     wallet_path = os.path.join(tmp_path, "database")
     password_token = PasswordToken("123456")
     db_store = DatabaseStore(wallet_path, password_token=password_token)
@@ -222,7 +240,11 @@ def test_database_store_new_never_requires_upgrade(tmp_path) -> None:
     finally:
         db_store.close()
 
-def test_database_store_version_requires_upgrade(tmp_path) -> None:
+@unittest.mock.patch(
+    "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state")
+def test_database_store_version_requires_upgrade(mock_app_state, tmp_path) -> None:
+    mock_app_state.headers = mock_headers()
+
     wallet_path = os.path.join(tmp_path, "database")
     password_token = PasswordToken("123456")
     db_store = DatabaseStore(wallet_path, password_token=password_token)
@@ -293,7 +315,11 @@ def test_wallet_storage_json_path_nonexistent_errors(tmp_path) -> None:
     with pytest.raises(OSError):
         storage = WalletStorage(nonexistent_storage_path)
 
-def test_wallet_storage_database_nonexistent_creates(tmp_path) -> None:
+@unittest.mock.patch(
+    "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state")
+def test_wallet_storage_database_nonexistent_creates(mock_app_state, tmp_path) -> None:
+    mock_app_state.headers = mock_headers()
+
     wallet_filepath = os.path.join(tmp_path, "walletfile")
     password_token = PasswordToken("123456")
     storage = WalletStorage(wallet_filepath, password_token=password_token)
