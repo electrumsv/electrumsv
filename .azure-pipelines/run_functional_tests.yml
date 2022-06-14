@@ -14,6 +14,6 @@ steps:
     electrumsv-sdk install node
     electrumsv-sdk install simple_indexer
     electrumsv-sdk install reference_server
-    electrumsv-sdk install --repo=$PWD electrumsv
+    electrumsv-sdk install --repo=$PWD --branch=${Build.SourceBranch} electrumsv
     python3 -m pytest -v -v -v contrib/functional_tests/functional
   displayName: 'Functional tests (via SDK & REST API)'
