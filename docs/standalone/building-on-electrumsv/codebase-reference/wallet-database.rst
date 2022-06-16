@@ -114,6 +114,25 @@ should end up being restructured.
 Transaction table
 ~~~~~~~~~~~~~~~~~
 
+`block_hash`
+!!!!!!!!!!!!
+
+This column stores the block hash for the block the transaction was mined in. It is expected there
+is a matching row to the transaction hash and block hash in the `TransactionProofs` table.
+
+`block_height` / `block_position`
+!!!!!!!!!!!!!!
+
+These columns are intended to track the block height and block position of a transaction, once
+it has been mined, into the long term future. In theory, it is possible to map the block hash and
+transaction hash to the `TransactionProofs` table obtain this information. In practice, there are
+two reasons we may not want to do this.
+
+- We may want to delete proofs for transactions once coins have been spent.
+- We may not have the proof for older transactions, which have unspent coins from before proofs
+  were retained. If these are unspent and present in migrated wallets, we will need to obtain
+  the proofs to do an SPV payment.
+
 .. _transaction-state:
 
 `flags`
@@ -160,7 +179,10 @@ as being in that block through checking the merkle proof.
 
 Nuances:
 
-- `proof_data` will be non-NULL for up-to-date verified transactions.
-- `proof_data` will be `NULL` for transactions after migration 29, as the previous non-TSC merkle
-  proofs are just deleted with the intention that the user will update them to TSC merkle proofs
-  via some service that offers arbitrary merkle proofs.
+- `block_hash` will `NULL` for transactions that the legacy ElectrumX proof data was not retained
+   for. These will need to be obtained, if they contain unspent coins (UTXOs).
+- `block_hash` will be non non-`NULL` for transactions that have been mined and which we have
+  the proof for, `block_height` will be the height of the block with the given hash and
+  `block_position` will be the index of the transaction in the block. There will be a proof row in
+  the `TransactionProofs` table mapped to the `tx_hash` and `block_hash` columns of the
+  `Transactions` table.
