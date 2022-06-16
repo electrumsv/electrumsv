@@ -88,6 +88,7 @@ def run_non_RPC(config: SimpleConfig) -> None:
         return final_path
 
     if cmdname in {'create_wallet', 'create_account'}:
+        app_state.read_headers()
         password: Optional[str]
         if not config.cmdline_options.get('nopasswordcheck'):
             password = prompt_password("Password: ")
