@@ -2233,6 +2233,22 @@ class Wallet(TriggeredCallbacks):
         self.request_count = 0
         self.response_count = 0
 
+        # 1.3-related database fixups. We cannot put these in the migration as the master branch
+        # with the 1.4 development may have users and we do not want to break the chain of
+        # migration scripts and database versions.
+        self.add_wallet_event_row: Optional[WalletEventRow] = None
+        if not len(self._accounts):
+            for wallet_event_row in self.read_wallet_events():
+                if wallet_event_row.event_type == WalletEventType.ACCOUNT_CREATION_HINT:
+                    self.add_wallet_event_row = wallet_event_row
+                    break
+            else:
+                wallet_events = self.create_wallet_events([
+                    WalletEventRow(0, WalletEventType.ACCOUNT_CREATION_HINT, None,
+                        WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, int(time.time()))
+                ])
+                self.add_wallet_event_row = wallet_events[0]
+
     def __str__(self) -> str:
         return f"wallet(path='{self._storage.get_path()}')"
 
@@ -2403,6 +2419,7 @@ class Wallet(TriggeredCallbacks):
             output_rows: List[TransactionOutputRow]) -> AbstractAccount:
         account = self._realize_account(account_row, keyinstance_rows, output_rows)
         self.register_account(account_row.account_id, account)
+
         self.trigger_callback("on_account_created", account_row.account_id)
 
         self.create_wallet_events([
@@ -2410,9 +2427,19 @@ class Wallet(TriggeredCallbacks):
                 WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, int(time.time()))
         ])
 
+
         if self._network is not None:
             account.start(self._network)
         return account
+
+    def remove_add_account_notification(self) -> Optional[WalletEventRow]:
+        if self.add_wallet_event_row is not None:
+            self.update_wallet_event_flags(
+                [ (WalletEventFlag.FEATURED, self.add_wallet_event_row.event_id) ])
+            wallet_event_row = self.add_wallet_event_row
+            self.add_wallet_event_row = None
+            return wallet_event_row
+        return None
 
     def create_account_from_keystore(self, keystore) -> AbstractAccount:
         masterkey_row = self.create_masterkey_from_keystore(keystore)

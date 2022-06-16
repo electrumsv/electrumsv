@@ -54,7 +54,7 @@ class AccountsView(QSplitter):
                     return
 
                 painter = QPainter(self.viewport())
-                painter.drawText(self.rect(), Qt.AlignCenter, _("Add your first account.."))
+                painter.drawText(self.rect(), Qt.AlignCenter, _("Add an account.."))
 
         self._account_ids: List[int] = []
         self._tab_widget = QTabWidget()
@@ -93,8 +93,9 @@ class AccountsView(QSplitter):
             row = self._account_ids.index(new_account_id)
             self._selection_list.setCurrentRow(row)
 
-        if self._import_invoices_action is not None:
-            self._import_invoices_action.setEnabled(self._main_window.is_send_view_active())
+        # Invoice import is not supported.
+        # if self._import_invoices_action is not None:
+        #     self._import_invoices_action.setEnabled(self._main_window.is_send_view_active())
 
     def _on_current_item_changed(self, item: QListWidgetItem, last_item: QListWidgetItem) -> None:
         account_id = item.data(Qt.UserRole)
@@ -219,7 +220,9 @@ class AccountsView(QSplitter):
         invoices_menu = menu.addMenu(_("Invoices"))
         self._import_invoices_action = invoices_menu.addAction(_("Import"),
             partial(self._on_menu_import_invoices, account_id))
-        self._import_invoices_action.setEnabled(main_window.is_send_view_active())
+        # Invoice import is not supported.
+        self._import_invoices_action.setEnabled(False)
+        # self._import_invoices_action.setEnabled(main_window.is_send_view_active())
 
         payments_menu = menu.addMenu(_("Payments"))
         ed_action = payments_menu.addAction(_("Export destinations"),

@@ -19,6 +19,7 @@ class WalletAPI(QObject):
 
     contact_changed = pyqtSignal(bool, object, object)
     new_notification = pyqtSignal(object)
+    dismissed_notification = pyqtSignal(object)
 
     def __init__(self, wallet_window: 'ElectrumWindow') -> None:
         super().__init__(wallet_window)
@@ -29,14 +30,14 @@ class WalletAPI(QObject):
         app_state.app.identity_removed_signal.connect(self._on_contact_removed)
         app_state.app.contact_added_signal.connect(self._on_contact_added)
         app_state.app.contact_removed_signal.connect(self._on_contact_removed)
-        app_state.app.new_notification.connect(self._on_new_notification)
+        app_state.app.new_notification.connect(self.post_notification)
 
     def clean_up(self) -> None:
         app_state.app.identity_added_signal.disconnect(self._on_contact_added)
         app_state.app.identity_removed_signal.disconnect(self._on_contact_removed)
         app_state.app.contact_added_signal.disconnect(self._on_contact_added)
         app_state.app.contact_removed_signal.disconnect(self._on_contact_removed)
-        app_state.app.new_notification.disconnect(self._on_new_notification)
+        app_state.app.new_notification.disconnect(self.post_notification)
 
     # def __del__(self) -> None:
     #     print(f"Wallet API {self!r} was garbage collected")
@@ -124,9 +125,13 @@ class WalletAPI(QObject):
     def update_notification_flags(self, updates: List[Tuple[WalletEventFlag, int]]) -> None:
         self.wallet_window._wallet.update_wallet_event_flags(updates)
 
-    def _on_new_notification(self, wallet_path: str, row: WalletEventRow) -> None:
+    def post_notification(self, wallet_path: str, row: WalletEventRow) -> None:
         if wallet_path == self.wallet_window._wallet.get_storage_path():
             self.new_notification.emit(row)
+
+    def dismiss_notification(self, wallet_path: str, row: WalletEventRow) -> None:
+        if wallet_path == self.wallet_window._wallet.get_storage_path():
+            self.dismissed_notification.emit(row)
 
     def prompt_to_show_secured_data(self, account_id: int) -> None:
         self.wallet_window.show_secured_data_signal.emit(account_id)

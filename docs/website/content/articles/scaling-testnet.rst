@@ -43,7 +43,7 @@ If you are running a Windows build you might use the following command:
 
 .. code:: console
 
-  ElectrumSV-1.3.14-portable.exe --scaling-testnet
+  ElectrumSV-1.3.15-portable.exe --scaling-testnet
 
 If you are running on macOS or Linux, you might use the following command:
 

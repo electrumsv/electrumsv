@@ -227,6 +227,8 @@ class WalletEventType(IntEnum):
 
     # Account-related events
     SEED_BACKUP_REMINDER = 100001
+    ACCOUNT_CREATION_HINT = 100002
+    WALLET_UPDATE = 100003
 
 
 class WalletEventFlag(IntFlag):

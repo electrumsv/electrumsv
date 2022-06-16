@@ -57,7 +57,8 @@ from electrumsv import bitcoin, commands, paymentrequest, qrscanner, util
 from electrumsv.app_state import app_state
 from electrumsv.bitcoin import (COIN, is_address_valid, address_from_string,
     script_template_to_string)
-from electrumsv.constants import DATABASE_EXT, NetworkEventNames, TxFlags, WalletSettings
+from electrumsv.constants import DATABASE_EXT, NetworkEventNames, TxFlags, WalletEventFlag, \
+    WalletEventType, WalletSettings
 from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.logs import logs
@@ -72,7 +73,7 @@ from electrumsv.util import (
 )
 from electrumsv.version import PACKAGE_VERSION
 from electrumsv.wallet import AbstractAccount, UTXO, Wallet
-from electrumsv.wallet_database.tables import InvoiceRow, KeyInstanceRow
+from electrumsv.wallet_database.tables import InvoiceRow, KeyInstanceRow, WalletEventRow
 import electrumsv.web as web
 
 from .amountedit import AmountEdit, BTCAmountEdit
@@ -114,6 +115,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     transaction_deleted_signal = pyqtSignal(object, object)
     show_secured_data_signal = pyqtSignal(object)
     wallet_setting_changed_signal = pyqtSignal(str, object)
+    present_notifications_tab_signal = pyqtSignal()
+
+    _last_update_notification = 0.0
 
     def __init__(self, wallet: Wallet):
         QMainWindow.__init__(self)
@@ -180,7 +184,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.network_status_signal.connect(self._update_network_status)
         self.notify_transactions_signal.connect(self._notify_transactions)
         self.show_secured_data_signal.connect(self._on_show_secured_data)
-        self.history_view.setFocus(True)
+        self.present_notifications_tab_signal.connect(self._present_notifications_tab)
 
         # Link wallet synchronisation to throttled UI updates.
         self._wallet_sync_event = app_state.async_.event()
@@ -239,6 +243,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         use_multiple_accounts = self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_ACCOUNTS)
         self._update_add_account_button(use_multiple_accounts)
+        self._present_notifications_tab()
 
         # This is what should normally happen when the window is ready, and multiple-accounts
         # are allowed.
@@ -335,7 +340,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._wallet.create_gui_handler(self, account)
 
         self.account_created_signal.emit(new_account_id, account)
+        # This is an `emit` that happens in the UI thread.
+        wallet_event_row = self._wallet.remove_add_account_notification()
+        if wallet_event_row is not None:
+            self._api.dismiss_notification(self._wallet.get_storage_path(), wallet_event_row)
         self.set_active_account(account)
+        self.present_notifications_tab()
 
     def set_active_account(self, account: AbstractAccount) -> None:
         account_id = account.get_id()
@@ -409,6 +419,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # History tab needs updating if it used spot
         if app_state.fx.history_used_spot:
             self.update_history_view()
+
+    def present_notifications_tab(self) -> None:
+        self.present_notifications_tab_signal.emit()
+
+    def _present_notifications_tab(self) -> None:
+        self.toggle_tab(self.notifications_tab, True, to_front=True)
 
     def toggle_tab(self, tab: QWidget, desired_state: Optional[bool]=None,
             to_front: bool=False) -> None:
@@ -811,12 +827,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._update_check_action = menu.addAction(
             _("Check for Updates"), self._on_check_for_updates)
 
+        have_update = False
         if update_check_state == "default":
             icon_path = "icons8-available-updates-80-blue"
             icon_text = _("Updates")
             tooltip = _("Check for Updates")
             menu.setDefaultAction(self._update_check_action)
         elif update_check_state == "update-present-immediate":
+            have_update = True
             icon_path = "icons8-available-updates-80-yellow"
             icon_text = f"{stable_version}"
             tooltip = _("A newer version of ElectrumSV is available, and "+
@@ -825,6 +843,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 _("View Pending Update"), _on_view_pending_update)
             menu.setDefaultAction(self._update_view_pending_action)
         elif update_check_state == "update-present-prolonged":
+            have_update = True
             icon_path = "icons8-available-updates-80-red"
             icon_text = f"{stable_version}"
             tooltip = _("A newer version of ElectrumSV is available, and "+
@@ -832,12 +851,39 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._update_view_pending_action = menu.addAction(
                 _("View Pending Update"), _on_view_pending_update)
             menu.setDefaultAction(self._update_view_pending_action)
+
         # Apply the update state.
         self._update_action.setMenu(menu)
         self._update_action.setIcon(read_QIcon(icon_path))
         self._update_action.setText(icon_text)
         self._update_action.setToolTip(tooltip)
         self._update_check_state = update_check_state
+
+        if not have_update:
+            return
+
+        require_update_event = False
+        if self._last_update_notification > time.time() - 60.0:
+            # Paranoid to avoid event spamming.
+            require_update_event = False
+        else:
+            for wallet_event in self._wallet.read_wallet_events():
+                if wallet_event.event_type == WalletEventType.WALLET_UPDATE:
+                    if wallet_event.event_flags & WalletEventFlag.UNREAD == WalletEventFlag.UNREAD:
+                        break
+            else:
+                # There is either no update notification or it has been marked as read. Add a new
+                # one, we strongly advise users to update as older versions are unsupported.
+                require_update_event = True
+
+        if require_update_event:
+            self._last_update_notification = time.time()
+
+            wallet_events = self._wallet.create_wallet_events([
+                WalletEventRow(0, WalletEventType.WALLET_UPDATE, None,
+                    WalletEventFlag.FEATURED | WalletEventFlag.UNREAD, int(time.time()))
+            ])
+            self._api.post_notification(self._wallet.get_storage_path(), wallet_events[0])
 
     def _on_check_for_updates(self, checked: bool=False) -> None:
         self.show_update_check()

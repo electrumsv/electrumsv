@@ -29,8 +29,8 @@
 from functools import partial
 from typing import Any, List
 
-from PyQt5.QtCore import QObject, Qt, pyqtSignal
-from PyQt5.QtGui import QPainter, QPixmap
+from PyQt5.QtCore import QObject, Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices, QPainter, QPixmap
 from PyQt5.QtWidgets import (QVBoxLayout, QLabel, QLayout, QWidget,
     QHBoxLayout, QStyle, QStyleOption, QToolBar, QAction, QListWidget,
     QListWidgetItem)
@@ -58,6 +58,7 @@ class ListContext(QObject):
         self.wallet_api = wallet_api
 
         self.wallet_api.new_notification.connect(self.entry_added.emit)
+        self.wallet_api.dismissed_notification.connect(self.entry_removed.emit)
 
     def get_empty_text(self) -> str:
         return _("No new notifications.")
@@ -69,11 +70,23 @@ class ListContext(QObject):
         return "Not yet implemented"
 
     def get_entry_image_text(self, row: WalletEventRow) -> str:
-        image_text = _("Warning")
+        if row.event_type == WalletEventType.SEED_BACKUP_REMINDER:
+            image_text = _("Warning")
+        elif row.event_type == WalletEventType.WALLET_UPDATE:
+            image_text = _("Warning")
+        else:
+            image_text = _("Getting started")
         return image_text
 
     def get_entry_image_filename(self, row: WalletEventRow) -> str:
-        image_filename = "icons8-warning-shield-80-blueui.png"
+        if row.event_type == WalletEventType.SEED_BACKUP_REMINDER:
+            image_filename = "icons8-warning-shield-80-blueui.png"
+        elif row.event_type == WalletEventType.WALLET_UPDATE:
+            image_filename = "icons8-warning-shield-80-blueui.png"
+        elif row.event_type == WalletEventType.ACCOUNT_CREATION_HINT:
+            image_filename = "icons8-add-folder-80.png"
+        else:
+            image_filename = "icons8-decision-80.png"
         return image_filename
 
     def get_rows(self) -> List[WalletEventRow]:
@@ -165,10 +178,17 @@ class Cards(QWidget):
             self._layout.addWidget(self._list)
 
         card = self._context.card_factory(row)
+        for list_index in range(self._list.count()):
+            list_item = self._list.item(list_index)
+            if list_item.data(Qt.UserRole) == row.event_id:
+                self._list.setItemWidget(list_item, card)
+                return
+
         list_item = QListWidgetItem()
         # The item won't display unless it gets a size hint. It seems to resize horizontally
         # but unless the height is a minimal amount it won't do anything proactive..
         list_item.setSizeHint(card.sizeHint())
+        list_item.setData(Qt.UserRole, row.event_id)
         self._list.addItem(list_item)
         self._list.setItemWidget(list_item, card)
 
@@ -267,7 +287,53 @@ class NotificationCard(Card):
         parent_layout.addLayout(layout)
 
         layout.addStretch(1)
-        if self._row.event_type == WalletEventType.SEED_BACKUP_REMINDER:
+        if self._row.event_type == WalletEventType.WALLET_UPDATE:
+            title_label = QLabel(_("Update ElectrumSV"))
+            title_label.setObjectName("NotificationCardTitle")
+
+            description_label = QLabel(_("It is strongly advised that you update ElectrumSV as"
+                "there is a new version available. The ElectrumSV developers do not support "
+                "older versions of the wallet, so it is in your best interest to upgrade "
+                "immediately when a new version is available. Click "
+                "<a href=\"action:update\">here</a> to get the latest version."))
+            description_label.setObjectName("NotificationCardDescription")
+            description_label.setWordWrap(True)
+            description_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            description_label.linkActivated.connect(self.on_link_activated)
+
+            date_context_label = QLabel(format_time(self._row.date_created, _("Unknown")))
+            date_context_label.setAlignment(Qt.AlignRight)
+            date_context_label.setObjectName("NotificationCardContext")
+
+            bottom_layout = QHBoxLayout()
+            bottom_layout.addWidget(date_context_label, 1, Qt.AlignRight)
+
+            layout.addWidget(title_label)
+            layout.addWidget(description_label)
+            layout.addLayout(bottom_layout)
+        elif self._row.event_type == WalletEventType.ACCOUNT_CREATION_HINT:
+            title_label = QLabel(_("Create an account"))
+            title_label.setObjectName("NotificationCardTitle")
+
+            description_label = QLabel(_("Before you can access coins in your wallet you need to "
+                "create an account. You can do this by clicking on the Add Account button in "
+                "the toolbar area with the buttons above."))
+            description_label.setObjectName("NotificationCardDescription")
+            description_label.setWordWrap(True)
+            description_label.setTextInteractionFlags(Qt.TextBrowserInteraction)
+            description_label.linkActivated.connect(self.on_link_activated)
+
+            date_context_label = QLabel(format_time(self._row.date_created, _("Unknown")))
+            date_context_label.setAlignment(Qt.AlignRight)
+            date_context_label.setObjectName("NotificationCardContext")
+
+            bottom_layout = QHBoxLayout()
+            bottom_layout.addWidget(date_context_label, 1, Qt.AlignRight)
+
+            layout.addWidget(title_label)
+            layout.addWidget(description_label)
+            layout.addLayout(bottom_layout)
+        elif self._row.event_type == WalletEventType.SEED_BACKUP_REMINDER:
             title_label = QLabel(_("Backup your wallet"))
             title_label.setObjectName("NotificationCardTitle")
 
@@ -321,6 +387,9 @@ class NotificationCard(Card):
         if url_type == "action":
             if url_path == "view-secured-data":
                 self._context.wallet_api.prompt_to_show_secured_data(self._row.account_id)
+                return
+            elif url_path == "update":
+                QDesktopServices.openUrl(QUrl("https://electrumsv.io/download.html"))
                 return
         elif url_type == "help":
             if url_path == "view-secured-data":
