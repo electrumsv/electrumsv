@@ -43,9 +43,9 @@ Spent output API (forwarded)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. note::
-   The ElectrumSV project has neither the manpower or the interest in providing a non-regtest open source
-   implementation of this API. It is expected that commercial services will provide it, as an
-   optional enabled API provided by their servers.
+   The ElectrumSV project has neither the manpower or the interest in providing a non-regtest
+   open source implementation of this API. Commercial services can if they choose, offer it,
+   as an optional enabled API provided by their servers.
 
 It is useful to be able to ask whether a UTXO is spent. If it is spent then we need a way to find
 out what transaction it was spent in and what block it was mined in, if not in the mempool. We need
@@ -71,9 +71,9 @@ Restoration API (forwarded)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. note::
-   The ElectrumSV project has neither the manpower or the interest in providing a non-regtest open
-   source implementation of this API. It is expected that commercial services will provide it, as an
-   optional enabled API provided by their servers.
+   The ElectrumSV project has neither the manpower or the interest in providing a non-regtest
+   open source implementation of this API. Commercial services can if they choose, offer it,
+   as an optional enabled API provided by their servers.
 
 In the past there was an expectation that seed words could be used to locate all transactions
 ever associated with a wallet, and that this could be used as both a form of backup and a way
@@ -94,9 +94,9 @@ Transaction API (forwarded)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. note::
-   The ElectrumSV project has neither the manpower or the interest in providing a non-regtest open
-   source implementation of this API. It is expected that commercial services will provide it, as an
-   optional enabled API provided by their servers.
+   The ElectrumSV project has neither the manpower or the interest in providing a non-regtest
+   open source implementation of this API. Commercial services can if they choose, offer it,
+   as an optional enabled API provided by their servers.
 
 As the blockchain grows larger and larger, storage and access to arbitrary transaction data
 becomes a specialised service that will likely require charging for access to data. The
@@ -106,11 +106,11 @@ Merkle proof API (forwarded)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. note::
-   The ElectrumSV project has neither the manpower or the interest in providing a non-regtest open
-   source implementation of this API. It is expected that commercial services will provide it, as an
-   optional enabled API provided by their servers.
+   The ElectrumSV project has neither the manpower or the interest in providing a non-regtest
+   open source implementation of this API. Commercial services can if they choose, offer it,
+   as an optional enabled API provided by their servers.
 
-In an ideal world all transactions will be broadcast through a merchant API server, and a callback
+If possible all transactions will be broadcast through a merchant API server, and a callback
 from that server will notify if the transaction is mined and provide the merkle proof. In the real
 world, not all transactions related to an ElectrumSV user's wallet are broadcast by that user
 through MAPI. Other parties may broadcast the transaction, and this may not be desirable, expected
@@ -167,10 +167,10 @@ Merkle proofs:
   be transactions we received spent output state for, which we have not had the chance to process
   yet. These have the :ref:`transaction state <transaction-state>`
   value of ``STATE_CLEARED`` with an associated block.
-- If we have transactions from before ElectrumSV 1.4.0 they will not have a TSC standardised
+- If we have transactions from before ElectrumSV 1.4.0 they may not have a TSC standardised
   merkle proof. We pass these to a worker task to take care of obtaining them. These have the
   :ref:`transaction state <transaction-state>` value of ``STATE_SETTLED`` with no
-  associated block or proof.
+  associated block.
 
 Account restoration
 -------------------

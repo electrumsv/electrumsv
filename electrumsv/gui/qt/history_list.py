@@ -191,33 +191,42 @@ class HistoryList(MyTreeWidget):
             fx.history_used_spot = False
 
         local_height = self._wallet.get_local_height()
+        current_time = get_posix_timestamp()
 
         items = []
         for entry in self._account.get_history(self.get_domain()):
             row = entry.row
             tx_id = hash_to_hex_str(row.tx_hash)
 
-            header = None
             conf = 0
-            block_height = 0
-            timestamp = False
-            if row.block_hash is not None:
-                lookup_result = self._wallet.lookup_header_for_hash(row.block_hash)
-                if lookup_result is not None:
-                    header, _chain = lookup_result
-                    block_height = header.height
-                    timestamp = header.timestamp
-                    conf = 0 if block_height <= 0 else max(local_height - block_height + 1, 0)
+            timestamp: Optional[int] = None
+
+            if row.block_height > BlockHeight.MEMPOOL:
+                header: Optional[Header] = None
+                if row.block_hash is None:
+                    # This should be a legacy transaction which has no proof, because BTC and BCH
+                    # Electrum variants did not store them, neither did early ElectrumSV. We
+                    # should obtain these proofs if they are linked to a unspent coin (UTXO).
+                    header = self._wallet.lookup_header_for_height(row.block_height)
+                else:
+                    lookup_result = self._wallet.lookup_header_for_hash(row.block_hash)
+                    if lookup_result is not None:
+                        header, _chain = lookup_result
+                if header is not None:
+                    assert header.height == row.block_height
+                    assert row.block_height <= local_height
+                    timestamp = cast(int, header.timestamp)
+                    conf = (local_height - row.block_height) + 1
+
             status = get_tx_status(self._account, row.tx_flags & TxFlags.MASK_STATE,
-                block_height, row.block_position, conf)
+                row.block_height, row.block_position, conf)
             status_str = get_tx_desc(status, timestamp)
             v_str = app_state.format_amount(row.value_delta, True, whitespaces=True)
             balance_str = app_state.format_amount(entry.balance, whitespaces=True)
             line: List[str] = ["", tx_id, status_str,
                 row.description if row.description is not None else "", v_str, balance_str]
             if fx and fx.show_history():
-                date = posix_timestamp_to_datetime(
-                    get_posix_timestamp() if conf <= 0 else timestamp)
+                date = posix_timestamp_to_datetime(current_time if timestamp is None else timestamp)
                 for amount in [row.value_delta, entry.balance]:
                     text = fx.historical_value_str(amount, date)
                     line.append(text)

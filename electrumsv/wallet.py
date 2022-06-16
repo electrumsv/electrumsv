@@ -52,7 +52,7 @@ from .app_state import app_state
 from .bitcoin import  scripthash_bytes, ScriptTemplate, separate_proof_and_embedded_transaction, \
     TSCMerkleProof, TSCMerkleProofError, TSCMerkleProofJson, verify_proof
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
-    API_SERVER_TYPES, ChainManagementKind, ChainWorkerToken, CHANGE_SUBPATH,
+    API_SERVER_TYPES, BlockHeight, ChainManagementKind, ChainWorkerToken, CHANGE_SUBPATH,
     DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
     DerivationPath, KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags, MAX_VALUE,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkEventNames,
@@ -107,9 +107,8 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     SpentOutputRow, TransactionDeltaSumRow,
     TransactionExistsRow, TransactionLinkState, TransactionMetadata,
     TransactionOutputShortRow, TransactionOutputSpendableRow, TransactionOutputSpendableProtocol,
-    TransactionInputAddRow, TransactionOutputAddRow, MerkleProofRow,
-    TransactionProofUpdateRow, TransactionRow, TransactionValueRow, TxProofData,
-    WalletBalance, WalletEventInsertRow, WalletEventRow)
+    TransactionInputAddRow, TransactionOutputAddRow, MerkleProofRow, TransactionProofUpdateRow,
+    TransactionRow, TransactionValueRow, WalletBalance, WalletEventInsertRow, WalletEventRow)
 from .wallet_database.util import create_derivation_data2
 from .wallet_support.keys import get_pushdata_hash_for_account_key_data
 
@@ -594,21 +593,18 @@ class AbstractAccount:
         - Exporting the account history.
         """
         assert app_state.headers is not None
+
         history_raw: list[HistoryListEntry] = []
-        lookup_header = app_state.headers.lookup
         rows = db_functions.read_history_list(self._wallet.get_db_context(), self._id, domain)
         for row in rows:
-            sort_key = (1000000000, row.date_created)
-            if row.block_hash is not None:
-                try:
-                    header, _chain = lookup_header(row.block_hash)
-                    sort_key = header.height, row.block_position if row.block_position is not None \
-                        else 1000000000
-                except MissingHeader:
-                    # Most likely a transaction with a merkle proof that is waiting on the header
-                    pass
+            block_height = row.block_height
+            if block_height <= BlockHeight.MEMPOOL:
+                # This will list local transactions then unconfirmed then confirmed.
+                sort_key = (-block_height + 100000000000, row.date_created)
+            else:
+                assert row.block_position is not None
+                sort_key = (row.block_height, row.block_position)
             history_raw.append(HistoryListEntry(sort_key, row, 0))
-
         history_raw.sort(key=lambda t: t.sort_key)
 
         balance = 0
@@ -2024,9 +2020,6 @@ class WalletDataAccess:
     def read_unconnected_merkle_proofs(self) -> list[MerkleProofRow]:
         return db_functions.read_unconnected_merkle_proofs(self._db_context)
 
-    def read_transaction_proof_data(self, tx_hashes: Sequence[bytes]) -> list[TxProofData]:
-        return db_functions.read_transaction_proof_data(self._db_context, tx_hashes)
-
     def read_transaction_value_entries(self, account_id: int, *,
             tx_hashes: Optional[list[bytes]]=None, mask: Optional[TxFlags]=None) \
                 -> list[TransactionValueRow]:
@@ -3153,7 +3146,7 @@ class Wallet:
         return tx
 
     async def add_local_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
-            block_hash: Optional[bytes]=None, block_position: Optional[int]=None,
+            block_height: int, block_hash: Optional[bytes]=None, block_position: Optional[int]=None,
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
         """
         This is currently only called when an account constructs and signs a transaction
@@ -3164,11 +3157,11 @@ class Wallet:
         """
         link_state = TransactionLinkState()
         link_state.rollback_on_spend_conflict = True
-        await self._import_transaction(tx_hash, tx, flags, block_hash, block_position,
+        await self._import_transaction(tx_hash, tx, flags, block_height, block_hash, block_position,
             link_state, import_flags=import_flags)
 
     async def import_transaction_async(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
-            block_hash: Optional[bytes]=None, block_position: Optional[int]=None,
+            block_height: int, block_hash: Optional[bytes]=None, block_position: Optional[int]=None,
             link_state: Optional[TransactionLinkState]=None,
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET,
             proof_row: Optional[MerkleProofRow]=None) -> None:
@@ -3192,11 +3185,11 @@ class Wallet:
 
         if link_state is None:
             link_state = TransactionLinkState()
-        await self._import_transaction(tx_hash, tx, flags, block_hash, block_position, link_state,
-            import_flags=import_flags, proof_row=proof_row)
+        await self._import_transaction(tx_hash, tx, flags, block_height, block_hash,
+            block_position, link_state, import_flags=import_flags, proof_row=proof_row)
 
     async def _import_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
-            block_hash: Optional[bytes], block_position: Optional[int],
+            block_height: int, block_hash: Optional[bytes], block_position: Optional[int],
             link_state: TransactionLinkState,
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET,
             proof_row: Optional[MerkleProofRow]=None) -> None:
@@ -3216,9 +3209,9 @@ class Wallet:
 
         # The database layer should be decoupled from core wallet logic so we need to
         # break down the transaction and related data for it to consume.
-        tx_row = TransactionRow(tx_hash, tx.to_bytes(), flags, block_hash, block_position,
-            fee_value=None, description=None, version=tx.version, locktime=tx.locktime,
-            date_created=timestamp, date_updated=timestamp)
+        tx_row = TransactionRow(tx_hash, tx.to_bytes(), flags, block_hash, block_height,
+            block_position, fee_value=None, description=None, version=tx.version,
+            locktime=tx.locktime, date_created=timestamp, date_updated=timestamp)
 
         txi_rows: list[TransactionInputAddRow] = []
         for txi_index, input in enumerate(tx.inputs):
@@ -3992,11 +3985,11 @@ class Wallet:
                     # Connecting out of band headers (or trying to) does not help this wallet.
                     header, _chain = app_state.connect_out_of_band_header(proof.block_header_bytes)
 
-                    block_height: int = -1
+                    block_height: int = BlockHeight.MEMPOOL
                     if header is not None:
-                        block_height = header.height
+                        block_height = cast(int, header.height)
 
-                    tx_update_rows.append(TransactionProofUpdateRow(block_hash,
+                    tx_update_rows.append(TransactionProofUpdateRow(block_hash, BlockHeight.MEMPOOL,
                         proof.transaction_index, TxFlags.STATE_CLEARED, date_updated,
                         proof.transaction_hash))
                     proof_row = MerkleProofRow(block_hash, proof.transaction_index,
@@ -4005,11 +3998,12 @@ class Wallet:
                     headerless_proofs.append((proof, proof_row))
                 else:
                     header, _common_chain = header_match
-                    tx_update_rows.append(TransactionProofUpdateRow(block_hash,
+                    block_height = cast(int, header.height)
+                    tx_update_rows.append(TransactionProofUpdateRow(block_hash, block_height,
                         proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
                         proof.transaction_hash))
                     proof_rows.append(MerkleProofRow(block_hash, proof.transaction_index,
-                        header.height, proof.to_bytes(), proof.transaction_hash))
+                        block_height, proof.to_bytes(), proof.transaction_hash))
 
                     verified_entries.append((proof.transaction_hash, header, proof))
                     logger.debug("Storing verified merkle proof for transaction %s",
@@ -4252,8 +4246,8 @@ class Wallet:
                 # We indicate that we need to obtain the proof by setting the known block hash and
                 # the state to cleared.
                 date_updated = get_posix_timestamp()
-                tx_update_row = TransactionProofUpdateRow(block_hash, None, TxFlags.STATE_CLEARED,
-                    date_updated, tx_hash)
+                tx_update_row = TransactionProofUpdateRow(block_hash, BlockHeight.MEMPOOL, None,
+                    TxFlags.STATE_CLEARED, date_updated, tx_hash)
                 tx_update_rows.append(tx_update_row)
 
             flag_update_rows = [ (TxFlags.MASK_STATELESS, TxFlags.STATE_CLEARED, tx_hash)
@@ -4964,7 +4958,8 @@ class Wallet:
                         assert tsc_proof.block_hash is not None
 
                         tx = Transaction.from_bytes(tx_bytes)
-                        await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED)
+                        await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
+                            BlockHeight.MEMPOOL)
 
                         proof_row = MerkleProofRow(tsc_proof.block_hash,
                             tsc_proof.transaction_index, -1, tsc_proof.to_bytes(), tx_hash)
@@ -4999,18 +4994,22 @@ class Wallet:
                     proof_row = MerkleProofRow(tsc_proof.block_hash,
                         tsc_proof.transaction_index, header.height, tsc_proof.to_bytes(), tx_hash)
 
+                    block_height = cast(int, header.height)
                     if self.is_header_within_current_chain(header.height, tsc_proof.block_hash):
                         await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_SETTLED,
-                            tsc_proof.block_hash, tsc_proof.transaction_index, proof_row=proof_row)
+                            block_height, tsc_proof.block_hash, tsc_proof.transaction_index,
+                            proof_row=proof_row)
                     else:
-                        await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED)
+                        await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
+                            block_height)
                         await self.data.create_merkle_proofs_async([ proof_row ])
 
                     assert tx_hash not in self._missing_transactions
                 else:
                     tx_bytes = await self.fetch_raw_transaction_async(tx_hash, account)
                     tx = Transaction.from_bytes(tx_bytes)
-                    await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED)
+                    await self.import_transaction_async(tx_hash, tx, TxFlags.STATE_CLEARED,
+                        BlockHeight.MEMPOOL)
                     assert tx_hash not in self._missing_transactions
 
     async def _obtain_merkle_proofs_worker_async(self) -> None:
@@ -5112,13 +5111,14 @@ class Wallet:
                         "invalid merkle proofs")
                     return
 
+                block_height = cast(int, header.height)
                 if self.is_header_within_current_chain(header.height, tsc_proof.block_hash):
                     self._logger.debug("Storing verified merkle proof for transaction %s",
                         hash_to_hex_str(row.tx_hash))
 
                     # This proof is valid for the wallet's view of the blockchain.
                     date_updated = get_posix_timestamp()
-                    tx_update_row = TransactionProofUpdateRow(tsc_proof.block_hash,
+                    tx_update_row = TransactionProofUpdateRow(tsc_proof.block_hash, block_height,
                         tsc_proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
                         row.tx_hash)
                     proof_row = MerkleProofRow(tsc_proof.block_hash,
@@ -5131,7 +5131,7 @@ class Wallet:
                         tsc_proof)
                 else:
                     proof_row = MerkleProofRow(tsc_proof.block_hash,
-                        tsc_proof.transaction_index, header.height, tsc_proof.to_bytes(), tx_hash)
+                        tsc_proof.transaction_index, block_height, tsc_proof.to_bytes(), tx_hash)
                     await self.data.create_merkle_proofs_async([ proof_row  ])
 
                     self._connect_headerless_proof_worker_state.proof_queue.put_nowait(
@@ -5221,12 +5221,13 @@ class Wallet:
                 if verify_proof(proof, header.merkle_root):
                     assert proof.block_hash is not None
 
+                    block_height = cast(int, header.height)
                     transaction_proof_updates.append(TransactionProofUpdateRow(proof.block_hash,
-                        proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
+                        block_height, proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
                         proof.transaction_hash))
                     verified_proof_entries.append(process_entry)
-                    proof_updates.append(MerkleProofUpdateRow(header.height,
-                        proof_row.block_hash, proof_row.tx_hash))
+                    proof_updates.append(MerkleProofUpdateRow(block_height, proof_row.block_hash,
+                        proof_row.tx_hash))
                 else:
                     # TODO(1.4.0) Unreliable server. We probably want to know what server this
                     #    came from so we can treat it as a bad server. And we would want to retry
@@ -5237,7 +5238,8 @@ class Wallet:
                     # it should not be necessary to update the UI as the transaction should not have
                     # changed state and we do not display "pending verification" proofs.
                     transaction_proof_updates.append(TransactionProofUpdateRow(None,
-                        None, TxFlags.STATE_CLEARED, date_updated, proof.transaction_hash))
+                        BlockHeight.MEMPOOL, None, TxFlags.STATE_CLEARED, date_updated,
+                        proof.transaction_hash))
 
             await self.data.update_transaction_proof_async(transaction_proof_updates, [],
                 proof_updates)
@@ -5291,6 +5293,17 @@ class Wallet:
         except MissingHeader:
             return False
         return cast(bytes, double_sha256(header_bytes)) == block_hash
+
+    def lookup_header_for_height(self, block_height: int) -> Optional[Header]:
+        """
+        """
+        if self._current_chain is None:
+            return None
+        assert app_state.headers is not None
+        try:
+            return app_state.headers.header_at_height(self._current_chain, block_height)
+        except MissingHeader:
+            return None
 
     def lookup_header_for_hash(self, block_hash: bytes) -> Optional[tuple[Header, Chain]]:
         """

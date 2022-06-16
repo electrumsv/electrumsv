@@ -36,7 +36,7 @@ from typing import Any, cast, Iterable, Optional, Sequence, Type
 from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, execute_sql_by_id, \
     read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
 
-from ..constants import (DerivationType, DerivationPath, KeyInstanceFlag,
+from ..constants import (BlockHeight, DerivationType, DerivationPath, KeyInstanceFlag,
     pack_derivation_path, PaymentFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag,
     PushDataHashRegistrationFlag, ScriptType,
     ServerPeerChannelFlag, TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag)
@@ -184,10 +184,10 @@ def create_account_transactions_UNITTEST(db_context: DatabaseContext,
 # This is currently only used from unit tests.
 def create_transactions_UNITTEST(db_context: DatabaseContext, rows: list[TransactionRow]) \
         -> concurrent.futures.Future[None]:
-    sql = ("INSERT INTO Transactions (tx_hash, tx_data, flags, block_hash, "
+    sql = ("INSERT INTO Transactions (tx_hash, tx_data, flags, block_hash, block_height, "
         "block_position, fee_value, description, version, locktime, "
         "date_created, date_updated) "
-        "VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)")
 
     for row in rows:
         assert type(row.tx_hash) is bytes and row.tx_bytes is not None
@@ -453,7 +453,7 @@ def read_history_list(db: sqlite3.Connection, account_id: int,
         keyinstance_ids: Optional[Sequence[int]]=None) -> list[HistoryListRow]:
     if keyinstance_ids:
         # Used for the address dialog.
-        sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_hash, TX.block_position, "
+        sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_hash, TX.block_height, TX.block_position, "
                 "ATX.description, TOTAL(TXV.value), TX.date_created "
             "FROM TransactionValues TXV "
             "INNER JOIN Transactions AS TX ON TX.tx_hash=TXV.tx_hash "
@@ -464,7 +464,7 @@ def read_history_list(db: sqlite3.Connection, account_id: int,
             keyinstance_ids)
 
     # Used for the history list and export.
-    sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_hash, TX.block_position,"
+    sql = ("SELECT TXV.tx_hash, TX.flags, TX.block_hash, TX.block_height, TX.block_position,"
             "ATX.description, TOTAL(TXV.value), TX.date_created "
         "FROM TransactionValues TXV "
         "INNER JOIN Transactions AS TX ON TX.tx_hash=TXV.tx_hash "
@@ -534,6 +534,20 @@ def read_invoices_for_account(db: sqlite3.Connection, account_id: int, flags: Op
 
 @replace_db_context_with_connection
 def read_proofless_transactions(db: sqlite3.Connection) -> list[TransactionProoflessRow]:
+    """
+    Identify transactions that we need proofs for.
+
+    These will be:
+    - Transactions that predate storage of the proof, whether from Electron Cash or Electrum
+      Core, or perhaps ElectrumSV before it stored these.
+    - Transactions that mysteriously happen not to have proofs despite ElectrumSV trying to
+      store them. Not reproducible.. but seems to have happened!
+
+    Strictly speaking we only need proofs for outputs that have not been spent. All these
+
+    The wider range of transactions are those that have the `STATE_SETTLED` flag and no
+    block hash.
+    """
     # TODO: This action is billed against a petty cash account on behalf of the account that
     # requires the proof. However, it is possible that a transaction may in the longer term be
     # linked to multiple accounts, which complicates things. For now we take the simplest approach
@@ -592,10 +606,11 @@ def read_existing_output_spends(db: sqlite3.Connection, outpoints: list[Outpoint
 
 
 @replace_db_context_with_connection
-def read_transaction_proof_data(db: sqlite3.Connection, tx_hashes: Sequence[bytes]) \
+def UNITTEST_read_transaction_proof_data(db: sqlite3.Connection, tx_hashes: Sequence[bytes]) \
         -> list[TxProofData]:
     sql = """
-        SELECT TX.tx_hash, TX.flags, TX.block_hash, TXP.proof_data
+        SELECT TX.tx_hash, TX.flags, TX.block_hash, TXP.proof_data, TX.block_height,
+            TX.block_position, TXP.block_height, TXP.block_position
         FROM Transactions TX
         INNER JOIN TransactionProofs TXP ON TXP.tx_hash=TX.tx_hash AND TXP.block_hash=TX.block_hash
         WHERE TX.tx_hash IN ({})
@@ -1813,7 +1828,7 @@ def update_transaction_proof_write(tx_update_rows: list[TransactionProofUpdateRo
 
     sql = f"""
         UPDATE Transactions
-        SET block_hash=?, block_position=?, flags=(flags&{~TxFlags.MASK_STATE})|?,
+        SET block_hash=?, block_height=?, block_position=?, flags=(flags&{~TxFlags.MASK_STATE})|?,
             date_updated=?
         WHERE tx_hash=?
     """
@@ -2389,12 +2404,12 @@ def update_reorged_transactions_write(orphaned_block_hashes: list[bytes],
     # - Settled transactions with proof related columns set are ones we verified using the header.
     sql = """
         UPDATE Transactions
-        SET date_updated=?, flags=(flags&?)|?, block_hash=NULL, block_position=NULL
+        SET date_updated=?, flags=(flags&?)|?, block_hash=NULL, block_height=?, block_position=NULL
         WHERE flags&?!=0 AND block_hash IN ({})
         RETURNING tx_hash
     """
     sql_values = [ get_posix_timestamp(), ~TxFlags.MASK_STATE, TxFlags.STATE_CLEARED,
-        TxFlags.STATE_CLEARED | TxFlags.STATE_SETTLED ]
+        BlockHeight.MEMPOOL, TxFlags.STATE_CLEARED | TxFlags.STATE_SETTLED ]
     # We are doing something unusual here with the return type, so it is worth explaining it.
     # Usually a subclass of `NamedTuple` is passed that gets the returned values passed into it,
     # this means that if there is one returned value of type `T`, there still needs to be another
@@ -2489,8 +2504,8 @@ class AsynchronousFunctions:
         # Constraint: tx_hash should be unique.
         try:
             db.execute("INSERT INTO Transactions (tx_hash, tx_data, flags, block_hash, "
-                "block_position, fee_value, description, version, locktime, date_created, "
-                "date_updated) VALUES (?,?,?,?,?,?,?,?,?,?,?)", tx_row)
+                "block_height, block_position, fee_value, description, version, locktime, "
+                "date_created, date_updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tx_row)
         except sqlite3.IntegrityError as e:
             if e.args[0] == "UNIQUE constraint failed: Transactions.tx_hash":
                 raise TransactionAlreadyExistsError()
@@ -2558,14 +2573,14 @@ class AsynchronousFunctions:
         assert db is not None and isinstance(db, sqlite3.Connection)
         self._link_transaction(db, tx_hash, link_state)
 
-        cursor = db.execute("SELECT flags, block_hash, block_position, fee_value, description, "
-            "version, locktime, date_created, date_updated FROM Transactions WHERE tx_hash=?",
-            (tx_hash,))
-        flags, block_hash, block_position, fee_value, description, version, locktime, \
-            date_created, date_updated = cursor.fetchone()
+        cursor = db.execute("SELECT flags, block_hash, block_height, block_position, fee_value, "
+            "description, version, locktime, date_created, date_updated FROM Transactions "
+            "WHERE tx_hash=?", (tx_hash,))
+        flags, block_hash, block_height, block_position, fee_value, description, version, \
+            locktime, date_created, date_updated = cursor.fetchone()
         tx_bytes = None
-        return TransactionRow(tx_hash, tx_bytes, flags, block_hash, block_position, fee_value,
-            description, version, locktime, date_created, date_updated)
+        return TransactionRow(tx_hash, tx_bytes, flags, block_hash, block_height, block_position,
+            fee_value, description, version, locktime, date_created, date_updated)
 
     def _link_transaction(self, db: sqlite3.Connection, tx_hash: bytes,
             link_state: TransactionLinkState) -> None:

@@ -10,7 +10,7 @@ import unittest.mock
 from bitcoinx import Chain, double_sha256, Header, hex_str_to_hash, MissingHeader, Ops, Script
 import pytest
 
-from electrumsv.constants import (AccountFlags, CHANGE_SUBPATH, DATABASE_EXT,
+from electrumsv.constants import (AccountFlags, BlockHeight, CHANGE_SUBPATH, DATABASE_EXT,
     DerivationType, DatabaseKeyDerivationType, KeystoreTextType,
     MasterKeyFlags, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
     TxFlags, unpack_derivation_path)
@@ -716,7 +716,7 @@ async def test_transaction_script_offsets_and_lengths(mock_app_state, tmp_storag
         # Add the funding transaction to the database and link it to key usage.
         link_state = TransactionLinkState()
         await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED,
-            link_state=link_state)
+            BlockHeight.LOCAL, link_state=link_state)
 
         # Verify all the transaction outputs are present and are linked to spending inputs.
         txo_rows = db_functions.read_transaction_outputs_full(db_context)
@@ -789,7 +789,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         # Add the funding transaction to the database and link it to key usage.
         link_state = TransactionLinkState()
         await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED,
-            link_state=link_state)
+            BlockHeight.LOCAL, link_state=link_state)
 
         # Verify the received funds are present.
         tv_rows1 = db_functions.read_transaction_values(db_context, tx_hash_1)
@@ -808,7 +808,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         # Add the spending transaction to the database and link it to key usage.
         link_state = TransactionLinkState()
         await wallet.import_transaction_async(tx_hash_2, tx_2, TxFlags.STATE_SIGNED,
-            link_state=link_state)
+            BlockHeight.LOCAL, link_state=link_state)
 
         # Verify both the received funds are present.
         tv_rows2 = db_functions.read_transaction_values(db_context, tx_hash_2)
@@ -934,9 +934,10 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
             TransactionImportFlag.UNSET)
         link_state = TransactionLinkState()
 
-        proof_row = MerkleProofRow(BLOCK_HASH_REORGED1, BLOCK_POSITION, 232,
+        BLOCK_HEIGHT = 232
+        proof_row = MerkleProofRow(BLOCK_HASH_REORGED1, BLOCK_POSITION, BLOCK_HEIGHT,
             b'TSC_FAKE_PROOF_BYTES', tx_hash_1)
-        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SETTLED,
+        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SETTLED, BLOCK_HEIGHT,
             link_state=link_state, block_hash=BLOCK_HASH_REORGED1, block_position=BLOCK_POSITION,
             proof_row=proof_row)
 
@@ -995,9 +996,8 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
 
 
 @pytest.mark.asyncio
-@unittest.mock.patch('electrumsv.wallet.Wallet.get_local_height')
 @unittest.mock.patch('electrumsv.wallet.app_state')
-async def test_unverified_transactions(mock_app_state, get_local_height, tmp_storage) -> None:
+async def test_unverified_transactions(mock_app_state, tmp_storage) -> None:
     mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
 
     # Boilerplate setting up of a deterministic account. This is copied from above.
@@ -1022,8 +1022,6 @@ async def test_unverified_transactions(mock_app_state, get_local_height, tmp_sto
     db_context = tmp_storage.get_db_context()
     db = db_context.acquire_connection()
     try:
-        BLOCK_HEIGHT = 1000
-
         ## Add a transaction that is settled.
         tx_1 = Transaction.from_hex(tx_hex_funding)
         tx_hash_1 = tx_1.hash()
@@ -1032,23 +1030,9 @@ async def test_unverified_transactions(mock_app_state, get_local_height, tmp_sto
             TransactionImportFlag.UNSET)
         link_state = TransactionLinkState()
         await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_CLEARED,
-            link_state=link_state)
+            BlockHeight.MEMPOOL, link_state=link_state)
 
-        test_block_height = BLOCK_HEIGHT
-        def height_func() -> int:
-            return test_block_height
-        get_local_height.side_effect = height_func
-
-        # ret = await wallet.get_unverified_transactions_async()
-        # assert ret == {} # { tx_hash_1: BLOCK_HEIGHT }
-
-        # # Edge case, the unverified transaction is for a later block.
-        # # TODO There's a question whether this is something we should flag because if we have
-        # #   reorged to a lower block, then the `block_height` on this matched transaction should
-        # #   be wrong. The reorg test above should prove it does not happen.
-        # test_block_height = BLOCK_HEIGHT-1
-        # ret = await wallet.get_unverified_transactions_async()
-        # assert ret == {}
+        pass
     finally:
         db_context.release_connection(db)
 
@@ -1258,7 +1242,8 @@ async def test_extend_transaction_sequence() -> None:
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
         link_state = TransactionLinkState()
-        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED,
+        block_height = BlockHeight.LOCAL
+        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED, block_height,
             link_state=link_state)
 
         tx_1_context = TransactionContext()
@@ -1357,7 +1342,7 @@ async def test_extend_transaction_sequence() -> None:
         # Add the funding transaction to the database and link it to key usage.
         link_state = TransactionLinkState()
         await wallet.import_transaction_async(tx_hash_2, tx_2, TxFlags.STATE_SIGNED,
-            link_state=link_state)
+            BlockHeight.LOCAL, link_state=link_state)
 
         tx_2_context_b = TransactionContext()
         wallet.extend_transaction(tx_2, tx_2_context_b)

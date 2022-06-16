@@ -47,6 +47,7 @@ class HistoryListRow(NamedTuple):
     tx_hash: bytes
     tx_flags: TxFlags
     block_hash: Optional[bytes]
+    block_height: int
     block_position: Optional[int]
     description: Optional[str]
     value_delta: int
@@ -434,6 +435,7 @@ class TransactionRow(NamedTuple):
     tx_bytes: Optional[bytes]
     flags: TxFlags
     block_hash: Optional[bytes]
+    block_height: int
     block_position: Optional[int]
     fee_value: Optional[int]
     description: Optional[str]
@@ -459,6 +461,7 @@ class MerkleProofUpdateRow(NamedTuple):
 
 class TransactionProofUpdateRow(NamedTuple):
     block_hash: Optional[bytes]
+    block_height: int
     block_position: Optional[int]
     tx_flags: TxFlags
     date_updated: int
@@ -484,6 +487,10 @@ class TxProofData(NamedTuple):
     flags: TxFlags
     block_hash: Optional[bytes]
     proof_bytes: Optional[bytes]
+    tx_block_height: int
+    tx_block_position: Optional[int]
+    proof_block_height: int
+    proof_block_position: int
 
 
 class WalletBalance(NamedTuple):

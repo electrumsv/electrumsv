@@ -24,8 +24,13 @@ The current policy is:
 
 The ideal longer term policy is:
 
-- If the Bitcoin P2P network is connectable, this is always used to source headers.
-- If a blockchain service provider is used, this is also used to source headers.
+- If a blockchain service provider is used, use it as the authoritative source of a longest chain
+  to ensure that acquired blockchain state is relevant to the any fork the wallet may be following.
+- If the Bitcoin P2P network is connectable, use it as a possible source of a longest chain, as
+  long as there is no blockchain server. The user should be able to override it in order to rule
+  out invalid malicious chains, and to ensure they are following a valid chain. If the blockchain
+  server is being used as the authoritative header source, the P2P network can be used for
+  comparison purposes.
 
 The Bitcoin P2P network
 ~~~~~~~~~~~~~~~~~~~~~~~

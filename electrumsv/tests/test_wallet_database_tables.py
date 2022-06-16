@@ -16,10 +16,10 @@ except ModuleNotFoundError:
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore[no-redef]
 
-from electrumsv.constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
-    MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag, PeerChannelMessageFlag,
-    ScriptType, ServerPeerChannelFlag, TransactionOutputFlag, TxFlags, WalletEventFlag,
-    WalletEventType)
+from electrumsv.constants import (AccountFlags, AccountTxFlags, BlockHeight, DerivationType,
+    KeyInstanceFlag, MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag,
+    PeerChannelMessageFlag, ScriptType, ServerPeerChannelFlag, TransactionOutputFlag, TxFlags,
+    WalletEventFlag, WalletEventType)
 from electrumsv.types import Outpoint, ServerAccountKey
 from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
@@ -253,7 +253,7 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     tx1 = TransactionRow(
         tx_hash=TX_HASH_1,
         tx_bytes=TX_BYTES_1,
-        flags=TxFlags.STATE_SETTLED, block_hash=b'11',
+        flags=TxFlags.STATE_SETTLED, block_hash=b'11', block_height=10,
         block_position=1, fee_value=250,
         description=None, version=None, locktime=None, date_created=1, date_updated=2)
     TX_BYTES_2 = os.urandom(10)
@@ -261,7 +261,7 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     tx2 = TransactionRow(
         tx_hash=TX_HASH_2,
         tx_bytes=TX_BYTES_2,
-        flags=TxFlags.STATE_SETTLED, block_hash=b'11',
+        flags=TxFlags.STATE_SETTLED, block_hash=b'11', block_height=10,
         block_position=1, fee_value=250,
         description=None, version=None, locktime=None, date_created=1, date_updated=2)
     future = db_functions.create_transactions_UNITTEST(db_context, [ tx1, tx2 ])
@@ -455,7 +455,7 @@ class TestTransactionTable:
         tx_hash = bitcoinx.double_sha256(tx_bytes_1)
         tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes_1,
             flags=TxFlags.STATE_DISPATCHED,
-            block_hash=b'11', block_position=None, fee_value=None,
+            block_hash=b'11', block_height=BlockHeight.LOCAL, block_position=None, fee_value=None,
             description=None, version=None, locktime=None, date_created=1, date_updated=1)
         future = db_functions.create_transactions_UNITTEST(self.db_context, [ tx_row ])
         future.result(timeout=5)
@@ -484,7 +484,7 @@ class TestTransactionTable:
             tx_hash = bitcoinx.double_sha256(tx_bytes)
             to_add.append(
                 TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
-                    block_hash=b'11',
+                    block_hash=b'11', block_height=BlockHeight.LOCAL,
                     block_position=None, fee_value=2, description=None,
                     version=None, locktime=None, date_created=1, date_updated=1))
         future = db_functions.create_transactions_UNITTEST(self.db_context, to_add)
@@ -502,7 +502,7 @@ class TestTransactionTable:
             tx_bytes = bytes.fromhex(tx_hex)
             tx_hash = bitcoinx.double_sha256(tx_bytes)
             tx_row = TransactionRow(tx_hash=tx_hash, tx_bytes=tx_bytes, flags=TxFlags.UNSET,
-                block_hash=b'11', block_position=None, fee_value=2,
+                block_hash=b'11', block_position=None, fee_value=2, block_height=BlockHeight.LOCAL,
                 description=None, version=None, locktime=None, date_created=1, date_updated=1)
             future = db_functions.create_transactions_UNITTEST(self.db_context, [ tx_row ])
             future.result(timeout=5)
@@ -525,17 +525,31 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
     PROOF_DATA_2 = b'proof data 2'
     PROOF_DATA_3 = b'proof data 3'
     PROOF_DATA_4 = b'proof data 4'
-    merkle_proof_row_1 = MerkleProofRow(BLOCK_HASH_1, 1, 1, PROOF_DATA_1, tx_hash_1)
-    merkle_proof_row_2 = MerkleProofRow(BLOCK_HASH_2, 1, 1, PROOF_DATA_2, tx_hash_1)
-    merkle_proof_row_3 = MerkleProofRow(BLOCK_HASH_3, 1, 1, PROOF_DATA_3, tx_hash_2)
-    merkle_proof_row_4 = MerkleProofRow(BLOCK_HASH_4, 1, 1, PROOF_DATA_4, tx_hash_2)
+    BLOCK_HEIGHT_1 = 1
+    BLOCK_HEIGHT_1b = 101
+    BLOCK_HEIGHT_2 = 2
+    BLOCK_HEIGHT_2b = 102
+    BLOCK_HEIGHT_3 = 3
+    BLOCK_HEIGHT_4 = 4
+    BLOCK_POSITION_1 = 11
+    BLOCK_POSITION_2 = 12
+    BLOCK_POSITION_3 = 13
+    BLOCK_POSITION_4 = 14
+    merkle_proof_row_1 = MerkleProofRow(BLOCK_HASH_1, BLOCK_POSITION_1, BLOCK_HEIGHT_1,
+        PROOF_DATA_1, tx_hash_1)
+    merkle_proof_row_2 = MerkleProofRow(BLOCK_HASH_2, BLOCK_POSITION_2, BLOCK_HEIGHT_2,
+        PROOF_DATA_2, tx_hash_1)
+    merkle_proof_row_3 = MerkleProofRow(BLOCK_HASH_3, BLOCK_POSITION_3, BLOCK_HEIGHT_3,
+        PROOF_DATA_3, tx_hash_2)
+    merkle_proof_row_4 = MerkleProofRow(BLOCK_HASH_4, BLOCK_POSITION_4, BLOCK_HEIGHT_4,
+        PROOF_DATA_4, tx_hash_2)
 
     tx_row_1 = TransactionRow(tx_hash=tx_hash_1, tx_bytes=tx_bytes_1,
-        flags=TxFlags.STATE_CLEARED,
+        flags=TxFlags.STATE_CLEARED, block_height=BlockHeight.MEMPOOL,
         block_hash=BLOCK_HASH_1, block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=1, date_updated=1)
     tx_row_2 = TransactionRow(tx_hash=tx_hash_2, tx_bytes=tx_bytes_2,
-        flags=TxFlags.STATE_SIGNED,
+        flags=TxFlags.STATE_SIGNED, block_height=BlockHeight.LOCAL,
         block_hash=None, block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=1, date_updated=1)
     future = db_functions.create_transactions_UNITTEST(db_context, [ tx_row_1, tx_row_2 ])
@@ -562,60 +576,82 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         assert BLOCK_HASH_2 in proofs_by_block_hash
         assert proofs_by_block_hash[BLOCK_HASH_2] == merkle_proof_row_2
 
-        db_functions.update_merkle_proofs_write([ MerkleProofUpdateRow(10, BLOCK_HASH_2, tx_hash_1) ],
-            db_connection)
+        # Update the block height for merkle proof 2.
+        db_functions.update_merkle_proofs_write([ MerkleProofUpdateRow(BLOCK_HEIGHT_2b,
+            BLOCK_HASH_2, tx_hash_1) ], db_connection)
         proofs = db_functions.read_merkle_proofs(db_context, [ tx_hash_1 ])
         assert len(proofs) == 2
         proofs_by_block_hash = { row.block_hash: row for row in proofs }
         assert proofs_by_block_hash[BLOCK_HASH_1] == merkle_proof_row_1
-        assert proofs_by_block_hash[BLOCK_HASH_2] == merkle_proof_row_2._replace(block_height=10)
+        assert proofs_by_block_hash[BLOCK_HASH_2] == merkle_proof_row_2._replace(
+            block_height=BLOCK_HEIGHT_2b)
 
-        proof_datas = db_functions.read_transaction_proof_data(db_context, [])
+        proof_datas = db_functions.UNITTEST_read_transaction_proof_data(db_context, [])
         assert len(proof_datas) == 0
-        proof_datas = db_functions.read_transaction_proof_data(db_context, [ tx_hash_1 ])
+        proof_datas = db_functions.UNITTEST_read_transaction_proof_data(db_context, [ tx_hash_1 ])
         assert len(proof_datas) == 1
         assert proof_datas[0].flags == TxFlags.STATE_CLEARED
         assert proof_datas[0].block_hash == BLOCK_HASH_1
         assert proof_datas[0].proof_bytes == PROOF_DATA_1
+        assert proof_datas[0].tx_block_height == BlockHeight.MEMPOOL
+        assert proof_datas[0].tx_block_position is None
+        assert proof_datas[0].proof_block_height == BLOCK_HEIGHT_1
+        assert proof_datas[0].proof_block_position == BLOCK_POSITION_1
 
-        # This is a transaction with block hash, no block position, STATE_CLEARED.
+        # This is transaction 1, with block hash, no block position, STATE_CLEARED. Ready to
+        # check that it gets a block height.
         unconnected_proofs = db_functions.read_unconnected_merkle_proofs(db_context)
         assert len(unconnected_proofs) == 1
         assert unconnected_proofs[0] == merkle_proof_row_1
 
-        # This associates proof 3 with tx 3.
+        # Update transaction 2 to link to proof 3.
+        # - Do the transaction block fields get updated?
+        # - Does it get linked against the right proof?
         tx_proof_update_row = TransactionProofUpdateRow(merkle_proof_row_3.block_hash,
-            merkle_proof_row_3.block_position, TxFlags.STATE_SETTLED, 1, merkle_proof_row_3.tx_hash)
-        # This updates the height to 20.
-        proof_update_row = MerkleProofUpdateRow(20, BLOCK_HASH_1, tx_hash_1)
+            merkle_proof_row_3.block_height, merkle_proof_row_3.block_position,
+            TxFlags.STATE_SETTLED, 1, merkle_proof_row_3.tx_hash)
+        # This updates the block_height on merkle proof 1 (for transaction 1) to BLOCK_HEIGHT_1b.
+        proof_update_row = MerkleProofUpdateRow(BLOCK_HEIGHT_1b, BLOCK_HASH_1, tx_hash_1)
         db_functions.update_transaction_proof_write([ tx_proof_update_row ], [ merkle_proof_row_3,
             merkle_proof_row_4 ], [ proof_update_row ], db_connection)
 
-        # Confirm the block height is now 20.
+        # Confirm the block_height on merkle proof 1 (for transaction 1) is BLOCK_HEIGHT_1b.
         proofs = db_functions.read_merkle_proofs(db_context, [ tx_hash_1 ])
         assert len(proofs) == 2
         proofs_by_block_hash = { row.block_hash: row for row in proofs }
-        assert proofs_by_block_hash[BLOCK_HASH_1].block_height == 20
+        assert proofs_by_block_hash[BLOCK_HASH_1].block_height == BLOCK_HEIGHT_1b
 
-        # Confirm that proof 3 is associated with tx 3.
-        proof_datas = db_functions.read_transaction_proof_data(db_context, [ tx_hash_2 ])
+        # Confirm that proof 3 is associated with tx 2.
+        proof_datas = db_functions.UNITTEST_read_transaction_proof_data(db_context, [ tx_hash_2 ])
         assert len(proof_datas) == 1
         assert TxFlags(proof_datas[0].flags) == TxFlags.STATE_SETTLED
         assert proof_datas[0].block_hash == BLOCK_HASH_3
         assert proof_datas[0].proof_bytes == PROOF_DATA_3
+        assert proof_datas[0].tx_block_height == BLOCK_HEIGHT_3
+        assert proof_datas[0].tx_block_position == BLOCK_POSITION_3
+        assert proof_datas[0].proof_block_height == BLOCK_HEIGHT_3
+        assert proof_datas[0].proof_block_position == BLOCK_POSITION_3
 
-        # This associates proof 4 with tx 3.
+        # This associates transaction 2 with merkle proof 4.
+        # - Does the flag get combined?
+        # - Do the transaction block fields get updated?
+        # - Does it get linked against the right proof?
         tx_proof_update_row = TransactionProofUpdateRow(merkle_proof_row_4.block_hash,
-            merkle_proof_row_4.block_position, TxFlags.STATE_SETTLED, 1, tx_hash_2)
+            merkle_proof_row_4.block_height, merkle_proof_row_4.block_position,
+            TxFlags.STATE_SETTLED, 1, tx_hash_2)
         flag_update_entry = (TxFlags(~TxFlags.PAYS_INVOICE), TxFlags.PAYS_INVOICE, tx_hash_2)
         db_functions.update_transaction_proof_and_flag_write([ tx_proof_update_row ],
             [ flag_update_entry ], db_connection)
 
         # Confirm that proof 4 is associated with tx 3.
-        proof_datas = db_functions.read_transaction_proof_data(db_context, [ tx_hash_2 ])
+        proof_datas = db_functions.UNITTEST_read_transaction_proof_data(db_context, [ tx_hash_2 ])
         assert len(proof_datas) == 1
         assert proof_datas[0].block_hash == BLOCK_HASH_4
         assert proof_datas[0].proof_bytes == PROOF_DATA_4
+        assert proof_datas[0].tx_block_height == BLOCK_HEIGHT_4
+        assert proof_datas[0].tx_block_position == BLOCK_POSITION_4
+        assert proof_datas[0].proof_block_height == BLOCK_HEIGHT_4
+        assert proof_datas[0].proof_block_position == BLOCK_POSITION_4
         assert TxFlags(proof_datas[0].flags) == TxFlags.STATE_SETTLED|TxFlags.PAYS_INVOICE
     finally:
         db_context.release_connection(db_connection)
@@ -655,12 +691,12 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     # Satisfy the transaction foreign key constraint by creating the transaction.
     tx_rows = [
         TransactionRow(tx_hash=TX_HASH_COINBASE, tx_bytes=TX_BYTES_COINBASE,
-            flags=TxFlags.STATE_SETTLED,
+            flags=TxFlags.STATE_SETTLED, block_height=10,
             block_hash=BLOCK_HASH, block_position=None, fee_value=2, description=None,
             version=None, locktime=None, date_created=1, date_updated=1),
         TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlags.STATE_CLEARED,
-            block_hash=None, block_position=None, fee_value=2, description=None,
-            version=None, locktime=None, date_created=1, date_updated=1)
+            block_height=BlockHeight.MEMPOOL, block_hash=None, block_position=None, fee_value=2,
+            description=None, version=None, locktime=None, date_created=1, date_updated=1)
     ]
     future = db_functions.create_transactions_UNITTEST(db_context, tx_rows)
     future.result(timeout=5)
@@ -1120,6 +1156,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     ## Pay the payment request.
     # Create the transaction and outputs.
     tx_rows = [ TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlags.UNSET,
+        block_height=BlockHeight.LOCAL,
         block_hash=b'11', block_position=None, fee_value=2, description=None,
         version=None, locktime=None, date_created=1, date_updated=1) ]
     future = db_functions.create_transactions_UNITTEST(db_context, tx_rows)
@@ -1286,7 +1323,7 @@ def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: DatabaseContex
     txs = []
     for txh, txb in ((TX_HASH_1, TX_BYTES_1), (TX_HASH_2, TX_BYTES_2), (TX_HASH_3, TX_BYTES_3)):
         tx = TransactionRow(tx_hash=txh, tx_bytes=txb, flags=TxFlags.STATE_SETTLED,
-            block_hash=b'11', block_position=1, fee_value=250,
+            block_height=10, block_hash=b'11', block_position=1, fee_value=250,
             description=None, version=None, locktime=None, date_created=1, date_updated=2)
         txs.append(tx)
     future = db_functions.create_transactions_UNITTEST(db_context, txs)
@@ -1562,7 +1599,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     tx_settled_match1 = TransactionRow(
         tx_hash=TX_HASH_SETTLED_MATCH1,
         tx_bytes=TX_BYTES_SETTLED_MATCH1,
-        flags=TxFlags.STATE_SETTLED, block_hash=None,
+        flags=TxFlags.STATE_SETTLED, block_hash=None, block_height=10,
         block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=1, date_updated=2)
     TX_BYTES_SETTLED_MATCH2 = os.urandom(10)
@@ -1570,7 +1607,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     tx_settled_match2 = TransactionRow(
         tx_hash=TX_HASH_SETTLED_MATCH2,
         tx_bytes=TX_BYTES_SETTLED_MATCH2,
-        flags=TxFlags.STATE_SETTLED, block_hash=None,
+        flags=TxFlags.STATE_SETTLED, block_hash=None, block_height=10,
         block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
     TX_BYTES_SETTLED_IGNORED = os.urandom(10)
@@ -1578,7 +1615,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     tx_settled_ignored = TransactionRow(
         tx_hash=TX_HASH_SETTLED_IGNORED,
         tx_bytes=TX_BYTES_SETTLED_IGNORED,
-        flags=TxFlags.STATE_SETTLED, block_hash=b'ddddd',
+        flags=TxFlags.STATE_SETTLED, block_hash=b'ddddd', block_height=10,
         block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
     TX_BYTES_CLEARED_IGNORED = os.urandom(10)
@@ -1586,7 +1623,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     tx_cleared_ignored = TransactionRow(
         tx_hash=TX_HASH_CLEARED_IGNORED,
         tx_bytes=TX_BYTES_CLEARED_IGNORED,
-        flags=TxFlags.STATE_CLEARED, block_hash=None,
+        flags=TxFlags.STATE_CLEARED, block_hash=None, block_height=BlockHeight.MEMPOOL,
         block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
     TX_BYTES_CLEARED_MATCH1 = os.urandom(10)
@@ -1595,6 +1632,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
         tx_hash=TX_HASH_CLEARED_MATCH1,
         tx_bytes=TX_BYTES_CLEARED_MATCH1,
         flags=TxFlags.STATE_CLEARED, block_hash=b'fake block hash',
+        block_height=BlockHeight.MEMPOOL,
         block_position=None, fee_value=None,
         description=None, version=None, locktime=None, date_created=2, date_updated=2)
 
@@ -1608,14 +1646,18 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
             # proof_data: Optional[bytes] = None
             block_hash: Optional[bytes] = None
             block_position: Optional[int] = None
-            if tx_state == TxFlags.STATE_SETTLED:
+            block_height = BlockHeight.LOCAL
+            if tx_state == TxFlags.STATE_CLEARED:
+                block_height = BlockHeight.MEMPOOL
+            elif tx_state == TxFlags.STATE_SETTLED:
                 block_position = 111
                 block_hash = b'ignored block hash'
+                block_height = 10
                 # proof_data = b'nonmatch settled proof data'
             tx_nonmatch = TransactionRow(
                 tx_hash=TX_HASH_NONMATCH,
                 tx_bytes=TX_BYTES_NONMATCH,
-                flags=tx_state, block_hash=block_hash,
+                flags=tx_state, block_hash=block_hash, block_height=block_height,
                 block_position=block_position, fee_value=None,
                 description=None, version=None, locktime=None, date_created=2, date_updated=2)
             if is_orphan:

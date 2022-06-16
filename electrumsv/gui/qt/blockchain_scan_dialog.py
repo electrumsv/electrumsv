@@ -52,8 +52,9 @@ from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, 
     QWidget)
 
 from ...app_state import app_state
-from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, RECEIVING_SUBPATH, \
-    ServerCapability, ServerConnectionFlag, TransactionImportFlag, TxFlags, WalletEvent
+from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, \
+    RECEIVING_SUBPATH, ServerCapability, ServerConnectionFlag, TransactionImportFlag, TxFlags, \
+    WalletEvent
 from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, BlockchainScanner, \
     PushDataHashHandler, PushDataSearchError, SearchKeyEnumerator
 from ...exceptions import ServerConnectionError
@@ -505,6 +506,7 @@ class BlockchainScanDialog(WindowModalDialog):
             import_entry.linked_account_ids = link_state.account_ids
             tree_item.setIcon(Columns.STATUS, self._imported_tx_icon)
             tree_item.setToolTip(Columns.STATUS, _("This transaction was imported successfully."))
+
         if tx_row.flags & TxFlags.STATE_SETTLED:
             assert tx_row.block_hash is not None
             lookup_result = self._wallet.lookup_header_for_hash(tx_row.block_hash)

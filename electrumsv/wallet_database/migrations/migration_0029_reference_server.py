@@ -404,6 +404,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             logger.error("Invalid ElectrumX packed proof for transaction %s",
                 bitcoinx.hash_to_hex_str(tx_hash))
             continue
+
         # There is no guarantee we have this header. The user may have deleted the headers or
         # have an older application version they used to a height longer than the headers this
         # application version has.
@@ -413,6 +414,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             logger.warning("Missing ElectrumX proof header for transaction %s",
                 bitcoinx.hash_to_hex_str(tx_hash))
             continue
+
         # It is possible that the proof is for an old longest chain and is incorrect.
         merkle_root_bytes = cast(bytes, header.merkle_root)
         proof_merkle_root_bytes = merkle_root_hash_from_proof(tx_hash, merkle_branch, proof_index)
@@ -451,9 +453,6 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     # strangely revert back to CLEARED and they may not be re-verified until they jump through
     # server hoops.
     conn.execute("ALTER TABLE Transactions DROP COLUMN proof_data")
-    # This is a column we were supposed to remove in an earlier migration but the versions of
-    # SQLite we could require as a dependency did not support it at the time.
-    conn.execute("ALTER TABLE Transactions DROP COLUMN block_height")
 
     # Remove vestigial traces of `HasProofData` transaction flag (we cleared others in migration
     # 22).
