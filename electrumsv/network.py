@@ -39,11 +39,11 @@ from .logs import logs
 from .network_support.api_server import APIServerDefinition
 from .network_support.types import TipResponse
 from .network_support.headers import get_batched_headers_by_height_async, get_chain_tips_async, \
-    get_longest_valid_chain, HeaderServerState, ServerConnectivityMetadata, \
+    HeaderServerState, ServerConnectivityMetadata, \
     subscribe_to_headers_async
 from .networks import Net
 from .types import ServerAccountKey
-from .util import TriggeredCallbacks
+from .util import future_callback, TriggeredCallbacks
 
 if TYPE_CHECKING:
     from .wallet import Wallet
@@ -55,12 +55,6 @@ HEADER_SIZE = 80
 ONE_MINUTE = 60
 ONE_DAY = 24 * 3600
 MAX_CONCEIVABLE_REORG_DEPTH = 500
-
-
-def future_callback(future: concurrent.futures.Future[None]) -> None:
-    if future.cancelled():
-        return
-    future.result()
 
 
 @dataclasses.dataclass
@@ -78,8 +72,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
 
     def __init__(self) -> None:
         TriggeredCallbacks.__init__(self)
-
-        app_state.read_headers()
 
         # Events
         self.new_server_ready_event = app_state.async_.event()
@@ -291,11 +283,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         Pre-populate the header servers from the hard-coded configuration.
         When new wallets are loaded they will push new, unique servers to the queue
         """
-        future = app_state.async_.spawn(self._follow_longest_valid_chain)
-        # Futures swallow exceptions if there are no callbacks to collect the exception.
-        future.add_done_callback(future_callback)
-        context.futures.append(future)
-
         try:
             # Make sure this has been created.
             for hardcoded_server_config in cast(list[APIServerDefinition], Net.DEFAULT_SERVERS_API):
@@ -338,28 +325,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             for future in context.futures:
                 future.cancel()
             self._shutdown_complete_event.set()
-
-    async def _follow_longest_valid_chain(self) -> None:
-        assert app_state.headers is not None
-        current_chain = get_longest_valid_chain()
-        current_tip_header = cast(Header, current_chain.tip)
-        while True:
-            await app_state.headers_update_event.wait()
-            # We are the only listener to this event so we can safely clear it.
-            app_state.headers_update_event.clear()
-
-            previous_chain = current_chain
-            previous_tip_header = current_tip_header
-
-            current_chain = get_longest_valid_chain()
-            current_tip_header = cast(Header, current_chain.tip)
-            # It is possible for this to be sent when there is no change.
-            if current_tip_header == previous_tip_header:
-                continue
-
-            for wallet in self._wallets:
-                wallet.process_header_source_update(None, previous_chain,
-                    previous_tip_header, current_chain, current_tip_header)
 
     def get_header_server_state(self, server_key: ServerAccountKey) -> HeaderServerState:
         return self.connected_header_server_states[server_key]

@@ -22,6 +22,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import concurrent.futures
 from decimal import Decimal
 from datetime import datetime, timedelta, tzinfo
 import json
@@ -38,7 +39,6 @@ from typing import Any, Callable, cast, Dict, Generic, Iterable, List, Optional,
 from bitcoinx import PublicKey
 
 from ..logs import logs
-from ..constants import WalletEvent, NetworkEventNames
 from ..startup import package_dir
 from ..types import ExceptionInfoType
 from ..version import PACKAGE_DATE
@@ -63,6 +63,12 @@ def version_string(ptuple: Tuple[int, ...]) -> str:
     while len(ptuple) < 2:
         ptuple += (0, )
     return '.'.join(str(p) for p in ptuple)
+
+
+def future_callback(future: concurrent.futures.Future[None]) -> None:
+    if future.cancelled():
+        return
+    future.result()
 
 
 class MyEncoder(json.JSONEncoder):

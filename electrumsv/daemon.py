@@ -24,6 +24,7 @@
 # SOFTWARE.
 
 import base64
+import concurrent.futures
 import json
 from typing import Any, cast, Dict, Optional, Tuple, Union
 import os
@@ -129,27 +130,29 @@ class Daemon(DaemonThread):
     #
     #   e.g. network = cast(Network, app_state.daemon.network)
 
-    network: Optional[Network]
-    rest_server: Optional[AiohttpServer]
+    network: Optional[Network] = None
+    fx_task: Optional[concurrent.futures.Future[None]] = None
+    rest_server: Optional[AiohttpServer] = None
     cmd_runner: Commands
 
     def __init__(self, fd: int, is_gui: bool) -> None:
         super().__init__('daemon')
+
+        self.is_gui = is_gui
+        self.wallets: Dict[str, Wallet] = {}
+
         app_state.daemon = self
+        app_state.read_headers()
+
         config = app_state.config
         self.config: SimpleConfig = config
-        if config.get('offline'):
-            self.network = None
-            self.fx_task = None
-
-            app_state.read_headers()
-        else:
+        if not config.get('offline'):
             self.network = Network()
+
             app_state.fx = FxTask(app_state.config, self.network)
             self.fx_task = app_state.async_.spawn(app_state.fx.refresh_loop)
-        self.wallets: Dict[str, Wallet] = {}
+
         # self.init_thread_watcher()
-        self.is_gui = is_gui
 
         # REST API - (asynchronous)
         self._init_restapi_server(config, fd)

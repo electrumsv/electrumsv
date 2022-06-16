@@ -32,6 +32,8 @@ app_state.func()
 
 etc.
 '''
+from __future__ import annotations
+
 from abc import ABC
 import concurrent.futures
 import os
@@ -49,7 +51,7 @@ from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
 from .startup import package_dir
-from .util import format_satoshis
+from .util import format_satoshis, future_callback
 
 if TYPE_CHECKING:
     from bitcoinx import Headers
@@ -100,8 +102,9 @@ class AppStateProxy(object):
     base_units = ['BSV', 'mBSV', 'bits', 'sats']    # large to small
     decimal_points = [8, 5, 2, 0]
 
-    daemon: "Daemon"
-    fx: Optional["FxTask"] = None
+    daemon: Daemon
+    fx: Optional[FxTask] = None
+    _longest_chain_future: Optional[concurrent.futures.Future[None]] = None
 
     # Avoid wider dependencies by not using a reference to the config type.
     def __init__(self, config: SimpleConfig, gui_kind: str) -> None:
@@ -146,6 +149,8 @@ class AppStateProxy(object):
 
     def shutdown(self) -> None:
         self.credentials.close()
+        if self._longest_chain_future is not None:
+            self._longest_chain_future.cancel()
 
     def has_app(self) -> bool:
         return self.app is not None
@@ -158,7 +163,7 @@ class AppStateProxy(object):
         self.app = app
 
     @property
-    def app_qt(self) -> "SVApplication":
+    def app_qt(self) -> SVApplication:
         # NOTE(app-metaclass-typing)
         # We do not have anything more than the nebulous type checking reference to the QT
         # application type. We shouldn't either, so we just for now resolve this whole metaclassed
@@ -175,6 +180,45 @@ class AppStateProxy(object):
             Net.CHECKPOINT)
         for n, chain in enumerate(self.headers.chains(), start=1):
             logger.info(f'chain #{n}: {chain.desc()}')
+
+        # The daemon is only running if the application has been started up in either online or
+        # offline mode. In these cases we want to support header import, whether from the network
+        # when online or even a user importing them perhaps when offline but not necessarily so.
+        daemon = getattr(self, "daemon", None)
+        if daemon is None:
+            return
+
+        self._longest_chain_future = self.async_.spawn(self._follow_longest_valid_chain)
+        # Futures swallow exceptions if there are no callbacks to collect the exception.
+        self._longest_chain_future.add_done_callback(future_callback)
+
+    async def _follow_longest_valid_chain(self) -> None:
+        """
+        """
+        assert self.headers is not None
+        # We import this inline to avoid a circular import as this file is imported in the
+        # file we are importing.
+        from .network_support.headers import get_longest_valid_chain
+
+        current_chain = get_longest_valid_chain()
+        current_tip_header = cast(Header, current_chain.tip)
+        while True:
+            # We are the only listener to this event so we can safely clear it.
+            await self.headers_update_event.wait()
+            self.headers_update_event.clear()
+
+            previous_chain = current_chain
+            previous_tip_header = current_tip_header
+
+            current_chain = get_longest_valid_chain()
+            current_tip_header = cast(Header, current_chain.tip)
+            # It is possible for this to be sent when there is no change.
+            if current_tip_header == previous_tip_header:
+                continue
+
+            for wallet in list(self.daemon.wallets.values()):
+                wallet.process_header_source_update(None, previous_chain,
+                    previous_tip_header, current_chain, current_tip_header)
 
     def connect_out_of_band_header(self, header_bytes: bytes) \
             -> tuple[Optional[Header], Optional[Chain]]:
