@@ -2420,6 +2420,10 @@ class Wallet(TriggeredCallbacks):
 
     def remove_add_account_notification(self) -> Optional[WalletEventRow]:
         if self.add_wallet_event_row is not None:
+            for wallet_event_row in self.read_wallet_events():
+                if wallet_event_row.event_type == WalletEventType.ACCOUNT_CREATION_HINT and \
+                        wallet_event_row.event_flags & WalletEventFlag.UNREAD == 0:
+                    return None
             self.update_wallet_event_flags(
                 [ (WalletEventFlag.FEATURED, self.add_wallet_event_row.event_id) ])
             wallet_event_row = self.add_wallet_event_row
