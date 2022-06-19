@@ -251,7 +251,7 @@ class QtPlugin(QtPluginBase):
         else:
             bg_rectype = None
 
-        # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+        # TODO(technical-debt) Broken account wizard. Old hardware wallet overlay code.
         1/0 # pylint: disable=pointless-statement
         # wizard.execlayout(vbox, next_enabled=next_enabled)
 

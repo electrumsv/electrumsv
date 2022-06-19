@@ -204,7 +204,7 @@ class TrezorPlugin(HW_PluginBase):
             t.setDaemon(True)
             t.start()
 
-            # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+            # TODO(technical-debt) Broken account wizard. Old hardware wallet overlay code.
             1/0 # pylint: disable=pointless-statement
             # exit_code = wizard.loop.exec()
             # if exit_code != 0:
@@ -226,7 +226,7 @@ class TrezorPlugin(HW_PluginBase):
             handler.show_error(str(e))
             exit_code = 1
         finally:
-            # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+            # TODO(technical-debt) Broken account wizard. Old hardware wallet overlay code.
             pass
             # wizard.loop.exit(exit_code)
 

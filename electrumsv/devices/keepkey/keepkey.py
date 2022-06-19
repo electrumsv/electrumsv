@@ -280,7 +280,7 @@ class KeepKeyPlugin(HW_PluginBase):
                                  args=(settings, method, device_id, wizard, handler))
             t.setDaemon(True)
             t.start()
-            # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+            # TODO(technical-debt) Broken account wizard. Old hardware wallet overlay code.
             # wizard.loop.exec()
 
     def _initialize_device_safe(self, settings: Tuple[Union[int, str], str, Union[bool, str], bool],
@@ -294,7 +294,7 @@ class KeepKeyPlugin(HW_PluginBase):
             handler.show_error(str(e))
             exit_code = 1
         finally:
-            # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+            # TODO(technical-debt) Broken account wizard. Old hardware wallet overlay code.
             pass
             # wizard.loop.exit(exit_code)
 

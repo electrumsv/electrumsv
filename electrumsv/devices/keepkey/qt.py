@@ -140,7 +140,7 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
                 def set_enabled() -> None:
                     assert text is not None
                     key = bip32_key_from_string(clean_text(text))
-                    # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+                    # TODO(technical-debt) Broken account wizard. Old hardware wallet overlay code.
                     # wizard.next_button.setEnabled(isinstance(key, BIP32PrivateKey))
                 msg = _("Enter the master private key beginning with xprv:")
                 text.textChanged.connect(set_enabled)
@@ -168,7 +168,7 @@ class Plugin(KeepKeyPlugin, QtPluginBase):
         vbox.addWidget(passphrase_warning)
         vbox.addWidget(cb_phrase)
 
-        # TODO(1.4.0) Broken account wizard. Old hardware wallet overlay code.
+        # TODO(technical-debt) Broken account wizard. Old hardware wallet overlay code.
         1/0 # pylint: disable=pointless-statement
         # wizard.execlayout(vbox, next_enabled=next_enabled)
 
