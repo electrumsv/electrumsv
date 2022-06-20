@@ -40,8 +40,7 @@ import json
 from typing import Any, cast, List, Optional, Tuple
 
 import bitcoinx
-from bitcoinx import Chain, double_sha256, ElectrumMnemonic, Header, MissingHeader, PublicKey, \
-    Wordlists
+from bitcoinx import Chain, double_sha256, ElectrumMnemonic, MissingHeader, PublicKey, Wordlists
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
     import pysqlite3 as sqlite3
@@ -409,7 +408,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         # have an older application version they used to a height longer than the headers this
         # application version has.
         try:
-            header = cast(Header, app_state.headers.header_at_height(longest_chain, block_height))
+            header = app_state.header_at_height(longest_chain, block_height)
         except MissingHeader:
             logger.warning("Missing ElectrumX proof header for transaction %s",
                 bitcoinx.hash_to_hex_str(tx_hash))

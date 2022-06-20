@@ -1384,8 +1384,7 @@ def test_is_header_within_current_chain(app_state) -> None:
     header_bytes = b"fake header"
     block_hash = double_sha256(header_bytes)
 
-    app_state.headers = unittest.mock.Mock()
-    app_state.headers.raw_header_at_height = lambda chain_arg, height_arg: header_bytes
+    app_state.raw_header_at_height = lambda chain_arg, height_arg: header_bytes
     app_state.credentials.get_wallet_password = lambda wallet_path: "password"
 
     mock_storage = cast(WalletStorage, MockStorage("password"))
@@ -1440,7 +1439,6 @@ def test_lookup_header_for_hash(app_state) -> None:
     def common_chain_and_height_is_1(chain_arg: Chain) -> tuple[Optional[Chain], int]:
         return fake_chain1, 3
 
-    app_state.headers = unittest.mock.Mock()
     app_state.credentials.get_wallet_password = lambda wallet_path: "password"
 
     mock_storage = cast(WalletStorage, MockStorage("password"))
@@ -1451,31 +1449,31 @@ def test_lookup_header_for_hash(app_state) -> None:
     assert wallet.lookup_header_for_hash(b'ignored') is None
 
     # Header not present.
-    app_state.headers.lookup = lookup_header_fail
+    app_state.lookup_header = lookup_header_fail
     assert wallet.lookup_header_for_hash(b'ignored') is None
 
     # Case: We are on a fork from the longer chain and the header lies within our fork.
     # Case: We are on the longer chain and the header lies within it.
-    app_state.headers.lookup = lookup_header_succeed1
+    app_state.lookup_header = lookup_header_succeed1
     wallet._current_chain = cast(Chain, fake_chain1)
     assert wallet.lookup_header_for_hash(block_hash) == (fake_header1, fake_chain1)
 
     # Case: We do not even share the Genesis block with the other chain. We could assert but
     #       it does not hurt to generically fail.
-    app_state.headers.lookup = lookup_header_succeed2
+    app_state.lookup_header = lookup_header_succeed2
     wallet._current_chain = cast(Chain, fake_chain1)
     fake_chain1.common_chain_and_height = common_chain_and_height_fail
     assert wallet.lookup_header_for_hash(block_hash) is None
 
     # The header lies on the different fork.
-    app_state.headers.lookup = lookup_header_succeed2
+    app_state.lookup_header = lookup_header_succeed2
     fake_header2.height = 10
     wallet._current_chain = cast(Chain, fake_chain1)
     fake_chain1.common_chain_and_height = common_chain_and_height_is_1
     assert wallet.lookup_header_for_hash(block_hash) is None
 
     # The header is at the common height or below on the common chain.
-    app_state.headers.lookup = lookup_header_succeed2
+    app_state.lookup_header = lookup_header_succeed2
     fake_header2.height = 3
     wallet._current_chain = cast(Chain, fake_chain1)
     fake_chain1.common_chain_and_height = common_chain_and_height_is_1

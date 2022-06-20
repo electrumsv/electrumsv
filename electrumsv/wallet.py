@@ -42,7 +42,7 @@ from typing import Any, Awaitable, Callable, cast, Coroutine, Iterable, Optional
 import weakref
 
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
-    BIP32PrivateKey, Chain, double_sha256, Headers, Header, hash_to_hex_str, hex_str_to_hash,
+    BIP32PrivateKey, Chain, double_sha256, Header, hash_to_hex_str, hex_str_to_hash,
     MissingHeader, Ops, P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, pack_byte, push_item,
     Script)
 from electrumsv_database.sqlite import DatabaseContext
@@ -626,13 +626,13 @@ class AbstractAccount:
             entry_utc_date = datetime.now(tz=timezone.utc)
             block_height = -0
             if history_line.block_hash is not None:
-                try:
-                    header, _chain = app_state.headers.lookup(history_line.block_hash)
-                except MissingHeader:
+                header_data = self._wallet.lookup_header_for_hash(history_line.block_hash)
+                if header_data is None:
                     # Most likely a transaction with a merkle proof that is waiting on the header
-                    logger.warning("Missing header for %s in export_history",
-                        history_line.block_hash)
+                    logger.warning("Wallet has not processed header for %s in export_history",
+                        hash_to_hex_str(history_line.block_hash))
                 else:
+                    header = header_data[0]
                     block_height = header.height
                     entry_utc_date = datetime.fromtimestamp(header.timestamp, tz=timezone.utc)
 
@@ -2145,6 +2145,7 @@ class Wallet:
     _current_chain: Optional[Chain] = None
     _current_tip_header: Optional[Header] = None
     _blockchain_server_state: Optional[HeaderServerState] = None
+    _blockchain_server_state_ready: bool = False
 
     def __init__(self, storage: WalletStorage, password: Optional[str]=None) -> None:
         self._id = random.randint(0, (1<<32)-1)
@@ -2178,6 +2179,7 @@ class Wallet:
 
         ## State related to the wallet processing headers from it's header source.
         self._header_source_synchronised_event = asyncio.Event()
+        self._start_chain_management_event = asyncio.Event()
 
         # It is possible that the wallet receives merkle proofs that it cannot process because
         # they are either not within the wallet's view of the blockchain (or in the more extreme
@@ -3442,11 +3444,10 @@ class Wallet:
         remaining_tx_hashes = set(tx_hashes)
         tx_proofs_rows = db_functions.read_merkle_proofs(self._db_context, tx_hashes)
         for proof_row in tx_proofs_rows:
-            block_hash, block_position, block_height, proof_data, tx_hash = proof_row
-            header, chain = cast(Headers, app_state.headers).lookup(block_hash)
-            if chain == self._blockchain_server_state.chain:
+            header_data = self.lookup_header_for_hash(proof_row.block_hash)
+            if header_data is not None:
                 proofs_on_main_chain.append(proof_row)
-                remaining_tx_hashes.remove(tx_hash)
+                remaining_tx_hashes.remove(proof_row.tx_hash)
         return remaining_tx_hashes, tx_proofs_rows
 
     async def on_reorg(self, orphaned_block_hashes: list[bytes]) -> None:
@@ -3764,9 +3765,9 @@ class Wallet:
 
                 blockchain_server_state = self._network.get_header_server_state(
                     blockchain_server_key)
+                # This is obviously incorrect when we properly support server switching..
                 assert self._blockchain_server_state is None
-                self._blockchain_server_state = blockchain_server_state
-
+                # This will set the blockchain server state as our header source.
                 assert blockchain_server_state.chain is not None
                 assert blockchain_server_state.tip_header is not None
                 await self._reconcile_wallet_with_header_source(blockchain_server_state,
@@ -3986,7 +3987,9 @@ class Wallet:
                     # Our header source has not processed this header yet, so we cannot do anything
                     # with this merkle proof as we cannot verify that it is relevant.
 
-                    # Connecting out of band headers (or trying to) does not help this wallet.
+                    # Connecting out of band headers (or trying to) does not necessarily help this
+                    # wallet as the wallet follows a specific header source and not necessarily
+                    # the longest chain.
                     header, _chain = app_state.connect_out_of_band_header(proof.block_header_bytes)
 
                     block_height: int = BlockHeight.MEMPOOL
@@ -4362,8 +4365,6 @@ class Wallet:
             for account in self.get_accounts():
                 account.start(network)
 
-            self._worker_task_chain_management = app_state.async_.spawn(self._chain_management_task)
-
             # We are only starting the server connection management here IF we know that it has
             # already been used and is the source of the wallet's current blockchain state.
             # Otherwise the server connection management is started elsewhere, after the wallet
@@ -4383,6 +4384,8 @@ class Wallet:
             self._worker_task_initialise_headers = app_state.async_.spawn(
                 self._initialise_headers_from_header_store)
 
+        self._worker_task_chain_management = app_state.async_.spawn(self._chain_management_task)
+
         self._stopped = False
 
     def stop(self) -> None:
@@ -4394,6 +4397,10 @@ class Wallet:
 
         if self._network is not None:
             self._shutdown_network_related_tasks()
+
+        if self._worker_task_chain_management is not None:
+            self._worker_task_chain_management.cancel()
+            self._worker_task_chain_management = None
 
         for credential_id in self._registered_api_keys.values():
             app_state.credentials.remove_indefinite_credential(credential_id)
@@ -4431,10 +4438,6 @@ class Wallet:
             self._worker_task_manage_server_connections.cancel()
             pending_futures.add(self._worker_task_manage_server_connections)
             self._worker_task_manage_server_connections = None
-        if self._worker_task_chain_management is not None:
-            self._worker_task_chain_management.cancel()
-            pending_futures.add(self._worker_task_chain_management)
-            self._worker_task_chain_management = None
 
         async def trigger_chain_management_interrupt_event() -> None:
             # `Event.set` is not thread-safe, needs to be executed in the async thread.
@@ -4553,7 +4556,10 @@ class Wallet:
              processing it and setting `self._current_chain`.
         """
         assert self._network is not None
-        await self._header_source_synchronised_event.wait()
+        # NOTE(technical-debt) This event is currently only set when a server is reconciled as a
+        # header source. In the longer term we would want this to respond to updates to the
+        # longest valid chain (if we are not following a server).
+        await self._start_chain_management_event.wait()
         assert self._current_chain is not None
 
         # These are the chain-related worker tasks this management task needs to coordinate with.
@@ -4631,101 +4637,116 @@ class Wallet:
         last position (what fork and what height) on the blockchain against the current state
         of it's header source.
 
-        WARNING: These must be true or the wallet chain state can corrupt it's blockchain data.
+        CorrectHeaderSequence: We require a set of guarantees from different places in order to
+        ensure that blockchain state transitions for the wallet are in order.
+            1. `_reconcile_wallet_with_header_source` is called in the application state async loop.
+            2. `process_header_source_update` is only called from tasks running in the application
+               state async loop.
+        This means that there is no chance that updates will come in while this function is
+        executing unless we block, and we only block in the explicit reorg call.
 
-            1. The caller must be providing the chain and header for the header source, and
-               they should be the current values for that header source when we are called.
-            2. This function must not block until it has set the `_current_chain` wallet
-               variable. After it is set the incoming updates to the header source will get
-               queued, but before that point
-            3. Ensure that the "header source synchronised" event is only set when we are ready
-               for blockchain related records to be modified in the database.
+        Caveats (must be true or the wallet chain state can corrupt it's blockchain data):
+        1. The caller must be providing the chain and header for the header source, and
+           they should be the current values for that header source when we are called.
         """
-        assert app_state.headers is not None
-        assert not self._header_source_synchronised_event.is_set()
-        assert self._current_chain is None
+        self._blockchain_server_state = server_state
+        self._blockchain_server_state_ready = False
 
-        if self._persisted_tip_hash is not None:
-            assert self._current_tip_header is None
+        if self._current_chain is None:
+            # Adopt the given header source as the initial chain state of the wallet.
+            if self._persisted_tip_hash is not None:
+                assert self._current_tip_header is None
 
-            # Ensure the header store has the current chain tip header for this wallet.
-            try:
-                header, chain = cast(tuple[Header, Chain], app_state.headers.lookup(
-                    self._persisted_tip_hash))
-            except MissingHeader:
-                # Either the header store has been deleted, or the wallet database has been moved
-                # to another computer with a different header store. As the headers are known to be
-                # synchronised, it should be assumed that the fork the wallet has been following
-                # up to now was reorged and is no longer relevant.
-                detached_wallet_tip = True
-            else:
-                detached_wallet_tip = False
-
-                self._update_current_chain(chain, header)
-                # This is essential to do immediately after we set `_current_chain` as we want
-                # the first update to do the transition between the wallet's current blockchain
-                # state and the header source's blockchain state. Other network object updates
-                # coming through will start being applied after `_current_chain` is set, which is
-                # why we need to be certain there is no blocking and this is called immediately.
-                self.process_header_source_update(server_state, chain, header, header_source_chain,
-                    header_source_tip_header)
-
-                self._logger.debug("Continuing existing wallet chain %d:%s", header.height,
-                    hash_to_hex_str(header.hash))
-        else:
-            detached_wallet_tip = True
-
-        if detached_wallet_tip:
-            # Either this is a new wallet or it is an old wallet that predates storage of this
-            # record. We have to do a full table scan to rectify this situation, but none of these
-            # wallets should have that many transactions.
-            orphaned_block_hashes = list[bytes]()
-            for block_hash in db_functions.read_transaction_block_hashes(self._db_context):
+                # Ensure the header store has the current chain tip header for this wallet.
                 try:
-                    transaction_header, transaction_chain = cast(tuple[Header, Chain],
-                        app_state.headers.lookup(block_hash))
+                    header, chain = app_state.lookup_header(self._persisted_tip_hash)
                 except MissingHeader:
-                    orphaned_block_hashes.append(block_hash)
+                    # Either the header store has been deleted, or the wallet database has been
+                    # moved to another computer with a different header store. As the headers are
+                    # known to be synchronised, it should be assumed that the fork the wallet has
+                    # been following up to now was reorged and is no longer relevant.
+                    detached_wallet_tip = True
                 else:
-                    if transaction_chain is header_source_chain:
-                        continue
+                    detached_wallet_tip = False
 
-                    common_chain, common_height = cast(tuple[Optional[Chain], int],
-                        transaction_chain.common_chain_and_height(header_source_chain))
-                    if common_height == -1:
-                        # TODO(1.4.0) Unreliable application, issue#906. On different blockchain.
-                        raise Exception("Broken header source; claims to have different blockchain")
+                    # Guarantees relating to these calls: Search for CorrectHeaderSequence.
+                    self._update_current_chain(chain, header)
+                    assert self.process_header_source_update(server_state, chain, header,
+                        header_source_chain, header_source_tip_header, force=True)
 
-                    # This block is on a different fork from the wallet's header source.
-                    if common_height < transaction_header.height:
+                    self._logger.debug("Continuing existing wallet chain %d:%s", header.height,
+                        hash_to_hex_str(header.hash))
+            else:
+                detached_wallet_tip = True
+
+            if detached_wallet_tip:
+                # Either this is a new wallet or it is an old wallet that predates storage of this
+                # record. We have to do a full table scan to rectify this situation, but none of
+                # these wallets should have that many transactions.
+                orphaned_block_hashes = list[bytes]()
+                for block_hash in db_functions.read_transaction_block_hashes(self._db_context):
+                    try:
+                        transaction_header, transaction_chain = app_state.lookup_header(block_hash)
+                    except MissingHeader:
                         orphaned_block_hashes.append(block_hash)
+                    else:
+                        if transaction_chain is header_source_chain:
+                            continue
 
-            if len(orphaned_block_hashes) > 0:
-                await self.on_reorg(orphaned_block_hashes)
+                        common_chain, common_height = cast(tuple[Optional[Chain], int],
+                            transaction_chain.common_chain_and_height(header_source_chain))
+                        if common_height == -1:
+                            # TODO(1.4.0) Unreliable application, issue#906. Different blockchain.
+                            raise Exception("Broken header source; claims to have different "
+                                "blockchain")
 
-            # Reorging blocks this task while the database writes happen and allows the chance that
-            # the header source may have updates in the meantime that get ignored because
-            # `current_chain` is not yet set. These would be lost and result in possible corruption
-            # so we get the current chain and header of the header source, and check for changes
-            # and process them before proceeding.
-            updated_header_source_chain, updated_header_source_tip_header = \
-                self.get_header_source_state(server_state)
-            if header_source_tip_header != updated_header_source_tip_header:
-                self.process_header_source_update(server_state, header_source_chain,
-                    header_source_tip_header, updated_header_source_chain,
-                    updated_header_source_tip_header)
+                        # This block is on a different fork from the wallet's header source.
+                        if common_height < transaction_header.height:
+                            orphaned_block_hashes.append(block_hash)
 
+                # Reorging blocks this task while the database writes happen and allows the chance
+                # that the header source may have updates in the meantime that get ignored because
+                # `_blockchain_server_state_ready` is `False`. These would be lost and result in
+                # possible corruption so we get the current chain and header of the header source,
+                # and check for changes and process them before proceeding.
+
+                if len(orphaned_block_hashes) > 0:
+                    await self.on_reorg(orphaned_block_hashes)
+
+                # Guarantees relating to these calls: Search for CorrectHeaderSequence.
+                updated_header_source_chain, updated_header_source_tip_header = \
+                    self.get_header_source_state(server_state)
+                if header_source_tip_header != updated_header_source_tip_header:
+                    assert self.process_header_source_update(server_state, header_source_chain,
+                        header_source_tip_header, updated_header_source_chain,
+                        updated_header_source_tip_header, force=True)
+                self._update_current_chain(header_source_chain, header_source_tip_header)
+                self._logger.debug("Processed detached wallet chain %d:%s",
+                    header_source_tip_header.height, hash_to_hex_str(header_source_tip_header.hash))
+        else:
+            # Switch header sources for an already initialised wallet with a current chain.
+            assert self._current_tip_header is not None
+            # Guarantees relating to these calls: Search for CorrectHeaderSequence.
             self._update_current_chain(header_source_chain, header_source_tip_header)
-            self._logger.debug("Processed detached wallet chain %d:%s",
-                header_source_tip_header.height, hash_to_hex_str(header_source_tip_header.hash))
+            assert self.process_header_source_update(server_state, self._current_chain,
+                self._current_tip_header, header_source_chain,
+                header_source_tip_header, force=True)
 
-        self._header_source_synchronised_event.set()
+        self._blockchain_server_state_ready = True
+        self._start_chain_management_event.set()
+        if server_state is not None:
+            self._header_source_synchronised_event.set()
 
     def _update_current_chain(self, chain: Chain, header: Header) -> None:
         """
         Update the chain and tip header for the wallet's header source.
 
         We might be setting this for the first time or updating it for several potential reasons.
+
+        Guarantees:
+        * This is non-blocking. Both to any asynchronous thread loop and to any thread.
+          Database writes are posted to the writer thread, and no blocking is done to wait for
+          their completion.
         """
         # The header store includes our current tip header.
         self._current_chain = chain
@@ -4735,7 +4756,7 @@ class Wallet:
 
     def process_header_source_update(self, server_state: Optional[HeaderServerState],
             previous_chain: Chain, previous_tip_header: Header, current_chain: Chain,
-            current_tip_header: Header) -> None:
+            current_tip_header: Header, force: bool=False) -> bool:
         """
         Process a change to the headers on one of our header sources. This may be the P2P network
         or one selected blockchain server the wallet knows of.
@@ -4781,8 +4802,8 @@ class Wallet:
 
         if self._is_wallet_header_source(server_state):
             # `_reconcile_wallet_with_header_source` sets this before we make use of these updates.
-            if self._current_chain is None:
-                return
+            if not (force or self._blockchain_server_state_ready):
+                return False
 
             # This update is relevant for the wallet as this is our header source.
             fork_height = -1
@@ -4805,9 +4826,9 @@ class Wallet:
 
             if is_reorg:
                 assert fork_height > -1
-                orphaned_block_hashes = [app_state.headers.header_at_height(previous_chain, h).hash
+                orphaned_block_hashes = [app_state.header_at_height(previous_chain, h).hash
                     for h in range(fork_height + 1, last_processed_height + 1)]
-                new_block_headers = [app_state.headers.header_at_height(current_chain, h) for h in
+                new_block_headers = [app_state.header_at_height(current_chain, h) for h in
                     range(fork_height + 1, current_tip_header.height + 1)]
 
                 block_hashes_as_str = [hash_to_hex_str(h) for h in orphaned_block_hashes]
@@ -4818,16 +4839,20 @@ class Wallet:
                     (ChainManagementKind.BLOCKCHAIN_REORGANISATION,
                         (current_chain, orphaned_block_hashes, new_block_headers)))
             elif last_processed_height != current_tip_header.height:
-                new_block_headers = [app_state.headers.header_at_height(current_chain, h) for h in
+                new_block_headers = [app_state.header_at_height(current_chain, h) for h in
                     range(last_processed_height + 1, current_tip_header.height + 1)]
 
                 self._chain_management_queue.put_nowait(
                     (ChainManagementKind.BLOCKCHAIN_EXTENSION, (current_chain, new_block_headers)))
+            return True
         else:
+            # If anything is forcing an update and does not know the correct header source then
+            # we have problems we should flag.
+            assert not force
             # TODO(1.4.0) Headers, issue#915. This is not our header source, does it have
             #     repercussions for us? We can detect a stall. We can detect a longer chain and
             #     warn the user if relevant?
-            pass
+            return False
 
     def _is_wallet_header_source(self, server_state: Optional[HeaderServerState]) -> bool:
         if self._blockchain_server_state is not None:
@@ -4848,7 +4873,7 @@ class Wallet:
             # TODO(1.4.0) Headers, issue#915. If no blockchain server wanted, but we have P2P
             #     access. Follow headers from the most acceptable chain seen through P2P (we
             #     should not use header API servers in this case at all).
-            return False
+            return True
 
     async def obtain_transactions_async(self, account_id: int, keys: list[tuple[bytes, bool]],
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> set[bytes]:
@@ -4958,8 +4983,9 @@ class Wallet:
                             "connect to a server to get arbitrary merkle proofs")
                         return
 
+                    assert tsc_full_proof.block_hash is not None
                     try:
-                        header, chain = app_state.headers.lookup(tsc_full_proof.block_hash)
+                        header, chain = app_state.lookup_header(tsc_full_proof.block_hash)
                     except MissingHeader:
                         # Missing header therefore add the transaction as TxFlags.STATE_CLEARED with
                         # proof data until the late_header_worker_async gets the required header.
@@ -5094,7 +5120,7 @@ class Wallet:
 
                 assert tsc_proof.block_hash is not None
                 try:
-                    header, chain = app_state.headers.lookup(tsc_proof.block_hash)
+                    header, chain = app_state.lookup_header(tsc_proof.block_hash)
                 except MissingHeader:
                     # We store the proof in a way where we know we obtained it recently, but
                     # that it is still in need of processing. The late header worker can
@@ -5294,12 +5320,11 @@ class Wallet:
         if self._current_chain is None:
             return False
 
-        assert app_state.headers is not None
         assert self._current_tip_header is not None
         if height > self._current_tip_header.height:
             return False
         try:
-            header_bytes = app_state.headers.raw_header_at_height(self._current_chain, height)
+            header_bytes = app_state.raw_header_at_height(self._current_chain, height)
         except MissingHeader:
             return False
         return cast(bytes, double_sha256(header_bytes)) == block_hash
@@ -5309,9 +5334,8 @@ class Wallet:
         """
         if self._current_chain is None:
             return None
-        assert app_state.headers is not None
         try:
-            return app_state.headers.header_at_height(self._current_chain, block_height)
+            return app_state.header_at_height(self._current_chain, block_height)
         except MissingHeader:
             return None
 
@@ -5327,17 +5351,12 @@ class Wallet:
         All chain state access relative to a given wallet should happen through the `Wallet`
         instance, using helper methods like this.
         """
-        assert app_state.headers is not None
-
-        # TODO(1.4.0) Headers, issue#867. The header store is not thread-safe. Reads must happen
-        #     in the same thread as the writes. We can check the thread and enforce it in code.
-
         # If we do not know the wallet blockchain state we cannot lookup any header.
         if self._current_chain is None:
             return None
 
         try:
-            header, chain = cast(tuple[Header, Chain], app_state.headers.lookup(block_hash))
+            header, chain = app_state.lookup_header(block_hash)
         except MissingHeader:
             return None
 

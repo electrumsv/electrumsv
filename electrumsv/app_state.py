@@ -39,6 +39,7 @@ import concurrent.futures
 import os
 import shutil
 import time
+import threading
 from types import TracebackType
 from typing import Any, Callable, cast, Coroutine, Optional, Tuple, Type, TYPE_CHECKING, TypeVar
 
@@ -116,6 +117,7 @@ class AppStateProxy(object):
         self.device_manager = DeviceMgr()
         self.credentials = CredentialCache()
         self.headers: Optional[Headers] = None
+        self.headers_lock = threading.RLock()
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get_explicit_type(int, 'decimal_point', 8)
         self.num_zeros = config.get_explicit_type(int, 'num_zeros', 0)
@@ -192,10 +194,68 @@ class AppStateProxy(object):
         # Futures swallow exceptions if there are no callbacks to collect the exception.
         self._longest_chain_future.add_done_callback(future_callback)
 
-    async def _follow_longest_valid_chain(self) -> None:
+    def lookup_header(self, block_hash: bytes) -> tuple[Header, Chain]:
         """
+        Thread-safe version of bitcoinx's `Headers` object `lookup` method.
+
+        Raises `MissingHeader` if there is no header with the given height in the header store.
+
+        Caveats:
+        1. You should not be calling this if the calling context needs to respect what headers
+           the wallet has already processed. Call `Wallet.lookup_header_for_height` or
+           `Wallet.lookup_header_for_hash` instead.
+        2. You should not call `headers.lookup` directly unless it is before any chance of
+           race conditions.
+        3. This may need some optimisation at some point if acquiring the lock is heavyweight.
         """
         assert self.headers is not None
+        with self.headers_lock:
+            return cast(tuple[Header, Chain], self.headers.lookup(block_hash))
+
+    def header_at_height(self, chain: Chain, block_height: int) -> Header:
+        """
+        Thread-safe version of bitcoinx's `Headers` object `header_at_height` method.
+
+        Raises `MissingHeader` if there is no header for the given chain at the given height.
+        """
+        assert self.headers is not None
+        with self.headers_lock:
+            return cast(Header, self.headers.header_at_height(chain, block_height))
+
+    def raw_header_at_height(self, chain: Chain, block_height: int) -> bytes:
+        """
+        Thread-safe version of bitcoinx's `Headers` object `raw_header_at_height` method.
+
+        Raises `MissingHeader` if there is no header for the given chain at the given height.
+        """
+        assert self.headers is not None
+        with self.headers_lock:
+            return cast(bytes, self.headers.raw_header_at_height(chain, block_height))
+
+    def connect_header(self, header_bytes: bytes) -> tuple[Header, Chain]:
+        """
+        Thread-safe version of bitcoinx's `Headers` object `connect` method.
+
+        Raises `MissingHeader` if the previous header cannot be found, `IncorrectBits` if the
+        header's bits don't meet the chain's rules, and `InsufficientPow` if the header's
+        hash doesn't meet the target. These are all subclasses of `ChainException`.
+
+        Caveats:
+        1. Calling this does not make a wallet aware of a header.
+        2. You should not call `headers.connect` directly unless it is before any chance of
+           race conditions.
+        3. This may need some optimisation at some point if acquiring the lock is heavyweight.
+        """
+        assert self.headers is not None
+        with self.headers_lock:
+            return cast(tuple[Header, Chain], self.headers.connect(header_bytes))
+
+    async def _follow_longest_valid_chain(self) -> None:
+        """
+        Responsible for tracking the longest chain according to the headers store.
+
+        Raises no exceptions.
+        """
         # We import this inline to avoid a circular import as this file is imported in the
         # file we are importing.
         from .network_support.headers import get_longest_valid_chain
@@ -226,15 +286,21 @@ class AppStateProxy(object):
         There is nothing wrong with connecting out of band headers. Wallets do not
         follow the updates to the header store, they follow specific notifications
         of synchronisation work for a header source (P2P or blockchain server).
+
+        Raises no exceptions.
+
+        Caveats:
+        1. If this is called from outside of our async thread/loop, the `headers_lock` must be
+           acquired so that `self.headers_update_event.set` is thread-safe.
         """
-        assert self.headers is not None
         try:
-            header, chain = cast(tuple[Header, Chain], self.headers.connect(header_bytes))
+            header, chain = self.connect_header(header_bytes)
         except MissingHeader:
             # TODO(low priority) Headers. We may be able to connect this later although whether
             #      there is any benefit to this I do not know (rt12).
             return None, None
         else:
+            # TODO(fixnow) not thread safe.
             self.headers_update_event.set()
             return header, chain
 

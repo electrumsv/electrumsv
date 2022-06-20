@@ -190,7 +190,7 @@ PASSWORD_REQUEST_TEXT = _("You have associated a new API key with the wallet '{}
 #         _chain, common_height = our_chain.common_chain_and_height(chain)
 #         fork_height = common_height + 1
 #         assert app_state.headers is not None
-#         header = app_state.headers.header_at_height(chain, fork_height)
+#         header = app_state.header_at_height(chain, fork_height)
 #         prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
 #         return f'{prefix}@{fork_height}'
 

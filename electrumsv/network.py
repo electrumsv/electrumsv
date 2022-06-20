@@ -112,7 +112,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
 
         If two ESV Reference Servers are on the same chain then this function will only
         be called once per distinct chain (see `_synchronise_headers_for_server_tip`)"""
-        assert app_state.headers is not None
         # start with step = 16 to cut down on network round trips for the first initial header sync
         step = 16
         height_to_test = server_tip.height
@@ -120,7 +119,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             raw_header = await get_batched_headers_by_height_async(server_state,
                 self.aiohttp_session, from_height=max(height_to_test, 0), count=1)
             try:
-                app_state.headers.lookup(double_sha256(raw_header))
+                app_state.lookup_header(double_sha256(raw_header))
                 common_header = Net._net.COIN.deserialized_header(raw_header, height_to_test)
                 return common_header
             except MissingHeader:
@@ -146,7 +145,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         server_state.tip_header = tip_header
         while True:
             try:
-                app_state.headers.lookup(tip_header.hash)
+                app_state.lookup_header(tip_header.hash)
                 break
             except MissingHeader:
                 pass
@@ -157,13 +156,12 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 tip_header.height + 1)]
             await self._request_and_connect_headers_at_heights_async(server_state, heights)
 
-        return cast(tuple[Header, Chain], app_state.headers.lookup(tip_header.hash))
+        return app_state.lookup_header(tip_header.hash)
 
     async def _connect_tip_and_maybe_backfill(self, server_state: HeaderServerState,
             new_tip: TipResponse) -> None:
-        assert app_state.headers is not None
         try:
-            app_state.headers.connect(new_tip.header_bytes)
+            app_state.connect_header(new_tip.header_bytes)
         except MissingHeader:
             # The headers store uses the genesis block as the base checkpoint but there is
             # no previous header before the genesis header so when attempting to "connect"
@@ -233,7 +231,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             previous_chain = current_chain
             previous_tip_header = current_tip_header
             await self._connect_tip_and_maybe_backfill(server_state, new_tip)
-            current_tip_header, current_chain = app_state.headers.lookup(
+            current_tip_header, current_chain = app_state.lookup_header(
                 double_sha256(new_tip.header_bytes))
 
             # They should not be relied on by the wallet for determining the validity of it's
@@ -411,7 +409,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         """
         Raises `ServiceUnavailableError` in `get_batched_headers_by_height_async`
         """
-        assert app_state.headers is not None
         assert server_state.synchronisation_data is None
 
         MAX_HEADER_REQUEST_BATCH_SIZE = 2000
@@ -435,7 +432,9 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             count_of_raw_headers = len(header_array) // 80
             for i in range(count_of_raw_headers):
                 raw_header = stream.read(80)
-                app_state.headers.connect(raw_header)
+                # This will acquire a lock for every call, but unless we see that in profiling
+                # we are okay with this.
+                app_state.connect_header(raw_header)
 
             app_state.headers_update_event.set()
 
