@@ -23,7 +23,7 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("simulate-fresh-reorg")
 
 
-async def wait_for_reog_transaction_update(reorged_txids, reorg_height):
+async def wait_for_reorg_transaction_update(reorged_txids, reorg_height):
     MAX_WAIT_TIME = 10  # seconds
     async with TxStateWSClient() as ws_client:
         try:
@@ -66,7 +66,7 @@ class TestReorg:
                 logger.exception("node unavailable")
 
             try:
-                await wait_for_reog_transaction_update([REORGED_TXIDS], 201)
+                await wait_for_reorg_transaction_update([REORGED_TXIDS], 201)
                 # Todo check state of get_balance; get_coin_state; get_transaction_history
 
                 # Submit node2 blocks to node
@@ -76,7 +76,7 @@ class TestReorg:
                 else:
                     logger.exception("node unavailable")
 
-                await wait_for_reog_transaction_update([REORGED_TXIDS], 202)
+                await wait_for_reorg_transaction_update([REORGED_TXIDS], 202)
             except asyncio.TimeoutError:
                 pytest.xfail("work in progress alongside refactoring changes...")
 

@@ -475,7 +475,6 @@ Tops up the RegTest wallet from the RegTest node wallet (new blocks may be gener
         ]
     }
 
-
 create_new_wallet
 ***************************
 This will create a new wallet - in this example "worker1.sqlite".

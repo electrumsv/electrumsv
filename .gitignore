@@ -9,6 +9,7 @@ dist/
 /contrib/build-windows/downloads/
 /contrib/build-windows/amd64/
 /contrib/build-windows/win32/
+/contrib/functional_tests/portable_sdk_datadir
 ElectrumSV.egg-info/
 /electrumsv/locale/
 .devlocaltmp/
