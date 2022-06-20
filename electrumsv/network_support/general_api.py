@@ -191,8 +191,9 @@ async def post_restoration_filter_request_binary(state: ServerConnectionState,
                         raise FilterResponseIncompleteError("Only received ")
                     yield packet_bytes
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {url}")
 
@@ -251,8 +252,9 @@ async def request_binary_merkle_proof_async(state: ServerConnectionState, tx_has
 
             return await response.content.read()
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -288,8 +290,9 @@ async def request_transaction_data_async(state: ServerConnectionState, tx_hash: 
 
             return await response.content.read()
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {state.server.url}")
 
@@ -328,14 +331,14 @@ async def maintain_server_connection_async(state: ServerConnectionState) -> None
             logger.debug("Server disconnected, clearing state, waiting to retry")
             state.clear_for_reconnection(ServerConnectionFlag.DISCONNECTED)
 
-            # TODO(1.4.0) Networking. This is an arbitrary timeout, we should factor when this
-            #     happens into the UI and how we manage server usage.
+            # TODO(1.4.0) Unreliable server, issue#841. Disconnected or cannot connect to server.
+            #     This is an arbitrary timeout, we should factor when this happens into the UI and
+            #     how we manage server usage.
             await asyncio.sleep(10)
     finally:
         logger.error("maintain_server_connection_async encountered connection issue")
         state.connection_flags = ServerConnectionFlag.EXITED
         state.connection_exit_event.set()
-    # TODO(1.4.0) Servers. The connection management logic needs work. This code is related.
 
 
 async def create_server_account_if_necessary(state: ServerConnectionState) -> None:
@@ -345,6 +348,8 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
     """
     assert state.wallet_proxy is not None
     assert state.wallet_data is not None
+
+    # TODO(1.4.0) Server connection, issue#912. Review and finalise account creation.
 
     # Check if the existing credentials are still valid.
     if state.credential_id is not None:
@@ -415,16 +420,17 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
                 elif part.name == "api-key":
                     api_key = await part.text()
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we catch exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Failed to connect to server at: %s", obtain_server_key_url, exc_info=True)
         raise ServerConnectionError()
 
-    # TODO(1.4.0) User visible. WRT unexpected unreliable server behaviour.
+    # TODO(1.4.0) Unreliable server, issue#841. Server account creation response lacks payment key.
     if payment_key_bytes is None:
         raise AuthenticationError("No payment key received for server")
 
-    # TODO(1.4.0) User visible. WRT unexpected unreliable server behaviour.
+    # TODO(1.4.0) Unreliable server, issue#841. Server account creation response lacks API key.
     if api_key is None:
         raise AuthenticationError("No api key received for server")
 
@@ -518,10 +524,10 @@ async def manage_server_connection_async(state: ServerConnectionState) -> bool:
         logger.debug("Unable to connect to server websocket")
     except WSServerHandshakeError as e:
         if e.status == HTTPStatus.UNAUTHORIZED:
-            # TODO(1.4.0) Networking. Need to handle the case that our credentials are stale or
-            #     incorrect.
+            # TODO(1.4.0) Networking, issue#908. Need to handle the case that our credentials are
+            #     stale or incorrect.
             raise WebsocketUnauthorizedException()
-        # TODO(1.4.0) Networking. What is being raised here? Why?
+        # TODO(1.4.0) Networking, issue#908. What is being raised here? Why?
         raise
 
     return True
@@ -573,14 +579,16 @@ async def manage_output_spends_async(state: ServerConnectionState) -> None:
         }
 
         spent_outputs: List[OutputSpend] = []
-        # TODO(1.4.0) Networking. If any of the error cases below occur we should requeue the
-        #     outpoints, but it is not as simple as just doing it. What we want to avoid is being
-        #     in an infinite loop of failed attempts.
+        # TODO(1.4.0) Networking, issue#908. Dealing with error cases for output spend processing.
+        #     - If any of the error cases below occur we should requeue the outpoints, but it is
+        #       not as simple as just doing it. What we want to avoid is being in an infinite loop
+        #       of failed attempts (<- still relevant?).
+        #     - Catch aiohttp exceptions and deal with server problems?
         async with state.session.post(api_url, headers=headers, data=byte_buffer) as response:
             if response.status != HTTPStatus.OK:
                 logger.error("Websocket spent output registration failed "
                     "status=%d, reason=%s", response.status, response.reason)
-                # TODO(1.4.0) Networking. Spent output registration failure.
+                # TODO(1.4.0) Unreliable server, issue#841. Spent output registration failure.
                 #     We need to handle all possible variations of this error:
                 #     - It may be lack of funding.
                 #     - It may be short or long term server unavailability or errors.
@@ -591,9 +599,9 @@ async def manage_output_spends_async(state: ServerConnectionState) -> None:
             if content_type != "application/octet-stream":
                 logger.error("Spent output registration response content type got %s, "
                     "expected 'application/octet-stream'", content_type)
-                # TODO(1.4.0) Networking. Bad server not respecting the spent output request. We
-                #     should stop using it, and the user should have to manually flag it as valid
-                #     again.
+                # TODO(1.4.0) Unreliable server, issue#841. Spent output registration content type.
+                #     Bad server not respecting the spent output request. We should stop using it,
+                #     and the user should have to manually flag it as valid again.
                 # TODO(bad-server)
                 return
 
@@ -602,9 +610,9 @@ async def manage_output_spends_async(state: ServerConnectionState) -> None:
                 if len(response_bytes) != output_spend_struct.size:
                     logger.error("Spent output registration record clipped, expected %d "
                         "bytes, got %d bytes", output_spend_struct.size, len(response_bytes))
-                    # TODO(1.4.0) Networking. The server is unreliable? Should we mark the server
-                    #     as to be avoided? Or flag it and stop using it if it happens more than
-                    #     once or twice?
+                    # TODO(1.4.0) Unreliable server, issue#841. Spent output response invalid.
+                    #     The server is unreliable? Should we mark the server as to be avoided?
+                    #     Or flag it and stop using it if it happens more than once or twice?
                     return
 
                 spent_output = OutputSpend.from_network(*output_spend_struct.unpack(response_bytes))
@@ -650,7 +658,7 @@ async def manage_tip_filter_registrations_async(state: ServerConnectionState) ->
         #     registrations very seldomly (as the primary use case is the declining monitor the
         #     blockchain legacy payment situation).
 
-        # TODO(1.4.0) Servers. Clean shutdown versus immediate shutdown.
+        # TODO(1.4.0) Servers, issue#908. Clean shutdown versus immediate shutdown.
         #     An immediate shutdown will kill this task.
         #     A clean shutdown should allow this to finish the current
 
@@ -731,7 +739,7 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
 
         peer_channel_row = state.cached_peer_channel_rows.get(remote_channel_id)
         if peer_channel_row is None:
-            # TODO(1.4.0) User visible. WRT unexpected unreliable server behaviour / peer channels.
+            # TODO(1.4.0) Unreliable server, issue#841. Unexpected server peer channel activity.
             #     a) The server is buggy and has sent us a message intended for someone else.
             #     b) We are buggy and we have not correctly tracked peer channels.
             #     We should flag this to the user in some user-friendly way as a reliability
@@ -790,7 +798,7 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
             state.mapi_callback_response_queue.put_nowait(message_entries)
             state.mapi_callback_response_event.set()
         else:
-            # TODO(1.4.0) User visible. WRT unexpected unreliable server behaviour, peer channels.
+            # TODO(1.4.0) Unreliable server, issue#841. Peer channel message is not expected.
             logger.error("Received peer channel %d messages of unhandled purpose '%s'",
                 peer_channel_row.peer_channel_id, peer_channel_purpose)
 
@@ -827,10 +835,11 @@ async def validate_server_data(state: ServerConnectionState) -> None:
         peer_channel_ids = { channel_json["id"] for channel_json in peer_channel_jsons }
         peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
             for row in existing_channel_rows }
-        # TODO(1.4.0) Servers. Known peer channels differ from actual server peer channels.
+        # TODO(1.4.0) Unreliable server, issue#841. Our peer channels differ from the server's.
         # - Could be caused by a shared API key with another wallet.
         # - This is likely to be caused by bad user choice and the wallet should only be
         #   responsible for fixing anything related to it's mistakes.
+        # - Expired peer channels may need to be excluded.
         if set(peer_channel_ids) != set(peer_channel_rows_by_id):
             raise InvalidStateError("Mismatched peer channels, local and server")
 
@@ -871,7 +880,7 @@ async def validate_server_data(state: ServerConnectionState) -> None:
                         tip_filter_row.keyinstance_id))
                     continue
 
-                # TODO(1.4.0) Tip filters. Server lacks registration. Needs handling.
+                # TODO(1.4.0) Unreliable server, issue#841. Server lacks our expected tip filter.
                 #     - Using the same wallet in different installations?
                 #     - Expiry date edge case? Clock error?
                 #     - Purged account due to abuse or other reason?
@@ -881,7 +890,7 @@ async def validate_server_data(state: ServerConnectionState) -> None:
             server_tip_filter = server_tip_filter_by_pushdata_hash[pushdata_hash]
             # 2. Does the server tip filter have the same registration duration?
             if tip_filter_row.duration_seconds != server_tip_filter.duration_seconds:
-                # TODO(1.4.0) Tip filters. Server registration mismatch in expiry duration.
+                # TODO(1.4.0) Unreliable server, issue#841. Server tip filter expiration differs.
                 #     - Maybe the user changed the duration on the registration?
                 #       - If the user did this, we would want to update both at the same time
                 #         and coordinate it. Do not allow it if they are offline.
@@ -897,7 +906,7 @@ async def validate_server_data(state: ServerConnectionState) -> None:
                     tip_filter_row.keyinstance_id))
                 # This can fall through and become a match.
             elif tip_filter_row.date_registered != server_tip_filter.date_created:
-                # TODO(1.4.0) Tip filters. Server registration mismatch in date registered.
+                # TODO(1.4.0) Unreliable server, issue#841. Server tip filter registration differs.
                 #     - Using the same wallet in different installations?
                 raise InvalidStateError("Handle filter date created mismatch")
             matched_server_filter_pushdata_hashes.add(pushdata_hash)
@@ -916,7 +925,7 @@ async def validate_server_data(state: ServerConnectionState) -> None:
                 expiry_time = server_tip_filter.date_created + server_tip_filter.duration_seconds
                 if expiry_time - get_posix_timestamp() < 5:
                     continue
-                # TODO(1.4.0) Tip filters. Server has registered pushdatas we do not know about.
+                # TODO(1.4.0) Unreliable server, issue#841. Server has unknown registrations.
                 #     - Using the same wallet in different installations?
                 raise InvalidStateError("Handle orphaned server registration mismatch")
 
@@ -946,7 +955,7 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
     while peer_channel_server_state is not indexing_server_state:
         # The peer channel server is a different server. We do not know that it is ready. Either
         # we should wait for it to become ready, or we should retry this call when it is.
-        # TODO(1.4.0) Servers. Handle `TimeoutError` in a better way, and this edge case.
+        # TODO(1.4.0) Tip filtering, issue#904. Handle this `TimeoutError` in a better way.
         #     If there is no workable peer channel server, then the user should be notified and
         #     they should have to rectify it.
         if peer_channel_server_state.connection_flags & ServerConnectionFlag.WEB_SOCKET_READY \
@@ -962,33 +971,38 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
 
     peer_channel_row: Optional[ServerPeerChannelRow] = None
     if peer_channel_id is not None:
-        # TODO(1.4.0) Tip filters. It looks like we created a peer channel locally, but either
-        #     never got around to creating it remotely or got interrupted before we could
+        # TODO(1.4.0) Tip filters, issue#904. It looks like we created a peer channel locally, but
+        #     either never got around to creating it remotely or got interrupted before we could
         #     store the details retrieved from the remote server (remote id/url/...).
         assert peer_channel_server_state.cached_peer_channel_rows is not None
+
         for peer_channel_row_n in peer_channel_server_state.cached_peer_channel_rows.values():
             if peer_channel_row_n.peer_channel_id == peer_channel_id:
                 peer_channel_row = peer_channel_row_n
                 break
         else:
-            # There is nothing we can do in this case. Just error.
+            # TODO(1.4.0) Tip filters, issue#904. It looks like we created a peer channel locally,
+            #     either never got around to creating it remotely or got interrupted before we could
+            #     store the details retrieved from the remote server (remote id/url/...). Could
+            #     also be user-caused problem with duplicate wallet usage or other reason.
             raise InvalidStateError(f"Peer channel {peer_channel_id} lacks matching row")
-        # TODO(1.4.0) Tip filters. Server unreliability case OR user unreliability
-        #     clashing wallets open using servers with the same account.
+        # The indexing server tip filter peer channel is not flagged correctly. There is
+        # nothing we can do in this case as it is completely unexpected (database corruption?).
         if peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.TIP_FILTER_DELIVERY == 0:
             raise InvalidStateError(f"Peer channel {peer_channel_id} lacks tip filter flag")
 
     tip_filter_callback_url = indexing_server_state.indexer_settings.get("tipFilterCallbackUrl")
     if tip_filter_callback_url is not None:
         if peer_channel_id is None:
-            # TODO(1.4.0) Tip filters. Server unreliability case OR user unreliability
-            #     clashing wallets open using servers with the same account.
+            # TODO(1.4.0) Unreliable server, issue#841. The server is configured to send us tip
+            #     filter notifications but we do not have a peer channel set on the server in the
+            #     database to receive them. Likely user using wallet on different machines.
             raise InvalidStateError("Unreliability. Remote callback with no local channel")
 
         assert peer_channel_row is not None
         if peer_channel_row.remote_url != tip_filter_callback_url:
-            # TODO(1.4.0) Tip filters. Server unreliability case OR user unreliability
-            #     clashing wallets open using servers with the same account.
+            # TODO(1.4.0) Unreliable server, issue#841. Differing tip filter notification callback
+            #     URLs. Likely user using wallet on different machines.
             raise InvalidStateError("Unreliability. Mismatching channel url "+
                 f"{tip_filter_callback_url} != {peer_channel_row.remote_url}")
         # At this point we know the peer channel is correctly set up.
@@ -1036,8 +1050,9 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
     # expected "TypedDict({'tipFilterCallbackUrl'?: Optional[str]})"  [typeddict-item]`
     indexing_server_state.indexer_settings.update(settings_delta_object) # type: ignore
     if settings_object != indexing_server_state.indexer_settings:
-        # TODO(1.4.0) Tip filters. Server unreliability case OR user unreliability with
-        #     clashing wallets open using servers with the same account.
+        # TODO(1.4.0) Unreliable server, issue#841. Differing server indexer settings after setup.
+        #     Server unreliability case OR user unreliability with clashing wallets open using
+        #     servers with the same account.
         raise InvalidStateError("Unreliability. Local/remote indexer settings mismatch "+
             f"{settings_object} != {indexing_server_state.indexer_settings}")
 
@@ -1117,8 +1132,9 @@ async def get_server_indexer_settings(state: ServerConnectionState) -> IndexerSe
 
             return cast(IndexerServerSettings, await response.json())
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -1143,8 +1159,9 @@ async def update_server_indexer_settings(state: ServerConnectionState,
 
             return cast(IndexerServerSettings, await response.json())
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -1181,8 +1198,9 @@ async def create_peer_channel_async(state: ServerConnectionState,
 
             return cast(PeerChannelViewModelGet, await response.json())
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {url}")
 
@@ -1212,8 +1230,9 @@ async def mark_peer_channel_read_or_unread_async(state: ServerConnectionState,
                 raise GeneralAPIError(
                     f"Bad response status code: {response.status}, reason: {response.reason}")
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {url}")
 
@@ -1237,8 +1256,9 @@ async def get_peer_channel_async(state: ServerConnectionState, remote_channel_id
                     f"Bad response status code: {response.status}, reason: {response.reason}")
             return cast(PeerChannelViewModelGet, await response.json())
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -1262,8 +1282,9 @@ async def list_peer_channels_async(state: ServerConnectionState) -> List[PeerCha
 
             return cast(list[PeerChannelViewModelGet], await response.json())
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -1286,8 +1307,9 @@ async def delete_peer_channel_async(state: ServerConnectionState, remote_channel
                 raise GeneralAPIError(
                     f"Bad response status code: {response.status}, reason: {response.reason}")
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -1311,8 +1333,9 @@ async def create_peer_channel_message_json_async(state: ServerConnectionState,
                     f"Bad response status code: {response.status}, reason: {response.reason}")
             return cast(GenericPeerChannelMessage, await response.json())
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -1333,8 +1356,9 @@ async def create_peer_channel_message_binary_async(state: ServerConnectionState,
                     f"Bad response status code: {response.status}, reason: {response.reason}")
             return cast(MessageViewModelGetBinary, await response.json())
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -1363,8 +1387,9 @@ async def list_peer_channel_messages_async(state: ServerConnectionState, remote_
 
             return cast(list[GenericPeerChannelMessage], await response.json())
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {url}")
 
@@ -1385,8 +1410,9 @@ async def delete_peer_channel_message_async(state: ServerConnectionState, remote
                 raise GeneralAPIError(
                     f"Bad response status code: {response.status}, reason: {response.reason}")
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -1415,8 +1441,9 @@ async def create_peer_channel_api_token_async(state: ServerConnectionState, chan
 
             return cast(PeerChannelAPITokenViewModelGet, await response.json())
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {url}")
 
@@ -1441,8 +1468,9 @@ async def list_peer_channel_api_tokens_async(state: ServerConnectionState, remot
 
             return cast(list[PeerChannelAPITokenViewModelGet], await response.json())
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -1459,8 +1487,9 @@ async def get_peer_channel_max_sequence_number_async(state: ServerConnectionStat
                     f"Bad response status code: {response.status}, reason: {response.reason}")
             return int(response.headers['ETag'])
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -1495,8 +1524,9 @@ async def create_tip_filter_registrations_async(state: ServerConnectionState,
 
             json_object = await response.json()
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 
@@ -1528,8 +1558,9 @@ async def list_tip_filter_registrations_async(state: ServerConnectionState) \
 
             body_bytes = await response.content.read()
     except aiohttp.ClientError:
-        # TODO(1.4.0) Servers. We do not want to lose error details, when we wrap exceptions
-        #     like this, we should do something to make sure that does not happen. Debug log?
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
 

@@ -160,6 +160,8 @@ class ReceiveView(QWidget):
             edits.extend(dialog.get_bsv_edits())
         return edits
 
+    # TODO(1.4.0) Incomplete, issue#911. Decide if we are implementing this or if it is
+    #     deletable code.
     def _on_create_handoff_button_clicked(self) -> None:
         if not self._main_window_proxy.question(_("If you choose to receive a payment this way, "
                 "you are responsible for getting the transaction yourself and importing it into "
@@ -171,11 +173,13 @@ class ReceiveView(QWidget):
 
         self._common_create_button_clicked_handling(PaymentFlag.NONE)
 
+    # TODO(1.4.0) Incomplete, issue#911. Decide if we are implementing this or if it is
+    #     deletable code.
     def _on_create_monitored_button_clicked(self) -> None:
         self._common_create_button_clicked_handling(PaymentFlag.MONITORED)
 
+    # TODO(1.4.0) Incomplete, issue#911. See the callers.
     def _common_create_button_clicked_handling(self, payment_flag: PaymentFlag) -> None:
-        # TODO(1.4.0) Incomplete. Payment request creation types.
         pass
 
     def show_dialog(self, request_id: Optional[int], request_type: PaymentFlag) -> None:

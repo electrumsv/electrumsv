@@ -162,7 +162,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     # Using a composite key to refer to servers and different tables is awkward, especially
     # as we add dependent tables on servers. For this reason both the base server table and
     # server account table are now merged and there is a primary key `server_id` column.
-    # TODO(1.4.0) Tip filters. `tip_filter_peer_channel_id` may be unnecessary.
+    # TODO(1.4.0) Tip filters, issue#904. `tip_filter_peer_channel_id` may be unnecessary.
     conn.execute("""
         CREATE TABLE Servers2 (
             server_id                   INTEGER     PRIMARY KEY,

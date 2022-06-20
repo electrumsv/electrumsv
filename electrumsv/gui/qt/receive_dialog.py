@@ -538,7 +538,8 @@ class ReceiveDialog(QDialog):
         self._start_expiry_timer(expiry_timestamp)
 
     def _on_button_clicked_register(self) -> None:
-        # TODO(1.4.0) Payment requests. Need to register the tip filter with the given server.
+        # TODO(1.4.0) Payment requests, issue#911. Need to register the tip filter with the given
+        #     server.
         pass
 
     def _on_button_clicked_import(self) -> None:
@@ -683,10 +684,10 @@ class ReceiveDialog(QDialog):
         # on the payment in that transaction to be satisfied. We also support multiple
         # payments satisfying a payment request (address reuse..) so there's also that.
 
-        # TODO(1.4.0) User experience. WRT transaction import. We want to show this transaction
-        #     has been imported visually. Just popping up the transaction dialog does not make
-        #     much sense. Having a list on the payment request window and adding it there is a
-        #     better idea. We should have a user visible notification that a payment request
+        # TODO(1.4.0) User experience, issue#909. WRT transaction import. We want to show this
+        #     transaction has been imported visually. Just popping up the transaction dialog does
+        #     not make much sense. Having a list on the payment request window and adding it there
+        #     is a better idea. We should have a user visible notification that a payment request
         #     has been fully paid, but that would be triggered generally in the wallet code not the
         #     UI code.
 

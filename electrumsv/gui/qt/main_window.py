@@ -810,7 +810,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self._account_menu.setEnabled(False)
 
     def _show_network_dialog(self) -> None:
-        # TODO(1.4.0) Networking. WRT offline mode. Make the dialog offline friendly.
+        # TODO(1.4.0) Networking, issue#905. WRT offline mode. Make the dialog offline friendly.
         # if not app_state.daemon.network:
         #     parent.show_warning(_('You are using ElectrumSV in offline mode; restart '
         #                           'ElectrumSV if you want to get connected'), title=_('Offline'))
@@ -852,6 +852,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         spacer.setVisible(True)
         self.spacer_action = toolbar.addWidget(spacer)
 
+        # TODO(1.4.0) User experience, issue#909. WRT updates. Make sure this is revisited and
+        #     reused if possible.
         # self._update_check_state = "default"
         # update_action = QAction(
         #     read_QIcon("icons8-available-updates-80-blue"), _("Update Check"), self)
@@ -872,7 +874,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         pass
         # self._update_menu.exec(QCursor.pos())
 
-    # TODO(1.4.0) Notifications. WRT updates. Make sure this is revisited and reused if possible.
+    # TODO(1.4.0) User experience, issue#909. WRT updates. Make sure this is revisited and reused
+    #     if possible.
     # def _update_check_toolbar_update(self) -> None:
     #     update_check_state = "default"
     #     check_result: Optional[ReleaseDocumentType] = self.config.get('last_update_check')
@@ -1195,8 +1198,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         """
         Update the network status portion of the status bar.
         """
-        # TODO(1.4.0) Networking. Have some form of deferred update where each pending update
-        #     is blocked until the next second (or something like that).
+        # TODO(1.4.0) User experience, issue#909. Have some form of deferred update where each
+        #     pending update is blocked until the next second (or something like that).
         text: Optional[str] = None
         tooltip_text: Optional[str] = None
         if self.network is None:
@@ -1243,7 +1246,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 text = _("UNKNOWN CONNECTION STATE")
                 tooltip_text = _("..")
 
-            # TODO(1.4.0) Networking. WRT blockchains state. Show header synchronisation updates.
+            # TODO(1.4.0) User experience, issue#909. WRT blockchains state. Show header
+            #     synchronisation updates.
             # if self._wallet._blockchain_server_state is not None:
             #     server_chain_tip = self._wallet._blockchain_server_state.tip_header
             #     server_height = server_chain_tip.height if server_chain_tip else 0
@@ -1591,7 +1595,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def delete_invoice(self, invoice_id: int) -> None:
         send_view = self.get_send_view(self._account_id)
-        # TODO(1.4.0) Broken code. `SendView` does not have `delete_invoice`.
+        # TODO(1.4.0) Invoicing. `SendView` does not have `delete_invoice`.
         # assert isinstance(send_view, SendView)
         # send_view.delete_invoice(invoice_id)
 

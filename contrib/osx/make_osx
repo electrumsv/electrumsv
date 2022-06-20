@@ -118,8 +118,10 @@ info "Building PyInstaller."
 PYINSTALLER_REPO="https://github.com/pyinstaller/pyinstaller.git"
 PYINSTALLER_COMMIT="3940e5fc5f9e02bce9f1af53c70a42db81071381"
 # TODO This is the latest commit that passes pyinstaller's CI.
-# TODO(1.4.0) There has been a change in code-signing behaviour we likely need to address
-#     before release. (https://github.com/pyinstaller/pyinstaller/pull/5581)
+
+# TODO(1.4.0) MacOS code signing, issue#903. Pyinstaller apparently changed their code-signing
+#     behaviour we likely need to address before release.
+#     (https://github.com/pyinstaller/pyinstaller/pull/5581)
 (
     if [ -f "$BUILDDIR/pyinstaller/PyInstaller/bootloader/Darwin-64bit/runw" ]; then
         info "pyinstaller already built, skipping"

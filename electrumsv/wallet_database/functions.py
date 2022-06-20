@@ -899,8 +899,8 @@ def create_pushdata_matches_write(rows: list[PushDataMatchRow], processed_messag
 @replace_db_context_with_connection
 def read_pushdata_match_metadata(db: sqlite3.Connection) \
         -> list[PushDataMatchMetadataRow]:
-    # TODO(1.4.0) Tip filters. There should be some flag which filters out processed entries
-    #     and the tx import should toggle that flag accordingly.
+    # TODO(1.4.0) Tip filters, issue#904. There should be some flag which filters out processed
+    #     entries and the tx import should toggle that flag accordingly.
     sql = """
         SELECT KI.account_id, SPDR.pushdata_hash, SPDM.transaction_hash, SPDM.block_hash
         FROM ServerPushDataRegistrations SPDR
@@ -1383,7 +1383,7 @@ def create_server_peer_channel_write(row: ServerPeerChannelRow,
     if insert_result_1 is None:
         raise DatabaseUpdateError(f"Failed creating new server peer channel {row}")
 
-    # TODO(1.4.0) Tip filters. Can we get delete the `tip_filter_peer_channel_id` field?
+    # TODO(1.4.0) Tip filters, issue#904. Can we get delete the `tip_filter_peer_channel_id` field?
     #     We should just be able to do a preread based on the flags and enforce it.
     peer_channel_id = cast(int, insert_result_1[0])
     if row.peer_channel_flags & ServerPeerChannelFlag.TIP_FILTER_DELIVERY:

@@ -279,8 +279,8 @@ async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: Ne
     validate_json_envelope(broadcast_response_envelope)
     logger.debug("transaction broadcast via MAPI server: %s", server.url)
 
-    # TODO(1.4.0) MAPI. Work out if we should be processing the response.
-    # TODO(1.4.0) MAPI. Work out if we should be storing the response.
+    # TODO(1.4.0) MAPI, issue#910. Work out if we should be processing the response.
+    # TODO(1.4.0) MAPI, issue#910. Work out if we should be storing the response.
     server.api_key_state[credential_id].record_success()
     broadcast_response: BroadcastResponse = json.loads(broadcast_response_envelope['payload'])
 

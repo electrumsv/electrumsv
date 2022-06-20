@@ -64,7 +64,7 @@ if TYPE_CHECKING:
 
 logger = logs.get_logger("scanner")
 
-# TODO(1.4.0) Networking. Handle disconnection problems cleanly.
+# TODO(1.4.0) Blockchain scanning, issue#902. Handle disconnection problems cleanly.
 
 ExtendRangeCallback = Callable[[int], None]
 

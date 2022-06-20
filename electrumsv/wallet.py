@@ -2728,9 +2728,9 @@ class Wallet:
             if self._network is not None and cleared_flags & KeyInstanceFlag.ACTIVE:
                 # This payment request was the only reason the key was active and being monitored
                 # on the blockchain server for new transactions. We can now delete the subscription.
-                # TODO(1.4.0) Payment requests. When the user closes/deletes a payment request
-                #     we need to clean up all resources allocated when the request was created.
-                #     This would include the tip filter.
+                # TODO(1.4.0) Payment requests, issue#911. When the user closes/deletes a payment
+                #     request we need to clean up all resources allocated when the request was
+                #     created. This would include the tip filter.
                 pass
 
             self.events.trigger_callback(WalletEvent.KEYS_UPDATE, account_id, [ keyinstance_id ])
@@ -3243,15 +3243,17 @@ class Wallet:
                 self.events.trigger_callback(WalletEvent.TRANSACTION_OBTAINED, tx_row, tx,
                     link_state)
 
-        # TODO(1.4.0) MAPI management. Spent outputs edge case, monitoring STATE_SIGNED or
-        #     STATE_CLEARED transactions needs a final decision. In practice, all ongoing
+        # TODO(1.4.0) MAPI management, issue#910. Spent outputs edge case, monitoring STATE_SIGNED
+        #     or STATE_CLEARED transactions needs a final decision. In practice, all ongoing
         #     transaction broadcasts will be via MAPI and we should aim to expect that mining
         #     notifications come via peer channel callbacks.
-        # TODO(1.4.0) MAPI management. Allow user to correct lost STATE_SIGNED or STATE_CLEARED
-        #     transactions. This would likely be some UI option that used spent outputs to deal
-        #     with either unexpected MAPI non-involvement or loss of mined/double spent callback.
+        # TODO(1.4.0) MAPI management, issue#910. Allow user to correct lost STATE_SIGNED or
+        #     STATE_CLEARED transactions. This would likely be some UI option that used spent
+        #     outputs to deal with either unexpected MAPI non-involvement or loss of mined/double
+        #     spent callback.
 
         # We monitor local and mempool transactions to see if they have been mined.
+        # TODO(1.4.0) Transaction import, issue#913. Think through all the edge cases.
         if self._network is not None and flags & (TxFlags.MASK_STATE_LOCAL | TxFlags.STATE_CLEARED):
             # We do not monitor transactions that have proof and are pending verification.
             # We do not monitor local transactions that are being MAPI broadcast.
@@ -3259,23 +3261,23 @@ class Wallet:
                     import_flags & TransactionImportFlag.EXPLICIT_BROADCAST:
                 # The user has used the "Sign" UI button rather than the "Broadcast" UI button.
                 # It is not a given they will broadcast it, and we need to deal with that.
-                # TODO(1.4.0) MAPI management. Monitor spent output state if the broadcast fails.
-                #     I (rt12) suspect the correct place for this clause is in the "register"
-                #     clause, where we would do the appropriate handling. However this is probably
-                #     better to ignore and handle as a general state change.
+                # TODO(1.4.0) MAPI management, issue#910. Monitor spent output state if the
+                #     broadcast fails. I (rt12) suspect the correct place for this clause is in the
+                #     "register" clause, where we would do the appropriate handling. However this
+                #     is probably better to ignore and handle as a general state change.
                 pass
             elif flags & TxFlags.STATE_CLEARED and proof_row is not None:
                 # We have the proof for this transaction but were not able to verify it due to
                 # the lack of the header for the block that the transaction is in.
-                # TODO(1.4.0) Spent outputs. We need to recover from all failure cases here.
+                # TODO(1.4.0) Output spends, issue#913. We need to recover from all failure cases.
                 #     - Maybe the header never arrives (unlikely but should handle).
                 #     - Maybe the header does not verify correctly.
                 #     - Other failure cases?
                 pass
             else:
-                # TODO(output-spends) This can do more intelligent selection of spent outputs
-                #     to monitor. We really only care about UTXOs that affect us, but it is
-                #     likely that in most cases it is simpler to care about them all.
+                # TODO(1.4.0) Output spends, issue#913. This can do more intelligent selection of
+                #     spent outputs to monitor. We really only care about UTXOs that affect us,
+                #     but it is likely that in most cases it is simpler to care about them all.
                 #     - List the higher level code that triggers this so we know we are clear on
                 #       when this is being triggered.
                 self._register_spent_outputs_to_monitor(
@@ -3338,7 +3340,7 @@ class Wallet:
                 account_keyinstance_ids[account_id].add(keyinstance_id)
             else:
                 account_keyinstance_ids[account_id] = { keyinstance_id }
-        # TODO(1.4.0) Tip filters. Remove this registration, save money.
+        # TODO(1.4.0) Tip filters, issue#911. Remove this registration, save money.
         #     This is also linked to the delete payment requests function.
 
         if len(transaction_description_update_rows):
@@ -3475,9 +3477,10 @@ class Wallet:
             remaining_tx_hashes.remove(mapi_row.tx_hash)
 
         if self._blockchain_server_state is not None:
-            # TODO(1.4.0) Reorgs. Are these registered on startup? They may not be registerablehere.
-            # Otherwise, register for utxo spend notifications for these transactionsto getproofdata
-            # when the transaction is included into a block (on the new chain)
+            # TODO(1.4.0) Reorgs, issue#914. Are these registered on startup? They may not be
+            # registerablehere. Otherwise, register for utxo spend notifications for these
+            # transactionsto getproofdata when the transaction is included into a block (on the
+            # new chain)
             for tx_hash in remaining_tx_hashes:
                 tx = self.get_transaction(tx_hash)
                 assert tx is not None
@@ -3488,7 +3491,7 @@ class Wallet:
         assert self._wallet_master_keystore is not None
         derivation_text = f"{WALLET_IDENTITY_PATH_TEXT}/0'"
         derivation_path: DerivationPath = tuple(bip32_decompose_chain_string(derivation_text))
-        # TODO(1.4.0) Credentials. We will not be storing these here on the long term
+        # TODO(1.4.0) Identity private key, issue#907. Is this what we plan to do in the long term?
         identity_private_key = cast(BIP32PrivateKey,
             self._wallet_master_keystore.get_private_key(derivation_path, password))
         self.identity_private_key_credential_id = app_state.credentials.add_indefinite_credential(
@@ -3685,7 +3688,8 @@ class Wallet:
         # TODO(petty-cash) In theory each petty cash account maintains a connection. At the
         #     time of writing, we only have one petty cash account per wallet, but there are loose
         #     plans that sets of accounts may hierarchically share different petty cash accounts.
-        # TODO(1.4.0) Networking. These worker tasks should be restarted if they prematurely exit?
+        # TODO(1.4.0) Networking, issue#841. These worker tasks should be restarted if they
+        #     prematurely exit?
 
         self._worker_tasks_maintain_server_connection = dict[int, list[ServerConnectionState]]()
         self._server_progress.clear()
@@ -3742,7 +3746,7 @@ class Wallet:
                             chosen_servers.append((server, { ServerCapability.TIP_FILTER }))
                             break
                     else:
-                        # TODO(1.4.0) User visible. WRT fatally broken database state?
+                        # TODO(1.4.0) Unreliable application, issue#906. Broken database state?
                         raise NotImplementedError("Existing blockchain server not found for given "
                             f"id={account_row.indexer_server_id}")
 
@@ -3780,15 +3784,15 @@ class Wallet:
                                 chosen_servers.append((server, { ServerCapability.PEER_CHANNELS }))
                                 break
                         else:
-                            # TODO(1.4.0) User visible. WRT fatally broken database state?
+                            # TODO(1.4.0) Unreliable application, issue#906. Broken database state.
                             raise NotImplementedError("Existing peer channel server not found for "
                                 f"given id={account_row.peer_channel_server_id}")
                 else:
                     peer_channel_server_candidates = list[NewServer]()
                     for server_key, server in self._servers.items():
                         server_row = server.database_rows[None]
-                        # TODO(1.4.0) Servers. Peer channel selection. We need to know that
-                        #     the selected peer channel server is working/available. For now
+                        # TODO(1.4.0) Servers, issue#908. Peer channel selection. We need to know
+                        #     that the selected peer channel server is working/available. For now
                         #     we tie it to the header server.
                         if server_row.server_flags & NetworkServerFlag.CAPABILITY_PEER_CHANNELS \
                                 and self._network.is_header_server_ready(server_key):
@@ -3929,8 +3933,7 @@ class Wallet:
 
             for message_row, message in message_entries:
                 if not isinstance(message["payload"], dict):
-                    # TODO(1.4.0) Unreliable server. WRT peer channel message, show user.
-                    #     #usererror3.
+                    # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
                     self._logger.error("Peer channel MAPI callback payload invalid: '%s'", message)
                     continue
 
@@ -3938,7 +3941,7 @@ class Wallet:
                 try:
                     validate_json_envelope(envelope)
                 except ValueError as e:
-                    # TODO(1.4.0) Unreliable server. WRT peer channel message, show user.
+                    # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
                     self._logger.error("Peer channel MAPI callback envelope invalid: %s '%s'",
                         e.args[0], message)
                     continue
@@ -3947,7 +3950,7 @@ class Wallet:
                 try:
                     validate_mapi_callback_response(response)
                 except ValueError as e:
-                    # TODO(1.4.0) Unreliable server. WRT peer channel message, show user.
+                    # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
                     self._logger.exception("Peer channel MAPI callback response invalid: %s '%s'",
                         e.args[0], message)
                     continue
@@ -3958,8 +3961,8 @@ class Wallet:
                     continue
 
                 proof_json = cast(TSCMerkleProofJson, response["callbackPayload"])
-                # TODO(1.4.0) Unreliable server. Validate the response 'targetType'. We should
-                #     verify it in `validate_mapi_callback_response` or we should handle all
+                # TODO(1.4.0) Unreliable server, issue#841. Validate the response 'targetType'. We
+                #     should verify it in `validate_mapi_callback_response` or we should handle all
                 #     target types.
                 assert proof_json["targetType"] == "header"
                 proof = TSCMerkleProof.from_json(proof_json)
@@ -3968,8 +3971,9 @@ class Wallet:
                 #     this means the lifetime of the channel has to be long enough to catch these.
 
                 if not verify_proof(proof):
-                    # TODO(1.4.0) Unreliable server. The MAPI proof is standalone with embedded
-                    #     header, no failure! If we do get a dud proof then we throw it away.
+                    # TODO(1.4.0) Unreliable server, issue#841. The MAPI proof is standalone with
+                    #     embedded header, no failure! If we do get a dud proof then we throw it
+                    #     away.
                     self._logger.error("Peer channel MAPI proof invalid: '%s'", message)
                     continue
 
@@ -4056,13 +4060,13 @@ class Wallet:
                 processed_message_ids.append(message_row.message_id)
 
                 if not isinstance(message["payload"], dict):
-                    # TODO(1.4.0) Unreliable server. WRT tip filter match, show user.
+                    # TODO(1.4.0) Unreliable server, issue#841. WRT tip filter match, show user.
                     self._logger.error("Peer channel message payload invalid: '%s'", message)
                     continue
 
                 pushdata_matches = cast(TipFilterPushDataMatchesData, message["payload"])
                 if "blockId" not in pushdata_matches or "matches" not in pushdata_matches:
-                    # TODO(1.4.0) Unreliable server. WRT tip filter match, show user.
+                    # TODO(1.4.0) Unreliable server, issue#841. WRT tip filter match, show user.
                     self._logger.error("Peer channel message payload invalid: '%s'", message)
                     continue
 
@@ -4075,7 +4079,7 @@ class Wallet:
                     transaction_hash = hex_str_to_hash(tip_filter_match["transactionId"])
                     transaction_index = tip_filter_match["transactionIndex"]
                     match_flags = PushDataMatchFlag(tip_filter_match["flags"])
-                    # TODO(1.4.0) Tip filters. See `read_pushdata_match_metadata`
+                    # TODO(1.4.0) Tip filters, issue#904. See `read_pushdata_match_metadata`
                     match_flags |= PushDataMatchFlag.UNPROCESSED
                     creation_pushdata_match_row = PushDataMatchRow(state.server.server_id,
                         pushdata_hash, transaction_hash, transaction_index, block_hash, match_flags,
@@ -4212,7 +4216,8 @@ class Wallet:
                             # mempool already or is watching to see if someone else broadcasts it.
                             if row.flags & TxFlags.MASK_STATE_LOCAL:
                                 # Process someone else broadcasting this transaction.
-                                # TODO(1.4.0) User visible. WRT output spend / local transaction.
+                                # TODO(1.4.0) User experience, issue#909. Notify the user that
+                                #     this local transaction has been broadcast unexpectedly.
                                 pass
 
                             self._logger.debug("Unspent output event, transaction has been mined "
@@ -4231,7 +4236,8 @@ class Wallet:
                         # The blockchain server has informed us that a transaction we do not
                         # know to be broadcast, has been broadcast and is in the mempool.
 
-                        # TODO(1.4.0) User visible. WRT output spend / local transaction.
+                        # TODO(1.4.0) User experience, issue#909. Notify the user that this local
+                        #     transaction has been broadcast unexpectedly.
 
                         self._logger.debug("Unspent output event, local transaction has been "
                             "broadcast %r ~ %r", spent_output, row)
@@ -4358,9 +4364,10 @@ class Wallet:
 
             self._worker_task_chain_management = app_state.async_.spawn(self._chain_management_task)
 
-            # If there is already a configured blockchain server it is the header source and
-            # is responsible for engaging the wallet logic that processes new headers. Otherwise
-            # the wallet will first sync to the header store before considering starting
+            # We are only starting the server connection management here IF we know that it has
+            # already been used and is the source of the wallet's current blockchain state.
+            # Otherwise the server connection management is started elsewhere, after the wallet
+            # synchronises to the header store (see below in this function).
             if is_blockchain_server_active:
                 # We can start trying to connect to the blockchain server we are already using.
                 self._worker_task_manage_server_connections = app_state.async_.spawn(
@@ -4369,6 +4376,8 @@ class Wallet:
             # Offline mode.
             pass
 
+        # Online or offline, if the wallet is not already using a blockchain server, we first
+        # synchronise to the longest valid chain from the header store.
         if not is_blockchain_server_active:
             # Wallets start off following the longest valid chain.
             self._worker_task_initialise_headers = app_state.async_.spawn(
@@ -4591,7 +4600,7 @@ class Wallet:
                         signalled_worker_tokens)
                     # It is assumed that if this happens, the code is broken and the reliability
                     # of the application cannot be guaranteed.
-                    # TODO(1.4.0) User visible. WRT unexpected unreliable application behaviour.
+                    # TODO(1.4.0) Unreliable application, issue#906. Clean shutdown failure.
                     return
 
                 assert worker_token in expected_worker_tokens
@@ -4684,7 +4693,7 @@ class Wallet:
                     common_chain, common_height = cast(tuple[Optional[Chain], int],
                         transaction_chain.common_chain_and_height(header_source_chain))
                     if common_height == -1:
-                        # TODO(1.4.0) User visible. WRT unexpected unreliable application behaviour.
+                        # TODO(1.4.0) Unreliable application, issue#906. On different blockchain.
                         raise Exception("Broken header source; claims to have different blockchain")
 
                     # This block is on a different fork from the wallet's header source.
@@ -4784,7 +4793,7 @@ class Wallet:
                 _chain, fork_height = cast(tuple[Optional[Chain], int],
                     previous_chain.common_chain_and_height(current_chain))
                 if fork_height == -1:
-                    # TODO(1.4.0) User visible. WRT unexpected unreliable application behaviour.
+                    # TODO(1.4.0) Unreliable application, issue#906. On different blockchain.
                     raise Exception("Broken header source; claims to have different blockchain")
                 elif fork_height > last_processed_height:
                     # The fork happens after the last block header we have processed. When these
@@ -4815,8 +4824,9 @@ class Wallet:
                 self._chain_management_queue.put_nowait(
                     (ChainManagementKind.BLOCKCHAIN_EXTENSION, (current_chain, new_block_headers)))
         else:
-            # TODO(1.4.0) Headers. This is not our header source, does it have repercussions for us?
-            #     We can detect a stall. We can detect a longer chain and warn the user if relvnt?
+            # TODO(1.4.0) Headers, issue#915. This is not our header source, does it have
+            #     repercussions for us? We can detect a stall. We can detect a longer chain and
+            #     warn the user if relevant?
             pass
 
     def _is_wallet_header_source(self, server_state: Optional[HeaderServerState]) -> bool:
@@ -4829,15 +4839,15 @@ class Wallet:
             return server_state == self._blockchain_server_state
         elif server_state is not None:
             # Header source: A server's header API.
-            # TODO(1.4.0) Headers. If no blockchain server wanted / no P2P access. Follow headers
-            #     from the most acceptable chain seen on the <= 5 header API servers we should be
-            #     connecting to.
+            # TODO(1.4.0) Headers, issue#915. If no blockchain server wanted / no P2P access.
+            #     Follow headers from the most acceptable chain seen on the <= 5 header API servers
+            #     we should be connecting to.
             return False
         else:
             # Header source: P2P.
-            # TODO(1.4.0) Headers. If no blockchain server wanted, but we have P2P access. Follow
-            #     headers from the most acceptable chain seen through P2P (we should not use
-            #     header API servers in this case at all).
+            # TODO(1.4.0) Headers, issue#915. If no blockchain server wanted, but we have P2P
+            #     access. Follow headers from the most acceptable chain seen through P2P (we
+            #     should not use header API servers in this case at all).
             return False
 
     async def obtain_transactions_async(self, account_id: int, keys: list[tuple[bytes, bool]],
@@ -4918,7 +4928,7 @@ class Wallet:
                         tsc_full_proof_bytes = await request_binary_merkle_proof_async(state,
                             tx_hash, include_transaction=True)
                     except ServerConnectionError:
-                        # TODO(1.4.0) Unreliable server. Handle `ServerConnectionError` exception.
+                        # TODO(1.4.0) Unreliable server, issue#841. Server error for proof request.
                         #     No reliable server should cause this, we should stand off the server
                         #     or something similar.
                         logger.error("Still need to implement handling for inability to connect"
@@ -4930,7 +4940,7 @@ class Wallet:
                         entry.with_proof = False
                         continue
                     except FilterResponseInvalidError as response_exception:
-                        # TODO(1.4.0) Unreliable server. Handle `FilterResponseInvalidError` exc..
+                        # TODO(1.4.0) Unreliable server, issue#841. Tip filter response invalid.
                         #     No reliable server should cause this, we should stand off the server
                         #     or something similar. For now we exit the loop and let the user cause
                         #     other events that allow retry by setting the event.
@@ -4941,7 +4951,7 @@ class Wallet:
                     try:
                         tsc_full_proof = TSCMerkleProof.from_bytes(tsc_full_proof_bytes)
                     except TSCMerkleProofError:
-                        # TODO(1.4.0) Unreliable server. Handle `TSCMerkleProofError` exception.
+                        # TODO(1.4.0) Unreliable server, issue#841. Provided merkle proof invalid.
                         #     No trustable server should cause this, we should disable the server or
                         #     something similar.
                         self._logger.error("Still need to implement handling for inability to "
@@ -4975,12 +4985,12 @@ class Wallet:
 
                     try:
                         if not verify_proof(tsc_full_proof, header.merkle_root):
-                            # TODO(1.4.0) Unreliable server. Handle invalid merkle proof that fails.
+                            # TODO(1.4.0) Unreliable server, issue#841. Merkle proof verify fails.
                             self._logger.error("Still need to implement handling for receiving "
                                 "invalid merkle proofs")
                             return
                     except TSCMerkleProofError:
-                        # TODO(1.4.0) Unreliable server. Handle invalid merkle proof that is broken.
+                        # TODO(1.4.0) Unreliable server, issue#841. Merkle proof verify invalid.
                         self._logger.error("Still need to implement handling for receiving "
                             "invalid merkle proofs")
                         return
@@ -5035,9 +5045,9 @@ class Wallet:
         # We need the header source to be fully synchronised before we start.
         await self._header_source_synchronised_event.wait()
 
-        # TODO(1.4.0) Networking. If the user does not have their internet connection enabled when
-        #     the wallet is first opened, then this will maybe error and exit or block. We should
-        #     be able to detect problems like this and highlight it to the user, and retry
+        # TODO(1.4.0) Networking, issue#916. If the user does not have their internet connection
+        #     enabled when the wallet is first opened, then this will maybe error and exit or block.
+        #     We should be able to detect problems like this and highlight it to the user, and retry
         #     periodically or when they manually indicate they want to retry.
         self._check_missing_proofs_event.set()
         while not (self._stopping or self._stopped):
@@ -5064,7 +5074,7 @@ class Wallet:
                     tsc_full_proof_bytes = await request_binary_merkle_proof_async(state, tx_hash,
                         include_transaction=False)
                 except ServerConnectionError:
-                    # TODO(1.4.0) Networking. Handle `ServerConnectionError` exception.
+                    # TODO(1.4.0) Unreliable server, issue#841. Error connecting to server.
                     #     No reliable server should cause this, we should stand off the server or
                     #     something similar.
                     self._logger.error("Still need to implement handling for inability to connect"
@@ -5075,7 +5085,7 @@ class Wallet:
                 try:
                     tsc_proof = TSCMerkleProof.from_bytes(tsc_full_proof_bytes)
                 except TSCMerkleProofError:
-                    # TODO(1.4.0) Unreliable server. Handle `TSCMerkleProofError` exception.
+                    # TODO(1.4.0) Unreliable server, issue#841. Non-parseable merkle proof.
                     #     No trustable server should cause this, we should disable the server or
                     #     something similar.
                     self._logger.error("Still need to implement handling for inability to connect"
@@ -5101,12 +5111,12 @@ class Wallet:
 
                 try:
                     if not verify_proof(tsc_proof, header.merkle_root):
-                        # TODO(1.4.0) Unreliable server. Handle invalid merkle proof that fails.
+                        # TODO(1.4.0) Unreliable server, issue#841. Merkle proof verify fails.
                         self._logger.error("Still need to implement handling for inability to "
                             "connect to a server to get arbitrary merkle proofs")
                         return
                 except TSCMerkleProofError:
-                    # TODO(1.4.0) Unreliable server. Handle invalid merkle proof that is broken.
+                    # TODO(1.4.0) Unreliable server, issue#841. Merkle proof invalid on verify.
                     self._logger.error("Still need to implement handling for receiving "
                         "invalid merkle proofs")
                     return
@@ -5229,9 +5239,9 @@ class Wallet:
                     proof_updates.append(MerkleProofUpdateRow(block_height, proof_row.block_hash,
                         proof_row.tx_hash))
                 else:
-                    # TODO(1.4.0) Unreliable server. We probably want to know what server this
-                    #    came from so we can treat it as a bad server. And we would want to retry
-                    #     with a good server.
+                    # TODO(1.4.0) Unreliable server#issue841. Invalid proof when connecting to hdr.
+                    #     We probably want to know what server this came from so we can treat it as
+                    #     a bad server. And we would want to retry with a good server.
                     logger.error("Deferred verification transaction %s failed verifying proof",
                         hash_to_hex_str(proof.transaction_hash))
                     # Remove the "pending verification" proof and block data from the transaction,
@@ -5319,8 +5329,8 @@ class Wallet:
         """
         assert app_state.headers is not None
 
-        # TODO(1.4.0) Headers. The header store is not thread-safe. Reads must happen in the
-        #     same thread as the writes. We can check the thread and enforce it in code.
+        # TODO(1.4.0) Headers, issue#867. The header store is not thread-safe. Reads must happen
+        #     in the same thread as the writes. We can check the thread and enforce it in code.
 
         # If we do not know the wallet blockchain state we cannot lookup any header.
         if self._current_chain is None:

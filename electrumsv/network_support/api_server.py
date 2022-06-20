@@ -120,10 +120,13 @@ SERVER_CAPABILITIES = {
 }
 
 
-# TODO(1.4.0) MAPI management. Fee quotes has to come in the send view to factor into the fee in
-#     the transaction
-# TODO(1.4.0) MAPI management. Any refactored logic based on this should receive the
-#     `WalletDataAccess` instance for the wallet, and not use private variables on the account.
+# TODO(1.4.0) MAPI management, issue#910. Fee quotes should not be done here, they should already
+#     have been done in the wallet code and the send view UI should obtain them and factor them
+#     into the transaction creation and knowing which MAPI server we are going to use. If there
+#     is only one MAPI server, i.e. Gorilla pool, because Mempool and TAAL require API keys.. ???
+#     then that makes the decision easy.
+# TODO(1.4.0) MAPI management, issue#910. Refactor this to use the `WalletDataAccess` instance for
+#     the wallet, and not use private variables on the account.
 async def broadcast_transaction(tx: Transaction, network: Network,
         account: "AbstractAccount", merkle_proof: bool = False, ds_check: bool = False) \
             -> BroadcastResponse:
@@ -205,7 +208,8 @@ class NewServerAccessState:
         # The fee quote we locally extracted and deserialised from the fee quote response.
         self.last_fee_quote: Optional[FeeQuote] = None
 
-        # TODO(1.4.0) Servers. WRT observing blacklisting and retry delays. Not currently used.
+        # TODO(1.4.0) Servers, issue#905. WRT observing blacklisting and retry delays.
+        #     Not currently used.
         self.retry_delay = 0
         self.last_blacklisted = 0.
         self.is_disabled = False
