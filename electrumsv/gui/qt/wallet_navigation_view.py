@@ -61,7 +61,7 @@ from ...wallet import (AbstractAccount, ImportedAddressAccount, ImportedPrivkeyA
 from ...wallet_database.types import WalletBalance
 
 from .account_dialog import AccountDialog
-from .constants import ScanDialogRole
+from .constants import RestorationDialogRole
 from .debugger_view import DebuggerView
 from .main_window import ElectrumWindow
 from . import notifications_view
@@ -507,7 +507,7 @@ class WalletNavigationView(QSplitter):
         menu.addSeparator()
 
         scan_action = menu.addAction(_("&Restore account"),
-            main_window_proxy.scan_active_account_manual)
+            main_window_proxy.restore_active_account_manual)
         # TODO(1.4.0) Blockchain scanner, issue#901. Implement restoring non-deterministic accounts
         #     like imported keys. But we should go over all account types to be sure we do it right.
         scan_action.setEnabled(account.is_deterministic())
@@ -609,7 +609,7 @@ class WalletNavigationView(QSplitter):
         # from importlib import reload # TODO(dev-helper) Remove at some point.
         # reload(blockchain_scan_dialog)
         dialog = blockchain_scan_dialog.BlockchainScanDialog(self._main_window_proxy,
-            self._wallet, account_id, ScanDialogRole.MANUAL_RESCAN)
+            self._wallet, account_id, RestorationDialogRole.MANUAL_RESCAN)
         dialog.exec()
 
     def _can_view_secured_data(self, account: AbstractAccount) -> bool:

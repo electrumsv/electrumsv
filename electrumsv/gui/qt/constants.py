@@ -95,7 +95,7 @@ CSS_STYLES = """
 CSS_WALLET_WINDOW_STYLE = CSS_TABLE_VIEW_STYLE + CSS_STYLES
 
 
-class ScanDialogRole(IntEnum):
+class RestorationDialogRole(IntEnum):
     """
     This is the context in which the dialog is invoked.
     """

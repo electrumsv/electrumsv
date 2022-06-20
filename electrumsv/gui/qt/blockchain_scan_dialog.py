@@ -65,7 +65,7 @@ from ...wallet import Wallet
 from ...wallet_database.types import TransactionLinkState, TransactionRow
 from ...web import BE_URL
 
-from .constants import ScanDialogRole
+from .constants import RestorationDialogRole
 from .util import FormSectionWidget, read_QIcon, WindowModalDialog
 
 if TYPE_CHECKING:
@@ -213,7 +213,7 @@ class BlockchainScanDialog(WindowModalDialog):
     _pushdata_handler: Optional[PushDataHashHandler] = None
 
     def __init__(self, main_window_proxy: ElectrumWindow, wallet: Wallet,
-            account_id: int, role: ScanDialogRole) -> None:
+            account_id: int, role: RestorationDialogRole) -> None:
         super().__init__(main_window_proxy.reference(), TEXT_TITLE)
 
         self.setMinimumWidth(500)
@@ -331,7 +331,7 @@ class BlockchainScanDialog(WindowModalDialog):
         button_box.addWidget(self._help_button)
         button_box.addWidget(self._advanced_button)
         button_box.addStretch(1)
-        if role == ScanDialogRole.MANUAL_RESCAN:
+        if role == RestorationDialogRole.MANUAL_RESCAN:
             self._scan_button.setText(_("Scan"))
             button_box.addWidget(self._scan_button)
             self._scan_button.clicked.connect(self._on_clicked_button_action)

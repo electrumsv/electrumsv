@@ -82,7 +82,7 @@ from ... import web
 
 from .amountedit import AmountEdit, BTCAmountEdit
 from .console import Console
-from .constants import CSS_WALLET_WINDOW_STYLE, ScanDialogRole, UIBroadcastSource
+from .constants import CSS_WALLET_WINDOW_STYLE, RestorationDialogRole, UIBroadcastSource
 from .contact_list import ContactList, edit_contact_dialog
 from .network_dialog import NetworkDialog
 from .password_dialog import LayoutFields
@@ -125,6 +125,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     network_status_signal = pyqtSignal()
     account_created_signal = pyqtSignal(int, object)
     account_change_signal = pyqtSignal(object, object)
+    account_restoration_signal = pyqtSignal(int)
     keys_updated_signal = pyqtSignal(object, object)
     keys_created_signal = pyqtSignal(object, object)
     notifications_created_signal = pyqtSignal(object)
@@ -215,6 +216,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.keys_updated_signal.connect(self._on_keys_updated)
         self.network_status_signal.connect(self._update_network_status)
         self.notify_transactions_signal.connect(self._notify_transactions)
+        self.account_restoration_signal.connect(self._on_account_restoration_signal)
         self.show_secured_data_signal.connect(self._on_show_secured_data)
         self.transaction_labels_updated_signal.connect(self._on_transaction_labels_updated_signal)
         self.transaction_state_signal.connect(self._on_transaction_state_change)
@@ -408,7 +410,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.set_active_account(account)
 
         if flags & AccountInstantiationFlags.NEW == 0 and account.is_deterministic():
-            self.scan_active_account(ScanDialogRole.ACCOUNT_CREATION)
+            # This delays the opening of the account restoration UI as otherwise the account
+            # wizard window does not close.
+            self.account_restoration_signal.emit(RestorationDialogRole.ACCOUNT_CREATION)
 
     def set_active_account(self, account: Optional[AbstractAccount]) -> None:
         if self._account is account:
@@ -962,10 +966,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         wizard_window = account_wizard.AccountWizard(main_window_proxy)
         wizard_window.show()
 
-    def scan_active_account_manual(self) -> None:
-        self.scan_active_account(ScanDialogRole.MANUAL_RESCAN)
+    def _on_account_restoration_signal(self, scan_role: RestorationDialogRole) -> None:
+        # We have to delay the opening of the account restoration UI in the case of the
+        # account wizard as otherwise the account wizard does not close.
+        QTimer.singleShot(500, partial(self.restore_active_account, scan_role))
 
-    def scan_active_account(self, scan_role: ScanDialogRole) -> None:
+    def restore_active_account_manual(self) -> None:
+        self.restore_active_account(RestorationDialogRole.MANUAL_RESCAN)
+
+    def restore_active_account(self, scan_role: RestorationDialogRole) -> None:
         """
         Display the blockchain scanning UI for the active account.
 
