@@ -6,7 +6,7 @@ import unittest.mock
 from bitcoinx import bip32_key_from_string, BIP32PublicKey, hash_to_hex_str, sha256
 import pytest
 
-from electrumsv.blockchain_scanner import (BIP32ParentPath, BlockchainScanner, DEFAULT_GAP_LIMITS,
+from electrumsv.account_restorer import (BIP32ParentPath, AccountRestorer, DEFAULT_GAP_LIMITS,
     PushDataHashHandler, PushDataMatchResult, SearchEntry, SearchEntryKind, SearchKeyEnumerator)
 from electrumsv.constants import (CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType,
     SINGLE_SIGNER_SCRIPT_TYPES)
@@ -61,7 +61,7 @@ async def generate_bip32_input_lines(script_types: Sequence[ScriptType]) \
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(2)
-@unittest.mock.patch('electrumsv.blockchain_scanner.app_state')
+@unittest.mock.patch('electrumsv.account_restorer.app_state')
 async def test_scanner_scan_for_bip32_and_explicit_key_usage(app_state) -> None:
     """
     We register the receiving path and a few scripts.
@@ -117,7 +117,7 @@ async def test_scanner_scan_for_bip32_and_explicit_key_usage(app_state) -> None:
     scan_handler = PushDataHashHandler(network, account)
     scan_handler.search_entries = unittest.mock.Mock()
     scan_handler.search_entries.side_effect = replacement_search_entries
-    scanner = BlockchainScanner(scan_handler, search_enumerator,
+    scanner = AccountRestorer(scan_handler, search_enumerator,
         extend_range_cb=extend_range_cb)
 
     await scanner.scan_for_usage()
@@ -134,7 +134,7 @@ async def test_scanner_scan_for_bip32_and_explicit_key_usage(app_state) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(2)
-@unittest.mock.patch('electrumsv.blockchain_scanner.app_state')
+@unittest.mock.patch('electrumsv.account_restorer.app_state')
 async def test_scanner_with_gap_limit_extension(app_state) -> None:
     """
     We only register the receiving path.
@@ -167,7 +167,7 @@ async def test_scanner_with_gap_limit_extension(app_state) -> None:
     scan_handler = PushDataHashHandler(network, account)
     scan_handler.search_entries = unittest.mock.Mock()
     scan_handler.search_entries.side_effect = replacement_search_entries
-    scanner = BlockchainScanner(scan_handler, search_enumerator,
+    scanner = AccountRestorer(scan_handler, search_enumerator,
         extend_range_cb=extend_range_cb)
 
     await scanner.scan_for_usage()
@@ -187,7 +187,7 @@ async def test_scanner_with_gap_limit_extension(app_state) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(2)
-@unittest.mock.patch('electrumsv.blockchain_scanner.app_state')
+@unittest.mock.patch('electrumsv.account_restorer.app_state')
 async def test_scanner_scan_for_explicit_key_usage(app_state) -> None:
     input_lines = [
         InputLine(pushdata_hash=b'1', keyinstance_id=111,
@@ -221,7 +221,7 @@ async def test_scanner_scan_for_explicit_key_usage(app_state) -> None:
                 scan_handler._results.append(PushDataMatchResult(line.result, entries[i]))
 
     scan_handler.search_entries.side_effect = replacement_search_entries
-    scanner = BlockchainScanner(scan_handler, search_enumerator,
+    scanner = AccountRestorer(scan_handler, search_enumerator,
         extend_range_cb=extend_range_cb)
 
     await scanner.scan_for_usage()
@@ -235,7 +235,7 @@ async def test_scanner_scan_for_explicit_key_usage(app_state) -> None:
     assert scan_results[0].filter_result == input_lines[0].result
 
 
-@unittest.mock.patch('electrumsv.blockchain_scanner.app_state')
+@unittest.mock.patch('electrumsv.account_restorer.app_state')
 def test_key_enumerator_bip32_correctness(app_state) -> None:
     assert isinstance(xpub1, BIP32PublicKey)
 

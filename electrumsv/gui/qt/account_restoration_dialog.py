@@ -55,7 +55,7 @@ from ...app_state import app_state
 from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, \
     RECEIVING_SUBPATH, ServerCapability, ServerConnectionFlag, TransactionImportFlag, TxFlags, \
     WalletEvent
-from ...blockchain_scanner import AdvancedSettings, DEFAULT_GAP_LIMITS, BlockchainScanner, \
+from ...account_restorer import AdvancedSettings, DEFAULT_GAP_LIMITS, AccountRestorer, \
     PushDataHashHandler, PushDataSearchError, SearchKeyEnumerator
 from ...exceptions import ServerConnectionError
 from ...i18n import _
@@ -201,7 +201,7 @@ class ImportRoles(IntEnum):
     ENTRY = Qt.ItemDataRole.UserRole
 
 
-class BlockchainScanDialog(WindowModalDialog):
+class AccountRestorationDialog(WindowModalDialog):
     _stage = ScanDialogStage.PRE_SCAN
     _scan_start_time: int = -1
     _scan_end_time: int = -1
@@ -262,7 +262,7 @@ class BlockchainScanDialog(WindowModalDialog):
         search_enumerator.use_account(account)
 
         assert self._pushdata_handler is not None
-        self._scanner = BlockchainScanner(self._pushdata_handler, search_enumerator,
+        self._scanner = AccountRestorer(self._pushdata_handler, search_enumerator,
             extend_range_cb=self._on_scanner_range_extended)
 
         # We do not have to forceably stop this timer if the dialog is closed. It's lifecycle
@@ -849,7 +849,7 @@ class BlockchainScanDialog(WindowModalDialog):
 
 
 class AdvancedScanOptionsDialog(WindowModalDialog):
-    def __init__(self, parent: BlockchainScanDialog) -> None:
+    def __init__(self, parent: AccountRestorationDialog) -> None:
         super().__init__(parent, TEXT_SCAN_ADVANCED_TITLE)
 
         account = parent._wallet.get_account(parent._account_id)
@@ -932,14 +932,14 @@ class AdvancedScanOptionsDialog(WindowModalDialog):
         self.close()
 
     def _on_value_changed_receiving(self, new_value: int) -> None:
-        cast(BlockchainScanDialog, self.parent()).update_gap_limit(RECEIVING_SUBPATH, new_value)
+        cast(AccountRestorationDialog, self.parent()).update_gap_limit(RECEIVING_SUBPATH, new_value)
 
     def _on_value_changed_change(self, new_value: int) -> None:
-        cast(BlockchainScanDialog, self.parent()).update_gap_limit(CHANGE_SUBPATH, new_value)
+        cast(AccountRestorationDialog, self.parent()).update_gap_limit(CHANGE_SUBPATH, new_value)
 
     def _on_clicked_button_help(self) -> None:
         from .help_dialog import HelpDialog
-        parent = cast(BlockchainScanDialog, self.parent())
+        parent = cast(AccountRestorationDialog, self.parent())
         h = HelpDialog(parent._main_window_proxy.reference(), HELP_FOLDER_NAME,
             HELP_SCAN_ADVANCED_FILE_NAME)
         h.run()

@@ -598,17 +598,17 @@ class WalletNavigationView(QSplitter):
             self._wallet, account_id, self)
         dialog.exec()
 
-    def _on_menu_blockchain_scan(self, account_id: int) -> None:
+    def _on_menu_restore_account(self, account_id: int) -> None:
         if not self._main_window_proxy.has_connected_blockchain_server():
             MessageBox.show_message(_("The wallet is not currently connected to a blockchain "
                 "server. As such, the account scanner cannot be used at this time."),
                 self._main_window_proxy.reference())
             return
 
-        from . import blockchain_scan_dialog
+        from . import account_restoration_dialog
         # from importlib import reload # TODO(dev-helper) Remove at some point.
-        # reload(blockchain_scan_dialog)
-        dialog = blockchain_scan_dialog.BlockchainScanDialog(self._main_window_proxy,
+        # reload(account_restoration_dialog)
+        dialog = account_restoration_dialog.AccountRestorationDialog(self._main_window_proxy,
             self._wallet, account_id, RestorationDialogRole.MANUAL_RESCAN)
         dialog.exec()
 

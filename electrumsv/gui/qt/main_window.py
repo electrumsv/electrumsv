@@ -986,11 +986,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         assert self._account is not None
         assert self._account.is_deterministic()
 
-        from . import blockchain_scan_dialog
+        from . import account_restoration_dialog
         # from importlib import reload # TODO(dev-helper) Remove at some point.
-        # reload(blockchain_scan_dialog)
-        dialog = blockchain_scan_dialog.BlockchainScanDialog(weakref.proxy(self), self._wallet,
-            self._account_id, scan_role)
+        # reload(account_restoration_dialog)
+        dialog = account_restoration_dialog.AccountRestorationDialog(weakref.proxy(self),
+            self._wallet, self._account_id, scan_role)
         dialog.show()
 
     def new_payment(self) -> None:

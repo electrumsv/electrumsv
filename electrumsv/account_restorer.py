@@ -150,7 +150,7 @@ class PushDataHashHandler:
         self._account = account
         self._results: List[PushDataMatchResult] = []
 
-    def setup(self, scanner: BlockchainScanner) -> None:
+    def setup(self, scanner: AccountRestorer) -> None:
         self._scanner = scanner
 
     def shutdown(self) -> None:
@@ -213,7 +213,7 @@ class PushDataHashHandler:
         self._results.append(PushDataMatchResult(result, entry))
 
 
-class BlockchainScanner:
+class AccountRestorer:
     def __init__(self,
             handler: PushDataHashHandler,
             enumerator: SearchKeyEnumerator,
