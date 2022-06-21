@@ -83,7 +83,7 @@ TEXT_SCAN_ADVANCED_TITLE = _("Advanced options")
 # Any pages with multi-line centering are fudged to get the same result.
 TEXT_NO_SERVERS = _("<center><b>Not ready to scan</b></center>"
     "<br/>"
-    "There are no servers currently available and ready for scanning. It is possible that they "
+    "There are no servers currently available and ready for restoration. It is possible that they "
     "are not currently reachable or that required blockchain headers are still being obtained."
     "<br/><br/>")
 TEXT_PRE_SCAN = _("<center><b>Ready to scan</b></center>"
@@ -144,8 +144,8 @@ TEXT_FINAL_FAILURE = _("<center><b>Import failed</b>"
 
 # The location of the help document.
 HELP_FOLDER_NAME = "misc"
-HELP_SCAN_FILE_NAME = "blockchain-scan-dialog"
-HELP_SCAN_ADVANCED_FILE_NAME = "blockchain-scan-dialog-advanced"
+HELP_SCAN_FILE_NAME = "account-restoration-dialog"
+HELP_SCAN_ADVANCED_FILE_NAME = "account-restoration-dialog-advanced"
 
 
 class ScanDialogStage(IntEnum):
@@ -705,14 +705,15 @@ class AccountRestorationDialog(WindowModalDialog):
                 else:
                     state.item_hashes.add(push_data_match.filter_result.push_data_hash)
 
-            assert push_data_match.search_entry.parent_path is not None
-            key_subpath = push_data_match.search_entry.parent_path.subpath
-            if key_subpath in subpath_indexes:
-                subpath_indexes[key_subpath] = max(subpath_indexes[key_subpath],
-                    push_data_match.search_entry.parent_index)
-            else:
-                assert push_data_match.search_entry.parent_index > -1
-                subpath_indexes[key_subpath] = push_data_match.search_entry.parent_index
+            # This will be deterministic accounts.
+            if push_data_match.search_entry.parent_path is not None:
+                key_subpath = push_data_match.search_entry.parent_path.subpath
+                if key_subpath in subpath_indexes:
+                    subpath_indexes[key_subpath] = max(subpath_indexes[key_subpath],
+                        push_data_match.search_entry.parent_index)
+                else:
+                    assert push_data_match.search_entry.parent_index > -1
+                    subpath_indexes[key_subpath] = push_data_match.search_entry.parent_index
 
 
         # The linking of transaction to accounts cannot be done unless the keys exist with their

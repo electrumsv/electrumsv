@@ -232,6 +232,11 @@ class KeystoreTextType(IntEnum):
     EXTENDED_PRIVATE_KEY = 7
     EXTENDED_PUBLIC_KEY = 8
 
+KEYSTORE_TEXT_ALLOW_WATCH_ONLY = (KeystoreTextType.BIP39_SEED_WORDS,
+    KeystoreTextType.ELECTRUM_SEED_WORDS, KeystoreTextType.EXTENDED_PRIVATE_KEY)
+KEYSTORE_TEXT_FORCE_WATCH_ONLY = KeystoreTextType.ADDRESSES, KeystoreTextType.EXTENDED_PUBLIC_KEY
+
+
 
 class KeyInstanceFlag(IntFlag):
     NONE = 0

@@ -506,11 +506,8 @@ class WalletNavigationView(QSplitter):
             partial(self._rename_account, account_id))
         menu.addSeparator()
 
-        scan_action = menu.addAction(_("&Restore account"),
+        menu.addAction(_("&Restore account"),
             main_window_proxy.restore_active_account_manual)
-        # TODO(1.4.0) Blockchain scanner, issue#901. Implement restoring non-deterministic accounts
-        #     like imported keys. But we should go over all account types to be sure we do it right.
-        scan_action.setEnabled(account.is_deterministic())
         menu.addSeparator()
 
         private_keys_menu = menu.addMenu(_("&Private keys"))

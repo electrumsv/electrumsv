@@ -56,7 +56,8 @@ from PyQt6.QtWidgets import (
 
 from ...app_state import app_state
 from ...constants import (AccountCreationType, DEFAULT_COSIGNER_COUNT, DerivationType,
-    DerivationPath, KeystoreTextType, MAXIMUM_COSIGNER_COUNT, SEED_PREFIX)
+    DerivationPath, KEYSTORE_TEXT_ALLOW_WATCH_ONLY, KEYSTORE_TEXT_FORCE_WATCH_ONLY,
+    KeystoreTextType, MAXIMUM_COSIGNER_COUNT, SEED_PREFIX)
 from ...device import DeviceInfo
 from ...i18n import _
 from ...keystore import (bip44_derivation_cointype, instantiate_keystore,
@@ -775,8 +776,9 @@ class ImportWalletTextPage(QWizardPage):
             wizard.set_text_entry_account_result(KeyStoreResult(AccountCreationType.IMPORTED),
                 self._checked_match_type, entries, password)
         else:
+            watch_only = self._checked_match_type in KEYSTORE_TEXT_FORCE_WATCH_ONLY
             _keystore = instantiate_keystore_from_text(self._checked_match_type,
-                self._matches[self._checked_match_type], password)
+                self._matches[self._checked_match_type], password, watch_only=watch_only)
             wizard.set_keystore_result(KeyStoreResult(AccountCreationType.IMPORTED, _keystore))
         return True
 
@@ -857,8 +859,10 @@ class ImportWalletTextCustomPage(QWizardPage):
         self._passphrase_edit.setEnabled(self._allow_passphrase_usage())
         self._derivation_edit.setText(self._derivation_text)
         self._derivation_edit.setEnabled(self._allow_derivation_path_usage())
-        self._watchonly_button.setChecked(False)
-        self._watchonly_button.setEnabled(self._allow_watch_only_usage())
+        forced_watch_only = self._text_type in KEYSTORE_TEXT_FORCE_WATCH_ONLY
+        allow_watch_only = self._text_type in KEYSTORE_TEXT_ALLOW_WATCH_ONLY
+        self._watchonly_button.setChecked(forced_watch_only)
+        self._watchonly_button.setEnabled(not forced_watch_only and allow_watch_only)
 
     def on_leave(self) -> None:
         pass
@@ -870,10 +874,6 @@ class ImportWalletTextCustomPage(QWizardPage):
     def _allow_derivation_path_usage(self) -> bool:
         return self._text_type in (KeystoreTextType.BIP39_SEED_WORDS,)
 
-    def _allow_watch_only_usage(self) -> bool:
-        return self._text_type in (KeystoreTextType.BIP39_SEED_WORDS,
-            KeystoreTextType.ELECTRUM_SEED_WORDS, KeystoreTextType.EXTENDED_PRIVATE_KEY)
-
     # The `protected` method needs to know the "main window", we give it the `wallet_id` which
     # it can use to get the correct object. It is not used in this method, so we just ignore it.
     @protected
@@ -883,9 +883,7 @@ class ImportWalletTextCustomPage(QWizardPage):
         passphrase = (self._passphrase_edit.text().strip()
             if self._allow_passphrase_usage() else "")
         derivation_text = self._derivation_text if self._allow_derivation_path_usage() else None
-        watch_only = (self._watchonly_button.isChecked()
-            if self._allow_watch_only_usage() else False)
-
+        watch_only = self._watchonly_button.isChecked()
         assert self._text_type is not None
         assert self._text_matches is not None
         _keystore = instantiate_keystore_from_text(self._text_type,

@@ -409,7 +409,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.account_created_signal.emit(new_account_id, account)
         self.set_active_account(account)
 
-        if flags & AccountInstantiationFlags.NEW == 0 and account.is_deterministic():
+        if flags & AccountInstantiationFlags.NEW == 0 and (account.is_deterministic() or
+                flags & (AccountInstantiationFlags.IMPORTED_PRIVATE_KEYS|
+                AccountInstantiationFlags.IMPORTED_ADDRESSES) != 0):
             # This delays the opening of the account restoration UI as otherwise the account
             # wizard window does not close.
             self.account_restoration_signal.emit(RestorationDialogRole.ACCOUNT_CREATION)
@@ -984,7 +986,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         """
         assert self._account_id is not None
         assert self._account is not None
-        assert self._account.is_deterministic()
 
         from . import account_restoration_dialog
         # from importlib import reload # TODO(dev-helper) Remove at some point.

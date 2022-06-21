@@ -1,7 +1,7 @@
-<h2>Blockchain scanner - Advanced options</h2>
+<h2>Account Restoration - Advanced options</h2>
 <p style="text-align: center"><i>Provisional in-wallet help</i></p>
 <p>
-The options shown in this dialog window will depend on the type of account the scan is being
+The options shown in this dialog window will depend on the type of account the restoration is being
 performed for.
 </p>
 <h3>Deterministic accounts</h3>
@@ -13,7 +13,7 @@ private keys and addresses.
 <h4>Detecting when to stop searching</h4>
 <p>
 Certain types of accounts have the ability to create new keys on demand. If the wallet software is
-scanning the blockchain looking for transactions that use the keys in an account, it can look at
+restoring an account looking for transactions that use the keys in that account, it can look at
 known approaches to creating a sequence of keys and keep looking at those sequences until it stops
 finding used keys along them. The way it works out if there are no more keys, is if it reaches a
 point in the sequence of keys where there are a given number of unused keys in a row. The technical
@@ -23,7 +23,7 @@ term for this sequence of unused keys, is the "gap limit."
 This section allows the gap limit to be set for the different key sequences. Changing the gap
 limit is not recommended unless it is known that something has gone wrong in the past with the
 key sequences causing unexpected gaps to occur. Servers can rate limit the free access they give
-to the services the scanner uses, and in the future may charge for more than a small amount of free
+to the services the restorer uses, and in the future may charge for more than a small amount of free
 daily usage.
 </p>
 <h5>Change</h5>
