@@ -2466,7 +2466,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._logger.debug('closing wallet %s', self._wallet)
 
-        self.app.timer.timeout.disconnect(self.timer_actions)
+        # NOTE(qt-signals) 2022-06-22/rt12 This may have been cleaned up by Qt depending on how the
+        #     wallet exits. At the time of writing this is reproduced by killing ElectrumSV from
+        #     the DOS command line using Control+C.
+        try:
+            self.app.timer.timeout.disconnect(self.timer_actions)
+        except TypeError:
+            pass
         self.app.close_window(self)
 
     def cpfp(self, account: AbstractAccount, parent_tx: Transaction, new_tx: Transaction) -> None:

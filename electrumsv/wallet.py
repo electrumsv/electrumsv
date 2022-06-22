@@ -4559,6 +4559,7 @@ class Wallet:
         # NOTE(technical-debt) This event is currently only set when a server is reconciled as a
         # header source. In the longer term we would want this to respond to updates to the
         # longest valid chain (if we are not following a server).
+        self._logger.debug("Waiting to start chain management task")
         await self._start_chain_management_event.wait()
         assert self._current_chain is not None
 
@@ -4568,8 +4569,10 @@ class Wallet:
             ChainWorkerToken.OBTAIN_PROOF_WORKER, ChainWorkerToken.OBTAIN_TRANSACTION_WORKER,
         }
 
+        self._logger.debug("Entered chain management task")
         while True:
             item_kind, item_data = await self._chain_management_queue.get()
+            self._logger.debug("Acquired chain management work %s", item_kind)
             if item_kind == ChainManagementKind.BLOCKCHAIN_EXTENSION:
                 extension_chain, new_headers = cast(tuple[Chain, list[Header]], item_data)
                 assert self._current_chain is extension_chain
@@ -4599,6 +4602,8 @@ class Wallet:
             # Wait for all the worker tasks to compete their current batches and block.
             signalled_worker_tokens = set[ChainWorkerToken]()
             while signalled_worker_tokens != expected_worker_tokens:
+                self._logger.debug("Awaiting chain management workers %s",
+                    expected_worker_tokens-signalled_worker_tokens)
                 try:
                     worker_token = await asyncio.wait_for(self._chain_worker_queue.get(), 10.0)
                 except asyncio.TimeoutError:
@@ -4618,6 +4623,9 @@ class Wallet:
             # so they still happen in order.
             await self.on_reorg(orphaned_block_hashes)
             self._update_current_chain(new_chain, new_headers[-1])
+            self._logger.debug("Post reorg wallet chain %d->%d:%s",
+                new_chain.first_height, new_headers[-1].height,
+                hash_to_hex_str(new_headers[-1].hash))
 
             # This task consumes data produced by the wallet header processing we need to ensure
             # it flushes stale data and starts from the current (post-reorg) database state.
@@ -4671,11 +4679,10 @@ class Wallet:
 
                     # Guarantees relating to these calls: Search for CorrectHeaderSequence.
                     self._update_current_chain(chain, header)
+                    self._logger.debug("Continuing existing wallet chain %d->%d:%s",
+                        chain.first_height, header.height, hash_to_hex_str(header.hash))
                     assert self.process_header_source_update(server_state, chain, header,
                         header_source_chain, header_source_tip_header, force=True)
-
-                    self._logger.debug("Continuing existing wallet chain %d:%s", header.height,
-                        hash_to_hex_str(header.hash))
             else:
                 detached_wallet_tip = True
 
@@ -4721,13 +4728,16 @@ class Wallet:
                         header_source_tip_header, updated_header_source_chain,
                         updated_header_source_tip_header, force=True)
                 self._update_current_chain(header_source_chain, header_source_tip_header)
-                self._logger.debug("Processed detached wallet chain %d:%s",
+                self._logger.debug("Processed detached wallet chain %d->%d:%s",
+                    header_source_chain.first_height,
                     header_source_tip_header.height, hash_to_hex_str(header_source_tip_header.hash))
         else:
             # Switch header sources for an already initialised wallet with a current chain.
             assert self._current_tip_header is not None
             # Guarantees relating to these calls: Search for CorrectHeaderSequence.
             self._update_current_chain(header_source_chain, header_source_tip_header)
+            self._logger.debug("Switched wallet chain %d->%d:%s", header_source_chain.first_height,
+                header_source_tip_header.height, hash_to_hex_str(header_source_tip_header.hash))
             assert self.process_header_source_update(server_state, self._current_chain,
                 self._current_tip_header, header_source_chain,
                 header_source_tip_header, force=True)

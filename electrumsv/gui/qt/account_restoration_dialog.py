@@ -73,7 +73,7 @@ if TYPE_CHECKING:
     from .main_window import ElectrumWindow
 
 
-logger = logs.get_logger("scanner-ui")
+logger = logs.get_logger("restoration-ui")
 
 
 TEXT_TITLE = _("Blockchain scanner")
@@ -81,24 +81,24 @@ TEXT_SCAN_ADVANCED_TITLE = _("Advanced options")
 
 # All these "about" texts have the top title, then a standard line spacing, then more text.
 # Any pages with multi-line centering are fudged to get the same result.
-TEXT_NO_SERVERS = _("<center><b>Not ready to scan</b></center>"
+TEXT_NO_SERVERS = _("<center><b>Not ready to search</b></center>"
     "<br/>"
     "There are no servers currently available and ready for restoration. It is possible that they "
     "are not currently reachable or that required blockchain headers are still being obtained."
     "<br/><br/>")
-TEXT_PRE_SCAN = _("<center><b>Ready to scan</b></center>"
+TEXT_PRE_SCAN = _("<center><b>Ready to search</b></center>"
     "<br/>"
     "This process will contact servers in order to locate existing transactions that are "
     "associated with this account, so that any coins it has access to can be identified. "
     "When this might be desirable as well as both risks and limitations are covered in the "
     "help document accessible below."
     "<br/><br/>")
-TEXT_SCAN = _("<center><b>Scanning</b>"
+TEXT_SCAN = _("<center><b>Searching</b>"
     "<br/><br/>"
     "{:,d} transactions located (in {:,d} seconds).</center>")
-TEXT_NO_IMPORT = _("<center><b>Nothing to import</b></center>"
+TEXT_NO_IMPORT = _("<center><b>Nothing to restore</b></center>"
     "<br/>"
-    "The completed scan located no importable transactions associated with this account. "
+    "The completed search located no importable transactions associated with this account. "
     "Any other located transactions were either already imported or conflicted when their import "
     "was attempted."
     "<br/><br/>")
@@ -121,21 +121,22 @@ TEXT_UNRELIABLE_SERVER_ERROR = _("<center><b>Unreliable server error</b></center
     "The server selected for restoration is not able to provide complete responses to our "
     "requests and it does not seem like either it or our connection to it are reliable."
     "<br/><br/>")
-TEXT_PRE_IMPORT = _("<center><b>Ready to import</b></center>"
+TEXT_PRE_IMPORT = _("<center><b>Ready to restore</b></center>"
     "<br/>"
-    "The completed scan found {:,d} importable transactions associated with this account. "
-    "All transactions that were located, can be examined more closely in the details section. "
+    "The restoration archive search found {:,d} importable transactions associated with this "
+    "account. All transactions that were located, can be examined more closely in the details "
+    "section. "
     "There those that already exist or are known to be in conflict can be distinguished "
     "from the importable ones."
     "<br/><br/>")
-TEXT_IMPORT = _("<center><b>Importing</b>"
+TEXT_IMPORT = _("<center><b>Restoring</b>"
     "<br/><br/>"
     "{:,d} transactions imported (in {:,d} seconds).</center>")
-TEXT_FINAL_COMPLETE = _("<center><b>Import complete</b>"
+TEXT_FINAL_COMPLETE = _("<center><b>Restoration complete</b>"
     "<br/><br/>"
     "This account has been scanned and any located transactions not already present "
     "were imported.")
-TEXT_FINAL_FAILURE = _("<center><b>Import failed</b>"
+TEXT_FINAL_FAILURE = _("<center><b>Restoration failed</b>"
     "<br/><br/>"
     "This account has been scanned and any located transactions that were not already present "
     "were imported. {:,d} transactions were not able to be imported due to conflicts. Expand the "
