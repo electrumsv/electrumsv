@@ -43,13 +43,14 @@ from PyQt6.QtWidgets import (QDialog, QLabel, QMenu, QPushButton, QHBoxLayout,
 from bitcoinx import hash_to_hex_str, Header, Unknown_Output
 
 from ...app_state import app_state
-from ...bitcoin import base_encode, TSCMerkleProof
+from ...bitcoin import base_encode
 from ...constants import CHANGE_SUBPATH, DatabaseKeyDerivationType, RECEIVING_SUBPATH, \
     ScriptType, TransactionImportFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
 from ...paymentrequest import PaymentRequest
 from ...platform import platform
+from ...standards.tsc_merkle_proof import TSCMerkleProof
 from ...transaction import (Transaction, TransactionContext, TxFileExtensions,
     TxSerialisationFormat, tx_output_to_display_text, XTxInput, XTxOutput)
 from ...types import Outpoint, WaitingUpdateCallback
@@ -334,11 +335,27 @@ class TxDialog(QDialog, MessageBoxMixin):
                 self.update()
 
     def _on_button_clicked_broadcast(self) -> None:
+        assert self._account is not None
+
+        if self._context.mapi_server_hint is None:
+            mapi_server_hint = self._wallet.get_mapi_broadcast_context(
+                self._account.get_id(), self.tx)
+            if mapi_server_hint is None:
+                self._main_window.show_error(_("Unable to broadcast as there are no usable MAPI "
+                    "servers."))
+                return
+        else:
+            mapi_server_hint = self._context.mapi_server_hint
+
         if not self._main_window.confirm_broadcast_transaction(self._tx_hash,
                 UIBroadcastSource.TRANSACTION_DIALOG):
             return
 
-        self._main_window.broadcast_transaction(self._account, self.tx, window=self)
+        # The only field we need set for broadcast in this case is the server hint.
+        broadcast_context = TransactionContext()
+        broadcast_context.mapi_server_hint = mapi_server_hint
+        self._main_window.broadcast_transaction(self._account, self.tx, broadcast_context,
+            window=self)
         self._saved = True
         self.update()
 
@@ -403,7 +420,7 @@ class TxDialog(QDialog, MessageBoxMixin):
     def _tx_to_text(self, prefer_readable: bool=False) -> str:
         assert not self.tx.is_complete(), "complete transactions are directly encoded from raw"
 
-        tx_dict = self.tx.to_dict(self._context)
+        tx_dict = self.tx.to_dict(self._context, self._wallet.get_accounts())
         if prefer_readable:
             return json.dumps(tx_dict, indent=4) + '\n'
         return json.dumps(tx_dict)
@@ -443,16 +460,24 @@ class TxDialog(QDialog, MessageBoxMixin):
             try:
                 # Try and compute fee. We don't always have 'value' in all the inputs though. :/
                 tx_info_fee = self.tx.get_fee()
-            except TypeError: # At least one of the XTxInputs does not have an attached value.
+            except ValueError: # At least one of the XTxInputs does not have an attached value.
                 pass
             else:
                 if tx_info_fee < 0:
                     tx_info_fee = None
 
-        if self._context.description is None:
+        if len(self._context.account_descriptions) == 0:
             self.tx_desc.hide()
         else:
-            self.tx_desc.setText(self._context.description)
+            text = ""
+            for account_id, account_description in self._context.account_descriptions.items():
+                if len(text) > 0:
+                    text += "\n"
+                account = self._wallet.get_account(account_id)
+                assert account is not None
+                if account_description:
+                    text += f"{account_description} (account: {account.get_name()})"
+            self.tx_desc.setText(text)
             self.tx_desc.show()
         self.status_label.setText(tx_info.status)
 
@@ -542,7 +567,7 @@ class TxDialog(QDialog, MessageBoxMixin):
     def _obtain_transaction_data(self, format: TxSerialisationFormat,
             completion_signal: Optional[pyqtBoundSignal], done_signal: pyqtBoundSignal,
             completion_text: str) -> None:
-        tx_data = self.tx.to_format(format, self._context)
+        tx_data = self.tx.to_format(format, self._context, self._wallet.get_accounts())
         if not isinstance(tx_data, dict):
             if completion_signal is not None:
                 completion_signal.emit(format, tx_data)

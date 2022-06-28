@@ -14,8 +14,8 @@ from bitcoinx import hash_to_hex_str
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import NetworkServerType, ServerCapability
 from electrumsv.network_support.api_server import NewServer
-from electrumsv.network_support.types import ChannelNotification, MAPICallbackResponse, \
-    ServerConnectionState, ServerWebsocketNotification, TokenPermissions
+from electrumsv.network_support.types import ChannelNotification, ServerConnectionState, \
+    ServerWebsocketNotification, TokenPermissions
 from electrumsv.network_support.general_api import create_peer_channel_async, \
     create_peer_channel_api_token_async, create_peer_channel_message_json_async, \
     delete_peer_channel_async, get_peer_channel_max_sequence_number_async, \
@@ -23,6 +23,7 @@ from electrumsv.network_support.general_api import create_peer_channel_async, \
     list_peer_channel_messages_async, unpack_binary_restoration_entry
 from electrumsv.network_support.headers import get_batched_headers_by_height_async, \
     get_chain_tips_async, get_single_header_async, HeaderServerState, subscribe_to_headers_async
+from electrumsv.standards.mapi import MAPICallbackResponse
 from electrumsv.types import ServerAccountKey
 
 from .data.reference_server.headers_data import GENESIS_TIP_NOTIFICATION_BINARY, GENESIS_HEADER

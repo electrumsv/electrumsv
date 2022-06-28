@@ -36,38 +36,26 @@
 
 from __future__ import annotations
 import datetime
+import enum
 import json
 import dateutil.parser
 import dataclasses
-import os
-from typing import cast, Dict, List, NamedTuple, Optional, TypedDict, TYPE_CHECKING
+from typing import cast, TypedDict
 
 from ..app_state import app_state
-from ..constants import NetworkServerFlag, NetworkServerType, PeerChannelAccessTokenFlag, \
-    ServerCapability, ServerPeerChannelFlag
-from ..exceptions import BroadcastFailedError
+from ..constants import NetworkServerFlag, NetworkServerType, ServerCapability
 from ..i18n import _
 from ..logs import logs
-from ..transaction import Transaction
-from ..types import IndefiniteCredentialId, ServerAccountKey, TransactionFeeEstimator, \
-    TransactionSize
+from ..standards.json_envelope import JSONEnvelope
+from ..standards.mapi import FeeQuote
+from ..types import IndefiniteCredentialId, ServerAccountKey
 from ..util import get_posix_timestamp
-from ..wallet_database.types import MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, \
-    NetworkServerRow
+from ..wallet_database.types import NetworkServerRow
 
-from .types import BroadcastResponse, JSONEnvelope, FeeQuote
-from .mapi import broadcast_transaction_mapi_simple, filter_mapi_servers_for_fee_quote, \
-    MAPIFeeEstimator, get_mapi_servers, poll_servers_async
-
-
-if TYPE_CHECKING:
-    from ..network import Network
-    from ..wallet import AbstractAccount
 
 __all__ = [ "NewServerAccessState", "NewServer" ]
 
 
-STALE_PERIOD_SECONDS = 60 * 60 * 24
 ONE_DAY = 24 * 3600
 
 logger = logs.get_logger("api-server")
@@ -82,10 +70,10 @@ class APIServerDefinition(TypedDict):
     api_key_required: bool
     api_key_supported: bool
     enabled_for_all_accounts: bool
-    capabilities: List[str]
+    capabilities: list[str]
     static_data_date: str
     # MAPI
-    anonymous_fee_quote: Optional[JSONEnvelope]
+    anonymous_fee_quote: JSONEnvelope | None
 
 
 @dataclasses.dataclass
@@ -94,6 +82,12 @@ class CapabilitySupport:
     type: ServerCapability
     is_unsupported: bool=False
     can_disable: bool=False
+
+
+class RequestFeeQuoteResult(enum.IntEnum):
+    CANNOT              = 1
+    SHOULD              = 2
+    ALREADY_HAVE        = 3
 
 
 # TODO(1.4.0) Networking. This kind of overrides the api server configurations, which kind of
@@ -119,81 +113,20 @@ SERVER_CAPABILITIES = {
     ],
 }
 
-
-# TODO(1.4.0) MAPI management, issue#910. Fee quotes should not be done here, they should already
-#     have been done in the wallet code and the send view UI should obtain them and factor them
-#     into the transaction creation and knowing which MAPI server we are going to use. If there
-#     is only one MAPI server, i.e. Gorilla pool, because Mempool and TAAL require API keys.. ???
-#     then that makes the decision easy.
-# TODO(1.4.0) MAPI management, issue#910. Refactor this to use the `WalletDataAccess` instance for
-#     the wallet, and not use private variables on the account.
-async def broadcast_transaction(tx: Transaction, network: Network,
-        account: "AbstractAccount", merkle_proof: bool = False, ds_check: bool = False) \
-            -> BroadcastResponse:
-    """This is the top-level broadcasting function and it automates a number of things.
-    Polling the mAPI servers (if need be). Prioritisation of mAPI servers; Creating a new peer
-    channel using the best available ESVReferenceServer; Ensuring there is a record of attempted
-    broadcast & success or failure in MAPIBroadcastCallbacks; And finally, broadcasting via the
-    selected merchant API server
-
-    Raises `ServiceUnavailableError` if it cannot connect to the merchant API server
-    Raises `BroadcastFailedError` if it connects but there is some other problem with the
-        broadcast attempt.
-    """
-    server_entries = get_mapi_servers(account)
-    if len(server_entries) != 0:
-        await poll_servers_async(server_entries)
-
-    account_id = account.get_id()
-    selection_candidates = account._wallet.get_servers_for_account_id(account_id,
-        NetworkServerType.MERCHANT_API)
-    candidates_with_fee_quotes = filter_mapi_servers_for_fee_quote(selection_candidates)
-    broadcast_servers: list[BroadcastCandidate] = prioritise_broadcast_servers(
-        TransactionSize(tx.size()), candidates_with_fee_quotes)
-
-    # Select the best ranked broadcast server
-    broadcast_server = broadcast_servers[0]
-
-    state = account._wallet.get_server_state_for_capability(ServerCapability.PEER_CHANNELS)
-    assert state is not None
-    assert state.wallet_data is not None
-
-    from .general_api import create_peer_channel_locally_and_remotely_async
-
-    peer_channel_row, mapi_callback_access_token = \
-        await create_peer_channel_locally_and_remotely_async(
-            state, ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
-            PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE)
-    assert peer_channel_row.remote_channel_id is not None
-    assert peer_channel_row.remote_url is not None
-
-    mapi_callback_row = MAPIBroadcastCallbackRow(
-        tx_hash=tx.hash(),
-        peer_channel_id=peer_channel_row.remote_channel_id,
-        broadcast_date=datetime.datetime.utcnow().isoformat(),
-        encrypted_private_key=os.urandom(64),  # libsodium encryption not implemented yet
-        server_id=state.server.server_id,
-        status_flags=MapiBroadcastStatusFlags.ATTEMPTING
-    )
-    await account._wallet.data.create_mapi_broadcast_callbacks_async([mapi_callback_row])
-
-    try:
-        result = await broadcast_transaction_mapi_simple(tx.to_bytes(),
-            broadcast_server.server, broadcast_server.credential_id, peer_channel_row.remote_url,
-            mapi_callback_access_token, merkle_proof, ds_check)
-    except BroadcastFailedError as e:
-        account._wallet.data.delete_mapi_broadcast_callbacks(tx_hashes=[tx.hash()])
-        logger.error("Error broadcasting to mAPI for tx: %s. Error: %s", tx.txid(), str(e))
-        raise
-
-    updates = [(MapiBroadcastStatusFlags.SUCCEEDED, tx.hash())]
-    account._wallet.data.update_mapi_broadcast_callbacks(updates)
-    # Todo - when the merkle proof callback is successfully processed,
-    #  delete the MAPIBroadcastCallbackRow
-    return result
-
-
 DEFAULT_API_KEY_TEMPLATE = "Authorization: Bearer {API_KEY}"
+OVERRIDE_EXPIRY_DATE = False
+
+def check_fee_quote_expired(fee_quote: FeeQuote, override_expiry_date: bool=False) -> bool:
+    expiry_date = dateutil.parser.isoparse(fee_quote["expiryTime"])
+    now_date = datetime.datetime.now(datetime.timezone.utc)
+    if override_expiry_date:
+        issue_date = dateutil.parser.isoparse(fee_quote["timestamp"])
+        unofficial_expiry_date = issue_date + datetime.timedelta(days=1)
+        # We override the official expiry date if it is higher than our minimum retry span.
+        expiry_date = unofficial_expiry_date if expiry_date < unofficial_expiry_date \
+            else expiry_date
+    return now_date > expiry_date
+
 
 class NewServerAccessState:
     """ The state for each URL/api key combination used by the application. """
@@ -204,9 +137,9 @@ class NewServerAccessState:
 
         ## MAPI state.
         # JSON envelope for the actual serialised fee quote JSON.
-        self.last_fee_quote_response: Optional[JSONEnvelope] = None
+        self.last_fee_quote_response: JSONEnvelope | None = None
         # The fee quote we locally extracted and deserialised from the fee quote response.
-        self.last_fee_quote: Optional[FeeQuote] = None
+        self.last_fee_quote: FeeQuote | None = None
 
         # TODO(1.4.0) Servers, issue#905. WRT observing blacklisting and retry delays.
         #     Not currently used.
@@ -231,14 +164,7 @@ class NewServerAccessState:
     def is_blacklisted(self, now: float) -> bool:
         return self.last_blacklisted > now - ONE_DAY
 
-    def update_fee_quote(self, fee_response: JSONEnvelope) -> None:
-        """
-        Put in place a new fee quote received from just completed server usage.
-        """
-        timestamp = datetime.datetime.now(datetime.timezone.utc).timestamp()
-        self.set_fee_quote(fee_response, timestamp)
-
-    def set_fee_quote(self, fee_response: Optional[JSONEnvelope], timestamp: float) -> None:
+    def set_fee_quote(self, fee_response: JSONEnvelope | None, timestamp: float) -> None:
         """
         Set the values for any existing (restored from DB) or new fee quote.
         """
@@ -256,7 +182,7 @@ class NewServerAccessState:
 
 class NewServer:
     def __init__(self, url: str, server_type: NetworkServerType, row: NetworkServerRow,
-            credential_id: Optional[IndefiniteCredentialId]) -> None:
+            credential_id: IndefiniteCredentialId | None) -> None:
         self.key = ServerAccountKey(url, server_type, None)
         # All code that uses the URL expects a trailing slash.
         assert url.endswith("/")
@@ -266,21 +192,21 @@ class NewServer:
         self.server_id = row.server_id
 
         # These are the enabled clients, whether they use an API key and the id if so.
-        self.client_api_keys = dict[Optional[int], Optional[IndefiniteCredentialId]]()
-        self.database_rows = dict[Optional[int], NetworkServerRow]()
+        self.client_api_keys = dict[int | None, IndefiniteCredentialId | None]()
+        self.database_rows = dict[int | None, NetworkServerRow]()
         # We keep per-API key state for a reason. An API key can be considered to be a distinct
         # account with the service, and it makes sense to keep the statistics/metadata for the
         # service separated by API key for this reason. We intentionally leave these in place
         # at least for now as they are kind of relative to the given key value.
-        self.api_key_state = dict[Optional[IndefiniteCredentialId], NewServerAccessState]()
+        self.api_key_state = dict[IndefiniteCredentialId | None, NewServerAccessState]()
 
         self.set_server_account_usage(row, credential_id)
 
-    def get_account_ids(self) -> list[Optional[int]]:
+    def get_account_ids(self) -> list[int | None]:
         return list(self.client_api_keys)
 
     def set_server_account_usage(self, server_row: NetworkServerRow,
-            credential_id: Optional[IndefiniteCredentialId]) -> None:
+            credential_id: IndefiniteCredentialId | None) -> None:
         """
         Prime the server with the given account-related state.
 
@@ -299,7 +225,7 @@ class NewServer:
             key_state.last_try = max(key_state.last_try, server_row.date_last_try)
             # Fee quote state is only relevant for MAPI.
             if self.server_type == NetworkServerType.MERCHANT_API:
-                fee_response: Optional[JSONEnvelope] = None
+                fee_response: JSONEnvelope | None = None
                 if server_row.mapi_fee_quote_json:
                     fee_response = cast(JSONEnvelope, json.loads(server_row.mapi_fee_quote_json))
                 key_state.set_fee_quote(fee_response, server_row.date_last_good)
@@ -308,19 +234,19 @@ class NewServer:
         del self.client_api_keys[specific_server_key.account_id]
         del self.database_rows[specific_server_key.account_id]
 
-    def to_updated_rows(self) -> List[NetworkServerRow]:
+    def to_updated_rows(self) -> list[NetworkServerRow]:
         """
         We return the updated state for each registered server/account as of the current time for
         the caller to presumably persist. We only update the metadata, not the fields the user
         edits like the api key related values.
         """
         date_updated = get_posix_timestamp()
-        results: List[NetworkServerRow] = []
+        results: list[NetworkServerRow] = []
         for account_id, credential_id in list(self.client_api_keys.items()):
             server_row = self.database_rows[account_id]
             key_state = self.api_key_state[credential_id]
 
-            mapi_fee_quote_json: Optional[str] = None
+            mapi_fee_quote_json: str | None = None
             if self.server_type == NetworkServerType.MERCHANT_API:
                 if key_state.last_fee_quote_response:
                     mapi_fee_quote_json = json.dumps(key_state.last_fee_quote_response)
@@ -333,57 +259,55 @@ class NewServer:
             results.append(updated_row)
         return results
 
-    def is_unusable(self) -> bool:
-        """
-        Whether the given server is configured to be unusable by anything.
-        """
-        if len(self.client_api_keys) == 0:
-            return True
-        return False
-
-    def is_unused(self) -> bool:
-        """ An API server is considered unused if it is not a globally stored one (if it were it
-            would have a config object) and it no longer has any loaded wallets using it. """
-        return len(self.client_api_keys) == 0
-
-    def get_tip_filter_peer_channel_id(self, account_id: int) -> Optional[int]:
+    def get_tip_filter_peer_channel_id(self, account_id: int) -> int | None:
         row = self.database_rows.get(account_id)
         if row is None:
             row = self.database_rows[None]
         return row.tip_filter_peer_channel_id
 
     def set_tip_filter_peer_channel_id(self, account_id: int, peer_channel_id: int) -> None:
-        key: Optional[int] = account_id
+        key: int | None = account_id
         if account_id not in self.database_rows:
             key = None
         self.database_rows[key] = self.database_rows[key]._replace(
             tip_filter_peer_channel_id=peer_channel_id)
 
-    def should_request_fee_quote(self, credential_id: Optional[IndefiniteCredentialId]) -> bool:
+    def get_fee_quote(self, credential_id: IndefiniteCredentialId | None) -> FeeQuote | None:
+        access_state = self.api_key_state[credential_id]
+        if access_state.last_fee_quote is None or \
+                check_fee_quote_expired(access_state.last_fee_quote, OVERRIDE_EXPIRY_DATE):
+            return None
+        return access_state.last_fee_quote
+
+    def should_request_fee_quote(self, credential_id: IndefiniteCredentialId | None) \
+            -> RequestFeeQuoteResult:
         """
-        Work out if we have a valid fee quote, and if not whether we can get one.
+        Check the server and any existing fee quote to see if we need to request a new one.
+        The recommended approach is to request any needed fee quotes updates at the start of the
+        process of constructing a new transaction.
+
+        NOTE(rt12) MAPI servers have low expiry times. We do not want to poll every N minutes.
+            This is the reason we do not update them as they expire.
+
+              202?-??-?? Taal:           2 minute expiry times.
+              2022-06-22 Gorilla pool:  10 minute expiry times.
         """
         row = self.database_rows[None]
+        # If the server requires an API key and we do not have one, we cannot access it.
         if row.server_flags & NetworkServerFlag.API_KEY_REQUIRED and credential_id is None:
-            return False
+            return RequestFeeQuoteResult.CANNOT
 
         key_state = self.api_key_state[credential_id]
+        # If we have no fee quote for this server, we want to request one.
         if key_state.last_fee_quote is None:
-            return True
+            return RequestFeeQuoteResult.SHOULD
 
-        now_date = datetime.datetime.now(datetime.timezone.utc)
-        # Last I looked I had fee quotes with expiry times of two minutes, we cannot rely on
-        # the expiry date being a usable value. So for now we ignore it and assume that it
-        # will be enough to just refresh the fee quote around once a day in a haphazard way.
-        if False:
-            expiry_date = dateutil.parser.isoparse(key_state.last_fee_quote["expiryTime"])
-            return now_date > expiry_date
+        if check_fee_quote_expired(key_state.last_fee_quote, OVERRIDE_EXPIRY_DATE):
+            return RequestFeeQuoteResult.SHOULD
+        return RequestFeeQuoteResult.ALREADY_HAVE
 
-        retrieved_date = dateutil.parser.isoparse(key_state.last_fee_quote["timestamp"])
-        return (now_date - retrieved_date).total_seconds() > STALE_PERIOD_SECONDS
-
-    def get_credential_id(self, account_id: Optional[int]) \
-            -> tuple[bool, Optional[IndefiniteCredentialId]]:
+    def get_credential_id(self, account_id: int | None) \
+            -> tuple[bool, IndefiniteCredentialId | None]:
         """
         Indicate whether the given client can use this server.
 
@@ -401,8 +325,8 @@ class NewServer:
         # This client is not configured to use this server.
         return False, None
 
-    def get_authorization_headers(self, credential_id: Optional[IndefiniteCredentialId]) \
-            -> Dict[str, str]:
+    def get_authorization_headers(self, credential_id: IndefiniteCredentialId | None) \
+            -> dict[str, str]:
         if credential_id is None:
             return {}
 
@@ -418,48 +342,3 @@ class NewServer:
     def __repr__(self) -> str:
         return f"NewServer(server_id={self.server_id}, url={self.url} " \
             f"server_type={self.server_type})"
-
-
-class SelectionCandidate(NamedTuple):
-    server_type: NetworkServerType
-    credential_id: Optional[IndefiniteCredentialId]
-    api_server: Optional[NewServer] = None
-
-
-class BroadcastCandidate(NamedTuple):
-    server: NewServer
-    credential_id: Optional[IndefiniteCredentialId]
-    estimator: TransactionFeeEstimator
-    # Can the calling logic switch servers if they have the same initial fee? Not sure.
-    initial_fee: int
-
-
-def prioritise_broadcast_servers(estimated_tx_size: TransactionSize,
-        server_candidates: list[tuple[NewServer, Optional[IndefiniteCredentialId]]]) \
-            -> List[BroadcastCandidate]:
-    """
-    Prioritise the provided servers based on the base fee they would charge for the transaction.
-
-    The transaction at this point might be complete, or it might be incomplete and pending
-    server selection and application of the server's fee rate in it's finalisation.
-
-    estimated_tx_size: The incomplete base transaction size or complete transaction size.
-    servers: The list of server candidates known to support the transaction broadcast capability.
-
-    Returns the ordered list of server candidates based on lowest to highest estimated fee for
-      a transaction of the given size.
-    """
-    candidates: List[BroadcastCandidate] = []
-    fee_estimator: TransactionFeeEstimator
-    for server, credential_id in server_candidates:
-        if server.server_type == NetworkServerType.MERCHANT_API:
-            key_state = server.api_key_state[credential_id]
-            assert key_state.last_fee_quote is not None
-            estimator = MAPIFeeEstimator(key_state.last_fee_quote)
-            fee_estimator = estimator.estimate_fee
-        else:
-            raise NotImplementedError(f"Unsupported server type {server.server_type}")
-        initial_fee = fee_estimator(estimated_tx_size)
-        candidates.append(BroadcastCandidate(server, credential_id, fee_estimator, initial_fee))
-    candidates.sort(key=lambda entry: entry.initial_fee)
-    return candidates

@@ -55,7 +55,7 @@ from ..constants import PeerChannelAccessTokenFlag, PushDataHashRegistrationFlag
     ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, \
     PeerChannelMessageFlag
 from ..crypto import pw_encode
-from ..exceptions import ServerConnectionError
+from ..exceptions import BadServerError, ServerConnectionError
 from ..i18n import _
 from ..logs import logs
 from ..types import Outpoint, outpoint_struct, output_spend_struct, OutputSpend, \
@@ -65,7 +65,7 @@ from ..wallet_database.types import PushDataHashRegistrationRow, \
     ServerPeerChannelRow, ServerPeerChannelAccessTokenRow, ServerPeerChannelMessageRow
 
 from .constants import ServerProblemKind
-from .exceptions import AuthenticationError, BadServerError, FilterResponseInvalidError, \
+from .exceptions import AuthenticationError, FilterResponseInvalidError, \
     FilterResponseIncompleteError, GeneralAPIError, IndexerResponseMissingError, \
     InvalidStateError, TransactionNotFoundError
 from .types import AccountMessageKind, ChannelNotification, GenericPeerChannelMessage, \
@@ -1300,6 +1300,11 @@ async def create_peer_channel_locally_and_remotely_async(
         third_party_access_token_flag: PeerChannelAccessTokenFlag,
         indexing_server_id: int | None=None) \
             -> tuple[ServerPeerChannelRow, ServerPeerChannelAccessTokenRow]:
+    """
+    Via both `create_peer_channel_async` and `create_peer_channel_api_token_async`:
+        Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
+        Raises `ServerConnectionError` if the remote computer does not accept the connection.
+    """
     assert peer_channel_server_state.wallet_proxy is not None
     assert peer_channel_server_state.wallet_data is not None
 

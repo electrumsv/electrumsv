@@ -300,12 +300,12 @@ class TransactionOutputFlag(IntFlag):
 class PaymentFlag(IntFlag):
     NONE                = 0
     UNPAID              = 1 << 0
-    EXPIRED             = 1 << 1     # deprecated
-    UNKNOWN             = 1 << 2     # sent but not propagated
-    PAID                = 1 << 3     # send and propagated
-    ARCHIVED            = 1 << 4     # unused until we have UI support for filtering
+    EXPIRED             = 1 << 1        # deprecated
+    UNKNOWN             = 1 << 2        # sent but not propagated
+    PAID                = 1 << 3        # send and propagated
+    ARCHIVED            = 1 << 4        # unused until we have UI support for filtering
 
-    LEGACY              = 0b00 << 10
+    LEGACY              = 0b00 << 10    # These are old payment requests before migration 29.
     INVOICE             = 0b01 << 10
     IMPORTED            = 0b10 << 10
     MONITORED           = 0b11 << 10
@@ -394,7 +394,6 @@ class WalletSettings:
     USE_CHANGE = 'use_change'
     MULTIPLE_CHANGE = 'multiple_change'
     MULTIPLE_ACCOUNTS = 'multiple_accounts'
-    ADD_SV_OUTPUT = 'sv_output'
 
 
 EMPTY_HASH = b"\0" * 32
@@ -604,3 +603,9 @@ class ChainWorkerToken(IntEnum):
 class ChainManagementKind(IntEnum):
     BLOCKCHAIN_EXTENSION                        = 1
     BLOCKCHAIN_REORGANISATION                   = 2
+
+
+class MAPIBroadcastFlag(IntFlag):
+    NONE                                        = 0
+    BROADCAST                                   = 1 << 0
+    DELETED                                     = 1 << 1

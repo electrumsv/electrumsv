@@ -424,26 +424,11 @@ class PreferencesDialog(QDialog):
                 wallet.set_boolean_setting(WalletSettings.MULTIPLE_CHANGE, multiple)
         multiple_change_cb.stateChanged.connect(on_multiple_change_toggled)
 
-        coinsplitting_option_cb = QCheckBox(_('Show coin-splitting option on the Send tab'))
-        coinsplitting_option_cb.setChecked(wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT))
-        coinsplitting_option_cb.setEnabled(
-            app_state_qt.config.is_modifiable(WalletSettings.ADD_SV_OUTPUT))
-        coinsplitting_option_cb.setToolTip(
-            _('Whether to feature the the option to add Bitcoin SV only data to the transaction '
-              'on the Send tab. Will only be shown for compatible account types.')
-        )
-        def on_coinsplitting_option_cb(state_value: int) -> None:
-            should_enable = Qt.CheckState(state_value) == Qt.CheckState.Checked
-            if wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT) != should_enable:
-                wallet.set_boolean_setting(WalletSettings.ADD_SV_OUTPUT, should_enable)
-        coinsplitting_option_cb.stateChanged.connect(on_coinsplitting_option_cb)
-
         options_box = QGroupBox()
         options_vbox = QVBoxLayout()
         options_box.setLayout(options_vbox)
         options_vbox.addWidget(use_change_addresses_cb)
         options_vbox.addWidget(multiple_change_cb)
-        options_vbox.addWidget(coinsplitting_option_cb)
 
         # Todo - add ability here to toggle deactivation of used keys - AustEcon
         transaction_cache_size = wallet.get_cache_size_for_tx_bytedata()

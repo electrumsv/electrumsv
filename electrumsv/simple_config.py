@@ -1,5 +1,7 @@
-import json
+from __future__ import annotations
 from copy import deepcopy
+import dataclasses
+import json
 import os
 import stat
 import threading
@@ -11,7 +13,8 @@ from . import util
 from .constants import DEFAULT_FEE
 from .logs import logs
 from .platform import platform
-from .types import TransactionSize
+from .types import FeeEstimatorProtocol, FeeQuoteCommon, FeeQuoteTypeEntry, ServerAndCredential, \
+    TransactionSize
 from .util import make_dir
 
 
@@ -257,6 +260,38 @@ class SimpleConfig:
             retval = DEFAULT_FEE  # New wallet
         return retval
 
+    def get_fee_quote(self) -> FeeQuoteCommon:
+        satoshis_per_kilobyte = self.fee_per_kb()
+        return {
+            "fees": [
+                {
+                    "feeType": "standard",
+                    "miningFee": {
+                        "satoshis": satoshis_per_kilobyte,
+                        "bytes": 1000,
+                    },
+                    "relayFee": {
+                        "satoshis": satoshis_per_kilobyte,
+                        "bytes": 1000,
+                    },
+                },
+                {
+                    "feeType": "data",
+                    "miningFee": {
+                        "satoshis": satoshis_per_kilobyte,
+                        "bytes": 1000,
+                    },
+                    "relayFee": {
+                        "satoshis": satoshis_per_kilobyte,
+                        "bytes": 1000,
+                    },
+                },
+            ]
+        }
+
+    def get_fee_estimator(self) -> FeeEstimatorProtocol:
+        return WalletFeeEstimator(self)
+
     def estimate_fee(self, size: TransactionSize) -> int:
         # The configured fee rate does not differentiate between standard and data sizes.
         return self.fee_per_kb() * sum(size) // 1000
@@ -286,3 +321,21 @@ def read_user_config(path: str) -> Dict[str, Any]:
     if not type(result) is dict:
         return {}
     return result
+
+
+@dataclasses.dataclass
+class WalletFeeQuote:
+    fees: list[FeeQuoteTypeEntry]
+
+
+class WalletFeeEstimator:
+    def __init__(self, config: SimpleConfig) -> None:
+        self._config = config
+
+    def get_mapi_server_hint(self) -> ServerAndCredential | None:
+        return None
+
+    def estimate_fee(self, transaction_size: TransactionSize) -> int:
+        # The configured fee rate does not differentiate between standard and data sizes.
+        return self._config.fee_per_kb() * sum(transaction_size) // 1000
+

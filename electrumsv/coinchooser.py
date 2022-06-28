@@ -31,7 +31,7 @@ from bitcoinx import sha256
 from .bitcoin import COIN
 from .logs import logs
 from .transaction import Transaction, XTxInput, XTxOutput
-from .types import TransactionFeeEstimator, TransactionSize
+from .types import FeeEstimatorProtocol, TransactionSize
 from .exceptions import NotEnoughFunds
 
 
@@ -206,12 +206,15 @@ class CoinChooserBase:
         return change, dust
 
     def make_tx(self, coins: List[XTxInput], outputs: List[XTxOutput],
-            change_outs: List[XTxOutput], fee_estimator: TransactionFeeEstimator,
+            change_outs: List[XTxOutput], fee_estimator: FeeEstimatorProtocol,
             dust_threshold: int) -> Transaction:
-        '''Select unspent coins to spend to pay outputs.  If the change is
-        greater than dust_threshold (after adding the change output to
-        the transaction) it is kept, otherwise none is sent and it is
-        added to the transaction fee.'''
+        """
+        Select unspent coins to spend to pay outputs.  If the change is greater than dust_threshold
+        (after adding the change output to the transaction) it is kept, otherwise none is sent and
+        it is added to the transaction fee.
+
+        Raises `NotEnoughFunds` if we are not able to find the required amount from the coins.
+        """
         assert len(change_outs) >= 1
 
         # Deterministic randomness from coins
@@ -228,7 +231,7 @@ class CoinChooserBase:
             transaction'''
             total_input_value = sum(bucket.value for bucket in buckets)
             total_size = base_size + cast(TransactionSize, sum(bucket.size for bucket in buckets))
-            return total_input_value >= spent_amount + fee_estimator(total_size)
+            return total_input_value >= spent_amount + fee_estimator.estimate_fee(total_size)
 
         # Collect the coins into buckets, choose a subset of the buckets
         buckets = self.bucketize_coins(coins)
@@ -239,7 +242,8 @@ class CoinChooserBase:
 
         # This takes a count of change outputs and returns a tx fee;
         change_output_size = change_outs[0].estimated_size()
-        fee: ScaledFeeEstimator = lambda count: fee_estimator(tx_size + change_output_size * count)
+        fee: ScaledFeeEstimator = \
+            lambda count: fee_estimator.estimate_fee(tx_size + change_output_size * count)
         change, dust = self.change_outputs(tx, change_outs, fee, dust_threshold)
         tx.outputs.extend(change)
 
@@ -257,7 +261,11 @@ class CoinChooserRandom(CoinChooserBase):
 
     def create_bucket_groupings(self, buckets: List[Bucket],
             sufficient_funds_check: SufficientFundsCheck) -> List[List[Bucket]]:
-        '''Returns a list of bucket sets.'''
+        """
+        Returns a list of bucket sets.
+
+        Raises `NotEnoughFunds` if we are not able to find the required amount in the `buckets`.
+        """
         valid_bucket_combinations: Set[Sequence[int]] = set()
 
         # Add all singletons
@@ -286,6 +294,9 @@ class CoinChooserRandom(CoinChooserBase):
 
     def choose_buckets(self, buckets: List[Bucket], sufficient_funds: SufficientFundsCheck,
             penalty_func: BucketPenaltyFunction) -> List[Bucket]:
+        """
+        Raises `NotEnoughFunds` if we are not able to find the required amount in the `buckets`.
+        """
         candidate_groupings = self.create_bucket_groupings(buckets, sufficient_funds)
         penalties = [penalty_func(grouping) for grouping in candidate_groupings]
         winner = candidate_groupings[penalties.index(min(penalties))]

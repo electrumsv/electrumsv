@@ -22,13 +22,14 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import annotations
 import dataclasses
 import enum
 from io import BytesIO
 import struct
 from struct import error as struct_error
 from typing import Any, Callable, cast, Dict, Generator, List, Optional, Protocol, Sequence, \
-    Tuple, TypedDict, TypeVar, Union
+    Tuple, TYPE_CHECKING, TypedDict, TypeVar, Union
 
 import attr
 from bitcoinx import (
@@ -44,7 +45,12 @@ from .constants import DatabaseKeyDerivationType, DerivationPath, ScriptType
 from .logs import logs
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
-from .types import DatabaseKeyDerivationData, TransactionSize, Outpoint
+from .types import DatabaseKeyDerivationData, FeeQuoteCommon, FeeQuoteTypeFee, \
+    ServerAndCredential, TransactionSize, Outpoint
+
+
+if TYPE_CHECKING:
+    from .wallet import AbstractAccount
 
 
 class SupportsToBytes(Protocol):
@@ -123,7 +129,7 @@ HardwareSigningMetadata = Dict[bytes, Tuple[DerivationPath, Tuple[str], int]]
 @dataclasses.dataclass
 class TransactionContext:
     invoice_id: Optional[int] = dataclasses.field(default=None)
-    description: Optional[str] = dataclasses.field(default=None)
+    account_descriptions: dict[int, str] = dataclasses.field(default_factory=dict)
     parent_transactions: Dict[bytes, 'Transaction'] = dataclasses.field(default_factory=dict)
     hardware_signing_metadata: List[HardwareSigningMetadata] \
         = dataclasses.field(default_factory=list)
@@ -132,6 +138,7 @@ class TransactionContext:
         = dataclasses.field(default_factory=dict)
     key_datas_by_txo_index: Dict[int, DatabaseKeyDerivationData] \
         = dataclasses.field(default_factory=dict)
+    mapi_server_hint: ServerAndCredential | None = dataclasses.field(default=None)
 
 
 class SerialisedXPublicKeyDict(TypedDict, total=False):
@@ -897,14 +904,29 @@ class Transaction(Tx): # type: ignore[misc]
         return None
 
     def input_value(self) -> int:
-        # NOTE(typing) We assume that this is int, not None. It will raise if a value is None,
-        # which is desirable if it is incorrectly present.
-        return sum(txin.value for txin in self.inputs) # type: ignore
+        """
+        Get the total value of all the outputs spent to fund this transaction.
+
+        Raises `ValueError` if we do not have the parent transaction metadata for input values.
+        """
+        input_value = 0
+        for transaction_input in self.inputs:
+            # In order to know the value of an input you have to have the parent transaction.
+            if transaction_input.value is None:
+                raise ValueError("Missing")
+            input_value += transaction_input.value
+        return input_value
 
     def output_value(self) -> int:
         return sum(output.value for output in self.outputs)
 
     def get_fee(self) -> int:
+        """
+        Calculate the fee value paid for this transaction to be mined. Be aware that we may not
+        be able to calculate this if we do not have the parent transactions.
+
+        Raises `ValueError` if we do not have the parent transaction metadata for input values.
+        """
         return self.input_value() - self.output_value()
 
     def size(self) -> int:
@@ -962,11 +984,22 @@ class Transaction(Tx): # type: ignore[misc]
         return sig + cast(bytes, pack_byte(self.nHashType()))
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> Tuple['Transaction', TransactionContext]:
+    def from_dict(cls, data: dict[str, Any], accounts: list[AbstractAccount]) \
+            -> tuple[Transaction, TransactionContext]:
+        account_by_fingerprint = { account.get_fingerprint(): account for account in accounts }
+
         version = data.get('version', 0)
         tx = cls.from_hex(data['hex'])
         context = TransactionContext()
-        if version == 1:
+        if version == 2:
+            if 'descriptions' in data:
+                for account_fingerprint_hex, description in data["descriptions"]:
+                    account_fingerprint = bytes.fromhex(account_fingerprint_hex)
+                    account = account_by_fingerprint.get(account_fingerprint, None)
+                    # There's not much we can do if they do not have the account.
+                    if account is not None:
+                        context.account_descriptions[account.get_id()] = description
+        if version >= 1:
             input_data: Optional[List[Dict[str, Any]]] = data.get('inputs')
             if input_data is not None:
                 assert len(tx.inputs) == len(input_data)
@@ -984,7 +1017,9 @@ class Transaction(Tx): # type: ignore[misc]
                     txout.x_pubkeys = [ XPublicKey.from_dict(v)
                         for v in output_data[i]['x_pubkeys']]
             if 'description' in data:
-                context.description = str(data['description'])
+                for account in accounts:
+                    if not account.is_petty_cash():
+                        context.account_descriptions[account.get_id()] = str(data['description'])
             if 'prev_txs' in data:
                 for tx_hex in data["prev_txs"]:
                     ptx = cls.from_hex(tx_hex)
@@ -994,15 +1029,22 @@ class Transaction(Tx): # type: ignore[misc]
             assert tx.is_complete(), "raw transactions must be complete"
         return tx, context
 
-    def to_dict(self, context: TransactionContext, force_signing_metadata: bool=False) \
-            -> Dict[str, Any]:
-        out: Dict[str, Any] = {
-            'version': 1,
+    def to_dict(self, context: TransactionContext, accounts: list[AbstractAccount],
+            force_signing_metadata: bool=False) -> dict[str, Any]:
+        account_by_id = { account.get_id(): account for account in accounts }
+
+        out: dict[str, Any] = {
+            'version': 2,
             'hex': self.to_hex(),
             'complete': self.is_complete(),
         }
-        if context.description:
-            out['description'] = context.description
+        if len(context.account_descriptions):
+            descriptions: list[tuple[str, str]] = []
+            for account_id, account_description in context.account_descriptions.items():
+                account = account_by_id.get(account_id, None)
+                if account is not None:
+                    descriptions.append((account.get_fingerprint().hex(), account_description))
+            out["descriptions"] = descriptions
         if force_signing_metadata or not out['complete']:
             input: XTxInput
             output: XTxOutput
@@ -1026,7 +1068,8 @@ class Transaction(Tx): # type: ignore[misc]
                 out['outputs'] = output_data
         return out
 
-    def to_format(self, format: TxSerialisationFormat, context: TransactionContext) \
+    def to_format(self, format: TxSerialisationFormat, context: TransactionContext,
+            accounts: list[AbstractAccount]) \
             -> TxSerialisedType:
         # Will raise `NotImplementedError` on incomplete implementation of new formats.
         if format == TxSerialisationFormat.RAW:
@@ -1036,6 +1079,45 @@ class Transaction(Tx): # type: ignore[misc]
         elif format in (TxSerialisationFormat.JSON, TxSerialisationFormat.JSON_WITH_PROOFS):
             # It is expected the caller may wish to extend this and they will take care of the
             # final serialisation step.
-            return self.to_dict(context)
+            return self.to_dict(context, accounts)
         raise NotImplementedError(f"unhanded format {format}")
 
+
+class TransactionFeeEstimator:
+    standard_fee_satoshis = 0
+    standard_fee_bytes = 0
+    data_fee_satoshis = 0
+    data_fee_bytes = 0
+
+    def __init__(self, fee_quote: FeeQuoteCommon,
+            mapi_server_hint: ServerAndCredential | None=None) -> None:
+        self._mapi_server_hint = mapi_server_hint
+
+        standard_fee: FeeQuoteTypeFee | None = None
+        data_fee: FeeQuoteTypeFee | None = None
+        for fee in fee_quote["fees"]:
+            if fee["feeType"] == "standard":
+                standard_fee = fee["miningFee"]
+            elif fee["feeType"] == "data":
+                data_fee = fee["miningFee"]
+
+        assert standard_fee is not None
+        self.standard_fee_satoshis = standard_fee["satoshis"]
+        self.standard_fee_bytes = standard_fee["bytes"]
+        if data_fee is not None:
+            self.data_fee_satoshis = data_fee["satoshis"]
+            self.data_fee_bytes = data_fee["bytes"]
+
+    def get_mapi_server_hint(self) -> ServerAndCredential | None:
+        return self._mapi_server_hint
+
+    def estimate_fee(self, transaction_size: TransactionSize) -> int:
+        fee = 0
+        standard_size = transaction_size.standard_size
+        if self.data_fee_bytes:
+            standard_size = transaction_size.standard_size
+            fee += transaction_size.data_size * self.data_fee_satoshis // self.data_fee_bytes
+        else:
+            standard_size += transaction_size.data_size
+        fee += standard_size * self.standard_fee_satoshis // self.standard_fee_bytes
+        return fee

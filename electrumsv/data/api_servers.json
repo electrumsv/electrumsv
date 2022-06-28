@@ -3,7 +3,14 @@
         "id": 20001,
         "type": "MERCHANT_API",
         "url": "https://mapi.taal.com/mapi/",
-        "api_key_required": false,
+        "api_key_required": true,
         "static_data_date": "2021-05-13T04:45:05+0000"
+    },
+    {
+        "id": 20002,
+        "type": "MERCHANT_API",
+        "url": "https://mapi.gorillapool.io/mapi/",
+        "api_key_required": false,
+        "static_data_date": "2022-06-30T23:45:00+0000"
     }
 ]

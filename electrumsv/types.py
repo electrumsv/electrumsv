@@ -3,8 +3,8 @@ import asyncio
 import dataclasses
 import struct
 from types import TracebackType
-from typing import Callable, List, NamedTuple, Optional, Tuple, Type, TYPE_CHECKING, TypedDict, \
-    Union
+from typing import Callable, List, NamedTuple, Optional, Protocol, Tuple, Type, TYPE_CHECKING, \
+    TypedDict, Union
 import uuid
 
 from bitcoinx import Chain, hash_to_hex_str, Header
@@ -15,8 +15,9 @@ from .constants import AccountCreationType, DatabaseKeyDerivationType, Derivatio
 
 
 if TYPE_CHECKING:
-    from .bitcoin import TSCMerkleProof
     from .keystore import KeyStore
+    from .network_support.api_server import NewServer
+    from .standards.tsc_merkle_proof import TSCMerkleProof
     from .wallet_database.types import KeyDataProtocol, NetworkServerRow, MerkleProofRow
 
 
@@ -146,9 +147,6 @@ class ServerAccountKey(NamedTuple):
         return ServerAccountKey(self.url, self.server_type, None)
 
 
-IndefiniteCredentialId = uuid.UUID
-
-
 class MasterKeyDataBIP32(TypedDict):
     xpub: str
     seed: Optional[str]
@@ -254,4 +252,49 @@ class TransactionSize(NamedTuple):
         return TransactionSize(self.standard_size * other, self.data_size * other)
 
 
-TransactionFeeEstimator = Callable[[TransactionSize], int]
+class FeeQuoteTypeFee(TypedDict):
+    satoshis: int
+    bytes: int
+
+
+class FeeQuoteTypeEntry(TypedDict):
+    feeType: str
+    miningFee: FeeQuoteTypeFee
+    relayFee: FeeQuoteTypeFee
+
+
+@dataclasses.dataclass
+class TransactionBroadcastContext:
+    server_id: int
+    credential_id: int | None
+    fee_quote_json: str | None
+
+
+class FeeQuoteCommon(TypedDict):
+    fees: list[FeeQuoteTypeEntry]
+
+
+class FeeEstimatorProtocol(Protocol):
+    def get_mapi_server_hint(self) -> ServerAndCredential | None:
+        ...
+
+    def estimate_fee(self, transaction_size: TransactionSize) -> int:
+        ...
+
+
+IndefiniteCredentialId = uuid.UUID
+
+
+class ServerAndCredential(NamedTuple):
+    server: NewServer
+    credential_id: IndefiniteCredentialId | None
+
+
+@dataclasses.dataclass
+class TransactionFeeContext:
+    """
+    The selected fee criteria to be used for building a transaction.
+    """
+
+    fee_quote: FeeQuoteCommon
+    server_and_credential: ServerAndCredential

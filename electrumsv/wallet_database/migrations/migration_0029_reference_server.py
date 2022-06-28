@@ -50,14 +50,14 @@ except ModuleNotFoundError:
     import sqlite3  # type: ignore[no-redef]
 
 from ...app_state import app_state
-from ...bitcoin import ProofTargetFlags, TSCMerkleNode, TSCMerkleNodeKind, TSCMerkleProof, \
-    verify_proof
 from ...constants import AccountFlags, ADDRESS_DERIVATION_TYPES, DerivationType, MasterKeyFlags, \
     ScriptType, WALLET_ACCOUNT_PATH_TEXT
 from ...credentials import PasswordTokenProtocol
 from ...i18n import _
 from ...logs import logs
 from ...keystore import bip32_master_key_data_from_seed, instantiate_keystore, KeyStore
+from ...standards.tsc_merkle_proof import ProofTargetFlags, TSCMerkleNode, TSCMerkleNodeKind, \
+    TSCMerkleProof, verify_proof
 from ...util import get_posix_timestamp
 from ...util.misc import ProgressCallbacks
 from ...wallet_support.keys import get_pushdata_hash_for_derivation, \
@@ -148,13 +148,18 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     # There should be waiting time threshold at which we give up and request the merkle
     # proof directly from an indexer if it still has not arrived e.g. 24 hours since broadcast_date.
     conn.execute("""
-        CREATE TABLE MAPIBroadcastCallbacks (
-            tx_hash                     BLOB          PRIMARY KEY,
-            peer_channel_id             VARCHAR(1024) NOT NULL,
-            broadcast_date              INTEGER       NOT NULL,
-            encrypted_private_key       BLOB          NOT NULL,
-            server_id                   INTEGER       NOT NULL,
-            status_flags                INTEGER       NOT NULL
+        CREATE TABLE MAPIBroadcasts (
+            broadcast_id                INTEGER       PRIMARY KEY,
+            tx_hash                     BLOB          NOT NULL,
+            broadcast_server_id         INTEGER       NOT NULL,
+            mapi_broadcast_flags        INTEGER       NOT NULL,
+            peer_channel_id             INTEGER       DEFAULT NULL,
+            response_data               BLOB          DEFAULT NULL,
+            date_created                INTEGER       NOT NULL,
+            date_updated                INTEGER       NOT NULL,
+            FOREIGN KEY (tx_hash)               REFERENCES Transactions (tx_hash),
+            FOREIGN KEY (broadcast_server_id)   REFERENCES Servers (server_id),
+            FOREIGN KEY (peer_channel_id)       REFERENCES ServerPeerChannels (peer_channel_id)
         )
     """)
 
@@ -343,12 +348,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             ON ServerPushDataMatches(pushdata_hash, transaction_hash, transaction_index)
     """)
 
-    # We need to persist the updated next primary key value for the `Accounts` table.
-    # We need to persist the updated next identifier for the `Accounts` table.
-    conn.executemany("UPDATE WalletData SET value=? WHERE key=?",
-        [ (v, k) for (k, v) in wallet_data.items() ])
-
-    # Transfer all merkle proof data from the Transactions table to the
+    # Transfer all merkle proof data from the Transactions table to a new proofs table.
     # The pathways for insertion to this table are as follows:
     #  1) Wallet._obtain_merkle_proofs_worker_async -> Wallet.import_transaction_async
     #  2) Wallet._obtain_transactions_worker_async -> Wallet.import_transaction_async
@@ -364,6 +364,11 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         FOREIGN KEY (tx_hash) REFERENCES Transactions (tx_hash)
     )""")
     conn.execute("CREATE UNIQUE INDEX idx_tx_proofs ON TransactionProofs (tx_hash, block_hash)")
+
+    # We need to persist the updated next primary key value for the `Accounts` table.
+    # We need to persist the updated next identifier for the `Accounts` table.
+    conn.executemany("UPDATE WalletData SET value=? WHERE key=?",
+        [ (v, k) for (k, v) in wallet_data.items() ])
 
     ## Database cleanup.
 

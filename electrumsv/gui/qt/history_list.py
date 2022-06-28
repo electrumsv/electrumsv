@@ -36,12 +36,14 @@ from PyQt6.QtGui import QBrush, QIcon, QColor, QFont
 from PyQt6.QtWidgets import QMenu, QMessageBox, QTreeWidgetItem, QVBoxLayout, QWidget
 
 from ...app_state import app_state
-from ...bitcoin import COINBASE_MATURITY, TSCMerkleProof
+from ...bitcoin import COINBASE_MATURITY
 from ...constants import BlockHeight, PaymentFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
 from ...paymentrequest import has_expired
 from ...platform import platform
+from ...standards.tsc_merkle_proof import TSCMerkleProof
+from ...transaction import TransactionContext
 from ...util import format_posix_timestamp, get_posix_timestamp, posix_timestamp_to_datetime, \
     profiler
 from ...wallet import AbstractAccount
@@ -427,9 +429,18 @@ class HistoryList(MyTreeWidget):
         menu.exec(self.viewport().mapToGlobal(position))
 
     def _broadcast_transaction(self, tx_hash: bytes) -> None:
-        tx = self._wallet.get_transaction(tx_hash)
-        assert tx is not None
-        self._main_window.broadcast_transaction(self._account, tx)
+        assert self._account is not None
+        transaction = self._wallet.get_transaction(tx_hash)
+        assert transaction is not None
+        mapi_server_hint = self._wallet.get_mapi_broadcast_context(self._account.get_id(),
+            transaction)
+        if mapi_server_hint is None:
+            self._main_window.show_error(_("Unable to broadcast as there are no usable MAPI "
+                "servers."))
+            return
+        transaction_context = TransactionContext()
+        transaction_context.mapi_server_hint = mapi_server_hint
+        self._main_window.broadcast_transaction(self._account, transaction, transaction_context)
 
     def _show_invoice_window(self, invoice_id: int) -> None:
         row = self._wallet.data.read_invoice(invoice_id=invoice_id)

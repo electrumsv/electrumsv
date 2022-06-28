@@ -167,10 +167,6 @@ class MockAccount(AbstractAccount):
         self._id = 1
         self._wallet = wallet
 
-    def maybe_set_transaction_state(self, tx_hash: bytes, flags: TxFlags,
-            ignore_mask: Optional[TxFlags]=None) -> bool:
-        return True
-
     def dumps(self):
         return None
 
@@ -201,6 +197,10 @@ class MockWallet(Wallet):
 
     def get_id(self) -> int:
         return 32323232
+
+    async def set_transaction_state_async(self, tx_hash: bytes, flags: TxFlags,
+            ignore_mask: Optional[TxFlags]=None) -> bool:
+        return True
 
 
 class MockApp:

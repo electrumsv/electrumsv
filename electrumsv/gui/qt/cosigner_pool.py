@@ -195,7 +195,7 @@ class CosignerPool:
         context = TransactionContext()
         for item in self._items:
             if self._is_theirs(window, account_id, item, tx):
-                raw_tx_bytes = json.dumps(tx.to_dict(context)).encode()
+                raw_tx_bytes = json.dumps(tx.to_dict(context, [])).encode()
                 public_key = PublicKey.from_bytes(item.pubkey_bytes)
                 message = public_key.encrypt_message_to_base64(raw_tx_bytes)
                 WaitingDialog(item.window, _('Sending transaction to cosigning pool...'),
@@ -246,5 +246,5 @@ class CosignerPool:
             return
 
         txdict = json.loads(message)
-        tx, context = Transaction.from_dict(txdict)
+        tx, context = Transaction.from_dict(txdict, [ account ])
         window.show_transaction(account, tx, context, prompt_if_unsaved=True)

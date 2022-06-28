@@ -29,9 +29,10 @@ from bitcoinx import Header
 
 from PyQt6.QtWidgets import QComboBox, QLabel, QVBoxLayout
 
-from ...bitcoin import script_template_to_string, TSCMerkleProof
+from ...bitcoin import script_template_to_string
 from ...constants import ACCOUNT_SCRIPT_TYPES, ScriptType
 from ...i18n import _
+from ...standards.tsc_merkle_proof import TSCMerkleProof
 from ...wallet_database.types import KeyDataProtocol
 
 from .main_window import ElectrumWindow

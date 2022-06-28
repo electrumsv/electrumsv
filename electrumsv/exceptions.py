@@ -94,8 +94,6 @@ class UnsupportedAccountTypeError(Exception):
 class UnsupportedScriptTypeError(Exception):
     pass
 
-class SubscriptionStale(Exception):
-    pass
 
 class PreviousTransactionsMissingException(Exception):
     have_tx_hashes: Set[bytes]
@@ -128,11 +126,35 @@ class DatabaseWriteError(Exception):
         return _("Fallthrough database write error, code={}").format(self.error_code)
 
 
-class ServerConnectionError(Exception):
+class BroadcastError(Exception):
     pass
 
-class ServiceUnavailableError(Exception):
+
+class ServerError(Exception):
+    """
+    This is a base/fallback class for all server-related errors, regardless of the protocol.
+    """
     pass
 
-class BroadcastFailedError(Exception):
+class BadServerError(ServerError):
+    """
+    This server has sent a blatantly incorrect response. This is not to be confused with an
+    unreliable server, that errors remotely or gives any associated status codes.
+    """
+    pass
+
+class ServerConnectionError(ServerError):
+    """
+    Connecting to this server raised some kind of error and did not reach the response stage.
+    """
+    pass
+
+class ServerAuthorizationError(ServerError):
+    """
+    The server either requires authentication and we did not provide an API key, or we provided
+    our API key and it is no longer valid.
+    """
+    pass
+
+class ServiceUnavailableError(ServerConnectionError):
     pass

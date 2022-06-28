@@ -100,17 +100,6 @@ class PeerChannelViewModelGet(TypedDict):
     access_tokens: list[PeerChannelAPITokenViewModelGet]
 
 
-class MAPICallbackResponse(TypedDict):
-    callbackPayload: dict[str, Any]
-    apiVersion: str
-    timestamp: str
-    minerId: Optional[str]
-    blockHash: str
-    blockHeight: int
-    callbackTxId: str
-    callbackReason: str
-
-
 class GenericPeerChannelMessage(TypedDict):
     sequence: int
     received: str
@@ -146,60 +135,6 @@ class ChannelNotification(TypedDict):
 class ServerWebsocketNotification(TypedDict):
     message_type: str
     result: ChannelNotification  # Later this will be a Union of multiple message types
-
-
-class JSONEnvelope(TypedDict):
-    payload: str
-    signature: Optional[str]
-    publicKey: Optional[str]
-    encoding: str
-    mimetype: str
-
-
-class FeeQuoteTypeFee(TypedDict):
-    satoshis: int
-    bytes: int
-
-
-class FeeQuoteTypeEntry(TypedDict):
-    feeType: str
-    miningFee: FeeQuoteTypeFee
-    relayFee: FeeQuoteTypeFee
-
-
-# A MAPI fee quote is packaged according to the JSON envelope BRFC.
-# https://github.com/bitcoin-sv-specs/brfc-misc/tree/master/jsonenvelope
-class FeeQuote(TypedDict):
-    # https://github.com/bitcoin-sv-specs/brfc-merchantapi#1-get-fee-quote
-    apiVersion: str
-    timestamp: str
-    expiryTime: str
-    minerId: str
-    currentHighestBlockHash: str
-    currentHighestBlockHeight: int
-    fees: list[FeeQuoteTypeEntry]
-
-
-class BroadcastConflict(TypedDict):
-    txid: str # Canonical hex transaction id.
-    size: int
-    hex: str
-
-
-# A MAPI broadcast response is packaged according to the JSON envelope BRFC.
-# https://github.com/bitcoin-sv-specs/brfc-misc/tree/master/jsonenvelope
-class BroadcastResponse(TypedDict):
-    # https://github.com/bitcoin-sv-specs/brfc-merchantapi#2-submit-transaction
-    apiVersion: str
-    timestamp: str
-    txid: str # Canonical hex transaction id.
-    returnResult: str # "success" or "failure"
-    resultDescription: str # "" or "<error message>"
-    minerId: str
-    currentHighestBlockHash: str
-    currentHighestBlockHeight: int
-    txSecondMempoolExpiry: int
-    conflictedWith: list[BroadcastConflict]
 
 
 class AccountMessageKind(enum.IntEnum):

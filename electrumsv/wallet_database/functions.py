@@ -30,6 +30,7 @@ except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore[no-redef]
+import time
 from types import TracebackType
 from typing import Any, cast, Iterable, Optional, Sequence, Type
 
@@ -37,8 +38,8 @@ from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, e
     read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
 
 from ..constants import (BlockHeight, DerivationType, DerivationPath, KeyInstanceFlag,
-    pack_derivation_path, PaymentFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag,
-    PushDataHashRegistrationFlag, ScriptType,
+    MAPIBroadcastFlag, pack_derivation_path, PaymentFlag, PeerChannelAccessTokenFlag,
+    PeerChannelMessageFlag, PushDataHashRegistrationFlag, ScriptType,
     ServerPeerChannelFlag, TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag)
 from ..crypto import pw_decode, pw_encode
 from ..i18n import _
@@ -53,13 +54,12 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow,
     KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
-    KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, MAPIBroadcastCallbackRow,
-    MapiBroadcastStatusFlags, NetworkServerRow, PasswordUpdateResult,
-    PaymentRequestReadRow, PaymentRequestRow, PaymentRequestUpdateRow, MerkleProofUpdateRow,
-    PushDataMatchMetadataRow, PushDataMatchRow, PushDataHashRegistrationRow,
-    ServerPeerChannelAccessTokenRow, ServerPeerChannelRow, ServerPeerChannelMessageRow,
-    SpendConflictType, SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
-    TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
+    KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, MAPIBroadcastRow,
+    NetworkServerRow, PasswordUpdateResult, PaymentRequestReadRow, PaymentRequestRow,
+    PaymentRequestUpdateRow, MerkleProofUpdateRow, PushDataMatchMetadataRow, PushDataMatchRow,
+    PushDataHashRegistrationRow, ServerPeerChannelAccessTokenRow, ServerPeerChannelRow,
+    ServerPeerChannelMessageRow, SpendConflictType, SpentOutputRow, TransactionDeltaSumRow,
+    TransactionExistsRow, TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
     TransactionOutputSpendableRow, TransactionValueRow, TransactionMetadata,
     TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow, TxProofData,
     TransactionProofUpdateRow, TransactionRow, MerkleProofRow, WalletBalance,
@@ -583,8 +583,9 @@ def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> list[OutputSpend]:
     FROM TransactionInputs TXI
     INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash AND TX.flags&{TxFlags.MASK_STATE}!=0 AND
         TX.flags&{TxFlags.STATE_SETTLED}=0
-    LEFT JOIN MAPIBroadcastCallbacks MBC ON MBC.tx_hash=TXI.tx_hash
-        AND MBC.status_flags={MapiBroadcastStatusFlags.SUCCEEDED}
+    LEFT JOIN MAPIBroadcasts MBC ON MBC.tx_hash=TXI.tx_hash
+        AND MBC.mapi_broadcast_flags&{MAPIBroadcastFlag.BROADCAST|MAPIBroadcastFlag.DELETED}
+            ={MAPIBroadcastFlag.BROADCAST}
     WHERE MBC.tx_hash IS NULL
     """
     rows = db.execute(sql).fetchall()
@@ -597,11 +598,14 @@ def read_existing_output_spends(db: sqlite3.Connection, outpoints: list[Outpoint
     """
     Get metadata for any existing spends of the provided outpoints.
     """
-    sql = """
+    sql = f"""
     SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index, TX.block_hash,
-        TX.flags
+        TX.flags, MBC.mapi_broadcast_flags
     FROM TransactionInputs TXI
     INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash
+    LEFT JOIN MAPIBroadcasts MBC ON MBC.tx_hash=TXI.tx_hash
+        AND MBC.mapi_broadcast_flags&{MAPIBroadcastFlag.BROADCAST|MAPIBroadcastFlag.DELETED}
+            ={MAPIBroadcastFlag.BROADCAST}
     """
     sql_condition = "TXI.spent_tx_hash=? AND TXI.spent_txo_index=?"
     return read_rows_by_ids(SpentOutputRow, db, sql, sql_condition, [], outpoints)
@@ -892,14 +896,11 @@ def create_pushdata_matches_write(rows: list[PushDataMatchRow], processed_messag
     db.executemany(sql, rows)
 
     if len(processed_message_ids) > 0:
-        sql = "UPDATE ServerPeerChannelMessages SET message_flags=message_flags&? " \
-            "WHERE message_id IN ({})"
-        sql_values = [ ~PeerChannelMessageFlag.UNPROCESSED ]
-        execute_sql_by_id(db, sql, sql_values, processed_message_ids)
+        update_server_peer_channel_message_flags_write(processed_message_ids, db)
 
 
 @replace_db_context_with_connection
-def read_pushdata_match_metadata(db: sqlite3.Connection) \
+def read_pushdata_match_metadata(db: sqlite3.Connection, for_missing_transactions: bool) \
         -> list[PushDataMatchMetadataRow]:
     # TODO(1.4.0) Tip filters, issue#904. There should be some flag which filters out processed
     #     entries and the tx import should toggle that flag accordingly.
@@ -910,6 +911,12 @@ def read_pushdata_match_metadata(db: sqlite3.Connection) \
         INNER JOIN KeyInstances KI ON KI.keyinstance_id=SPDR.keyinstance_id
         INNER JOIN ServerPushDataMatches SPDM ON SPDM.pushdata_hash = SPDR.pushdata_hash
     """
+    if for_missing_transactions:
+        sql += f"""
+            LEFT JOIN Transactions TX ON TX.tx_hash=SPDM.transaction_hash
+                AND TX.flags!={TxFlags.REMOVED}
+            WHERE TX.tx_hash IS NULL
+        """
     sql_values: tuple[Any, ...] = ()
     return [ PushDataMatchMetadataRow(*row) for row in db.execute(sql, sql_values) ]
 
@@ -1444,6 +1451,14 @@ def update_server_peer_channel_write(remote_channel_id: Optional[str],
 
     return result_row
 
+def update_server_peer_channel_message_flags_write(processed_message_ids: list[int],
+        db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql = "UPDATE ServerPeerChannelMessages SET message_flags=message_flags&? " \
+        "WHERE message_id IN ({})"
+    sql_values = [ ~PeerChannelMessageFlag.UNPROCESSED ]
+    execute_sql_by_id(db, sql, sql_values, processed_message_ids)
+
 
 @replace_db_context_with_connection
 def read_server_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_id: int,
@@ -1742,8 +1757,8 @@ def set_keyinstance_flags(db_context: DatabaseContext, key_ids: Sequence[int],
     return db_context.post_to_thread(_write)
 
 
-def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxFlags,
-        ignore_mask: Optional[TxFlags]=None) -> concurrent.futures.Future[bool]:
+def set_transaction_state_write(tx_hash: bytes, flag: TxFlags, ignore_mask: TxFlags | None,
+        db: Optional[sqlite3.Connection]=None) -> bool:
     """
     Set a transaction to given state.
 
@@ -1751,26 +1766,18 @@ def set_transaction_state(db_context: DatabaseContext, tx_hash: bytes, flag: TxF
     If the transaction is not in a pre-dispatched state, then this will return `False` and no
     change will be made.
     """
-    # TODO(python-3.10) Python 3.10 has `flag.bitcount()` supposedly.
-    assert bin(flag).count("1") == 1, "only one state can be specified at a time"
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    assert flag.bit_count() == 1, "only one state can be specified at a time"
     # We will clear any existing state bits.
     mask_bits = ~TxFlags.MASK_STATE
     if ignore_mask is None:
         ignore_mask = flag
     timestamp = get_posix_timestamp()
-    sql = (
-        "UPDATE Transactions SET date_updated=?, flags=(flags&?)|? "
-        "WHERE tx_hash=? AND flags&?=0")
+    sql = "UPDATE Transactions SET date_updated=?, flags=(flags&?)|? WHERE tx_hash=? AND flags&?=0"
     sql_values = [ timestamp, mask_bits, flag, tx_hash, ignore_mask ]
 
-    def _write(db: Optional[sqlite3.Connection]=None) -> bool:
-        assert db is not None and isinstance(db, sqlite3.Connection)
-        cursor = db.execute(sql, sql_values)
-        if cursor.rowcount == 0:
-            # Rollback the database transaction (nothing to rollback but upholding the convention).
-            raise DatabaseUpdateError("Rollback as nothing updated")
-        return True
-    return db_context.post_to_thread(_write)
+    rowcount = cast(int, db.execute(sql, sql_values).rowcount)
+    return rowcount > 0
 
 
 def update_transaction_flags_write(entries: list[tuple[TxFlags, TxFlags, bytes]], \
@@ -1804,7 +1811,7 @@ def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: list[
 
 def update_transaction_proof_write(tx_update_rows: list[TransactionProofUpdateRow],
         proof_rows: list[MerkleProofRow], proof_update_rows: list[MerkleProofUpdateRow],
-        db: Optional[sqlite3.Connection]=None) -> None:
+        processed_message_ids: list[int], db: Optional[sqlite3.Connection]=None) -> None:
     """
     Set the proof related fields for a transaction. We also insert the proof into the proofs table.
 
@@ -1848,12 +1855,15 @@ def update_transaction_proof_write(tx_update_rows: list[TransactionProofUpdateRo
         sql = "UPDATE TransactionProofs SET block_height=? WHERE block_hash=? AND tx_hash=?"
         db.executemany(sql, proof_update_rows)
 
+    if len(processed_message_ids) > 0:
+        update_server_peer_channel_message_flags_write(processed_message_ids, db)
+
 
 def update_transaction_proof_and_flag_write(tx_update_rows: list[TransactionProofUpdateRow],
         flag_entries: list[tuple[TxFlags, TxFlags, bytes]],
         db: Optional[sqlite3.Connection]=None) -> None:
     assert db is not None
-    update_transaction_proof_write(tx_update_rows, [], [], db)
+    update_transaction_proof_write(tx_update_rows, [], [], [], db)
     update_transaction_flags_write(flag_entries, db)
 
 
@@ -2307,48 +2317,53 @@ def update_network_servers(db_context: DatabaseContext, rows: list[NetworkServer
     return db_context.post_to_thread(_write)
 
 
-
-def create_mapi_broadcast_callbacks_write(rows: Iterable[MAPIBroadcastCallbackRow],
-        db: Optional[sqlite3.Connection]=None) -> None:
-    assert db is not None and isinstance(db, sqlite3.Connection)
-    sql = """
-        INSERT INTO MAPIBroadcastCallbacks
-        (tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id, status_flags)
-        VALUES (?, ?, ?, ?, ?, ?)
-    """
-    db.executemany(sql, rows)
+def create_mapi_broadcasts_write(rows: list[MAPIBroadcastRow],
+        db: Optional[sqlite3.Connection]=None) -> list[MAPIBroadcastRow]:
+    assert db is not None
+    sql_prefix = "INSERT INTO MAPIBroadcasts (broadcast_id, tx_hash, broadcast_server_id, " \
+        "mapi_broadcast_flags, peer_channel_id, date_created, date_updated) VALUES"
+    sql_suffix = "RETURNING broadcast_id, tx_hash, broadcast_server_id, mapi_broadcast_flags, " \
+            "peer_channel_id, date_created, date_updated"
+    # NOTE(database) `executemany` does not support `RETURNING` so we have this bulk insert call.
+    return bulk_insert_returning(MAPIBroadcastRow, db, sql_prefix, sql_suffix, rows)
 
 
 @replace_db_context_with_connection
-def read_mapi_broadcast_callbacks(db: sqlite3.Connection, tx_hashes: Optional[list[bytes]]=None) \
-        -> list[MAPIBroadcastCallbackRow]:
-    sql = """
-        SELECT tx_hash, peer_channel_id, broadcast_date, encrypted_private_key, server_id,
-            status_flags
-        FROM MAPIBroadcastCallbacks
+def read_mapi_broadcasts(db: sqlite3.Connection, tx_hashes: list[bytes] | None=None) \
+        -> list[MAPIBroadcastRow]:
+    sql = f"""
+    SELECT broadcast_id, tx_hash, broadcast_server_id, mapi_broadcast_flags, peer_channel_id,
+        date_created, date_updated
+    FROM MAPIBroadcasts
+    WHERE mapi_broadcast_flags&{MAPIBroadcastFlag.DELETED}=0
     """
     if not tx_hashes:
-        return [ MAPIBroadcastCallbackRow(*row) for row in db.execute(sql).fetchall() ]
+        return [ MAPIBroadcastRow(*row) for row in db.execute(sql).fetchall() ]
 
-    sql += "WHERE tx_hash in ({})"
-    return read_rows_by_id(MAPIBroadcastCallbackRow, db, sql, [ ], tx_hashes)
+    sql += "AND tx_hash in ({})"
+    return read_rows_by_id(MAPIBroadcastRow, db, sql, [ ], tx_hashes)
 
-def update_mapi_broadcast_callbacks(db_context: DatabaseContext,
-        entries: Iterable[tuple[MapiBroadcastStatusFlags, bytes]]) \
+
+def update_mapi_broadcasts(db_context: DatabaseContext,
+        entries: Iterable[tuple[MAPIBroadcastFlag, bytes, int, int]]) \
             -> concurrent.futures.Future[None]:
-    sql = "UPDATE MAPIBroadcastCallbacks SET status_flags=? WHERE tx_hash=?"
+    sql = "UPDATE MAPIBroadcasts SET mapi_broadcast_flags=?, response_data=?, date_updated=? "\
+        "WHERE broadcast_id=?"
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, entries)
     return db_context.post_to_thread(_write)
 
 
-def delete_mapi_broadcast_callbacks(db_context: DatabaseContext, tx_hashes: Iterable[bytes]) \
+def delete_mapi_broadcasts(db_context: DatabaseContext, broadcast_ids: Iterable[int]) \
         -> concurrent.futures.Future[None]:
-    sql = "DELETE FROM MAPIBroadcastCallbacks WHERE tx_hash=?"
+    date_updated = int(time.time())
+    sql = "UPDATE MAPIBroadcasts " \
+        f"SET mapi_broadcast_flags=mapi_broadcast_flags|{MAPIBroadcastFlag.DELETED}, " \
+            "date_updated=? WHERE broadcast_id=?"
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
-        assert db is not None and isinstance(db, sqlite3.Connection)
-        db.executemany(sql, [(tx_hash,) for tx_hash in tx_hashes])
+        assert db is not None
+        db.executemany(sql, [(date_updated, broadcast_id) for broadcast_id in broadcast_ids])
     return db_context.post_to_thread(_write)
 
 

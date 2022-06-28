@@ -189,7 +189,9 @@ class LabelImporter(QDialog):
         assert self._import_result is not None
 
         account = cast(AbstractAccount, self._wallet.get_account(self._account_id))
-        account.set_transaction_labels(self._import_result.transaction_labels.items())
+        update_entries: list[tuple[str | None, int, bytes ]] = [ (text, account.get_id(), tx_hash)
+            for (tx_hash, text) in self._import_result.transaction_labels.items() ]
+        self._wallet.set_transaction_labels(update_entries)
 
         # TODO This should be a bulk set operation, not per key.
         for derivation_path, description_text in self._import_result.key_labels.items():
@@ -222,14 +224,14 @@ class LabelImporter(QDialog):
         else:
             return
 
-        account_tx_hashes = { r.tx_hash
+        account_descriptions = { r.tx_hash: r
             for r in self._wallet.data.read_transaction_descriptions(self._account_id) }
 
         for tx_hash, tx_description in result.transaction_labels.items():
-            if tx_hash not in account_tx_hashes:
+            if tx_hash not in account_descriptions:
                 self._tx_state[tx_hash] = LabelState.UNKNOWN
             else:
-                existing_description = account.get_transaction_label(tx_hash)
+                existing_description = account_descriptions[tx_hash].description
                 if existing_description == "":
                     self._tx_state[tx_hash] = LabelState.ADD
                 elif existing_description == tx_description:

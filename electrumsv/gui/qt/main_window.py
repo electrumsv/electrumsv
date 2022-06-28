@@ -59,16 +59,15 @@ from PyQt6 import sip
 import electrumsv
 from ... import bitcoin, commands, paymentrequest, util
 from ...app_state import app_state
-from ...bitcoin import (address_from_string, COIN, script_template_to_string, TSCMerkleProof)
+from ...bitcoin import address_from_string, COIN, script_template_to_string
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
     ScriptType, ServerCapability, ServerConnectionFlag, ServerProgress, TransactionImportFlag,
     TransactionOutputFlag, TxFlags, WalletEvent)
 from ...exceptions import UserCancelled
 from ...i18n import _
 from ...logs import logs
-from ...network_support.api_server import broadcast_transaction
-from ...network_support.types import BroadcastResponse
 from ...networks import Net
+from ...standards.tsc_merkle_proof import TSCMerkleProof
 from ...storage import WalletStorage
 from ...transaction import Transaction, TransactionContext
 from ...types import ExceptionInfoType, Outpoint, WaitingUpdateCallback
@@ -297,11 +296,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Some tabs may want to be refreshed to show current state when selected.
         current_tab = self._tab_widget.currentWidget()
         if current_tab is self.coinsplitting_tab:
-            self.coinsplitting_tab.update_layout()
-        elif current_tab is self.send_tab:
-            if self.is_send_view_active():
-                assert isinstance(self._send_view, SendView)
-                self._send_view.on_tab_activated()
+            self.coinsplitting_tab.on_tab_activated()
+        elif current_tab is self.send_tab and self.is_send_view_active():
+            assert isinstance(self._send_view, SendView)
+            self._send_view.on_tab_activated()
 
     def _create_tabs(self) -> None:
         tabs = self._tab_widget
@@ -432,6 +430,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.console.updateNamespace({ 'account': self._account })
         self._reset_menus(self._account_id)
         self._reset_send_tab()
+
         # Reset these tabs:
         # - The history tab.
         # - The local transactions tab.
@@ -441,6 +440,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.account_change_signal.emit(self._account_id, self._account)
         # - The receive tab.
         self._reset_receive_tab()
+
         if self.is_receive_view_active():
             assert isinstance(self._receive_view, ReceiveView)
             self._receive_view.update_contents()
@@ -1201,7 +1201,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     balance += account.get_balance().confirmed
                 fiat_status = app_state.fx.get_fiat_status(
                     balance, app_state.base_unit(), app_state.decimal_point)
-        self._status_bar.set_fiat_status(fiat_status)
+        self.status_bar.set_fiat_status(fiat_status)
         self._update_network_status()
 
     def _update_network_status(self) -> None:
@@ -1275,7 +1275,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             #     text = _("Not connected yet..")
             #     tooltip_text = _("You are not currently connected to an indexing server.")
 
-        self._status_bar.set_network_status(text, tooltip_text)
+        self.status_bar.set_network_status(text, tooltip_text)
 
     def update_tabs(self, *args: Any) -> None:
         if self.is_receive_view_active():
@@ -1331,6 +1331,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _reset_send_tab(self) -> None:
         self._send_view = self._reset_stacked_tab(self.send_tab, self.get_send_view)
+        current_tab_index = self._tab_widget.currentIndex()
+        self._on_tab_changed(current_tab_index)
 
     def _reset_receive_tab(self) -> None:
         self._receive_view = self._reset_stacked_tab(self.receive_tab, self.get_receive_view)
@@ -1517,41 +1519,34 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         WaitingDialog(window, _('Signing transaction...'), sign_tx, on_done=on_done,
             title=_("Transaction signing"))
 
-    def broadcast_transaction(self, account: Optional[AbstractAccount], tx: Transaction,
+    def broadcast_transaction(self, account: AbstractAccount | None, tx: Transaction,
             context: Optional[TransactionContext]=None,
             success_text: Optional[str]=None, window: Optional[QWidget]=None) -> None:
         send_view = cast(SendView, self._send_view)
         final_success_text = _('Payment sent.') if success_text is None else success_text
         window = window or self
 
-        def broadcast_tx(update_cb: WaitingUpdateCallback) -> Optional[str]:
+        def broadcast_tx(update_cb: WaitingUpdateCallback) -> bool:
             """This all gets run in a thread so blocking is acceptable"""
+            # Ensure we are not in offline mode.
             assert self.network is not None
 
-            # non-GUI thread
-            if account and not send_view.maybe_send_invoice_payment(tx):
-                return None
+            # Non-GUI thread. Is the broadcast done through invoicing payment delivery instead?
+            if send_view.is_invoice_payment() and not send_view.send_invoice_payment(tx):
+                # The invoice payment delivery either did not happen because the invoice was no
+                # longer valid, or for some other reason.
+                return False
 
-            # TODO(1.4.0) Broken code. Account can be None, this function does not work if it is.
-            assert account is not None
-            broadcast_response: BroadcastResponse = app_state.async_.spawn_and_wait(
-                broadcast_transaction(tx, self.network, account, True, True))
-            result = broadcast_response['txid']
-
-            tx_hash = tx.hash()
-            # Not all transactions that are broadcast are in the account. Arbitrary transaction
-            # broadcast is supported.
-            if result == tx.txid() and account and self._wallet.have_transaction(tx_hash):
-                account.maybe_set_transaction_state(tx_hash, TxFlags.STATE_CLEARED,
-                    TxFlags.MASK_STATE_BROADCAST)
+            have_broadcast = app_state.async_.spawn_and_wait(
+                self._wallet.broadcast_transaction_async(tx, context))
             update_cb(False, _("Done."))
-            return result
+            return have_broadcast
 
-        def on_done(future: concurrent.futures.Future[Optional[str]]) -> None:
+        def on_done(future: concurrent.futures.Future[bool]) -> None:
             assert window is not None
             # GUI thread
             try:
-                tx_id = future.result()
+                was_broadcast = future.result()
             except concurrent.futures.CancelledError:
                 cast(MessageBoxMixin, window).show_error(
                     _("Transaction broadcast failed.") +"<br/><br/>"+
@@ -1566,11 +1561,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     _("Your transaction was not sent: ") + reason +".", exception)
                 d.exec()
             else:
-                if account and tx_id:
-                    if context is not None and context.description is not None:
-                        account.set_transaction_label(tx.hash(), context.description)
+                if was_broadcast:
+                    tx_id = tx.txid()
+                    assert tx_id is not None
                     cast(MessageBoxMixin, window).show_message(final_success_text + '\n' + tx_id)
-
                     send_view.clear()
 
         WaitingDialog(window, _('Broadcasting the transaction..'), broadcast_tx,
@@ -1750,9 +1744,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def create_status_bar(self) -> None:
         from .status_bar import StatusBar
-        self._status_bar = StatusBar(self)
+        self.status_bar = StatusBar(self)
         self.update_status_bar()
-        self.setStatusBar(self._status_bar)
+        self.setStatusBar(self.status_bar)
 
     def change_password_dialog(self) -> None:
         from .password_dialog import ChangePasswordDialog
@@ -2459,6 +2453,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if isinstance(send_view, SendView):
                 send_view.clean_up()
         self._send_views.clear()
+
+        if self.coinsplitting_tab:
+            self.coinsplitting_tab.clean_up()
 
         if self.key_view:
             self.key_view.clean_up()

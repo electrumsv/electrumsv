@@ -2,9 +2,9 @@ import pytest
 
 from bitcoinx import hex_str_to_hash
 
-from electrumsv.bitcoin import ProofCountFlags, ProofTargetFlags, ProofTransactionFlags, \
-    ProofTypeFlags, TSCMerkleNode, TSCMerkleNodeKind, TSCMerkleProof, TSCMerkleProofError, \
-    verify_proof
+from electrumsv.standards.tsc_merkle_proof import ProofCountFlags, ProofTargetFlags, \
+    ProofTransactionFlags, ProofTypeFlags, TSCMerkleNode, TSCMerkleNodeKind, TSCMerkleProof, \
+    TSCMerkleProofError, verify_proof
 
 
 def test_convert_to_binary() -> None:

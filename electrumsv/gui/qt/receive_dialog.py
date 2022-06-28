@@ -319,7 +319,7 @@ class ReceiveDialog(QDialog):
         self._import_button = EnterButton(_("&Import"), self._on_button_clicked_import)
         self._import_button.setMenu(import_menu)
         self._import_button.setEnabled(False)
-        if request_type != PaymentFlag.IMPORTED:
+        if request_type not in { PaymentFlag.IMPORTED, PaymentFlag.MONITORED }:
             self._import_button.hide()
         self._register_button = EnterButton(_("Register"), self._on_button_clicked_register)
         self._register_button.setEnabled(False)
@@ -495,6 +495,8 @@ class ReceiveDialog(QDialog):
                         status_text = MONITORING_IN_PROGRESS_STATUS_TEXT
                     else:
                         status_text = MONITORING_EXPIRED_STATUS_TEXT
+                    enable_import_button = \
+                        self._request_row.state & PaymentFlag.MASK_STATE != PaymentFlag.PAID
             elif self._request_type == PaymentFlag.IMPORTED:
                 status_text = IMPORTING_IN_PROGRESS_STATUS_TEXT
                 enable_import_button = True

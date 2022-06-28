@@ -38,24 +38,23 @@ import json
 import os
 import random
 import threading
-from typing import Any, Awaitable, Callable, cast, Coroutine, Iterable, Optional, Sequence, \
-    TypedDict, TypeVar, TYPE_CHECKING, Union
+from typing import Any, AsyncIterable, Awaitable, Callable, cast, Coroutine, Iterable, Optional, \
+    Sequence, TypedDict, TypeVar, TYPE_CHECKING, Union
 import weakref
 
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
     BIP32PrivateKey, Chain, double_sha256, Header, hash_to_hex_str, hex_str_to_hash,
-    MissingHeader, Ops, P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, pack_byte, push_item,
-    Script)
+    MissingHeader, P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Script)
 from electrumsv_database.sqlite import DatabaseContext
 
 from . import coinchooser
 from .app_state import app_state
-from .bitcoin import  scripthash_bytes, ScriptTemplate, separate_proof_and_embedded_transaction, \
-    TSCMerkleProof, TSCMerkleProofError, TSCMerkleProofJson, verify_proof
+from .bitcoin import  scripthash_bytes, ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
     API_SERVER_TYPES, BlockHeight, ChainManagementKind, ChainWorkerToken, CHANGE_SUBPATH,
     DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
-    DerivationPath, KeyInstanceFlag, KeystoreTextType, KeystoreType, MasterKeyFlags, MAX_VALUE,
+    DerivationPath, KeyInstanceFlag, KeystoreTextType, KeystoreType, MAPIBroadcastFlag,
+    MasterKeyFlags, MAX_VALUE,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkEventNames,
     NetworkServerFlag, NetworkServerType, PaymentFlag, PeerChannelAccessTokenFlag,
     PeerChannelMessageFlag, PushDataHashRegistrationFlag, PushDataMatchFlag, RECEIVING_SUBPATH,
@@ -65,9 +64,9 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
-from .exceptions import (ExcessiveFee, NotEnoughFunds, PreviousTransactionsMissingException,
-    ServerConnectionError, UnsupportedAccountTypeError, UnsupportedScriptTypeError, UserCancelled,
-    WalletLoadError)
+from .exceptions import (BroadcastError, ExcessiveFee, NotEnoughFunds,
+    PreviousTransactionsMissingException, ServerConnectionError, UnsupportedAccountTypeError,
+    UnsupportedScriptTypeError, UserCancelled, WalletLoadError)
 from .i18n import _
 from .keys import get_multi_signer_script_template, get_single_signer_script_template
 from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore, \
@@ -80,17 +79,24 @@ from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidEr
 from .network_support.general_api import maintain_server_connection_async, \
     request_binary_merkle_proof_async, request_transaction_data_async
 from .network_support.headers import get_longest_valid_chain
-from .network_support.mapi import validate_mapi_callback_response, validate_json_envelope
-from .network_support.types import GenericPeerChannelMessage, JSONEnvelope, MAPICallbackResponse, \
-    ServerConnectionProblems, ServerConnectionState, TipFilterPushDataMatchesData
+from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_fee_quotes_async
+from .network_support.types import GenericPeerChannelMessage, ServerConnectionProblems, \
+    ServerConnectionState, TipFilterPushDataMatchesData
 from .networks import Net
+from .standards.json_envelope import JSONEnvelope, validate_json_envelope
+from .standards.mapi import MAPICallbackResponse, validate_mapi_callback_response
+from .standards.tsc_merkle_proof import separate_proof_and_embedded_transaction, TSCMerkleProof, \
+    TSCMerkleProofError, TSCMerkleProofJson, verify_proof
 from .storage import WalletStorage
-from .transaction import (HardwareSigningMetadata, Transaction, TransactionContext,
-    TxSerialisationFormat, NO_SIGNATURE, tx_dict_from_text, XPublicKey, XTxInput, XTxOutput)
-from .types import (ConnectHeaderlessProofWorkerState, IndefiniteCredentialId,
+from .transaction import (HardwareSigningMetadata, NO_SIGNATURE, Transaction, TransactionContext,
+    TransactionFeeEstimator, tx_dict_from_text, TxSerialisationFormat, XPublicKey, XTxInput,
+    XTxOutput)
+from .types import (ConnectHeaderlessProofWorkerState, DatabaseKeyDerivationData,
+    IndefiniteCredentialId, FeeEstimatorProtocol, FeeQuoteCommon,
     KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult,
     MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
-    OutputSpend, ServerAccountKey, Outpoint, WaitingUpdateCallback, DatabaseKeyDerivationData)
+    Outpoint, OutputSpend, ServerAccountKey, ServerAndCredential, TransactionFeeContext, \
+    WaitingUpdateCallback)
 from .util import format_satoshis, get_posix_timestamp, get_wallet_name_from_path, \
     TriggeredCallbacks, ValueLocks
 from .util.cache import LRUCache
@@ -101,7 +107,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataProtocol, KeyData,
     KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, KeyInstanceScriptHashRow,
-    MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow, NetworkServerRow,
+    MAPIBroadcastRow, MasterKeyRow, NetworkServerRow,
     PasswordUpdateResult, PaymentRequestReadRow, PaymentRequestRow, PaymentRequestUpdateRow,
     MerkleProofUpdateRow, PushDataHashRegistrationRow, PushDataMatchRow, PushDataMatchMetadataRow,
     ServerPeerChannelRow, ServerPeerChannelAccessTokenRow, ServerPeerChannelMessageRow,
@@ -166,9 +172,6 @@ class MissingTransactionEntry:
 
 
 ADDRESS_TYPES = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
-
-def dust_threshold(network: Optional[Network]) -> int:
-    return 546 # hard-coded Bitcoin SV dust threshold. Was changed to this as of Sept. 2018
 
 
 T = TypeVar('T', bound='AbstractAccount')
@@ -360,34 +363,12 @@ class AbstractAccount:
         context = TransactionContext()
         desc = self.get_transaction_label(tx_hash)
         if desc:
-            context.description = desc
+            context.account_descriptions[self._id] = desc
         return tx, context
 
     def set_transaction_label(self, tx_hash: bytes, text: Optional[str]) \
             -> concurrent.futures.Future[None]:
-        return self.set_transaction_labels([ (tx_hash, text) ])
-
-    def set_transaction_labels(self, entries: Iterable[tuple[bytes, Optional[str]]]) \
-            -> concurrent.futures.Future[None]:
-        def callback(future: concurrent.futures.Future[None]) -> None:
-            # Skip if the operation was cancelled.
-            if future.cancelled():
-                return
-            # Raise any exception if it errored or get the result if completed successfully.
-            future.result()
-
-            self._wallet.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE,
-                update_entries)
-
-            for tx_hash, text in entries:
-                app_state.app_qt.on_transaction_label_change(self, tx_hash, text or "")
-
-        update_entries: list[tuple[Optional[str], int, bytes]] = []
-        for tx_hash, description in entries:
-            update_entries.append((description, self._id, tx_hash))
-        future = self._wallet.data.update_account_transaction_descriptions(update_entries)
-        future.add_done_callback(callback)
-        return future
+        return self._wallet.set_transaction_labels([ (text, self._id, tx_hash) ])
 
     def get_transaction_label(self, tx_hash: bytes) -> str:
         rows = self._wallet.data.read_transaction_descriptions(self._id, tx_hashes=[ tx_hash ])
@@ -514,19 +495,6 @@ class AbstractAccount:
 
     def get_balance(self) -> WalletBalance:
         return self._wallet.data.read_account_balance(self._id)
-
-    def maybe_set_transaction_state(self, tx_hash: bytes, flags: TxFlags,
-            ignore_mask: Optional[TxFlags]=None) -> bool:
-        """
-        We should only ever mark a transaction as a state if it it isn't already in a related
-        state.
-        """
-        future = self._wallet.data.set_transaction_state(tx_hash, flags, ignore_mask)
-        if future.result():
-            self._wallet.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, self._id,
-                tx_hash, flags)
-            return True
-        return False
 
     def get_key_list(self, keyinstance_ids: Optional[list[int]]=None) -> list[KeyListRow]:
         return self._wallet.data.read_key_list(self._id, keyinstance_ids)
@@ -659,37 +627,15 @@ class AbstractAccount:
             out.append(export_entry)
         return out
 
-    def create_extra_outputs(self, coins: Sequence[TransactionOutputSpendableProtocol],
-            outputs: list[XTxOutput], force: bool=False) -> list[XTxOutput]:
-        # Hardware wallets can only sign a limited range of output types (not OP_FALSE OP_RETURN).
-        if self.involves_hardware_wallet() or len(coins) == 0:
-            return []
-
-        ## Extra: Add an output that is not compatible with Bitcoin Cash.
-        if not force and not self._wallet.get_boolean_setting(WalletSettings.ADD_SV_OUTPUT):
-            return []
-
-        # We use the first signing public key from the first of the ordered UTXOs, for most coin
-        # script types there will only be one signing public key, with the exception of
-        # multi-signature accounts.
-        ordered_coins = sorted(coins, key=lambda v: cast(int, v.keyinstance_id))
-        assert ordered_coins[0].derivation_data2 is not None
-        public_keys = self.get_public_keys_for_derivation(
-            ordered_coins[0].derivation_type,
-            ordered_coins[0].derivation_data2)
-        for public_key in public_keys:
-            raw_payload_bytes = push_item(os.urandom(random.randrange(32)))
-            payload_bytes = public_key.encrypt_message(raw_payload_bytes)
-            script_bytes = pack_byte(Ops.OP_0) + pack_byte(Ops.OP_RETURN) + push_item(payload_bytes)
-            script = Script(script_bytes)
-            # NOTE(rt12) This seems to be some attrs/mypy clash, the base class attrs should come
-            # before the XTxOutput attrs, but typing expects these to be the XTxOutput attrs.
-            return [XTxOutput(0, script)] # type: ignore
-
-        return []
-
     def dust_threshold(self) -> int:
-        return dust_threshold(self._network)
+        """
+        Return the number of satoshis that is the current dust threshold.
+
+        History:
+        - The hard-coded Bitcoin SV dust threshold as of Sep 2018 was 546 satoshis.
+        - The hard-coded Bitcoin SV dust threshold as of the v1.0.11 node release is 1 satoshi.
+        """
+        return 1
 
     def get_max_change_outputs(self) -> int:
         # The full set of software change outputs is too much for hardware wallet users. This
@@ -701,8 +647,15 @@ class AbstractAccount:
         return self.MAX_SOFTWARE_CHANGE_OUTPUTS
 
     def make_unsigned_transaction(self,
-            unspent_outputs: Sequence[TransactionOutputSpendableProtocol],
-            outputs: list[XTxOutput]) -> tuple[Transaction, TransactionContext]:
+            unspent_outputs: Sequence[TransactionOutputSpendableProtocol], outputs: list[XTxOutput],
+            fee_estimator: FeeEstimatorProtocol | None=None) \
+                -> tuple[Transaction, TransactionContext]:
+        """
+        Raises `NotEnoughFunds` if there are no selected coins to be spent.
+        Raises `NotEnoughFunds` if the value of the outputs cannot be satisfied by the coin chooser
+            from the selected coins.
+        Raises `ValueError` if more than one output is set to spend the maximum amount.
+        """
         # check outputs
         all_index = None
         for n, output in enumerate(outputs):
@@ -715,15 +668,17 @@ class AbstractAccount:
         if not unspent_outputs:
             raise NotEnoughFunds()
 
-        if app_state.config.fee_per_kb() is None:
-            raise Exception('Dynamic fee estimates not available')
-
-        fee_estimator = app_state.config.estimate_fee
+        # Default to using the wallet configured fee-per-kb rate.
+        if fee_estimator is None:
+            if app_state.config.fee_per_kb() is None:
+                raise Exception('Dynamic fee estimates not available')
+            fee_estimator = app_state.config.get_fee_estimator()
 
         tx_context = TransactionContext()
+        tx_context.mapi_server_hint = fee_estimator.get_mapi_server_hint()
         inputs = [ self.get_extended_input_for_spendable_output(utxo) for utxo in unspent_outputs ]
         if all_index is None:
-            # Let the coin chooser select the coins to spend
+            # Let the coin chooser select the coins to spend.
             max_change = self.get_max_change_outputs() \
                 if self._wallet.get_boolean_setting(WalletSettings.MULTIPLE_CHANGE, True) else 1
             if self._wallet.get_boolean_setting(WalletSettings.USE_CHANGE, True) and \
@@ -753,11 +708,12 @@ class AbstractAccount:
             tx = coin_chooser.make_tx(inputs, outputs, change_outs,
                 fee_estimator, self.dust_threshold())
         else:
+            # All of the selected coins are being spent.
             assert all(txin.value is not None for txin in inputs)
             sendable = cast(int, sum(txin.value for txin in inputs))
             outputs[all_index].value = 0
             tx = Transaction.from_io(inputs, outputs)
-            fee = fee_estimator(tx.estimated_size())
+            fee = fee_estimator.estimate_fee(tx.estimated_size())
             outputs[all_index].value = max(0, sendable - tx.output_value() - fee)
             tx = Transaction.from_io(inputs, outputs)
 
@@ -952,8 +908,11 @@ class AbstractAccount:
                 self._wallet.data.update_invoice_transactions(
                     [ (tx_hash, tx_context.invoice_id) ])
 
-            if tx_context.description:
-                self.set_transaction_label(tx_hash, tx_context.description)
+            if len(tx_context.account_descriptions) > 0:
+                update_entries: list[tuple[str | None, int, bytes]] = [
+                    (description, account_id, tx_hash) for (account_id, description)
+                    in tx_context.account_descriptions.items() ]
+                self._wallet.set_transaction_labels(update_entries)
 
         transaction_future = app_state.async_.spawn(self._wallet.add_local_transaction(tx_hash,
             tx, tx_flags, BlockHeight.LOCAL, None, None, import_flags))
@@ -1716,6 +1675,9 @@ class WalletDataAccess:
 
     # Account transactions.
 
+    def read_account_ids_for_transaction(self, tx_hash: bytes) -> list[int]:
+        return db_functions.read_account_ids_for_transaction(self._db_context, tx_hash)
+
     def read_transaction_descriptions(self, account_id: Optional[int]=None,
             tx_hashes: Optional[Sequence[bytes]]=None) -> list[AccountTransactionDescriptionRow]:
         return db_functions.read_transaction_descriptions(self._db_context,
@@ -1821,29 +1783,23 @@ class WalletDataAccess:
 
     # mAPI broadcast callbacks
 
-    def create_mapi_broadcast_callbacks(self, rows: Iterable[MAPIBroadcastCallbackRow]) -> \
-            concurrent.futures.Future[None]:
-        return self._db_context.post_to_thread(db_functions.create_mapi_broadcast_callbacks_write,
-            rows)
-
-    async def create_mapi_broadcast_callbacks_async(self,
-            rows: Iterable[MAPIBroadcastCallbackRow]) -> None:
+    async def create_mapi_broadcasts_async(self, rows: list[MAPIBroadcastRow]) \
+            -> list[MAPIBroadcastRow]:
         return await self._db_context.run_in_thread_async(
-            db_functions.create_mapi_broadcast_callbacks_write, rows)
+            db_functions.create_mapi_broadcasts_write, rows)
 
-    def read_mapi_broadcast_callbacks(self, tx_hashes: Optional[list[bytes]]=None) \
-            -> list[MAPIBroadcastCallbackRow]:
-        return db_functions.read_mapi_broadcast_callbacks(self._db_context, tx_hashes)
+    def read_mapi_broadcasts(self, tx_hashes: Optional[list[bytes]]=None) \
+            -> list[MAPIBroadcastRow]:
+        return db_functions.read_mapi_broadcasts(self._db_context, tx_hashes)
 
-    def update_mapi_broadcast_callbacks(self,
-            entries: Iterable[tuple[MapiBroadcastStatusFlags, bytes]]) -> \
+    def update_mapi_broadcasts(self,
+            entries: Iterable[tuple[MAPIBroadcastFlag, bytes, int, int]]) -> \
                 concurrent.futures.Future[None]:
-        return db_functions.update_mapi_broadcast_callbacks(self._db_context, entries)
+        return db_functions.update_mapi_broadcasts(self._db_context, entries)
 
-    def delete_mapi_broadcast_callbacks(self, tx_hashes: Iterable[bytes]) -> \
-                concurrent.futures.Future[None]:
-        return db_functions.delete_mapi_broadcast_callbacks(self._db_context,
-            tx_hashes)
+    def delete_mapi_broadcasts(self, broadcast_ids: Iterable[int]) \
+            -> concurrent.futures.Future[None]:
+        return db_functions.delete_mapi_broadcasts(self._db_context, broadcast_ids)
 
     # Merkle proofs.
 
@@ -1950,8 +1906,9 @@ class WalletDataAccess:
         await self._db_context.run_in_thread_async(
             db_functions.create_pushdata_matches_write, rows, processed_message_ids)
 
-    def read_pushdata_match_metadata(self) -> list[PushDataMatchMetadataRow]:
-        return db_functions.read_pushdata_match_metadata(self._db_context)
+    def read_pushdata_match_metadata(self, for_missing_transactions: bool=False) \
+            -> list[PushDataMatchMetadataRow]:
+        return db_functions.read_pushdata_match_metadata(self._db_context, for_missing_transactions)
 
     # Script hashes.
 
@@ -2031,10 +1988,10 @@ class WalletDataAccess:
             -> list[TransactionExistsRow]:
         return db_functions.read_transactions_exist(self._db_context, tx_hashes, account_id)
 
-    def set_transaction_state(self, tx_hash: bytes, flag: TxFlags,
-            ignore_mask: Optional[TxFlags]=None) -> concurrent.futures.Future[bool]:
-        return db_functions.set_transaction_state(self._db_context, tx_hash, flag,
-            ignore_mask)
+    async def set_transaction_state_async(self, tx_hash: bytes, flag: TxFlags,
+            ignore_mask: Optional[TxFlags]=None) -> bool:
+        return await self._db_context.run_in_thread_async(
+            db_functions.set_transaction_state_write, tx_hash, flag, ignore_mask)
 
     async def update_reorged_transactions_async(self, orphaned_block_hashes: list[bytes]) \
             -> list[bytes]:
@@ -2047,11 +2004,11 @@ class WalletDataAccess:
             db_functions.update_transaction_flags_write, entries)
 
     async def update_transaction_proof_async(self, tx_update_rows: list[TransactionProofUpdateRow],
-            proof_rows: list[MerkleProofRow],
-            proof_update_rows: list[MerkleProofUpdateRow]) -> None:
+            proof_rows: list[MerkleProofRow], proof_update_rows: list[MerkleProofUpdateRow],
+            processed_message_ids: list[int]) -> None:
         return await self._db_context.run_in_thread_async(
             db_functions.update_transaction_proof_write, tx_update_rows, proof_rows,
-                proof_update_rows)
+                proof_update_rows, processed_message_ids)
 
     async def update_transaction_proofs_and_flags(self,
             tx_update_rows: list[TransactionProofUpdateRow],
@@ -2178,6 +2135,8 @@ class Wallet:
 
         self._missing_transactions: dict[bytes, MissingTransactionEntry] = {}
 
+        self._fee_quote_lock = asyncio.Lock()
+
         ## State related to the wallet processing headers from it's header source.
         self._header_source_synchronised_event = asyncio.Event()
         self._start_chain_management_event = asyncio.Event()
@@ -2190,16 +2149,14 @@ class Wallet:
 
         # Guards the obtaining and processing of missing transactions from race conditions.
         self._obtain_transactions_async_lock = app_state.async_.lock()
-        self._worker_startup_reorg_check: Optional[concurrent.futures.Future[None]] = None
-        self._worker_task_initialise_headers: Optional[concurrent.futures.Future[None]] = None
-        self._worker_task_manage_server_connections: Optional[concurrent.futures.Future[None]] \
-            = None
+        self._worker_startup_reorg_check: concurrent.futures.Future[None] | None = None
+        self._worker_task_initialise_headers: concurrent.futures.Future[None] | None = None
+        self._worker_task_manage_server_connections: concurrent.futures.Future[None] | None = None
         self._worker_tasks_maintain_server_connection = dict[int, list[ServerConnectionState]]()
-        self._worker_task_chain_management: Optional[concurrent.futures.Future[None]] = None
-        self._worker_task_obtain_transactions: Optional[concurrent.futures.Future[None]] = None
-        self._worker_task_obtain_merkle_proofs: Optional[concurrent.futures.Future[None]] = None
-        self._worker_task_connect_headerless_proofs: Optional[concurrent.futures.Future[None]] \
-            = None
+        self._worker_task_chain_management: concurrent.futures.Future[None] | None = None
+        self._worker_task_obtain_transactions: concurrent.futures.Future[None] | None = None
+        self._worker_task_obtain_merkle_proofs: concurrent.futures.Future[None] | None = None
+        self._worker_task_connect_headerless_proofs: concurrent.futures.Future[None] | None = None
 
         ## ...
         # Guards `transaction_locks`.
@@ -2436,7 +2393,7 @@ class Wallet:
     def get_account_ids(self) -> set[int]:
         return set(self._accounts)
 
-    def get_accounts(self) -> Sequence[AbstractAccount]:
+    def get_accounts(self) -> list[AbstractAccount]:
         return list(self._accounts.values())
 
     def get_default_account(self) -> Optional[AbstractAccount]:
@@ -3106,7 +3063,7 @@ class Wallet:
             return None, None
 
         txdict = tx_dict_from_text(text)
-        tx, context = Transaction.from_dict(txdict)
+        tx, context = Transaction.from_dict(txdict, self.get_accounts())
 
         # Incomplete transactions should not be cached.
         if not tx.is_complete():
@@ -3262,8 +3219,7 @@ class Wallet:
             # We do not monitor local transactions that are being MAPI broadcast.
             if flags & TxFlags.STATE_SIGNED and \
                     import_flags & TransactionImportFlag.EXPLICIT_BROADCAST:
-                # The user has used the "Sign" UI button rather than the "Broadcast" UI button.
-                # It is not a given they will broadcast it, and we need to deal with that.
+                # The user has used the "Send" UI button which covers signing and broadcasting.
                 # TODO(1.4.0) MAPI management, issue#910. Monitor spent output state if the
                 #     broadcast fails. I (rt12) suspect the correct place for this clause is in the
                 #     "register" clause, where we would do the appropriate handling. However this
@@ -3435,6 +3391,111 @@ class Wallet:
                     return account
         return None
 
+    def set_transaction_labels(self, entries: list[tuple[Optional[str], int, bytes]]) \
+            -> concurrent.futures.Future[None]:
+        def callback(future: concurrent.futures.Future[None]) -> None:
+            # Skip if the operation was cancelled.
+            if future.cancelled():
+                return
+            # Raise any exception if it errored or get the result if completed successfully.
+            future.result()
+
+            self.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE, entries)
+
+            for text, account_id, tx_hash in entries:
+                account = self._accounts[account_id]
+                app_state.app_qt.on_transaction_label_change(account, tx_hash, text or "")
+
+        future = self.data.update_account_transaction_descriptions(entries)
+        future.add_done_callback(callback)
+        return future
+
+    async def set_transaction_state_async(self, tx_hash: bytes, flags: TxFlags,
+            ignore_mask: TxFlags | None=None) -> bool:
+        """
+        Change the state of a transaction but only if it is in an expected state.
+
+        Returns `True` if the state was changed.
+        Returns `False` if the transaction does not exist or was not in an expected state.
+        """
+        if not await self.data.set_transaction_state_async(tx_hash, flags, ignore_mask):
+            return False
+
+        for account_id in self.data.read_account_ids_for_transaction(tx_hash):
+            self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, account_id, tx_hash,
+                flags)
+        return True
+
+    async def broadcast_transaction_async(self, transaction: Transaction,
+            transaction_context: TransactionContext | None) -> bool:
+        """
+        Broadcast a transaction. This transaction does not even have to be known to the wallet.
+
+        For now this is limited to broadcasting via MAPI.
+        """
+        broadcast_hash = transaction.hash()
+        successful = False
+        if transaction_context is not None and transaction_context.mapi_server_hint is not None:
+            # For now we expect to be connected to a peer channel server.
+            peer_channel_server_state = self.get_server_state_for_capability(
+                ServerCapability.PEER_CHANNELS)
+            assert peer_channel_server_state is not None
+
+            broadcast_response = await mapi_transaction_broadcast_async(self.data,
+                peer_channel_server_state, transaction_context.mapi_server_hint, transaction, True,
+                True)
+            successful = broadcast_response["returnResult"] == "success"
+        else:
+            raise BroadcastError("P2P broadcast is not currently supported")
+
+        if successful:
+            await self.set_transaction_state_async(broadcast_hash, TxFlags.STATE_CLEARED,
+                TxFlags.MASK_STATE_BROADCAST)
+            return True
+
+        return False
+
+    async def update_mapi_fee_quotes_async(self, account_id: int, timeout: float=4.0) \
+            -> AsyncIterable[tuple[NewServer, IndefiniteCredentialId | None]]:
+        """
+        Ask the wallet to coordinate ensuring it has updated fee quotes.
+
+        Raises nothing.
+        """
+        # In most cases overlapping updates will be fetching the same things. Any blocked calls
+        # will pick up matches from the blocking call.
+        async with self._fee_quote_lock:
+            servers_with_credentials = self.get_servers_for_account_id(account_id,
+                NetworkServerType.MERCHANT_API)
+            async for server, credential_id in update_mapi_fee_quotes_async(
+                    servers_with_credentials, timeout):
+                yield server, credential_id
+
+    def get_mapi_broadcast_context(self, account_id: int, tx: Transaction) \
+            -> ServerAndCredential | None:
+        try:
+            transaction_fee = tx.get_fee()
+        except ValueError:
+            transaction_fee = None
+
+        transaction_size = tx.estimated_size()
+        servers_with_credentials: list[ServerAndCredential] = []
+        for server_and_credential in self.get_servers_for_account_id(account_id,
+                NetworkServerType.MERCHANT_API):
+            server, credential_id = server_and_credential
+            if transaction_fee is None:
+                servers_with_credentials.append(server_and_credential)
+            else:
+                fee_quote = server.get_fee_quote(credential_id)
+                if fee_quote is not None:
+                    server_fee_estimator = TransactionFeeEstimator(fee_quote, server_and_credential)
+                    server_fee = server_fee_estimator.estimate_fee(transaction_size)
+                    if server_fee >= transaction_fee:
+                        servers_with_credentials.append(server_and_credential)
+        if len(servers_with_credentials) > 0:
+            return random.choice(servers_with_credentials)
+        return None
+
     async def try_get_mapi_proofs(self, tx_hashes: list[bytes]) \
             -> tuple[set[bytes], list[MerkleProofRow]]:
         # Try to get the appropriate merkle proof for the main chain from TransactionProofs table
@@ -3475,7 +3536,7 @@ class Wallet:
         #     exact transaction we knew to be in the reorged-from block.
 
         # Are we expecting a mAPI merkle proof callback for any of these?
-        for mapi_row in self.data.read_mapi_broadcast_callbacks(list(remaining_tx_hashes)):
+        for mapi_row in self.data.read_mapi_broadcasts(list(remaining_tx_hashes)):
             remaining_tx_hashes.remove(mapi_row.tx_hash)
 
         if self._blockchain_server_state is not None:
@@ -3500,15 +3561,13 @@ class Wallet:
             identity_private_key.to_hex())
         self._identity_public_key = identity_private_key.public_key
 
-    def get_servers_for_account_id(self, account_id: int,
-            server_type: NetworkServerType) \
-                -> list[tuple[NewServer, Optional[IndefiniteCredentialId]]]:
-        results = list[tuple[NewServer, Optional[IndefiniteCredentialId]]]()
+    def get_servers_for_account_id(self, account_id: int, server_type: NetworkServerType) \
+            -> list[ServerAndCredential]:
+        results: list[ServerAndCredential] = []
         for server in self._servers.values():
             if server.server_type == server_type:
-                have_credential, credential_id = server.get_credential_id(account_id)
-                if have_credential:
-                    results.append((server, credential_id))
+                _have_credential, credential_id = server.get_credential_id(account_id)
+                results.append(ServerAndCredential(server, credential_id))
         return results
 
     def get_server(self, server_key: ServerAccountKey) -> Optional[NewServer]:
@@ -3936,13 +3995,17 @@ class Wallet:
             assert self._blockchain_server_state is not None
             assert self._blockchain_server_state.chain is not None
 
-            tx_update_rows = list[TransactionProofUpdateRow]()
-            proof_rows = list[MerkleProofRow]()
+            tx_update_rows :list[TransactionProofUpdateRow] = []
+            proof_rows: list[MerkleProofRow] = []
+            processed_message_ids: list[int] = []
             headerless_proofs = list[tuple[TSCMerkleProof, MerkleProofRow]]()
             verified_entries = list[tuple[bytes, Header, TSCMerkleProof]]()
             date_updated = get_posix_timestamp()
 
             for message_row, message in message_entries:
+                assert message_row.message_id is not None
+                processed_message_ids.append(message_row.message_id)
+
                 if not isinstance(message["payload"], dict):
                     # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
                     self._logger.error("Peer channel MAPI callback payload invalid: '%s'", message)
@@ -4023,13 +4086,14 @@ class Wallet:
                         block_height, proof.to_bytes(), proof.transaction_hash))
 
                     verified_entries.append((proof.transaction_hash, header, proof))
-                    logger.debug("Storing verified merkle proof for transaction %s",
+                    logger.debug("MCB Storing verified merkle proof for transaction %s",
                         hash_to_hex_str(proof.transaction_hash))
 
             # Set the given merkle proof as the one for the active chain on the given transaction
             # also creating it in the merkle proof table if it is not already there.
             if len(tx_update_rows) > 0 or len(proof_rows) > 0:
-                await self.data.update_transaction_proof_async(tx_update_rows, proof_rows, [])
+                await self.data.update_transaction_proof_async(tx_update_rows, proof_rows, [],
+                    processed_message_ids)
 
             # These are detached proofs, which we do not have a header or chain for. We register
             # Them so that when the header comes in, they can be considered for use.
@@ -4112,7 +4176,7 @@ class Wallet:
             # allows us to do that mapping, we have to go to the database for it in some way
             # and this will do for now.
             # TODO(technical-debt) Double-dipping in the database?
-            metadata_rows = self.data.read_pushdata_match_metadata()
+            metadata_rows = self.data.read_pushdata_match_metadata(for_missing_transactions=True)
             for metadata_row in metadata_rows:
                 if metadata_row.account_id in rows_by_account_id:
                     rows_by_account_id[metadata_row.account_id].append(metadata_row)
@@ -4252,9 +4316,14 @@ class Wallet:
                         # TODO(1.4.0) User experience, issue#909. Notify the user that this local
                         #     transaction has been broadcast unexpectedly.
 
-                        self._logger.debug("Unspent output event, local transaction has been "
-                            "broadcast %r ~ %r", spent_output, row)
-                        mempool_transactions[spent_output.in_tx_hash] = row.flags
+                        if row.mapi_broadcast_flags is None:
+                            self._logger.debug("Unspent output event, local transaction has been "
+                                "broadcast %r ~ %r", spent_output, row)
+                            mempool_transactions[spent_output.in_tx_hash] = row.flags
+                        else:
+                            self._logger.warning("Unspent output event, local transaction has "
+                                "been broadcast with unwanted output spend notification "
+                                "%r ~ %r", spent_output, row)
                     else:
                         # Nothing is different than what we already have. Ignore the result. It
                         # probably came in during the registration as the initial state.
@@ -5136,7 +5205,11 @@ class Wallet:
             # We just take the first returned transaction for now (and ignore the rest).
             rows = db_functions.read_proofless_transactions(self.get_db_context())
             tx_hash = rows[0].tx_hash if len(rows) else None
-            if len(rows):
+            if len(rows) > 0:
+                # We want to make sure we read any other transactions other than the first.
+                if len(rows) > 1:
+                    self._check_missing_proofs_event.set()
+
                 row = rows[0]
                 tx_hash = row.tx_hash
                 self._logger.debug("Requesting merkle proof from server for transaction %s",
@@ -5194,7 +5267,7 @@ class Wallet:
 
                 block_height = cast(int, header.height)
                 if self.is_header_within_current_chain(header.height, tsc_proof.block_hash):
-                    self._logger.debug("Storing verified merkle proof for transaction %s",
+                    self._logger.debug("OMP Storing verified merkle proof for transaction %s",
                         hash_to_hex_str(row.tx_hash))
 
                     # This proof is valid for the wallet's view of the blockchain.
@@ -5206,7 +5279,7 @@ class Wallet:
                         tsc_proof.transaction_index, header.height, tsc_proof.to_bytes(),
                         row.tx_hash)
                     await self.data.update_transaction_proof_async([ tx_update_row ],
-                        [ proof_row ], [])
+                        [ proof_row ], [], [])
 
                     self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, tx_hash, header,
                         tsc_proof)
@@ -5333,7 +5406,7 @@ class Wallet:
                         proof.transaction_hash))
 
             await self.data.update_transaction_proof_async(transaction_proof_updates, [],
-                proof_updates)
+                proof_updates, [])
 
             for header, (proof, _proof_row) in verified_proof_entries:
                 self.data.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED,
@@ -5436,3 +5509,102 @@ class Wallet:
 
         # The header is at the common height or below on the common chain.
         return header, common_chain
+
+
+# NOTE(rt12) Is this the right level of abstraction? I do not know.
+class TransactionCreationContext:
+    unspent_outputs: Sequence[TransactionOutputSpendableProtocol] | None = None
+    outputs: list[XTxOutput] | None = None
+    selected_fee_quote: FeeQuoteCommon | None = None
+    mapi_broadcast_hint: ServerAndCredential | None = None
+    account: AbstractAccount | None = None
+
+    def __init__(self) -> None:
+        self._fee_quotes = list[TransactionFeeContext]()
+        self._fee_quote_future: concurrent.futures.Future[list[TransactionFeeContext]] | None = None
+        self.callbacks = list[Callable[[list[TransactionFeeContext]], None]]()
+
+    def clean_up(self) -> None:
+        if self._fee_quote_future is not None:
+            self._fee_quote_future.cancel()
+        self.account = None
+
+    def set_account(self, account: AbstractAccount | None) -> None:
+        self.account = account
+
+    def set_unspent_outputs(self, unspent_outputs: Sequence[TransactionOutputSpendableProtocol]) \
+            -> None:
+        self.unspent_outputs = unspent_outputs
+
+    def set_outputs(self, outputs: list[XTxOutput]) -> None:
+        self.outputs = outputs
+
+    def set_fee_quote(self, fee_quote: FeeQuoteCommon) -> None:
+        self.selected_fee_quote = fee_quote
+
+    def set_mapi_broadcast_hint(self, mapi_broadcast_hint: ServerAndCredential) -> None:
+        self.mapi_broadcast_hint = mapi_broadcast_hint
+
+    def create_transaction(self) -> tuple[Transaction, TransactionContext]:
+        """
+        Raises `ValueError` if no unspent outputs or outputs have been provided.
+        """
+        if self.account is None:
+            raise ValueError("No account set")
+
+        if self.unspent_outputs is None:
+            raise ValueError("No unspent outputs set")
+
+        if self.outputs is None:
+            raise ValueError("No outputs set")
+
+        mapi_fee_estimator: TransactionFeeEstimator | None = None
+        if self.selected_fee_quote is not None:
+            mapi_fee_estimator = TransactionFeeEstimator(self.selected_fee_quote,
+                self.mapi_broadcast_hint)
+        # If no fee context is specified it will use the wallet default.
+        return self.account.make_unsigned_transaction(self.unspent_outputs, self.outputs,
+            mapi_fee_estimator)
+
+    def obtain_fee_quotes(self) -> None:
+        # We cannot obtain fee quotes if we are offline.
+        if self.account is None or self.account._wallet._network is None:
+            return
+
+        self._fee_quotes = []
+        self._fee_quote_future = app_state.async_.spawn(self._obtain_fee_quotes_async(
+            self._fee_quotes))
+        self._fee_quote_future.add_done_callback(self._on_future_fee_quotes_done)
+
+    async def _obtain_fee_quotes_async(self, fee_quotes: list[TransactionFeeContext]) \
+            -> list[TransactionFeeContext]:
+        """
+        Map fee quote updates to a non-async context.
+
+        Raises nothing.
+        """
+        assert self.account is not None
+        account_id = self.account.get_id()
+        async for server, credential_id in self.account._wallet.update_mapi_fee_quotes_async(
+                account_id):
+            server_state = server.api_key_state[credential_id]
+            assert server_state.last_fee_quote is not None
+            fee_context = TransactionFeeContext(server_state.last_fee_quote,
+                ServerAndCredential(server, credential_id))
+            fee_quotes.append(fee_context)
+
+        return fee_quotes
+
+    def _on_future_fee_quotes_done(self,
+            future: concurrent.futures.Future[list[TransactionFeeContext]]) -> None:
+        if future.cancelled():
+            return
+
+        # Skip handling if we were replaced by a new fee quote lookup before this attempt.
+        fee_quotes = future.result()
+        if fee_quotes is not self._fee_quotes:
+            return
+
+        # Select a fee quote and notify listeners.
+        for callback in self.callbacks:
+            callback(fee_quotes)

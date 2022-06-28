@@ -76,7 +76,7 @@ class MyEncoder(json.JSONEncoder):
     def default(self, o: Any) -> Any: # pylint: disable=method-hidden
         from ..transaction import Transaction, TransactionContext
         if isinstance(o, Transaction):
-            return o.to_dict(TransactionContext())
+            return o.to_dict(TransactionContext(), [])
         return super(MyEncoder, self).default(o)
 
 

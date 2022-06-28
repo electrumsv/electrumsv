@@ -1,10 +1,12 @@
 import concurrent.futures
 from functools import partial
+import os
+import random
 import threading
 from typing import Any, Callable, cast, NamedTuple, Optional
 import weakref
 
-from bitcoinx import P2PKH_Address
+from bitcoinx import Ops, P2PKH_Address, pack_byte, push_item, Script
 
 from PyQt6.QtCore import Qt, pyqtSignal, QUrl
 from PyQt6.QtGui import QDesktopServices
@@ -19,7 +21,8 @@ from ...i18n import _
 from ...logs import logs
 from ...networks import Net
 from ...transaction import Transaction, XTxOutput
-from ...wallet import AbstractAccount
+from ...types import TransactionFeeContext
+from ...wallet import AbstractAccount, TransactionCreationContext
 
 from .main_window import ElectrumWindow
 from .password_dialog import LayoutFields
@@ -71,6 +74,9 @@ class CoinSplittingTab(TabWidget):
     _direct_splitting = False
     _faucet_splitting_enabled = False
     _faucet_splitting = False
+    _have_fee_quotes = False
+
+    _fee_quotes_finished = pyqtSignal(object)
 
     def __init__(self, main_window: ElectrumWindow) -> None:
         super().__init__()
@@ -82,6 +88,10 @@ class CoinSplittingTab(TabWidget):
         self._account: Optional[AbstractAccount] = None
         self._account_id: Optional[int] = None
 
+        self._fee_quotes_finished.connect(self._on_ui_thread_fee_quotes_finished)
+        self._transaction_creation_context = TransactionCreationContext()
+        self._transaction_creation_context.callbacks.append(self._fee_quotes_finished.emit)
+
     def _on_account_change(self, new_account_id: Optional[int],
             new_account: Optional[AbstractAccount]) -> None:
         self._account_id = new_account_id
@@ -89,6 +99,8 @@ class CoinSplittingTab(TabWidget):
 
         if new_account_id is None or new_account is None:
             return
+
+        self._transaction_creation_context.set_account(self._account)
 
         script_type = new_account.get_default_script_type()
 
@@ -101,14 +113,44 @@ class CoinSplittingTab(TabWidget):
           script_type == ScriptType.P2PKH
         self.update_layout()
 
+    def on_tab_activated(self) -> None:
+        if self._main_window.network is None:
+            return
+
+        self.update_layout()
+
+        self._on_ui_thread_fee_quotes_started()
+        self._transaction_creation_context.obtain_fee_quotes()
+
+    def clean_up(self) -> None:
+        self._transaction_creation_context.clean_up()
+
+    def _check_can_broadcast(self) -> bool:
+        if not self._have_fee_quotes:
+            # NOTE(rt12) When we have restored ability to do P2P broadcast we can factor that
+            #     in here. However for the meantime we will require MAPI accessibility.
+            self._main_window.show_warning(_("No fee quotes could be obtained from the "
+                "available MAPI servers. This is possibly because your internet connection is "
+                "not accessible. Please try again when it is."),
+                title=_("MAPI servers unavailable"))
+            # We'll trigger a fee quote retry here for lack of any better place. Otherwise the
+            # user will have to restart ElectrumSV.
+            self._on_ui_thread_fee_quotes_started()
+            self._transaction_creation_context.obtain_fee_quotes()
+            return False
+        return True
+
     def _on_direct_split(self) -> None:
         assert self._account is not None
         assert self._direct_splitting_enabled, "direct splitting not enabled"
         assert not self._faucet_splitting, "already faucet splitting"
 
+        if not self._check_can_broadcast():
+            return
+
         self._direct_splitting = True
         self._direct_button.setText(_("Splitting") +"...")
-        self._direct_button.setEnabled(False)
+        self._update_action_buttons()
 
         unused_key = self._account.get_fresh_keys(CHANGE_SUBPATH, 1)[0]
         script_type = self._account.get_default_script_type()
@@ -117,9 +159,34 @@ class CoinSplittingTab(TabWidget):
         coins = self._account.get_transaction_outputs_with_key_data()
         # NOTE(typing) attrs has poor typing support and does not accept correct argument order.
         outputs = [ XTxOutput(-1, script) ] # type: ignore[arg-type]
-        outputs.extend(self._account.create_extra_outputs(coins, outputs, force=True))
+
+        # TODO(1.4.0) Manual test. Test non-hardware wallet faucet splitting.
+        # Hardware wallets can only sign a limited range of output types (not OP_FALSE OP_RETURN).
+        if not self._account.involves_hardware_wallet() and len(coins) > 0:
+            # We use the first signing public key from the first of the ordered UTXOs, for most
+            # coin script types there will only be one signing public key, with the exception of
+            # multi-signature accounts.
+            ordered_coins = sorted(coins, key=lambda v: cast(int, v.keyinstance_id))
+            assert ordered_coins[0].derivation_data2 is not None
+            public_keys = self._account.get_public_keys_for_derivation(
+                ordered_coins[0].derivation_type,
+                ordered_coins[0].derivation_data2)
+            for public_key in public_keys:
+                raw_payload_bytes = push_item(os.urandom(random.randrange(32)))
+                payload_bytes = public_key.encrypt_message(raw_payload_bytes)
+                script_bytes = pack_byte(Ops.OP_0) + pack_byte(Ops.OP_RETURN) + push_item(
+                    payload_bytes)
+                script = Script(script_bytes)
+                # NOTE(rt12) This seems to be some attrs/mypy clash, the base class attrs should
+                # come before the XTxOutput attrs, but typing expects these to be the XTxOutput
+                # attrs.
+                outputs.append(XTxOutput(0, script)) # type: ignore
+                break
+
+        self._transaction_creation_context.set_unspent_outputs(coins)
+        self._transaction_creation_context.set_outputs(outputs)
         try:
-            tx, tx_context = self._account.make_unsigned_transaction(coins, outputs)
+            tx, tx_context = self._transaction_creation_context.create_transaction()
         except NotEnoughFunds:
             self._cleanup_tx_final()
             self._main_window.show_message(_("Insufficient funds"))
@@ -128,7 +195,7 @@ class CoinSplittingTab(TabWidget):
         if self._account.type() == AccountType.MULTISIG:
             self._cleanup_tx_final()
 
-            tx_context.description = f"{TX_DESC_PREFIX} (multisig)"
+            tx_context.account_descriptions[self._account.get_id()] = f"{TX_DESC_PREFIX} (multisig)"
             self._main_window.show_transaction(self._account, tx, tx_context)
             return
 
@@ -143,16 +210,20 @@ class CoinSplittingTab(TabWidget):
             _("Enter your password to proceed"),
         ])
         password = self._main_window.password_dialog(msg, fields=fields)
-        assert password is not None
+        if password is None:
+            self._cleanup_tx_final()
+            return
 
         def sign_done(success: bool) -> None:
+            assert self._account is not None
             if success:
                 if not tx.is_complete():
                     dialog = self._main_window.show_transaction(self._account, tx, tx_context)
                     dialog.exec()
                 else:
                     extra_text = _("Your split coins")
-                    tx_context.description = f"{TX_DESC_PREFIX}: {extra_text}"
+                    tx_context.account_descriptions[self._account.get_id()] = \
+                        f"{TX_DESC_PREFIX}: {extra_text}"
                     self._main_window.broadcast_transaction(self._account, tx, tx_context,
                         success_text=_("Your coins have now been split."))
             self._cleanup_tx_final()
@@ -163,9 +234,12 @@ class CoinSplittingTab(TabWidget):
         assert self._faucet_splitting_enabled, "faucet splitting not enabled"
         assert not self._faucet_splitting, "already direct splitting"
 
+        if not self._check_can_broadcast():
+            return
+
         self._faucet_splitting = True
         self._faucet_button.setText(_("Splitting") +"...")
-        self._faucet_button.setEnabled(False)
+        self._update_action_buttons()
 
         # At this point we know we should get a key that is addressable.
         pr_future, key_data = self._account.create_payment_request(
@@ -263,8 +337,13 @@ class CoinSplittingTab(TabWidget):
             unused_key.derivation_type, unused_key.derivation_data2)
         # NOTE(typing) attrs has issues with typing. It cannot work out how the arguments work.
         outputs = [ XTxOutput(-1, script) ] # type: ignore[arg-type]
-        tx, tx_context = self._account.make_unsigned_transaction(coins, outputs)
-        tx_context.description = f"{TX_DESC_PREFIX}: {_('Your split coins')}"
+
+        self._transaction_creation_context.set_unspent_outputs(coins)
+        self._transaction_creation_context.set_outputs(outputs)
+        tx, tx_context = self._transaction_creation_context.create_transaction()
+
+        tx_context.account_descriptions[self._account.get_id()] = \
+            f"{TX_DESC_PREFIX}: {_('Your split coins')}"
 
         amount = tx.output_value()
         fee = tx.get_fee()
@@ -287,7 +366,7 @@ class CoinSplittingTab(TabWidget):
                     dialog = self._main_window.show_transaction(self._account, tx)
                     dialog.exec()
                 else:
-                    self._main_window.broadcast_transaction(self._account, tx,
+                    self._main_window.broadcast_transaction(self._account, tx, tx_context,
                         success_text=_("Your coins have now been split."))
             self._cleanup_tx_final()
         self._main_window.sign_tx_with_password(tx, sign_done, password, context=tx_context)
@@ -304,12 +383,11 @@ class CoinSplittingTab(TabWidget):
         logger.debug("final cleanup performed")
         if self._direct_splitting:
             self._direct_button.setText(_("Direct Split"))
-            self._direct_button.setEnabled(True)
             self._direct_splitting = False
         if self._faucet_splitting:
             self._faucet_button.setText(_("Faucet Split"))
-            self._faucet_button.setEnabled(True)
             self._faucet_splitting = False
+        self._update_action_buttons()
 
     def _on_wallet_event(self, event: WalletEvent, *args: Any) -> None:
         if event == WalletEvent.TRANSACTION_ADD:
@@ -378,10 +456,8 @@ class CoinSplittingTab(TabWidget):
         self._faucet_label.setWordWrap(True)
 
         self._faucet_button = EnterButton(_("Faucet Split"), self._on_faucet_split)
-        self._faucet_button.setEnabled(self._faucet_splitting_enabled)
-
         self._direct_button = EnterButton(_("Direct Split"), self._on_direct_split)
-        self._direct_button.setEnabled(self._direct_splitting_enabled)
+        self._update_action_buttons()
 
         vbox = QVBoxLayout()
         vbox.addStretch(1)
@@ -454,6 +530,31 @@ class CoinSplittingTab(TabWidget):
         if existingLayout:
             QWidget().setLayout(existingLayout)
         self.setLayout(layout)
+
+    def _update_action_buttons(self) -> None:
+        is_not_blocked = not (self._direct_splitting or self._faucet_splitting)
+        self._faucet_button.setEnabled(self._faucet_splitting_enabled and is_not_blocked)
+        self._direct_button.setEnabled(self._direct_splitting_enabled and is_not_blocked)
+
+    def _on_ui_thread_fee_quotes_started(self) -> None:
+        self._main_window.status_bar.showMessage(_("Requesting fee quotes from MAPI servers.."))
+
+    def _on_ui_thread_fee_quotes_finished(self, fee_contexts: list[TransactionFeeContext]) -> None:
+        if len(fee_contexts) > 0:
+            self._have_fee_quotes = True
+            message_text = _("Fee quotes obtained from MAPI servers ({server_count} total).") \
+                .format(server_count=len(fee_contexts))
+
+            # NOTE(rt12) For now we just pick one at random.
+            fee_context = random.choice(fee_contexts)
+            self._transaction_creation_context.set_fee_quote(fee_context.fee_quote)
+            self._transaction_creation_context.set_mapi_broadcast_hint(
+                fee_context.server_and_credential)
+        else:
+            message_text = _("Unable to obtain fee quotes from any MAPI servers.")
+
+        self._main_window.status_bar.showMessage(message_text, 5000)
+        self._update_action_buttons()
 
 
 class SplitWaitingDialog(QProgressDialog):

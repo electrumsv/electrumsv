@@ -1147,7 +1147,7 @@ def test_extend_transaction_complete_hex() -> None:
     wallet.extend_transaction(tx, tx_context)
 
     assert tx_context.invoice_id is None
-    assert tx_context.description is None
+    assert not len(tx_context.account_descriptions)
     assert len(tx_context.parent_transactions) == 0
     assert tx_context.spent_outpoint_values == {}
     assert tx_context.key_datas_by_spent_outpoint == {}
@@ -1157,7 +1157,7 @@ def test_extend_transaction_complete_hex() -> None:
 INCOMPLETE_TX_MULTISIG_DICT = {"version": 1, "hex": "01000000018e3efc1708cc072b9ad09ebb32bf0bd7b4681c4db8a15162d3cd8f44e68cd800000000004b00473044022056df5ab9b9294011a11e85b85af87994d386397ee44cd118957fd6e37b513b78022048f6d1fbe705cb10740f45416637915b8726949d2b5bd2fe049645db1b8c84b74101ffffffffff0b40420f00000000001976a914def53ee6c8a15961eea0b07dea23e5404e38a71188ac40ea70000000000047522102e99c5ef6e873396a9f4495dce12457d6fc9307c10b802d0592a43e96ae45cac92103e5a30131ca630fe80d4c1ee435949be822ebae51be7283738d6194c3a0979a6152ae00127a000000000047522102407c4480ce6538af7e6de0117a72699706d08770fb59ada5b626eb2fe16079af2103494d1db5d12adf43a3b97257d18422c164140a3d4db493835ea96dc390c86d4052ae405489000000000047522103797b05207c23dad3c51a4bf48deb25b555f6a17af8abec4a58faffff523b157c2103b7da30209d59445531f6e141837db7bdb27726c503bf34a5ebf1219337f3430252ae08f390000000000047522102103f54f834961d5cb994cc2201751a10672978ab4f9f665ff491323007a94cf0210259def56764098f5a6fea9640035494ac9c604435ec3ff57647be928d4e62080752aea0029400000000004752210258a41c688b97b426130c75093ce590a2581d7837ae11963776af762b1624a7582103d14b8d7005598c1b1944d013957f7db20ea7a1c1e07d1887bef6df5af5dc08f652ae8096980000000000475221023c7b0b01c47b8afcaa0688faf7b2068ef2f0f27c9c24be9eea297f0380b82d212102b55319c1d7aa64f424889df6ed6f42b578d2786d4d6a5aa77a4cef9758c08df752ae809698000000000047522102c67f0584c61f29ee8bd9e851072fb852c5c53c137b13ea661e3de502db74eb2f2103289f9baafdca77a06fb2d1b960e906017d52356416d8766ba31666784ec2fbae52ae00b19e00000000004752210360245a9124311eecb8f0e70904c580040f86e3dea0ada1b442ca78d8af7be57921036052fa7851930559571b4950c872399a03792fe2814319e9b35e56a0b57f2acc52aec0d8a70000000000475221030f71df9dbc747c2b5f6b3df3941bca4f8b390eef3b3768c1c2ace757cedf3237210369b68d182c8892dd8d8e2605fd97c3934ebba9497f61786949363a4227139ea352ae809fd500000000004752210289257e1bca327225f75549a1c3dabe0d854acd74bda4512bbfccb38f3fe8746c2102fe240aa6a9f06b8c15c652ea1f91ec1d0b8d3438f3582e9b96b203cd7c10750052ae71000000", "complete": False, "description": "Pay someone", "inputs": [{"script_type": 5, "threshold": 2, "value": 100000000, "signatures": ["3044022056df5ab9b9294011a11e85b85af87994d386397ee44cd118957fd6e37b513b78022048f6d1fbe705cb10740f45416637915b8726949d2b5bd2fe049645db1b8c84b741", "ff"], "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [0, 0]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [0, 0]}]}], "outputs": [{"script_type": 0, "x_pubkeys": []}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 5]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 5]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 6]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 6]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 1]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 1]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 9]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 9]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 2]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 2]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 7]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 7]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 3]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 3]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 0]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 0]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 4]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 4]}]}, {"script_type": 5, "x_pubkeys": [{"bip32_xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC", "derivation_path": [1, 8]}, {"bip32_xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8", "derivation_path": [1, 8]}]}]}
 
 def test_extend_transaction_incomplete_non_database() -> None:
-    tx, tx_context = Transaction.from_dict(INCOMPLETE_TX_MULTISIG_DICT)
+    tx, tx_context = Transaction.from_dict(INCOMPLETE_TX_MULTISIG_DICT, [])
 
     mock_storage = cast(WalletStorage, MockStorage("password"))
     with unittest.mock.patch("electrumsv.wallet.app_state") as mock_app_state:
@@ -1174,7 +1174,8 @@ def test_extend_transaction_incomplete_non_database() -> None:
                     source=DatabaseKeyDerivationType.IMPORTED)
     }
     assert tx_context.invoice_id is None
-    assert tx_context.description == "Pay someone"
+    assert tx_context.account_descriptions == {}
+    # assert tx_context.description == "Pay someone"
     assert len(tx_context.parent_transactions) == 0
     assert len(tx_context.spent_outpoint_values) == 0
     assert tx_context.key_datas_by_spent_outpoint == expected_spent_output_key_data
@@ -1250,7 +1251,7 @@ async def test_extend_transaction_sequence() -> None:
         wallet.extend_transaction(tx_1, tx_1_context)
 
         assert tx_1_context.invoice_id is None
-        assert tx_1_context.description is None
+        assert tx_1_context.account_descriptions == {}
         assert len(tx_1_context.parent_transactions) == 0
         assert tx_1_context.spent_outpoint_values == {}
         assert tx_1_context.key_datas_by_spent_outpoint == {}
@@ -1269,7 +1270,7 @@ async def test_extend_transaction_sequence() -> None:
         tx_2_context_a = TransactionContext()
         wallet.extend_transaction(tx_2, tx_2_context_a)
         assert tx_2_context_a.invoice_id is None
-        assert tx_2_context_a.description is None
+        assert tx_2_context_a.account_descriptions == {}
         assert len(tx_2_context_a.parent_transactions) == 0
         spent_output_values = {
             Outpoint(tx_1.hash(), 0): 100000000
@@ -1308,7 +1309,7 @@ async def test_extend_transaction_sequence() -> None:
         tx_2_context_b = TransactionContext()
         wallet.extend_transaction(tx_2, tx_2_context_b)
         assert tx_2_context_b.invoice_id is None
-        assert tx_2_context_b.description is None
+        assert tx_2_context_b.account_descriptions == {}
         assert len(tx_2_context_b.parent_transactions) == 0
         spent_output_values = {
             Outpoint(tx_1.hash(), 0): 100000000
@@ -1347,7 +1348,7 @@ async def test_extend_transaction_sequence() -> None:
         tx_2_context_b = TransactionContext()
         wallet.extend_transaction(tx_2, tx_2_context_b)
         assert tx_2_context_b.invoice_id is None
-        assert tx_2_context_b.description is None
+        assert tx_2_context_b.account_descriptions == {}
         assert len(tx_2_context_b.parent_transactions) == 0
         spent_output_values = {
             Outpoint(tx_1.hash(), 0): 100000000

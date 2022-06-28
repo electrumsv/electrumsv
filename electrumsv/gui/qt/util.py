@@ -471,7 +471,7 @@ class WaitingDialog(WindowModalDialog):
         self._on_done_callback = on_done
         self._future: Optional[concurrent.futures.Future[WT]] = \
             cast("SVApplication", app_state.app).run_in_thread(func, *args,
-            on_done=self._on_run_done)
+                on_done=self._on_run_done)
 
         self.accepted.connect(self._on_accepted)
         self.rejected.connect(self._on_rejected)

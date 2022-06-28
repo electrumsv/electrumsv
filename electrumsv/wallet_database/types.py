@@ -1,8 +1,7 @@
-from enum import IntEnum
 from typing import Any, NamedTuple, Optional, Protocol, Union
 
 from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
-    MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag,
+    MAPIBroadcastFlag, MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag,
     PeerChannelAccessTokenFlag, PeerChannelMessageFlag, PushDataMatchFlag,
     PushDataHashRegistrationFlag, ScriptType,
     ServerPeerChannelFlag, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
@@ -41,6 +40,7 @@ class SpentOutputRow(NamedTuple):
     spending_txi_index: int
     block_hash: Optional[bytes]
     flags: TxFlags
+    mapi_broadcast_flags: MAPIBroadcastFlag
 
 
 class HistoryListRow(NamedTuple):
@@ -536,18 +536,14 @@ class WalletEventRow(NamedTuple):
     date_updated: int
 
 
-class MapiBroadcastStatusFlags(IntEnum):
-    ATTEMPTING = 1 << 0
-    SUCCEEDED = 1 << 1
-
-
-class MAPIBroadcastCallbackRow(NamedTuple):
+class MAPIBroadcastRow(NamedTuple):
+    broadcast_id: int | None
     tx_hash: bytes
-    peer_channel_id: str
-    broadcast_date: str
-    encrypted_private_key: bytes
-    server_id: int
-    status_flags: MapiBroadcastStatusFlags
+    broadcast_server_id: int
+    mapi_broadcast_flags: MAPIBroadcastFlag
+    peer_channel_id: Optional[int]
+    date_created: int
+    date_updated: int
 
 
 class ServerPeerChannelRow(NamedTuple):
@@ -605,6 +601,7 @@ class PushDataMatchRow(NamedTuple):
     block_hash: Optional[bytes]
     match_flags: PushDataMatchFlag
     date_created: int
+
 
 class PushDataMatchMetadataRow(NamedTuple):
     account_id: int

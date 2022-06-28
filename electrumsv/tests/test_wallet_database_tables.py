@@ -1,8 +1,6 @@
-import base64
-import datetime
 import os
 import tempfile
-from typing import Generator, List, Optional
+from typing import cast, Generator, List, Optional
 import unittest.mock
 
 import bitcoinx
@@ -17,15 +15,15 @@ except ModuleNotFoundError:
     import sqlite3 # type: ignore[no-redef]
 
 from electrumsv.constants import (AccountFlags, AccountTxFlags, BlockHeight, DerivationType,
-    KeyInstanceFlag, MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag,
-    PeerChannelMessageFlag, ScriptType, ServerPeerChannelFlag, TransactionOutputFlag, TxFlags,
-    WalletEventFlag, WalletEventType)
+    KeyInstanceFlag, MAPIBroadcastFlag, MasterKeyFlags, NetworkServerFlag, NetworkServerType,
+    PaymentFlag, PeerChannelMessageFlag, ScriptType, ServerPeerChannelFlag, TransactionOutputFlag,
+    TxFlags, WalletEventFlag, WalletEventType)
 from electrumsv.types import Outpoint, ServerAccountKey
 from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
-    InvoiceRow, KeyInstanceRow, MAPIBroadcastCallbackRow, MapiBroadcastStatusFlags, MasterKeyRow,
+    InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
     MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestReadRow,
     PaymentRequestRow, PaymentRequestUpdateRow, ServerPeerChannelRow, ServerPeerChannelMessageRow,
     TransactionOutputShortRow, TransactionProofUpdateRow, TransactionRow, WalletBalance,
@@ -294,6 +292,15 @@ def test_account_transactions(db_context: DatabaseContext) -> None:
     # No tx are linked to this non-existent account.
     tx_hashes_3 = db_functions.read_transaction_hashes(db_context, -1)
     assert 0 == len(tx_hashes_3)
+
+    account_ids = db_functions.read_account_ids_for_transaction(db_context, b"fake hash")
+    assert account_ids == []
+
+    account_ids = db_functions.read_account_ids_for_transaction(db_context, TX_HASH_1)
+    assert account_ids == [ ACCOUNT_ID_1 ]
+
+    account_ids = db_functions.read_account_ids_for_transaction(db_context, TX_HASH_2)
+    assert account_ids == [ ACCOUNT_ID_2 ]
 
 
 def test_table_keyinstances_CRUD(db_context: DatabaseContext) -> None:
@@ -613,7 +620,7 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         # This updates the block_height on merkle proof 1 (for transaction 1) to BLOCK_HEIGHT_1b.
         proof_update_row = MerkleProofUpdateRow(BLOCK_HEIGHT_1b, BLOCK_HASH_1, tx_hash_1)
         db_functions.update_transaction_proof_write([ tx_proof_update_row ], [ merkle_proof_row_3,
-            merkle_proof_row_4 ], [ proof_update_row ], db_connection)
+            merkle_proof_row_4 ], [ proof_update_row ], [], db_connection)
 
         # Confirm the block_height on merkle proof 1 (for transaction 1) is BLOCK_HEIGHT_1b.
         proofs = db_functions.read_merkle_proofs(db_context, [ tx_hash_1 ])
@@ -1929,45 +1936,149 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
 
 
 def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> None:
-    TX_HASH1 = b'abcd'
-    TX_HASH2 = b'efgh'
-    MOCK_CHANNEL_ID = base64.urlsafe_b64encode(bytes.fromhex("aa") * 64).decode()
-    BROADCAST_DATE = datetime.datetime.utcnow().isoformat()
-    ENCRYPTED_PRIVATE_KEY = b"mysecretencryptionkey"
-    SERVER_ID = 1
-    MAPI_STATUS_FLAGS1 = MapiBroadcastStatusFlags.ATTEMPTING
-    MAPI_STATUS_FLAGS2 = MapiBroadcastStatusFlags.SUCCEEDED
-    mapi_broadcast_callback_rows = [
-        MAPIBroadcastCallbackRow(TX_HASH1, MOCK_CHANNEL_ID, BROADCAST_DATE, ENCRYPTED_PRIVATE_KEY,
-            SERVER_ID, MAPI_STATUS_FLAGS1),
-        MAPIBroadcastCallbackRow(TX_HASH2, MOCK_CHANNEL_ID, BROADCAST_DATE, ENCRYPTED_PRIVATE_KEY,
-            SERVER_ID, MAPI_STATUS_FLAGS2),
+    date_created = 1
+    date_updated = 1
+    MAPI_STATUS_FLAGS1 = MAPIBroadcastFlag.NONE
+    MAPI_STATUS_FLAGS2 = MAPIBroadcastFlag.BROADCAST
+
+    # Create transactions to be the foreign key entries for the broadcast rows.
+    if True:
+        TX_BYTES_1 = os.urandom(10)
+        TX_HASH_1 = bitcoinx.double_sha256(TX_BYTES_1)
+        tx1 = TransactionRow(
+            tx_hash=TX_HASH_1,
+            tx_bytes=TX_BYTES_1,
+            flags=TxFlags.STATE_SETTLED, block_hash=b'11', block_height=10,
+            block_position=1, fee_value=250,
+            description=None, version=None, locktime=None, date_created=1, date_updated=2)
+
+        TX_BYTES_2 = os.urandom(10)
+        TX_HASH_2 = bitcoinx.double_sha256(TX_BYTES_2)
+        tx2 = TransactionRow(
+            tx_hash=TX_HASH_2,
+            tx_bytes=TX_BYTES_2,
+            flags=TxFlags.STATE_SETTLED, block_hash=b'11', block_height=10,
+            block_position=1, fee_value=250,
+            description=None, version=None, locktime=None, date_created=1, date_updated=2)
+
+        future = db_functions.create_transactions_UNITTEST(db_context, [ tx1, tx2 ])
+        future.result(timeout=5)
+
+    # Create a server to be the foreign key entry for the broadcast rows.
+    if True:
+        SERVER_ID = 1
+        SERVER_TYPE = NetworkServerType.GENERAL
+        date_updated = 1
+        URL = "..."
+        server_rows = [
+            NetworkServerRow(SERVER_ID, SERVER_TYPE, URL*1, None, NetworkServerFlag.NONE,
+                None, None, None, None, 0, 0, date_updated, date_updated),
+        ]
+        update_future = db_functions.update_network_servers_transaction(db_context, server_rows, [],
+            [], [])
+        update_future.result(timeout=5)
+
+    # Create a peer channel to be the foreign key entry for the broadcast rows.
+    if True:
+        # Check that a valid insert succeeds.
+        create_row = ServerPeerChannelRow(None, SERVER_ID, None, None,
+            ServerPeerChannelFlag.ALLOCATING, date_created, date_created)
+        future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
+            create_row)
+        peer_channel_id = future.result()
+
+    # These are the rows we will actually create.
+    mapi_broadcast_create_rows = [
+        MAPIBroadcastRow(None, TX_HASH_1, SERVER_ID, MAPI_STATUS_FLAGS1, peer_channel_id,
+            date_created + 1, date_created + 1),
+        MAPIBroadcastRow(None, TX_HASH_2, SERVER_ID, MAPI_STATUS_FLAGS2, None,
+            date_created + 2, date_updated + 2),
     ]
 
-    future = db_context.post_to_thread(db_functions.create_mapi_broadcast_callbacks_write,
-        mapi_broadcast_callback_rows)
-    assert future.result(timeout=5) is None
+    # Verify the constraints are enforced.
+    if True:
+        # Verify that the `tx_hash` foreign key is a required field.
+        future = db_context.post_to_thread(db_functions.create_mapi_broadcasts_write, [
+            mapi_broadcast_create_rows[0]._replace(tx_hash=None)
+        ])
+        with pytest.raises(sqlite3.IntegrityError) as integrity_error:
+            future.result(timeout=5)
+        assert integrity_error.value.args[0] == "NOT NULL constraint failed: MAPIBroadcasts.tx_hash"
+
+        future = db_context.post_to_thread(db_functions.create_mapi_broadcasts_write, [
+            mapi_broadcast_create_rows[0]._replace(tx_hash=b"dddd")
+        ])
+        with pytest.raises(sqlite3.IntegrityError) as integrity_error:
+            future.result(timeout=5)
+        assert integrity_error.value.args[0] == "FOREIGN KEY constraint failed"
+
+        # Verify that the `broadcast_server_id` foreign key is a required field.
+        future = db_context.post_to_thread(db_functions.create_mapi_broadcasts_write, [
+            mapi_broadcast_create_rows[0]._replace(broadcast_server_id=None)
+        ])
+        with pytest.raises(sqlite3.IntegrityError) as integrity_error:
+            future.result(timeout=5)
+        assert integrity_error.value.args[0] == \
+            "NOT NULL constraint failed: MAPIBroadcasts.broadcast_server_id"
+
+        IMAGINARY_SERVER_ID = 342423423
+        future = db_context.post_to_thread(db_functions.create_mapi_broadcasts_write, [
+            mapi_broadcast_create_rows[0]._replace(broadcast_server_id=IMAGINARY_SERVER_ID)
+        ])
+        with pytest.raises(sqlite3.IntegrityError) as integrity_error:
+            future.result(timeout=5)
+        assert integrity_error.value.args[0] == "FOREIGN KEY constraint failed"
+
+        # Verify that the `peer_channel_id` foreign key is a required field.
+        IMAGINARY_CHANNEL_ID = 342423423
+        future = db_context.post_to_thread(db_functions.create_mapi_broadcasts_write, [
+            mapi_broadcast_create_rows[0]._replace(peer_channel_id=IMAGINARY_CHANNEL_ID)
+        ])
+        with pytest.raises(sqlite3.IntegrityError) as integrity_error:
+            future.result(timeout=5)
+        assert integrity_error.value.args[0] == "FOREIGN KEY constraint failed"
+
+    ## Now actually create some rows.
+    future = db_context.post_to_thread(db_functions.create_mapi_broadcasts_write,
+        mapi_broadcast_create_rows)
+    mapi_broadcast_rows = future.result(timeout=5)
+    assert len(mapi_broadcast_rows) == len(mapi_broadcast_create_rows)
+    broadcast_id_by_tx_hash = { mbrow.tx_hash: cast(int, mbrow.broadcast_id)
+        for mbrow in mapi_broadcast_rows }
+
+    database_assigned_ids = set[int]()
+    for mapi_broadcast_row in mapi_broadcast_rows:
+        assert mapi_broadcast_row.broadcast_id is not None
+        assert mapi_broadcast_row.broadcast_id not in database_assigned_ids
+        database_assigned_ids.add(mapi_broadcast_row.broadcast_id)
+
+    # Populate the SQLite assigned `broadcast_id` in the create rows, so that we can compare them.
+    for i, create_row in enumerate(mapi_broadcast_create_rows):
+        mapi_broadcast_create_rows[i] = create_row._replace(
+            broadcast_id=broadcast_id_by_tx_hash[create_row.tx_hash])
+
+    assert mapi_broadcast_rows == mapi_broadcast_create_rows
 
     if True:
-        rows_after_insert: list[MAPIBroadcastCallbackRow] = \
-            db_functions.read_mapi_broadcast_callbacks(db_context)
-        assert rows_after_insert == mapi_broadcast_callback_rows
-        assert len(rows_after_insert) == 2
+        rows_after_insert = db_functions.read_mapi_broadcasts(db_context)
+        assert rows_after_insert == mapi_broadcast_rows
 
     if True:
-        future = db_functions.delete_mapi_broadcast_callbacks(db_context, tx_hashes=[TX_HASH2])
+        future = db_functions.delete_mapi_broadcasts(db_context,
+            [ broadcast_id_by_tx_hash[TX_HASH_2] ])
         assert future.result(timeout=5) is None
 
-        rows_after_delete: list[MAPIBroadcastCallbackRow] = \
-            db_functions.read_mapi_broadcast_callbacks(db_context)
+        rows_after_delete = db_functions.read_mapi_broadcasts(db_context)
         assert len(rows_after_delete) == 1
-        assert rows_after_delete[0].status_flags == MapiBroadcastStatusFlags.ATTEMPTING
+        assert rows_after_delete[0].tx_hash == TX_HASH_1
+        assert rows_after_delete[0].mapi_broadcast_flags != MAPIBroadcastFlag.BROADCAST
 
     if True:
-        future = db_functions.update_mapi_broadcast_callbacks(db_context,
-            entries=[(MapiBroadcastStatusFlags.SUCCEEDED, TX_HASH1)])
+        future = db_functions.update_mapi_broadcasts(db_context,
+            entries=[(MAPIBroadcastFlag.BROADCAST, b"response", 1,
+                broadcast_id_by_tx_hash[TX_HASH_1])])
         assert future.result(timeout=5) is None
 
-        rows_after_update: list[MAPIBroadcastCallbackRow] = \
-            db_functions.read_mapi_broadcast_callbacks(db_context)
-        assert rows_after_update[0].status_flags == MapiBroadcastStatusFlags.SUCCEEDED
+        rows_after_update = db_functions.read_mapi_broadcasts(db_context)
+        assert rows_after_update[0].mapi_broadcast_flags == MAPIBroadcastFlag.BROADCAST
+

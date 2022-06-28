@@ -36,114 +36,122 @@
 
 from __future__ import annotations
 import asyncio
-import concurrent.futures
+from dataclasses import dataclass
 from http import HTTPStatus
 import json
-from typing import Any, cast, get_type_hints, Optional, TYPE_CHECKING, Union
+import time
+from typing import AsyncIterable, cast, Optional, TYPE_CHECKING
 
 import aiohttp
-from bitcoinx import PublicKey
 from aiohttp import ClientConnectorError
+from bitcoinx import hash_to_hex_str
 
-from ..app_state import app_state
-from ..constants import NetworkServerType
-from ..exceptions import BroadcastFailedError, ServiceUnavailableError
+from ..exceptions import BadServerError, ServerAuthorizationError, ServerConnectionError, \
+    ServerError
+from ..constants import MAPIBroadcastFlag, PeerChannelAccessTokenFlag, ServerPeerChannelFlag
 from ..logs import logs
-from ..wallet_database.types import ServerPeerChannelAccessTokenRow
+from ..standards.mapi import MAPIBroadcastResponse, validate_mapi_broadcast_response
+from ..standards.json_envelope import JSONEnvelope, validate_json_envelope
+from ..transaction import Transaction
+from ..types import ServerAndCredential
+from ..wallet_database.types import MAPIBroadcastRow, ServerPeerChannelAccessTokenRow
 
-from .types import BroadcastResponse, FeeQuote, FeeQuoteTypeFee, JSONEnvelope, MAPICallbackResponse
+from .api_server import RequestFeeQuoteResult
+from .general_api import create_peer_channel_locally_and_remotely_async
 
 if TYPE_CHECKING:
     from ..types import IndefiniteCredentialId
     from ..network_support.api_server import NewServer
-    from ..wallet import AbstractAccount
-    from ..types import TransactionSize
+    from ..wallet import WalletDataAccess
+
+    from .types import ServerConnectionState
 
 
 logger = logs.get_logger("network-mapi")
 
 
-# self.mapi_client: Optional[aiohttp.ClientSession] = None
-#
-# async def _get_mapi_client(self):
-#     # aiohttp session needs to be initialised in async function
-#     # https://github.com/tiangolo/fastapi/issues/301
-#     if self.mapi_client is None:
-#         # resolver = AsyncResolver()
-#         # conn = aiohttp.TCPConnector(family=socket.AF_INET, resolver=resolver,
-#         #      ttl_dns_cache=10,
-#         #                             force_close=True, enable_cleanup_closed=True)
-#         # self.mapi_client = aiohttp.ClientSession(connector=conn)
-#         self.mapi_client = aiohttp.ClientSession()
-#     return self.mapi_client
-#
-# async def _close_mapi_client(self) -> None:
-#     logger.debug("closing aiohttp client session.")
-#     if self.mapi_client:
-#         await self.mapi_client.close()
+@dataclass
+class PeerChannelCallback:
+    callback_url: str
+    callback_access_token: ServerPeerChannelAccessTokenRow
+    merkle_proof: bool
+    double_spend_check: bool
 
-
-def get_mapi_servers(account: AbstractAccount) -> \
-        list[tuple[NewServer, Optional[IndefiniteCredentialId]]]:
-    account_id = account.get_id()
-    server_entries: list[tuple[NewServer, Optional[IndefiniteCredentialId]]] = []
-    for server, credential_id in account._wallet.get_servers_for_account_id(account_id,
-            NetworkServerType.MERCHANT_API):
-        if server.should_request_fee_quote(credential_id):
-            server_entries.append((server, credential_id))
-    return server_entries
-
-
-def filter_mapi_servers_for_fee_quote(
-        selection_candidates: list[tuple[NewServer, Optional[IndefiniteCredentialId]]]) \
-            -> list[tuple[NewServer, Optional[IndefiniteCredentialId]]]:
-    """raises `ServiceUnavailableError` if there are no merchant APIs with fee quotes"""
-    filtered = []
-
-    for server, credential_id in selection_candidates:
-        if server.api_key_state[credential_id].last_fee_quote is None:
-            logger.error("No fee quote for merchant API at: %s", server.url)
-            continue
-        filtered.append((server, credential_id))
-
-    if len(filtered) == 0:
-        raise ServiceUnavailableError("There are no suitable merchant API servers available")
-
-    return filtered
-
-
-def poll_servers(account: AbstractAccount) -> Optional[concurrent.futures.Future[None]]:
+async def update_mapi_fee_quotes_async(servers_with_credentials: list[ServerAndCredential],
+        timeout: float=4.0) -> AsyncIterable[ServerAndCredential]:
     """
-    Work out if any servers lack fee quotes and poll them.
+    Update all fee quotes for the given servers if they have expired.
 
-    If there is work to be done, a `concurrent.futures.Future` instance is returned. Otherwise
-    we return `None`.
+    All the requests are done concurrently and there is an overall timeout `timeout` after which we
+    guarantee we will exit this function. All completed requests have their entry  yielded up to
+    the caller as they complete.
+
+    Raises nothing.
     """
-    server_entries = get_mapi_servers(account)
-    if not len(server_entries):
-        return None
-    return app_state.async_.spawn(poll_servers_async(server_entries))
+    task: asyncio.Task[None]
+    local_results: list[ServerAndCredential] = []
+    server_tasks = set[asyncio.Task[None]]()
+    entry_by_task: dict[asyncio.Task[None], ServerAndCredential] = {}
+    for server, credential_id in servers_with_credentials:
+        # Do we need a fee quote from this server? Does it require credentials we do not have?
+        request_quote_result = server.should_request_fee_quote(credential_id)
+        if request_quote_result == RequestFeeQuoteResult.SHOULD:
+            task = asyncio.create_task(_get_mapi_fee_quote_async(server, credential_id))
+            # We want to match successfully completed tasks to the output data
+            entry_by_task[task] = ServerAndCredential(server, credential_id)
+            server_tasks.add(task)
+        elif request_quote_result == RequestFeeQuoteResult.ALREADY_HAVE:
+            fee_quote = server.api_key_state[credential_id].last_fee_quote
+            assert fee_quote is not None
+            local_results.append(ServerAndCredential(server, credential_id))
+
+    for local_result in local_results:
+        yield local_result
+
+    if len(server_tasks) == 0:
+        return
+
+    tasks_pending = set[asyncio.Task[None]]()
+    current_time = time.time()
+    end_time = current_time + timeout
+    while len(server_tasks) > 0 and current_time < end_time:
+        remaining_seconds = end_time - current_time
+        tasks_done, tasks_pending = await asyncio.wait(server_tasks, timeout=remaining_seconds,
+            return_when=asyncio.FIRST_COMPLETED)
+        for task in tasks_done:
+            server_entry = entry_by_task[task]
+            exception = task.exception()
+            if exception is not None:
+                logger.warning("Fee quote request to server %s failed (%s)", server_entry[0].key,
+                    str(exception))
+                continue
+            yield server_entry
+        server_tasks = tasks_pending
+        current_time = time.time()
+
+    # Cancel any requests that are still in progress.
+    for task in tasks_pending:
+        task.cancel()
+
+    # Any pending tasks that completed and errored and we did not call `exception` on, will by
+    # default log their stack trace to the loop exception handler when they are garbage collected.
 
 
-async def poll_servers_async(
-        server_entries: list[tuple[NewServer, Optional[IndefiniteCredentialId]]]) -> None:
-    tasks = []
-    for server, credential_id in server_entries:
-        tasks.append(get_fee_quote(server, credential_id))
-    for i, result in enumerate(await asyncio.gather(*tasks, return_exceptions=True)):
-        if isinstance(result, Exception):
-            logger.error("Failed to get MAPI fee quote from %s", server_entries[i][0].url,
-                exc_info=result)
-
-
-async def get_fee_quote(server: NewServer,
+async def _get_mapi_fee_quote_async(server: NewServer,
         credential_id: Optional[IndefiniteCredentialId]) -> None:
-    """The last_good and last_try timestamps will be used to include/exclude the mAPI for
-    selection"""
+    """
+    Contact the server for a fee quote with the given credential if there is one.
+
+    The last_good and last_try timestamps will be used to include/exclude the mAPI for selection.
+
+    Raises `ServerConnectionError` if we cannot establish a connection to the server.
+    Raises `ServerAuthorizationError` if we had no credentials or our credentials are rejected.
+    """
     server.api_key_state[credential_id].record_attempt()
 
     url = f"{server.url}feeQuote"
     headers = {'Content-Type': 'application/json'}
+    # This will not add an Authorization header if there are no credentials.
     headers.update(server.get_authorization_headers(credential_id))
     is_ssl = url.startswith("https")
 
@@ -152,178 +160,171 @@ async def get_fee_quote(server: NewServer,
             try:
                 body = await response.read()
             except (ClientConnectorError, ConnectionError, OSError):
-                logger.error("failed connecting to %s", url)
-                return
+                raise ServerConnectionError("Unable to establish server connection")
+
+            if response.status == HTTPStatus.OK:
+                pass
+            elif response.status == HTTPStatus.UNAUTHORIZED:
+                if credential_id is None:
+                    raise ServerAuthorizationError("Server requires authentication "
+                        "(no credentials)")
+                raise ServerAuthorizationError("Server requires authentication (key rejected)")
             else:
-                if response.status != HTTPStatus.OK:
-                    # We hope that this service will become available later. Until then it
-                    # should be excluded by prioritisation/server selection algorithms
-                    logger.error("feeQuote request to %s failed with: status: %s, reason: %s",
-                        url, response.status, response.reason)
-                    return
+                # We hope that this service will become available later. Until then it
+                # should be excluded by prioritisation/server selection algorithms
+                logger.debug("feeQuote request to %s failed with: status: %s, reason: %s",
+                    url, response.status, response.reason)
+                raise ServerError(f"Response was {response.status}: '{response.reason}'")
 
         try:
-            json_response = cast(dict[Any, Any], json.loads(body.decode()))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+            fee_quote_response = cast(JSONEnvelope, json.loads(body))
+        except (TypeError, json.JSONDecodeError):
             logger.error("feeQuote request to %s failed", exc_info=True)
             return
 
-        assert json_response['encoding'].lower() == 'utf-8'
-
-        fee_quote_response = cast(JSONEnvelope, json_response)
         validate_json_envelope(fee_quote_response)
         logger.debug("fee quote received from %s", server.url)
 
-        server.api_key_state[credential_id].update_fee_quote(fee_quote_response)
+        server.api_key_state[credential_id].set_fee_quote(fee_quote_response, time.time())
 
 
-def validate_json_envelope(json_response: JSONEnvelope) -> None:
+async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
+        peer_channel_server_state: ServerConnectionState | None,
+        server_and_credential: ServerAndCredential, tx: Transaction, /,
+        merkle_proof: bool = False, double_spend_check: bool = False) \
+            -> MAPIBroadcastResponse:
     """
-    It is not necessary for a fee quote to include a signature, but if there is one we check
-    it. What does it mean if there isn't one? No idea, but at this time there is no expectation
-    there will be one.
-
-    Raises a `ValueError` to indicate that the signature is invalid.
+    Via `create_peer_channel_locally_and_remotely_async`:
+        Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
+        Raises `ServerConnectionError` if the remote computer does not accept the connection.
+    Via `post_mapi_transaction_broadcast_async`:
+        Raises `ServerError` if it connects but there is some other problem with the
+            broadcast attempt.
+        Raises `ServerConnectionError` if the server could not be connected to.
+        Raises `BadServerError` if the response from the server is invalid in some way.
     """
-    message_bytes = json_response["payload"].encode()
-    if json_response["signature"] is not None and json_response["publicKey"] is not None:
-        signature_bytes = bytes.fromhex(json_response["signature"])
-        # TODO This should check the public key is the correct one?
-        public_key = PublicKey.from_hex(json_response["publicKey"])
-        if not public_key.verify_der_signature(signature_bytes, message_bytes):
-            raise ValueError("MAPI signature invalid")
+    peer_channel_id: int | None = None
+    peer_channel_callback: PeerChannelCallback | None = None
+    if peer_channel_server_state is not None:
+        peer_channel_row, mapi_callback_access_token = \
+            await create_peer_channel_locally_and_remotely_async(
+                peer_channel_server_state, ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
+                PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE)
+        assert peer_channel_row.remote_channel_id is not None
+        assert peer_channel_row.remote_url is not None
+
+        peer_channel_id = peer_channel_row.peer_channel_id
+        peer_channel_callback = PeerChannelCallback(peer_channel_row.remote_url,
+            mapi_callback_access_token, merkle_proof=merkle_proof,
+            double_spend_check=double_spend_check)
+
+    tx_hash = tx.hash()
+    date_created = int(time.time())
+    mapi_broadcast_rows = await wallet_data.create_mapi_broadcasts_async([
+        MAPIBroadcastRow(None, tx_hash, server_and_credential.server.server_id,
+        MAPIBroadcastFlag.NONE, peer_channel_id, date_created, date_created) ])
+    mapi_broadcast_row = mapi_broadcast_rows[0]
+    assert mapi_broadcast_row.broadcast_id is not None
+
+    try:
+        mapi_broadcast_result, json_envelope_bytes = await post_mapi_transaction_broadcast_async(
+            tx.to_bytes(), server_and_credential, peer_channel_callback)
+    except ServerError as server_error:
+        wallet_data.delete_mapi_broadcasts(broadcast_ids=[mapi_broadcast_row.broadcast_id])
+        logger.error("Error broadcasting to mAPI for tx: %s. Error: %s",
+            hash_to_hex_str(tx_hash), str(server_error))
+        raise
+
+    if mapi_broadcast_result['returnResult'] == 'failure':
+        logger.debug("Transaction broadcast via MAPI server failed : %s (%s)",
+            server_and_credential.server.url, mapi_broadcast_result)
+        return mapi_broadcast_result
+
+    logger.debug("Transaction broadcast via MAPI server succeeded: %s",
+        server_and_credential.server.url)
+
+    date_updated = int(time.time())
+    updates = [(MAPIBroadcastFlag.BROADCAST, json_envelope_bytes, date_updated,
+        mapi_broadcast_row.broadcast_id)]
+    wallet_data.update_mapi_broadcasts(updates)
+
+    # Todo - when the merkle proof callback is successfully processed,
+    #  delete the MAPIBroadcastRow
+    return mapi_broadcast_result
 
 
-MAPI_CALLBACK_REASONS = {"doubleSpend", "doubleSpendAttempt", "merkleProof"}
-
-def validate_mapi_callback_response(response_data: MAPICallbackResponse) -> None:
+async def post_mapi_transaction_broadcast_async(transaction_bytes: bytes,
+        server_and_credential: ServerAndCredential,
+        peer_channel_callback: PeerChannelCallback | None = None) \
+            -> tuple[MAPIBroadcastResponse, bytes]:
     """
-    MAPI callback response validation.
-    Examples: https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
+    Do an HTTP POST delivering a transaction to a MAPI endpoint.
 
-    Raises `ValueError` if the response does not match the expected result.
+    This uses the `server` reference to track successful attempts for a given credential against
+    the service.
+
+    Raises `ServerError` if it connects but there is some other problem with the
+        broadcast attempt.
+    Raises `ServerConnectionError` if the server could not be connected to.
+    Raises `BadServerError` if the response from the server is invalid in some way.
     """
-    for field_name, field_type in get_type_hints(MAPICallbackResponse).items():
-        if field_name not in response_data:
-            raise ValueError(f"Missing '{field_name}' field")
-
-        field_value = response_data[field_name] # type: ignore[literal-required]
-
-        if hasattr(field_type, "__origin__") and field_type.__origin__ is Union:
-            check_type = field_type.__args__ # Each of the union types.
-        elif hasattr(field_type, "__origin__") and field_type.__origin__ is dict:
-            check_type = field_type.__origin__
-        else:
-            check_type = field_type
-        if not isinstance(field_value, check_type):
-            raise ValueError(f"Invalid '{field_name}' type, expected {check_type}, "
-                f"got {type(field_value)}")
-
-    if response_data["callbackReason"] not in MAPI_CALLBACK_REASONS:
-        raise ValueError(f"Invalid 'callbackReason' '{response_data['callbackReason']}'")
-
-    block_id = response_data["blockHash"]
-    if len(block_id) != 32*2:
-        raise ValueError(f"'blockHash' not 64 characters '{response_data['blockHash']}'")
-
-    transaction_id = response_data["callbackTxId"]
-    if len(transaction_id) != 32*2:
-        raise ValueError(f"'callbackTxId' not 64 characters '{response_data['callbackTxId']}'")
-
-    # This is optional and should be a 33 byte public key encoding.
-    # https://github.com/bitcoin-sv-specs/brfc-minerid#321-static-coinbasedocument-template
-    miner_id = response_data["minerId"]
-    if miner_id is not None and len(miner_id) != 33*2:
-        raise ValueError(f"'minerId' not 66 characters '{response_data['minerId']}'")
-
-
-async def broadcast_transaction_mapi_simple(transaction_bytes: bytes, server: NewServer,
-        credential_id: Optional[IndefiniteCredentialId], peer_channel_url: str,
-        peer_channel_token: ServerPeerChannelAccessTokenRow,
-        merkle_proof: bool=False, ds_check: bool=False) -> BroadcastResponse:
+    server, credential_id = server_and_credential
     server.api_key_state[credential_id].record_attempt()
 
     url = f"{server.url}tx"
-    params = {
-        'merkleProof': 'false' if not merkle_proof else 'true',
-        'merkleFormat': "TSC",
-        'dsCheck': 'false' if not ds_check else 'true',
-        'callbackURL': peer_channel_url,
-        'callbackToken': f"Bearer {peer_channel_token.access_token}",
-        # 'callbackEncryption': None  # Todo: add libsodium encryption
-    }
-    headers = {"Content-Type": "application/octet-stream"}
+    params = dict[str, str]()
+    if peer_channel_callback is not None:
+        params.update({
+            'merkleProof': 'true' if peer_channel_callback.merkle_proof else 'false',
+            'merkleFormat': "TSC",
+            'dsCheck': 'true' if peer_channel_callback.double_spend_check else 'false',
+            'callbackURL': peer_channel_callback.callback_url,
+            'callbackToken': f"Bearer {peer_channel_callback.callback_access_token.access_token}",
+            # 'callbackEncryption': None  # Todo: add libsodium encryption
+        })
+    headers = { "Content-Type": "application/octet-stream" }
+    # This will not add an Authorization header if there are no credentials.
     headers.update(server.get_authorization_headers(credential_id))
     is_ssl = url.startswith("https")
     async with aiohttp.ClientSession() as client:
         async with client.post(url, ssl=is_ssl, headers=headers, params=params,
                 data=transaction_bytes) as response:
             try:
-                body = await response.read()
+                json_envelope_bytes = await response.read()
             except (ClientConnectorError, ConnectionError, OSError):
                 logger.error("failed connecting to %s", url)
-                raise BroadcastFailedError(f"Broadcast failed for url: {url}, "
-                    f"Unable to connect to the server.")
+                raise ServerConnectionError("Unable to connect to the server.")
             else:
                 if response.status != HTTPStatus.OK:
                     logger.error("Broadcast request to %s failed with: status: %s, reason: %s",
                         url, response.status, response.reason)
-                    raise BroadcastFailedError(f"Broadcast failed for url: {url}. "
-                        f"status: {response.status}, reason: {response.reason}")
+                    raise ServerError(f"Response was {response.status}: '{response.reason}'")
 
     try:
-        json_response = cast(dict[Any, Any], json.loads(body.decode()))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        logger.error("Broadcast request to %s in question (corrupt payload)", exc_info=True)
-        raise BroadcastFailedError(f"Broadcast in question for url: {url}. Corrupt payload.")
+        broadcast_response_envelope = cast(JSONEnvelope, json.loads(json_envelope_bytes))
+    except json.JSONDecodeError as json_error:
+        logger.error("Broadcast request to %s has corrupt JSON envelope", url, exc_info=True)
+        raise BadServerError("Unable to decode JSON envelope in MAPI response") from json_error
 
-    assert json_response['encoding'].lower() == 'utf-8'
+    try:
+        validate_json_envelope(broadcast_response_envelope,  { "application/json" })
+    except ValueError as value_error:
+        raise BadServerError(value_error.args[0]) from value_error
 
-    broadcast_response_envelope = cast(JSONEnvelope, json_response)
-    validate_json_envelope(broadcast_response_envelope)
-    logger.debug("transaction broadcast via MAPI server: %s", server.url)
-
-    # TODO(1.4.0) MAPI, issue#910. Work out if we should be processing the response.
-    # TODO(1.4.0) MAPI, issue#910. Work out if we should be storing the response.
+    # This is recording getting a valid response from the server not the success of broadcasting.
     server.api_key_state[credential_id].record_success()
-    broadcast_response: BroadcastResponse = json.loads(broadcast_response_envelope['payload'])
 
-    if broadcast_response['returnResult'] == 'failure':
-        raise BroadcastFailedError(broadcast_response['resultDescription'])
+    try:
+        broadcast_response = cast(MAPIBroadcastResponse,
+            json.loads(broadcast_response_envelope['payload']))
+    except json.JSONDecodeError as json_error:
+        logger.error("Broadcast request to %s has corrupt broadcast response", url, exc_info=True)
+        raise BadServerError("Unable to decode MAPI broadcast response") from json_error
 
-    return broadcast_response
+    try:
+        validate_mapi_broadcast_response(broadcast_response)
+    except ValueError as mapi_error:
+        raise BadServerError(f"Unable to validate MAPI response ({mapi_error.args[0]})")
 
-
-class MAPIFeeEstimator:
-    standard_fee_satoshis = 0
-    standard_fee_bytes = 0
-    data_fee_satoshis = 0
-    data_fee_bytes = 0
-
-    def __init__(self, fee_quote: FeeQuote) -> None:
-        standard_fee: Optional[FeeQuoteTypeFee] = None
-        data_fee: Optional[FeeQuoteTypeFee] = None
-        for fee in fee_quote["fees"]:
-            if fee["feeType"] == "standard":
-                standard_fee = fee["miningFee"]
-            elif fee["feeType"] == "data":
-                data_fee = fee["miningFee"]
-
-        assert standard_fee is not None
-        self.standard_fee_satoshis = standard_fee["satoshis"]
-        self.standard_fee_bytes = standard_fee["bytes"]
-        if data_fee is not None:
-            self.data_fee_satoshis = data_fee["satoshis"]
-            self.data_fee_bytes = data_fee["bytes"]
-
-    def estimate_fee(self, tx_size: TransactionSize) -> int:
-        fee = 0
-        standard_size = tx_size.standard_size
-        if self.data_fee_bytes:
-            standard_size = tx_size.standard_size
-            fee += tx_size.data_size * self.data_fee_satoshis // self.data_fee_bytes
-        else:
-            standard_size += tx_size.data_size
-        fee += standard_size * self.standard_fee_satoshis // self.standard_fee_bytes
-        return fee
+    return broadcast_response, json_envelope_bytes
 
