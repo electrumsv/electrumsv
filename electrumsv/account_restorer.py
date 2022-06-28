@@ -243,7 +243,7 @@ class AccountRestorer:
             on_done: Optional[Callable[[concurrent.futures.Future[None]], None]]=None) -> None:
         logger.debug("Starting blockchain scan process")
         assert app_state.app is not None
-        self._future = app_state.app.run_coro(self.scan_for_usage, on_done=on_done)
+        self._future = app_state.app.run_coro(self.scan_for_usage(), on_done=on_done)
 
     async def scan_for_usage(self) -> None:
         """

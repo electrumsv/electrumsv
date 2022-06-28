@@ -92,8 +92,8 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         self._server_connectivity_metadata = dict[ServerAccountKey, ServerConnectivityMetadata]()
 
         self._main_loop_context: Optional[MainLoopContext] = MainLoopContext()
-        self._main_loop_future = app_state.async_.spawn(self._main_loop_async,
-            self._main_loop_context)
+        self._main_loop_future = app_state.async_.spawn(
+            self._main_loop_async(self._main_loop_context))
         # Futures swallow exceptions if there are no callbacks to collect the exception.
         self._main_loop_future.add_done_callback(future_callback)
 
@@ -351,7 +351,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         we are already connected or we will have started establishing a connection.
         """
         if server_key not in self.connected_header_server_states:
-            future = app_state.async_.spawn(self._maintain_connection, context, server_key)
+            future = app_state.async_.spawn(self._maintain_connection(context, server_key))
             # Futures swallow exceptions if there are no callbacks to collect the exception.
             future.add_done_callback(future_callback)
             self.connected_header_server_states[server_key] = HeaderServerState(server_key,

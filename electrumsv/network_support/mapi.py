@@ -122,7 +122,7 @@ def poll_servers(account: AbstractAccount) -> Optional[concurrent.futures.Future
     server_entries = get_mapi_servers(account)
     if not len(server_entries):
         return None
-    return app_state.async_.spawn(poll_servers_async, server_entries)
+    return app_state.async_.spawn(poll_servers_async(server_entries))
 
 
 async def poll_servers_async(
@@ -200,6 +200,8 @@ def validate_mapi_callback_response(response_data: MAPICallbackResponse) -> None
     """
     MAPI callback response validation.
     Examples: https://github.com/bitcoin-sv-specs/brfc-merchantapi#callback-notifications
+
+    Raises `ValueError` if the response does not match the expected result.
     """
     for field_name, field_type in get_type_hints(MAPICallbackResponse).items():
         if field_name not in response_data:
@@ -209,6 +211,8 @@ def validate_mapi_callback_response(response_data: MAPICallbackResponse) -> None
 
         if hasattr(field_type, "__origin__") and field_type.__origin__ is Union:
             check_type = field_type.__args__ # Each of the union types.
+        elif hasattr(field_type, "__origin__") and field_type.__origin__ is dict:
+            check_type = field_type.__origin__
         else:
             check_type = field_type
         if not isinstance(field_value, check_type):

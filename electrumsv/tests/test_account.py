@@ -12,7 +12,8 @@ from electrumsv.wallet_database.exceptions import KeyInstanceNotFoundError
 from electrumsv.wallet_database.types import AccountRow
 from electrumsv.storage import WalletStorage
 
-from .util import mock_headers, MockStorage, PasswordToken, setup_async, tear_down_async
+from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, setup_async, \
+    tear_down_async
 
 
 def setUpModule():
@@ -26,7 +27,7 @@ def tearDownModule():
 @pytest.mark.asyncio
 @unittest.mock.patch(
     "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state")
-@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 async def test_key_creation(mock_app_state1, mock_app_state2) -> None:
     password = 'password'
     mock_app_state1.credentials = unittest.mock.Mock()
@@ -92,7 +93,7 @@ async def test_key_creation(mock_app_state1, mock_app_state2) -> None:
 @pytest.mark.asyncio
 @unittest.mock.patch(
     "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state")
-@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 async def test_key_reservation(mock_app_state1, mock_app_state2) -> None:
     """
     Verify that the allocate a key on demand database function works as expected for an account.

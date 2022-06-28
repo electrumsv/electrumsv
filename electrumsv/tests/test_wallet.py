@@ -30,8 +30,8 @@ from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, TransactionLinkState, \
     MerkleProofRow, WalletBalance
 
-from .util import mock_headers, MockStorage, PasswordToken, setup_async, tear_down_async, \
-    TEST_WALLET_PATH
+from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, setup_async, \
+    tear_down_async, TEST_WALLET_PATH
 
 
 class _TestableWallet(Wallet):
@@ -348,7 +348,7 @@ def check_create_keys(wallet: Wallet, account: DeterministicAccount) -> None:
 # wallet, and account. And that the underlying data for keystore and wallet persistence
 # is also exported correctly.
 class TestLegacyWalletCreation:
-    @unittest.mock.patch('electrumsv.wallet.app_state')
+    @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
     def test_standard_electrum(self, mock_wallet_app_state, tmp_storage) -> None:
         mock_wallet_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
 
@@ -374,7 +374,7 @@ class TestLegacyWalletCreation:
             password=password, add_indefinite_credential_mock=add_indefinite_credential_mock)
         check_create_keys(wallet, account)
 
-    @unittest.mock.patch('electrumsv.wallet.app_state')
+    @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
     def test_old(self, mock_app_state, tmp_storage) -> None:
         mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
 
@@ -411,7 +411,7 @@ class TestLegacyWalletCreation:
 
         check_create_keys(wallet, account)
 
-    @unittest.mock.patch('electrumsv.wallet.app_state')
+    @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
     def test_imported_privkey(self, mock_app_state, tmp_storage) -> None:
         mock_app_state.app = unittest.mock.Mock()
         mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
@@ -426,7 +426,7 @@ class TestLegacyWalletCreation:
         check_legacy_parent_of_imported_privkey_wallet(wallet, keypairs=keypairs,
             password='password')
 
-    @unittest.mock.patch('electrumsv.wallet.app_state')
+    @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
     def test_imported_pubkey(self, mock_app_state, tmp_storage) -> None:
         mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
         text = """
@@ -439,7 +439,7 @@ class TestLegacyWalletCreation:
             "password")
         check_legacy_parent_of_imported_address_wallet(wallet)
 
-    @unittest.mock.patch('electrumsv.wallet.app_state')
+    @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
     def test_multisig(self, mock_app_state, tmp_storage) -> None:
         password = "password"
         mock_app_state.credentials.get_wallet_password = lambda wallet_path: password
@@ -477,7 +477,7 @@ class TestLegacyWalletCreation:
 
 @pytest.mark.parametrize("storage_info",
     get_categorised_files2(TEST_WALLET_PATH, exclude_suffix="_testdata.json"))
-@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorageInfo,
         caplog) -> None:
     password = initial_password = "123456"
@@ -685,7 +685,7 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
 
 
 @pytest.mark.asyncio
-@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 async def test_transaction_script_offsets_and_lengths(mock_app_state, tmp_storage) -> None:
     mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
 
@@ -758,7 +758,7 @@ async def test_transaction_script_offsets_and_lengths(mock_app_state, tmp_storag
 
 
 @pytest.mark.asyncio
-@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
     mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
 
@@ -888,7 +888,7 @@ class MockHeadersClient:
 
 
 @pytest.mark.asyncio
-@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 async def test_reorg(mock_app_state, tmp_storage) -> None:
     """
     This test is intended to show that the current subscription mechanism combined with the
@@ -996,7 +996,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
 
 
 @pytest.mark.asyncio
-@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 async def test_unverified_transactions(mock_app_state, tmp_storage) -> None:
     mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
 
@@ -1037,7 +1037,7 @@ async def test_unverified_transactions(mock_app_state, tmp_storage) -> None:
         db_context.release_connection(db)
 
 
-@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 def test_transaction_locks(mock_app_state, tmp_storage) -> None:
     mock_app_state.credentials.get_wallet_password = lambda wallet_path: "password"
 
@@ -1076,7 +1076,7 @@ def test_transaction_locks(mock_app_state, tmp_storage) -> None:
     assert len(wallet._transaction_locks) == 0
 
 
-@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 def test_wallet_migration_database_script_metadata(mock_app_state) -> None:
     password = initial_password = "123456"
     password_token = PasswordToken(password)
@@ -1379,7 +1379,7 @@ async def test_extend_transaction_sequence() -> None:
         db_context.release_connection(db)
 
 
-@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 def test_is_header_within_current_chain(app_state) -> None:
     header_bytes = b"fake header"
     block_hash = double_sha256(header_bytes)
@@ -1413,7 +1413,7 @@ def test_is_header_within_current_chain(app_state) -> None:
     assert wallet.is_header_within_current_chain(5, block_hash)
 
 
-@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 def test_lookup_header_for_hash(app_state) -> None:
     header_bytes = b"fake header"
     block_hash = double_sha256(header_bytes)

@@ -540,20 +540,21 @@ def read_proofless_transactions(db: sqlite3.Connection) -> list[TransactionProof
     These will be:
     - Transactions that predate storage of the proof, whether from Electron Cash or Electrum
       Core, or perhaps ElectrumSV before it stored these.
-    - Transactions that mysteriously happen not to have proofs despite ElectrumSV trying to
-      store them. Not reproducible.. but seems to have happened!
+    - Transactions that we have received output spend notifications indicating they are mined.
 
-    Strictly speaking we only need proofs for outputs that have not been spent. All these
-
-    The wider range of transactions are those that have the `STATE_SETTLED` flag and no
-    block hash.
+    The range of transactions are those that:
+    - Have the `STATE_SETTLED` flag and no block hash (pre-date proof storage).
+    - Have the `STATE_CLEARED` flag and a block hash (notified local transaction was mined).
     """
     # TODO: This action is billed against a petty cash account on behalf of the account that
     # requires the proof. However, it is possible that a transaction may in the longer term be
     # linked to multiple accounts, which complicates things. For now we take the simplest approach
     # and bill it to the first account that it was linked to. This is not ideal, but in reality
     # it is unlikely many users will care about the nuances and we can change the behaviour later.
-    sql_values: list[Any] = [ TxFlags.MASK_STATE, TxFlags.STATE_SETTLED ]
+    sql_values: list[Any] = [
+        TxFlags.MASK_STATE, TxFlags.STATE_SETTLED,
+        TxFlags.MASK_STATE, TxFlags.STATE_CLEARED
+    ]
     sql = """
     WITH matches AS (
         SELECT TX.tx_hash, ATX.account_id,
@@ -561,6 +562,7 @@ def read_proofless_transactions(db: sqlite3.Connection) -> list[TransactionProof
         FROM Transactions TX
         LEFT JOIN AccountTransactions ATX ON ATX.tx_hash=TX.tx_hash
         WHERE TX.flags&?=? AND TX.block_hash IS NULL
+           OR TX.flags&?=? AND TX.block_hash IS NOT NULL
     )
     SELECT tx_hash, account_id FROM matches WHERE account_id IS NOT NULL AND rank=1
     """

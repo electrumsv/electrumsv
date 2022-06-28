@@ -214,9 +214,11 @@ class HistoryList(MyTreeWidget):
                         header, _chain = lookup_result
                 if header is not None:
                     assert header.height == row.block_height
-                    assert row.block_height <= local_height
-                    timestamp = cast(int, header.timestamp)
-                    conf = (local_height - row.block_height) + 1
+                    # It is very possible for the wallet to advance it's height and accept a
+                    # transaction while we are updating.
+                    if row.block_height <= local_height:
+                        timestamp = cast(int, header.timestamp)
+                        conf = (local_height - row.block_height) + 1
 
             status = get_tx_status(self._account, row.tx_flags & TxFlags.MASK_STATE,
                 row.block_height, row.block_position, conf)

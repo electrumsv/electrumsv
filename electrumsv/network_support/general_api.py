@@ -39,19 +39,17 @@ import asyncio
 from concurrent.futures import Future
 from datetime import datetime, timezone
 import enum
+from functools import partial
 from http import HTTPStatus
 import json
 import struct
 import time
-from typing import Any, AsyncIterable, cast, List, NamedTuple, Optional, TypedDict, Union
+from typing import Any, AsyncIterable, cast, NamedTuple, TypedDict
 
 import aiohttp
 from aiohttp import WSServerHandshakeError
 from bitcoinx import hash_to_hex_str, PrivateKey
 
-from .exceptions import AuthenticationError, FilterResponseInvalidError, \
-    FilterResponseIncompleteError, GeneralAPIError, IndexerResponseMissingError, \
-    InvalidStateError, TransactionNotFoundError
 from ..app_state import app_state
 from ..constants import PeerChannelAccessTokenFlag, PushDataHashRegistrationFlag, \
     ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, \
@@ -66,11 +64,15 @@ from ..util import get_posix_timestamp
 from ..wallet_database.types import PushDataHashRegistrationRow, \
     ServerPeerChannelRow, ServerPeerChannelAccessTokenRow, ServerPeerChannelMessageRow
 
-from .types import AccountMessageKind, GenericPeerChannelMessage, \
+from .constants import ServerProblemKind
+from .exceptions import AuthenticationError, BadServerError, FilterResponseInvalidError, \
+    FilterResponseIncompleteError, GeneralAPIError, IndexerResponseMissingError, \
+    InvalidStateError, TransactionNotFoundError
+from .types import AccountMessageKind, ChannelNotification, GenericPeerChannelMessage, \
     IndexerServerSettings, MessageViewModelGetBinary, PeerChannelAPITokenViewModelGet, \
-    PeerChannelViewModelGet,  RetentionViewModel, ServerConnectionState, \
+    PeerChannelViewModelGet,  RetentionViewModel, ServerConnectionState, ServerConnectionProblems, \
     TipFilterRegistrationResponse, TokenPermissions, \
-    VerifiableKeyData, WebsocketUnauthorizedException
+    VerifiableKeyData
 
 
 logger = logs.get_logger("general-api")
@@ -84,14 +86,14 @@ class MatchFlags(enum.IntFlag):
 
 
 class RestorationFilterRequest(TypedDict):
-    filterKeys: List[str]
+    filterKeys: list[str]
 
 class RestorationFilterJSONResponse(TypedDict):
     flags: int
     pushDataHashHex: str
     lockingTransactionId: str
     lockingTransactionIndex: int
-    unlockingTransactionId: Optional[str]
+    unlockingTransactionId: str | None
     unlockingInputIndex: int
 
 class RestorationFilterResult(NamedTuple):
@@ -195,7 +197,7 @@ async def post_restoration_filter_request_binary(state: ServerConnectionState,
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {url}")
 
 
 def unpack_binary_restoration_entry(entry_data: bytes) -> RestorationFilterResult:
@@ -256,7 +258,7 @@ async def request_binary_merkle_proof_async(state: ServerConnectionState, tx_has
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
 
@@ -294,22 +296,80 @@ async def request_transaction_data_async(state: ServerConnectionState, tx_hash: 
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {state.server.url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {state.server.url}")
 
 
-def unpack_server_message_bytes(message_bytes: bytes) \
-        -> tuple[AccountMessageKind, Union[str, OutputSpend]]:
-    message_kind = AccountMessageKind(struct.unpack_from(">I", message_bytes, 0)[0])
+def process_reference_server_message_bytes(state: ServerConnectionState, message_bytes: bytes) \
+        -> tuple[AccountMessageKind, ChannelNotification | OutputSpend]:
+    """
+    Decode and validate incoming message bytes from the reference server.
+
+    This takes an incoming message encoded as bytes, checks that the server should be sending it
+    given what we use this server for, checks that it can decode the message and that it contains
+    correct-looking data. We do not however verify the correctness of the contents of the message,
+    beyond these relevance and "looks correct" checks.
+
+    Raises `BadServerError` if the server sends obviously bad data.
+    Raises `NotImplementedError` if the server sends us a message type we know about but the
+        programmer has not correctly hooked up. We just let this raise and assume the release
+        is buggy.
+    """
+    try:
+        message_kind_value: int = struct.unpack_from(">I", message_bytes, 0)[0]
+    except (TypeError, struct.error):
+        # `struct.error`: The bytes to be unpacked do not start with valid data for the requested
+        #   type.
+        raise BadServerError("Received an invalid message type")
+
+    try:
+        message_kind = AccountMessageKind(message_kind_value)
+    except ValueError:
+        # `ValueError`: The value is not a member of the enum.
+        raise BadServerError(f"Received an unknown message type ({message_kind_value})")
+
     if message_kind == AccountMessageKind.PEER_CHANNEL_MESSAGE:
-        return message_kind, json.loads(message_bytes[4:].decode("utf-8"))
+        if not state.used_for_peer_channels:
+            raise BadServerError("Received a peer channel message from a server you "
+                "are not using for peer channels")
+
+        try:
+            message = json.loads(message_bytes[4:].decode("utf-8"))
+        except (TypeError, json.decoder.JSONDecodeError):
+            raise BadServerError("Received an invalid peer channel message from a "
+                "server you are using for peer channels (cannot decode as JSON)")
+
+        # Verify that this at least looks like a valid `ChannelNotification` message.
+        if not isinstance(message, dict) or len(message) != 2 or \
+                not isinstance(message.get("id", None), str) or \
+                not isinstance(message.get("notification", None), str):
+            raise BadServerError("Received an invalid peer channel message from a "
+                "server you are using (unrecognised structure)")
+
+        return message_kind, cast(ChannelNotification, message)
     elif message_kind == AccountMessageKind.SPENT_OUTPUT_EVENT:
-        spent_output = OutputSpend(*output_spend_struct.unpack(message_bytes[4:]))
-        return message_kind, spent_output
+        if not state.used_for_blockchain_services:
+            raise BadServerError("Received a blockchain services related message "
+                "from a server you you are not using for blockchain services (tip filtering "
+                "related)")
+
+        try:
+            spent_output_fields = output_spend_struct.unpack_from(message_bytes, 4)
+        except (TypeError, struct.error):
+            # `TypeError`: This is raised when the arguments passed are not one bytes object.
+            # `struct.error`: This is raised when the bytes object is invalid, whether not long
+            #     enough or of incompatible types.
+            raise BadServerError("Received an invalid blockchain services message "
+                "from a server you are using (unable to decode)")
+
+        return message_kind, OutputSpend.from_network(*spent_output_fields)
     else:
+        # If this ever happens it is because the programmer who added a new entry to
+        # `AccountMessageKind` did not hook it up here.
         raise NotImplementedError(f"Packing message kind {message_kind} is unsupported")
 
 
-async def maintain_server_connection_async(state: ServerConnectionState) -> None:
+async def maintain_server_connection_async(state: ServerConnectionState) \
+        -> ServerConnectionProblems:
     """
     Keep a persistent connection to this ElectrumSV reference server alive.
     """
@@ -322,11 +382,29 @@ async def maintain_server_connection_async(state: ServerConnectionState) -> None
         while state.connection_flags & ServerConnectionFlag.EXITING == 0:
             state.connection_flags &= ServerConnectionFlag.MASK_COMMON_INITIAL
 
-            try:
-                if not await manage_server_connection_async(state):
-                    break
-            except ServerConnectionError:
-                pass
+            # Both the connection management task and worker tasks.
+            future = app_state.async_.spawn(_manage_server_connection_async(state))
+            future.add_done_callback(partial(_on_server_connection_worker_task_done, state))
+
+            # This will block until this task is cancelled, or there is a problem establishing
+            # a connection with the server not necessarily in the web socket connection itself,
+            # but also secondary calls.
+
+            problem_kind, problem_text = await state.disconnection_event_queue.get()
+            future.cancel()
+
+            # We yield to so that the cancellation error can get raised on the manage task.
+            await asyncio.sleep(0)
+
+            server_problems = { problem_kind: [ problem_text ] }
+            # Drain the queue of disconnection problems.
+            while not state.disconnection_event_queue.empty():
+                problem_kind, problem_text = state.disconnection_event_queue.get_nowait()
+                server_problems[problem_kind].append(problem_text)
+
+            if ServerProblemKind.BAD_SERVER in server_problems:
+                # We do not try and recover from this problem. It goes up to the user.
+                return server_problems
 
             logger.debug("Server disconnected, clearing state, waiting to retry")
             state.clear_for_reconnection(ServerConnectionFlag.DISCONNECTED)
@@ -338,10 +416,11 @@ async def maintain_server_connection_async(state: ServerConnectionState) -> None
     finally:
         logger.error("maintain_server_connection_async encountered connection issue")
         state.connection_flags = ServerConnectionFlag.EXITED
-        state.connection_exit_event.set()
+
+    return {}
 
 
-async def create_server_account_if_necessary(state: ServerConnectionState) -> None:
+async def create_reference_server_account_if_necessary(state: ServerConnectionState) -> None:
     """
     Raises `GeneralAPIError` if non-successful response encountered.
     Raises `AuthenticationError` if response does not give valid payment keys or api keys.
@@ -370,8 +449,11 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
                 logger.debug("Existing credentials verified for server %s", state.server.server_id)
                 return
         except aiohttp.ClientConnectorError:
-            logger.debug("Failed to connect to server at: %s", account_metadata_url, exc_info=True)
-            raise ServerConnectionError()
+            # NOTE(exception-details) We log this because we are not sure yet that we do not need
+            #     this detail. At a later stage if we are confident that all the exceptions here
+            #     are reasonable and expected, we can remove this.
+            logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
+            raise ServerConnectionError("Unable to establish server connection")
 
     # We lookup the password here before we do anything that will change server-side state.
     # If the user is asked to enter it, should it not be in the cache, then we may abort
@@ -398,8 +480,8 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
         "message_hex": message_text.encode().hex(),
     }
 
-    payment_key_bytes: Optional[bytes] = None
-    api_key: Optional[str] = None
+    payment_key_bytes: bytes | None = None
+    api_key: str | None = None
     # TODO(technical-debt) aiohttp exceptions. What aiohttp exceptions are raised here??
     try:
         async with state.session.post(obtain_server_key_url, json=key_data) as response:
@@ -412,7 +494,7 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
             # TODO(technical-debt) aiohttp exceptions. What aiohttp exceptions are raised here??
             reader = aiohttp.MultipartReader.from_response(response)
             while True:
-                part = cast(Optional[aiohttp.BodyPartReader], await reader.next())
+                part = cast(aiohttp.BodyPartReader | None, await reader.next())
                 if part is None:
                     break
                 elif part.name == "key":
@@ -423,8 +505,9 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
         # NOTE(exception-details) We log this because we are not sure yet that we do not need
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
-        logger.debug("Failed to connect to server at: %s", obtain_server_key_url, exc_info=True)
-        raise ServerConnectionError()
+        logger.debug("Unable to establish server connection: %s", obtain_server_key_url,
+            exc_info=True)
+        raise ServerConnectionError("Unable to establish server connection")
 
     # TODO(1.4.0) Unreliable server, issue#841. Server account creation response lacks payment key.
     if payment_key_bytes is None:
@@ -444,45 +527,61 @@ async def create_server_account_if_necessary(state: ServerConnectionState) -> No
     logger.debug("Obtained new credentials for server %s", state.server.server_id)
 
 
-async def manage_server_connection_async(state: ServerConnectionState) -> bool:
+async def _manage_server_connection_async(state: ServerConnectionState) -> None:
     """
-    Manage an open websocket to this ElectrumSV reference server.
+    Manage an open websocket to any server type.
+
+    - This might be a reference server compatible.
+    - This might be a peer channel we do not own but have the API key for and access to.
+
+    Raises `BadServerError` if the server sends us data that we know it should not be sending.
+    Raises `NotImplementedError` if we encounter cases that more than likely are caused by
+        partially implemented features.
     """
-    await create_server_account_if_necessary(state)
+    assert state.wallet_data is not None
+    assert len(state.websocket_futures) == 0
+
+    if state.used_with_reference_server_api:
+        await create_reference_server_account_if_necessary(state)
+    else:
+        # We currently have no way to create accounts with other types of server. We expect the
+        # credential to have been set up correctly for this server, when the server was added.
+        # NOTE(rt12) This will be other people's peer channels we have access to, as one yet to
+        #     be implemented use case we will need to support at some point.
+        raise NotImplementedError("A programmer added support for another type of server "
+            "connection but did not flesh out the web socket connection logic")
     assert state.credential_id is not None
 
     state.connection_flags |= ServerConnectionFlag.VERIFYING
     state.stage_change_event.set()
     state.stage_change_event.clear()
 
-    await validate_server_data(state)
+    if state.used_for_peer_channels:
+        await peer_channel_preconnection_async(state)
+
+    if state.used_for_blockchain_services:
+        await blockchain_services_preconnection_async(state)
 
     state.connection_flags |= ServerConnectionFlag.ESTABLISHING_WEB_SOCKET
     state.stage_change_event.set()
     state.stage_change_event.clear()
 
-    master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
+    access_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     websocket_url_template = state.server.url + "api/v1/web-socket?token={access_token}"
-    websocket_url = websocket_url_template.format(access_token=master_token)
+    websocket_url = websocket_url_template.format(access_token=access_token)
     headers = {
         "Accept": "application/octet-stream"
     }
-    output_spends_future: Optional[Future[None]] = None
-    tip_filter_future: Optional[Future[None]] = None
-    peer_channel_messages_future: Optional[Future[None]] = None
     try:
         async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
                 as server_websocket:
             logger.info('Connected to server websocket, url=%s', websocket_url_template)
-            if ServerCapability.TIP_FILTER in state.utilised_capabilities:
-                register_output_spends_async(state)
-                output_spends_future = app_state.async_.spawn(manage_output_spends_async, state)
-                tip_filter_future = app_state.async_.spawn(manage_tip_filter_registrations_async,
-                    state)
 
-            if ServerCapability.PEER_CHANNELS in state.utilised_capabilities:
-                peer_channel_messages_future = app_state.async_.spawn(
-                    process_incoming_peer_channel_messages_async, state)
+            if state.used_for_blockchain_services:
+                await blockchain_services_server_connected_async(state)
+
+            if state.used_for_peer_channels:
+                await peer_channel_server_connected_async(state)
 
             state.connection_flags |= ServerConnectionFlag.WEB_SOCKET_READY
             state.stage_change_event.set()
@@ -491,17 +590,33 @@ async def manage_server_connection_async(state: ServerConnectionState) -> bool:
             try:
                 websocket_message: aiohttp.WSMessage
                 async for websocket_message in server_websocket:
-                    if websocket_message.type == aiohttp.WSMsgType.BINARY:
-                        message_bytes = cast(bytes, websocket_message.data)
-                        message_kind, message = unpack_server_message_bytes(message_bytes)
+                    if websocket_message.type == aiohttp.WSMsgType.TEXT:
+                        if state.used_with_reference_server_api:
+                            # This will be headers.
+                            logger.debug("Ignoring websocket text: %s", websocket_message.data)
+                            # raise BadServerError("We received a message in format "
+                            #     "not expected from this server (text message)")
+                        else:
+                            raise NotImplementedError("")
+                    elif websocket_message.type == aiohttp.WSMsgType.BINARY:
+                        if state.used_with_reference_server_api:
+                            # In processing the message `BadServerError` will be raised if this
+                            # server cannot handle the incoming message, or it is malformed.
+                            message_bytes = cast(bytes, websocket_message.data)
+                            message_kind, message = process_reference_server_message_bytes(state,
+                                message_bytes)
+                        else:
+                            raise BadServerError("We received a message in format "
+                                "not expected from this server (binary message)")
+
                         if message_kind == AccountMessageKind.PEER_CHANNEL_MESSAGE:
-                            assert isinstance(message, dict) # ChannelNotification
-                            logger.debug("Queued incoming peer channel message %s", message)
-                            state.peer_channel_message_queue.put_nowait(message["id"])
+                            channel_message = cast(ChannelNotification, message)
+                            logger.debug("Queued incoming peer channel message %s", channel_message)
+                            state.peer_channel_message_queue.put_nowait(channel_message["id"])
                         elif message_kind == AccountMessageKind.SPENT_OUTPUT_EVENT:
-                            assert isinstance(message, OutputSpend)
+                            spent_output_message = cast(OutputSpend, message)
                             logger.debug("Queued incoming output spend message")
-                            state.output_spend_result_queue.put_nowait([ message ])
+                            state.output_spend_result_queue.put_nowait([ spent_output_message ])
                         else:
                             logger.error("Unhandled binary server websocket message %r",
                                 websocket_message)
@@ -514,23 +629,26 @@ async def manage_server_connection_async(state: ServerConnectionState) -> bool:
                         logger.error("Unhandled server websocket message type %r",
                             websocket_message)
             finally:
-                if output_spends_future is not None:
-                    output_spends_future.cancel()
-                if tip_filter_future is not None:
-                    tip_filter_future.cancel()
-                if peer_channel_messages_future is not None:
-                    peer_channel_messages_future.cancel()
-    except aiohttp.ClientConnectorError:
-        logger.debug("Unable to connect to server websocket")
+                for websocket_future in state.websocket_futures:
+                    websocket_future.cancel()
+                state.websocket_futures.clear()
     except WSServerHandshakeError as e:
         if e.status == HTTPStatus.UNAUTHORIZED:
-            # TODO(1.4.0) Networking, issue#908. Need to handle the case that our credentials are
-            #     stale or incorrect.
-            raise WebsocketUnauthorizedException()
-        # TODO(1.4.0) Networking, issue#908. What is being raised here? Why?
-        raise
+            # We have already checked the credentials. There is no reason why this should fail.
+            # So for now we classify this as an indicator of a bad server.
+            raise BadServerError("Connection credentials unexpectedly invalid")
 
-    return True
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
+        logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
+        raise ServerConnectionError("Unable to establish websocket connection")
+    except aiohttp.ClientError:
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
+        logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
+        raise ServerConnectionError("Unable to establish server connection")
 
 
 def register_output_spends_async(state: ServerConnectionState) -> None:
@@ -558,6 +676,17 @@ async def manage_output_spends_async(state: ServerConnectionState) -> None:
     """
     This in theory manages spent output registrations and notifications on behalf of a given
     petty cash account, and the non-petty cash accounts that are funded by it.
+
+    At this time this task can be cancelled/killed with no side effects when the server is
+    disconnected. Our remote output spend registrations are associated with any current web
+    socket connection and are dropped by the server when we disconnect.
+
+    We raise server-related exceptions up and expect the connection management to deal with them.
+    All exceptions raised by this in the context of a connect are processed by
+    `_on_server_connection_worker_task_done`.
+
+    Raises `BadServerError` if the server sends responses that are indicative of badness.
+    Raises `ServerConnectionError` if the server cannot be connected to.
     """
     api_url = f"{state.server.url}api/v1/output-spend/notifications"
 
@@ -578,47 +707,53 @@ async def manage_output_spends_async(state: ServerConnectionState) -> None:
             "Authorization":    f"Bearer {master_token}",
         }
 
-        spent_outputs: List[OutputSpend] = []
-        # TODO(1.4.0) Networking, issue#908. Dealing with error cases for output spend processing.
-        #     - If any of the error cases below occur we should requeue the outpoints, but it is
-        #       not as simple as just doing it. What we want to avoid is being in an infinite loop
-        #       of failed attempts (<- still relevant?).
-        #     - Catch aiohttp exceptions and deal with server problems?
-        async with state.session.post(api_url, headers=headers, data=byte_buffer) as response:
-            if response.status != HTTPStatus.OK:
-                logger.error("Websocket spent output registration failed "
-                    "status=%d, reason=%s", response.status, response.reason)
-                # TODO(1.4.0) Unreliable server, issue#841. Spent output registration failure.
-                #     We need to handle all possible variations of this error:
-                #     - It may be lack of funding.
-                #     - It may be short or long term server unavailability or errors.
-                #     - ??? add anything else that comes to mind.
-                return
-
-            content_type, *content_type_extra = response.headers["Content-Type"].split(";")
-            if content_type != "application/octet-stream":
-                logger.error("Spent output registration response content type got %s, "
-                    "expected 'application/octet-stream'", content_type)
-                # TODO(1.4.0) Unreliable server, issue#841. Spent output registration content type.
-                #     Bad server not respecting the spent output request. We should stop using it,
-                #     and the user should have to manually flag it as valid again.
-                # TODO(bad-server)
-                return
-
-            response_bytes = await response.content.read(output_spend_struct.size)
-            while len(response_bytes) > 0:
-                if len(response_bytes) != output_spend_struct.size:
-                    logger.error("Spent output registration record clipped, expected %d "
-                        "bytes, got %d bytes", output_spend_struct.size, len(response_bytes))
-                    # TODO(1.4.0) Unreliable server, issue#841. Spent output response invalid.
-                    #     The server is unreliable? Should we mark the server as to be avoided?
-                    #     Or flag it and stop using it if it happens more than once or twice?
+        spent_outputs: list[OutputSpend] = []
+        try:
+            async with state.session.post(api_url, headers=headers, data=byte_buffer) as response:
+                if response.status != HTTPStatus.OK:
+                    logger.error("Websocket spent output registration failed "
+                        "status=%d, reason=%s", response.status, response.reason)
+                    # TODO(1.4.0) Unreliable server, issue#841. Spent output registration failure.
+                    #     We need to handle all possible variations of this error:
+                    #     - It may be lack of funding.
+                    #     - It may be short or long term server unavailability or errors.
+                    #     - ??? add anything else that comes to mind.
                     return
 
-                spent_output = OutputSpend.from_network(*output_spend_struct.unpack(response_bytes))
-                spent_outputs.append(spent_output)
+                content_type, *content_type_extra = response.headers["Content-Type"].split(";")
+                if content_type != "application/octet-stream":
+                    logger.error("Spent output registration response content type got %s, "
+                        "expected 'application/octet-stream'", content_type)
+                    # TODO(1.4.0) Unreliable server, issue#841. Spent output registration content
+                    #     type. Bad server not respecting the spent output request. We should stop
+                    #     using it, and the user should have to manually flag it as valid again.
+                    raise BadServerError("Invalid server response "
+                        f"(got '{content_type}', expected 'application/octet-stream')")
 
                 response_bytes = await response.content.read(output_spend_struct.size)
+                while len(response_bytes) > 0:
+                    if len(response_bytes) != output_spend_struct.size:
+                        logger.error("Spent output registration record clipped, expected %d "
+                            "bytes, got %d bytes", output_spend_struct.size, len(response_bytes))
+                        # TODO(1.4.0) Unreliable server, issue#841. Spent output response invalid.
+                        #     The server is unreliable? Should we mark the server as to be avoided?
+                        #     Or flag it and stop using it if it happens more than once or twice?
+                        raise BadServerError("Invalid spent output notification "
+                            " received from server")
+
+                    spent_output = OutputSpend.from_network(
+                        *output_spend_struct.unpack(response_bytes))
+                    spent_outputs.append(spent_output)
+
+                    response_bytes = await response.content.read(output_spend_struct.size)
+        except aiohttp.ClientError:
+            # Requeue the outpoints to be registered for the next attempt.
+            state.output_spend_registration_queue.put_nowait(outpoints)
+            # NOTE(exception-details) We log this because we are not sure yet that we do not need
+            #     this detail. At a later stage if we are confident that all the exceptions here
+            #     are reasonable and expected, we can remove this.
+            logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
+            raise ServerConnectionError(f"Unable to establish server connection: {api_url}")
 
         logger.debug("Spent output registration returned %d results", len(spent_outputs))
         await state.output_spend_result_queue.put(spent_outputs)
@@ -637,97 +772,117 @@ async def manage_output_spends_async(state: ServerConnectionState) -> None:
 
 async def manage_tip_filter_registrations_async(state: ServerConnectionState) -> None:
     """
-    All tip filter registrations are done as jobs in this task. The reason for this is that they
-    can be cleanly allowed to finished or immediately ended as needed, when the server is
-    correspondingly cleanly shutdown or immediately shutdown.
+    Manage the processing of tip filter registrations.
+
+    This will ensure that there is ongoing processing of tip filter registration jobs. Each
+    registration attempt will be recorded in the database, then the server will be asked to
+    do the actual registration and finally the database will be updated to record the successful
+    registration.
+
+    At this time this task can be cancelled/killed and any state will be cleaned up elsewhere.
+    Search for `PushDataHashRegistrationFlag.REGISTERING` to see where it is reconciled.
+
+    We raise server-related exceptions up and expect the connection management to deal with them.
+    All exceptions raised by this in the context of a connect are processed by
+    `_on_server_connection_worker_task_done`.
     """
-    # This should only be clear for non-indexer servers.
-    assert state.indexer_settings is not None
-
-    async def process_registrations_worker_async() -> None:
-        assert state.wallet_proxy is not None
-        assert state.wallet_data is not None
-
-        # Before an indexing server will accept tip filter registrations from us we need to
-        # have registered a notifications peer channel with it, through which it will deliver
-        # any matches.
-        await prepare_server_tip_filter_peer_channel(state)
-
-        # TODO(optimisation) We could make jobs happen in parallel if this becomes a bottleneck.
-        #     At this time, this is not important as we will likely only be creating these
-        #     registrations very seldomly (as the primary use case is the declining monitor the
-        #     blockchain legacy payment situation).
-
-        # TODO(1.4.0) Servers, issue#908. Clean shutdown versus immediate shutdown.
-        #     An immediate shutdown will kill this task.
-        #     A clean shutdown should allow this to finish the current
-
-        # The main `maintain_server_connection_async` task will be waiting on this event and
-        # will process it.
-        state.connection_flags |= ServerConnectionFlag.TIP_FILTER_READY
-        state.stage_change_event.set()
-        state.stage_change_event.clear()
-
-        logger.debug("Waiting for tip filtering registrations, server_id=%d",
-            state.server.server_id)
-        while state.connection_flags & ServerConnectionFlag.EXITING == 0:
-            job = await state.tip_filter_new_registration_queue.get()
-            assert len(job.entries) > 0
-
-            logger.debug("Processing %d tip filter registrations", len(job.entries))
-            job.start_event.set()
-
-            date_created = int(get_posix_timestamp())
-            db_insert_rows = list[PushDataHashRegistrationRow]()
-            server_rows = list[tuple[bytes, int]]()
-            no_date_registered = None
-            for pushdata_hash, duration_seconds, keyinstance_id in job.entries:
-                logger.debug("Preparing pre-registration entry for pushdata hash %s",
-                    pushdata_hash.hex())
-                db_insert_rows.append(PushDataHashRegistrationRow(state.server.server_id,
-                    keyinstance_id, pushdata_hash, PushDataHashRegistrationFlag.REGISTERING,
-                    duration_seconds, no_date_registered, date_created, date_created))
-                server_rows.append((pushdata_hash, duration_seconds))
-            await state.wallet_data.create_tip_filter_pushdata_registrations_async(db_insert_rows,
-                upsert=True)
-
-            try:
-                job.date_registered = await create_tip_filter_registrations_async(state,
-                    server_rows)
-            except (GeneralAPIError, ServerConnectionError) as exception:
-                job.failure_reason = str(exception)
-                date_updated = int(get_posix_timestamp())
-                await state.wallet_data.update_registered_tip_filter_pushdatas_flags_async([
-                    (PushDataHashRegistrationFlag.REGISTRATION_FAILED, date_updated,
-                        state.server.server_id, keyinstance_id)
-                    for (pushdata_hash_, duration_seconds_, keyinstance_id) in job.entries
-                ])
-            else:
-                # At this point we have all the information we need to record the registrations
-                # as being active on this server and complete the job. This removes the
-                # `REGISTERING` flag.
-                date_updated = int(get_posix_timestamp())
-                await state.wallet_data.update_registered_tip_filter_pushdatas_async([
-                    (job.date_registered, date_updated, ~PushDataHashRegistrationFlag.REGISTERING,
-                        PushDataHashRegistrationFlag.NONE, state.server.server_id, keyinstance_id)
-                    for (pushdata_hash_, duration_seconds_, keyinstance_id) in job.entries
-                ])
-
-                logger.debug("Processed %d tip filter registrations", len(job.entries))
-            job.completed_event.set()
+    assert state.used_for_blockchain_services
 
     logger.debug("Entering manage_tip_filter_registrations_async, server_id=%d",
         state.server.server_id)
+
+    # Before an indexing server will accept tip filter registrations from us we need to
+    # have registered a notifications peer channel with it, through which it will deliver
+    # any matches.
+    await prepare_server_tip_filter_peer_channel(state)
+
+    # The main `maintain_server_connection_async` task will be waiting on this event and
+    # will process it.
+    state.connection_flags |= ServerConnectionFlag.TIP_FILTER_READY
+    state.stage_change_event.set()
+    state.stage_change_event.clear()
+
+    # TODO(optimisation) We could make jobs happen in parallel if this becomes a bottleneck.
+    #     At this time, this is not important as we will likely only be creating these
+    #     registrations very seldomly (as the primary use case is the declining monitor the
+    #     blockchain legacy payment situation).
     try:
         while state.connection_flags & ServerConnectionFlag.EXITING == 0:
-            await process_registrations_worker_async()
+            await _manage_tip_filter_registrations_async(state)
     finally:
         logger.debug("Exiting manage_tip_filter_registrations_async, server_id=%d",
             state.server.server_id)
 
 
+async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -> None:
+    """
+    This is a queue worker for registering tip filters with a blockchain services server.
+
+    See `manage_tip_filter_registrations_async` for details.
+    """
+    assert state.used_for_blockchain_services
+    assert state.wallet_data is not None
+
+    logger.debug("Waiting for tip filtering registrations, server_id=%d", state.server.server_id)
+    while state.connection_flags & ServerConnectionFlag.EXITING == 0:
+        job = await state.tip_filter_new_registration_queue.get()
+        assert len(job.entries) > 0
+
+        logger.debug("Processing %d tip filter registrations", len(job.entries))
+        job.start_event.set()
+
+        date_created = int(get_posix_timestamp())
+        db_insert_rows = list[PushDataHashRegistrationRow]()
+        server_rows = list[tuple[bytes, int]]()
+        no_date_registered = None
+        for pushdata_hash, duration_seconds, keyinstance_id in job.entries:
+            logger.debug("Preparing pre-registration entry for pushdata hash %s",
+                pushdata_hash.hex())
+            db_insert_rows.append(PushDataHashRegistrationRow(state.server.server_id,
+                keyinstance_id, pushdata_hash, PushDataHashRegistrationFlag.REGISTERING,
+                duration_seconds, no_date_registered, date_created, date_created))
+            server_rows.append((pushdata_hash, duration_seconds))
+        await state.wallet_data.create_tip_filter_pushdata_registrations_async(db_insert_rows,
+            upsert=True)
+
+        try:
+            job.date_registered = await create_tip_filter_registrations_async(state,
+                server_rows)
+        except (GeneralAPIError, ServerConnectionError) as exception:
+            job.failure_reason = str(exception)
+            date_updated = int(get_posix_timestamp())
+            await state.wallet_data.update_registered_tip_filter_pushdatas_flags_async([
+                (PushDataHashRegistrationFlag.REGISTRATION_FAILED, date_updated,
+                    state.server.server_id, keyinstance_id)
+                for (pushdata_hash_, duration_seconds_, keyinstance_id) in job.entries
+            ])
+        else:
+            # At this point we have all the information we need to record the registrations
+            # as being active on this server and complete the job. This removes the
+            # `REGISTERING` flag.
+            date_updated = int(get_posix_timestamp())
+            await state.wallet_data.update_registered_tip_filter_pushdatas_async([
+                (job.date_registered, date_updated, ~PushDataHashRegistrationFlag.REGISTERING,
+                    PushDataHashRegistrationFlag.NONE, state.server.server_id, keyinstance_id)
+                for (pushdata_hash_, duration_seconds_, keyinstance_id) in job.entries
+            ])
+
+            logger.debug("Processed %d tip filter registrations", len(job.entries))
+        job.completed_event.set()
+
+
 async def process_incoming_peer_channel_messages_async(state: ServerConnectionState) -> None:
-    assert state.wallet_proxy is not None
+    """
+    We raise server-related exceptions up and expect the connection management to deal with them.
+    All exceptions raised by this in the context of a connect are processed by
+    `_on_server_connection_worker_task_done`.
+
+    Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
+    Raises `ServerConnectionError` if the remote computer does not accept the connection.
+    """
+    assert state.used_for_peer_channels
+
+    # Typing related assertions.
     assert state.wallet_data is not None
     assert state.cached_peer_channel_rows is not None
 
@@ -806,133 +961,215 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
         state.server.server_id)
 
 
-async def validate_server_data(state: ServerConnectionState) -> None:
+def _on_server_connection_worker_task_done(state: ServerConnectionState, future: Future[None]) \
+        -> None:
     """
-    There are a set of tasks we should perform before we start using the server to verify the
-    remote state matches the local state.
+    This acts as a central point through which execution of worker tasks created by
+    `` exit. None of these worker tasks return results, we are solely interested in acting
+    on any exceptions that happen within them.
 
-    Requirements:
-    - Check the indexer settings are valid and match our local state.
-    - Check which peer channels exist and which the wallet believes to exist.
-    - Check what pushdata hash registrations exist for tip filtering.
+    Worker tasks whose results are passed to this callback:
 
-    Use cases (not necessarily complete):
-    - A backup is restored and the prepayment for a peer channel to be hosted was spent and the
-      channel closed. We may have some system depending on an expected result, like a merkle proof
-      that will now never be received.
+    - `manage_output_spends_async`
+    - `manage_tip_filter_registrations_async`
+    - `process_incoming_peer_channel_messages_async`
+
+    WARNING: All these worker tasks run on the asynchronous thread. Because of this we can
+        assume that the queue `put_nowait` operation does not have to be thread-safe.
+
+    Raises nothing.
     """
-    assert state.wallet_proxy is not None
+    if future.cancelled():
+        return
+
+    disconnection_problem: ServerProblemKind
+    disconnection_text: str
+    try:
+        future.result()
+    except BadServerError as bad_server_error:
+        # Raised by `manage_output_spends_async`.
+        disconnection_problem = ServerProblemKind.BAD_SERVER
+        disconnection_text = cast(str, bad_server_error.args[0])
+    except ServerConnectionError as server_error:
+        # Raised by `manage_output_spends_async`
+        # Raised by `process_incoming_peer_channel_messages_async`
+        disconnection_problem = ServerProblemKind.CONNECTION_ERROR
+        disconnection_text = cast(str, server_error.args[0])
+    except GeneralAPIError as general_api_error:
+        # Raised by `process_incoming_peer_channel_messages_async`
+        disconnection_problem = ServerProblemKind.UNEXPECTED_API_RESPONSE
+        disconnection_text = cast(str, general_api_error.args[0])
+    else:
+        return
+
+    logger.warning("Recorded problem with server %s, %s (%s)", state.server.key,
+        disconnection_problem, disconnection_text)
+
+    # WARNING: All these worker tasks run on the asynchronous thread. Because of this we can
+    #     assume that the queue `put_nowait` operation does not have to be thread-safe.
+    state.disconnection_event_queue.put_nowait((disconnection_problem,
+        disconnection_text))
+
+
+async def peer_channel_preconnection_async(state: ServerConnectionState) -> None:
+    """
+    Do pre-connection checks and calls on the peer channel server, to prepare to connect and
+    also to validate that the server looks compatible.
+    """
     assert state.wallet_data is not None
 
-    if ServerCapability.TIP_FILTER in state.utilised_capabilities:
-        assert state.indexer_settings is None
-        state.indexer_settings = await get_server_indexer_settings(state)
+    existing_channel_rows = state.wallet_data.read_server_peer_channels(state.server.server_id)
+    peer_channel_jsons = await list_peer_channels_async(state)
 
-    if ServerCapability.PEER_CHANNELS in state.utilised_capabilities:
-        existing_channel_rows = state.wallet_data.read_server_peer_channels(state.server.server_id)
-        peer_channel_jsons = await list_peer_channels_async(state)
+    peer_channel_ids = { channel_json["id"] for channel_json in peer_channel_jsons }
+    peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
+        for row in existing_channel_rows }
+    # TODO(1.4.0) Unreliable server, issue#841. Our peer channels differ from the server's.
+    # - Could be caused by a shared API key with another wallet.
+    # - This is likely to be caused by bad user choice and the wallet should only be
+    #   responsible for fixing anything related to it's mistakes.
+    # - Expired peer channels may need to be excluded.
+    if set(peer_channel_ids) != set(peer_channel_rows_by_id):
+        raise InvalidStateError("Mismatched peer channels, local and server")
 
-        peer_channel_ids = { channel_json["id"] for channel_json in peer_channel_jsons }
-        peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
-            for row in existing_channel_rows }
-        # TODO(1.4.0) Unreliable server, issue#841. Our peer channels differ from the server's.
-        # - Could be caused by a shared API key with another wallet.
-        # - This is likely to be caused by bad user choice and the wallet should only be
-        #   responsible for fixing anything related to it's mistakes.
-        # - Expired peer channels may need to be excluded.
-        if set(peer_channel_ids) != set(peer_channel_rows_by_id):
-            raise InvalidStateError("Mismatched peer channels, local and server")
+    state.cached_peer_channel_rows = peer_channel_rows_by_id
 
-        state.cached_peer_channel_rows = peer_channel_rows_by_id
+    for peer_channel_row in existing_channel_rows:
+        assert peer_channel_row.remote_channel_id is not None
+        await state.peer_channel_message_queue.put(peer_channel_row.remote_channel_id)
 
-        for peer_channel_row in existing_channel_rows:
-            assert peer_channel_row.remote_channel_id is not None
-            await state.peer_channel_message_queue.put(peer_channel_row.remote_channel_id)
 
-    if ServerCapability.TIP_FILTER in state.utilised_capabilities:
-        # By passing the timestamp, we only get the non-expired registrations. The indexing
-        # server should have purged these itself, giving us current registrations on both sides.
-        current_timestamp = int(time.time())
-        existing_tip_filter_rows = state.wallet_data.read_tip_filter_pushdata_registrations(
-            state.server.server_id, current_timestamp)
-        server_tip_filters = await list_tip_filter_registrations_async(state)
+async def peer_channel_server_connected_async(state: ServerConnectionState) -> None:
+    """
+    Start up peer channel processing logic for a server we have just connected to.
 
-        server_tip_filter_by_pushdata_hash = { server_tip_filter.pushdata_hash: server_tip_filter
-            for server_tip_filter in server_tip_filters }
-        tip_filter_row_by_pushdata_hash = dict[bytes, PushDataHashRegistrationRow]()
-        matched_server_filter_pushdata_hashes = set[bytes]()
-        correctable_local_tip_filters = list[tuple[int, int, int, int, int, int]]()
-        deletable_local_tip_filters = list[tuple[int, int]]()
-        # Start by checking that all the local registrations are matched on the server.
-        # Remember, these are added to the database after successful creation on that server..
-        for tip_filter_row in existing_tip_filter_rows:
-            pushdata_hash = tip_filter_row.pushdata_hash
-            tip_filter_row_by_pushdata_hash[pushdata_hash] = tip_filter_row
+    Raises nothing.
+    """
+    # All websocket futures are cancelled on server disconnection. This will interrupt the
+    # underlying task. These functions have been written so that they are either stateless or
+    # have other recovery logic elsewhere.
 
-            # 1. Does the server have this tip filter registration?
-            if pushdata_hash not in server_tip_filter_by_pushdata_hash:
-                if tip_filter_row.pushdata_flags & PushDataHashRegistrationFlag.REGISTERING:
-                    # The pushdata hash is not registered on the server.
-                    # - We assume that the registration was interrupted before it did more than
-                    #   initial local changes. We will remove the flag and make it appear as if it
-                    #   were not registered.
-                    deletable_local_tip_filters.append((tip_filter_row.server_id,
-                        tip_filter_row.keyinstance_id))
-                    continue
+    future = app_state.async_.spawn(process_incoming_peer_channel_messages_async(state))
+    future.add_done_callback(partial(_on_server_connection_worker_task_done, state))
+    state.websocket_futures.append(future)
 
-                # TODO(1.4.0) Unreliable server, issue#841. Server lacks our expected tip filter.
-                #     - Using the same wallet in different installations?
-                #     - Expiry date edge case? Clock error?
-                #     - Purged account due to abuse or other reason?
-                raise InvalidStateError(
-                    f"Handle missing server tip filter registration {tip_filter_row}")
 
-            server_tip_filter = server_tip_filter_by_pushdata_hash[pushdata_hash]
-            # 2. Does the server tip filter have the same registration duration?
-            if tip_filter_row.duration_seconds != server_tip_filter.duration_seconds:
-                # TODO(1.4.0) Unreliable server, issue#841. Server tip filter expiration differs.
-                #     - Maybe the user changed the duration on the registration?
-                #       - If the user did this, we would want to update both at the same time
-                #         and coordinate it. Do not allow it if they are offline.
-                raise InvalidStateError("Handle filter duration mismatch")
+async def blockchain_services_preconnection_async(state: ServerConnectionState) -> None:
+    assert state.wallet_data is not None
 
+    # We can store settings on the server some of which are required to use certain functionality,
+    # like the peer channel callback URL for the tip filter.
+    assert state.indexer_settings is None
+    state.indexer_settings = await get_server_indexer_settings(state)
+
+    # By passing the timestamp, we only get the non-expired registrations. The indexing
+    # server should have purged these itself, giving us current registrations on both sides.
+    current_timestamp = int(time.time())
+    existing_tip_filter_rows = state.wallet_data.read_tip_filter_pushdata_registrations(
+        state.server.server_id, current_timestamp)
+    server_tip_filters = await list_tip_filter_registrations_async(state)
+
+    server_tip_filter_by_pushdata_hash = { server_tip_filter.pushdata_hash: server_tip_filter
+        for server_tip_filter in server_tip_filters }
+    tip_filter_row_by_pushdata_hash = dict[bytes, PushDataHashRegistrationRow]()
+    matched_server_filter_pushdata_hashes = set[bytes]()
+    correctable_local_tip_filters = list[tuple[int, int, int, int, int, int]]()
+    deletable_local_tip_filters = list[tuple[int, int]]()
+    # Start by checking that all the local registrations are matched on the server.
+    # Remember, these are added to the database after successful creation on that server..
+    for tip_filter_row in existing_tip_filter_rows:
+        pushdata_hash = tip_filter_row.pushdata_hash
+        tip_filter_row_by_pushdata_hash[pushdata_hash] = tip_filter_row
+
+        # 1. Does the server have this tip filter registration?
+        if pushdata_hash not in server_tip_filter_by_pushdata_hash:
             if tip_filter_row.pushdata_flags & PushDataHashRegistrationFlag.REGISTERING:
-                # The pushdata hash is registered on the server.
-                # - We assume that the registration was interrupted before we received and
-                #   finished updating the local state. We will update the local state.
-                correctable_local_tip_filters.append((server_tip_filter.date_created,
-                    current_timestamp, ~PushDataHashRegistrationFlag.REGISTERING,
-                    PushDataHashRegistrationFlag.NONE, tip_filter_row.server_id,
+                # The pushdata hash is not registered on the server.
+                # - We assume that the registration was interrupted before it did more than
+                #   initial local changes. We will remove the flag and make it appear as if it
+                #   were not registered.
+                deletable_local_tip_filters.append((tip_filter_row.server_id,
                     tip_filter_row.keyinstance_id))
-                # This can fall through and become a match.
-            elif tip_filter_row.date_registered != server_tip_filter.date_created:
-                # TODO(1.4.0) Unreliable server, issue#841. Server tip filter registration differs.
-                #     - Using the same wallet in different installations?
-                raise InvalidStateError("Handle filter date created mismatch")
-            matched_server_filter_pushdata_hashes.add(pushdata_hash)
+                continue
 
-        # Apply the deletions and updates to the database.
-        await state.wallet_data.delete_registered_tip_filter_pushdatas_async(
-            deletable_local_tip_filters)
-        await state.wallet_data.update_registered_tip_filter_pushdatas_async(
-            correctable_local_tip_filters)
+            # TODO(1.4.0) Unreliable server, issue#841. Server lacks our expected tip filter.
+            #     - Using the same wallet in different installations?
+            #     - Expiry date edge case? Clock error?
+            #     - Purged account due to abuse or other reason?
+            raise InvalidStateError(
+                f"Handle missing server tip filter registration {tip_filter_row}")
 
-        # Next check if all server filters exist locally.
-        for server_tip_filter in server_tip_filters:
-            if server_tip_filter.pushdata_hash not in matched_server_filter_pushdata_hashes:
-                # Allow some leeway in filters that are expiring literally now / are expired.
-                # In this case, any that expire in less than 5 seconds.
-                expiry_time = server_tip_filter.date_created + server_tip_filter.duration_seconds
-                if expiry_time - get_posix_timestamp() < 5:
-                    continue
-                # TODO(1.4.0) Unreliable server, issue#841. Server has unknown registrations.
-                #     - Using the same wallet in different installations?
-                raise InvalidStateError("Handle orphaned server registration mismatch")
+        server_tip_filter = server_tip_filter_by_pushdata_hash[pushdata_hash]
+        # 2. Does the server tip filter have the same registration duration?
+        if tip_filter_row.duration_seconds != server_tip_filter.duration_seconds:
+            # TODO(1.4.0) Unreliable server, issue#841. Server tip filter expiration differs.
+            #     - Maybe the user changed the duration on the registration?
+            #       - If the user did this, we would want to update both at the same time
+            #         and coordinate it. Do not allow it if they are offline.
+            raise InvalidStateError("Handle filter duration mismatch")
+
+        if tip_filter_row.pushdata_flags & PushDataHashRegistrationFlag.REGISTERING:
+            # The pushdata hash is registered on the server.
+            # - We assume that the registration was interrupted before we received and
+            #   finished updating the local state. We will update the local state.
+            correctable_local_tip_filters.append((server_tip_filter.date_created,
+                current_timestamp, ~PushDataHashRegistrationFlag.REGISTERING,
+                PushDataHashRegistrationFlag.NONE, tip_filter_row.server_id,
+                tip_filter_row.keyinstance_id))
+            # This can fall through and become a match.
+        elif tip_filter_row.date_registered != server_tip_filter.date_created:
+            # TODO(1.4.0) Unreliable server, issue#841. Server tip filter registration differs.
+            #     - Using the same wallet in different installations?
+            raise InvalidStateError("Handle filter date created mismatch")
+        matched_server_filter_pushdata_hashes.add(pushdata_hash)
+
+    # Apply the deletions and updates to the database.
+    await state.wallet_data.delete_registered_tip_filter_pushdatas_async(
+        deletable_local_tip_filters)
+    await state.wallet_data.update_registered_tip_filter_pushdatas_async(
+        correctable_local_tip_filters)
+
+    # Next check if all server filters exist locally.
+    for server_tip_filter in server_tip_filters:
+        if server_tip_filter.pushdata_hash not in matched_server_filter_pushdata_hashes:
+            # Allow some leeway in filters that are expiring literally now / are expired.
+            # In this case, any that expire in less than 5 seconds.
+            expiry_time = server_tip_filter.date_created + server_tip_filter.duration_seconds
+            if expiry_time - get_posix_timestamp() < 5:
+                continue
+            # TODO(1.4.0) Unreliable server, issue#841. Server has unknown registrations.
+            #     - Using the same wallet in different installations?
+            raise InvalidStateError("Handle orphaned server registration mismatch")
+
+
+async def blockchain_services_server_connected_async(state: ServerConnectionState) -> None:
+    """
+    Start up blockchain services processing logic for a server we have just connected to.
+
+    Raises nothing.
+    """
+    register_output_spends_async(state)
+
+    # All websocket futures are cancelled on server disconnection. This will interrupt the
+    # underlying task. These functions have been written so that they are either stateless or
+    # have other recovery logic elsewhere.
+
+    output_spends_future = app_state.async_.spawn(manage_output_spends_async(state))
+    output_spends_future.add_done_callback(partial(_on_server_connection_worker_task_done, state))
+    state.websocket_futures.append(output_spends_future)
+
+    tip_filter_future = app_state.async_.spawn(manage_tip_filter_registrations_async(state))
+    tip_filter_future.add_done_callback(partial(_on_server_connection_worker_task_done, state))
+    state.websocket_futures.append(tip_filter_future)
 
 
 async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerConnectionState) \
         -> None:
     """
+    Create or verify that we have a peer channel on our peer channel hosting service to use
+    specifically for tip filtering results. We also notify the blockchain services server
+    of any new or updated peer channel.
+
     Raises `InvalidStateError` if a situation arises where either the remote server or the local
         wallet look problematic.
 
@@ -969,7 +1206,7 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
     peer_channel_id = indexing_server_state.server.get_tip_filter_peer_channel_id(
         indexing_server_state.petty_cash_account_id)
 
-    peer_channel_row: Optional[ServerPeerChannelRow] = None
+    peer_channel_row: ServerPeerChannelRow | None = None
     if peer_channel_id is not None:
         # TODO(1.4.0) Tip filters, issue#904. It looks like we created a peer channel locally, but
         #     either never got around to creating it remotely or got interrupted before we could
@@ -1047,7 +1284,7 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
 
     # NOTE(typing) Type is incompatible with same type, who knows? Error message as follows:
     # `Argument 1 to "update" of "TypedDict" has incompatible type "IndexerServerSettings";
-    # expected "TypedDict({'tipFilterCallbackUrl'?: Optional[str]})"  [typeddict-item]`
+    # expected "TypedDict({'tipFilterCallbackUrl'?: str | None})"  [typeddict-item]`
     indexing_server_state.indexer_settings.update(settings_delta_object) # type: ignore
     if settings_object != indexing_server_state.indexer_settings:
         # TODO(1.4.0) Unreliable server, issue#841. Differing server indexer settings after setup.
@@ -1061,7 +1298,7 @@ async def create_peer_channel_locally_and_remotely_async(
         peer_channel_server_state: ServerConnectionState,
         third_party_peer_channel_flag: ServerPeerChannelFlag,
         third_party_access_token_flag: PeerChannelAccessTokenFlag,
-        indexing_server_id: Optional[int]=None) \
+        indexing_server_id: int | None=None) \
             -> tuple[ServerPeerChannelRow, ServerPeerChannelAccessTokenRow]:
     assert peer_channel_server_state.wallet_proxy is not None
     assert peer_channel_server_state.wallet_data is not None
@@ -1136,7 +1373,7 @@ async def get_server_indexer_settings(state: ServerConnectionState) -> IndexerSe
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
 async def update_server_indexer_settings(state: ServerConnectionState,
@@ -1163,12 +1400,12 @@ async def update_server_indexer_settings(state: ServerConnectionState,
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
 async def create_peer_channel_async(state: ServerConnectionState,
         public_read: bool=False, public_write: bool=True, sequenced: bool=True,
-        retention: Optional[RetentionViewModel]=None) -> PeerChannelViewModelGet:
+        retention: RetentionViewModel | None=None) -> PeerChannelViewModelGet:
     """
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
@@ -1202,7 +1439,7 @@ async def create_peer_channel_async(state: ServerConnectionState,
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {url}")
 
 
 async def mark_peer_channel_read_or_unread_async(state: ServerConnectionState,
@@ -1234,7 +1471,7 @@ async def mark_peer_channel_read_or_unread_async(state: ServerConnectionState,
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {url}")
 
 
 async def get_peer_channel_async(state: ServerConnectionState, remote_channel_id: str) \
@@ -1260,10 +1497,10 @@ async def get_peer_channel_async(state: ServerConnectionState, remote_channel_id
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
-async def list_peer_channels_async(state: ServerConnectionState) -> List[PeerChannelViewModelGet]:
+async def list_peer_channels_async(state: ServerConnectionState) -> list[PeerChannelViewModelGet]:
     """
     Use the reference peer channel implementation API for listing peer channels.
 
@@ -1286,7 +1523,7 @@ async def list_peer_channels_async(state: ServerConnectionState) -> List[PeerCha
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
 async def delete_peer_channel_async(state: ServerConnectionState, remote_channel_id: str) \
@@ -1311,12 +1548,12 @@ async def delete_peer_channel_async(state: ServerConnectionState, remote_channel
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
 async def create_peer_channel_message_json_async(state: ServerConnectionState,
         remote_channel_id: str, access_token: str, message: dict[str, Any]) \
-            -> Optional[GenericPeerChannelMessage]:
+            -> GenericPeerChannelMessage | None:
     """returns sequence number"""
     server_url = f"{state.server.url}api/v1/channel/{remote_channel_id}"
     headers = {
@@ -1337,7 +1574,7 @@ async def create_peer_channel_message_json_async(state: ServerConnectionState,
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
 async def create_peer_channel_message_binary_async(state: ServerConnectionState,
@@ -1360,7 +1597,7 @@ async def create_peer_channel_message_binary_async(state: ServerConnectionState,
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
 async def list_peer_channel_messages_async(state: ServerConnectionState, remote_channel_id: str,
@@ -1391,7 +1628,7 @@ async def list_peer_channel_messages_async(state: ServerConnectionState, remote_
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {url}")
 
 
 async def delete_peer_channel_message_async(state: ServerConnectionState, remote_channel_id: str,
@@ -1414,7 +1651,7 @@ async def delete_peer_channel_message_async(state: ServerConnectionState, remote
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
 async def create_peer_channel_api_token_async(state: ServerConnectionState, channel_id: str,
@@ -1445,11 +1682,11 @@ async def create_peer_channel_api_token_async(state: ServerConnectionState, chan
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {url}")
 
 
 async def list_peer_channel_api_tokens_async(state: ServerConnectionState, remote_channel_id: str) \
-        -> List[PeerChannelAPITokenViewModelGet]:
+        -> list[PeerChannelAPITokenViewModelGet]:
     """
     Use the reference peer channel implementation API for listing peer channel access tokens.
 
@@ -1472,11 +1709,11 @@ async def list_peer_channel_api_tokens_async(state: ServerConnectionState, remot
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
 async def get_peer_channel_max_sequence_number_async(state: ServerConnectionState,
-        remote_channel_id: str, access_token: str) -> Optional[int]:
+        remote_channel_id: str, access_token: str) -> int | None:
     server_url = f"{state.server.url}api/v1/channel/{remote_channel_id}"
     headers = {"Authorization": f"Bearer {access_token}"}
 
@@ -1491,7 +1728,7 @@ async def get_peer_channel_max_sequence_number_async(state: ServerConnectionStat
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
 async def create_tip_filter_registrations_async(state: ServerConnectionState,
@@ -1528,7 +1765,7 @@ async def create_tip_filter_registrations_async(state: ServerConnectionState,
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
     # For now we unpack the object and return the elements as a tuple.
     date_created = datetime.fromisoformat(json_object["dateCreated"]).replace(tzinfo=timezone.utc)
@@ -1562,7 +1799,7 @@ async def list_tip_filter_registrations_async(state: ServerConnectionState) \
         #     this detail. At a later stage if we are confident that all the exceptions here
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError(f"Failed to connect to server at: {server_url}")
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
     list_entries = list[TipFilterListEntry]()
     for entry_index in range(len(body_bytes) // tip_filter_list_struct.size):

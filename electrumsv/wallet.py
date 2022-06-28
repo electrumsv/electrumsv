@@ -33,6 +33,7 @@ import concurrent.futures
 import dataclasses
 from datetime import datetime, timezone
 from enum import IntFlag
+from functools import partial
 import json
 import os
 import random
@@ -81,7 +82,7 @@ from .network_support.general_api import maintain_server_connection_async, \
 from .network_support.headers import get_longest_valid_chain
 from .network_support.mapi import validate_mapi_callback_response, validate_json_envelope
 from .network_support.types import GenericPeerChannelMessage, JSONEnvelope, MAPICallbackResponse, \
-    ServerConnectionState, TipFilterPushDataMatchesData
+    ServerConnectionProblems, ServerConnectionState, TipFilterPushDataMatchesData
 from .networks import Net
 from .storage import WalletStorage
 from .transaction import (HardwareSigningMetadata, Transaction, TransactionContext,
@@ -954,8 +955,8 @@ class AbstractAccount:
             if tx_context.description:
                 self.set_transaction_label(tx_hash, tx_context.description)
 
-        transaction_future = app_state.async_.spawn(self._wallet.add_local_transaction,
-            tx_hash, tx, tx_flags, None, None, import_flags)
+        transaction_future = app_state.async_.spawn(self._wallet.add_local_transaction(tx_hash,
+            tx, tx_flags, BlockHeight.LOCAL, None, None, import_flags))
         transaction_future.add_done_callback(callback)
         return transaction_future
 
@@ -1032,8 +1033,8 @@ class AbstractAccount:
 
         self._logger.debug("fetching input transaction %s from network", txid)
         try:
-            rawtx = app_state.async_.spawn_and_wait(self._wallet.fetch_raw_transaction_async,
-                tx_hash, self, timeout=10)
+            rawtx = app_state.async_.spawn_and_wait(self._wallet.fetch_raw_transaction_async(
+                tx_hash, self), timeout=10)
         except (GeneralAPIError, ServerConnectionError, TransactionNotFoundError):
             self._logger.exception("failed retrieving transaction")
             return None
@@ -3289,7 +3290,7 @@ class Wallet:
         # specific change.
         self.events.trigger_callback(WalletEvent.TRANSACTION_ADD, tx_hash, tx, link_state,
             import_flags)
-        app_state.async_.spawn(self._close_paid_payment_requests_async)
+        app_state.async_.spawn(self._close_paid_payment_requests_async())
 
     def import_transaction_with_error_callback(self, tx: Transaction, tx_state: TxFlags,
             error_callback: Callable[[str], None]) -> None:
@@ -3303,8 +3304,8 @@ class Wallet:
             except TransactionAlreadyExistsError:
                 error_callback(_("That transaction has already been imported"))
 
-        future = app_state.async_.spawn(self.add_local_transaction, tx.hash(), tx,
-            tx_state, TransactionImportFlag.MANUAL_IMPORT)
+        future = app_state.async_.spawn(self.add_local_transaction(tx.hash(), tx,
+            tx_state, BlockHeight.LOCAL, None, TransactionImportFlag.MANUAL_IMPORT))
         future.add_done_callback(callback)
 
     async def link_transaction_async(self, tx_hash: bytes, link_state: TransactionLinkState) \
@@ -3673,7 +3674,7 @@ class Wallet:
 
         if self._network is not None:
             self._worker_task_manage_server_connections = app_state.async_.spawn(
-                self._manage_server_connections_async)
+                self._manage_server_connections_async())
 
     async def _manage_server_connections_async(self) -> None:
         """
@@ -3695,168 +3696,177 @@ class Wallet:
         self._worker_tasks_maintain_server_connection = dict[int, list[ServerConnectionState]]()
         self._server_progress.clear()
 
-        for account in self._accounts.values():
-            if account.is_petty_cash():
-                account_id = account.get_id()
-                account_row = account.get_row()
+        account_id = self._petty_cash_account.get_id()
+        account_row = self._petty_cash_account.get_row()
 
-                self._update_server_progress(account_id, ServerProgress.CONNECTION_PROCESS_STARTED)
+        self._update_server_progress(account_id, ServerProgress.CONNECTION_PROCESS_STARTED)
 
-                chosen_servers: list[tuple[NewServer, set[ServerCapability]]] = []
-                new_indexing_server_id: Optional[int] = None
-                new_peer_channel_server_id: Optional[int] = None
-                if account_row.indexer_server_id is None:
-                    # We need to select an blockchain server for the wallet/user. First work out
-                    # which ones have some form of vetting (they either come from the hard-coded
-                    # configuration or user-entry).
-                    blockchain_server_candidates = list[tuple[ServerAccountKey, NewServer]]()
-                    for server_key, server in self._servers.items():
-                        server_row = server.database_rows[None]
-                        if server_row.server_flags & NetworkServerFlag.CAPABILITY_TIP_FILTER:
-                            blockchain_server_candidates.append((server_key, server))
+        chosen_servers: list[tuple[NewServer, set[ServerCapability]]] = []
+        new_indexing_server_id: Optional[int] = None
+        new_peer_channel_server_id: Optional[int] = None
+        if account_row.indexer_server_id is None:
+            # We need to select an blockchain server for the wallet/user. First work out
+            # which ones have some form of vetting (they either come from the hard-coded
+            # configuration or user-entry).
+            blockchain_server_candidates = list[tuple[ServerAccountKey, NewServer]]()
+            for server_key, server in self._servers.items():
+                server_row = server.database_rows[None]
+                if server_row.server_flags & NetworkServerFlag.CAPABILITY_TIP_FILTER:
+                    blockchain_server_candidates.append((server_key, server))
 
-                    assert len(blockchain_server_candidates) > 0
+            assert len(blockchain_server_candidates) > 0
 
-                    # In `Wallet.start()` the wallet notifies the network object of it's internal
-                    # header servers before starting this task. We want to pick one that has fully
-                    # synchronised headers and that we are connected to, as the selected indexing
-                    # server.
+            # In `Wallet.start()` the wallet notifies the network object of it's internal
+            # header servers before starting this task. We want to pick one that has fully
+            # synchronised headers and that we are connected to, as the selected indexing
+            # server.
 
-                    self._update_server_progress(account_id,
-                        ServerProgress.WAITING_FOR_VALID_CANDIDATES)
+            self._update_server_progress(account_id,
+                ServerProgress.WAITING_FOR_VALID_CANDIDATES)
 
-                    self._logger.debug("Picking an blockchain server, candidates: %s",
-                        blockchain_server_candidates)
-                    while True:
-                        server_candidates = list[tuple[ServerAccountKey, NewServer]]()
-                        for server_key, server in blockchain_server_candidates:
-                            if self._network.is_header_server_ready(server_key):
-                                server_candidates.append((server_key, server))
-                        if len(server_candidates) > 0:
-                            server_key, server = random.choice(server_candidates)
-                            break
-                        self._logger.debug("Waiting for valid blockchain server, candidates: %s",
-                            blockchain_server_candidates)
-                        await self._network.new_server_ready_event.wait()
+            self._logger.debug("Picking an blockchain server, candidates: %s",
+                blockchain_server_candidates)
+            while True:
+                server_candidates = list[tuple[ServerAccountKey, NewServer]]()
+                for server_key, server in blockchain_server_candidates:
+                    if self._network.is_header_server_ready(server_key):
+                        server_candidates.append((server_key, server))
+                if len(server_candidates) > 0:
+                    server_key, server = random.choice(server_candidates)
+                    break
+                self._logger.debug("Waiting for valid blockchain server, candidates: %s",
+                    blockchain_server_candidates)
+                await self._network.new_server_ready_event.wait()
 
+            chosen_servers.append((server, { ServerCapability.TIP_FILTER }))
+            new_indexing_server_id = server.server_id
+        else:
+            for server in self._servers.values():
+                if server.server_id == account_row.indexer_server_id:
                     chosen_servers.append((server, { ServerCapability.TIP_FILTER }))
-                    new_indexing_server_id = server.server_id
-                else:
-                    for server in self._servers.values():
-                        if server.server_id == account_row.indexer_server_id:
-                            chosen_servers.append((server, { ServerCapability.TIP_FILTER }))
-                            break
-                    else:
-                        # TODO(1.4.0) Unreliable application, issue#906. Broken database state?
-                        raise NotImplementedError("Existing blockchain server not found for given "
-                            f"id={account_row.indexer_server_id}")
+                    break
+            else:
+                # TODO(1.4.0) Unreliable application, issue#906. Broken database state?
+                raise NotImplementedError("Existing blockchain server not found for given "
+                    f"id={account_row.indexer_server_id}")
 
-                self._update_server_progress(account_id,
-                    ServerProgress.WAITING_UNTIL_CANDIDATE_IS_READY)
+        self._update_server_progress(account_id,
+            ServerProgress.WAITING_UNTIL_CANDIDATE_IS_READY)
 
-                blockchain_server_key = ServerAccountKey(server.url, server.server_type, None)
-                logger.info("Setting blockchain service to: '%s'", blockchain_server_key)
+        blockchain_server_key = ServerAccountKey(server.url, server.server_type, None)
+        logger.info("Setting blockchain service to: '%s'", blockchain_server_key)
 
-                # When making the initial choice above about what blockchain server to use, we
-                # stall until we know the server is ready so this should not block in that case.
-                # If the wallet was loaded with an existing blockchain server, we may block
-                # here.
-                await self._network.wait_until_header_server_is_ready_async(blockchain_server_key)
+        # When making the initial choice above about what blockchain server to use, we
+        # stall until we know the server is ready so this should not block in that case.
+        # If the wallet was loaded with an existing blockchain server, we may block
+        # here.
+        await self._network.wait_until_header_server_is_ready_async(blockchain_server_key)
 
-                blockchain_server_state = self._network.get_header_server_state(
-                    blockchain_server_key)
-                # This is obviously incorrect when we properly support server switching..
-                assert self._blockchain_server_state is None
-                # This will set the blockchain server state as our header source.
-                assert blockchain_server_state.chain is not None
-                assert blockchain_server_state.tip_header is not None
-                await self._reconcile_wallet_with_header_source(blockchain_server_state,
-                    blockchain_server_state.chain, blockchain_server_state.tip_header)
+        blockchain_server_state = self._network.get_header_server_state(
+            blockchain_server_key)
+        # This is obviously incorrect when we properly support server switching..
+        assert self._blockchain_server_state is None
+        # This will set the blockchain server state as our header source.
+        assert blockchain_server_state.chain is not None
+        assert blockchain_server_state.tip_header is not None
+        await self._reconcile_wallet_with_header_source(blockchain_server_state,
+            blockchain_server_state.chain, blockchain_server_state.tip_header)
 
-                self._network.trigger_callback(NetworkEventNames.GENERIC_STATUS)
+        self._network.trigger_callback(NetworkEventNames.GENERIC_STATUS)
 
-                if account_row.peer_channel_server_id is not None:
-                    if account_row.peer_channel_server_id == account_row.indexer_server_id:
-                        # Both servers are used for indexing and peer channels.
-                        chosen_servers[0][1].add(ServerCapability.PEER_CHANNELS)
-                    else:
-                        for server in self._servers.values():
-                            if server.server_id == account_row.peer_channel_server_id:
-                                chosen_servers.append((server, { ServerCapability.PEER_CHANNELS }))
-                                break
-                        else:
-                            # TODO(1.4.0) Unreliable application, issue#906. Broken database state.
-                            raise NotImplementedError("Existing peer channel server not found for "
-                                f"given id={account_row.peer_channel_server_id}")
-                else:
-                    peer_channel_server_candidates = list[NewServer]()
-                    for server_key, server in self._servers.items():
-                        server_row = server.database_rows[None]
-                        # TODO(1.4.0) Servers, issue#908. Peer channel selection. We need to know
-                        #     that the selected peer channel server is working/available. For now
-                        #     we tie it to the header server.
-                        if server_row.server_flags & NetworkServerFlag.CAPABILITY_PEER_CHANNELS \
-                                and self._network.is_header_server_ready(server_key):
-                            peer_channel_server_candidates.append(server)
-                    server = random.choice(peer_channel_server_candidates)
-                    if chosen_servers[0][0].server_id == server.server_id:
-                        # Both servers are used for indexing and peer channels.
-                        chosen_servers[0][1].add(ServerCapability.PEER_CHANNELS)
-                    else:
+        if account_row.peer_channel_server_id is not None:
+            if account_row.peer_channel_server_id == account_row.indexer_server_id:
+                # Both servers are used for indexing and peer channels.
+                chosen_servers[0][1].add(ServerCapability.PEER_CHANNELS)
+            else:
+                for server in self._servers.values():
+                    if server.server_id == account_row.peer_channel_server_id:
                         chosen_servers.append((server, { ServerCapability.PEER_CHANNELS }))
-                    new_peer_channel_server_id = server.server_id
+                        break
+                else:
+                    # TODO(1.4.0) Unreliable application, issue#906. Broken database state.
+                    raise NotImplementedError("Existing peer channel server not found for "
+                        f"given id={account_row.peer_channel_server_id}")
+        else:
+            peer_channel_server_candidates = list[NewServer]()
+            for server_key, server in self._servers.items():
+                server_row = server.database_rows[None]
+                # TODO(1.4.0) Servers, issue#???. Peer channel selection. We need to know
+                #     that the selected peer channel server is working/available. For now
+                #     we tie it to the header server.
+                if server_row.server_flags & NetworkServerFlag.CAPABILITY_PEER_CHANNELS \
+                        and self._network.is_header_server_ready(server_key):
+                    peer_channel_server_candidates.append(server)
+            server = random.choice(peer_channel_server_candidates)
+            if chosen_servers[0][0].server_id == server.server_id:
+                # Both servers are used for indexing and peer channels.
+                chosen_servers[0][1].add(ServerCapability.PEER_CHANNELS)
+            else:
+                chosen_servers.append((server, { ServerCapability.PEER_CHANNELS }))
+            new_peer_channel_server_id = server.server_id
 
-                # If we had to pick servers because the petty cash account did not have them,
-                # we record them for next time.
-                if new_indexing_server_id is not None or new_peer_channel_server_id is not None:
-                    if new_indexing_server_id is None:
-                        new_indexing_server_id = account_row.indexer_server_id
-                    if new_peer_channel_server_id is None:
-                        new_peer_channel_server_id = account_row.peer_channel_server_id
-                    self._logger.debug("Stored new servers for account %d, indexing=%d, "
-                        "peer_channels=%d", account_id, new_indexing_server_id,
-                        new_peer_channel_server_id)
-                    self.data.update_account_server_ids(new_indexing_server_id,
-                        new_peer_channel_server_id, account_id)
+        # If we had to pick servers because the petty cash account did not have them,
+        # we record them for next time.
+        if new_indexing_server_id is not None or new_peer_channel_server_id is not None:
+            if new_indexing_server_id is None:
+                new_indexing_server_id = account_row.indexer_server_id
+            if new_peer_channel_server_id is None:
+                new_peer_channel_server_id = account_row.peer_channel_server_id
+            self._logger.debug("Stored new servers for account %d, indexing=%d, "
+                "peer_channels=%d", account_id, new_indexing_server_id,
+                new_peer_channel_server_id)
+            self.data.update_account_server_ids(new_indexing_server_id,
+                new_peer_channel_server_id, account_id)
 
-                # Further connection state is tracked via `_monitor_connection_stage_changes_async`
-                self._update_server_progress(account_id, ServerProgress.CONNECTION_PROCESS_ACTIVE)
+        # Further connection state is tracked via `_monitor_connection_stage_changes_async`
+        self._update_server_progress(account_id, ServerProgress.CONNECTION_PROCESS_ACTIVE)
 
-                self._worker_tasks_maintain_server_connection[account_id] = []
-                covered_capabilities = set[ServerCapability]()
-                for api_server, utilised_capabilities in chosen_servers:
-                    covered_capabilities |= utilised_capabilities
-                    server_state = ServerConnectionState(
-                        petty_cash_account_id=account_id,
-                        utilised_capabilities=utilised_capabilities,
-                        wallet_proxy=weakref.proxy(self),
-                        wallet_data=self.data,
-                        session=self._network.aiohttp_session,
-                        server=api_server,
-                        credential_id=api_server.client_api_keys[None])
+        self._worker_tasks_maintain_server_connection[account_id] = []
+        covered_capabilities = set[ServerCapability]()
+        for api_server, utilised_capabilities in chosen_servers:
+            covered_capabilities |= utilised_capabilities
+            server_state = ServerConnectionState(
+                petty_cash_account_id=account_id,
+                utilised_capabilities=utilised_capabilities,
+                wallet_proxy=weakref.proxy(self),
+                wallet_data=self.data,
+                session=self._network.aiohttp_session,
+                server=api_server,
+                credential_id=api_server.client_api_keys[None])
 
-                    server_state.stage_change_pipeline_future = app_state.async_.spawn(
-                        self._monitor_connection_stage_changes_async, server_state)
-                    server_state.connection_future = app_state.async_.spawn(
-                        maintain_server_connection_async, server_state)
-                    server_state.mapi_callback_consumer_future = app_state.async_.spawn(
-                        self._consume_mapi_callback_messages_async, server_state)
-                    server_state.output_spends_consumer_future = app_state.async_.spawn(
-                        self._consume_output_spend_notifications_async,
-                        server_state.output_spend_result_queue)
-                    server_state.tip_filter_consumer_future = app_state.async_.spawn(
-                        self._consume_tip_filter_matches_async, server_state)
+            server_state.stage_change_pipeline_future = app_state.async_.spawn(
+                self._monitor_connection_stage_changes_async(server_state))
 
-                    self._worker_tasks_maintain_server_connection[account_id].append(server_state)
-                assert covered_capabilities == { ServerCapability.PEER_CHANNELS,
-                    ServerCapability.TIP_FILTER }
+            # This is the task that establishes the connection and manages it.
+            server_state.connection_future = app_state.async_.spawn(
+                maintain_server_connection_async(server_state))
+            server_state.connection_future.add_done_callback(
+                partial(self._maintain_server_connection_done, server_state))
 
-        self._worker_task_obtain_transactions = app_state.async_.spawn(
-            self._obtain_transactions_worker_async)
-        self._worker_task_obtain_merkle_proofs = app_state.async_.spawn(
-            self._obtain_merkle_proofs_worker_async)
-        self._worker_task_connect_headerless_proofs = app_state.async_.spawn(
-            self._connect_headerless_proofs_worker_async)
+            if server_state.used_for_blockchain_services:
+                server_state.mapi_callback_consumer_future = app_state.async_.spawn(
+                    self._consume_mapi_callback_messages_async(server_state))
+                server_state.output_spends_consumer_future = app_state.async_.spawn(
+                    self._consume_output_spend_notifications_async(
+                        server_state.output_spend_result_queue))
+                server_state.tip_filter_consumer_future = app_state.async_.spawn(
+                    self._consume_tip_filter_matches_async(server_state))
+
+            self._worker_tasks_maintain_server_connection[account_id].append(server_state)
+        assert covered_capabilities == { ServerCapability.PEER_CHANNELS,
+            ServerCapability.TIP_FILTER }
+
+    def _maintain_server_connection_done(self, state: ServerConnectionState,
+            future: concurrent.futures.Future[ServerConnectionProblems]) -> None:
+        """
+        The task that establishes the connection and manages it has exited.
+        """
+        if future.cancelled():
+            return
+
+        # ...
+        problems = future.result()
+        # TODO(1.4.0) User experience. Work out
 
     async def _monitor_connection_stage_changes_async(self, state: ServerConnectionState) -> None:
         """
@@ -4372,7 +4382,7 @@ class Wallet:
             if is_blockchain_server_active:
                 # We can start trying to connect to the blockchain server we are already using.
                 self._worker_task_manage_server_connections = app_state.async_.spawn(
-                    self._manage_server_connections_async)
+                    self._manage_server_connections_async())
         else:
             # Offline mode.
             pass
@@ -4382,9 +4392,15 @@ class Wallet:
         if not is_blockchain_server_active:
             # Wallets start off following the longest valid chain.
             self._worker_task_initialise_headers = app_state.async_.spawn(
-                self._initialise_headers_from_header_store)
+                self._initialise_headers_from_header_store())
 
-        self._worker_task_chain_management = app_state.async_.spawn(self._chain_management_task)
+        self._worker_task_obtain_transactions = app_state.async_.spawn(
+            self._obtain_transactions_worker_async())
+        self._worker_task_obtain_merkle_proofs = app_state.async_.spawn(
+            self._obtain_merkle_proofs_worker_async())
+        self._worker_task_connect_headerless_proofs = app_state.async_.spawn(
+            self._connect_headerless_proofs_worker_async())
+        self._worker_task_chain_management = app_state.async_.spawn(self._chain_management_task())
 
         self._stopped = False
 
@@ -4427,7 +4443,7 @@ class Wallet:
 
     def _shutdown_network_related_tasks(self) -> None:
         # Collect the futures we are waiting to complete.
-        pending_futures = set[concurrent.futures.Future[None]]()
+        pending_futures = set[concurrent.futures.Future[Any]]()
 
         # The following tasks can be cancelled directly and do not need to shutdown cleanly.
         if self._worker_task_initialise_headers is not None:
@@ -4446,16 +4462,23 @@ class Wallet:
 
         # This blocks the current thread, but we are exiting and it is not expected that
         # anything should take a noticeable amount of time to exit.
-        app_state.async_.spawn_and_wait(trigger_chain_management_interrupt_event)
+        app_state.async_.spawn_and_wait(trigger_chain_management_interrupt_event())
 
-        # These were signalled to exit by the chain management interrupt event.
+        # Only kill if not signalled to exit by the chain management interrupt event.
+        kill_worker_tasks = not self._header_source_synchronised_event.is_set()
         if self._worker_task_obtain_transactions is not None:
+            if kill_worker_tasks:
+                self._worker_task_obtain_transactions.cancel()
             pending_futures.add(self._worker_task_obtain_transactions)
             self._worker_task_obtain_transactions = None
         if self._worker_task_obtain_merkle_proofs is not None:
+            if kill_worker_tasks:
+                self._worker_task_obtain_merkle_proofs.cancel()
             pending_futures.add(self._worker_task_obtain_merkle_proofs)
             self._worker_task_obtain_merkle_proofs = None
         if self._worker_task_connect_headerless_proofs is not None:
+            if kill_worker_tasks:
+                self._worker_task_connect_headerless_proofs.cancel()
             pending_futures.add(self._worker_task_connect_headerless_proofs)
             self._worker_task_connect_headerless_proofs = None
 
@@ -4476,15 +4499,27 @@ class Wallet:
                     pending_futures.add(state.tip_filter_consumer_future)
         del self._worker_tasks_maintain_server_connection
 
-        while len(pending_futures) > 0:
+        total_wait = 0.0
+        while len(pending_futures) > 0 and total_wait < 5.0:
             self._logger.debug("Shutdown waiting for %d tasks to exit: %s", len(pending_futures),
                 pending_futures)
             # Cancelled tasks clean up when they get a chance to run next. Python will complain
             # on exit about tasks that are not cleaned up.
-            app_state.async_.spawn_and_wait(asyncio.sleep, 0)
+            app_state.async_.spawn_and_wait(asyncio.sleep(0))
             done, not_done = concurrent.futures.wait(pending_futures, 1.0)
             pending_futures = not_done
-        self._logger.debug("Shutdown network tasks cleanly")
+            total_wait += 1.0
+
+        if len(pending_futures) > 0:
+            # This should never happen outside of in development errors. We include it both for
+            # that reason and also in case it unexpectedly happens, the user does not have a
+            # zombie wallet process.
+            for lagging_future in pending_futures:
+                lagging_future.cancel()
+            self._logger.error("Network related tasks shutdown uncleanly (cancelled %d)",
+                len(pending_futures))
+        else:
+            self._logger.debug("Network related tasks shutdown cleanly")
 
     def create_gui_handler(self, window: WindowProtocol, account: AbstractAccount) -> None:
         for keystore in account.get_keystores():
@@ -5228,15 +5263,18 @@ class Wallet:
 
                 for proof_entry in pending_proof_entries:
                     proof = proof_entry[0]
-                    assert proof.block_hash is not None
                     assert proof.transaction_hash is not None
-                    lookup_result = self.lookup_header_for_hash(proof.block_hash)
+                    block_hash = proof.block_hash
+                    if block_hash is None:
+                        assert proof.block_header_bytes is not None
+                        block_hash = double_sha256(proof.block_header_bytes)
+                    lookup_result = self.lookup_header_for_hash(block_hash)
                     if lookup_result is None:
                         logger.debug("Backlogged transaction %s verification waiting for missing "
                             "header", hash_to_hex_str(proof.transaction_hash))
-                        if state.block_transactions.get(proof.block_hash) is None:
-                            state.block_transactions[proof.block_hash] = []
-                        state.block_transactions[proof.block_hash].append(proof_entry)
+                        if state.block_transactions.get(block_hash) is None:
+                            state.block_transactions[block_hash] = []
+                        state.block_transactions[block_hash].append(proof_entry)
                     else:
                         header, _common_chain = lookup_result
                         process_entries.append((header, proof_entry))
@@ -5264,15 +5302,22 @@ class Wallet:
             for process_entry in process_entries:
                 header, (proof, proof_row) = process_entry
                 assert proof.transaction_hash is not None
-                if verify_proof(proof, header.merkle_root):
-                    assert proof.block_hash is not None
+                # Proofs come in different formats. Some embed the header.
+                if proof.block_header_bytes is not None:
+                    proof_block_hash = double_sha256(proof.block_header_bytes)
+                    verified = proof_block_hash == header.hash and verify_proof(proof)
+                else:
+                    proof_block_hash = proof.block_hash
+                    assert proof_block_hash is not None
+                    verified = verify_proof(proof, header.merkle_root)
 
+                if verified:
                     block_height = cast(int, header.height)
-                    transaction_proof_updates.append(TransactionProofUpdateRow(proof.block_hash,
+                    transaction_proof_updates.append(TransactionProofUpdateRow(proof_block_hash,
                         block_height, proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
                         proof.transaction_hash))
                     verified_proof_entries.append(process_entry)
-                    proof_updates.append(MerkleProofUpdateRow(block_height, proof_row.block_hash,
+                    proof_updates.append(MerkleProofUpdateRow(block_height, proof_block_hash,
                         proof_row.tx_hash))
                 else:
                     # TODO(1.4.0) Unreliable server#issue841. Invalid proof when connecting to hdr.

@@ -1705,7 +1705,7 @@ def test_read_proofless_transactions(db_context: DatabaseContext) -> None:
     expected_tx_hashes: dict[bytes, int] = {
         TX_HASH_SETTLED_MATCH1: ACCOUNT2_ID,
         TX_HASH_SETTLED_MATCH2: ACCOUNT1_ID,
-#         TX_HASH_CLEARED_MATCH1: ACCOUNT1_ID,
+        TX_HASH_CLEARED_MATCH1: ACCOUNT1_ID,
     }
     remaining_tx_hashes = dict(expected_tx_hashes)
     print(rows)

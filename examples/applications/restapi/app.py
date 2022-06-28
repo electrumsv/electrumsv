@@ -29,13 +29,13 @@ class RESTAPIApplication:
             self._teardown_app()
             self.logger.debug("exited application main loop")
 
-    def run_coro(self, coro, *args, on_done=None) -> concurrent.futures.Future:
-        future = app_state.async_.spawn(coro, *args, on_done=on_done)
+    def run_coro(self, coro, on_done=None) -> concurrent.futures.Future:
+        future = app_state.async_.spawn(coro, on_done=on_done)
         return future
 
     def run_in_thread(self, func, *args,
             on_done: Optional[Callable[[concurrent.futures.Future], None]]=None):
-        return self.run_coro(asyncio.to_thread, func, *args, on_done=on_done)
+        return self.run_coro(asyncio.to_thread(func, *args), on_done=on_done)
 
     def setup_app(self) -> None:
         # app_state.daemon is initialised after app. Setup things dependent on daemon here.

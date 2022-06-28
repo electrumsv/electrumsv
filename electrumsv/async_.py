@@ -27,12 +27,13 @@ from functools import partial
 import queue
 import threading
 from types import TracebackType
-from typing import Any, Callable, Coroutine, Optional, Set, Type, TypeVar, Union
+from typing import Any, Callable, Coroutine, Optional, ParamSpec, Set, Type, TypeVar
 
 from .logs import logs
 
 logger = logs.get_logger("async")
 
+P1 = ParamSpec("P1")
 T1 = TypeVar("T1")
 T2 = TypeVar("T2")
 
@@ -89,12 +90,8 @@ class ASync(object):
         self.loop.run_until_complete(self._wait_until_stopped())
         self.loop.close()
 
-    def _spawn(self, async_func: Callable[..., Coroutine[Any, Any, T2]],
-            args: Union[tuple[Any, ...], list[Any]]) -> concurrent.futures.Future[T2]:
-        return run_coroutine_threadsafe(async_func(*args), self.loop)
-
-    def _collect(self, on_done: Optional[Callable[[concurrent.futures.Future[None]], None]],
-            future: concurrent.futures.Future[None]) -> None:
+    def _collect(self, on_done: Optional[Callable[[concurrent.futures.Future[Any]], None]],
+            future: concurrent.futures.Future[Any]) -> None:
         self.futures.remove(future)
         if on_done:
             self._queue.put((on_done, future))
@@ -108,17 +105,17 @@ class ASync(object):
 
     # WARNING If called directly this will not trigger the pending callbacks and `on_done` will
     #   not happen reliably.
-    def spawn(self, async_func: Callable[..., Coroutine[Any, Any, T2]], *args: Any,
-            on_done: Optional[Callable[[concurrent.futures.Future[T2]], None]]=None) \
+    def spawn(self,
+            coroutine: Coroutine[Any, Any, T2],
+            on_done: Callable[[concurrent.futures.Future[T2]], None] | None=None) \
                 -> concurrent.futures.Future[T2]:
-        future = self._spawn(async_func, args)
+        future = run_coroutine_threadsafe(coroutine, self.loop)
         self.futures.add(future)
         future.add_done_callback(partial(self._collect, on_done))
         return future
 
-    def spawn_and_wait(self, coro: Callable[..., Coroutine[Any, Any, T1]], *args: Any,
-            timeout: Optional[int]=None) -> T1:
-        future = self._spawn(coro, args)
+    def spawn_and_wait(self, coroutine: Coroutine[Any, Any, T1], timeout: Optional[int]=None) -> T1:
+        future = run_coroutine_threadsafe(coroutine, self.loop)
         return future.result(timeout)
 
     def run_pending_callbacks(self) -> None:

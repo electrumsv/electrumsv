@@ -150,7 +150,7 @@ class Daemon(DaemonThread):
             self.network = Network()
 
             app_state.fx = FxTask(app_state.config, self.network)
-            self.fx_task = app_state.async_.spawn(app_state.fx.refresh_loop)
+            self.fx_task = app_state.async_.spawn(app_state.fx.refresh_loop())
 
         # self.init_thread_watcher()
 
@@ -354,13 +354,13 @@ class Daemon(DaemonThread):
 
     def on_stop(self) -> None:
         if self.rest_server and self.rest_server.is_alive:
-            app_state.async_.spawn_and_wait(self.rest_server.stop)
+            app_state.async_.spawn_and_wait(self.rest_server.stop())
         self.logger.debug("stopped.")
 
     def launch_restapi(self) -> None:
         assert self.rest_server is not None
         if not self.rest_server.is_alive:
-            self._restapi_future = app_state.async_.spawn(self.rest_server.launcher)
+            self._restapi_future = app_state.async_.spawn(self.rest_server.launcher())
             self.rest_server.is_alive = True
 
     def run(self) -> None:
@@ -373,7 +373,7 @@ class Daemon(DaemonThread):
             logger.warning("wait for network shutdown")
             assert self.fx_task is not None, "fx task should be valid if network is"
             self.fx_task.cancel()
-            app_state.async_.spawn_and_wait(self.network.shutdown_wait)
+            app_state.async_.spawn_and_wait(self.network.shutdown_wait())
         app_state.on_stop()
         self.on_stop()
 

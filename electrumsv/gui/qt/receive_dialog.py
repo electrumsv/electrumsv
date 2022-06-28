@@ -573,6 +573,10 @@ class ReceiveDialog(QDialog):
             """
             This callback happens in the database thread. No UI calls can be made in it and any
             UI calls should happen through emitting a signal.
+
+            WARNING: Nothing should be done here that does not happen effectively instantly.
+                Database callbacks should hand off work to be done elsewhere, whether in the
+                async or UI thread.
             """
             # Skip if the operation was cancelled.
             if future.cancelled():
@@ -603,7 +607,7 @@ class ReceiveDialog(QDialog):
                     refresh_callback=self.refresh_form_signal.emit,
                     completion_callback=self.tip_filter_registration_completed_signal.emit)
                 self._logger.debug("Creating TipFilterRegistrationJob task %r", job)
-                app_state.app.run_coro(monitor_tip_filter_job, indexing_server_state, job)
+                app_state.app.run_coro(monitor_tip_filter_job(indexing_server_state, job))
 
             assert self._view is not None
             # Notify the view that the dialog now refers to an actual payment request.

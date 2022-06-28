@@ -91,11 +91,11 @@ class DefaultApp(object):
     def new_window(self, path: Optional[str], uri: Optional[str]=None) -> None:
         raise NotImplementedError
 
-    def run_coro(self, coro: Callable[..., Coroutine[Any, Any, T1]], *args: Any,
+    def run_coro(self, coro: Coroutine[Any, Any, T1],
             on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
                 -> concurrent.futures.Future[T1]:
         global app_state
-        return app_state.async_.spawn(coro, *args, on_done=on_done)
+        return app_state.async_.spawn(coro, on_done=on_done)
 
 
 class AppStateProxy(object):
@@ -190,7 +190,7 @@ class AppStateProxy(object):
         if daemon is None:
             return
 
-        self._longest_chain_future = self.async_.spawn(self._follow_longest_valid_chain)
+        self._longest_chain_future = self.async_.spawn(self._follow_longest_valid_chain())
         # Futures swallow exceptions if there are no callbacks to collect the exception.
         self._longest_chain_future.add_done_callback(future_callback)
 

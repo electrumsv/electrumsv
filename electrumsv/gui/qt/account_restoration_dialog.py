@@ -448,15 +448,15 @@ class AccountRestorationDialog(WindowModalDialog):
                 # user use the cancel UI. We could extend the wallet to attempt this, but it is not
                 # within the scope of the intitial feature set.
                 future = cast("SVApplication", app_state.app).run_coro(
-                    self._wallet.obtain_transactions_async, self._account_id,
-                    obtain_tx_keys, TransactionImportFlag.PROMPTED)
+                    self._wallet.obtain_transactions_async(self._account_id,
+                        obtain_tx_keys, TransactionImportFlag.PROMPTED))
                 future.add_done_callback(self._on_import_obtain_transactions_started)
 
             if len(link_tx_hashes):
                 # We store these to track what we are waiting for.
                 self._import_link_hashes = link_tx_hashes
-                app_state.async_.spawn(self._import_immediately_linkable_transactions,
-                    link_tx_hashes)
+                app_state.async_.spawn(self._import_immediately_linkable_transactions(
+                    link_tx_hashes))
 
     async def _import_immediately_linkable_transactions(self, link_tx_hashes: Set[bytes]) -> None:
         """

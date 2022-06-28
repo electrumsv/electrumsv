@@ -16,7 +16,7 @@ from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.migration import create_database, update_database
 from electrumsv.wallet_database.types import WalletDataRow
 
-from .util import mock_headers, PasswordToken
+from .util import _create_mock_app_state, mock_headers, PasswordToken
 
 
 @pytest.fixture
@@ -104,7 +104,8 @@ class TestWalletDataTable:
 
 
 
-def test_bulk_insert_returning(db_context) -> None:
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
+def test_bulk_insert_returning(mock_app_state, db_context) -> None:
     class OurRow(NamedTuple):
         column1: int
         column2: int

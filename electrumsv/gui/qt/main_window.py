@@ -227,9 +227,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._last_network_status_change = 0.0
         self._network_status_event = app_state.async_.event()
         self._network_status_loop_task = app_state.async_.spawn(
-            self._update_network_status_loop)
+            self._update_network_status_loop())
         self._monitor_wallet_network_status_task = app_state.async_.spawn(
-            self._monitor_wallet_network_status)
+            self._monitor_wallet_network_status())
 
         # network callbacks
         if self.network:
@@ -1532,8 +1532,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if account and not send_view.maybe_send_invoice_payment(tx):
                 return None
 
+            # TODO(1.4.0) Broken code. Account can be None, this function does not work if it is.
+            assert account is not None
             broadcast_response: BroadcastResponse = app_state.async_.spawn_and_wait(
-                broadcast_transaction, tx, self.network, account, True, True)
+                broadcast_transaction(tx, self.network, account, True, True))
             result = broadcast_response['txid']
 
             tx_hash = tx.hash()
@@ -2202,13 +2204,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             -> tuple[Optional[Transaction], Optional[TransactionContext]]:
         # We should have disabled this
         assert self.network is not None
+        assert self._account is not None
         prompt = _('Enter the transaction ID:') + '\u2001' * 30   # em quad
         txid, ok = QInputDialog.getText(self, _('Lookup transaction'), prompt)
         if ok and txid:
             txid = str(txid).strip()
             try:
-                rawtx = app_state.async_.spawn_and_wait(self._wallet.fetch_raw_transaction_async,
-                    hex_str_to_hash(txid), self._account, timeout=10)
+                rawtx = app_state.async_.spawn_and_wait(self._wallet.fetch_raw_transaction_async(
+                    hex_str_to_hash(txid), self._account), timeout=10)
             except Exception as exc:
                 d = UntrustedMessageDialog(
                     self, _("Transaction Lookup Error"),

@@ -1,5 +1,5 @@
 import os
-from typing import NoReturn
+from typing import Any, Coroutine, NoReturn
 import unittest.mock
 
 import bitcoinx
@@ -105,3 +105,13 @@ def mock_headers() -> unittest.mock.Mock:
     headers.longest_chain = lambda: longest_chain
     headers.header_at_height = _no_header
     return headers
+
+
+def _create_mock_app_state() -> unittest.mock.MagicMock:
+    # The primary goal of this is to avoid the warnings about never awaited coroutines.
+    def _spawn(coro: Coroutine[Any, Any, Any], on_done=None) -> Any:
+        coro.close()
+    mock = unittest.mock.MagicMock()
+    mock.async_.spawn = _spawn
+    return mock
+

@@ -393,7 +393,7 @@ class SVApplication(QApplication):
         self.sendEvent(self.clipboard(), event)
         self.tray.hide()
 
-    def run_coro(self, coro: Callable[..., Coroutine[Any, Any, T1]], *args: Any,
+    def run_coro(self, coro: Coroutine[Any, Any, T1],
             on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
                 -> concurrent.futures.Future[T1]:
         '''Run a coroutine.  on_done, if given, is passed the future containing the reuslt or
@@ -402,10 +402,13 @@ class SVApplication(QApplication):
         def task_done(future: concurrent.futures.Future[T1]) -> None:
             self.async_tasks_done.emit()
 
-        future = app_state.async_.spawn(coro, *args, on_done=on_done)
+        future = app_state.async_.spawn(coro, on_done=on_done)
         future.add_done_callback(task_done)
         return future
 
+    # NOTE(typing) This cannot be guaranteed to type-check correctly. In order to do that we
+    #     would need to use `typing.ParamSpec` and be able to `Concatenate` the `on_done`
+    #     keyword argument into the mix. However, that is not supported as per PEP 612.
     def run_in_thread(self, func: Callable[..., T1], /, *args: Any,
             on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
                 -> concurrent.futures.Future[T1]:
@@ -413,4 +416,4 @@ class SVApplication(QApplication):
         reuslt or exception, and is guaranteed to be called in the context of the GUI
         thread.
         '''
-        return self.run_coro(asyncio.to_thread, func, *args, on_done=on_done)
+        return self.run_coro(asyncio.to_thread(func, *args), on_done=on_done)

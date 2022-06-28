@@ -19,42 +19,14 @@ from ..constants import ServerCapability, ServerConnectionFlag
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
 from ..wallet_database.types import ServerPeerChannelMessageRow
 
+from .constants import ServerProblemKind
+
 if TYPE_CHECKING:
     from ..wallet import Wallet, WalletDataAccess
     from ..wallet_database.types import ServerPeerChannelRow
 
     from .api_server import NewServer
 
-
-# ----- ESVReferenceServer Error types ----- #
-
-class WebsocketUnauthorizedException(Exception):
-    pass
-
-
-class WebsocketError(TypedDict):
-    reason: str
-    status_code: int
-
-
-class Error(Exception):
-
-    def __init__(self, reason: str, status: int):
-        self.reason = reason
-        self.status = status
-
-    def to_websocket_dict(self) -> dict[str, WebsocketError]:
-        return {"error": {"reason": self.reason,
-                          "status_code": self.status}}
-
-    @classmethod
-    def from_websocket_dict(cls, message: dict[str, WebsocketError]) -> 'Error':
-        reason = message["error"]["reason"]
-        status = message["error"]["status_code"]
-        return cls(reason, status)
-
-    def __str__(self) -> str:
-        return f"Error(reason={self.reason}, status={self.status})"
 
 # ----- HeaderSV types ----- #
 class HeaderResponse(TypedDict):
@@ -129,7 +101,7 @@ class PeerChannelViewModelGet(TypedDict):
 
 
 class MAPICallbackResponse(TypedDict):
-    callbackPayload: str
+    callbackPayload: dict[str, Any]
     apiVersion: str
     timestamp: str
     minerId: Optional[str]
@@ -275,6 +247,10 @@ class IndexerServerSettings(TypedDict):
     tipFilterCallbackToken: Optional[str]
 
 
+ServerConnectionProblem = tuple[ServerProblemKind, str]
+ServerConnectionProblems = dict[ServerProblemKind, list[str]]
+
+
 @dataclasses.dataclass
 class ServerConnectionState:
     petty_cash_account_id: int
@@ -286,6 +262,11 @@ class ServerConnectionState:
 
     credential_id: Optional[IndefiniteCredentialId] = None
     cached_peer_channel_rows: Optional[dict[str, ServerPeerChannelRow]] = None
+
+    # This should only be used to send problems that occur that should result in the connection
+    # being closed and the user informed.
+    disconnection_event_queue: asyncio.Queue[tuple[ServerProblemKind, str]] = dataclasses.field(
+        default_factory=asyncio.Queue[tuple[ServerProblemKind, str]])
 
     # Incoming peer channel message notifications from the server.
     indexer_settings: Optional[IndexerServerSettings] = None
@@ -317,15 +298,31 @@ class ServerConnectionState:
     # The stage of the connection process it has last reached.
     connection_flags: ServerConnectionFlag = ServerConnectionFlag.INITIALISED
     stage_change_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
-    # Set this if there is a problem with the connection worthy of abandoning it.
-    connection_exit_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
 
-    # ...
+    # Wallet individual futures (all servers).
     stage_change_pipeline_future: Optional[concurrent.futures.Future[None]] = None
-    connection_future: Optional[concurrent.futures.Future[None]] = None
+    connection_future: Optional[concurrent.futures.Future[ServerConnectionProblems]] = None
+
+    # Wallet individual futures (servers used for blockchain services only).
     mapi_callback_consumer_future: Optional[concurrent.futures.Future[None]] = None
     output_spends_consumer_future: Optional[concurrent.futures.Future[None]] = None
     tip_filter_consumer_future: Optional[concurrent.futures.Future[None]] = None
+
+    # Server websocket-related futures.
+    websocket_futures: list[concurrent.futures.Future[None]] = dataclasses.field(
+        default_factory=list[concurrent.futures.Future[None]])
+
+    @property
+    def used_with_reference_server_api(self) -> bool:
+        return ServerCapability.TIP_FILTER in self.utilised_capabilities
+
+    @property
+    def used_for_blockchain_services(self) -> bool:
+        return ServerCapability.TIP_FILTER in self.utilised_capabilities
+
+    @property
+    def used_for_peer_channels(self) -> bool:
+        return ServerCapability.PEER_CHANNELS in self.utilised_capabilities
 
     def clear_for_reconnection(self, clear_flags: ServerConnectionFlag=ServerConnectionFlag.NONE) \
             -> None:
@@ -335,12 +332,15 @@ class ServerConnectionState:
 
         self.cached_peer_channel_rows = None
         self.indexer_settings = None
+
         # When we establish a new websocket we will register all the outstanding output spend
         # registrations that we need, so whatever is left in the queue at this point is redundant.
         while not self.output_spend_registration_queue.empty():
             self.output_spend_registration_queue.get_nowait()
         while not self.peer_channel_message_queue.empty():
             self.peer_channel_message_queue.get_nowait()
+        while not self.disconnection_event_queue.empty():
+            self.disconnection_event_queue.get_nowait()
 
 
 class VerifiableKeyData(TypedDict):
