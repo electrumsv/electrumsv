@@ -48,7 +48,7 @@ from PyQt6.QtWidgets import (QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QM
     QLabel, QSizePolicy, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from ...app_state import app_state
-from ...constants import MAX_VALUE, PaymentFlag, TransactionImportFlag
+from ...constants import MAX_VALUE, NetworkServerFlag, PaymentFlag, TransactionImportFlag
 from ...exceptions import ExcessiveFee, NotEnoughFunds
 from ...i18n import _
 from ...logs import logs
@@ -63,6 +63,7 @@ from .amountedit import AmountEdit, BTCAmountEdit, MyLineEdit
 from . import dialogs
 from .invoice_list import InvoiceList
 from .paytoedit import PayToEdit
+from . import server_required_dialog
 from .table_widgets import TableTopButtonLayout
 from .types import FrozenEditProtocol
 from .util import (ColorScheme, EnterButton, HelpDialogButton, HelpLabel, MyTreeWidget,
@@ -441,9 +442,41 @@ class SendView(QWidget):
     def _do_preview(self) -> None:
         self._do_send(preview=True)
 
+    def _display_server_selection_dialog(self) -> None:
+        assert self._account is not None
+        required_usage_flags = NetworkServerFlag.USE_MESSAGE_BOX
+
+        dialog_text = _("This broadcast uses a MAPI server, and in order to "
+            "be notified when your transaction is mined or double-spent, you need to provide it "
+            "with a way to notify you. This is done through the use of a message box server, and "
+            "you do not currently have one selected."
+            "<br/><br/>"
+            "This wallet has not yet been set up to use a blockchain service. If you run your "
+            "own servers or wish to use third party servers, choose the 'Manage servers' option.")
+
+        from importlib import reload
+        reload(server_required_dialog)
+
+        dialog = server_required_dialog.ServerRequiredDialog(self,
+            self._account._wallet.reference(), required_usage_flags, dialog_text)
+        # There are two paths to the user accepting this dialog:
+        # - They checked "select servers on my behalf" then the OK buton and then servers were
+        #   selected and connected to.
+        # - They chose "Manage servers" which selected and connected to servers and then on exit
+        #   from that wizard this dialog auto-accepted.
+        dialog.accepted.connect(self._do_send)
+        dialog.show()
+        dialog.raise_()
+
     def _do_send(self, preview: bool=False) -> None:
         assert self._account is not None
         dialogs.show_named('think-before-sending')
+
+        if not (preview or
+                self._account._wallet.have_wallet_servers(NetworkServerFlag.USE_MESSAGE_BOX)):
+            if dialogs.show_named('mapi-broadcast-servers'):
+                self._display_server_selection_dialog()
+                return
 
         if self._payment_request is not None:
             tx = self.get_transaction_for_invoice()
@@ -554,8 +587,11 @@ class SendView(QWidget):
 
                 self._main_window.broadcast_transaction(self._account, tx, tx_context)
 
+        import_flags = TransactionImportFlag.EXPLICIT_BROADCAST
+        if tx_context.mapi_server_hint:
+            import_flags |= TransactionImportFlag.BROADCAST_MAPI
         self._main_window.sign_tx_with_password(tx, sign_done, password, context=tx_context,
-            import_flags=TransactionImportFlag.EXPLICIT_BROADCAST)
+            import_flags=import_flags)
 
     def get_transaction_for_invoice(self) -> Optional[Transaction]:
         assert self._account is not None and self._payment_request is not None

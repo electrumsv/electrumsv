@@ -47,8 +47,8 @@ from weakref import proxy
 
 from PyQt6.QtCore import QEvent, QItemSelectionModel, QModelIndex, QPoint, pyqtSignal, QSize, Qt
 from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import (QGroupBox, QHBoxLayout, QHeaderView, QLabel, QTreeWidget,
-    QTreeWidgetItem, QMenu, QSplitter, QStackedWidget, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
+from PyQt6.QtWidgets import (QHeaderView, QLabel, QTreeWidget, QTreeWidgetItem, QMenu, QSplitter,
+    QStackedWidget, QTabWidget, QTextEdit, QVBoxLayout, QWidget)
 
 from ...app_state import app_state
 from ...bitcoin import address_from_string, script_template_to_string
@@ -63,6 +63,7 @@ from ...wallet_database.types import WalletBalance
 from .account_dialog import AccountDialog
 from .constants import RestorationDialogRole
 from .debugger_view import DebuggerView
+from .home_view import HomeView
 from .main_window import ElectrumWindow
 from . import notifications_view
 from .util import (Buttons, CancelButton, filename_field, line_dialog, MessageBox, OkButton,
@@ -115,7 +116,7 @@ class WalletNavigationView(QSplitter):
 
         self._account_tree_items: Dict[int, QTreeWidgetItem] = {}
 
-        self._home_widget = QWidget()
+        self._home_widget = HomeView(self._main_window_proxy.reference(), self._wallet)
         self._accounts_widget = QWidget()
         self._contacts_widget = self._main_window_proxy.create_contacts_list()
         self._notifications_widget = notifications_view.View(self._main_window_proxy._api,
@@ -133,11 +134,15 @@ class WalletNavigationView(QSplitter):
         self._pane_view.addWidget(self._advanced_widget)
         self._pane_view.addWidget(self._console_widget)
         self._pane_view.addWidget(self._debugger_widget)
-        # Sigh. We can set the current widget all we want after this point in this call stack,
-        # but Qt5 ignores the call and just shows the last added widget. It does not appear
-        # possible to initialise the stacked widget then tell it immediately which to display.
+        # ShowHomeSectionOnStartup
+        # 1. Sigh. We can set the current widget all we want after this point in this call stack,
+        #    but Qt5 ignores the call and just shows the last added widget. It does not appear
+        #    possible to initialise the stacked widget then tell it immediately which to display.
+        # 2. When there is an account change event we ignore it if it is on startup so that we do
+        #    not switch away from the Home pane unwittingly.
+        # We want to show the home widget as a dashboard, the first thing the user sees on opening
+        # a wallet.
         self._pane_view.addWidget(self._home_widget)
-
         self._initialize_home()
 
         self._selection_tree = CustomTreeWidget()
@@ -158,10 +163,15 @@ class WalletNavigationView(QSplitter):
     def on_wallet_loaded(self) -> None:
         self._initialize_tree()
 
+    def _initialize_home(self) -> None:
+        self._home_widget.update_health_report()
+
     def init_geometry(self, sizes: Optional[Sequence[int]]=None) -> None:
         self._logger.debug("init_geometry.1 %r", sizes)
         if sizes is None:
-            sizes = [ 200, self._main_window_proxy.size().width() - 200 ]
+            default_left_width = 315
+            sizes = [ default_left_width,
+                self._main_window_proxy.size().width() - default_left_width ]
             self._logger.debug("init_geometry.2 %r", sizes)
         self.setSizes(sizes)
 
@@ -169,10 +179,12 @@ class WalletNavigationView(QSplitter):
         # It should be made the active wallet account and followed up with the change event.
         self._add_account_to_tree(new_account)
 
-    def _on_account_changed(self, new_account_id: Optional[int],
-            new_account: Optional[AbstractAccount]) -> None:
+    # ShowHomeSectionOnStartup
+    def _on_account_changed(self, new_account_id: int | None, new_account: AbstractAccount | None,
+            startup: bool) -> None:
         # The list is being told what to focus on.
-        if new_account_id is not None and self._update_active_account(new_account_id):
+        if new_account_id is not None and self._update_active_account(new_account_id) and \
+                not startup:
             account_item = self._account_tree_items[new_account_id]
             self._selection_tree.setCurrentItem(account_item)
 
@@ -227,63 +239,6 @@ class WalletNavigationView(QSplitter):
     def get_tab_widget(self) -> QTabWidget:
         return self._tab_widget
 
-    def _initialize_home(self) -> None:
-        summary_layout = QHBoxLayout()
-        summary_box = QGroupBox()
-        summary_box.setTitle(_('Account summary'))
-        summary_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        summary_box.setLayout(summary_layout)
-
-        summary_label = QLabel(_("This might give an overview of all your account balances "
-            "and the committed and available funds within them."))
-        summary_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        summary_label.setWordWrap(True)
-        summary_layout.addWidget(summary_label)
-
-        backup_layout = QHBoxLayout()
-        backup_box = QGroupBox()
-        backup_box.setTitle(_('Backup status'))
-        backup_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        backup_box.setLayout(backup_layout)
-
-        backup_label = QLabel(_("This will describe your backup state and prompt you to "
-            "do any outstanding tasks to ensure your remotely stored backups are set up "
-            "and up to date."))
-        backup_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        backup_label.setWordWrap(True)
-        backup_layout.addWidget(backup_label)
-
-        notification_layout = QHBoxLayout()
-        notification_box = QGroupBox()
-        notification_box.setTitle(_('Notifications'))
-        notification_box.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        notification_box.setLayout(notification_layout)
-
-        notification_label = QLabel(_("This will contain all the outstanding notifications "
-            "received for any account in the wallet."))
-        notification_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        notification_label.setWordWrap(True)
-        notification_layout.addWidget(notification_label)
-
-        row_layout = QVBoxLayout()
-        row_layout.setContentsMargins(0, 3, 5, 0)
-        row_layout.setSpacing(2)
-        column_layout = QHBoxLayout()
-        column_layout.setContentsMargins(0, 0, 0, 0)
-        column1_layout = QVBoxLayout()
-        column1_layout.setContentsMargins(0, 0, 0, 0)
-        column2_layout = QVBoxLayout()
-        column2_layout.setContentsMargins(0, 0, 0, 0)
-        column_layout.addLayout(column1_layout)
-        column_layout.addLayout(column2_layout)
-        row_layout.addLayout(column_layout)
-        row_layout.addWidget(notification_box)
-
-        self._home_widget.setLayout(row_layout)
-
-        column1_layout.addWidget(summary_box)
-        column2_layout.addWidget(backup_box)
-
     def _initialize_tree(self) -> None:
         self._selection_tree.clear()
         self._account_tree_items.clear()
@@ -322,7 +277,9 @@ class WalletNavigationView(QSplitter):
 
         # We order the accounts in order of creation, except for petty cash which should always
         # come last.
-        accounts = sorted(self._wallet.get_accounts(),
+        # NOTE(petty-cash) We do not show the petty cash account for now. We do not have
+        #     micro-payment support in the servers or the wallet itself yet.
+        accounts = sorted(self._wallet.get_visible_accounts(),
             key=lambda a: (a.is_petty_cash(), a.get_id()))
         for account in accounts:
             self._add_account_to_tree(account)
@@ -401,7 +358,7 @@ class WalletNavigationView(QSplitter):
                 item.setFont(TreeColumns.FIAT_VALUE, self._monospace_font)
 
         wallet_balance = WalletBalance()
-        for account in self._main_window_proxy._wallet.get_accounts():
+        for account in self._main_window_proxy._wallet.get_visible_accounts():
             account_id = account.get_id()
             account_balance = account.get_balance()
             wallet_balance += account_balance

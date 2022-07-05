@@ -579,8 +579,8 @@ class KeyView(QTableView):
             self._pending_state.clear()
             self._pending_actions = { ListActions.RESET }
 
-    def _on_account_change(self, new_account_id: Optional[int],
-            new_account: Optional[AbstractAccount]) -> None:
+    def _on_account_change(self, new_account_id: int | None, new_account: AbstractAccount | None,
+            startup: bool) -> None:
         if new_account_id is None or new_account is None:
             return
 

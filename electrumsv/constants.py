@@ -278,6 +278,10 @@ class TransactionImportFlag(IntFlag):
     # The user is importing this manually from somewhere external.
     MANUAL_IMPORT = 1 << 3
 
+    BROADCAST_P2P               = 0b00 << 10
+    BROADCAST_MAPI              = 0b01 << 10
+    MASK_BROADCAST_TYPE         = 0b11 << 10
+
 
 class TransactionInputFlag(IntFlag):
     NONE = 0
@@ -494,6 +498,18 @@ class NetworkServerFlag(IntFlag):
     CAPABILITY_OUTPUT_SPENDS                        = 1 << 15
     CAPABILITY_TIP_FILTER                           = 1 << 16
 
+    # Used as
+    REGISTERED_WITH                                 = 1 << 20
+    USE_BLOCKCHAIN                                  = 1 << 21
+    USE_MESSAGE_BOX                                 = 1 << 22
+
+    MASK_UTILISATION                                = USE_BLOCKCHAIN | USE_MESSAGE_BOX
+    # When a wallet processes the "hard-coded" servers it replaces all flags other than these.
+    MASK_RETAINED                                   = REGISTERED_WITH | MASK_UTILISATION
+
+
+SERVER_USES = { NetworkServerFlag.USE_BLOCKCHAIN, NetworkServerFlag.USE_MESSAGE_BOX }
+
 
 class CredentialPolicyFlag(IntFlag):
     NONE = 0
@@ -562,14 +578,16 @@ class ServerConnectionFlag(IntFlag):
     STARTING                                    = 1 << 1
     VERIFYING                                   = 1 << 2
     ESTABLISHING_WEB_SOCKET                     = 1 << 3
-    OUTPUT_SPENDS_READY                         = 1 << 4
-    TIP_FILTER_READY                            = 1 << 5
-    WEB_SOCKET_READY                            = 1 << 6
-    EXITING                                     = 1 << 7
-    EXITED                                      = 1 << 8
+    PREPARING_WEB_SOCKET                        = 1 << 4
+    OUTPUT_SPENDS_READY                         = 1 << 5
+    TIP_FILTER_READY                            = 1 << 6
+    WEB_SOCKET_READY                            = 1 << 7
+    EXITING                                     = 1 << 8
+    EXITED                                      = 1 << 9
 
     DISCONNECTED                                = 1 << 21
 
+    MASK_EXIT                                   = EXITING | EXITED
     MASK_COMMON_INITIAL                         = INITIALISED | STARTING | DISCONNECTED
 
 
@@ -609,3 +627,14 @@ class MAPIBroadcastFlag(IntFlag):
     NONE                                        = 0
     BROADCAST                                   = 1 << 0
     DELETED                                     = 1 << 1
+    RECEIVED_PROOF_CALLBACK                     = 1 << 2
+
+
+
+CSS_LABEL_WARNING = """
+    QLabel {
+        border: 1px solid #FDEEB7;
+        color: #826400;
+        background-color: #FEFECB;
+    }
+"""

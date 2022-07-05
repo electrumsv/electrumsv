@@ -16,13 +16,14 @@ from electrumsv.constants import NetworkServerType, ServerCapability
 from electrumsv.network_support.api_server import NewServer
 from electrumsv.network_support.types import ChannelNotification, ServerConnectionState, \
     ServerWebsocketNotification, TokenPermissions
-from electrumsv.network_support.general_api import create_peer_channel_async, \
+from electrumsv.network_support.general_api import unpack_binary_restoration_entry
+from electrumsv.network_support.headers import get_batched_headers_by_height_async, \
+    get_chain_tips_async, get_single_header_async, HeaderServerState, subscribe_to_headers_async
+from electrumsv.network_support.peer_channel import create_peer_channel_async, \
     create_peer_channel_api_token_async, create_peer_channel_message_json_async, \
     delete_peer_channel_async, get_peer_channel_max_sequence_number_async, \
     get_peer_channel_async, list_peer_channels_async, list_peer_channel_api_tokens_async, \
-    list_peer_channel_messages_async, unpack_binary_restoration_entry
-from electrumsv.network_support.headers import get_batched_headers_by_height_async, \
-    get_chain_tips_async, get_single_header_async, HeaderServerState, subscribe_to_headers_async
+    list_peer_channel_messages_async
 from electrumsv.standards.mapi import MAPICallbackResponse
 from electrumsv.types import ServerAccountKey
 
@@ -408,7 +409,7 @@ async def test_subscribe_to_headers(mock_app_state: AppStateProxy, aiohttp_clien
             return
 
 
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+@unittest.mock.patch('electrumsv.network_support.peer_channel.app_state')
 async def test_create_peer_channel_async(mock_app_state: AppStateProxy, aiohttp_client) -> None:
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
@@ -417,7 +418,7 @@ async def test_create_peer_channel_async(mock_app_state: AppStateProxy, aiohttp_
     assert isinstance(peer_channel_data, dict)
 
 
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+@unittest.mock.patch('electrumsv.network_support.peer_channel.app_state')
 async def test_delete_peer_channel_async(mock_app_state: AppStateProxy, aiohttp_client) -> None:
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
@@ -425,7 +426,7 @@ async def test_delete_peer_channel_async(mock_app_state: AppStateProxy, aiohttp_
     await delete_peer_channel_async(state, MOCK_CHANNEL_ID)
 
 
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+@unittest.mock.patch('electrumsv.network_support.peer_channel.app_state')
 async def test_list_peer_channels_async(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
@@ -437,7 +438,7 @@ async def test_list_peer_channels_async(mock_app_state: AppStateProxy, aiohttp_c
         assert peer_channel_json["access_tokens"] == [ MOCK_GET_TOKEN_RESPONSE ]
 
 
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+@unittest.mock.patch('electrumsv.network_support.peer_channel.app_state')
 async def test_get_peer_channel_async(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     test_session = await aiohttp_client(create_app())
@@ -448,7 +449,7 @@ async def test_get_peer_channel_async(mock_app_state: AppStateProxy, aiohttp_cli
 
 
 # Test PeerChannel class
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+@unittest.mock.patch('electrumsv.network_support.peer_channel.app_state')
 async def test_peer_channel_instance_attrs(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
     # All http endpoints are all mocked so that tests execute fast and they are hassle-free to run
@@ -459,7 +460,7 @@ async def test_peer_channel_instance_attrs(mock_app_state: AppStateProxy, aiohtt
     assert peer_channel_data["access_tokens"] == [ MOCK_GET_TOKEN_RESPONSE ]
 
 
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+@unittest.mock.patch('electrumsv.network_support.peer_channel.app_state')
 async def test_list_peer_channel_messages_async(mock_app_state: AppStateProxy, aiohttp_client) \
         -> None:
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
@@ -477,7 +478,7 @@ async def test_list_peer_channel_messages_async(mock_app_state: AppStateProxy, a
     logger.debug("messages=%s", message_datas)
 
 
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+@unittest.mock.patch('electrumsv.network_support.peer_channel.app_state')
 async def test_get_peer_channel_max_sequence_number_async(mock_app_state: AppStateProxy,
         aiohttp_client) -> None:
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
@@ -491,7 +492,7 @@ async def test_get_peer_channel_max_sequence_number_async(mock_app_state: AppSta
     logger.debug("seq=%d", seq)
 
 
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+@unittest.mock.patch('electrumsv.network_support.peer_channel.app_state')
 async def test_create_peer_channel_message_json_async(mock_app_state1: AppStateProxy,
         aiohttp_client) -> None:
     mock_app_state1.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
@@ -509,7 +510,7 @@ async def test_create_peer_channel_message_json_async(mock_app_state1: AppStateP
     logger.debug("written message info=%s", message)
 
 
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+@unittest.mock.patch('electrumsv.network_support.peer_channel.app_state')
 async def test_create_peer_channel_api_token_async(mock_app_state1: AppStateProxy,
         aiohttp_client) -> None:
     mock_app_state1.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
@@ -522,7 +523,7 @@ async def test_create_peer_channel_api_token_async(mock_app_state1: AppStateProx
     logger.debug("api_token=%s", token_json)
 
 
-@unittest.mock.patch('electrumsv.network_support.general_api.app_state')
+@unittest.mock.patch('electrumsv.network_support.peer_channel.app_state')
 async def test_list_peer_channel_api_tokens_async(mock_app_state1: AppStateProxy,
         aiohttp_client) -> None:
     mock_app_state1.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN

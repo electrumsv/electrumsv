@@ -57,7 +57,7 @@ from ..types import ServerAndCredential
 from ..wallet_database.types import MAPIBroadcastRow, ServerPeerChannelAccessTokenRow
 
 from .api_server import RequestFeeQuoteResult
-from .general_api import create_peer_channel_locally_and_remotely_async
+from .peer_channel import create_peer_channel_locally_and_remotely_async
 
 if TYPE_CHECKING:
     from ..types import IndefiniteCredentialId

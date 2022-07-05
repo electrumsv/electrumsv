@@ -32,6 +32,7 @@ from functools import partial
 import signal
 import sys
 import threading
+import time
 from typing import Any, Callable, cast, Coroutine, Iterable, List, Optional, TypeVar
 
 import PyQt6.QtCore as QtCore
@@ -111,6 +112,9 @@ class SVApplication(QApplication):
         if hasattr(QGuiApplication, 'setDesktopFileName'):
             QGuiApplication.setDesktopFileName('electrum-sv.desktop')
         super().__init__(argv)
+
+        self.startup_time = time.time()
+
         self.windows: List[ElectrumWindow] = []
         self.log_handler = SVLogHandler()
         self.log_window: Optional[SVLogWindow] = None
@@ -374,7 +378,7 @@ class SVApplication(QApplication):
         when_started = datetime.datetime.now().astimezone().isoformat()
         app_state.config.set_key('previous_start_time', app_state.config.get("start_time"))
         app_state.config.set_key('start_time', when_started, True)
-        # self.update_check()
+        self.update_check()
 
         threading.current_thread().setName('GUI')
         self.timer.setSingleShot(False)

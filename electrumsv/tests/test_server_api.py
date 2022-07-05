@@ -13,7 +13,7 @@ from electrumsv.wallet_database.types import NetworkServerRow
 
 def test_get_authorization_headers_credential_none() -> None:
     row = NetworkServerRow(1, NetworkServerType.MERCHANT_API, "url", 1, NetworkServerFlag.NONE,
-        None, None, None, None, 0, 0, 1, 1)
+        None, None, None, None, None, 0, 0, 1, 1)
     server = api_server.NewServer("my_url/", NetworkServerType.MERCHANT_API, row, None)
     headers = server.get_authorization_headers(None)
     assert headers == {}
@@ -35,7 +35,7 @@ def test_get_authorization_headers_credential_default_header(app_state, params) 
 
     credential_id = cast(IndefiniteCredentialId, uuid.uuid4())
     row = NetworkServerRow(1, NetworkServerType.MERCHANT_API, "url", 1, NetworkServerFlag.NONE,
-        None, None, None, None, 0, 0, 1, 1)
+        None, None, None, None, None, 0, 0, 1, 1)
     server = api_server.NewServer("my_url/", NetworkServerType.MERCHANT_API, row, credential_id)
     mock_row = unittest.mock.Mock()
     mock_row.api_key_template = use_this_value

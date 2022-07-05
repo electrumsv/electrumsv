@@ -93,7 +93,7 @@ class CoinSplittingTab(TabWidget):
         self._transaction_creation_context.callbacks.append(self._fee_quotes_finished.emit)
 
     def _on_account_change(self, new_account_id: Optional[int],
-            new_account: Optional[AbstractAccount]) -> None:
+            new_account: Optional[AbstractAccount], startup: bool) -> None:
         self._account_id = new_account_id
         self._account = new_account
 

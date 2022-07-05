@@ -878,7 +878,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         db_context.release_connection(db)
 
 
-async def try_get_mapi_proofs_mock(tx_hashes: list[bytes]) \
+async def try_get_mapi_proofs_mock(tx_hashes: list[bytes], reorging_chain: Chain) \
         -> tuple[set[bytes], list[MerkleProofRow]]:
     return set(), []
 
@@ -953,7 +953,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
 
         # Reorg that doesn't affect our transactions
         # We have no transactions in this block - there should be no effect
-        await wallet.on_reorg([BLOCK_HASH_REORGED2])
+        await wallet.on_reorg([BLOCK_HASH_REORGED2], wallet._current_chain)
         tx_flags1 = db_functions.read_transaction_flags(db_context, tx_hash_1)
         assert tx_flags1 is not None
         assert tx_flags1 == TxFlags.STATE_SETTLED
@@ -966,7 +966,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_metadata_1.fee_value is None # == FEE_VALUE
 
         # Real reorg.
-        await wallet.on_reorg([BLOCK_HASH_REORGED1])
+        await wallet.on_reorg([BLOCK_HASH_REORGED1], wallet._current_chain)
 
         # Check that the expectation is that the nodes have for now moved it back into the mempool.
         tx_flags1 = db_functions.read_transaction_flags(db_context, tx_hash_1)

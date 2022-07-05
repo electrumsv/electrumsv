@@ -48,7 +48,7 @@ from bitcoinx import bip32_key_from_string, BIP32PublicKey, PublicKey
 
 from .app_state import app_state
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountType, CHANGE_SUBPATH, DerivationType,
-    DerivationPath, RECEIVING_SUBPATH, ScriptType, ServerCapability)
+    DerivationPath, NetworkServerFlag, RECEIVING_SUBPATH, ScriptType)
 from .exceptions import UnsupportedAccountTypeError
 from .i18n import _
 from .logs import logs
@@ -186,8 +186,8 @@ class PushDataHashHandler:
             means that the connection was closed mid-transmission.
         Raises `ServerConnectionError` if the remote computer cannot be connected to.
         """
-        state = self._account.get_wallet().get_server_state_for_capability(
-            ServerCapability.TIP_FILTER)
+        state = self._account.get_wallet().get_connection_state_for_usage(
+            NetworkServerFlag.USE_BLOCKCHAIN)
         if state is None:
             raise PushDataSearchError(_("Not currently connected to a designated indexing server."))
 

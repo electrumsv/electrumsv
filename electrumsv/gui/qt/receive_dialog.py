@@ -10,8 +10,8 @@ from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLayout, QL
 
 from ...app_state import app_state, get_app_state_qt
 from ...bitcoin import script_template_to_string
-from ...constants import PaymentFlag, PushDataHashRegistrationFlag, ScriptType, \
-    ServerConnectionFlag, ServerCapability, TxFlags
+from ...constants import NetworkServerFlag, PaymentFlag, PushDataHashRegistrationFlag, ScriptType, \
+    ServerConnectionFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
 from ...network_support.types import ServerConnectionState, TipFilterRegistrationJob, \
@@ -109,6 +109,7 @@ class ReceiveDialog(QDialog):
         super().__init__(main_window)
         self.setWindowTitle(_("Expected payment"))
 
+        # NOTE(PyQt6) @ModalDialogLeakage
         # If we do not set this, this dialog does not get garbage collected and `main_window`
         # appears in `gc.get_referrers(self)` as a direct reference. So a `QDialog` merely having a
         # parent stored at the Qt level can create a circular reference, apparently. With this set,
@@ -125,7 +126,6 @@ class ReceiveDialog(QDialog):
         self._request_id = request_id
         self._request_type = request_type
 
-        wallet = self._account.get_wallet()
         self._request_row: Optional[PaymentRequestReadRow] = None
         self._key_data: Optional[KeyInstanceRow] = None
 
@@ -455,8 +455,8 @@ class ReceiveDialog(QDialog):
             assert self._request_row is not None
             if self._request_type == PaymentFlag.MONITORED:
                 wallet = self._main_window_proxy._wallet
-                indexing_server_state = wallet.get_server_state_for_capability(
-                    ServerCapability.TIP_FILTER)
+                indexing_server_state = wallet.get_connection_state_for_usage(
+                    NetworkServerFlag.USE_BLOCKCHAIN)
 
                 monitored_row = wallet.data.read_registered_tip_filter_pushdata_for_request(
                     self._request_id)
@@ -594,8 +594,8 @@ class ReceiveDialog(QDialog):
 
             # Attempt to start the process of registering with any server.
             wallet = self._main_window_proxy._wallet
-            indexing_server_state = wallet.get_server_state_for_capability(
-                ServerCapability.TIP_FILTER)
+            indexing_server_state = wallet.get_connection_state_for_usage(
+                NetworkServerFlag.USE_BLOCKCHAIN)
             if indexing_server_state is not None and \
                     indexing_server_state.connection_flags & \
                         ServerConnectionFlag.TIP_FILTER_READY != 0:

@@ -897,9 +897,9 @@ class EditServerDialog(WindowModalDialog):
                 added_servers.append(NetworkServerRow(server_id=None, server_type=server_type,
                     url=server_url, account_id=account_id, server_flags=server_flags,
                     api_key_template=None, encrypted_api_key=encrypted_api_key,
-                    mapi_fee_quote_json=None, tip_filter_peer_channel_id=None,
-                    date_last_try=0, date_last_good=0, date_created=date_now_utc,
-                    date_updated=date_now_utc))
+                    payment_key_bytes=None, mapi_fee_quote_json=None,
+                    tip_filter_peer_channel_id=None, date_last_try=0, date_last_good=0,
+                    date_created=date_now_utc, date_updated=date_now_utc))
 
         if len(added_servers) > 0 or len(updated_servers) > 0:
             future = wallet.update_network_servers(added_servers, updated_servers,

@@ -45,7 +45,7 @@ from bitcoinx import (Address, Base58Error, bip32_decompose_chain_string,
     bip32_key_from_string, PrivateKey, P2SH_Address, bip32_build_chain_string,
     BIP39Mnemonic, ElectrumMnemonic, Wordlists)
 
-from PyQt6.QtCore import QObject, QSize, Qt
+from PyQt6.QtCore import QMargins, QObject, QSize, Qt
 from PyQt6.QtGui import QBrush, QColor, QKeyEvent, QPainter, QPaintEvent, QPalette, QPen, \
     QPixmap, QTextOption
 from PyQt6.QtWidgets import (
@@ -55,8 +55,8 @@ from PyQt6.QtWidgets import (
 )
 
 from ...app_state import app_state
-from ...constants import (AccountCreationType, DEFAULT_COSIGNER_COUNT, DerivationType,
-    DerivationPath, KEYSTORE_TEXT_ALLOW_WATCH_ONLY, KEYSTORE_TEXT_FORCE_WATCH_ONLY,
+from ...constants import (AccountCreationType, DEFAULT_COSIGNER_COUNT, CSS_LABEL_WARNING,
+    DerivationType, DerivationPath, KEYSTORE_TEXT_ALLOW_WATCH_ONLY, KEYSTORE_TEXT_FORCE_WATCH_ONLY,
     KeystoreTextType, MAXIMUM_COSIGNER_COUNT, SEED_PREFIX)
 from ...device import DeviceInfo
 from ...i18n import _
@@ -117,7 +117,6 @@ class AccountPage(enum.IntEnum):
     CREATE_MULTISIG_ACCOUNT_CUSTOM = 301
     CREATE_MULTISIG_ACCOUNT_COSIGNERS = 302
 
-    IMPORT_ACCOUNT_FILE = 400
     IMPORT_ACCOUNT_TEXT = 405
     IMPORT_ACCOUNT_TEXT_CUSTOM = 410
 
@@ -144,6 +143,20 @@ def request_password(parent: Optional[QWidget], storage: WalletStorage) -> Optio
     d = PasswordDialog(parent, PASSWORD_EXISTING_TEXT, storage.is_password_valid)
     d.setMaximumWidth(200)
     return d.run()
+
+
+def _create_restoration_warning_label() -> QLabel:
+    restoration_warning_label = QLabel(_("Restoring the existing transactions associated "
+        "with past usage will require setting up an account with services that "
+        "have restoration indexes. These will be historical indexes and not include "
+        "anything past a publically announced end date. <a href='{link}'>Read more</a>.").format(
+            link="https://electrumsv.io"))
+    restoration_warning_label.setWordWrap(True)
+    restoration_warning_label.setOpenExternalLinks(True)
+    restoration_warning_label.setStyleSheet(CSS_LABEL_WARNING)
+    contents_margins = QMargins(10, 10, 10, 10)
+    restoration_warning_label.setContentsMargins(contents_margins)
+    return restoration_warning_label
 
 
 
@@ -436,31 +449,6 @@ class AddAccountWizardPage(QWizardPage):
         return html
 
     def _get_entries(self) -> List[Dict[str, Any]]:
-        seed_phrase_html = ("<p>"+
-            _("A seed phrase (also known as seed words or a mnemonic) is a way of storing an "
-              "account's master key. Using it ElectrumSV can access the wallet's previous "+
-              "payments, and send and receive the coins in the wallet.") +
-            "</p>")
-
-        original_wallet_html = ("<p>"+
-            _("If the original wallet application a seed phrase came from is still being used to "+
-              "access the given account, then it is not safe to access it in ElectrumSV "+
-              "while this is the case.") +
-            " %(extra)s"+
-            "</p>")
-
-        original_wallet_unsafe_html = original_wallet_html % {
-            "extra": _("%(wallet_name)s is one of these applications. If you are still using it, "+
-                       "it may get confused if you do more than watch, like sending and "+
-                       "receiving coins using ElectrumSV."),
-        }
-
-        original_wallet_safe_html = original_wallet_html % {
-            "extra": _("%(wallet_name)s however, works in a compatible way "+
-                       "where it should be possible to use both it and "+
-                       "ElectrumSV at the same time."),
-        }
-
         return [
             {
                 'page': AccountPage.NONE,
@@ -485,13 +473,6 @@ class AddAccountWizardPage(QWizardPage):
                     "coordinate the signing of each payment."),
                 'enabled': True,
                 'mode_mask': WizardFlags.STANDARD_MODE,
-            },
-            {
-                'page': AccountPage.IMPORT_ACCOUNT_FILE,
-                'description': _("Import from file"),
-                'icon_filename': 'icons8-document.svg',
-                'long_description': _("..."),
-                'enabled': False,
             },
             {
                 'page': AccountPage.IMPORT_ACCOUNT_TEXT,
@@ -544,8 +525,8 @@ class ImportWalletTextPage(QWizardPage):
         self.text_area.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
         self.text_area.setTabChangesFocus(True)
 
-        self._label = QLabel(_("Please enter some text and any valid matches will be "
-            "made available below.."))
+        self._label = QLabel(_("Any options related to the entered text will be made available "
+            "below.."))
 
         hbox = QHBoxLayout()
         hbox.addStretch(1)
@@ -587,10 +568,13 @@ class ImportWalletTextPage(QWizardPage):
         hbox2.addWidget(texttype_box)
         hbox2.addStretch(1)
 
+        restoration_warning_label = _create_restoration_warning_label()
+
         layout = QVBoxLayout()
         layout.addWidget(self.text_area)
         layout.addLayout(hbox)
         layout.addLayout(hbox2)
+        layout.addWidget(restoration_warning_label)
 
         self.setLayout(layout)
 
@@ -950,7 +934,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
         progress_bar = QProgressBar()
         progress_bar.setRange(0, 0)
         progress_bar.setOrientation(Qt.Orientation.Horizontal)
-        progress_bar.setMinimumWidth(250)
+        progress_bar.setFixedWidth(250)
         # This explicitly needs to be done for the progress bar otherwise it has some RHS space.
         progress_bar.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
@@ -961,15 +945,12 @@ class FindHardwareWalletAccountPage(QWizardPage):
         vbox.addWidget(progress_bar, alignment=Qt.AlignmentFlag.AlignCenter)
         vbox.addWidget(progress_label, alignment=Qt.AlignmentFlag.AlignCenter)
         vbox.addStretch(1)
+        vbox.addWidget(_create_restoration_warning_label())
 
         if self.layout():
             QWidget().setLayout(self.layout())
 
-        hlayout = QHBoxLayout()
-        hlayout.addStretch(1)
-        hlayout.addLayout(vbox)
-        hlayout.addStretch(1)
-        self.setLayout(hlayout)
+        self.setLayout(vbox)
 
     def _display_scan_success_results(self) -> None:
         choices = []
@@ -992,6 +973,7 @@ class FindHardwareWalletAccountPage(QWizardPage):
         vbox = QVBoxLayout()
         vbox.addLayout(self._choices.layout())
         vbox.addStretch(1)
+        vbox.addWidget(_create_restoration_warning_label())
 
         if self.layout():
             QWidget().setLayout(self.layout())
@@ -1029,13 +1011,13 @@ class FindHardwareWalletAccountPage(QWizardPage):
         grid.addWidget(scan_text_edit, 1, 0, 2, 2, Qt.AlignmentFlag.AlignLeft)
 
         vbox = QVBoxLayout()
-        vbox.setContentsMargins(10, 10, 20, 10)
         vbox.addLayout(logo_grid)
         vbox.addSpacing(10)
         vbox.addWidget(scan_text_label)
         vbox.addWidget(scan_text_edit)
         vbox.addLayout(grid)
         vbox.addStretch(1)
+        vbox.addWidget(_create_restoration_warning_label())
 
         if self.layout():
             QWidget().setLayout(self.layout())
@@ -1511,6 +1493,7 @@ class CreateMultisigAccountPage(QWizardPage):
         vbox.addWidget(self._summary_label, 0, Qt.AlignmentFlag.AlignCenter)
         vbox.addStretch(1)
         vbox.addWidget(self._settings_widget)
+        vbox.addWidget(_create_restoration_warning_label())
 
         return vbox
 

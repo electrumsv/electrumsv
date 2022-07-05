@@ -150,7 +150,8 @@ class HistoryList(MyTreeWidget):
         # self._delegate = ItemDelegate(None, 50)
         # self.setItemDelegate(self._delegate)
 
-    def _on_account_change(self, new_account_id: int, new_account: AbstractAccount) -> None:
+    def _on_account_change(self, new_account_id: int, new_account: AbstractAccount,
+            startup: bool) -> None:
         self.clear()
         self._account_id = new_account_id
         self._account = new_account
@@ -533,7 +534,8 @@ class HistoryView(QWidget):
 
         main_window.account_change_signal.connect(self._on_account_changed)
 
-    def _on_account_changed(self, new_account_id: int, new_account: AbstractAccount) -> None:
+    def _on_account_changed(self, new_account_id: int, new_account: AbstractAccount,
+            startup: bool) -> None:
         self._account_id = new_account_id
         self._account = new_account
 

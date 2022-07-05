@@ -52,8 +52,8 @@ from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, 
     QWidget)
 
 from ...app_state import app_state
-from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, \
-    RECEIVING_SUBPATH, ServerCapability, ServerConnectionFlag, TransactionImportFlag, TxFlags, \
+from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, NetworkServerFlag, \
+    RECEIVING_SUBPATH, ServerConnectionFlag, TransactionImportFlag, TxFlags, \
     WalletEvent
 from ...account_restorer import AdvancedSettings, DEFAULT_GAP_LIMITS, AccountRestorer, \
     PushDataHashHandler, PushDataSearchError, SearchKeyEnumerator
@@ -66,6 +66,7 @@ from ...wallet_database.types import TransactionLinkState, TransactionRow
 from ...web import BE_URL
 
 from .constants import RestorationDialogRole
+from . import server_required_dialog
 from .util import FormSectionWidget, read_QIcon, WindowModalDialog
 
 if TYPE_CHECKING:
@@ -76,7 +77,7 @@ if TYPE_CHECKING:
 logger = logs.get_logger("restoration-ui")
 
 
-TEXT_TITLE = _("Blockchain scanner")
+TEXT_TITLE = _("Restore account")
 TEXT_SCAN_ADVANCED_TITLE = _("Advanced options")
 
 # All these "about" texts have the top title, then a standard line spacing, then more text.
@@ -106,6 +107,12 @@ TEXT_SERVER_CONNECTION_ERROR = _("<center><b>Server connection error</b></center
     "<br/>"
     "The server cannot currently be connected to, and this means that it is not possible to "
     "restore this account."
+    "<br/><br/>")
+TEXT_SERVER_NOT_SELECTED_ERROR = _("<center><b>Server connection error</b></center>"
+    "<br/>"
+    "There is no currently selected blockchain server for this wallet, which means that it "
+    "is not currently possible to restore this account. You need to select a server when "
+    "prompted."
     "<br/><br/>")
 TEXT_SEARCH_ERROR = _("<center><b>Search error</b></center>"
     "<br/>"
@@ -379,11 +386,16 @@ class AccountRestorationDialog(WindowModalDialog):
             pass
 
     def _update_network_status(self) -> None:
-        if self._stage == ScanDialogStage.PRE_SCAN:
+        if self._stage != ScanDialogStage.PRE_SCAN:
+            return
+
+        required_usage_flags = NetworkServerFlag.USE_BLOCKCHAIN
+
+        if self._main_window_proxy._wallet.have_wallet_servers(required_usage_flags):
             # This has to be `TIP_FILTER` and not `RESTORATION` as we set the former as the
             # lookup and don't do more intelligent lookups.
-            server_state = self._wallet.get_server_state_for_capability(
-                ServerCapability.TIP_FILTER)
+            server_state = self._wallet.get_connection_state_for_usage(
+                NetworkServerFlag.USE_BLOCKCHAIN)
             if server_state is not None and \
                     server_state.connection_flags & ServerConnectionFlag.WEB_SOCKET_READY:
                 self._scan_button.setEnabled(True)
@@ -391,6 +403,36 @@ class AccountRestorationDialog(WindowModalDialog):
             else:
                 self._scan_button.setEnabled(False)
                 self._about_label.setText(TEXT_SERVER_CONNECTION_ERROR)
+            return
+
+        self._scan_button.setEnabled(False)
+        self._about_label.setText(TEXT_SERVER_NOT_SELECTED_ERROR)
+
+        QTimer.singleShot(50, self._display_server_selection_dialog)
+
+    def _display_server_selection_dialog(self) -> None:
+        required_usage_flags = NetworkServerFlag.USE_BLOCKCHAIN
+
+        dialog_text = _("Searching for historical account usage requires signing up with a "
+            "blockchain service, where the blockchain service has an archive of older blocks "
+            "up to a capped height."
+            "<br/><br/>"
+            "This wallet has not yet been set up to use a blockchain service. If you run your "
+            "own servers or wish to use third party servers, choose the 'Manage servers' option.")
+
+        from importlib import reload
+        reload(server_required_dialog)
+
+        dialog = server_required_dialog.ServerRequiredDialog(self, self._wallet,
+            required_usage_flags, dialog_text)
+        # There are two paths to the user accepting this dialog:
+        # - They checked "select servers on my behalf" then the OK buton and then servers were
+        #   selected and connected to.
+        # - They chose "Manage servers" which selected and connected to servers and then on exit
+        #   from that wizard this dialog auto-accepted.
+        dialog.accepted.connect(self._update_network_status)
+        dialog.show()
+        dialog.raise_()
 
     def update_gap_limit(self, subpath: DerivationPath, value: int) -> None:
         # This is a reference to the object the scanner was given. It should only be possible for

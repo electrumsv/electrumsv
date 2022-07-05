@@ -3,16 +3,16 @@ import weakref
 
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QToolBar, QVBoxLayout, \
-    QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QToolBar, QVBoxLayout, QWidget
 
-from ...constants import PaymentFlag, ScriptType
+from ...constants import NetworkServerFlag, PaymentFlag, ScriptType
 from ...i18n import _
 from ...logs import logs
 
 from .amountedit import BTCAmountEdit
 from .receive_dialog import ReceiveDialog
 from .request_list import RequestList
+from . import server_required_dialog
 from .table_widgets import TableTopButtonLayout
 from .util import read_QIcon
 
@@ -135,6 +135,37 @@ class ReceiveView(QWidget):
                 "payment. Please complete that one first."))
             return
 
+        # The blockchain services are required to have tip filters detect blockchain payments.
+        # The message box services are required to get the notifications of detected payments.
+        # We do not require that we are currently connected. If the services have problems then
+        # this should be something that existing servers can unexpectedly experience.
+        required_flags = NetworkServerFlag.USE_BLOCKCHAIN | NetworkServerFlag.USE_MESSAGE_BOX
+        if self._main_window_proxy._wallet.have_wallet_servers(required_flags):
+            self._show_blockchain_payment_dialog()
+            return
+
+        dialog_text = _("Receiving legacy payments requires signing up with both blockchain "
+            "and message box services, where the blockchain service will detect your incoming "
+            "payment and send you a notification through your message box service."
+            "<br/><br/>"
+            "This wallet has not been set up to use all the required services. If you run your "
+            "own servers or wish to use third party servers, choose the 'Manage servers' option.")
+
+        from importlib import reload
+        reload(server_required_dialog)
+
+        dialog = server_required_dialog.ServerRequiredDialog(self, self._main_window_proxy._wallet,
+            NetworkServerFlag.USE_BLOCKCHAIN | NetworkServerFlag.USE_MESSAGE_BOX,
+            dialog_text)
+        # There are two paths to the user accepting this dialog:
+        # - They checked "select servers on my behalf" then the OK buton and then servers were
+        #   selected and connected to.
+        # - They chose "Manage servers" which selected and connected to servers and then on exit
+        #   from that wizard this dialog auto-accepted.
+        dialog.accepted.connect(self._show_blockchain_payment_dialog)
+        dialog.show()
+
+    def _show_blockchain_payment_dialog(self) -> None:
         self.show_dialog(None, PaymentFlag.MONITORED)
 
     def update_widgets(self) -> None:

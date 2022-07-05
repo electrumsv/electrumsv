@@ -230,6 +230,9 @@ class NewServer:
                     fee_response = cast(JSONEnvelope, json.loads(server_row.mapi_fee_quote_json))
                 key_state.set_fee_quote(fee_response, server_row.date_last_good)
 
+    def get_row(self, server_account_id: int | None = None) -> NetworkServerRow:
+        return self.database_rows[server_account_id]
+
     def clear_server_account_usage(self, specific_server_key: ServerAccountKey) -> None:
         del self.client_api_keys[specific_server_key.account_id]
         del self.database_rows[specific_server_key.account_id]

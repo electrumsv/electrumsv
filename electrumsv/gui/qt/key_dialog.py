@@ -111,7 +111,7 @@ class KeyDialog(WindowModalDialog):
         # from importlib import reload
         # reload(history_list)
         self._history_list = history_list.HistoryList(self._main_window, self._main_window)
-        self._history_list._on_account_change(self._account_id, self._account)
+        self._history_list._on_account_change(self._account_id, self._account, False)
         # NOTE(typing) I have no idea why we are suddenly getting "Cannot assign to a method"
         self._history_list.get_domain = self.get_domain # type: ignore[assignment]
         vbox.addWidget(self._history_list)

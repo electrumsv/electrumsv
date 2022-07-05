@@ -134,7 +134,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         derivation_data_bytes, MasterKeyFlags.NONE, date_updated, date_updated))
 
     conn.execute("ALTER TABLE Accounts ADD COLUMN flags INTEGER NOT NULL DEFAULT 0")
-    conn.execute("ALTER TABLE Accounts ADD COLUMN indexer_server_id INTEGER DEFAULT NULL")
+    conn.execute("ALTER TABLE Accounts ADD COLUMN blockchain_server_id INTEGER DEFAULT NULL")
     conn.execute("ALTER TABLE Accounts ADD COLUMN peer_channel_server_id INTEGER DEFAULT NULL")
     conn.execute("INSERT INTO Accounts (account_id, default_masterkey_id, default_script_type, "
         "account_name, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -176,7 +176,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             server_flags                INTEGER     NOT NULL DEFAULT 0,
             api_key_template            TEXT        DEFAULT NULL,
             encrypted_api_key           TEXT        DEFAULT NULL,
-            payment_key                 BLOB        DEFAULT NULL,
+            payment_key_bytes           BLOB        DEFAULT NULL,
             fee_quote_json              TEXT        DEFAULT NULL,
             tip_filter_peer_channel_id  INTEGER     DEFAULT NULL,
             date_last_connected         INTEGER     DEFAULT 0,

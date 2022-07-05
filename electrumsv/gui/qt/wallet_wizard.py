@@ -39,7 +39,7 @@ import os
 import shutil
 import sys
 import threading
-from typing import Any, cast, Dict, List, NamedTuple, Optional, TYPE_CHECKING
+from typing import Any, cast, Dict, List, NamedTuple, Optional
 
 from bitcoinx import DecryptionError
 from PyQt6.QtCore import pyqtSignal, Qt, QItemSelection, QModelIndex, QObject
@@ -67,9 +67,6 @@ from .password_dialog import LayoutFields
 from .util import (AspectRatioPixmapLabel, can_show_in_file_explorer, create_new_wallet, icon_path,
     MessageBox, show_in_file_explorer)
 from .wizard_common import BaseWizard, HelpContext
-
-if TYPE_CHECKING:
-    from electrumsv.credentials import CredentialCache
 
 
 logger = logs.get_logger('wizard-wallet')

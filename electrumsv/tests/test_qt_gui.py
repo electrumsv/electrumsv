@@ -95,3 +95,12 @@ class HistoryListTests(unittest.TestCase):
         self.assertNotEqual("...", time_string)
         self.assertEqual(time_string, get_tx_desc(TxStatus.FINAL, 1))
         self.assertEqual(_("unknown"), get_tx_desc(TxStatus.FINAL, False))
+
+
+def test_qt_CheckState_typing() -> None:
+    from PyQt6.QtCore import Qt
+    # NOTE(typing) PyQt nonsense: `CheckState` is an `Enum` not and `IntEnum`.
+    # We test this here to detect if it gets fixed in a PyQt6 update.
+    assert Qt.CheckState.Unchecked != 0
+    assert Qt.CheckState.Checked != 2
+

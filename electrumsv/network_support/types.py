@@ -15,7 +15,7 @@ from typing import Any, Callable, NamedTuple, Optional, Sequence, TYPE_CHECKING,
 
 import aiohttp
 
-from ..constants import ServerCapability, ServerConnectionFlag
+from ..constants import NetworkServerFlag, ServerConnectionFlag
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
 from ..wallet_database.types import ServerPeerChannelMessageRow
 
@@ -189,7 +189,7 @@ ServerConnectionProblems = dict[ServerProblemKind, list[str]]
 @dataclasses.dataclass
 class ServerConnectionState:
     petty_cash_account_id: int
-    utilised_capabilities: set[ServerCapability]
+    usage_flags: NetworkServerFlag
     wallet_proxy: Optional[Wallet]
     wallet_data: Optional[WalletDataAccess]
     session: aiohttp.ClientSession
@@ -233,6 +233,7 @@ class ServerConnectionState:
     # The stage of the connection process it has last reached.
     connection_flags: ServerConnectionFlag = ServerConnectionFlag.INITIALISED
     stage_change_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+    upgrade_lock: asyncio.Lock = dataclasses.field(default_factory=asyncio.Lock)
 
     # Wallet individual futures (all servers).
     stage_change_pipeline_future: Optional[concurrent.futures.Future[None]] = None
@@ -249,15 +250,7 @@ class ServerConnectionState:
 
     @property
     def used_with_reference_server_api(self) -> bool:
-        return ServerCapability.TIP_FILTER in self.utilised_capabilities
-
-    @property
-    def used_for_blockchain_services(self) -> bool:
-        return ServerCapability.TIP_FILTER in self.utilised_capabilities
-
-    @property
-    def used_for_peer_channels(self) -> bool:
-        return ServerCapability.PEER_CHANNELS in self.utilised_capabilities
+        return self.usage_flags & NetworkServerFlag.MASK_UTILISATION != 0
 
     def clear_for_reconnection(self, clear_flags: ServerConnectionFlag=ServerConnectionFlag.NONE) \
             -> None:

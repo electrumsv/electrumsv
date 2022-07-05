@@ -61,7 +61,7 @@ from ... import bitcoin, commands, paymentrequest, util
 from ...app_state import app_state
 from ...bitcoin import address_from_string, COIN, script_template_to_string
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
-    ScriptType, ServerCapability, ServerConnectionFlag, ServerProgress, TransactionImportFlag,
+    NetworkServerFlag, ScriptType, ServerConnectionFlag, ServerProgress, TransactionImportFlag,
     TransactionOutputFlag, TxFlags, WalletEvent)
 from ...exceptions import UserCancelled
 from ...i18n import _
@@ -123,7 +123,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     history_updated_signal = pyqtSignal()
     network_status_signal = pyqtSignal()
     account_created_signal = pyqtSignal(int, object)
-    account_change_signal = pyqtSignal(object, object)
+    account_change_signal = pyqtSignal(object, object, bool)
     account_restoration_signal = pyqtSignal(int)
     keys_updated_signal = pyqtSignal(object, object)
     keys_created_signal = pyqtSignal(object, object)
@@ -138,6 +138,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     show_secured_data_signal = pyqtSignal(object)
     wallet_setting_changed_signal = pyqtSignal(str, object)
     password_request_signal = pyqtSignal(object, str)
+    update_required_signal = pyqtSignal()
     # This signal should only be emitted to. It is just used to dispatch callback execution in
     # the UI thread, without having to do a signal per callback.
     ui_callback_signal = pyqtSignal(object, object)
@@ -221,7 +222,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.transaction_state_signal.connect(self._on_transaction_state_change)
         self.password_request_signal.connect(self._on_password_request)
         self.ui_callback_signal.connect(self._on_ui_callback_to_dispatch)
-        self.history_view.setFocus()
 
         self._last_network_status_change = 0.0
         self._network_status_event = app_state.async_.event()
@@ -273,7 +273,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self._navigation_view.on_wallet_loaded()
         if self._account is not None:
-            self._update_active_account()
+            self._update_active_account(startup=True)
 
         # If the user is opening a wallet with no accounts, we show them the add an account wizard
         # automatically. It may be that at a later time, we allow people to disable this optionally
@@ -425,7 +425,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._account = account
         self._update_active_account()
 
-    def _update_active_account(self) -> None:
+    # ShowHomeSectionOnStartup
+    def _update_active_account(self, startup: bool=False) -> None:
         # Update the console tab.
         self.console.updateNamespace({ 'account': self._account })
         self._reset_menus(self._account_id)
@@ -437,7 +438,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # - The UTXO tab.
         # - The coin-splitting tab.
         # - The keys tab.
-        self.account_change_signal.emit(self._account_id, self._account)
+        self.account_change_signal.emit(self._account_id, self._account, startup)
         # - The receive tab.
         self._reset_receive_tab()
 
@@ -722,7 +723,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         wallet_menu.addAction(_("&Information"), self._show_wallet_information)
         wallet_menu.addSeparator()
 
-        self.password_menu = wallet_menu.addAction(_("&Password"), self.change_password_dialog)
+        self.password_menu = wallet_menu.addAction(_("Change &password"),
+            self._change_password_dialog)
+        self._secured_data_menu = wallet_menu.addAction(_("&Secured data"),
+            self._view_wallet_secured_data)
         wallet_menu.addSeparator()
 
         # NOTE(rt12): Contacts menu is disabled as tab is disabled.
@@ -903,45 +907,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     #     def _on_view_pending_update(checked: bool=False) -> None:
     #         QDesktopServices.openUrl(QUrl("https://electrumsv.io/download.html"))
 
-    #     menu = QMenu()
-    #     self._update_menu = menu
-    #     self._update_check_action = menu.addAction(
-    #         _("Check for Updates"), self._on_check_for_updates)
-
-    #     if update_check_state == "default":
-    #         icon_path = "icons8-available-updates-80-blue"
-    #         icon_text = _("Updates")
-    #         tooltip = _("Check for Updates")
-    #         menu.setDefaultAction(self._update_check_action)
-    #     elif update_check_state == "update-present-immediate":
-    #         icon_path = "icons8-available-updates-80-yellow"
-    #         icon_text = f"{stable_version}"
-    #         tooltip = _("A newer version of ElectrumSV is available, and "+
-    #             "was released on {0:%c}").format(release_date)
-    #         self._update_view_pending_action = menu.addAction(
-    #             _("View Pending Update"), _on_view_pending_update)
-    #         menu.setDefaultAction(self._update_view_pending_action)
-    #     elif update_check_state == "update-present-prolonged":
-    #         icon_path = "icons8-available-updates-80-red"
-    #         icon_text = f"{stable_version}"
-    #         tooltip = _("A newer version of ElectrumSV is available, and "+
-    #             "was released on {0:%c}").format(release_date)
-    #         self._update_view_pending_action = menu.addAction(
-    #             _("View Pending Update"), _on_view_pending_update)
-    #         menu.setDefaultAction(self._update_view_pending_action)
-    #     else:
-    #         raise NotImplementedError("Unknown check state")
-
-    #     # Apply the update state.
-    #     self._update_action.setMenu(menu)
-    #     self._update_action.setIcon(read_QIcon(icon_path))
-    #     self._update_action.setText(icon_text)
-    #     self._update_action.setToolTip(tooltip)
-    #     self._update_check_state = update_check_state
-
     def _on_check_for_updates(self, checked: bool=False) -> None:
         self.show_update_check()
 
+    # Called via `SVApplication._start` setup.
     def on_update_check(self, success: bool, result: UpdateCheckResultType) -> None:
         if success:
             assert isinstance(result, dict)
@@ -957,14 +926,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                         _("A new version of ElectrumSV, version {}, is available for download")
                             .format(stable_result["version"]),
                         read_QIcon("electrum_dark_icon"), 20000)
-
-        # self._update_check_toolbar_update()
+                self.update_required_signal.emit()
 
     def show_account_creation_wizard(self) -> None:
         main_window_proxy: ElectrumWindow = weakref.proxy(self)
         from . import account_wizard
-        # from importlib import reload
-        # reload(account_wizard)
+        from importlib import reload
+        reload(account_wizard)
         wizard_window = account_wizard.AccountWizard(main_window_proxy)
         wizard_window.show()
 
@@ -1015,7 +983,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def show_update_check(self) -> None:
         from . import update_check
-        update_check.UpdateCheckDialog(self)
+        update_dialog = update_check.UpdateCheckDialog(self)
+        update_dialog.setModal(True)
+        update_dialog.raise_()
+        update_dialog.show()
 
     def show_report_bug(self) -> None:
         msg = ' '.join([
@@ -1225,29 +1196,31 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 tooltip_text = _("Started actively trying to select a server.")
             elif server_progress == ServerProgress.WAITING_FOR_VALID_CANDIDATES:
                 text = _("Waiting for any valid server..")
-                tooltip_text = _("No known indexing servers are ready for use.")
+                tooltip_text = _("No known servers are ready for use.")
             elif server_progress == ServerProgress.WAITING_UNTIL_CANDIDATE_IS_READY:
                 text = _("Waiting for server synchronization..")
-                tooltip_text = _("Synchronizing headers from the selected indexing server.")
+                tooltip_text = _("Synchronizing headers from the selected server.")
             elif server_progress == ServerProgress.CONNECTION_PROCESS_ACTIVE:
-                server_state = self._wallet.get_server_state_for_capability(
-                    ServerCapability.TIP_FILTER)
+                server_state = self._wallet.get_connection_state_for_usage(
+                    NetworkServerFlag.USE_BLOCKCHAIN)
                 if server_state is None:
                     text = _("Connecting to selected server..")
-                    tooltip_text = _("Attempting to connect to the selected indexing server.")
+                    tooltip_text = _("Attempting to connect to the selected server.")
                 elif server_state.connection_flags & ServerConnectionFlag.WEB_SOCKET_READY:
                     text = _("Connected to server")
-                    tooltip_text = _("Successfully connected to the selected indexing server.")
+                    tooltip_text = _("Successfully connected to the selected server.")
                 elif server_state.connection_flags & ServerConnectionFlag.VERIFYING:
                     text = _("Evaluating server..")
                     tooltip_text = _("Verifying the remote server state against the wallet..")
                 elif server_state.connection_flags & ServerConnectionFlag.ESTABLISHING_WEB_SOCKET:
                     text = _("Establishing web socket..")
-                    tooltip_text = _("Making a web socket connection to the selected indexing "
-                        "server.")
+                    tooltip_text = _("Making a web socket connection to the selected server.")
+                elif server_state.connection_flags & ServerConnectionFlag.PREPARING_WEB_SOCKET:
+                    text = _("Preparing connected web socket..")
+                    tooltip_text = _("Preparing connected web socket to the selected server.")
                 elif server_state.connection_flags & ServerConnectionFlag.DISCONNECTED:
                     text = _("Disconnected")
-                    tooltip_text = _("The selected indexing server is not current connectable.")
+                    tooltip_text = _("The selected server is not current connectable.")
                 elif server_state.connection_flags & ServerConnectionFlag.INITIALISED:
                     text = _("Server connection pending..")
                     tooltip_text = _("The process of connecting has not quite started yet.")
@@ -1748,7 +1721,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.update_status_bar()
         self.setStatusBar(self.status_bar)
 
-    def change_password_dialog(self) -> None:
+    def _change_password_dialog(self) -> None:
         from .password_dialog import ChangePasswordDialog
         storage = self._wallet.get_storage()
         d = ChangePasswordDialog(self, password_check_fn=storage.is_password_valid)
@@ -1766,6 +1739,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         msg = (_('Password was updated successfully') if new_password
                else _('Password is disabled, this wallet is not protected'))
         self.show_message(msg, title=_("Success"))
+
+    def _view_wallet_secured_data(self) -> None:
+        # TODO(1.4.0) Wallet worst case scenario recovery data. issue#920
+        self.show_error(_('Not yet implemented'))
 
     def _toggle_search(self) -> None:
         tab_parent = self._tab_widget.currentWidget()

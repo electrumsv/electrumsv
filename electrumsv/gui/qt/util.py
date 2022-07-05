@@ -422,9 +422,11 @@ class WaitingDialog(WindowModalDialog):
         # Disable the window close button, not any one we add ourselves.
         super().__init__(parent, title)
 
-        # If we do not do this, waiting dialogs get leaked. This can be observed by commenting
-        # out this line and looking for the `__del__` call which should happen after this
-        # dialog is closed.
+        # NOTE(PyQt6) @ModalDialogLeakage
+        # If we do not set this, this dialog does not get garbage collected and `main_window`
+        # appears in `gc.get_referrers(self)` as a direct reference. So a `QDialog` merely having a
+        # parent stored at the Qt level can create a circular reference, apparently. With this set,
+        # the dialog will be gc'd on the next `collect` call.
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
 
         self._title = title

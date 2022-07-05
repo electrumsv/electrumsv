@@ -14,7 +14,7 @@ class AccountRow(NamedTuple):
     default_script_type: ScriptType
     account_name: str
     flags: AccountFlags
-    indexer_server_id: Optional[int]
+    blockchain_server_id: Optional[int]
     peer_channel_server_id: Optional[int]
 
 
@@ -166,6 +166,7 @@ class NetworkServerRow(NamedTuple):
     server_flags: NetworkServerFlag
     api_key_template: Optional[str]
     encrypted_api_key: Optional[str]
+    payment_key_bytes: bytes | None
     # MAPI specific: used for JSONEnvelope serialised transaction fee quotes.
     mapi_fee_quote_json: Optional[str]
     # Indexer server specific: used for tip filter notifications.
