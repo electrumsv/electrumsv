@@ -123,12 +123,8 @@ class CoinChooserBase:
 
         def make_Bucket(desc: int, coins: List[XTxInput]) -> Bucket:
             size = sum(coin.estimated_size() for coin in coins)
-            # NOTE(typing) Fix correct but broken error about not being able to sum optional values.
-            # `error: Value of type variable "_SumT" of "sum" cannot be "Optional[int]"  [type-var]`
-            # Changing it to `cast(int, coin.value)` yields the following:
-            # `error: Redundant cast to "int"  [redundant-cast]`
-            value = sum(coin.value for coin in coins) # type: ignore[type-var]
-            return Bucket(desc, cast(TransactionSize, size), cast(int, value), coins)
+            value = sum(cast(int, coin.value) for coin in coins)
+            return Bucket(desc, cast(TransactionSize, size), value, coins)
 
         return [make_Bucket(key, value) for key, value in buckets.items()]
 
