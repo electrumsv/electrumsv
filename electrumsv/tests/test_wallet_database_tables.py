@@ -2008,7 +2008,7 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
         future = db_context.post_to_thread(db_functions.create_mapi_broadcasts_write, [
             mapi_broadcast_create_rows[0]._replace(tx_hash=b"dddd")
         ])
-        with pytest.raises(sqlite3.IntegrityError) as integrity_error:
+        with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)) as integrity_error:
             future.result(timeout=5)
         assert integrity_error.value.args[0] == "FOREIGN KEY constraint failed"
 
@@ -2025,7 +2025,7 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
         future = db_context.post_to_thread(db_functions.create_mapi_broadcasts_write, [
             mapi_broadcast_create_rows[0]._replace(broadcast_server_id=IMAGINARY_SERVER_ID)
         ])
-        with pytest.raises(sqlite3.IntegrityError) as integrity_error:
+        with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)) as integrity_error:
             future.result(timeout=5)
         assert integrity_error.value.args[0] == "FOREIGN KEY constraint failed"
 
@@ -2034,7 +2034,7 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
         future = db_context.post_to_thread(db_functions.create_mapi_broadcasts_write, [
             mapi_broadcast_create_rows[0]._replace(peer_channel_id=IMAGINARY_CHANNEL_ID)
         ])
-        with pytest.raises(sqlite3.IntegrityError) as integrity_error:
+        with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)) as integrity_error:
             future.result(timeout=5)
         assert integrity_error.value.args[0] == "FOREIGN KEY constraint failed"
 
