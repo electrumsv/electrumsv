@@ -55,7 +55,7 @@ stages:
         parameters:
           pythonVersion: '3.10'
 
-  - job: MainUnittestsPy39
+  - job: MainUnittests
     displayName: Main Unittests (Python 3.10)
     pool:
       vmImage: 'ubuntu-latest'
@@ -67,7 +67,7 @@ stages:
         parameters:
           pythonVersion: '3.10'
 
-  - job: RESTAPIUnittestsPy39
+  - job: RESTAPIUnittests
     displayName: REST API tests (Python 3.10)
     pool:
       vmImage: 'ubuntu-latest'
@@ -79,10 +79,17 @@ stages:
         parameters:
           pythonVersion: '3.10'
 
-  - job: TestFunctionalPy39
+  - job: TestFunctional
     displayName: Functional tests (Python 3.10)
     pool:
       vmImage: 'ubuntu-latest'
+
+    variables:
+        SDK_HOME_DIR:           $(Agent.HomeDirectory)/portable_sdk_datadir
+        NEW_LOG_DIR:            $(Agent.HomeDirectory)/portable_sdk_datadir/logs
+        SDK_LOG_LEVEL:          DEBUG
+        SDK_POSTGRES_PORT:      55432
+
     steps:
       - template: prepare-general-environment.yml
         parameters:

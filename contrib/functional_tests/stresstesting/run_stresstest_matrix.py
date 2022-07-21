@@ -29,13 +29,13 @@ for test_params in test_parameters:
 print("================================================================================ ")
 
 def reset_electrumsv():
-    command = f"electrumsv-sdk reset electrumsv"
+    command = f"electrumsv-sdk reset --repo={TLD_ESV} electrumsv"
     process = subprocess.Popen(command)
     process.wait()
 
 
-def run_electrumsv_background():
-    command = f"electrumsv-sdk start --repo={TLD_ESV} --background electrumsv"
+def run_electrumsv():
+    command = f"electrumsv-sdk start --repo={TLD_ESV} electrumsv"
     process = subprocess.Popen(command)
     process.wait()
 
@@ -60,7 +60,7 @@ def stop_electrumsv():
 
 for test_params in test_parameters:
     reset_electrumsv()
-    run_electrumsv_background()
+    run_electrumsv()
     process = run_stresstest_pytest(test_params)
     if process.returncode != 0:
         stop_electrumsv()

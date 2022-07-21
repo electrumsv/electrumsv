@@ -97,8 +97,20 @@ def regtest_get_mined_balance() -> int:
     return matured_balance
 
 
+def import_key(private_key: bitcoinx.PrivateKey) -> None:
+    """The node will now monitor this address and therefore track its utxos"""
+    payload = json.dumps({"jsonrpc": "2.0", "method": "importprivkey",
+                          "params": [private_key.to_WIF()], "id": 1})
+    result = requests.post(BITCOIN_NODE_URI, data=payload)
+    if result.status_code != 200:
+        raise requests.exceptions.HTTPError(result.text)
+    p2pkh_address = private_key.public_key.to_address(network=Net.COIN).to_string()
+    logger.info("imported address %s into the node wallet for tracking", p2pkh_address)
+
+
 def regtest_topup_account(receive_address: bitcoinx.P2PKH_Address, amount: int=25) \
         -> Optional[str]:
+    import_key(REGTEST_FUNDS_PRIVATE_KEY)
     matured_balance = regtest_get_mined_balance()
     while matured_balance < amount:
         nblocks = 1
@@ -120,6 +132,7 @@ def regtest_topup_account(receive_address: bitcoinx.P2PKH_Address, amount: int=2
     logger.info("topped up wallet with %s coins to receive address='%s'. txid=%s", amount,
         receive_address.to_string(), txid)
     return txid
+
 
 def regtest_generate_nblocks(nblocks: int, address: str) -> List[str]:
     payload1 = json.dumps(
