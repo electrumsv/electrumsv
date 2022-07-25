@@ -4540,12 +4540,6 @@ class Wallet:
                     pr_row.flags = pr_row.flags | new_state_flag
                     await self.update_pr_flags_in_db_async(pr_row, pr_row.flags)
 
-                    # TODO: This message persistence needs to happen in network_support (earlier
-                    #  on to avoid potential data loss)
-                    # Save the message before any network activity occurs (in case of system crash)
-                    await self._db_context.run_in_thread_async(db_functions.create_dpp_messages,
-                        [message_row])
-
                 self._logger.debug("State machine processing DPPMessageRow: %s for state: %s",
                     message_row, pr_row.flags)
 
@@ -4941,7 +4935,8 @@ class Wallet:
 
             self._dpp_proxy_servers.append(state)
             state.manage_dpp_connections_future = \
-                app_state.async_.spawn(manage_dpp_network_connections_async(state))
+                app_state.async_.spawn(manage_dpp_network_connections_async(state,
+                    self._db_context))
 
             pr_rows_for_server = server_to_pr_map[server]
             state.dpp_consumer_future = app_state.async_.spawn(

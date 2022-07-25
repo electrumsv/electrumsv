@@ -152,19 +152,15 @@ def create_payment_requests(db_context: DatabaseContext, entries: list[PaymentRe
     return db_context.post_to_thread(_write)
 
 
-def create_dpp_messages(db_context: DatabaseContext, entries: list[DPPMessageRow]) \
-        -> concurrent.futures.Future[list[DPPMessageRow]]:
+def create_dpp_messages(entries: list[DPPMessageRow], db: Optional[sqlite3.Connection]=None) \
+        -> None:
     sql = """    
         INSERT INTO DPPMessages (message_id, paymentrequest_id, dpp_invoice_id, correlationId, 
             appId, clientID, userId, expiration, body, timestamp, type)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(message_id) DO NOTHING;
     """
-    def _write(db: Optional[sqlite3.Connection]=None) -> list[DPPMessageRow]:
-        assert db is not None and isinstance(db, sqlite3.Connection)
-        db.executemany(sql, entries)
-        return entries
-    return db_context.post_to_thread(_write)
+    db.executemany(sql, entries)
 
 
 def create_transaction_outputs(db_context: DatabaseContext,

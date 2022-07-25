@@ -3,13 +3,15 @@ from typing import Any, cast
 
 import aiohttp
 from aiohttp import WSServerHandshakeError
+from electrumsv_database.sqlite import DatabaseContext
 
 from .types import ServerConnectionState
 from ..app_state import app_state
 from ..constants import PaymentFlag
 from ..logs import logs
-from ..wallet_database.types import PaymentRequestRow, DPPMessageRow
+from ..wallet_database.types import DPPMessageRow, PaymentRequestReadRow
 from ..wallet_database.util import from_isoformat
+from ..wallet_database import functions as db_functions
 
 logger = logs.get_logger("dpp-proxy")
 
@@ -80,7 +82,7 @@ def _validate_dpp_message_json(dpp_message_json: dict[Any, Any]) -> bool:
 
 
 async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
-        payment_request_row: PaymentRequestRow):
+        payment_request_row: PaymentRequestReadRow, db_context: DatabaseContext):
     """One async task per ws:// connection - each invoice ID has its own ws:// connection.
 
     The Wallet in wallet.py can communicate with the open websocket as follows:
@@ -122,7 +124,14 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
                     timestamp=int(from_isoformat(message_json["timestamp"]).timestamp()),
                     type=message_json["type"]
                 )
-                # TODO: Persist to DB here.
+                db_connection = db_context.acquire_connection()
+                try:
+                    # This is intentionally not async and does not run in a thread
+                    # to avoid any chance of thread context switching or another async task
+                    # crashing the process and resulting in permanent loss of the message data
+                    db_functions.create_dpp_messages([dpp_message], db_connection)
+                finally:
+                    db_context.release_connection(db_connection)
                 state.dpp_messages_queue.put_nowait(dpp_message)
     except aiohttp.ClientConnectorError:
         logger.debug("Unable to connect to server websocket")
@@ -132,13 +141,15 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
         state.dpp_websocket = None
 
 
-async def manage_dpp_network_connections_async(state: ServerConnectionState) -> None:
+async def manage_dpp_network_connections_async(state: ServerConnectionState,
+        db_context: DatabaseContext) -> None:
     """Spawns a new websocket task for each new active invoice pushed to its queue"""
     logger.debug("Entering manage_dpp_connections_async, server_url=%s", state.server.url)
     try:
         while True:
             payment_request_row = await state.active_invoices_queue.get()
-            app_state.async_.spawn(create_dpp_ws_connection_task_async(state, payment_request_row))
+            app_state.async_.spawn(create_dpp_ws_connection_task_async(state, payment_request_row,
+                db_context))
     except Exception:
         logger.exception("Exception in manage_dpp_connections_async")
     finally:
