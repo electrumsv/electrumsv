@@ -198,19 +198,43 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             ON Servers(server_type, url, account_id)
     """)
 
-    # We add two more columns to `PaymentRequests`, `script_type` and `pushdata_hash`. These are
-    # static values that relate to the copied text that is given out by the wallet owner. And we
-    # can map them to their primary usage tip filtering registrations.
+    # flags column can take all possible values of constants.MASK_DPP_STATE_MACHINE or PAID
+    # In theory any DPPMessages with the PAID flag set could be deleted from the database at
+    # that point
+    conn.execute("""
+        CREATE TABLE DPPMessages (
+            message_id                  TEXT        PRIMARY KEY,
+            paymentrequest_id           INTEGER     NOT NULL,
+            dpp_invoice_id              TEXT        NOT NULL,
+            correlationId               TEXT        NOT NULL,
+            appId                       INTEGER     NOT NULL,
+            clientID                    INTEGER     NOT NULL,
+            userId                      INTEGER     NOT NULL,
+            expiration                  INTEGER     NOT NULL,
+            body                        BLOB        NOT NULL,
+            timestamp                   INTEGER     NOT NULL,
+            type                        TEXT        NOT NULL,
+            FOREIGN KEY (paymentrequest_id) REFERENCES PaymentRequests (paymentrequest_id)
+        )
+    """)
+
+    # We add three more columns to `PaymentRequests`, `script_type` and `pushdata_hash` and
+    # `server_id`. The first two are static values that relate to the copied text that is given out
+    # by the wallet owner and we can map them to their primary usage tip filtering registrations.
+    # The `server_id` is only applicable for new invoices using the direct payment protocol and
+    # represents the dpp proxy server that was used.
     conn.execute("""
         CREATE TABLE PaymentRequests2 (
             paymentrequest_id           INTEGER     PRIMARY KEY,
             keyinstance_id              INTEGER     NOT NULL,
+            dpp_invoice_id              TEXT        NULL,
             state                       INTEGER     NOT NULL,
             description                 TEXT        NULL,
             expiration                  INTEGER     NULL,
             value                       INTEGER     NULL,
             script_type                 INTEGER     NOT NULL,
             pushdata_hash               BLOB        NOT NULL,
+            server_id                   INTEGER     NULL,
             date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,
             FOREIGN KEY(keyinstance_id) REFERENCES KeyInstances (keyinstance_id)
@@ -262,14 +286,18 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         else:
             raise NotImplementedError(f"Unexpected key type {keyinstance_row}")
 
+        # server_id and dpp_invoice_id are null for any invoices prior to this migration
+        dpp_invoice_id = None
+        server_id = None
         conn.execute("""
-            INSERT INTO PaymentRequests2 (paymentrequest_id, keyinstance_id, state, description,
-                expiration, value, script_type, pushdata_hash, date_created, date_updated)
+            INSERT INTO PaymentRequests2 (paymentrequest_id, keyinstance_id, ?, 
+                state, description, expiration, value, script_type, pushdata_hash, 
+                date_created, date_updated)
             SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.description,
-                PR.expiration, PR.value, ?, ?, PR.date_created, PR.date_updated
+                PR.expiration, PR.value, ?, ?, ?, PR.date_created, PR.date_updated
             FROM PaymentRequests AS PR
             WHERE paymentrequest_id=?
-        """, (script_type, pushdata_hash, paymentrequest_id))
+        """, (dpp_invoice_id, script_type, pushdata_hash, server_id, paymentrequest_id))
 
     conn.execute("DROP TABLE PaymentRequests")
     conn.execute("ALTER TABLE PaymentRequests2 RENAME TO PaymentRequests")

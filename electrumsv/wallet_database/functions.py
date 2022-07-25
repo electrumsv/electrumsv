@@ -52,8 +52,7 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     IncompleteProofDataSubmittedError, TransactionAlreadyExistsError, TransactionRemovalError)
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
-    HistoryListRow, InvoiceAccountRow, InvoiceRow,
-    KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
+    HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, MAPIBroadcastRow,
     NetworkServerRow, PasswordUpdateResult, PaymentRequestReadRow, PaymentRequestRow,
     PaymentRequestUpdateRow, MerkleProofUpdateRow, PushDataMatchMetadataRow, PushDataMatchRow,
@@ -62,8 +61,8 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     TransactionExistsRow, TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
     TransactionOutputSpendableRow, TransactionValueRow, TransactionMetadata,
     TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow, TxProofData,
-    TransactionProofUpdateRow, TransactionRow, MerkleProofRow, WalletBalance,
-    WalletDataRow, WalletEventInsertRow, WalletEventRow)
+    TransactionProofUpdateRow, TransactionRow, MerkleProofRow, WalletBalance, WalletDataRow,
+    WalletEventInsertRow, WalletEventRow, DPPMessageRow)
 from .util import flag_clause
 
 logger = logs.get_logger("db-functions")
@@ -149,6 +148,21 @@ def create_payment_requests(db_context: DatabaseContext, entries: list[PaymentRe
     def _write(db: Optional[sqlite3.Connection]=None) -> list[PaymentRequestRow]:
         assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, sql_values)
+        return entries
+    return db_context.post_to_thread(_write)
+
+
+def create_dpp_messages(db_context: DatabaseContext, entries: list[DPPMessageRow]) \
+        -> concurrent.futures.Future[list[DPPMessageRow]]:
+    sql = """    
+        INSERT INTO DPPMessages (message_id, paymentrequest_id, dpp_invoice_id, correlationId, 
+            appId, clientID, userId, expiration, body, timestamp, type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(message_id) DO NOTHING;
+    """
+    def _write(db: Optional[sqlite3.Connection]=None) -> list[DPPMessageRow]:
+        assert db is not None and isinstance(db, sqlite3.Connection)
+        db.executemany(sql, entries)
         return entries
     return db_context.post_to_thread(_write)
 
@@ -859,6 +873,19 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
 
 
 @replace_db_context_with_connection
+def read_payment_requests_by_pr_id(db: sqlite3.Connection, paymentrequest_ids: Sequence[int]) -> \
+        list[PaymentRequestRow]:
+    sql = """
+            SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id, 
+                PR.state, PR.value, PR.expiration, PR.description, PR.script_type, 
+                PR.pushdata_hash, PR.date_created
+           FROM PaymentRequests PR
+           WHERE paymentrequest_id IN ({})
+    """
+    return read_rows_by_id(PaymentRequestRow, db, sql, [], paymentrequest_ids)
+
+
+@replace_db_context_with_connection
 def read_payment_requests(db: sqlite3.Connection, account_id: int,
         flags: Optional[PaymentFlag]=None, mask: Optional[PaymentFlag]=None) \
             -> list[PaymentRequestReadRow]:
@@ -871,8 +898,9 @@ def read_payment_requests(db: sqlite3.Connection, account_id: int,
         GROUP BY KI.keyinstance_id
     )
 
-    SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value, KP.total_value,
-        PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, PR.date_created
+    SELECT PR.paymentrequest_id, PR.dpp_invoice_id, PR.keyinstance_id, PR.state, PR.value, 
+        KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, 
+        PR.server_id, PR.date_created
     FROM PaymentRequests PR
     INNER JOIN key_payments KP USING(keyinstance_id)
     """
@@ -881,8 +909,8 @@ def read_payment_requests(db: sqlite3.Connection, account_id: int,
     if clause:
         sql += f" WHERE {clause}"
         sql_values.extend(extra_values)
-    return [ PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7],
-        t[8], t[9]) for t in db.execute(sql, sql_values).fetchall() ]
+    return [ PaymentRequestReadRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6], t[7], t[8],
+        t[9], t[10]) for t in db.execute(sql, sql_values).fetchall() ]
 
 
 def create_pushdata_matches_write(rows: list[PushDataMatchRow], processed_message_ids: list[int],
@@ -1517,6 +1545,18 @@ def read_server_peer_channel_messages(db: sqlite3.Connection,
         sql += f" AND ({clause})"
         sql_values.extend(extra_values2)
     return [ ServerPeerChannelMessageRow(*row) for row in db.execute(sql, sql_values).fetchall() ]
+
+
+@replace_db_context_with_connection
+def read_dpp_messages_by_pr_id(db: sqlite3.Connection, paymentrequest_ids: list[int]):
+    sql = """
+        SELECT DPPM.message_id, DPPM.paymentrequest_id, DPPM.dpp_invoice_id, DPPM.correlationId, 
+            DPPM.appId, DPPM.clientID, DPPM.userId, DPPM.expiration, DPPM.body, DPPM.timestamp, 
+            DPPM.type
+        FROM DPPMessages AS DPPM
+        WHERE paymentrequest_id in ({})
+    """
+    return read_rows_by_id(DPPMessageRow, db, sql, [ ], paymentrequest_ids)
 
 
 @replace_db_context_with_connection

@@ -634,7 +634,8 @@ class SendView(QWidget):
             self.payment_request_error_signal.emit(invoice_id, tx_hash)
             return False
 
-        if not self._payment_request.send_payment(self._account, str(tx)):
+        invoice_payment_success = self._payment_request.send_payment(self._account, str(tx))
+        if not invoice_payment_success:
             self.payment_request_error_signal.emit(invoice_id, tx_hash)
             return False
 

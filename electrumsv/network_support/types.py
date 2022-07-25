@@ -14,10 +14,12 @@ from enum import IntFlag
 from typing import Any, Callable, NamedTuple, Optional, Sequence, TYPE_CHECKING, TypedDict
 
 import aiohttp
+from aiohttp import ClientWebSocketResponse
 
 from ..constants import NetworkServerFlag, ServerConnectionFlag
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
-from ..wallet_database.types import ServerPeerChannelMessageRow
+from ..wallet_database.types import ServerPeerChannelMessageRow, DPPMessageRow, \
+    PaymentRequestReadRow
 
 from .constants import ServerProblemKind
 
@@ -229,6 +231,15 @@ class ServerConnectionState:
         asyncio.Queue[list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]] = \
             dataclasses.field(default_factory=asyncio.Queue[list[tuple[ServerPeerChannelMessageRow,
                 GenericPeerChannelMessage]]])
+    # Wallet consuming: Direct payment protocol-related messages from the DPP server
+    dpp_messages_queue: asyncio.Queue[DPPMessageRow] = dataclasses.field(
+        default_factory=asyncio.Queue[DPPMessageRow])
+    # dpp_invoice ID -> open websocket. If websocket is None, it means the ws:// is closed
+    dpp_websockets: dict[str, Optional[ClientWebSocketResponse]] = dataclasses.field(
+        default_factory=dict[str, Optional[ClientWebSocketResponse]])
+    # Adding a payment_request_id to this queue results in opening a dpp websocket
+    active_invoices_queue: asyncio.Queue[PaymentRequestReadRow] = dataclasses.field(
+        default_factory=asyncio.Queue[PaymentRequestReadRow])
 
     # The stage of the connection process it has last reached.
     connection_flags: ServerConnectionFlag = ServerConnectionFlag.INITIALISED
@@ -243,6 +254,11 @@ class ServerConnectionState:
     mapi_callback_consumer_future: Optional[concurrent.futures.Future[None]] = None
     output_spends_consumer_future: Optional[concurrent.futures.Future[None]] = None
     tip_filter_consumer_future: Optional[concurrent.futures.Future[None]] = None
+    # For each DPP Proxy server there is a manager task to create ws:// connections and
+    # a corresponding consumer task associated with the `Wallet` instance (which uses a shared
+    # queue)
+    manage_dpp_connections_future: Optional[concurrent.futures.Future[None]] = None
+    dpp_consumer_future: Optional[concurrent.futures.Future[None]] = None
 
     # Server websocket-related futures.
     websocket_futures: list[concurrent.futures.Future[None]] = dataclasses.field(

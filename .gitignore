@@ -55,3 +55,4 @@ electrum_sv_data/regtest/*
 electrumsv1/*
 contrib/functional_tests/stresstesting/.benchmarks/*
 electrum-sv-regtest.py
+/contrib/functional_tests/portable_sdk_datadir/*

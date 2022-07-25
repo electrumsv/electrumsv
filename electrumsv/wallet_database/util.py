@@ -1,3 +1,5 @@
+from datetime import datetime
+
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
     import pysqlite3 as sqlite3
@@ -59,3 +61,34 @@ def flag_clause(column: str, flags: Optional[T], mask: Optional[T]) -> tuple[str
         return f"({column} & ?) != 0", [flags]
 
     return f"({column} & ?) == ?", [mask, flags]
+
+
+UTC_TIMEZONE_INFO = '+00:00'
+ZULU_TIMEZONE_SUFFIX = 'Z'
+
+
+class NoTimezoneInfoException(Exception):
+    pass
+
+
+def from_isoformat(iso_timestamp: str) -> datetime:
+    """Timestamps such as: '2022-06-23T04:31:07.5387707Z' will fail conversion because
+    datetime.fromisoformat can only handle millisecond precision.
+    Datetime objects also must have tzinfo in order for their internal unix timestamp to be
+    correct."""
+    if "." in iso_timestamp:  # precision cannot exceed milliseconds
+        parts = iso_timestamp.split(".")
+        if iso_timestamp.endswith(ZULU_TIMEZONE_SUFFIX):
+            milliseconds = parts[1].replace(ZULU_TIMEZONE_SUFFIX, "")
+        elif iso_timestamp.endswith(UTC_TIMEZONE_INFO):
+            milliseconds = parts[1].replace(UTC_TIMEZONE_INFO, "")
+        else:
+            raise NoTimezoneInfoException()
+        return datetime.fromisoformat(parts[0] + milliseconds + UTC_TIMEZONE_INFO)
+    else:
+        if iso_timestamp.endswith(UTC_TIMEZONE_INFO):
+            return datetime.fromisoformat(iso_timestamp)
+        elif iso_timestamp.endswith(ZULU_TIMEZONE_SUFFIX):
+            return datetime.fromisoformat(iso_timestamp.replace('Z', UTC_TIMEZONE_INFO))
+        else:
+            raise NoTimezoneInfoException()

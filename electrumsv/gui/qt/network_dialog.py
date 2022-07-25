@@ -80,6 +80,7 @@ SERVER_TYPE_ENTRIES = [
 SERVER_TYPE_LABELS = {
     NetworkServerType.GENERAL: _("General"),
     NetworkServerType.MERCHANT_API: _("MAPI"),
+    NetworkServerType.DPP_PROXY: _("DPP_PROXY"),
 }
 
 

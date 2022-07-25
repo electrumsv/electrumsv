@@ -302,20 +302,35 @@ class TransactionOutputFlag(IntFlag):
 
 
 class PaymentFlag(IntFlag):
-    NONE                = 0
-    UNPAID              = 1 << 0
-    EXPIRED             = 1 << 1        # deprecated
-    UNKNOWN             = 1 << 2        # sent but not propagated
-    PAID                = 1 << 3        # send and propagated
-    ARCHIVED            = 1 << 4        # unused until we have UI support for filtering
+    NONE                        = 0
+    UNPAID                      = 1 << 0
+    EXPIRED                     = 1 << 1     # deprecated
+    UNKNOWN                     = 1 << 2     # sent but not propagated
+    PAID                        = 1 << 3     # send and propagated
+    ARCHIVED                    = 1 << 4     # unused until we have UI support for filtering
 
-    LEGACY              = 0b00 << 10    # These are old payment requests before migration 29.
-    INVOICE             = 0b01 << 10
-    IMPORTED            = 0b10 << 10
-    MONITORED           = 0b11 << 10
+    LEGACY                      = 0b00 << 10
+    INVOICE                     = 0b01 << 10  # USE THIS ONE HERE...
+    IMPORTED                    = 0b10 << 10
+    MONITORED                   = 0b11 << 10
 
-    MASK_TYPE           = LEGACY | INVOICE | IMPORTED | MONITORED
-    MASK_STATE          = UNPAID | EXPIRED | PAID | ARCHIVED
+    # States of State Machine in `Wallet._consume_dpp_messages_async`
+    # must be in ascending order of progress for comparison as integer values
+    # See `_is_later_dpp_message_sequence` below.
+
+    # States for when we are the Payee
+    PAYMENT_PENDING             = 0b0000 << 12  # this implies a ws:// for invoiceID is open
+    PAYMENT_REQUEST_REQUESTED   = 0b0001 << 12  # paymentrequest.create -> paymentrequest.response
+    PAYMENT_RECEIVED            = 0b0010 << 12  # payment message received
+
+    # States for when we are the Payer
+    PAYMENT_REQUEST_REQUESTING  = 0b0011 << 12  # paymentrequest.create send (attempting)
+    PAYMENT_REQUEST_RECEIVED    = 0b0100 << 12  # paymentrequest.response received
+
+    MASK_TYPE               = LEGACY | INVOICE | IMPORTED | MONITORED
+    MASK_STATE              = UNPAID | EXPIRED | PAID | ARCHIVED
+    MASK_DPP_STATE_MACHINE  = PAYMENT_PENDING | PAYMENT_REQUEST_REQUESTED | \
+                              PAYMENT_RECEIVED
     CLEARED_MASK_STATE  = ~MASK_STATE
 
     NOT_ARCHIVED = ~ARCHIVED
@@ -417,9 +432,11 @@ class NetworkEventNames(Enum):
 class NetworkServerType(IntEnum):
     MERCHANT_API = 1
     GENERAL = 2
+    DPP_PROXY = 3
 
 
-API_SERVER_TYPES = { NetworkServerType.MERCHANT_API, NetworkServerType.GENERAL }
+API_SERVER_TYPES = { NetworkServerType.MERCHANT_API, NetworkServerType.GENERAL,
+    NetworkServerType.DPP_PROXY }
 
 
 class ServerCapability(IntEnum):
@@ -436,6 +453,7 @@ class ServerCapability(IntEnum):
     PEER_CHANNELS = 9
     OUTPUT_SPENDS = 10
     TIP_FILTER = 11
+    DIRECT_PAYMENT_PROTOCOL = 12
 
 
 PREFIX_ASM_SCRIPT = "asm:"
@@ -498,6 +516,7 @@ class NetworkServerFlag(IntFlag):
     CAPABILITY_PEER_CHANNELS                        = 1 << 14
     CAPABILITY_OUTPUT_SPENDS                        = 1 << 15
     CAPABILITY_TIP_FILTER                           = 1 << 16
+    CAPABILITY_DPP                                  = 1 << 17
 
     # Used as
     REGISTERED_WITH                                 = 1 << 20

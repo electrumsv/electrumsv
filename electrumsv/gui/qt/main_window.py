@@ -1524,15 +1524,18 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             assert self.network is not None
 
             # Non-GUI thread. Is the broadcast done through invoicing payment delivery instead?
-            if send_view.is_invoice_payment() and not send_view.send_invoice_payment(tx):
-                # The invoice payment delivery either did not happen because the invoice was no
-                # longer valid, or for some other reason.
-                return False
-
-            have_broadcast = app_state.async_.spawn_and_wait(
-                self._wallet.broadcast_transaction_async(tx, context))
-            update_cb(False, _("Done."))
-            return have_broadcast
+            if send_view.is_invoice_payment():
+                send_invoice_payment_success = send_view.send_invoice_payment(tx)
+                if not send_invoice_payment_success:
+                    # The invoice payment delivery either did not happen because the invoice was no
+                    # longer valid, or for some other reason.
+                    return False
+                return True
+            else:
+                have_broadcast = app_state.async_.spawn_and_wait(
+                    self._wallet.broadcast_transaction_async(tx, context))
+                update_cb(False, _("Done."))
+                return have_broadcast
 
         def on_done(future: concurrent.futures.Future[bool]) -> None:
             assert window is not None

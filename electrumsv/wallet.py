@@ -74,7 +74,10 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     Imported_KeyStore, instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, \
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
+from .network_support import dpp_proxy
 from .network_support.api_server import APIServerDefinition, NewServer
+from .network_support.dpp_proxy import dpp_msg_type_to_state_flag, \
+    _is_later_dpp_message_sequence, manage_dpp_network_connections_async
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
@@ -114,11 +117,11 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     PasswordUpdateResult, PaymentRequestReadRow, PaymentRequestRow, PaymentRequestUpdateRow,
     MerkleProofUpdateRow, PushDataHashRegistrationRow, PushDataMatchRow, PushDataMatchMetadataRow,
     ServerPeerChannelRow, ServerPeerChannelAccessTokenRow, ServerPeerChannelMessageRow,
-    SpentOutputRow, TransactionDeltaSumRow,
-    TransactionExistsRow, TransactionLinkState, TransactionMetadata,
-    TransactionOutputShortRow, TransactionOutputSpendableRow, TransactionOutputSpendableProtocol,
-    TransactionInputAddRow, TransactionOutputAddRow, MerkleProofRow, TransactionProofUpdateRow,
-    TransactionRow, TransactionValueRow, WalletBalance, WalletEventInsertRow, WalletEventRow)
+    SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow, TransactionLinkState,
+    TransactionMetadata, TransactionOutputShortRow, TransactionOutputSpendableRow,
+    TransactionOutputSpendableProtocol, TransactionInputAddRow, TransactionOutputAddRow,
+    MerkleProofRow, TransactionProofUpdateRow, TransactionRow, TransactionValueRow, WalletBalance,
+    WalletEventInsertRow, WalletEventRow, DPPMessageRow)
 from .wallet_database.util import create_derivation_data2
 from .wallet_support.keys import get_pushdata_hash_for_account_key_data
 
@@ -2177,15 +2180,17 @@ class Wallet:
 
         # Guards the obtaining and processing of missing transactions from race conditions.
         self._obtain_transactions_async_lock = app_state.async_.lock()
-
         self._worker_startup_reorg_check: concurrent.futures.Future[None] | None = None
         self._worker_task_initialise_headers: concurrent.futures.Future[None] | None = None
         self._worker_task_manage_server_connections: concurrent.futures.Future[None] | None = None
+        self._worker_task_manage_dpp_connections: Optional[concurrent.futures.Future[None]] = None
         self._worker_tasks_maintain_server_connection = dict[int, list[ServerConnectionState]]()
         self._worker_task_chain_management: concurrent.futures.Future[None] | None = None
         self._worker_task_obtain_transactions: concurrent.futures.Future[None] | None = None
         self._worker_task_obtain_merkle_proofs: concurrent.futures.Future[None] | None = None
         self._worker_task_connect_headerless_proofs: concurrent.futures.Future[None] | None = None
+
+        self._dpp_proxy_servers: list[ServerConnectionState] = []  # for task cancellation
 
         ## ...
         # Guards `transaction_locks`.
@@ -4401,6 +4406,184 @@ class Wallet:
             for verified_entry in verified_entries:
                 self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, *verified_entry)
 
+    def _filter_out_earlier_dpp_message_states(self, dpp_messages: list[DPPMessageRow]) -> \
+            list[DPPMessageRow]:
+        latest_dpp_messages: dict[str, DPPMessageRow] = {}  # dpp_invoice_id: DPPMessageRow
+        for dpp_message in dpp_messages:
+            if latest_dpp_messages.get(dpp_message.dpp_invoice_id) is None:
+                latest_dpp_messages[dpp_message.dpp_invoice_id] = dpp_message
+            else:
+                msg_prior = latest_dpp_messages[dpp_message.dpp_invoice_id]
+                msg_later = dpp_message
+                if _is_later_dpp_message_sequence(msg_prior, msg_later):
+                    latest_dpp_messages[dpp_message.dpp_invoice_id] = msg_later
+        return [msg for msg in latest_dpp_messages.values()]
+
+    # ----- DPP Message Creators ----- #
+    def dpp_make_pr_create_message(self, pr_row: PaymentRequestRow,
+            message_row: DPPMessageRow) -> DPPMessageRow:
+        pass
+
+    def dpp_make_payment_request_response(self, pr_row: PaymentRequestRow,
+            message_row: DPPMessageRow) -> DPPMessageRow:
+        pass
+
+    def dpp_make_payment_message(self, pr_row: PaymentRequestRow,
+            message_row: DPPMessageRow) -> DPPMessageRow:
+        pass
+
+    def dpp_make_ack(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
+            -> DPPMessageRow:
+        pass
+
+    def dpp_make_pr_error(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
+            -> DPPMessageRow:
+        pass
+
+    def dpp_make_payment_error(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
+            -> DPPMessageRow:
+        pass
+
+    # ----- DPP Message Validators ----- #
+
+    def dpp_payment_is_valid(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
+            -> bool:
+        # TODO: Do validation
+        return True
+
+    def dpp_payment_request_is_valid(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
+            -> bool:
+        # TODO: Do validation
+        return True
+
+    async def ensure_dpp_websocket_send(self, state: ServerConnectionState,
+            message_row: DPPMessageRow, current_pr_flags: PaymentFlag):
+        # TODO: This should ideally not be needed because Payer is using REST API
+        """This is done as a background task so the state machine never blocks.
+
+        It will follow up to ensure that the peer wallet has responded with the next message
+        in the DPP sequence. If we are still 'stuck' on the same state of the state machine,
+        it will re-enqueue the message which will in turn retry the websocket send."""
+        FOLLOW_UP_CHECK_INTERVAL = 5  # seconds
+        websocket = state.dpp_websockets[message_row.dpp_invoice_id]
+        if websocket is not None:  # ws:// is still open
+            await websocket.send_str(message_row.to_json())
+
+            # There is no expected reply for these message types so skip follow check
+            if message_row.type in {dpp_proxy.MSG_TYPE_PAYMENT_ACK, dpp_proxy.MSG_TYPE_PAYMENT_ERR,
+                dpp_proxy.MSG_TYPE_PAYMENT_REQUEST_ERROR}:
+                return
+
+            await asyncio.sleep(FOLLOW_UP_CHECK_INTERVAL)
+
+            # Check latest db state of payment request to see if it has progressed state
+            pr_row = await self._db_context.run_in_thread_async(
+                db_functions.read_payment_requests_by_pr_id([message_row.paymentrequest_id]))[0]
+            if pr_row.flags & current_pr_flags == current_pr_flags:
+                state.dpp_messages_queue.put_nowait(message_row)
+            else:
+                # pr_row has graduated to later states i.e. success
+                return
+        else:
+            self._logger.error("There is no open websocket for dpp_invoice_id: %s, "
+                               "server url: %s. Retrying in 10 seconds...",
+                message_row.dpp_invoice_id, state.server.url)
+            await asyncio.sleep(10)
+            state.dpp_messages_queue.put_nowait(message_row)
+
+    async def update_pr_flags_in_db_async(self, pr_row: PaymentRequestRow,
+            new_flags: PaymentFlag) -> None:
+        entries = [PaymentRequestUpdateRow(new_flags, pr_row.requested_value, pr_row.expiration,
+            pr_row.description, pr_row.paymentrequest_id)]
+        await self._db_context.run_in_thread_async(db_functions.update_payment_requests,
+            entries)
+
+    async def _consume_dpp_messages_async(self, state: ServerConnectionState,
+            pr_rows_for_server: list[PaymentRequestReadRow]) -> None:
+        """Consumes and processes all invoice messages for a single DPP Proxy server
+
+        A core principle here is that both Payer and Payee should be able to retry any message type
+        in the exchange and it should never result in double invoicing or payment.
+        This is achieved by recording the DPPMessage in the database before sending over the
+        websocket for retrying after a sudden crash or power failure i.e. there is an
+        "at-least-once-delivery" garauntee.
+
+        The `payment.ack`, `payment.error` and `paymentrequest.error` message types do not have a
+        corresponding ws:// response message. As there is no feedback that the message was
+        successfully delivered, it should be possible for the payer to retry paying the invoice
+        from any state in the sequence if needed.
+        """
+        # Initialize ws:// connections for pre-existing active invoice records from the database
+        for pr_row in pr_rows_for_server:
+            state.active_invoices_queue.put_nowait(pr_row)
+
+        # Initialize the state machine message queue for pre-existing active invoice records
+        paymentrequest_ids = [pr_row.paymentrequest_id for pr_row in pr_rows_for_server]
+        dpp_messages = db_functions.read_dpp_messages_by_pr_id(self._db_context, paymentrequest_ids)
+        for dpp_message in self._filter_out_earlier_dpp_message_states(dpp_messages):
+            state.dpp_messages_queue.put_nowait(dpp_message)
+
+        # State machine
+        while not (self._stopping or self._stopped):
+            message_row: DPPMessageRow
+            for message_row in await state.dpp_messages_queue.get():
+                pr_row = db_functions.read_payment_requests_by_pr_id(self._db_context,
+                    [message_row.paymentrequest_id])[0]
+
+                assert pr_row.flags & PaymentFlag.INVOICE == PaymentFlag.INVOICE
+                assert pr_row.flags & PaymentFlag.UNPAID == PaymentFlag.UNPAID
+
+                # Update flag to new state & write to database
+                new_state_flag = dpp_msg_type_to_state_flag(message_row.type)
+                if pr_row.flags & new_state_flag != new_state_flag:
+                    pr_row.flags = pr_row.flags & ~PaymentFlag.MASK_DPP_STATE_MACHINE
+                    pr_row.flags = pr_row.flags | new_state_flag
+                    await self.update_pr_flags_in_db_async(pr_row, pr_row.flags)
+
+                    # TODO: This message persistence needs to happen in network_support (earlier
+                    #  on to avoid potential data loss)
+                    # Save the message before any network activity occurs (in case of system crash)
+                    await self._db_context.run_in_thread_async(db_functions.create_dpp_messages,
+                        [message_row])
+
+                self._logger.debug("State machine processing DPPMessageRow: %s for state: %s",
+                    message_row, pr_row.flags)
+
+                # ----- States for when we are the Payee ----- #
+                if pr_row.flags & PaymentFlag.PAYMENT_REQUEST_REQUESTED == \
+                        PaymentFlag.PAYMENT_REQUEST_REQUESTED:
+                    dpp_response_message = self.dpp_make_payment_request_response(pr_row,
+                        message_row)
+                    _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
+                        dpp_response_message, pr_row.flags)
+
+                elif pr_row.flags & PaymentFlag.PAYMENT_RECEIVED == \
+                        PaymentFlag.PAYMENT_RECEIVED:
+                    if self.dpp_payment_is_valid(pr_row, message_row):
+                        dpp_ack_message = self.dpp_make_ack(pr_row, message_row)
+                        _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
+                            dpp_ack_message, pr_row.flags)
+                    else:
+                        dpp_err_message = self.dpp_make_pr_error(pr_row, message_row)
+                        _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
+                            dpp_err_message, pr_row.flags)
+
+                elif pr_row.flags & PaymentFlag.PAYMENT_RECEIVED == PaymentFlag.PAYMENT_RECEIVED:
+                    # TODO(1.4.0) DPP. Validate Payment struct
+                    # TODO(1.4.0) DPP. Create Peer Channel
+                    # TODO(1.4.0) DPP. Broadcast to mAPI
+                    # TODO(1.4.0) DPP. On Success. Update invoice to PaymentFlag.PAID
+
+                    # Send PaymentACK to payer
+                    dpp_payment_ack_message = self.dpp_make_ack(pr_row, message_row)
+                    _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
+                        dpp_payment_ack_message, pr_row.flags)
+
+                # ----- States for when we are the Payer ----- #
+                # NOTE: Not included because when we are the ** Payer **, we use the simplified
+                # http request/response REST API endpoints of the DPP server (i.e. BIP272 URI)
+
+
     async def _consume_tip_filter_matches_async(self, state: ServerConnectionState) -> None:
         """
         Process tip filter messages received from a server.
@@ -4416,6 +4599,7 @@ class Wallet:
             * If the batch is processed then it is no longer valid.
             * If the batch is processed (task cancelled) then it will be picked up next restart.
         """
+        # TODO(1.4.0) Should this db read be filtering for state.server.server_id? - AustEcon
         message_entries = list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]()
         for message_row in await self.data.read_server_peer_channel_messages_async(
                 PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
@@ -4715,6 +4899,54 @@ class Wallet:
         maximum_size_bytes = maximum_size * (1024 * 1024)
         self._transaction_cache2.set_maximum_size(maximum_size_bytes, force_resize)
 
+    async def _manage_dpp_connections_async(self):
+        # Petty cash account_id is for ServerConnectionState in case payment is required in future
+        petty_cash_account_id = None
+        for account in self._accounts.values():
+            if account.is_petty_cash():
+                petty_cash_account_id = account.get_id()
+        assert petty_cash_account_id is not None
+
+        # Scan through all accounts for all active payment requests and get the DPP proxy servers
+        # associated with each invoice ID.
+        unique_dpp_servers: set[NewServer] = { server for server in self._servers.values()
+                if server.server_type == NetworkServerType.DPP_PROXY }
+
+        server_to_pr_map: dict[NewServer, list[PaymentRequestReadRow]] = {}
+        for server in unique_dpp_servers:
+            server_to_pr_map[server] = []
+
+        for account in self._accounts.values():
+            # We are only processing PaymentFlag.INVOICE type invoices (not legacy invoices)
+            flags = PaymentFlag.INVOICE | PaymentFlag.UNPAID
+            active_pr_rows: list[PaymentRequestReadRow] = \
+                self.data.read_payment_requests(account.get_id(), flags=flags)
+
+            # software join on server_id to obtain NewServer info (for the ws:// connection)
+            for active_pr_row in active_pr_rows:
+                for server in unique_dpp_servers:
+                    if active_pr_row.server_id == server.server_id:
+                        server_to_pr_map[server].append(active_pr_row)
+
+        for server in unique_dpp_servers:
+            usage_flags = NetworkServerFlag.CAPABILITY_DPP
+            state = ServerConnectionState(
+                petty_cash_account_id=petty_cash_account_id,
+                usage_flags=usage_flags,
+                wallet_proxy=weakref.proxy(self),
+                wallet_data=self.data,
+                session=self._network.aiohttp_session,
+                server=server,
+                credential_id=server.client_api_keys[None])
+
+            self._dpp_proxy_servers.append(state)
+            state.manage_dpp_connections_future = \
+                app_state.async_.spawn(manage_dpp_network_connections_async(state))
+
+            pr_rows_for_server = server_to_pr_map[server]
+            state.dpp_consumer_future = app_state.async_.spawn(
+                self._consume_dpp_messages_async(state, pr_rows_for_server))
+
     def start(self, network: Optional[Network]) -> None:
         assert app_state.headers is not None
 
@@ -4743,6 +4975,10 @@ class Wallet:
             # We can start trying to connect to any servers we are already using.
             self._worker_task_manage_server_connections = app_state.async_.spawn(
                 self._start_existing_server_connections())
+
+            self._worker_task_manage_dpp_connections = app_state.async_.spawn(
+                self._manage_dpp_connections_async())
+
         else:
             # Offline mode.
             pass
@@ -4814,6 +5050,10 @@ class Wallet:
             self._worker_task_manage_server_connections.cancel()
             pending_futures.add(self._worker_task_manage_server_connections)
             self._worker_task_manage_server_connections = None
+        if self._worker_task_manage_dpp_connections is not None:
+            self._worker_task_manage_dpp_connections.cancel()
+            pending_futures.add(self._worker_task_manage_dpp_connections)
+            self._worker_task_manage_dpp_connections = None
 
         async def trigger_chain_management_interrupt_event() -> None:
             # `Event.set` is not thread-safe, needs to be executed in the async thread.
@@ -4869,6 +5109,14 @@ class Wallet:
             done, not_done = concurrent.futures.wait(pending_futures, 1.0)
             pending_futures = not_done
             total_wait += 1.0
+
+        for state in self._dpp_proxy_servers:
+            if state.dpp_consumer_future is not None:
+                state.dpp_consumer_future.cancel()
+                pending_futures.add(state.dpp_consumer_future)
+            if state.manage_dpp_connections_future is not None:
+                state.manage_dpp_connections_future.cancel()
+                pending_futures.add(state.manage_dpp_connections_future)
 
         if len(pending_futures) > 0:
             # This should never happen outside of in development errors. We include it both for

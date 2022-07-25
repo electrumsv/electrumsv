@@ -1,3 +1,6 @@
+import json
+from datetime import datetime, timezone
+from enum import IntEnum
 from typing import Any, NamedTuple, Optional, Protocol, Union
 
 from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
@@ -191,6 +194,7 @@ class PushDataRegistrationRow(NamedTuple):
 
 class PaymentRequestReadRow(NamedTuple):
     paymentrequest_id: int
+    dpp_invoice_id: str
     keyinstance_id: int
     state: PaymentFlag
     requested_value: Optional[int]
@@ -198,6 +202,7 @@ class PaymentRequestReadRow(NamedTuple):
     expiration: Optional[int]
     description: Optional[str]
     script_type: ScriptType
+    server_id: int
     pushdata_hash: bytes
     date_created: int = -1
 
@@ -205,6 +210,7 @@ class PaymentRequestReadRow(NamedTuple):
 class PaymentRequestRow(NamedTuple):
     paymentrequest_id: int
     keyinstance_id: int
+    dpp_invoice_id: str
     state: PaymentFlag
     requested_value: Optional[int]
     expiration: Optional[int]
@@ -574,6 +580,47 @@ class ServerPeerChannelMessageRow(NamedTuple):
     date_received: int
     date_created: int
     date_updated: int
+
+
+class InvoiceMessageRow(NamedTuple):
+    message_id: Optional[int]
+    peer_channel_id: int
+    message_data: bytes
+    message_flags: PeerChannelMessageFlag
+    sequence: int
+    date_received: int
+    date_created: int
+    date_updated: int
+
+
+class DPPMessageRow(NamedTuple):
+    message_id: str
+    paymentrequest_id: int
+    dpp_invoice_id: str
+    correlation_id: str
+    app_id: int
+    client_id: int
+    user_id: int
+    expiration: Optional[int]
+    body: bytes
+    timestamp: int
+    type: str
+
+    def to_json(self, ) -> str:
+        ts = datetime.now(tz=timezone.utc).isoformat().replace('+00:00', 'Z')
+        dpp_message_dict = {}
+        dpp_message_dict['correlationId'] = self.correlation_id
+        dpp_message_dict['appId'] = self.app_id
+        dpp_message_dict['clientID'] = self.client_id
+        dpp_message_dict['userId'] = self.user_id
+        dpp_message_dict['expiration'] = self.expiration
+        dpp_message_dict['body'] = self.body
+        dpp_message_dict['messageId'] = self.message_id
+        dpp_message_dict['channelId'] = self.dpp_invoice_id
+        dpp_message_dict['timestamp'] = ts
+        dpp_message_dict['type'] = self.type
+        dpp_message_dict['headers'] = {}
+        return json.dumps(dpp_message_dict)
 
 
 class PushDataHashRegistrationRow(NamedTuple):
