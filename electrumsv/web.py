@@ -33,13 +33,12 @@ from bitcoinx import Address
 
 from .bip276 import PREFIX_BIP276_SCRIPT, bip276_decode, NetworkMismatchError, ChecksumMismatchError
 from .bitcoin import COIN, is_address_valid
-from .constants import NetworkServerType
 from .exceptions import Bip270Exception
 from .i18n import _
 from .logs import logs
+from .network_support.types import ServerConnectionState
 from .networks import Net
 from .util import format_satoshis_plain
-from .wallet import AbstractAccount
 from .wallet_database.types import PaymentRequestReadRow
 
 if TYPE_CHECKING:
@@ -83,16 +82,20 @@ def BE_sorted_list() -> Iterable[str]:
     return sorted(Net.BLOCK_EXPLORERS)
 
 
-def create_DPP_URI(account: AbstractAccount, request_row: PaymentRequestReadRow) -> str:
-    scheme = Net.PAY_URI_PREFIX
-    dpp_servers = account.get_wallet().get_servers_for_account_id(account.get_id(),
-        NetworkServerType.DPP_PROXY)
+def create_DPP_URL(dpp_proxy_server_states: list[ServerConnectionState], request_row: PaymentRequestReadRow) -> str:
     dpp_server = None
-    for server, credentials in dpp_servers:
-        if server.server_id == request_row.server_id:
-            dpp_server = server
+    for state in dpp_proxy_server_states:
+        if state.server.server_id == request_row.server_id:
+            dpp_server = state.server
     full_dpp_invoice_url = f"{dpp_server.url.rstrip('/')}" \
                            f"/api/v1/payment/{request_row.dpp_invoice_id}"
+    url = f"{full_dpp_invoice_url}"
+    return url
+
+
+def create_DPP_URI(dpp_proxy_server_states: list[ServerConnectionState], request_row: PaymentRequestReadRow) -> str:
+    scheme = Net.PAY_URI_PREFIX
+    full_dpp_invoice_url = create_DPP_URL(dpp_proxy_server_states, request_row)
     uri = f"{scheme}:?r={full_dpp_invoice_url}&sv"
     return uri
 

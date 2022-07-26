@@ -615,7 +615,7 @@ class DPPMessageRow(NamedTuple):
         dpp_message_dict['clientID'] = self.client_id
         dpp_message_dict['userId'] = self.user_id
         dpp_message_dict['expiration'] = self.expiration
-        dpp_message_dict['body'] = self.body
+        dpp_message_dict['body'] = self.body.decode('utf-8')
         dpp_message_dict['messageId'] = self.message_id
         dpp_message_dict['channelId'] = self.dpp_invoice_id
         dpp_message_dict['timestamp'] = ts

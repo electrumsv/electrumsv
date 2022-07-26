@@ -75,6 +75,8 @@ def _validate_dpp_message_json(dpp_message_json: dict[Any, Any]) -> bool:
            isinstance(dpp_message_json["expiration"], str)
     if dpp_message_json["body"] is not None:
         assert isinstance(dpp_message_json["body"], dict), f"body={dpp_message_json['body']}"
+    else:
+        dpp_message_json["body"] = {}
     assert isinstance(dpp_message_json["messageId"], str)
     assert isinstance(dpp_message_json["channelId"], str)
     assert isinstance(dpp_message_json["timestamp"], str)
@@ -124,7 +126,7 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
                     client_id=message_json["clientID"],
                     user_id=message_json["userId"],
                     expiration=expiration,
-                    body=message_json["body"],
+                    body=json.dumps(message_json["body"]).encode('utf-8'),
                     timestamp=int(from_isoformat(message_json["timestamp"]).timestamp()),
                     type=message_json["type"]
                 )

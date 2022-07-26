@@ -75,7 +75,6 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     Imported_KeyStore, instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, \
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
-from .network_support import dpp_proxy
 from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.dpp_proxy import dpp_msg_type_to_state_flag, _is_later_dpp_message_sequence, \
     manage_dpp_network_connections_async, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_RESPONSE
@@ -125,6 +124,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     WalletEventInsertRow, WalletEventRow, DPPMessageRow)
 from .wallet_database.util import create_derivation_data2
 from .wallet_support.keys import get_pushdata_hash_for_account_key_data
+from .web import create_DPP_URL
 
 if TYPE_CHECKING:
     from .network import Network
@@ -4423,10 +4423,48 @@ class Wallet:
         return [msg for msg in latest_dpp_messages.values()]
 
     # ----- DPP Message Creators ----- #
-    def dpp_make_payment_request_response(self, pr_row: PaymentRequestRow,
+    def dpp_make_payment_request_response(self, pr_row: PaymentRequestReadRow,
             message_row_received: DPPMessageRow) -> DPPMessageRow:
-        # TODO(1.4.0) DPP. This is just echoing back the same message timestamp and mock body
-        #  need to actually create the paymentrequest.response message properly before sending
+        key_data = self.data.read_keyinstance(keyinstance_id=pr_row.keyinstance_id)
+        script_template = self.get_default_account().get_script_template_for_derivation(
+            pr_row.script_type, key_data.derivation_type, key_data.derivation_data2)
+        outputs_object = [
+            {
+                "description": pr_row.description,
+                "amount": pr_row.requested_value,
+                "script": script_template.to_string()
+            }
+        ]
+
+        paymentRequestData = {
+            "network": "regtest",
+            "version": "1.0",
+            "creationTimestamp": int(datetime.now(tz=timezone.utc).timestamp()),
+            "expirationTimestamp": pr_row.expiration,
+            "paymentUrl": create_DPP_URL(self.dpp_proxy_server_states, pr_row),
+            # "beneficiary": {"name": "GoldenSocks.com", "paymentReference": "Order-325214"},
+            "memo": pr_row.description,
+
+            # Hybrid Payment Mode
+            'modes': {'ef63d9775da5':
+                {
+                    "choiceID0": {
+                        "transactions": [
+                            {
+                                'outputs': {
+                                    'native': outputs_object
+                                },
+                                'policies': {
+                                    'fees': {
+                                        'standard': {"satoshis": 100, "bytes": 200},
+                                        'data': {'satoshis': 100, 'bytes': 200}},
+                                    'SPVRequired': False}
+                            },
+                        ],
+                    },
+                }}
+        }
+
         message_row_response = DPPMessageRow(
             message_id=str(uuid.uuid4()),
             paymentrequest_id=message_row_received.paymentrequest_id,
@@ -4436,8 +4474,8 @@ class Wallet:
             client_id=message_row_received.client_id,
             user_id=message_row_received.user_id,
             expiration=message_row_received.expiration,
-            body=json.dumps({"key": "for dataflow mocking purposes only - payment request data goes here!"}).encode('utf-8'),
-            timestamp=message_row_received.timestamp,
+            body=json.dumps(paymentRequestData).encode('utf-8'),
+            timestamp=int(datetime.now(tz=timezone.utc).timestamp()),
             type=MSG_TYPE_PAYMENT_REQUEST_RESPONSE
         )
         return message_row_response

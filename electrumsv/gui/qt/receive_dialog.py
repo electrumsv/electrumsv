@@ -395,7 +395,7 @@ class ReceiveDialog(QDialog):
 
         else:
             assert self._request_row is not None
-            uri = create_DPP_URI(self._account, self._request_row)
+            uri = create_DPP_URI(self._account.get_wallet().dpp_proxy_server_states, self._request_row)
             self._receive_destination_edit.setText(uri)
 
     def update_script_type(self, script_type: ScriptType) -> None:
@@ -427,7 +427,8 @@ class ReceiveDialog(QDialog):
 
         if self._request_type & PaymentFlag.INVOICE == PaymentFlag.INVOICE \
                 and self._request_row is not None:
-            uri = create_DPP_URI(self._account, self._request_row)
+            uri = create_DPP_URI(self._account.get_wallet().dpp_proxy_server_states,
+                self._request_row)
             self._receive_qr.setData(uri)
             if self._qr_window and self._qr_window.isVisible():
                 self._qr_window.set_content(self._receive_destination_edit.text(), amount,
