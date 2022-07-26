@@ -614,6 +614,7 @@ class ReceiveDialog(QDialog):
 
             # Opens a dpp websocket connection for this server
             assert self._dpp_server_state is not None
+            assert self._dpp_server_state.server.server_id == self._request_row.server_id
             self._dpp_server_state.active_invoices_queue.put_nowait(self._request_row)
 
             # Attempt to start the process of registering with any server.

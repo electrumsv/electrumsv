@@ -265,6 +265,7 @@ class CoinSplittingTab(TabWidget):
 
             # Opens a dpp websocket connection for this server
             assert self._dpp_server_state is not None
+            assert self._dpp_server_state.server.server_id == request_row.server_id
             self._dpp_server_state.active_invoices_queue.put_nowait(request_row)
 
         pr_future, key_data = self._account.create_payment_request(

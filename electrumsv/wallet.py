@@ -40,6 +40,7 @@ import random
 import threading
 from typing import Any, AsyncIterable, Awaitable, Callable, cast, Coroutine, Iterable, Optional, \
     Sequence, TypedDict, TypeVar, TYPE_CHECKING, Union
+import uuid
 import weakref
 
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
@@ -77,7 +78,7 @@ from .logs import logs
 from .network_support import dpp_proxy
 from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.dpp_proxy import dpp_msg_type_to_state_flag, _is_later_dpp_message_sequence, \
-    manage_dpp_network_connections_async, MSG_TYPE_JOIN_SUCCESS
+    manage_dpp_network_connections_async, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_RESPONSE
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
@@ -4422,13 +4423,24 @@ class Wallet:
         return [msg for msg in latest_dpp_messages.values()]
 
     # ----- DPP Message Creators ----- #
-    def dpp_make_pr_create_message(self, pr_row: PaymentRequestRow,
-            message_row: DPPMessageRow) -> DPPMessageRow:
-        pass
-
     def dpp_make_payment_request_response(self, pr_row: PaymentRequestRow,
-            message_row: DPPMessageRow) -> DPPMessageRow:
-        pass
+            message_row_received: DPPMessageRow) -> DPPMessageRow:
+        # TODO(1.4.0) DPP. This is just echoing back the same message timestamp and mock body
+        #  need to actually create the paymentrequest.response message properly before sending
+        message_row_response = DPPMessageRow(
+            message_id=str(uuid.uuid4()),
+            paymentrequest_id=message_row_received.paymentrequest_id,
+            dpp_invoice_id=message_row_received.dpp_invoice_id,
+            correlation_id=message_row_received.correlation_id,
+            app_id=message_row_received.app_id,
+            client_id=message_row_received.client_id,
+            user_id=message_row_received.user_id,
+            expiration=message_row_received.expiration,
+            body=json.dumps({"key": "for dataflow mocking purposes only - payment request data goes here!"}).encode('utf-8'),
+            timestamp=message_row_received.timestamp,
+            type=MSG_TYPE_PAYMENT_REQUEST_RESPONSE
+        )
+        return message_row_response
 
     def dpp_make_payment_message(self, pr_row: PaymentRequestRow,
             message_row: DPPMessageRow) -> DPPMessageRow:
@@ -4458,34 +4470,21 @@ class Wallet:
         # TODO: Do validation
         return True
 
-    async def ensure_dpp_websocket_send(self, state: ServerConnectionState,
-            message_row: DPPMessageRow, current_pr_flags: PaymentFlag):
-        # TODO: This should ideally not be needed because Payer is using REST API
-        """This is done as a background task so the state machine never blocks.
+    async def dpp_websocket_send(self, state: ServerConnectionState, message_row: DPPMessageRow):
+        try:
+            websocket = state.dpp_websockets[message_row.dpp_invoice_id]
+        except KeyError:
+            # TODO(1.4.0) DPP. This was happening because it takes a second before the
+            #  websockets are actually opened and the state.dpp_websockets cache is filled.
+            #  therefore this likely needs some kind of synchronization to wait until the initial
+            #  opening of all active invoices in database is completed. Currently this is being
+            #  avoided with an `await asyncio.sleep(1)` to yield the event loop. - AustEcon
+            self._logger.exception(f"Key Error looking up cached dpp websocket: "
+                                   f"state.dpp_websockets={state.dpp_websockets}")
+            return
 
-        It will follow up to ensure that the peer wallet has responded with the next message
-        in the DPP sequence. If we are still 'stuck' on the same state of the state machine,
-        it will re-enqueue the message which will in turn retry the websocket send."""
-        FOLLOW_UP_CHECK_INTERVAL = 5  # seconds
-        websocket = state.dpp_websockets[message_row.dpp_invoice_id]
         if websocket is not None:  # ws:// is still open
             await websocket.send_str(message_row.to_json())
-
-            # There is no expected reply for these message types so skip follow check
-            if message_row.type in {dpp_proxy.MSG_TYPE_PAYMENT_ACK, dpp_proxy.MSG_TYPE_PAYMENT_ERR,
-                dpp_proxy.MSG_TYPE_PAYMENT_REQUEST_ERROR}:
-                return
-
-            await asyncio.sleep(FOLLOW_UP_CHECK_INTERVAL)
-
-            # Check latest db state of payment request to see if it has progressed state
-            pr_row = await self._db_context.run_in_thread_async(
-                db_functions.read_payment_request([message_row.paymentrequest_id]))[0]
-            if pr_row.flags & current_pr_flags == current_pr_flags:
-                state.dpp_messages_queue.put_nowait(message_row)
-            else:
-                # pr_row has graduated to later states i.e. success
-                return
         else:
             self._logger.error("There is no open websocket for dpp_invoice_id: %s, "
                                "server url: %s. Retrying in 10 seconds...",
@@ -4497,7 +4496,7 @@ class Wallet:
             new_flags: PaymentFlag) -> None:
         entries = [PaymentRequestUpdateRow(new_flags, pr_row.requested_value, pr_row.expiration,
             pr_row.description, pr_row.paymentrequest_id)]
-        await self._db_context.run_in_thread_async(db_functions.update_payment_requests,
+        await self._db_context.run_in_thread_async(db_functions.update_payment_requests_no_wait,
             entries)
 
     async def _consume_dpp_messages_async(self, state: ServerConnectionState,
@@ -4519,6 +4518,8 @@ class Wallet:
         for pr_row in pr_rows_for_server:
             state.active_invoices_queue.put_nowait(pr_row)
 
+        await asyncio.sleep(1)  # yield event loop so that websocket connections open
+
         # Initialize the state machine message queue for pre-existing active invoice records
         paymentrequest_ids = [pr_row.paymentrequest_id for pr_row in pr_rows_for_server]
         dpp_messages = db_functions.read_dpp_messages_by_pr_id(self._db_context, paymentrequest_ids)
@@ -4531,42 +4532,48 @@ class Wallet:
             message_row = await state.dpp_messages_queue.get()
             if message_row.type == MSG_TYPE_JOIN_SUCCESS:
                 continue
-            pr_row = db_functions.read_payment_requests(self._db_context,
-                paymentrequest_ids=[message_row.paymentrequest_id])[0]
 
-            assert pr_row.flags & PaymentFlag.INVOICE == PaymentFlag.INVOICE
-            assert pr_row.flags & PaymentFlag.UNPAID == PaymentFlag.UNPAID
+            pr_rows = db_functions.read_payment_requests(self._db_context,
+                paymentrequest_ids=[message_row.paymentrequest_id])
+            if len(pr_rows) != 1:
+                self._logger.error(f"Failed to read payment request with id: "
+                                   f"{message_row.paymentrequest_id} from the database. "
+                                   f"DPPMessageRow data: {message_row}")
+                continue
+
+            pr_row = pr_rows[0]
+            assert pr_row.state & PaymentFlag.INVOICE == PaymentFlag.INVOICE
+            assert pr_row.state & PaymentFlag.UNPAID == PaymentFlag.UNPAID
 
             # Update flag to new state & write to database
             new_state_flag = dpp_msg_type_to_state_flag(message_row.type)
-            if pr_row.flags & new_state_flag != new_state_flag:
-                pr_row.flags = pr_row.flags & ~PaymentFlag.MASK_DPP_STATE_MACHINE
-                pr_row.flags = pr_row.flags | new_state_flag
-                await self.update_pr_flags_in_db_async(pr_row, pr_row.flags)
+            if pr_row.state & new_state_flag != new_state_flag:
+                new_state = pr_row.state & ~PaymentFlag.MASK_DPP_STATE_MACHINE | new_state_flag
+                await self.update_pr_flags_in_db_async(pr_row, new_state)
 
             self._logger.debug("State machine processing DPPMessageRow: %s for state: %s",
-                message_row, pr_row.flags)
+                message_row, pr_row.state)
 
             # ----- States for when we are the Payee ----- #
-            if pr_row.flags & PaymentFlag.PAYMENT_REQUEST_REQUESTED == \
+            if pr_row.state & PaymentFlag.PAYMENT_REQUEST_REQUESTED == \
                     PaymentFlag.PAYMENT_REQUEST_REQUESTED:
                 dpp_response_message = self.dpp_make_payment_request_response(pr_row,
                     message_row)
-                _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
-                    dpp_response_message, pr_row.flags)
+                _future = app_state.async_.spawn(self.dpp_websocket_send(state,
+                    dpp_response_message))
 
-            elif pr_row.flags & PaymentFlag.PAYMENT_RECEIVED == \
+            elif pr_row.state & PaymentFlag.PAYMENT_RECEIVED == \
                     PaymentFlag.PAYMENT_RECEIVED:
                 if self.dpp_payment_is_valid(pr_row, message_row):
                     dpp_ack_message = self.dpp_make_ack(pr_row, message_row)
-                    _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
-                        dpp_ack_message, pr_row.flags)
+                    _future = app_state.async_.spawn(self.dpp_websocket_send(state,
+                        dpp_ack_message))
                 else:
                     dpp_err_message = self.dpp_make_pr_error(pr_row, message_row)
-                    _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
-                        dpp_err_message, pr_row.flags)
+                    _future = app_state.async_.spawn(self.dpp_websocket_send(state,
+                        dpp_err_message))
 
-            elif pr_row.flags & PaymentFlag.PAYMENT_RECEIVED == PaymentFlag.PAYMENT_RECEIVED:
+            elif pr_row.state & PaymentFlag.PAYMENT_RECEIVED == PaymentFlag.PAYMENT_RECEIVED:
                 # TODO(1.4.0) DPP. Validate Payment struct
                 # TODO(1.4.0) DPP. Create Peer Channel
                 # TODO(1.4.0) DPP. Broadcast to mAPI
@@ -4574,8 +4581,8 @@ class Wallet:
 
                 # Send PaymentACK to payer
                 dpp_payment_ack_message = self.dpp_make_ack(pr_row, message_row)
-                _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
-                    dpp_payment_ack_message, pr_row.flags)
+                _future = app_state.async_.spawn(self.dpp_websocket_send(state,
+                    dpp_payment_ack_message))
 
             # ----- States for when we are the Payer ----- #
             # NOTE: Not included because when we are the ** Payer **, we use the simplified

@@ -882,15 +882,19 @@ def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None
         SELECT KI.keyinstance_id, TOTAL(TXO.value) AS total_value
         FROM KeyInstances KI
         LEFT JOIN TransactionOutputs TXO ON KI.keyinstance_id=TXO.keyinstance_id
-        WHERE KI.account_id=?
+        {}
         GROUP BY KI.keyinstance_id
-    )
-
-    SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id, PR.state, PR.value, 
-        KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, 
-        PR.server_id, PR.date_created
-    FROM PaymentRequests PR
-    INNER JOIN key_payments KP USING(keyinstance_id)
+    )"""
+    if account_id:
+        sql = sql.format("WHERE KI.account_id=?")
+    else:
+        sql = sql.format("")
+    sql += """
+        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id, PR.state, PR.value, 
+            KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, 
+            PR.server_id, PR.date_created
+        FROM PaymentRequests PR
+        INNER JOIN key_payments KP USING(keyinstance_id)
     """
     sql_values: list[Any] = []
     if account_id:
@@ -901,8 +905,10 @@ def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None
         sql_values.extend(extra_values)
 
     if paymentrequest_ids:
-        sql += f" WHERE {clause}"
-        sql_values.extend(extra_values)
+        if not clause:
+            sql += " WHERE paymentrequest_id IN ({}) "
+        else:
+            sql += " AND paymentrequest_id IN ({})"
         rows = read_rows_by_id(PaymentRequestReadRow, db, sql, sql_values, paymentrequest_ids)
         # Type casting of PaymentFlag
         return [ PaymentRequestReadRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6], t[7],
@@ -2230,6 +2236,17 @@ async def close_paid_payment_requests_async(db_context: DatabaseContext) \
     offloaded to the SQLite writer thread while this task is blocked.
     """
     return await db_context.run_in_thread_async(_close_paid_payment_requests)
+
+
+def update_payment_requests_no_wait(entries: Iterable[PaymentRequestUpdateRow],
+        db: Optional[sqlite3.Connection]=None) -> None:
+    sql = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, expiration=?, "
+        "description=? WHERE paymentrequest_id=?")
+    timestamp = get_posix_timestamp()
+    rows = [ (timestamp, *entry) for entry in entries ]
+
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    db.executemany(sql, rows)
 
 
 def update_payment_requests(db_context: DatabaseContext,
