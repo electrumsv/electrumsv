@@ -1,5 +1,7 @@
 from __future__ import annotations
+import base64
 import concurrent.futures
+import os
 from typing import Any, cast, Optional, TYPE_CHECKING
 import weakref
 
@@ -8,18 +10,19 @@ from PyQt6.QtGui import QCloseEvent, QCursor, QFontMetrics, QKeyEvent
 from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLayout, QLineEdit, \
     QMenu, QToolTip, QVBoxLayout
 
+from ... import web
 from ...app_state import app_state, get_app_state_qt
 from ...bitcoin import script_template_to_string
 from ...constants import NetworkServerFlag, PaymentFlag, PushDataHashRegistrationFlag, ScriptType, \
-    ServerConnectionFlag, TxFlags
+    ServerConnectionFlag, TxFlags, NetworkServerType
 from ...i18n import _
 from ...logs import logs
+from ...network_support.api_server import NewServer
 from ...network_support.types import ServerConnectionState, TipFilterRegistrationJob, \
     TipFilterRegistrationJobEntry
 from ...networks import Net, TEST_NETWORK_NAMES
 from ...transaction import Transaction, TransactionContext
 from ...util import age, get_posix_timestamp
-from ... import web
 from ...wallet_database.types import PaymentRequestRow, PaymentRequestUpdateRow
 
 from .amountedit import AmountEdit, BTCAmountEdit
@@ -27,11 +30,11 @@ from .qrcodewidget import QRCodeWidget
 from .qrwindow import QR_Window
 from .util import Buttons, ButtonsLineEdit, EnterButton, FormSectionWidget, FormSeparatorLine, \
     HelpDialogButton, MessageBox
+from ...web import create_DPP_URI
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
     from .receive_view import ReceiveView
-    from ...wallet import AbstractAccount
     from ...wallet_database.types import KeyInstanceRow, PaymentRequestReadRow
 
 
@@ -128,6 +131,7 @@ class ReceiveDialog(QDialog):
 
         self._request_row: Optional[PaymentRequestReadRow] = None
         self._key_data: Optional[KeyInstanceRow] = None
+        self._dpp_server_state: Optional[ServerConnectionState] = None
 
         if request_id is not None:
             self._read_request_data_from_database()
@@ -138,7 +142,7 @@ class ReceiveDialog(QDialog):
         self._layout_pending = False
 
         self._on_fiat_ccy_changed()
-        self._update_destination()
+        self.update_destination()
         if self._request_row is not None:
             self._receive_amount_e.setAmount(self._request_row.requested_value)
 
@@ -175,7 +179,7 @@ class ReceiveDialog(QDialog):
         """
         key = event.key()
         if key == Qt.Key.Key_R and bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-            self._update_destination()
+            self.update_destination()
             self._update_receive_qr()
             self._update_form()
         else:
@@ -377,17 +381,26 @@ class ReceiveDialog(QDialog):
         # wallet window code.
         pass
 
-    def _update_destination(self) -> None:
-        if self._request_row is None:
-            script_type = self._account.get_default_script_type()
+    def update_destination(self) -> None:
+        if self._key_data is None:
+            return
+
+        if self._request_type == PaymentFlag.MONITORED:
+            if self._request_row is None:
+                script_type = self._account.get_default_script_type()
+            else:
+                script_type = self._request_row.script_type
+
+            self.update_script_type(script_type)
+
         else:
-            script_type = self._request_row.script_type
-        self.update_script_type(script_type)
+            assert self._request_row is not None
+            uri = create_DPP_URI(self._account, self._request_row)
+            self._receive_destination_edit.setText(uri)
 
     def update_script_type(self, script_type: ScriptType) -> None:
         """
         Update the payment destination field.
-
         This is called both locally, and from the account information dialog when the script type
         is changed.
         """
@@ -396,8 +409,7 @@ class ReceiveDialog(QDialog):
 
         text = ""
         script_template = self._account.get_script_template_for_derivation(
-            script_type,
-            self._key_data.derivation_type, self._key_data.derivation_data2)
+            script_type, self._key_data.derivation_type, self._key_data.derivation_data2)
         if script_template is not None:
             text = script_template_to_string(script_template)
         self._receive_destination_edit.setText(text)
@@ -413,16 +425,24 @@ class ReceiveDialog(QDialog):
         message = self._receive_message_e.text()
         self._save_button.setEnabled((amount is not None) or (message != ""))
 
-        script_template = self._account.get_script_template_for_derivation(
-            self._account.get_default_script_type(),
-            self._key_data.derivation_type, self._key_data.derivation_data2)
-        address_text = script_template_to_string(script_template)
+        if self._request_type & PaymentFlag.INVOICE == PaymentFlag.INVOICE \
+                and self._request_row is not None:
+            uri = create_DPP_URI(self._account, self._request_row)
+            self._receive_qr.setData(uri)
+            if self._qr_window and self._qr_window.isVisible():
+                self._qr_window.set_content(self._receive_destination_edit.text(), amount,
+                    message, uri)
 
-        uri = web.create_URI(address_text, amount, message)
-        self._receive_qr.setData(uri)
-        if self._qr_window and self._qr_window.isVisible():
-            self._qr_window.set_content(self._receive_destination_edit.text(), amount,
-                                       message, uri)
+        elif self._request_type & PaymentFlag.MONITORED == PaymentFlag.MONITORED:
+            script_template = self._account.get_script_template_for_derivation(
+                self._account.get_default_script_type(),
+                self._key_data.derivation_type, self._key_data.derivation_data2)
+            address_text = script_template_to_string(script_template)
+            uri = web.create_URI(address_text, amount, message)
+            self._receive_qr.setData(uri)
+            if self._qr_window and self._qr_window.isVisible():
+                self._qr_window.set_content(self._receive_destination_edit.text(), amount, message,
+                    uri)
 
     def _toggle_qr_window(self) -> None:
         if not self._qr_window:
@@ -507,8 +527,8 @@ class ReceiveDialog(QDialog):
                         status_text = IMPORTING_EXPIRED_TEXT
                         enable_import_button = False
             elif self._request_type == PaymentFlag.INVOICE:
-                status_text = "<b>"+ _("Not ready") +"</b><br/>"+ \
-                    _("This is not working yet..")
+                status_text = "<b>"+ _("Read") +"</b><br/>"+ \
+                    _("Awaiting payment")
                 # if self._request_row.expiration:
                 #     expiry_timestamp = self._request_row.date_created + \
                 #         self._request_row.expiration
@@ -592,6 +612,10 @@ class ReceiveDialog(QDialog):
             # (which includes related data like value received).
             self._read_request_data_from_database()
 
+            # Opens a dpp websocket connection for this server
+            assert self._dpp_server_state is not None
+            self._dpp_server_state.active_invoices_queue.put_nowait(self._request_row)
+
             # Attempt to start the process of registering with any server.
             wallet = self._main_window_proxy._wallet
             indexing_server_state = wallet.get_connection_state_for_usage(
@@ -618,13 +642,19 @@ class ReceiveDialog(QDialog):
             self._view._request_list.update_signal.emit()
             # Refresh the contents of this window to reflect it is now an actual payment request.
             def ui_callback(args: tuple[Any, ...]) -> None:
-                self._update_destination()
+                self.update_destination()
                 self._update_receive_qr()
                 self._update_form()
             self._main_window_proxy.ui_callback_signal.emit(ui_callback, ())
 
-        future, _key_data = self._account.create_payment_request(message, amount, duration_seconds,
-            self._request_type)
+        new_dpp_invoice_id = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
+        dpp_server_states: list[ServerConnectionState] = \
+            self._account.get_wallet().dpp_proxy_server_states
+        # TODO(1.4.0) DPP. Should have more sophisticated server selection than this
+        self._dpp_server_state = dpp_server_states[0]
+        future, _key_data = self._account.create_payment_request(message=message,
+            dpp_invoice_id=new_dpp_invoice_id, server_id=self._dpp_server_state.server.server_id,
+            amount=amount, expiration_seconds=duration_seconds, flags=self._request_type)
         future.add_done_callback(callback)
 
         # Prevent double-clicking.

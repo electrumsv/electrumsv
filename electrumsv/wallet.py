@@ -76,8 +76,8 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
 from .logs import logs
 from .network_support import dpp_proxy
 from .network_support.api_server import APIServerDefinition, NewServer
-from .network_support.dpp_proxy import dpp_msg_type_to_state_flag, \
-    _is_later_dpp_message_sequence, manage_dpp_network_connections_async
+from .network_support.dpp_proxy import dpp_msg_type_to_state_flag, _is_later_dpp_message_sequence, \
+    manage_dpp_network_connections_async, MSG_TYPE_JOIN_SUCCESS
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
@@ -1084,8 +1084,9 @@ class AbstractAccount:
     def get_masterkey_id(self) -> Optional[int]:
         raise NotImplementedError
 
-    def create_payment_request(self, message: str, amount: Optional[int]=None,
-            expiration_seconds: Optional[int]=None, flags: PaymentFlag=PaymentFlag.NONE) \
+    def create_payment_request(self, message: str, dpp_invoice_id: str, server_id: int,
+            amount: Optional[int]=None, expiration_seconds: Optional[int]=None,
+            flags: PaymentFlag=PaymentFlag.NONE) \
                 -> tuple[concurrent.futures.Future[list[PaymentRequestRow]], KeyDataProtocol]:
         # The payment request flags that are allowed to be set are just the supplementary flags,
         # not the state flags.
@@ -1096,8 +1097,9 @@ class AbstractAccount:
             KeyInstanceFlag.IS_PAYMENT_REQUEST | KeyInstanceFlag.ACTIVE)
         script_type = self.get_default_script_type()
         pushdata_hash = get_pushdata_hash_for_account_key_data(self, key_data, script_type)
-        row = PaymentRequestRow(-1, key_data.keyinstance_id, flags | PaymentFlag.UNPAID, amount,
-            expiration_seconds, message, script_type, pushdata_hash, get_posix_timestamp())
+        row = PaymentRequestRow(-1, key_data.keyinstance_id, dpp_invoice_id,
+            flags | PaymentFlag.UNPAID, amount, expiration_seconds, message, script_type,
+            pushdata_hash, server_id, get_posix_timestamp())
         future = self._wallet.create_payment_requests(self._id, [ row ])
         return future, key_data
 
@@ -2190,7 +2192,7 @@ class Wallet:
         self._worker_task_obtain_merkle_proofs: concurrent.futures.Future[None] | None = None
         self._worker_task_connect_headerless_proofs: concurrent.futures.Future[None] | None = None
 
-        self._dpp_proxy_servers: list[ServerConnectionState] = []  # for task cancellation
+        self.dpp_proxy_server_states: list[ServerConnectionState] = []  # for task cancellation
 
         ## ...
         # Guards `transaction_locks`.
@@ -4478,7 +4480,7 @@ class Wallet:
 
             # Check latest db state of payment request to see if it has progressed state
             pr_row = await self._db_context.run_in_thread_async(
-                db_functions.read_payment_requests_by_pr_id([message_row.paymentrequest_id]))[0]
+                db_functions.read_payment_request([message_row.paymentrequest_id]))[0]
             if pr_row.flags & current_pr_flags == current_pr_flags:
                 state.dpp_messages_queue.put_nowait(message_row)
             else:
@@ -4526,56 +4528,58 @@ class Wallet:
         # State machine
         while not (self._stopping or self._stopped):
             message_row: DPPMessageRow
-            for message_row in await state.dpp_messages_queue.get():
-                pr_row = db_functions.read_payment_requests_by_pr_id(self._db_context,
-                    [message_row.paymentrequest_id])[0]
+            message_row = await state.dpp_messages_queue.get()
+            if message_row.type == MSG_TYPE_JOIN_SUCCESS:
+                continue
+            pr_row = db_functions.read_payment_requests(self._db_context,
+                paymentrequest_ids=[message_row.paymentrequest_id])[0]
 
-                assert pr_row.flags & PaymentFlag.INVOICE == PaymentFlag.INVOICE
-                assert pr_row.flags & PaymentFlag.UNPAID == PaymentFlag.UNPAID
+            assert pr_row.flags & PaymentFlag.INVOICE == PaymentFlag.INVOICE
+            assert pr_row.flags & PaymentFlag.UNPAID == PaymentFlag.UNPAID
 
-                # Update flag to new state & write to database
-                new_state_flag = dpp_msg_type_to_state_flag(message_row.type)
-                if pr_row.flags & new_state_flag != new_state_flag:
-                    pr_row.flags = pr_row.flags & ~PaymentFlag.MASK_DPP_STATE_MACHINE
-                    pr_row.flags = pr_row.flags | new_state_flag
-                    await self.update_pr_flags_in_db_async(pr_row, pr_row.flags)
+            # Update flag to new state & write to database
+            new_state_flag = dpp_msg_type_to_state_flag(message_row.type)
+            if pr_row.flags & new_state_flag != new_state_flag:
+                pr_row.flags = pr_row.flags & ~PaymentFlag.MASK_DPP_STATE_MACHINE
+                pr_row.flags = pr_row.flags | new_state_flag
+                await self.update_pr_flags_in_db_async(pr_row, pr_row.flags)
 
-                self._logger.debug("State machine processing DPPMessageRow: %s for state: %s",
-                    message_row, pr_row.flags)
+            self._logger.debug("State machine processing DPPMessageRow: %s for state: %s",
+                message_row, pr_row.flags)
 
-                # ----- States for when we are the Payee ----- #
-                if pr_row.flags & PaymentFlag.PAYMENT_REQUEST_REQUESTED == \
-                        PaymentFlag.PAYMENT_REQUEST_REQUESTED:
-                    dpp_response_message = self.dpp_make_payment_request_response(pr_row,
-                        message_row)
+            # ----- States for when we are the Payee ----- #
+            if pr_row.flags & PaymentFlag.PAYMENT_REQUEST_REQUESTED == \
+                    PaymentFlag.PAYMENT_REQUEST_REQUESTED:
+                dpp_response_message = self.dpp_make_payment_request_response(pr_row,
+                    message_row)
+                _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
+                    dpp_response_message, pr_row.flags)
+
+            elif pr_row.flags & PaymentFlag.PAYMENT_RECEIVED == \
+                    PaymentFlag.PAYMENT_RECEIVED:
+                if self.dpp_payment_is_valid(pr_row, message_row):
+                    dpp_ack_message = self.dpp_make_ack(pr_row, message_row)
                     _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
-                        dpp_response_message, pr_row.flags)
-
-                elif pr_row.flags & PaymentFlag.PAYMENT_RECEIVED == \
-                        PaymentFlag.PAYMENT_RECEIVED:
-                    if self.dpp_payment_is_valid(pr_row, message_row):
-                        dpp_ack_message = self.dpp_make_ack(pr_row, message_row)
-                        _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
-                            dpp_ack_message, pr_row.flags)
-                    else:
-                        dpp_err_message = self.dpp_make_pr_error(pr_row, message_row)
-                        _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
-                            dpp_err_message, pr_row.flags)
-
-                elif pr_row.flags & PaymentFlag.PAYMENT_RECEIVED == PaymentFlag.PAYMENT_RECEIVED:
-                    # TODO(1.4.0) DPP. Validate Payment struct
-                    # TODO(1.4.0) DPP. Create Peer Channel
-                    # TODO(1.4.0) DPP. Broadcast to mAPI
-                    # TODO(1.4.0) DPP. On Success. Update invoice to PaymentFlag.PAID
-
-                    # Send PaymentACK to payer
-                    dpp_payment_ack_message = self.dpp_make_ack(pr_row, message_row)
+                        dpp_ack_message, pr_row.flags)
+                else:
+                    dpp_err_message = self.dpp_make_pr_error(pr_row, message_row)
                     _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
-                        dpp_payment_ack_message, pr_row.flags)
+                        dpp_err_message, pr_row.flags)
 
-                # ----- States for when we are the Payer ----- #
-                # NOTE: Not included because when we are the ** Payer **, we use the simplified
-                # http request/response REST API endpoints of the DPP server (i.e. BIP272 URI)
+            elif pr_row.flags & PaymentFlag.PAYMENT_RECEIVED == PaymentFlag.PAYMENT_RECEIVED:
+                # TODO(1.4.0) DPP. Validate Payment struct
+                # TODO(1.4.0) DPP. Create Peer Channel
+                # TODO(1.4.0) DPP. Broadcast to mAPI
+                # TODO(1.4.0) DPP. On Success. Update invoice to PaymentFlag.PAID
+
+                # Send PaymentACK to payer
+                dpp_payment_ack_message = self.dpp_make_ack(pr_row, message_row)
+                _future = app_state.async_.spawn(self.ensure_dpp_websocket_send, state,
+                    dpp_payment_ack_message, pr_row.flags)
+
+            # ----- States for when we are the Payer ----- #
+            # NOTE: Not included because when we are the ** Payer **, we use the simplified
+            # http request/response REST API endpoints of the DPP server (i.e. BIP272 URI)
 
 
     async def _consume_tip_filter_matches_async(self, state: ServerConnectionState) -> None:
@@ -4933,7 +4937,7 @@ class Wallet:
                 server=server,
                 credential_id=server.client_api_keys[None])
 
-            self._dpp_proxy_servers.append(state)
+            self.dpp_proxy_server_states.append(state)
             state.manage_dpp_connections_future = \
                 app_state.async_.spawn(manage_dpp_network_connections_async(state,
                     self._db_context))
@@ -5105,7 +5109,7 @@ class Wallet:
             pending_futures = not_done
             total_wait += 1.0
 
-        for state in self._dpp_proxy_servers:
+        for state in self.dpp_proxy_server_states:
             if state.dpp_consumer_future is not None:
                 state.dpp_consumer_future.cancel()
                 pending_futures.add(state.dpp_consumer_future)

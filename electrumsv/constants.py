@@ -310,7 +310,7 @@ class PaymentFlag(IntFlag):
     ARCHIVED                    = 1 << 4     # unused until we have UI support for filtering
 
     LEGACY                      = 0b00 << 10
-    INVOICE                     = 0b01 << 10  # USE THIS ONE HERE...
+    INVOICE                     = 0b01 << 10
     IMPORTED                    = 0b10 << 10
     MONITORED                   = 0b11 << 10
 

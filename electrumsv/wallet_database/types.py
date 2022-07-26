@@ -194,29 +194,30 @@ class PushDataRegistrationRow(NamedTuple):
 
 class PaymentRequestReadRow(NamedTuple):
     paymentrequest_id: int
-    dpp_invoice_id: str
     keyinstance_id: int
+    dpp_invoice_id: str
     state: PaymentFlag
     requested_value: Optional[int]
     received_value: Optional[int]
     expiration: Optional[int]
     description: Optional[str]
     script_type: ScriptType
-    server_id: int
     pushdata_hash: bytes
+    server_id: int
     date_created: int = -1
 
 
 class PaymentRequestRow(NamedTuple):
     paymentrequest_id: int
     keyinstance_id: int
-    dpp_invoice_id: str
+    dpp_invoice_id: Optional[str]
     state: PaymentFlag
     requested_value: Optional[int]
     expiration: Optional[int]
     description: Optional[str]
     script_type: ScriptType
     pushdata_hash: bytes
+    server_id: Optional[int]
     date_created: int = -1
 
 

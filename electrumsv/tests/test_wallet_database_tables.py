@@ -1070,10 +1070,12 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert len(rows) == 0
 
     LINE_COUNT = 3
-    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None, None, TX_DESC1,
-        ScriptType.P2PKH, b'')
-    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100, 60*60, TX_DESC2,
-        ScriptType.P2PKH, b'')
+    dpp_invoice_id = "ABCDEFG"
+    server_id = 1
+    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, dpp_invoice_id, PaymentFlag.PAID, None, None,
+        TX_DESC1, ScriptType.P2PKH, b'', server_id)
+    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, dpp_invoice_id, PaymentFlag.UNPAID, 100, 60*60,
+        TX_DESC2, ScriptType.P2PKH, b'', server_id)
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.

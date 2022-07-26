@@ -1,3 +1,4 @@
+import base64
 import concurrent.futures
 from functools import partial
 import os
@@ -15,10 +16,12 @@ from PyQt6.QtWidgets import QFrame, QGridLayout, QLabel, QHBoxLayout, QVBoxLayou
 
 from ...app_state import app_state
 from ...bitcoin import ScriptTemplate
-from ...constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType, WalletEvent
+from ...constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType, WalletEvent, \
+    NetworkServerType
 from ...exceptions import NotEnoughFunds
 from ...i18n import _
 from ...logs import logs
+from ...network_support.types import ServerConnectionState
 from ...networks import Net
 from ...transaction import Transaction, XTxOutput
 from ...types import TransactionFeeContext
@@ -28,7 +31,7 @@ from .main_window import ElectrumWindow
 from .password_dialog import LayoutFields
 from .tab_widget import TabWidget
 from .util import EnterButton, HelpDialogButton
-
+from ...wallet_database.types import PaymentRequestRow
 
 logger = logs.get_logger("coinsplitting")
 
@@ -242,8 +245,33 @@ class CoinSplittingTab(TabWidget):
         self._update_action_buttons()
 
         # At this point we know we should get a key that is addressable.
+        new_dpp_invoice_id = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
+
+        # TODO(1.4.0) DPP. Should have more sophisticated server selection than this
+        dpp_server_states: list[ServerConnectionState] = \
+            self._account.get_wallet().dpp_proxy_server_states
+        self._dpp_server_state = dpp_server_states[0]
+
+        def callback(future: concurrent.futures.Future[list[PaymentRequestRow]]) -> None:
+            # Skip if the operation was cancelled.
+            if future.cancelled():
+                return
+            # Raise any exception if it errored or get the result if completed successfully.
+            final_rows = future.result()
+            assert len(final_rows) == 1
+            request_id = final_rows[0].paymentrequest_id
+            request_row = self._account.get_wallet().data.\
+                read_payment_request(request_id=request_id)
+
+            # Opens a dpp websocket connection for this server
+            assert self._dpp_server_state is not None
+            self._dpp_server_state.active_invoices_queue.put_nowait(request_row)
+
         pr_future, key_data = self._account.create_payment_request(
-            _("Receive faucet dust for coin-splitting."), expiration_seconds=5*60)
+            message=_("Receive faucet dust for coin-splitting."), dpp_invoice_id=new_dpp_invoice_id,
+            server_id=self._dpp_server_state.server.server_id, expiration_seconds=5*60)
+        pr_future.add_done_callback(callback)
+
         script_type = self._account.get_default_script_type()
         script_template = self._account.get_script_template_for_derivation(script_type,
             key_data.derivation_type, key_data.derivation_data2)

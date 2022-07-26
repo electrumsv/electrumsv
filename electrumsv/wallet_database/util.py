@@ -73,18 +73,18 @@ class NoTimezoneInfoException(Exception):
 
 def from_isoformat(iso_timestamp: str) -> datetime:
     """Timestamps such as: '2022-06-23T04:31:07.5387707Z' will fail conversion because
-    datetime.fromisoformat can only handle millisecond precision.
+    datetime.fromisoformat can only handle exactly 3 or 6 decimal figures precision.
+    It's easiest to just not deal with anything more precise than seconds.
     Datetime objects also must have tzinfo in order for their internal unix timestamp to be
     correct."""
-    if "." in iso_timestamp:  # precision cannot exceed milliseconds
+    if "." in iso_timestamp:  # truncate anything more precise than seconds
         parts = iso_timestamp.split(".")
         if iso_timestamp.endswith(ZULU_TIMEZONE_SUFFIX):
-            milliseconds = parts[1].replace(ZULU_TIMEZONE_SUFFIX, "")
+            return datetime.fromisoformat(parts[0] + UTC_TIMEZONE_INFO)
         elif iso_timestamp.endswith(UTC_TIMEZONE_INFO):
-            milliseconds = parts[1].replace(UTC_TIMEZONE_INFO, "")
+            return datetime.fromisoformat(parts[0])
         else:
             raise NoTimezoneInfoException()
-        return datetime.fromisoformat(parts[0] + milliseconds + UTC_TIMEZONE_INFO)
     else:
         if iso_timestamp.endswith(UTC_TIMEZONE_INFO):
             return datetime.fromisoformat(iso_timestamp)

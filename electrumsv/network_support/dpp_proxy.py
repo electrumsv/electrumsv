@@ -15,6 +15,7 @@ from ..wallet_database import functions as db_functions
 
 logger = logs.get_logger("dpp-proxy")
 
+MSG_TYPE_JOIN_SUCCESS = "join.success"
 MSG_TYPE_PAYMENT = "payment"
 MSG_TYPE_PAYMENT_ACK = "payment.ack"
 MSG_TYPE_PAYMENT_ERR = "payment.error"
@@ -22,11 +23,11 @@ MSG_TYPE_PAYMENT_REQUEST_CREATE = "paymentrequest.create"
 MSG_TYPE_PAYMENT_REQUEST_RESPONSE = "paymentrequest.response"
 MSG_TYPE_PAYMENT_REQUEST_ERROR = "paymentrequest.error"
 
-ALL_MSG_TYPES = {MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK, MSG_TYPE_PAYMENT_ERR,
+ALL_MSG_TYPES = {MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK, MSG_TYPE_PAYMENT_ERR,
     MSG_TYPE_PAYMENT_REQUEST_CREATE, MSG_TYPE_PAYMENT_REQUEST_RESPONSE,
     MSG_TYPE_PAYMENT_REQUEST_ERROR}
-DPP_MESSAGE_SEQUENCE = [MSG_TYPE_PAYMENT_REQUEST_CREATE, MSG_TYPE_PAYMENT_REQUEST_RESPONSE,
-    MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK]
+DPP_MESSAGE_SEQUENCE = [MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_CREATE,
+    MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK]
 
 
 def _is_later_dpp_message_sequence(prior: DPPMessageRow, later: DPPMessageRow) -> bool:
@@ -72,12 +73,14 @@ def _validate_dpp_message_json(dpp_message_json: dict[Any, Any]) -> bool:
     assert isinstance(dpp_message_json["userId"], str)
     assert dpp_message_json["expiration"] is None or \
            isinstance(dpp_message_json["expiration"], str)
-    assert isinstance(dpp_message_json["body"], dict)
+    if dpp_message_json["body"] is not None:
+        assert isinstance(dpp_message_json["body"], dict), f"body={dpp_message_json['body']}"
     assert isinstance(dpp_message_json["messageId"], str)
     assert isinstance(dpp_message_json["channelId"], str)
     assert isinstance(dpp_message_json["timestamp"], str)
     assert isinstance(dpp_message_json["type"], str)
-    assert dpp_message_json["type"] in ALL_MSG_TYPES
+    assert dpp_message_json["type"] in ALL_MSG_TYPES, \
+        f"Unexpected dpp websocket message type={dpp_message_json['type']}"
     assert isinstance(dpp_message_json["headers"], dict)
 
 
@@ -92,7 +95,8 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
     try:
         headers = {"Accept": "application/json"}
         BASE_URL = state.server.url.replace("http", "ws")
-        websocket_url = f"{BASE_URL}/ws/{payment_request_row.paymentrequest_id}?internal=true"
+        logger.debug(f"Opening DPP websocket for payment request: {payment_request_row}")
+        websocket_url = f"{BASE_URL.rstrip('/')}/ws/{payment_request_row.dpp_invoice_id}?internal=true"
 
         async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
                 as server_websocket:
@@ -106,7 +110,7 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
                                               "format")
 
                 _validate_dpp_message_json(message_json)
-                if websocket_message["expiration"] is not None:
+                if message_json["expiration"] is not None:
                     expiration = int(from_isoformat(message_json["expiration"]).timestamp())
                 else:
                     expiration = None
@@ -132,7 +136,8 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
                     db_functions.create_dpp_messages([dpp_message], db_connection)
                 finally:
                     db_context.release_connection(db_connection)
-                state.dpp_messages_queue.put_nowait(dpp_message)
+                if message_json["type"] != MSG_TYPE_JOIN_SUCCESS:
+                    state.dpp_messages_queue.put_nowait(dpp_message)
     except aiohttp.ClientConnectorError:
         logger.debug("Unable to connect to server websocket")
     except WSServerHandshakeError as e:

@@ -139,9 +139,10 @@ def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyR
 def create_payment_requests(db_context: DatabaseContext, entries: list[PaymentRequestRow]) \
         -> concurrent.futures.Future[list[PaymentRequestRow]]:
     sql = """
-        INSERT INTO PaymentRequests (paymentrequest_id, keyinstance_id, state, value, expiration,
-            description, script_type, pushdata_hash, date_created, date_updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO PaymentRequests (paymentrequest_id, keyinstance_id, dpp_invoice_id, state, 
+            value, expiration, description, script_type, pushdata_hash, server_id, 
+            date_created, date_updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
     timestamp = get_posix_timestamp()
     sql_values = [ (*t[:-1], timestamp, timestamp) for t in entries ]
@@ -157,7 +158,7 @@ def create_dpp_messages(entries: list[DPPMessageRow], db: Optional[sqlite3.Conne
     sql = """    
         INSERT INTO DPPMessages (message_id, paymentrequest_id, dpp_invoice_id, correlationId, 
             appId, clientID, userId, expiration, body, timestamp, type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(message_id) DO NOTHING;
     """
     db.executemany(sql, entries)
@@ -256,8 +257,10 @@ def delete_payment_request(db_context: DatabaseContext, paymentrequest_id: int,
     read_sql1 = "SELECT flags from KeyInstances WHERE keyinstance_id=?"
     read_sql1_values = (keyinstance_id,)
     write_sql1 = "UPDATE KeyInstances SET date_updated=?, flags=flags&? WHERE keyinstance_id=?"
-    write_sql2 = "DELETE FROM PaymentRequests WHERE paymentrequest_id=?"
+    write_sql2 = "DELETE FROM DPPMessages WHERE paymentrequest_id=?"
     write_sql2_values = (paymentrequest_id,)
+    write_sql3 = "DELETE FROM PaymentRequests WHERE paymentrequest_id=?"
+    write_sql3_values = (paymentrequest_id,)
 
     def _write(db: Optional[sqlite3.Connection]=None) -> KeyInstanceFlag:
         assert db is not None and isinstance(db, sqlite3.Connection)
@@ -271,6 +274,7 @@ def delete_payment_request(db_context: DatabaseContext, paymentrequest_id: int,
             key_flags_mask = expected_key_flags
         db.execute(write_sql1, (timestamp, ~key_flags_mask, keyinstance_id))
         db.execute(write_sql2, write_sql2_values)
+        db.execute(write_sql3, write_sql3_values)
         return key_flags_mask
     return db_context.post_to_thread(_write)
 
@@ -848,8 +852,9 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
             GROUP BY KI.keyinstance_id
         )
 
-        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value, KP.total_value,
-            PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, PR.date_created
+        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id ,PR.state, PR.value, 
+            KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, 
+            PR.server_id, PR.date_created
         FROM PaymentRequests PR
         INNER JOIN key_payments KP USING(keyinstance_id)
     """
@@ -863,28 +868,15 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
         raise NotImplementedError("request_id and keyinstance_id not supported")
     t = db.execute(sql, sql_values).fetchone()
     if t is not None:
-        return PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7],
-            t[8], t[9])
+        return PaymentRequestReadRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6], t[7],
+            t[8], t[9], t[10], t[11])
     return None
 
 
 @replace_db_context_with_connection
-def read_payment_requests_by_pr_id(db: sqlite3.Connection, paymentrequest_ids: Sequence[int]) -> \
-        list[PaymentRequestRow]:
-    sql = """
-            SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id, 
-                PR.state, PR.value, PR.expiration, PR.description, PR.script_type, 
-                PR.pushdata_hash, PR.date_created
-           FROM PaymentRequests PR
-           WHERE paymentrequest_id IN ({})
-    """
-    return read_rows_by_id(PaymentRequestRow, db, sql, [], paymentrequest_ids)
-
-
-@replace_db_context_with_connection
-def read_payment_requests(db: sqlite3.Connection, account_id: int,
-        flags: Optional[PaymentFlag]=None, mask: Optional[PaymentFlag]=None) \
-            -> list[PaymentRequestReadRow]:
+def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None,
+        flags: Optional[PaymentFlag]=None, mask: Optional[PaymentFlag]=None,
+        paymentrequest_ids: Optional[Sequence[int]]=None) -> list[PaymentRequestReadRow]:
     sql = """
     WITH key_payments AS (
         SELECT KI.keyinstance_id, TOTAL(TXO.value) AS total_value
@@ -894,19 +886,30 @@ def read_payment_requests(db: sqlite3.Connection, account_id: int,
         GROUP BY KI.keyinstance_id
     )
 
-    SELECT PR.paymentrequest_id, PR.dpp_invoice_id, PR.keyinstance_id, PR.state, PR.value, 
+    SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id, PR.state, PR.value, 
         KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, 
         PR.server_id, PR.date_created
     FROM PaymentRequests PR
     INNER JOIN key_payments KP USING(keyinstance_id)
     """
-    sql_values: list[Any] = [ account_id ]
+    sql_values: list[Any] = []
+    if account_id:
+        sql_values.append(account_id)
     clause, extra_values = flag_clause("PR.state", flags, mask)
     if clause:
         sql += f" WHERE {clause}"
         sql_values.extend(extra_values)
-    return [ PaymentRequestReadRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6], t[7], t[8],
-        t[9], t[10]) for t in db.execute(sql, sql_values).fetchall() ]
+
+    if paymentrequest_ids:
+        sql += f" WHERE {clause}"
+        sql_values.extend(extra_values)
+        rows = read_rows_by_id(PaymentRequestReadRow, db, sql, sql_values, paymentrequest_ids)
+        # Type casting of PaymentFlag
+        return [ PaymentRequestReadRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6], t[7],
+            t[8], t[9], t[10], t[11]) for t in rows ]
+
+    return [ PaymentRequestReadRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6], t[7],
+        t[8], t[9], t[10], t[11]) for t in db.execute(sql, sql_values).fetchall() ]
 
 
 def create_pushdata_matches_write(rows: list[PushDataMatchRow], processed_message_ids: list[int],
