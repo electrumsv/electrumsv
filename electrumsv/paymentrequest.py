@@ -84,7 +84,8 @@ class PeerChannelsDPP(TypedDict):
 
 class TransactionDPP(TypedDict):
     outputs: dict
-    policies: dict
+    inputs: Optional[dict]
+    policies: Optional[dict]
 
 
 class HybridPaymentModeStandardDPP(TypedDict):
@@ -100,7 +101,7 @@ class HybridPaymentModeDPP(TypedDict):
 
 class PaymentDPP(TypedDict):
     modeId: str  # i.e. HYBRID_PAYMENT_MODE_BRFCID
-    mode: HybridPaymentModeDPP
+    mode: HybridPaymentModeDPP  # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
     originator: Optional[dict]
     transaction: Optional[str]  # DEPRECATED as per TSC spec.
     memo: Optional[str]  # Optional
@@ -112,7 +113,7 @@ class PaymentTermsDPP(TypedDict):
     creationTimestamp: int
     expirationTimestamp: int
     memo: str
-    paymentURL: str
+    paymentUrl: str
     beneficiary: Optional[dict]
     modes: HybridPaymentModeDPP
     # for backwards compatibility:
@@ -122,7 +123,7 @@ class PaymentTermsDPP(TypedDict):
 
 class PaymentACKDPP(TypedDict):
     modeId: str
-    mode: HybridPaymentModeDPP
+    mode: HybridPaymentModeDPP  # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
     peerChannel: PeerChannel
     redirectUrl: Optional[str]
 
@@ -281,13 +282,14 @@ class PaymentRequest:
                     raise Bip270Exception(_("Only native type outputs are accepted at this time"))
 
             if 'fees' not in tx['policies'] or 'SPVRequired' not in tx['policies']:
-                    raise Bip270Exception(_("policies field must contain 'fees' and 'SPVRequired' "
-                                            "fields"))
+                tx['policies']['SPVRequired'] = False
+                tx['policies']['fees'] = None
 
         if len(transactions) > 1:
             raise Bip270Exception("ElectrumSV can currently only handle 1 transaction at a time. "
                                   "This Payment Request contains multiple transaction requests")
         outputs = []
+
         for ui_dict in transactions[0]['outputs']['native']:
             outputs.append(Output.from_dict(ui_dict))
 
@@ -303,7 +305,6 @@ class PaymentRequest:
         if type(creation_timestamp) is not int:
             raise Bip270Exception(_("Corrupt creation time"))
         pr.creation_timestamp = creation_timestamp
-
         expiration_timestamp = d.get('expirationTimestamp')
         if expiration_timestamp is not None and type(expiration_timestamp) is not int:
             raise Bip270Exception(_("Corrupt expiration time"))
@@ -314,7 +315,7 @@ class PaymentRequest:
             raise Bip270Exception(_("Corrupt memo"))
         pr.memo = memo
 
-        payment_url = d.get('paymentURL')
+        payment_url = d.get('paymentUrl')
         if payment_url is not None and type(payment_url) is not str:
             raise Bip270Exception(_("Corrupt payment URL"))
         pr.payment_url = payment_url
@@ -339,10 +340,11 @@ class PaymentRequest:
         if self.memo is not None:
             d['memo'] = self.memo
         if self.payment_url is not None:
-            d['paymentURL'] = self.payment_url
+            d['paymentUrl'] = self.payment_url
         if self.beneficiary:
             d['beneficiary'] = self.beneficiary
-        d['modes'] = self.hybrid_payment_data
+        d['modes'] = {}
+        d['modes'] = {HYBRID_PAYMENT_MODE_BRFCID: self.hybrid_payment_data}
         if self.merchant_data is not None:
             d['merchantData'] = self.merchant_data
         return json.dumps(d)

@@ -6,6 +6,9 @@ import unittest.mock
 import bitcoinx
 from electrumsv_database.sqlite import DatabaseContext, LeakedSQLiteConnectionError
 import pytest
+
+from ..util import get_posix_timestamp
+
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
     import pysqlite3 as sqlite3
@@ -1072,10 +1075,12 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     LINE_COUNT = 3
     dpp_invoice_id = "ABCDEFG"
     server_id = 1
-    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, dpp_invoice_id, PaymentFlag.PAID, None, None,
-        TX_DESC1, ScriptType.P2PKH, b'', server_id)
-    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, dpp_invoice_id, PaymentFlag.UNPAID, 100, 60*60,
-        TX_DESC2, ScriptType.P2PKH, b'', server_id)
+    date_created = int(get_posix_timestamp())
+    expiration = date_created + 60*60
+    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, dpp_invoice_id, PaymentFlag.PAID, None,
+        expiration, TX_DESC1, ScriptType.P2PKH, b'', server_id, date_created)
+    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, dpp_invoice_id, PaymentFlag.UNPAID, 100,
+        expiration, TX_DESC2, ScriptType.P2PKH, b'', server_id)
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.

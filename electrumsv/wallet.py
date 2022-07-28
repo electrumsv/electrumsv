@@ -77,7 +77,8 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.dpp_proxy import dpp_msg_type_to_state_flag, _is_later_dpp_message_sequence, \
-    manage_dpp_network_connections_async, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_RESPONSE
+    manage_dpp_network_connections_async, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_RESPONSE, \
+    dpp_websocket_send
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
@@ -1098,8 +1099,10 @@ class AbstractAccount:
             KeyInstanceFlag.IS_PAYMENT_REQUEST | KeyInstanceFlag.ACTIVE)
         script_type = self.get_default_script_type()
         pushdata_hash = get_pushdata_hash_for_account_key_data(self, key_data, script_type)
+        date_created = get_posix_timestamp()
+        expiration = date_created + expiration_seconds
         row = PaymentRequestRow(-1, key_data.keyinstance_id, dpp_invoice_id,
-            flags | PaymentFlag.UNPAID, amount, expiration_seconds, message, script_type,
+            flags | PaymentFlag.UNPAID, amount, expiration, message, script_type,
             pushdata_hash, server_id, get_posix_timestamp())
         future = self._wallet.create_payment_requests(self._id, [ row ])
         return future, key_data
@@ -4432,14 +4435,16 @@ class Wallet:
             {
                 "description": pr_row.description,
                 "amount": pr_row.requested_value,
-                "script": script_template.to_string()
+                "script": script_template.to_script().to_hex()
             }
         ]
+
+        assert pr_row.date_created != -1
 
         paymentRequestData = {
             "network": "regtest",
             "version": "1.0",
-            "creationTimestamp": "2019-10-12T07:20:50.52Z",
+            "creationTimestamp": pr_row.date_created,
             "paymentUrl": create_DPP_URL(self.dpp_proxy_server_states, pr_row),
             "beneficiary": {"name": "GoldenSocks.com", "paymentReference": "Order-325214",
                 "email": "merchant@m.com"},
@@ -4451,23 +4456,14 @@ class Wallet:
                     "choiceID0": {
                         "transactions": [
                             {
-                                'outputs': [
-                                    {
-                                        'native': {
-                                            "amount": 500,
-                                            "script": "76a914dc861b354dcac2907061a533619fdc8571c1c37e88ac",
-                                            "description": "payment reference JwvN5Pz"
-                                        }
+                                'outputs': {
+                                        'native': outputs_object
                                     }
-                                ],
+                                ,
                                 'policies': {
                                     "fees": {
-                                        "data": {
-                                            "miningFee": {"satoshis": 100, "bytes": 200},
-                                            "relayFee": {"satoshis": 100, "bytes": 200}},
-                                        "standard": {
-                                            "miningFee": {"satoshis": 100, "bytes": 200},
-                                            "relayFee": {"satoshis": 100, "bytes": 200}}
+                                        "standard": {"satoshis": 100, "bytes": 200},
+                                        "data": {"satoshis": 100, "bytes": 200},
                                     },
                                 },
                             },
@@ -4476,7 +4472,7 @@ class Wallet:
                 }}
         }
         if pr_row.expiration is not None:
-            paymentRequestData['expirationTimestamp'] = "2019-10-12T07:20:50.52Z"
+            paymentRequestData['expirationTimestamp'] = pr_row.expiration
 
         message_row_response = DPPMessageRow(
             message_id=str(uuid.uuid4()),
@@ -4520,29 +4516,6 @@ class Wallet:
             -> bool:
         # TODO: Do validation
         return True
-
-    async def dpp_websocket_send(self, state: ServerConnectionState, message_row: DPPMessageRow):
-        # TOOD(1.4.0) DPP. Move to network_support.py
-        try:
-            websocket = state.dpp_websockets[message_row.dpp_invoice_id]
-        except KeyError:
-            # TODO(1.4.0) DPP. This was happening because it takes a second before the
-            #  websockets are actually opened and the state.dpp_websockets cache is filled.
-            #  therefore this likely needs some kind of synchronization to wait until the initial
-            #  opening of all active invoices in database is completed. Currently this is being
-            #  avoided with an `await asyncio.sleep(1)` to yield the event loop. - AustEcon
-            self._logger.exception(f"Key Error looking up cached dpp websocket: "
-                                   f"state.dpp_websockets={state.dpp_websockets}")
-            return
-
-        if websocket is not None:  # ws:// is still open
-            await websocket.send_str(message_row.to_json())
-        else:
-            self._logger.error("There is no open websocket for dpp_invoice_id: %s, "
-                               "server url: %s. Retrying in 10 seconds...",
-                message_row.dpp_invoice_id, state.server.url)
-            await asyncio.sleep(10)
-            state.dpp_messages_queue.put_nowait(message_row)
 
     async def update_pr_flags_in_db_async(self, pr_row: PaymentRequestRow,
             new_flags: PaymentFlag) -> None:
@@ -4611,18 +4584,18 @@ class Wallet:
                     PaymentFlag.PAYMENT_REQUEST_REQUESTED:
                 dpp_response_message = self.dpp_make_payment_request_response(pr_row,
                     message_row)
-                _future = app_state.async_.spawn(self.dpp_websocket_send(state,
+                _future = app_state.async_.spawn(dpp_websocket_send(state,
                     dpp_response_message))
 
             elif pr_row.state & PaymentFlag.PAYMENT_RECEIVED == \
                     PaymentFlag.PAYMENT_RECEIVED:
                 if self.dpp_payment_is_valid(pr_row, message_row):
                     dpp_ack_message = self.dpp_make_ack(pr_row, message_row)
-                    _future = app_state.async_.spawn(self.dpp_websocket_send(state,
+                    _future = app_state.async_.spawn(dpp_websocket_send(state,
                         dpp_ack_message))
                 else:
                     dpp_err_message = self.dpp_make_pr_error(pr_row, message_row)
-                    _future = app_state.async_.spawn(self.dpp_websocket_send(state,
+                    _future = app_state.async_.spawn(dpp_websocket_send(state,
                         dpp_err_message))
 
             elif pr_row.state & PaymentFlag.PAYMENT_RECEIVED == PaymentFlag.PAYMENT_RECEIVED:
@@ -4633,7 +4606,7 @@ class Wallet:
 
                 # Send PaymentACK to payer
                 dpp_payment_ack_message = self.dpp_make_ack(pr_row, message_row)
-                _future = app_state.async_.spawn(self.dpp_websocket_send(state,
+                _future = app_state.async_.spawn(dpp_websocket_send(state,
                     dpp_payment_ack_message))
 
             # ----- States for when we are the Payer ----- #

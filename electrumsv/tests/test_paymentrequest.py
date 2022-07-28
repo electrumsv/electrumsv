@@ -149,7 +149,7 @@ class TestPaymentRequest(unittest.TestCase):
         self.assertTrue('creationTimestamp' in data)
         self.assertTrue('expirationTimestamp' in data)
         self.assertTrue('memo' in data)
-        self.assertTrue('paymentURL' in data)
+        self.assertTrue('paymentUrl' in data)
         self.assertTrue('merchantData' in data)
 
     def test_json_restoration_all(self):

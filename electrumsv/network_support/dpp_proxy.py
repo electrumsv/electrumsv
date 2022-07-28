@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any, cast
 
@@ -10,7 +11,6 @@ from ..app_state import app_state
 from ..constants import PaymentFlag
 from ..logs import logs
 from ..wallet_database.types import DPPMessageRow, PaymentRequestReadRow
-from ..wallet_database.util import from_isoformat
 from ..wallet_database import functions as db_functions
 
 logger = logs.get_logger("dpp-proxy")
@@ -41,8 +41,33 @@ def _is_later_dpp_message_sequence(prior: DPPMessageRow, later: DPPMessageRow) -
 class DPPPayeeError(Exception):
     pass
 
+
 class DPPPayerError(Exception):
     pass
+
+
+
+async def dpp_websocket_send(state: ServerConnectionState, message_row: DPPMessageRow):
+    try:
+        websocket = state.dpp_websockets[message_row.dpp_invoice_id]
+    except KeyError:
+        # TODO(1.4.0) DPP. It takes a second before the websockets are actually opened and the
+        #  state.dpp_websockets cache is filled. therefore this likely needs some kind of
+        #  synchronization to wait until the initial opening of all active invoices in database
+        #  is completed. Currently this is being avoided with an `await asyncio.sleep(1)`
+        #  to yield the event loop. - AustEcon
+        logger.exception("Key Error looking up cached dpp websocket: "
+                         "state.dpp_websockets=%s", state.dpp_websockets)
+        return
+
+    if websocket is not None:  # ws:// is still open
+        await websocket.send_str(message_row.to_json())
+    else:
+        logger.error("There is no open websocket for dpp_invoice_id: %s, server url: %s. "
+                     "Retrying in 10 seconds...", message_row.dpp_invoice_id, state.server.url)
+        await asyncio.sleep(10)
+        state.dpp_messages_queue.put_nowait(message_row)
+
 
 
 def dpp_msg_type_to_state_flag(msg_type: str) -> PaymentFlag:
@@ -130,14 +155,8 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
                     timestamp=message_json["timestamp"],
                     type=message_json["type"]
                 )
-                db_connection = db_context.acquire_connection()
-                try:
-                    # This is intentionally not async and does not run in a thread
-                    # to avoid any chance of thread context switching or another async task
-                    # crashing the process and resulting in permanent loss of the message data
-                    db_functions.create_dpp_messages([dpp_message], db_connection)
-                finally:
-                    db_context.release_connection(db_connection)
+                await db_context.run_in_thread_async(db_functions.create_dpp_messages,
+                    [dpp_message])
                 if message_json["type"] != MSG_TYPE_JOIN_SUCCESS:
                     state.dpp_messages_queue.put_nowait(dpp_message)
     except aiohttp.ClientConnectorError:
@@ -145,6 +164,10 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
     except WSServerHandshakeError as e:
         logger.exception("Websocket connection to %s failed the handshake", state.server.url)
     finally:
+        # TODO(1.4.0) DPP. When a DPP server goes down, we need a mechanism to retry every 5 seconds
+        #  or so. Otherwise we will no longer have open websocket connections for invoices even
+        #  though the DPP proxy server is back online again. Currently the user will have to
+        #  restart to wallet to reconnect.
         state.dpp_websocket = None
 
 

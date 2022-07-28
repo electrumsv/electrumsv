@@ -156,8 +156,8 @@ def create_payment_requests(db_context: DatabaseContext, entries: list[PaymentRe
 def create_dpp_messages(entries: list[DPPMessageRow], db: Optional[sqlite3.Connection]=None) \
         -> None:
     sql = """    
-        INSERT INTO DPPMessages (message_id, paymentrequest_id, dpp_invoice_id, correlationId, 
-            appId, clientID, userId, expiration, body, timestamp, type)
+        INSERT INTO DPPMessages (message_id, paymentrequest_id, dpp_invoice_id, correlation_id, 
+            app_id, client_id, user_id, expiration, body, timestamp, type)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(message_id) DO NOTHING;
     """
@@ -1555,8 +1555,8 @@ def read_server_peer_channel_messages(db: sqlite3.Connection,
 @replace_db_context_with_connection
 def read_dpp_messages_by_pr_id(db: sqlite3.Connection, paymentrequest_ids: list[int]):
     sql = """
-        SELECT DPPM.message_id, DPPM.paymentrequest_id, DPPM.dpp_invoice_id, DPPM.correlationId, 
-            DPPM.appId, DPPM.clientID, DPPM.userId, DPPM.expiration, DPPM.body, DPPM.timestamp, 
+        SELECT DPPM.message_id, DPPM.paymentrequest_id, DPPM.dpp_invoice_id, DPPM.correlation_id, 
+            DPPM.app_id, DPPM.client_id, DPPM.user_id, DPPM.expiration, DPPM.body, DPPM.timestamp, 
             DPPM.type
         FROM DPPMessages AS DPPM
         WHERE paymentrequest_id in ({})
