@@ -4575,6 +4575,8 @@ class Wallet:
             if pr_row.state & new_state_flag != new_state_flag:
                 new_state = pr_row.state & ~PaymentFlag.MASK_DPP_STATE_MACHINE | new_state_flag
                 await self.update_pr_flags_in_db_async(pr_row, new_state)
+                pr_row = self.data.read_payment_request(request_id=pr_row.paymentrequest_id)
+                assert pr_row.state == new_state
 
             self._logger.debug("State machine processing DPPMessageRow: %s for state: %s",
                 message_row, pr_row.state)
@@ -4584,19 +4586,16 @@ class Wallet:
                     PaymentFlag.PAYMENT_REQUEST_REQUESTED:
                 dpp_response_message = self.dpp_make_payment_request_response(pr_row,
                     message_row)
-                _future = app_state.async_.spawn(dpp_websocket_send(state,
-                    dpp_response_message))
+                asyncio.create_task(dpp_websocket_send(state, dpp_response_message))
 
             elif pr_row.state & PaymentFlag.PAYMENT_RECEIVED == \
                     PaymentFlag.PAYMENT_RECEIVED:
                 if self.dpp_payment_is_valid(pr_row, message_row):
                     dpp_ack_message = self.dpp_make_ack(pr_row, message_row)
-                    _future = app_state.async_.spawn(dpp_websocket_send(state,
-                        dpp_ack_message))
+                    asyncio.create_task(dpp_websocket_send(state, dpp_ack_message))
                 else:
                     dpp_err_message = self.dpp_make_pr_error(pr_row, message_row)
-                    _future = app_state.async_.spawn(dpp_websocket_send(state,
-                        dpp_err_message))
+                    asyncio.create_task(dpp_websocket_send(state, dpp_err_message))
 
             elif pr_row.state & PaymentFlag.PAYMENT_RECEIVED == PaymentFlag.PAYMENT_RECEIVED:
                 # TODO(1.4.0) DPP. Validate Payment struct
@@ -4606,8 +4605,7 @@ class Wallet:
 
                 # Send PaymentACK to payer
                 dpp_payment_ack_message = self.dpp_make_ack(pr_row, message_row)
-                _future = app_state.async_.spawn(dpp_websocket_send(state,
-                    dpp_payment_ack_message))
+                asyncio.create_task(dpp_websocket_send(state, dpp_payment_ack_message))
 
             # ----- States for when we are the Payer ----- #
             # NOTE: Not included because when we are the ** Payer **, we use the simplified
