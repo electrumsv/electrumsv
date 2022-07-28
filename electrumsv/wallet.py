@@ -4439,10 +4439,10 @@ class Wallet:
         paymentRequestData = {
             "network": "regtest",
             "version": "1.0",
-            "creationTimestamp": int(datetime.now(tz=timezone.utc).timestamp()),
-            "expirationTimestamp": pr_row.expiration,
+            "creationTimestamp": "2019-10-12T07:20:50.52Z",
             "paymentUrl": create_DPP_URL(self.dpp_proxy_server_states, pr_row),
-            # "beneficiary": {"name": "GoldenSocks.com", "paymentReference": "Order-325214"},
+            "beneficiary": {"name": "GoldenSocks.com", "paymentReference": "Order-325214",
+                "email": "merchant@m.com"},
             "memo": pr_row.description,
 
             # Hybrid Payment Mode
@@ -4451,19 +4451,32 @@ class Wallet:
                     "choiceID0": {
                         "transactions": [
                             {
-                                'outputs': {
-                                    'native': outputs_object
-                                },
+                                'outputs': [
+                                    {
+                                        'native': {
+                                            "amount": 500,
+                                            "script": "76a914dc861b354dcac2907061a533619fdc8571c1c37e88ac",
+                                            "description": "payment reference JwvN5Pz"
+                                        }
+                                    }
+                                ],
                                 'policies': {
-                                    'fees': {
-                                        'standard': {"satoshis": 100, "bytes": 200},
-                                        'data': {'satoshis': 100, 'bytes': 200}},
-                                    'SPVRequired': False}
+                                    "fees": {
+                                        "data": {
+                                            "miningFee": {"satoshis": 100, "bytes": 200},
+                                            "relayFee": {"satoshis": 100, "bytes": 200}},
+                                        "standard": {
+                                            "miningFee": {"satoshis": 100, "bytes": 200},
+                                            "relayFee": {"satoshis": 100, "bytes": 200}}
+                                    },
+                                },
                             },
                         ],
                     },
                 }}
         }
+        if pr_row.expiration is not None:
+            paymentRequestData['expirationTimestamp'] = "2019-10-12T07:20:50.52Z"
 
         message_row_response = DPPMessageRow(
             message_id=str(uuid.uuid4()),
@@ -4475,7 +4488,7 @@ class Wallet:
             user_id=message_row_received.user_id,
             expiration=message_row_received.expiration,
             body=json.dumps(paymentRequestData).encode('utf-8'),
-            timestamp=int(datetime.now(tz=timezone.utc).timestamp()),
+            timestamp=datetime.now(tz=timezone.utc).isoformat(),
             type=MSG_TYPE_PAYMENT_REQUEST_RESPONSE
         )
         return message_row_response
@@ -4509,6 +4522,7 @@ class Wallet:
         return True
 
     async def dpp_websocket_send(self, state: ServerConnectionState, message_row: DPPMessageRow):
+        # TOOD(1.4.0) DPP. Move to network_support.py
         try:
             websocket = state.dpp_websockets[message_row.dpp_invoice_id]
         except KeyError:

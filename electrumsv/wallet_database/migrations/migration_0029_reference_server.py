@@ -210,9 +210,9 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             appId                       TEXT        NOT NULL,
             clientID                    TEXT        NOT NULL,
             userId                      TEXT        NOT NULL,
-            expiration                  INTEGER     NULL,
+            expiration                  TEXT        NULL,
             body                        BLOB        NULL,
-            timestamp                   INTEGER     NOT NULL,
+            timestamp                   TEXT        NOT NULL,
             type                        TEXT        NOT NULL,
             FOREIGN KEY (paymentrequest_id) REFERENCES PaymentRequests (paymentrequest_id)
         )

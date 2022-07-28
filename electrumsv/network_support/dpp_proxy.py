@@ -113,7 +113,7 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
 
                 _validate_dpp_message_json(message_json)
                 if message_json["expiration"] is not None:
-                    expiration = int(from_isoformat(message_json["expiration"]).timestamp())
+                    expiration = message_json["expiration"]
                 else:
                     expiration = None
 
@@ -127,7 +127,7 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
                     user_id=message_json["userId"],
                     expiration=expiration,
                     body=json.dumps(message_json["body"]).encode('utf-8'),
-                    timestamp=int(from_isoformat(message_json["timestamp"]).timestamp()),
+                    timestamp=message_json["timestamp"],
                     type=message_json["type"]
                 )
                 db_connection = db_context.acquire_connection()
