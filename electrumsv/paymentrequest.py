@@ -32,7 +32,7 @@ import urllib.parse
 from bitcoinx import Script
 import requests
 
-from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT, bip276_decode
+from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
 from .exceptions import Bip270Exception
 from .i18n import _
 from .logs import logs
@@ -103,7 +103,8 @@ class HybridPaymentModeDict(TypedDict):
 
 class PaymentDict(TypedDict):
     modeId: str  # i.e. HYBRID_PAYMENT_MODE_BRFCID
-    mode: HybridPaymentModeDict  # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
+    # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
+    mode: HybridPaymentModeDict
     originator: dict[str, Any] | None
     transaction: Optional[str]  # DEPRECATED as per TSC spec.
     memo: Optional[str]  # Optional
@@ -123,7 +124,8 @@ class PaymentTermsDict(TypedDict):
 
 class PaymentACKDict(TypedDict):
     modeId: str
-    mode: HybridPaymentModeDict  # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
+    # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
+    mode: HybridPaymentModeDict
     peerChannel: PeerChannelDict
     redirectUrl: str | None
 
@@ -531,8 +533,8 @@ class Payment:
 class PaymentACK:
     MAXIMUM_JSON_LENGTH = 11 * 1000 * 1000
 
-    def __init__(self, mode_id: str, mode: HybridPaymentModeDict, peer_channel_info: PeerChannelDict,
-            redirect_url: Optional[str]) -> None:
+    def __init__(self, mode_id: str, mode: HybridPaymentModeDict,
+            peer_channel_info: PeerChannelDict, redirect_url: Optional[str]) -> None:
         self.mode_id = mode_id
         self.mode = mode
         self.peer_channel_info = peer_channel_info

@@ -4,14 +4,12 @@ from typing import Any, cast
 
 import aiohttp
 from aiohttp import WSServerHandshakeError
-from electrumsv_database.sqlite import DatabaseContext
 
 from .types import ServerConnectionState
 from ..app_state import app_state
 from ..constants import PaymentFlag
 from ..logs import logs
 from ..wallet_database.types import DPPMessageRow, PaymentRequestReadRow
-from ..wallet_database import functions as db_functions
 
 logger = logs.get_logger("dpp-proxy")
 
@@ -23,7 +21,8 @@ MSG_TYPE_PAYMENT_REQUEST_CREATE = "paymentrequest.create"
 MSG_TYPE_PAYMENT_REQUEST_RESPONSE = "paymentrequest.response"
 MSG_TYPE_PAYMENT_REQUEST_ERROR = "paymentrequest.error"
 
-ALL_MSG_TYPES = {MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK, MSG_TYPE_PAYMENT_ERR,
+ALL_MSG_TYPES = {MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK,
+    MSG_TYPE_PAYMENT_ERR,
     MSG_TYPE_PAYMENT_REQUEST_CREATE, MSG_TYPE_PAYMENT_REQUEST_RESPONSE,
     MSG_TYPE_PAYMENT_REQUEST_ERROR}
 DPP_MESSAGE_SEQUENCE = [MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_CREATE,
@@ -102,7 +101,8 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
         headers = {"Accept": "application/json"}
         BASE_URL = state.server.url.replace("http", "ws")
         logger.debug(f"Opening DPP websocket for payment request: {payment_request_row}")
-        websocket_url = f"{BASE_URL.rstrip('/')}/ws/{payment_request_row.dpp_invoice_id}?internal=true"
+        websocket_url = f"{BASE_URL.rstrip('/')}/ws/{payment_request_row.dpp_invoice_id}"+ \
+            "?internal=true"
 
         async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
                 as server_websocket:

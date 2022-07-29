@@ -14,10 +14,9 @@ from ... import web
 from ...app_state import app_state, get_app_state_qt
 from ...bitcoin import script_template_to_string
 from ...constants import NetworkServerFlag, PaymentFlag, PushDataHashRegistrationFlag, ScriptType, \
-    ServerConnectionFlag, TxFlags, NetworkServerType
+    ServerConnectionFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
-from ...network_support.api_server import NewServer
 from ...network_support.types import ServerConnectionState, TipFilterRegistrationJob, \
     TipFilterRegistrationJobEntry
 from ...networks import Net, TEST_NETWORK_NAMES
@@ -396,7 +395,8 @@ class ReceiveDialog(QDialog):
 
         else:
             assert self._request_row is not None
-            uri = create_DPP_URI(self._account.get_wallet().dpp_proxy_server_states, self._request_row)
+            uri = create_DPP_URI(self._account.get_wallet().dpp_proxy_server_states,
+                self._request_row)
             self._receive_destination_edit.setText(uri)
 
     def update_script_type(self, script_type: ScriptType) -> None:

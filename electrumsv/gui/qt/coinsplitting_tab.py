@@ -16,8 +16,7 @@ from PyQt6.QtWidgets import QFrame, QGridLayout, QLabel, QHBoxLayout, QVBoxLayou
 
 from ...app_state import app_state
 from ...bitcoin import ScriptTemplate
-from ...constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType, WalletEvent, \
-    NetworkServerType
+from ...constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType, WalletEvent
 from ...exceptions import NotEnoughFunds
 from ...i18n import _
 from ...logs import logs

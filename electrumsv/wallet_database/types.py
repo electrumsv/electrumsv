@@ -1,6 +1,5 @@
 import json
 from datetime import datetime, timezone
-from enum import IntEnum
 from typing import Any, NamedTuple, Optional, Protocol, Union
 
 from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
