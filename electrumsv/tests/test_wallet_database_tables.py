@@ -1200,8 +1200,8 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert transaction_description_update_rows == [ (TX_DESC2, ACCOUNT_ID, TX_HASH) ]
 
     ## Continue.
-    future = db_functions.update_payment_requests(db_context, [ PaymentRequestUpdateRow(
-        PaymentFlag.UNKNOWN, 20, 999, "newdesc", line2.paymentrequest_id) ])
+    future = db_context.post_to_thread(db_functions.update_payment_requests_write, [
+        PaymentRequestUpdateRow(PaymentFlag.UNKNOWN, 20, 999, "newdesc", line2.paymentrequest_id) ])
     future.result()
 
     db_lines = db_functions.read_payment_requests(db_context, ACCOUNT_ID)
