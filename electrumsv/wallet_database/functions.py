@@ -139,8 +139,8 @@ def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyR
 def create_payment_requests(db_context: DatabaseContext, entries: list[PaymentRequestRow]) \
         -> concurrent.futures.Future[list[PaymentRequestRow]]:
     sql = """
-        INSERT INTO PaymentRequests (paymentrequest_id, keyinstance_id, dpp_invoice_id, state, 
-            value, expiration, description, script_type, pushdata_hash, server_id, 
+        INSERT INTO PaymentRequests (paymentrequest_id, keyinstance_id, dpp_invoice_id, state,
+            value, expiration, description, script_type, pushdata_hash, server_id,
             date_created, date_updated)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """
@@ -155,8 +155,9 @@ def create_payment_requests(db_context: DatabaseContext, entries: list[PaymentRe
 
 def create_dpp_messages(entries: list[DPPMessageRow], db: Optional[sqlite3.Connection]=None) \
         -> None:
-    sql = """    
-        INSERT INTO DPPMessages (message_id, paymentrequest_id, dpp_invoice_id, correlation_id, 
+    assert db is not None
+    sql = """
+        INSERT INTO DPPMessages (message_id, paymentrequest_id, dpp_invoice_id, correlation_id,
             app_id, client_id, user_id, expiration, body, timestamp, type)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(message_id) DO NOTHING;
@@ -852,8 +853,8 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
             GROUP BY KI.keyinstance_id
         )
 
-        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id ,PR.state, PR.value, 
-            KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, 
+        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id ,PR.state, PR.value,
+            KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash,
             PR.server_id, PR.date_created
         FROM PaymentRequests PR
         INNER JOIN key_payments KP USING(keyinstance_id)
@@ -890,8 +891,8 @@ def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None
     else:
         sql = sql.format("")
     sql += """
-        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id, PR.state, PR.value, 
-            KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, 
+        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id, PR.state, PR.value,
+            KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash,
             PR.server_id, PR.date_created
         FROM PaymentRequests PR
         INNER JOIN key_payments KP USING(keyinstance_id)
@@ -1553,10 +1554,11 @@ def read_server_peer_channel_messages(db: sqlite3.Connection,
 
 
 @replace_db_context_with_connection
-def read_dpp_messages_by_pr_id(db: sqlite3.Connection, paymentrequest_ids: list[int]):
+def read_dpp_messages_by_pr_id(db: sqlite3.Connection, paymentrequest_ids: list[int]) \
+        -> list[DPPMessageRow]:
     sql = """
-        SELECT DPPM.message_id, DPPM.paymentrequest_id, DPPM.dpp_invoice_id, DPPM.correlation_id, 
-            DPPM.app_id, DPPM.client_id, DPPM.user_id, DPPM.expiration, DPPM.body, DPPM.timestamp, 
+        SELECT DPPM.message_id, DPPM.paymentrequest_id, DPPM.dpp_invoice_id, DPPM.correlation_id,
+            DPPM.app_id, DPPM.client_id, DPPM.user_id, DPPM.expiration, DPPM.body, DPPM.timestamp,
             DPPM.type
         FROM DPPMessages AS DPPM
         WHERE paymentrequest_id in ({})
@@ -2238,28 +2240,14 @@ async def close_paid_payment_requests_async(db_context: DatabaseContext) \
     return await db_context.run_in_thread_async(_close_paid_payment_requests)
 
 
-def update_payment_requests_no_wait(entries: Iterable[PaymentRequestUpdateRow],
-        db: Optional[sqlite3.Connection]=None) -> None:
-    sql = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, expiration=?, "
-        "description=? WHERE paymentrequest_id=?")
-    timestamp = get_posix_timestamp()
-    rows = [ (timestamp, *entry) for entry in entries ]
-
+def update_payment_requests_write(entries: Iterable[PaymentRequestUpdateRow],
+        db: sqlite3.Connection | None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
-    db.executemany(sql, rows)
-
-
-def update_payment_requests(db_context: DatabaseContext,
-        entries: Iterable[PaymentRequestUpdateRow]) -> concurrent.futures.Future[None]:
     sql = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, expiration=?, "
         "description=? WHERE paymentrequest_id=?")
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
-
-    def _write(db: Optional[sqlite3.Connection]=None) -> None:
-        assert db is not None and isinstance(db, sqlite3.Connection)
-        db.executemany(sql, rows)
-    return db_context.post_to_thread(_write)
+    db.executemany(sql, rows)
 
 
 def update_wallet_event_flags(db_context: DatabaseContext,

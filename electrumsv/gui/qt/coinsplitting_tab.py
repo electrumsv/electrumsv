@@ -253,6 +253,7 @@ class CoinSplittingTab(TabWidget):
         self._dpp_server_state = dpp_server_states[0]
 
         def callback(future: concurrent.futures.Future[list[PaymentRequestRow]]) -> None:
+            assert self._account is not None
             # Skip if the operation was cancelled.
             if future.cancelled():
                 return
@@ -262,6 +263,7 @@ class CoinSplittingTab(TabWidget):
             request_id = final_rows[0].paymentrequest_id
             request_row = self._account.get_wallet().data.\
                 read_payment_request(request_id=request_id)
+            assert request_row is not None
 
             # Opens a dpp websocket connection for this server
             assert self._dpp_server_state is not None

@@ -127,7 +127,7 @@ class TestPaymentACK(unittest.TestCase):
 class TestPaymentRequest(unittest.TestCase):
     def test_dict_optional_fields_unused(self):
         outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
-        original = paymentrequest.PaymentRequest(outputs)
+        original = paymentrequest.PaymentRequest(outputs, "1.0")
         json_value = original.to_json()
         restored = paymentrequest.PaymentRequest.from_json(json_value)
         self.assertEqual(len(original.outputs), len(restored.outputs))
@@ -143,7 +143,8 @@ class TestPaymentRequest(unittest.TestCase):
         creation_timestamp = int(time.time() + 100)
         expiration_timestamp = creation_timestamp + 100
         request = paymentrequest.PaymentRequest(
-            outputs, creation_timestamp, expiration_timestamp, "memo", "pay_url", "merchant_data")
+            outputs, "1.0", creation_timestamp, expiration_timestamp, "memo", "pay_url",
+            "merchant_data")
         json_value = request.to_json()
         data = json.loads(json_value)
         self.assertTrue('creationTimestamp' in data)
@@ -156,8 +157,8 @@ class TestPaymentRequest(unittest.TestCase):
         outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
         creation_timestamp = int(time.time() + 100)
         expiration_timestamp = creation_timestamp + 100
-        original = paymentrequest.PaymentRequest(
-            outputs, creation_timestamp, expiration_timestamp, "memo", "pay_url", "merchant_data")
+        original = paymentrequest.PaymentRequest(outputs, "1.0", creation_timestamp,
+            expiration_timestamp, "memo", "pay_url", "merchant_data")
         json_value = original.to_json()
         restored = paymentrequest.PaymentRequest.from_json(json_value)
         self.assertEqual(len(original.outputs), len(restored.outputs))
@@ -170,7 +171,7 @@ class TestPaymentRequest(unittest.TestCase):
 
     def test_json_restoration_required(self):
         outputs = [ paymentrequest.Output(P2PKH_SCRIPT) ]
-        original = paymentrequest.PaymentRequest(outputs)
+        original = paymentrequest.PaymentRequest(outputs, "1.0")
         json_value = original.to_json()
         restored = paymentrequest.PaymentRequest.from_json(json_value)
         self.assertEqual(len(original.outputs), len(restored.outputs))

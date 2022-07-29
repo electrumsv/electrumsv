@@ -609,7 +609,7 @@ class DPPMessageRow(NamedTuple):
 
     def to_json(self, ) -> str:
         ts = datetime.now(tz=timezone.utc).isoformat().replace('+00:00', 'Z')
-        dpp_message_dict = {}
+        dpp_message_dict: dict[str, Any] = {}
         dpp_message_dict['correlationId'] = self.correlation_id
         dpp_message_dict['appId'] = self.app_id
         dpp_message_dict['clientID'] = self.client_id

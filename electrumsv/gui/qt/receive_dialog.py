@@ -35,6 +35,7 @@ from ...web import create_DPP_URI
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
     from .receive_view import ReceiveView
+    from ...wallet import AbstractAccount
     from ...wallet_database.types import KeyInstanceRow, PaymentRequestReadRow
 
 
@@ -129,9 +130,9 @@ class ReceiveDialog(QDialog):
         self._request_id = request_id
         self._request_type = request_type
 
-        self._request_row: Optional[PaymentRequestReadRow] = None
-        self._key_data: Optional[KeyInstanceRow] = None
-        self._dpp_server_state: Optional[ServerConnectionState] = None
+        self._request_row: PaymentRequestReadRow | None = None
+        self._key_data: KeyInstanceRow | None = None
+        self._dpp_server_state: ServerConnectionState | None = None
 
         if request_id is not None:
             self._read_request_data_from_database()
@@ -612,6 +613,7 @@ class ReceiveDialog(QDialog):
             # use the `PaymentRequestReadRow` type (used for reads) row type for local storage
             # (which includes related data like value received).
             self._read_request_data_from_database()
+            assert self._request_row is not None
 
             # Opens a dpp websocket connection for this server
             assert self._dpp_server_state is not None

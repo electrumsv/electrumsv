@@ -76,9 +76,9 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
-from .network_support.dpp_proxy import dpp_msg_type_to_state_flag, _is_later_dpp_message_sequence, \
-    manage_dpp_network_connections_async, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_RESPONSE, \
-    dpp_websocket_send
+from .network_support.dpp_proxy import _is_later_dpp_message_sequence, dpp_websocket_send, \
+    manage_dpp_network_connections_async, MESSAGE_STATE_BY_TYPE, \
+    MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_RESPONSE
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
@@ -1099,8 +1099,10 @@ class AbstractAccount:
             KeyInstanceFlag.IS_PAYMENT_REQUEST | KeyInstanceFlag.ACTIVE)
         script_type = self.get_default_script_type()
         pushdata_hash = get_pushdata_hash_for_account_key_data(self, key_data, script_type)
-        date_created = get_posix_timestamp()
-        expiration = date_created + expiration_seconds
+        expiration: int | None = None
+        if expiration_seconds is not None:
+            date_created = get_posix_timestamp()
+            expiration = date_created + expiration_seconds
         row = PaymentRequestRow(-1, key_data.keyinstance_id, dpp_invoice_id,
             flags | PaymentFlag.UNPAID, amount, expiration, message, script_type,
             pushdata_hash, server_id, get_posix_timestamp())
@@ -1751,6 +1753,9 @@ class WalletDataAccess:
     def delete_invoices(self, entries: Iterable[tuple[int]]) -> concurrent.futures.Future[None]:
         return db_functions.delete_invoices(self._db_context, entries)
 
+    async def create_invoice_proxy_message_async(self, dpp_messages: list[DPPMessageRow]) -> None:
+        await self._db_context.run_in_thread_async(db_functions.create_dpp_messages, dpp_messages)
+
     # Key instances.
 
     def reserve_keyinstance(self, account_id: int, masterkey_id: int,
@@ -1895,7 +1900,12 @@ class WalletDataAccess:
 
     def update_payment_requests(self, entries: Iterable[PaymentRequestUpdateRow]) \
             -> concurrent.futures.Future[None]:
-        return db_functions.update_payment_requests(self._db_context, entries)
+        return self._db_context.post_to_thread(db_functions.update_payment_requests_write, entries)
+
+    async def update_payment_requests_async(self, entries: Iterable[PaymentRequestUpdateRow]) \
+            -> None:
+        await self._db_context.run_in_thread_async(
+            db_functions.update_payment_requests_write, entries)
 
     # Peer channels.
 
@@ -2461,11 +2471,6 @@ class Wallet:
             assert xpub is not None
             xpub_by_fingerprint[bip32_keystore.get_fingerprint()] = xpub
         return xpub_by_fingerprint
-
-    def get_default_account(self) -> Optional[AbstractAccount]:
-        if len(self._accounts):
-            return list(self._accounts.values())[0]
-        return None
 
     def _realize_keystore(self, row: MasterKeyRow) -> KeyStore:
         data = cast(MasterKeyDataTypes, json.loads(row.derivation_data))
@@ -4429,7 +4434,8 @@ class Wallet:
     def dpp_make_payment_request_response(self, pr_row: PaymentRequestReadRow,
             message_row_received: DPPMessageRow) -> DPPMessageRow:
         key_data = self.data.read_keyinstance(keyinstance_id=pr_row.keyinstance_id)
-        script_template = self.get_default_account().get_script_template_for_derivation(
+        assert key_data is not None
+        script_template = self._accounts[key_data.account_id].get_script_template_for_derivation(
             pr_row.script_type, key_data.derivation_type, key_data.derivation_data2)
         outputs_object = [
             {
@@ -4489,25 +4495,29 @@ class Wallet:
         )
         return message_row_response
 
-    def dpp_make_payment_message(self, pr_row: PaymentRequestRow,
-            message_row: DPPMessageRow) -> DPPMessageRow:
-        pass
-
-    def dpp_make_ack(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
+    def dpp_make_payment_message(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
             -> DPPMessageRow:
-        pass
+        # TODO(1.4.0) DPP. This should not return `None` and should return a valid valid.
+        return message_row
 
-    def dpp_make_pr_error(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
+    def dpp_make_ack(self, pr_row: PaymentRequestReadRow, message_row: DPPMessageRow) \
             -> DPPMessageRow:
-        pass
+        # TODO(1.4.0) DPP. This should not return `None` and should return a valid row.
+        return message_row
+
+    def dpp_make_pr_error(self, pr_row: PaymentRequestReadRow, message_row: DPPMessageRow) \
+            -> DPPMessageRow:
+        # TODO(1.4.0) DPP. This should not return `None` and should return a valid row.
+        return message_row
 
     def dpp_make_payment_error(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
             -> DPPMessageRow:
-        pass
+        # TODO(1.4.0) DPP. This is not current called, use a correct return value.
+        return message_row
 
     # ----- DPP Message Validators ----- #
 
-    def dpp_payment_is_valid(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
+    def dpp_payment_is_valid(self, pr_row: PaymentRequestReadRow, message_row: DPPMessageRow) \
             -> bool:
         # TODO: Do validation
         return True
@@ -4516,13 +4526,6 @@ class Wallet:
             -> bool:
         # TODO: Do validation
         return True
-
-    async def update_pr_flags_in_db_async(self, pr_row: PaymentRequestRow,
-            new_flags: PaymentFlag) -> None:
-        entries = [PaymentRequestUpdateRow(new_flags, pr_row.requested_value, pr_row.expiration,
-            pr_row.description, pr_row.paymentrequest_id)]
-        await self._db_context.run_in_thread_async(db_functions.update_payment_requests_no_wait,
-            entries)
 
     async def _consume_dpp_messages_async(self, state: ServerConnectionState,
             pr_rows_for_server: list[PaymentRequestReadRow]) -> None:
@@ -4571,12 +4574,14 @@ class Wallet:
             assert pr_row.state & PaymentFlag.UNPAID == PaymentFlag.UNPAID
 
             # Update flag to new state & write to database
-            new_state_flag = dpp_msg_type_to_state_flag(message_row.type)
+            assert message_row.type in MESSAGE_STATE_BY_TYPE
+            new_state_flag = MESSAGE_STATE_BY_TYPE[message_row.type]
             if pr_row.state & new_state_flag != new_state_flag:
                 new_state = pr_row.state & ~PaymentFlag.MASK_DPP_STATE_MACHINE | new_state_flag
-                await self.update_pr_flags_in_db_async(pr_row, new_state)
-                pr_row = self.data.read_payment_request(request_id=pr_row.paymentrequest_id)
-                assert pr_row.state == new_state
+                pr_row = pr_row._replace(state=new_state)
+                update_row = PaymentRequestUpdateRow(new_state, pr_row.requested_value,
+                    pr_row.expiration, pr_row.description, pr_row.paymentrequest_id)
+                await self.data.update_payment_requests_async([ update_row ])
 
             self._logger.debug("State machine processing DPPMessageRow: %s for state: %s",
                 message_row, pr_row.state)
@@ -4927,7 +4932,9 @@ class Wallet:
         maximum_size_bytes = maximum_size * (1024 * 1024)
         self._transaction_cache2.set_maximum_size(maximum_size_bytes, force_resize)
 
-    async def _manage_dpp_connections_async(self):
+    async def _manage_dpp_connections_async(self) -> None:
+        assert self._network is not None
+
         # Petty cash account_id is for ServerConnectionState in case payment is required in future
         petty_cash_account_id = None
         for account in self._accounts.values():
@@ -4969,8 +4976,7 @@ class Wallet:
 
             self.dpp_proxy_server_states.append(state)
             state.manage_dpp_connections_future = \
-                app_state.async_.spawn(manage_dpp_network_connections_async(state,
-                    self._db_context))
+                app_state.app.run_coro(manage_dpp_network_connections_async(state))
 
             pr_rows_for_server = server_to_pr_map[server]
             state.dpp_consumer_future = app_state.async_.spawn(

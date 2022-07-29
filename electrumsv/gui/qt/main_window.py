@@ -158,9 +158,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.config = app_state.config
 
         self._wallet = wallet
-        self._account: Optional[AbstractAccount] = wallet.get_default_account()
-        self._account_id: Optional[int] = (self._account.get_id() if self._account is not None
-            else None)
+        self._account: AbstractAccount | None = None
+        self._account_id: int | None = None
 
         app_state.credentials.set_request_callback(wallet.get_storage_path(),
             self.password_request_signal.emit)
@@ -1955,8 +1954,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def sign_verify_message(self, account: Optional[AbstractAccount]=None,
             key_data: Optional[KeyDataProtocol]=None) -> None:
-        if account is None:
-            account = self._wallet.get_default_account()
+        # TODO(1.4.0) Accounts. We used to have a default account concept. There is no such thing
+        #     any more.
+        assert account is not None
 
         d = WindowModalDialog(self, _('Sign/verify Message'))
         d.setMinimumSize(610, 290)

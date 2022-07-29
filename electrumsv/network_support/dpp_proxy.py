@@ -47,19 +47,8 @@ class DPPPayerError(Exception):
 
 
 
-async def dpp_websocket_send(state: ServerConnectionState, message_row: DPPMessageRow):
-    try:
-        websocket = state.dpp_websockets[message_row.dpp_invoice_id]
-    except KeyError:
-        # TODO(1.4.0) DPP. It takes a second before the websockets are actually opened and the
-        #  state.dpp_websockets cache is filled. therefore this likely needs some kind of
-        #  synchronization to wait until the initial opening of all active invoices in database
-        #  is completed. Currently this is being avoided with an `await asyncio.sleep(1)`
-        #  to yield the event loop. - AustEcon
-        logger.exception("Key Error looking up cached dpp websocket: "
-                         "state.dpp_websockets=%s", state.dpp_websockets)
-        return
-
+async def dpp_websocket_send(state: ServerConnectionState, message_row: DPPMessageRow) -> None:
+    websocket = state.dpp_websockets[message_row.dpp_invoice_id]
     if websocket is not None:  # ws:// is still open
         await websocket.send_str(message_row.to_json())
     else:
@@ -70,26 +59,15 @@ async def dpp_websocket_send(state: ServerConnectionState, message_row: DPPMessa
 
 
 
-def dpp_msg_type_to_state_flag(msg_type: str) -> PaymentFlag:
-    assert msg_type not in {MSG_TYPE_PAYMENT_ERR, MSG_TYPE_PAYMENT_REQUEST_ERROR}, \
-        "Caller must check for DPP error states"
-
-    # ----- Payee states ----- #
-    if msg_type == MSG_TYPE_PAYMENT_REQUEST_CREATE:
-        return PaymentFlag.PAYMENT_REQUEST_REQUESTED
-
-    if msg_type == MSG_TYPE_PAYMENT:
-        return PaymentFlag.PAYMENT_RECEIVED
-
-    # ----- Payer states ----- #
-    if msg_type == MSG_TYPE_PAYMENT_REQUEST_RESPONSE:
-        return PaymentFlag.PAYMENT_REQUEST_RECEIVED
-
-    if msg_type == MSG_TYPE_PAYMENT_ACK:
-        return PaymentFlag.PAID
+MESSAGE_STATE_BY_TYPE = {
+    MSG_TYPE_PAYMENT_REQUEST_CREATE: PaymentFlag.PAYMENT_REQUEST_REQUESTED,
+    MSG_TYPE_PAYMENT: PaymentFlag.PAYMENT_RECEIVED,
+    MSG_TYPE_PAYMENT_REQUEST_RESPONSE: PaymentFlag.PAYMENT_REQUEST_RECEIVED,
+    MSG_TYPE_PAYMENT_ACK: PaymentFlag.PAID
+}
 
 
-def _validate_dpp_message_json(dpp_message_json: dict[Any, Any]) -> bool:
+def _validate_dpp_message_json(dpp_message_json: dict[Any, Any]) -> None:
     """Generic checking of structure - doesn't check the body of the message - that check is
     done elsewhere"""
     assert isinstance(dpp_message_json["correlationId"], str)
@@ -112,13 +90,14 @@ def _validate_dpp_message_json(dpp_message_json: dict[Any, Any]) -> bool:
 
 
 async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
-        payment_request_row: PaymentRequestReadRow, db_context: DatabaseContext):
+        payment_request_row: PaymentRequestReadRow) -> None:
     """One async task per ws:// connection - each invoice ID has its own ws:// connection.
 
     The Wallet in wallet.py can communicate with the open websocket as follows:
     - ServerConnectionState.dpp_websocket is used for sending messages
     - ServerConnectionState.dpp_messages_queue is used for received messages
     """
+    assert state.wallet_data is not None
     try:
         headers = {"Accept": "application/json"}
         BASE_URL = state.server.url.replace("http", "ws")
@@ -131,7 +110,7 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
             websocket_message: aiohttp.WSMessage
             async for websocket_message in server_websocket:
                 if websocket_message.type == aiohttp.WSMsgType.TEXT:
-                    message_json = cast(dict, json.loads(websocket_message.data))
+                    message_json = cast(dict[str, Any], json.loads(websocket_message.data))
                 else:
                     raise NotImplementedError("The Direct Payment Protocol does not have a binary "
                                               "format")
@@ -155,8 +134,7 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
                     timestamp=message_json["timestamp"],
                     type=message_json["type"]
                 )
-                await db_context.run_in_thread_async(db_functions.create_dpp_messages,
-                    [dpp_message])
+                await state.wallet_data.create_invoice_proxy_message_async([ dpp_message ])
                 if message_json["type"] != MSG_TYPE_JOIN_SUCCESS:
                     state.dpp_messages_queue.put_nowait(dpp_message)
     except aiohttp.ClientConnectorError:
@@ -168,18 +146,16 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
         #  or so. Otherwise we will no longer have open websocket connections for invoices even
         #  though the DPP proxy server is back online again. Currently the user will have to
         #  restart to wallet to reconnect.
-        state.dpp_websocket = None
+        state.dpp_websockets.pop(payment_request_row.dpp_invoice_id, None)
 
 
-async def manage_dpp_network_connections_async(state: ServerConnectionState,
-        db_context: DatabaseContext) -> None:
+async def manage_dpp_network_connections_async(state: ServerConnectionState) -> None:
     """Spawns a new websocket task for each new active invoice pushed to its queue"""
     logger.debug("Entering manage_dpp_connections_async, server_url=%s", state.server.url)
     try:
         while True:
             payment_request_row = await state.active_invoices_queue.get()
-            app_state.async_.spawn(create_dpp_ws_connection_task_async(state, payment_request_row,
-                db_context))
+            app_state.async_.spawn(create_dpp_ws_connection_task_async(state, payment_request_row))
     except Exception:
         logger.exception("Exception in manage_dpp_connections_async")
     finally:

@@ -23,8 +23,10 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import annotations
 import json
 from typing import Any, cast, List, Optional, Dict, TYPE_CHECKING, Union, TypedDict
+import types
 import urllib.parse
 
 from bitcoinx import Script
@@ -35,7 +37,7 @@ from .exceptions import Bip270Exception
 from .i18n import _
 from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
-from .transaction import XTxOutput
+from .transaction import Transaction, XTxOutput
 from .util import get_posix_timestamp
 from .wallet_database.types import PaymentRequestReadRow
 from .web import parse_URI
@@ -72,60 +74,58 @@ HYBRID_PAYMENT_MODE_BRFCID = "ef63d9775da5"
 
 
 # DPP Message Types as per the TSC spec.
-class PeerChannel(TypedDict):
+class PeerChannelDict(TypedDict):
     host: str
     token: str
     channelid: str
 
 
-class PeerChannelsDPP(TypedDict):
-    peerChannel: dict
+class PeerChannelsDict(TypedDict):
+    peerChannel: dict[str, Any]
 
 
-class TransactionDPP(TypedDict):
-    outputs: dict
-    inputs: Optional[dict]
-    policies: Optional[dict]
+class TransactionDict(TypedDict):
+    outputs: dict[str, Any]
+    inputs: Optional[dict[str, Any]]
+    policies: dict[str, Any] | None
 
 
-class HybridPaymentModeStandardDPP(TypedDict):
+class HybridPaymentModeStandardDict(TypedDict):
     optionId: str
-    transactions: list[TransactionDPP]
-    ancestors: Optional[dict]
+    transactions: list[TransactionDict]
+    ancestors: dict[str, Any] | None
 
 
-class HybridPaymentModeDPP(TypedDict):
+class HybridPaymentModeDict(TypedDict):
     # i.e. { HYBRID_PAYMENT_MODE_BRFCID: HybridPaymentModeStandard }
-    ef63d9775da5: HybridPaymentModeStandardDPP
+    ef63d9775da5: dict[str, HybridPaymentModeStandardDict]
 
 
-class PaymentDPP(TypedDict):
+class PaymentDict(TypedDict):
     modeId: str  # i.e. HYBRID_PAYMENT_MODE_BRFCID
-    mode: HybridPaymentModeDPP  # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
-    originator: Optional[dict]
+    mode: HybridPaymentModeDict  # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
+    originator: dict[str, Any] | None
     transaction: Optional[str]  # DEPRECATED as per TSC spec.
     memo: Optional[str]  # Optional
 
 
-class PaymentTermsDPP(TypedDict):
+class PaymentTermsDict(TypedDict):
     network: str
     version: str
     creationTimestamp: int
     expirationTimestamp: int
     memo: str
     paymentUrl: str
-    beneficiary: Optional[dict]
-    modes: HybridPaymentModeDPP
-    # for backwards compatibility:
-    outputs: list
-    merchantData: Optional[dict]
+    beneficiary: dict[str, Any] | None
+    modes: HybridPaymentModeDict
+    merchantData: dict[str, Any] | None
 
 
-class PaymentACKDPP(TypedDict):
+class PaymentACKDict(TypedDict):
     modeId: str
-    mode: HybridPaymentModeDPP  # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
-    peerChannel: PeerChannel
-    redirectUrl: Optional[str]
+    mode: HybridPaymentModeDict  # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
+    peerChannel: PeerChannelDict
+    redirectUrl: str | None
 
 
 
@@ -196,10 +196,10 @@ class PaymentRequest:
     error: Optional[str] = None
 
     def __init__(self, outputs: List[Output], version: str, creation_timestamp: Optional[int]=None,
-            expiration_timestamp: Optional[int]=None, memo: Optional[str]=None,
-            beneficiary: Optional[dict]=None, payment_url: Optional[str]=None,
-            merchant_data: Optional[str]=None,
-            hybrid_payment_data: Optional[HybridPaymentModeDPP]=None) -> None:
+            expiration_timestamp: int | None=None, memo: str | None=None,
+            beneficiary: dict[str, Any] | None=None, payment_url: str | None=None,
+            merchant_data: str | None=None,
+            hybrid_payment_data: dict[str, HybridPaymentModeStandardDict] | None=None) -> None:
         # This is only used if there is a requestor identity (old openalias, needs rewrite).
         self._id: Optional[int] = None
         self.tx = None
@@ -226,7 +226,7 @@ class PaymentRequest:
 
     @classmethod
     def from_wallet_entry(cls, account: 'AbstractAccount',
-            pr: PaymentRequestReadRow) -> 'PaymentRequest':
+            pr: PaymentRequestReadRow) -> PaymentRequest:
         wallet = account.get_wallet()
         keyinstance = wallet.data.read_keyinstance(keyinstance_id=pr.keyinstance_id)
         assert keyinstance is not None
@@ -237,53 +237,61 @@ class PaymentRequest:
         if pr.expiration is not None:
             date_expiry = pr.date_created + pr.expiration
         outputs = [ Output(script, pr.requested_value) ]
-        return cls(outputs, pr.date_created, date_expiry, pr.description)
+        return cls(outputs, "1.0", creation_timestamp=pr.date_created,
+            expiration_timestamp=date_expiry, memo=pr.description)
 
     @classmethod
-    def from_json(cls, s: Union[bytes, str]) -> 'PaymentRequest':
+    def from_json(cls, s: Union[bytes, str]) -> PaymentRequest:
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception(_("Payment request oversized"))
 
-        d = cast(PaymentTermsDPP, json.loads(s))
+        payment_terms = cast(PaymentTermsDict, json.loads(s))
 
-        network = d.get('network')
+        network = payment_terms.get('network')
         if network not in (cls.DPP_NETWORK_REGTEST, cls.DPP_NETWORK_TESTNET, cls.DPP_NETWORK_STN,
                 cls.DPP_NETWORK_MAINNET):
             raise Bip270Exception(_("Invalid network '{}'").format(network))
 
-        if 'version' not in d:
+        if 'version' not in payment_terms:
             raise Bip270Exception(_("version field missing"))
 
-        if 'outputs' in d:
+        if 'outputs' in payment_terms:
             raise Bip270Exception(_("The 'outputs' field is now deprecated in favour of "
                                     "HybridPaymentMode: see DPP TSC spec."))
-        if 'modes' not in d:
+        if 'modes' not in payment_terms:
             raise Bip270Exception(_("Payment details missing"))
 
-        if 'ef63d9775da5' not in d['modes']:
+        if 'ef63d9775da5' not in payment_terms['modes']:
             raise Bip270Exception(_("modes section must include standard mode: 'ef63d9775da5'"))
 
-        if type(d['modes']['ef63d9775da5']) is not dict:
+        payment_modes = payment_terms['modes']['ef63d9775da5']
+        if not isinstance(payment_modes, dict):
             raise Bip270Exception(_("Corrupt payment details"))
 
         # For the time being we only accept 'native' outputs and only a single
         # choice - i.e. "choiceID0" to avoid too much up-front-complexity
-        if 'choiceID0' not in d['modes']['ef63d9775da5'] or \
-                'transactions' not in d['modes']['ef63d9775da5']['choiceID0']:
+        if 'choiceID0' not in payment_modes:
             raise Bip270Exception(_("choiceID0 field is required by ElectrumSV, outputs must "
                                     "be native type and policies field must contain a valid "
                                     "mAPI fee quote"))
 
-        transactions = cast(list[TransactionDPP],
-            d['modes']['ef63d9775da5']['choiceID0']['transactions'])
+        choice0_payment_mode = payment_modes['choiceID0']
+        if 'transactions' not in choice0_payment_mode:
+            raise Bip270Exception(_("choiceID0 field is required by ElectrumSV, outputs must "
+                                    "be native type and policies field must contain a valid "
+                                    "mAPI fee quote"))
+
+        transactions = choice0_payment_mode['transactions']
         for tx in transactions:
             for output in tx['outputs']:
                 if 'native' not in output:
                     raise Bip270Exception(_("Only native type outputs are accepted at this time"))
 
-            if 'fees' not in tx['policies'] or 'SPVRequired' not in tx['policies']:
-                tx['policies']['SPVRequired'] = False
-                tx['policies']['fees'] = None
+            tx_policies = tx['policies']
+            assert tx_policies is not None
+            if 'fees' not in tx_policies or 'SPVRequired' not in tx_policies:
+                tx_policies['SPVRequired'] = False
+                tx_policies['fees'] = None
 
         if len(transactions) > 1:
             raise Bip270Exception("ElectrumSV can currently only handle 1 transaction at a time. "
@@ -293,37 +301,36 @@ class PaymentRequest:
         for ui_dict in transactions[0]['outputs']['native']:
             outputs.append(Output.from_dict(ui_dict))
 
-        pr = cls(outputs=outputs, version=d['version'])
+        pr = cls(outputs=outputs, version=payment_terms['version'])
         # We preserve the network we were given as maybe it is HandCash's non-standard "bitcoin"
         pr.network = network
+        pr.hybrid_payment_data = payment_modes
 
-        pr.hybrid_payment_data = d['modes'][HYBRID_PAYMENT_MODE_BRFCID]
-
-        if 'creationTimestamp' not in d:
+        if 'creationTimestamp' not in payment_terms:
             raise Bip270Exception(_("Creation time missing"))
-        creation_timestamp = d['creationTimestamp']
+        creation_timestamp = payment_terms['creationTimestamp']
         if type(creation_timestamp) is not int:
             raise Bip270Exception(_("Corrupt creation time"))
         pr.creation_timestamp = creation_timestamp
-        expiration_timestamp = d.get('expirationTimestamp')
+        expiration_timestamp = payment_terms.get('expirationTimestamp')
         if expiration_timestamp is not None and type(expiration_timestamp) is not int:
             raise Bip270Exception(_("Corrupt expiration time"))
         pr.expiration_timestamp = expiration_timestamp
 
-        memo = d.get('memo')
+        memo = payment_terms.get('memo')
         if memo is not None and type(memo) is not str:
             raise Bip270Exception(_("Corrupt memo"))
         pr.memo = memo
 
-        payment_url = d.get('paymentUrl')
+        payment_url = payment_terms.get('paymentUrl')
         if payment_url is not None and type(payment_url) is not str:
             raise Bip270Exception(_("Corrupt payment URL"))
         pr.payment_url = payment_url
 
         # NOTE: payd wallet returns a nested json dictionary but technically the BIP270 spec.
         # states this must be a string up to 10000 characters long.
-        merchant_data = d.get('merchantData')
-        if merchant_data is not None and type(merchant_data) is not str:
+        merchant_data = payment_terms.get('merchantData')
+        if not isinstance(merchant_data, (str, types.NoneType)):
             raise Bip270Exception(_("Corrupt merchant data"))
         pr.merchant_data = merchant_data
 
@@ -343,7 +350,6 @@ class PaymentRequest:
             d['paymentUrl'] = self.payment_url
         if self.beneficiary:
             d['beneficiary'] = self.beneficiary
-        d['modes'] = {}
         d['modes'] = {HYBRID_PAYMENT_MODE_BRFCID: self.hybrid_payment_data}
         if self.merchant_data is not None:
             d['merchantData'] = self.merchant_data
@@ -480,15 +486,27 @@ class Payment:
 
         return cls(transaction_hex, memo)
 
-    def to_dict(self) -> PaymentDPP:
+    def to_dict(self) -> PaymentDict:
         option_id = HYBRID_PAYMENT_MODE_BRFCID
-        transactions = [self.transaction_hex]
         ancestors = None
 
-        standard_payment_mode_data = HybridPaymentModeStandardDPP(optionId=option_id,
-            transactions=transactions, ancestors=ancestors)
+        transaction = Transaction.from_hex(self.transaction_hex)
+        assert len(transaction.outputs) == 1
+        transaction_dict: TransactionDict = {
+            "outputs": {
+                "native": {
+                    "satoshis": transaction.outputs[0].value,
+                    "script": transaction.outputs[0].script_pubkey.to_hex(),
+                }
+            },
+            "inputs": {},
+            "policies": None,
+        }
 
-        data = cast(PaymentDPP, {
+        standard_payment_mode_data = HybridPaymentModeStandardDict(optionId=option_id,
+            transactions=[ transaction_dict ], ancestors=ancestors)
+
+        data = cast(PaymentDict, {
             'modeId': HYBRID_PAYMENT_MODE_BRFCID,
             'mode': {HYBRID_PAYMENT_MODE_BRFCID: standard_payment_mode_data},
             'memo': self.memo
@@ -513,7 +531,7 @@ class Payment:
 class PaymentACK:
     MAXIMUM_JSON_LENGTH = 11 * 1000 * 1000
 
-    def __init__(self, mode_id: str, mode: HybridPaymentModeDPP, peer_channel_info: PeerChannel,
+    def __init__(self, mode_id: str, mode: HybridPaymentModeDict, peer_channel_info: PeerChannelDict,
             redirect_url: Optional[str]) -> None:
         self.mode_id = mode_id
         self.mode = mode
@@ -530,7 +548,7 @@ class PaymentACK:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'PaymentACK':
+    def from_dict(cls, data: PaymentACKDict) -> PaymentACK:
         mode_id = data.get('modeId')
         if mode_id is None:
             raise Bip270Exception("'modeId' field is required")
@@ -565,10 +583,10 @@ class PaymentACK:
         return json.dumps(data)
 
     @classmethod
-    def from_json(cls, s: Union[bytes, str]) -> 'PaymentACK':
+    def from_json(cls, s: Union[bytes, str]) -> PaymentACK:
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception("Invalid payment ACK, too large")
-        data = cast(PaymentACKDPP, json.loads(s))
+        data = cast(PaymentACKDict, json.loads(s))
         return cls.from_dict(data)
 
 

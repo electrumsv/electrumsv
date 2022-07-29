@@ -21,6 +21,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import annotations
 from decimal import Decimal
 import random
 import re
@@ -42,6 +43,7 @@ from .util import format_satoshis_plain
 from .wallet_database.types import PaymentRequestReadRow
 
 if TYPE_CHECKING:
+    from .network_support.api_server import NewServer
     from .paymentrequest import PaymentRequest
     from .simple_config import SimpleConfig
 
@@ -82,18 +84,21 @@ def BE_sorted_list() -> Iterable[str]:
     return sorted(Net.BLOCK_EXPLORERS)
 
 
-def create_DPP_URL(dpp_proxy_server_states: list[ServerConnectionState], request_row: PaymentRequestReadRow) -> str:
-    dpp_server = None
+def create_DPP_URL(dpp_proxy_server_states: list[ServerConnectionState],
+        request_row: PaymentRequestReadRow) -> str:
+    dpp_server: NewServer | None = None
     for state in dpp_proxy_server_states:
         if state.server.server_id == request_row.server_id:
             dpp_server = state.server
+    assert dpp_server is not None
     full_dpp_invoice_url = f"{dpp_server.url.rstrip('/')}" \
                            f"/api/v1/payment/{request_row.dpp_invoice_id}"
     url = f"{full_dpp_invoice_url}"
     return url
 
 
-def create_DPP_URI(dpp_proxy_server_states: list[ServerConnectionState], request_row: PaymentRequestReadRow) -> str:
+def create_DPP_URI(dpp_proxy_server_states: list[ServerConnectionState],
+        request_row: PaymentRequestReadRow) -> str:
     scheme = Net.PAY_URI_PREFIX
     full_dpp_invoice_url = create_DPP_URL(dpp_proxy_server_states, request_row)
     uri = f"{scheme}:?r={full_dpp_invoice_url}&sv"
