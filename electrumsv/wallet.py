@@ -77,8 +77,8 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.dpp_proxy import _is_later_dpp_message_sequence, dpp_websocket_send, \
-    manage_dpp_network_connections_async, MESSAGE_STATE_BY_TYPE, \
-    MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_RESPONSE
+    manage_dpp_network_connections_async, MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS, \
+    MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT_ACK
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
@@ -89,6 +89,7 @@ from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_
 from .network_support.types import GenericPeerChannelMessage, ServerConnectionProblems, \
     ServerConnectionState, TipFilterPushDataMatchesData
 from .networks import Net
+from .paymentrequest import HYBRID_PAYMENT_MODE_BRFCID, Payment
 from .standards.electrum_transaction_extended import transaction_from_electrumsv_dict
 from .standards.json_envelope import JSONEnvelope, validate_json_envelope
 from .standards.mapi import MAPICallbackResponse, validate_mapi_callback_response
@@ -4495,15 +4496,37 @@ class Wallet:
         )
         return message_row_response
 
-    def dpp_make_payment_message(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
-            -> DPPMessageRow:
-        # TODO(1.4.0) DPP. This should not return `None` and should return a valid valid.
-        return message_row
+    def dpp_make_ack(self, pr_row: PaymentRequestReadRow,
+            message_row_received: DPPMessageRow) -> DPPMessageRow:
 
-    def dpp_make_ack(self, pr_row: PaymentRequestReadRow, message_row: DPPMessageRow) \
-            -> DPPMessageRow:
-        # TODO(1.4.0) DPP. This should not return `None` and should return a valid row.
-        return message_row
+        payment_data = Payment.from_json(message_row_received.body.decode('utf-8'))
+        tx = Transaction.from_hex(payment_data.transaction_hex)
+
+        payment_ack_data = {
+            "modeId": HYBRID_PAYMENT_MODE_BRFCID,
+            "mode": {
+                "transactionIds": [tx.hex_hash()]
+            },
+            "peerChannel": {
+                "host": "peerchannels:25009",
+                "token": "token",
+                "channel_id": "channelid",
+            },
+        }
+
+        message_row_response = DPPMessageRow(
+            message_id=str(uuid.uuid4()),
+            paymentrequest_id=message_row_received.paymentrequest_id,
+            dpp_invoice_id=message_row_received.dpp_invoice_id,
+            correlation_id=message_row_received.correlation_id,
+            app_id=message_row_received.app_id,
+            client_id=message_row_received.client_id,
+            user_id=message_row_received.user_id,
+            expiration=message_row_received.expiration,
+            body=json.dumps(payment_ack_data).encode('utf-8'),
+            timestamp=datetime.now(tz=timezone.utc).isoformat(),
+            type=MSG_TYPE_PAYMENT_ACK)
+        return message_row_response
 
     def dpp_make_pr_error(self, pr_row: PaymentRequestReadRow, message_row: DPPMessageRow) \
             -> DPPMessageRow:

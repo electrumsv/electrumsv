@@ -49,6 +49,8 @@ class DPPPayerError(Exception):
 async def dpp_websocket_send(state: ServerConnectionState, message_row: DPPMessageRow) -> None:
     websocket = state.dpp_websockets[message_row.dpp_invoice_id]
     if websocket is not None:  # ws:// is still open
+        logger.debug(f"Sending over websocket: %s; message type: %s", message_row.to_json(),
+            message_row.type)
         await websocket.send_str(message_row.to_json())
     else:
         logger.error("There is no open websocket for dpp_invoice_id: %s, server url: %s. "

@@ -24,6 +24,7 @@
 # SOFTWARE.
 
 from __future__ import annotations
+
 import json
 from typing import Any, cast, List, Optional, Dict, TYPE_CHECKING, Union, TypedDict
 import types
@@ -53,13 +54,13 @@ logger = logs.get_logger("paymentrequest")
 # BIP 273 - Use "Accept" header for response type negotiation with Simplified Payment Request URLs
 # https://github.com/electrumsv/bips/blob/master/bip-0273.mediawiki
 REQUEST_HEADERS = {
-    'Accept': 'application/bitcoinsv-paymentrequest',
+    'Accept': 'application/json',
     'User-Agent': 'ElectrumSV'
 }
 
 ACK_HEADERS = {
-    'Content-Type': 'application/bitcoinsv-payment',
-    'Accept': 'application/bitcoinsv-paymentack',
+    'Content-Type': 'application/json',
+    'Accept': 'application/json',
     'User-Agent': 'ElectrumSV'
 }
 
@@ -85,8 +86,8 @@ class PeerChannelsDict(TypedDict):
 
 
 class TransactionDict(TypedDict):
-    outputs: dict[str, Any]
-    inputs: Optional[dict[str, Any]]
+    outputs: dict[Any, Any]
+    inputs: dict[str, Any] | None
     policies: dict[str, Any] | None
 
 
@@ -400,20 +401,16 @@ class PaymentRequest:
 
     def send_payment(self, account: 'AbstractAccount', transaction_hex: str) -> bool:
         self.error = None
-
         if not self.payment_url:
             self.error = _("No URL")
             return False
 
         payment_memo = "Paid using ElectrumSV"
-        payment = Payment(transaction_hex, payment_memo)
+        payment = Payment(transaction_hex=transaction_hex, memo=payment_memo)
+        assert self.payment_url is not None
 
-        parsed_url = parse_URI(self.payment_url)
-        if not parsed_url:
-            raise Bip270Exception("Failed to parse payment uri to send payment")
-
-        logger.debug(f"Parsed url contents: {parsed_url}")
-        response = self._make_request(parsed_url['r'], payment.to_json())
+        logger.debug(f"Payment url: {self.payment_url}")
+        response = self._make_request(self.payment_url, payment.to_json())
         if response.get_status_code() not in (200, 201, 202):
             # Propagate 'Bad request' (HTTP 400) messages to the user since they
             # contain valuable information.
@@ -469,48 +466,56 @@ class Payment:
     """
     MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
-    def __init__(self, transaction_hex: str, memo: Optional[str]=None) -> None:
+    def __init__(self, transaction_hex: str, memo: str | None=None) -> None:
         self.transaction_hex = transaction_hex
         self.memo = memo
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Payment':
-        if 'transaction' in data:
-            transaction_hex = data['transaction']
-            if type(transaction_hex) is not str:
-                raise Bip270Exception("Invalid json 'transaction' field")
+        if "modeId" in data:
+            mode_id = data['modeId']
+            if type(mode_id) is not str:
+                raise Bip270Exception("Invalid json 'modeId' field")
         else:
-            raise Bip270Exception("Missing required json 'transaction' field")
+            raise Bip270Exception("Missing required json 'modeId' field")
+
+        if "mode" in data:
+            mode = data['mode']
+            # TODO(1.4.0) DPP. Mode should have a TypedDict and validation should be more extensive
+            if type(mode) is not dict:
+                raise Bip270Exception("Invalid json 'mode' field")
+
+            transactions = mode['transactions']
+            if len(transactions) > 1:
+                raise Bip270Exception("Cannot handle multiple transactions at this time")
+
+            transaction_hex = transactions[0]
+        else:
+            raise Bip270Exception("Missing required json 'mode' field")
+
+        originator = data.get('originator')
+        if originator is not None and type(originator) is not dict:
+            raise Bip270Exception("Invalid json 'originator' field")
 
         memo = data.get('memo')
         if memo is not None and type(memo) is not str:
             raise Bip270Exception("Invalid json 'memo' field")
 
+        transaction_deprecated = data.get('transaction')
+        if transaction_deprecated is not None and type(transaction_deprecated) is not str:
+            raise Bip270Exception("Invalid json the top-level 'transaction' field is deprecated. "
+                                  "Use the 'mode' section")
+
         return cls(transaction_hex, memo)
 
     def to_dict(self) -> PaymentDict:
-        option_id = HYBRID_PAYMENT_MODE_BRFCID
-        ancestors = None
-
-        transaction = Transaction.from_hex(self.transaction_hex)
-        assert len(transaction.outputs) == 1
-        transaction_dict: TransactionDict = {
-            "outputs": {
-                "native": {
-                    "satoshis": transaction.outputs[0].value,
-                    "script": transaction.outputs[0].script_pubkey.to_hex(),
-                }
-            },
-            "inputs": {},
-            "policies": None,
-        }
-
-        standard_payment_mode_data = HybridPaymentModeStandardDict(optionId=option_id,
-            transactions=[ transaction_dict ], ancestors=ancestors)
-
         data = cast(PaymentDict, {
             'modeId': HYBRID_PAYMENT_MODE_BRFCID,
-            'mode': {HYBRID_PAYMENT_MODE_BRFCID: standard_payment_mode_data},
+            'mode': {
+                'transactions': [self.transaction_hex],
+                'optionId': 'choiceID01',
+                #'ancestors': <TSCAncestors>.to_json() - if SPVRequired
+            },
             'memo': self.memo
             # 'originator': None  # optional
             # 'transaction': self.transaction_hex  # DEPRECATED as per TSC spec.
