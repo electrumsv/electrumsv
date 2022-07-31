@@ -12,11 +12,7 @@ steps:
     versionSpec: ${{ parameters.pythonVersion }}
     addToPath: true
     architecture: x64
-  condition: |
-    and(
-      succeeded(),
-      eq(variables['Build.Reason'], 'PullRequest')
-    )
+  condition: succeeded()
 - script: |
     python3 -m pip install -U pylint
     python3 -m pylint --rcfile .pylintrc electrum-sv electrumsv
@@ -25,11 +21,7 @@ steps:
       # https://docs.pylint.org/en/1.6.0/run.html#exit-codes
       echo "##vso[task.complete result=Failed;]DONE"
     fi
-  condition: |
-    and(
-      succeeded(),
-      eq(variables['Build.Reason'], 'PullRequest')
-    )
+  condition: succeeded()
   enabled: true
   continueOnError: false
   failOnStderr: false
