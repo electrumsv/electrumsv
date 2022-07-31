@@ -38,10 +38,9 @@ from .exceptions import Bip270Exception
 from .i18n import _
 from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
-from .transaction import Transaction, XTxOutput
+from .transaction import XTxOutput
 from .util import get_posix_timestamp
 from .wallet_database.types import PaymentRequestReadRow
-from .web import parse_URI
 
 if TYPE_CHECKING:
     from electrumsv.wallet import AbstractAccount

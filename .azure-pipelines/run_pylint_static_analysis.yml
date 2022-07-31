@@ -1,6 +1,6 @@
 parameters:
   - name: 'onlyPullRequests'
-    default: true
+    default: false
     type: boolean
   - name: 'pythonVersion'
     default: 3.10
@@ -12,7 +12,14 @@ steps:
     versionSpec: ${{ parameters.pythonVersion }}
     addToPath: true
     architecture: x64
-  condition: succeeded()
+  condition: |
+    and(
+      succeeded(),
+      or(
+        eq(variables['Build.Reason'], 'PullRequest'),
+        eq(${{ parameters.onlyPullRequests }}, false)
+      )
+    )
 - script: |
     python3 -m pip install -U pylint
     python3 -m pylint --rcfile .pylintrc electrum-sv electrumsv
@@ -21,7 +28,14 @@ steps:
       # https://docs.pylint.org/en/1.6.0/run.html#exit-codes
       echo "##vso[task.complete result=Failed;]DONE"
     fi
-  condition: succeeded()
+  condition: |
+    and(
+      succeeded(),
+      or(
+        eq(variables['Build.Reason'], 'PullRequest'),
+        eq(${{ parameters.onlyPullRequests }}, false)
+      )
+    )
   enabled: true
   continueOnError: false
   failOnStderr: false

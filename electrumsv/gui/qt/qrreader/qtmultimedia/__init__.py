@@ -34,5 +34,5 @@ from .validator import (QrReaderValidatorResult, AbstractQrReaderValidator,
 
 def find_system_cameras() -> Mapping[str, bytes]:
     """Returns a camera_description -> camera_path map."""
-    from PyQt6.QtMultimedia import QMediaDevices
+    from PyQt6.QtMultimedia import QMediaDevices # pylint: disable=no-name-in-module
     return { device.description(): device.id().data() for device in QMediaDevices.videoInputs() }

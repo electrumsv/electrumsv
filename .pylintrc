@@ -451,7 +451,17 @@ ignored-classes=optparse.Values,thread._local,_thread._local
 # (useful for modules/projects where namespaces are manipulated during runtime
 # and thus existing member attributes cannot be deduced by static analysis. It
 # supports qualified module names, as well as Unix pattern matching.
-ignored-modules=
+# HACK(rt12) These are nuisance errors on Linux that happen in CI. Pylint forces us to disable
+#     them wholesale for all platforms and lose lint checking for them.
+# ************* Module electrumsv.winconsole
+# electrumsv/winconsole.py:48:4: E0401: Unable to import 'psutil' (import-error)
+# ************* Module electrumsv.gui.qt.qrreader.qtmultimedia
+# electrumsv/gui/qt/qrreader/qtmultimedia/__init__.py:37:4: E0401: Unable to import 'PyQt6.QtMultimedia' (import-error)
+# electrumsv/gui/qt/qrreader/qtmultimedia/__init__.py:37:4: E0611: No name 'QtMultimedia' in module 'PyQt6' (no-name-in-module)
+# ************* Module electrumsv.gui.qt.qrreader.qtmultimedia.camera_dialog
+# electrumsv/gui/qt/qrreader/qtmultimedia/camera_dialog.py:34:0: E0401: Unable to import 'PyQt6.QtMultimedia' (import-error)
+# electrumsv/gui/qt/qrreader/qtmultimedia/camera_dialog.py:34:0: E0611: No name 'QtMultimedia' in module 'PyQt6' (no-name-in-module)
+ignored-modules=psutil,PyQt6.QtMultimedia
 
 # Show a hint with possible names when a member name was not found. The aspect
 # of finding the hint is based on edit distance.

@@ -31,8 +31,9 @@ from typing import Optional
 
 from PyQt6.QtCore import PYQT_VERSION, QByteArray, pyqtSignal, QObject, QPoint, QRect, QSize, Qt
 from PyQt6.QtGui import QColorConstants, QImage, QPainter, QPixmap
-from PyQt6.QtMultimedia import QCamera, QCameraDevice, QMediaCaptureSession, QMediaDevices, \
-    QVideoFrame, QVideoSink
+from PyQt6.QtMultimedia import (QCamera, # pylint: disable=no-name-in-module
+    QCameraDevice, QMediaCaptureSession, QMediaDevices,
+    QVideoFrame, QVideoSink)
 from PyQt6.QtWidgets import QCheckBox, QDialog, QGraphicsEffect, QGraphicsScene, \
     QGraphicsPixmapItem, QHBoxLayout, QLabel, QLayout, QLayoutItem, QPushButton, QVBoxLayout, \
     QWidget
