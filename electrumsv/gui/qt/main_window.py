@@ -58,7 +58,7 @@ from PyQt6 import sip
 
 # TODO this should be a relative import, is that legal?
 import electrumsv
-from ... import bitcoin, commands, paymentrequest, util
+from ... import bitcoin, commands, dpp_messages, util
 from ...app_state import app_state
 from ...bitcoin import address_from_string, COIN, script_template_to_string
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
@@ -1296,7 +1296,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def show_transaction(self, account: Optional[AbstractAccount], tx: Transaction,
             context: Optional[TransactionContext]=None, prompt_if_unsaved: bool=False,
-            pr: Optional[paymentrequest.PaymentRequest]=None) -> TxDialog:
+            pr: Optional[dpp_messages.PaymentTerms]=None) -> TxDialog:
         self._wallet.ensure_incomplete_transaction_keys_exist(tx)
         from . import transaction_dialog
         # from importlib import reload
@@ -1453,7 +1453,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                         "<br/><br/>" + body_text,
                         icon=QMessageBox.Icon.Warning):
                     return False
-            elif paymentrequest.has_expired(invoice_row.date_expires):
+            elif dpp_messages.has_expired(invoice_row.date_expires):
                 if not self.question(_("This transaction is associated with an expired invoice.") +
                         "<br/><br/>" + body_text,
                         icon=QMessageBox.Icon.Warning):

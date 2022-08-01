@@ -40,7 +40,7 @@ from ...bitcoin import COINBASE_MATURITY
 from ...constants import BlockHeight, PaymentFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
-from ...paymentrequest import has_expired
+from ...dpp_messages import has_expired
 from ...platform import platform
 from ...standards.tsc_merkle_proof import TSCMerkleProof
 from ...transaction import TransactionContext

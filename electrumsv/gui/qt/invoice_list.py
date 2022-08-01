@@ -37,7 +37,7 @@ from electrumsv.app_state import app_state
 from electrumsv.constants import PaymentFlag
 from electrumsv.i18n import _
 from electrumsv.logs import logs
-from electrumsv.paymentrequest import PaymentRequest
+from electrumsv.dpp_messages import PaymentTerms
 from electrumsv.platform import platform
 from electrumsv.util import format_posix_timestamp, get_posix_timestamp
 from electrumsv.wallet_database.types import InvoiceRow
@@ -178,7 +178,7 @@ class InvoiceList(MyTreeWidget):
 
     # TODO(invoice-import) What format are these imported files? No idea.
     #   This imported some json files directly into an invoice store.
-    #   https://github.com/electrumsv/electrumsv/blob/sv-1.2.5/electrumsv/paymentrequest.py#L523
+    #   https://github.com/electrumsv/electrumsv/blob/sv-1.2.5/electrumsv/dpp_messages.py#L523
     # def import_invoices(self, account: AbstractAccount) -> None:
     #     try:
     #         wallet_folder = self.config.get_preferred_wallet_dirpath()
@@ -236,7 +236,7 @@ class InvoiceList(MyTreeWidget):
         if row is None:
             return
 
-        pr = PaymentRequest.from_json(row.invoice_data)
+        pr = PaymentTerms.from_json(row.invoice_data)
         if pr.has_expired():
             self._main_window.show_error(_("This invoice cannot be paid as it has expired."))
             return

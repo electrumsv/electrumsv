@@ -45,7 +45,7 @@ from .wallet_database.types import PaymentRequestReadRow
 if TYPE_CHECKING:
     from electrumsv.wallet import AbstractAccount
 
-logger = logs.get_logger("paymentrequest")
+logger = logs.get_logger("dpp-messages")
 
 # NOTE: This now follows the TSC spec for the Direct Payment Protocol:
 # https://tsc.bitcoinassociation.net/standards/direct_payment_protocol/
@@ -183,7 +183,7 @@ class Output:
         return json.dumps(data)
 
 
-class PaymentRequest:
+class PaymentTerms:
     HANDCASH_NETWORK = "bitcoin"
     BIP270_NETWORK = "bitcoin-sv"
 
@@ -228,7 +228,7 @@ class PaymentRequest:
 
     @classmethod
     def from_wallet_entry(cls, account: 'AbstractAccount',
-            pr: PaymentRequestReadRow) -> PaymentRequest:
+            pr: PaymentRequestReadRow) -> PaymentTerms:
         wallet = account.get_wallet()
         keyinstance = wallet.data.read_keyinstance(keyinstance_id=pr.keyinstance_id)
         assert keyinstance is not None
@@ -243,7 +243,7 @@ class PaymentRequest:
             expiration_timestamp=date_expiry, memo=pr.description)
 
     @classmethod
-    def from_json(cls, s: Union[bytes, str]) -> PaymentRequest:
+    def from_json(cls, s: Union[bytes, str]) -> PaymentTerms:
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception(_("Payment request oversized"))
 
@@ -596,7 +596,7 @@ class PaymentACK:
         return cls.from_dict(data)
 
 
-def get_payment_request(url: str) -> PaymentRequest:
+def get_payment_terms(url: str) -> PaymentTerms:
     error = None
     response = None
     data: Any = None
@@ -633,4 +633,4 @@ def get_payment_request(url: str) -> PaymentRequest:
     if error:
         raise Bip270Exception(error)
 
-    return PaymentRequest.from_json(data)
+    return PaymentTerms.from_json(data)

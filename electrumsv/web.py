@@ -44,7 +44,7 @@ from .wallet_database.types import PaymentRequestReadRow
 
 if TYPE_CHECKING:
     from .network_support.api_server import NewServer
-    from .paymentrequest import PaymentRequest
+    from .dpp_messages import PaymentRequest
     from .simple_config import SimpleConfig
 
 
@@ -141,7 +141,7 @@ class URIError(Exception):
     pass
 
 
-def parse_URI(uri: str, on_pr: Optional[Callable[["PaymentRequest"], None]]=None,
+def parse_URI(uri: str, on_pr: Optional[Callable[["PaymentTerms"], None]]=None,
         on_pr_error: Optional[Callable[[str], None]]=None) -> Dict[str, Any]:
     if is_address_valid(uri):
         return {'address': uri}
@@ -192,11 +192,11 @@ def parse_URI(uri: str, on_pr: Optional[Callable[["PaymentRequest"], None]]=None
 
     payment_url = out.get('r')
     if on_pr and payment_url:
-        def get_payment_request_thread() -> None:
-            from . import paymentrequest
+        def get_payment_terms_thread() -> None:
+            from . import dpp_messages
             assert payment_url is not None
             try:
-                request = paymentrequest.get_payment_request(payment_url)
+                request = dpp_messages.get_payment_terms(payment_url)
             except Bip270Exception as e:
                 if on_pr_error:
                     on_pr_error(e.args[0])
@@ -204,7 +204,7 @@ def parse_URI(uri: str, on_pr: Optional[Callable[["PaymentRequest"], None]]=None
                 raise e
             if on_pr:
                 on_pr(request)
-        t = threading.Thread(target=get_payment_request_thread)
+        t = threading.Thread(target=get_payment_terms_thread)
         t.setDaemon(True)
         t.start()
 

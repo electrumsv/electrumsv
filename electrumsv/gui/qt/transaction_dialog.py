@@ -49,7 +49,7 @@ from ...constants import CHANGE_SUBPATH, DatabaseKeyDerivationType, RECEIVING_SU
     ScriptType, TransactionImportFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
-from ...paymentrequest import PaymentRequest
+from ...dpp_messages import PaymentTerms
 from ...platform import platform
 from ...standards.electrum_transaction_extended import transaction_to_electrumsv_dict
 from ...standards.tsc_merkle_proof import TSCMerkleProof
@@ -169,7 +169,7 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     def __init__(self, account: Optional[AbstractAccount], tx: Transaction,
             context: Optional[TransactionContext], main_window: 'ElectrumWindow',
-            prompt_if_unsaved: bool, payment_request: Optional[PaymentRequest]=None) -> None:
+            prompt_if_unsaved: bool, payment_request: Optional[PaymentTerms]=None) -> None:
         # We want to be a top-level window
         QDialog.__init__(self, parent=None, flags=Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))

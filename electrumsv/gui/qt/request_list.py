@@ -39,7 +39,7 @@ from ...bitcoin import script_template_to_string
 from ...constants import PaymentFlag
 from ...i18n import _
 from ...logs import logs
-from ...paymentrequest import PaymentRequest
+from ...dpp_messages import PaymentTerms
 from ...platform import platform
 from ...util import format_posix_timestamp, get_posix_timestamp
 from ...wallet import AbstractAccount
@@ -262,7 +262,7 @@ class RequestList(MyTreeWidget):
         assert self._account is not None
         pr = self._account._wallet.data.read_payment_request(request_id=pr_id)
         assert pr is not None
-        pr_data = PaymentRequest.from_wallet_entry(self._account, pr).to_json()
+        pr_data = PaymentTerms.from_wallet_entry(self._account, pr).to_json()
         name = f'{pr.paymentrequest_id}.bip270.json'
         fileName = self._main_window.getSaveFileName(
             _("Select where to save your payment request"), name, "*.bip270.json")

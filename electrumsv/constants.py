@@ -320,7 +320,7 @@ class PaymentFlag(IntFlag):
 
     # States for when we are the Payee
     PAYMENT_PENDING             = 0b0000 << 12  # this implies a ws:// for invoiceID is open
-    PAYMENT_REQUEST_REQUESTED   = 0b0001 << 12  # paymentrequest.create -> paymentrequest.response
+    PAYMENT_REQUEST_REQUESTED   = 0b0001 << 12  # paymentterms.create -> paymentterms.response
     PAYMENT_RECEIVED            = 0b0010 << 12  # payment message received
 
     # States for when we are the Payer

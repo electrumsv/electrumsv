@@ -52,7 +52,7 @@ from ...constants import MAX_VALUE, NetworkServerFlag, PaymentFlag, TransactionI
 from ...exceptions import ExcessiveFee, NotEnoughFunds
 from ...i18n import _
 from ...logs import logs
-from ...paymentrequest import has_expired, PaymentRequest
+from ...dpp_messages import has_expired, PaymentTerms
 from ...transaction import Transaction, TransactionContext, XTxOutput
 from ...types import TransactionFeeContext
 from ...util import format_satoshis_plain
@@ -104,7 +104,7 @@ class SendView(QWidget):
         self._is_max = False
         self._not_enough_funds = False
         self._require_fee_update: Optional[float] = None
-        self._payment_request: Optional[PaymentRequest] = None
+        self._payment_request: Optional[PaymentTerms] = None
         self._completions = QStringListModel()
         self._transaction_creation_context = TransactionCreationContext()
         self._transaction_creation_context.set_account(self._account)
@@ -648,7 +648,7 @@ class SendView(QWidget):
         # broadcasts.
         return True
 
-    def pay_for_payment_request(self, pr: PaymentRequest) -> None:
+    def pay_for_payment_request(self, pr: PaymentTerms) -> None:
         # The invoice id will already be set on the payment request.
         self._payment_request = pr
         self.prepare_for_payment_request()
@@ -662,7 +662,7 @@ class SendView(QWidget):
         self._max_button.setDisabled(True)
         self._payto_e.setText(_("please wait..."))
 
-    def on_payment_request(self, request: PaymentRequest) -> None:
+    def on_payment_request(self, request: PaymentTerms) -> None:
         self._payment_request = request
         # Proceed to process the payment request on the GUI thread.
         self.payment_request_ok_signal.emit()

@@ -17,9 +17,9 @@ MSG_TYPE_JOIN_SUCCESS = "join.success"
 MSG_TYPE_PAYMENT = "payment"
 MSG_TYPE_PAYMENT_ACK = "payment.ack"
 MSG_TYPE_PAYMENT_ERR = "payment.error"
-MSG_TYPE_PAYMENT_REQUEST_CREATE = "paymentrequest.create"
-MSG_TYPE_PAYMENT_REQUEST_RESPONSE = "paymentrequest.response"
-MSG_TYPE_PAYMENT_REQUEST_ERROR = "paymentrequest.error"
+MSG_TYPE_PAYMENT_REQUEST_CREATE = "paymentterms.create"
+MSG_TYPE_PAYMENT_REQUEST_RESPONSE = "paymentterms.response"
+MSG_TYPE_PAYMENT_REQUEST_ERROR = "paymentterms.error"
 
 ALL_MSG_TYPES = {MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK,
     MSG_TYPE_PAYMENT_ERR,

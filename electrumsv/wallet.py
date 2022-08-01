@@ -67,6 +67,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
+from .dpp_messages import HYBRID_PAYMENT_MODE_BRFCID, Payment
 from .exceptions import (BroadcastError, ExcessiveFee, InvalidPassword, NotEnoughFunds,
     PreviousTransactionsMissingException, ServerConnectionError, UnsupportedAccountTypeError,
     UnsupportedScriptTypeError, UserCancelled, WalletLoadError)
@@ -90,7 +91,6 @@ from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_
 from .network_support.types import GenericPeerChannelMessage, ServerConnectionProblems, \
     ServerConnectionState, TipFilterPushDataMatchesData
 from .networks import Net
-from .paymentrequest import HYBRID_PAYMENT_MODE_BRFCID, Payment
 from .standards.electrum_transaction_extended import transaction_from_electrumsv_dict
 from .standards.json_envelope import JSONEnvelope, validate_json_envelope
 from .standards.mapi import MAPICallbackResponse, validate_mapi_callback_response
