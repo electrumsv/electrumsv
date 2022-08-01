@@ -19,7 +19,6 @@ import requests
 import threading
 import time
 
-from electrumsv.restapi import Fault
 from ..websocket_client import TxStateWSClient
 
 

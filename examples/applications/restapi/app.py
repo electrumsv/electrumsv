@@ -38,6 +38,8 @@ class RESTAPIApplication:
         return self.run_coro(asyncio.to_thread(func, *args), on_done=on_done)
 
     def setup_app(self) -> None:
+        assert self.app_state.daemon.rest_server is not None
+
         # app_state.daemon is initialised after app. Setup things dependent on daemon here.
         self.logger.debug("setting up daemon-app")
         self.restapi = ExtensionEndpoints()
@@ -48,7 +50,7 @@ class RESTAPIApplication:
         self.aiohttp_web_app['ws_clients'] = {}  # uuid: WSClient
         self.aiohttp_web_app['tx_registrations_map'] = {}  # uuid: set of tx_hashes
         self.aiohttp_web_app['restapi'] = self.restapi
-        self.app_state.daemon.rest_server.register_routes(self.restapi)
+        self.app_state.daemon.rest_server.add_routes(self.restapi.routes)
 
     def _teardown_app(self) -> None:
         for client in self.aiohttp_web_app['ws_clients'].values():

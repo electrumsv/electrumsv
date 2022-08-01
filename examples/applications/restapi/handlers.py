@@ -35,7 +35,7 @@ from electrumsv.storage import WalletStorage
 from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
 from electrumsv.networks import BitcoinRegtest, Net
-from electrumsv.restapi import Fault, good_response, fault_to_http_response
+from electrumsv.restapi import Fault, fault_to_http_response
 from electrumsv.startup import base_dir
 from electrumsv.types import KeyStoreResult, TransactionSize
 
@@ -151,7 +151,7 @@ def regtest_generate_nblocks(nblocks: int, address: str) -> List[str]:
 class ExtensionEndpoints(ExtendedHandlerUtils):
     """Extension endpoints for ElectrumSV REST API"""
 
-    routes = []
+    routes = list[web.RouteDef]()
 
     # PATHS
     VERSION = "/v1"
@@ -205,26 +205,20 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
     # ----- Extends electrumsv/restapi_endpoints ----- #
 
     async def get_all_wallets(self, request: web.Request) -> web.Response:
-        try:
-            all_parent_wallets = self._get_all_wallets(self.wallets_path)
-            response = all_parent_wallets
-            return good_response({"wallets": response})
-        except Fault as e:
-            return fault_to_http_response(e)
+        all_parent_wallets = self._get_all_wallets(self.wallets_path)
+        response = all_parent_wallets
+        return web.json_response({"wallets": response})
 
     async def get_parent_wallet(self, request: web.Request) -> web.Response:
         """Overview of parent wallet and accounts"""
-        try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME])
-            wallet_name = vars[VNAME.WALLET_NAME]
+        vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME])
+        wallet_name = vars[VNAME.WALLET_NAME]
 
-            wallet = self._get_parent_wallet(wallet_name)
-            accounts = self._accounts_dto(wallet)
-            response = {"parent_wallet": wallet_name,
-                        "accounts": accounts}
-            return good_response(response)
-        except Fault as e:
-            return fault_to_http_response(e)
+        wallet = self._get_parent_wallet(wallet_name)
+        accounts = self._accounts_dto(wallet)
+        response = {"parent_wallet": wallet_name,
+                    "accounts": accounts}
+        return web.json_response(response)
 
     async def load_instanced_wallet(self, request: web.Request) -> web.Response:
         """
@@ -234,267 +228,228 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         The reason we do this via ids, is that we do not want to allow users to load wallets from
         arbitrary paths.
         """
-        try:
-            vars = await self.argparser(request, required_vars=[VNAME.PASSWORD,
-                VNAME.WALLET_INSTANCE_ID])
-            valid_instance_ids = set(item.value for item in WalletInstanceKind)
-            wallet_instance_id = cast(int, vars[VNAME.WALLET_INSTANCE_ID])
-            if wallet_instance_id not in valid_instance_ids:
-                raise Fault(message="Unknown wallet instance id")
+        vars = await self.argparser(request, required_vars=[VNAME.PASSWORD,
+            VNAME.WALLET_INSTANCE_ID])
+        valid_instance_ids = set(item.value for item in WalletInstanceKind)
+        wallet_instance_id = cast(int, vars[VNAME.WALLET_INSTANCE_ID])
+        if wallet_instance_id not in valid_instance_ids:
+            raise web.HTTPBadRequest(reason="Unknown wallet instance id")
 
-            relative_wallet_path = WalletInstancePaths[wallet_instance_id]
-            wallet_path = os.path.join(base_dir, relative_wallet_path)
-            if not os.path.exists(wallet_path):
-                raise Fault(message="Instanced wallet path invalid")
+        relative_wallet_path = WalletInstancePaths[wallet_instance_id]
+        wallet_path = os.path.join(base_dir, relative_wallet_path)
+        if not os.path.exists(wallet_path):
+            raise web.HTTPBadRequest(reason="Invalid wallet path")
 
-            wallet_filename = os.path.basename(wallet_path)
-            instanced_wallet_path = os.path.join(self.temp_dir.name, wallet_filename)
-            if os.path.exists(instanced_wallet_path):
-                raise Fault(message="Instanced wallet in use")
-            shutil.copyfile(wallet_path, instanced_wallet_path)
+        wallet_filename = os.path.basename(wallet_path)
+        instanced_wallet_path = os.path.join(self.temp_dir.name, wallet_filename)
+        if os.path.exists(instanced_wallet_path):
+            raise web.HTTPBadRequest(reason="Wallet in use")
+        shutil.copyfile(wallet_path, instanced_wallet_path)
 
-            wallet = await self._load_wallet(instanced_wallet_path, vars[VNAME.PASSWORD],
-                enforce_wallet_directory=False)
-            accounts = self._accounts_dto(wallet)
-            return good_response({
-                "wallet_id": wallet.get_id(),
-                "accounts": accounts
-            })
-        except Fault as e:
-            return fault_to_http_response(e)
+        wallet = await self._load_wallet(instanced_wallet_path, vars[VNAME.PASSWORD],
+            enforce_wallet_directory=False)
+        accounts = self._accounts_dto(wallet)
+        return web.json_response({
+            "wallet_id": wallet.get_id(),
+            "accounts": accounts
+        })
 
     async def load_wallet(self, request: web.Request) -> web.Response:
-        try:
-            vars = await self.argparser(request, required_vars=[VNAME.PASSWORD, VNAME.WALLET_NAME])
-            wallet_name = vars[VNAME.WALLET_NAME]
-            wallet = await self._load_wallet(wallet_name, vars[VNAME.PASSWORD])
-            accounts = self._accounts_dto(wallet)
-            return good_response({
-                "wallet_id": wallet.get_id(),
-                "parent_wallet": wallet_name,
-                "accounts": accounts
-            })
-        except Fault as e:
-            return fault_to_http_response(e)
+        vars = await self.argparser(request, required_vars=[VNAME.PASSWORD, VNAME.WALLET_NAME])
+        wallet_name = vars[VNAME.WALLET_NAME]
+        wallet = await self._load_wallet(wallet_name, vars[VNAME.PASSWORD])
+        accounts = self._accounts_dto(wallet)
+        return web.json_response({
+            "wallet_id": wallet.get_id(),
+            "parent_wallet": wallet_name,
+            "accounts": accounts
+        })
 
     async def create_new_wallet(self, request: web.Request) -> web.Response:
         """only for regtest for the moment..."""
-        try:
-            vars = await self.argparser(request, required_vars=[VNAME.PASSWORD, VNAME.WALLET_NAME],
-                check_wallet_availability=False)
+        vars = await self.argparser(request, required_vars=[VNAME.PASSWORD, VNAME.WALLET_NAME],
+            check_wallet_availability=False)
 
-            create_filepath = str(Path(self.wallets_path).joinpath(vars[VNAME.WALLET_NAME]))
-            self.check_if_wallet_exists(create_filepath)
+        create_filepath = str(Path(self.wallets_path).joinpath(vars[VNAME.WALLET_NAME]))
+        self.check_if_wallet_exists(create_filepath)
 
-            password_token = app_state.credentials.set_wallet_password(create_filepath,
-                vars[VNAME.PASSWORD], CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
-            assert password_token is not None
+        password_token = app_state.credentials.set_wallet_password(create_filepath,
+            vars[VNAME.PASSWORD], CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
+        assert password_token is not None
 
-            storage = WalletStorage.create(create_filepath, password_token)
-            storage.close()
+        storage = WalletStorage.create(create_filepath, password_token)
+        storage.close()
 
-            parent_wallet = self.app_state.daemon.load_wallet(create_filepath)
-            assert parent_wallet is not None
+        parent_wallet = self.app_state.daemon.load_wallet(create_filepath)
+        assert parent_wallet is not None
 
-            # create an account for the Wallet with the same password via an imported seed
-            text_type = KeystoreTextType.EXTENDED_PRIVATE_KEY
-            text_match = 'tprv8ZgxMBicQKsPd4wsdaJ11eH84eq4hHLX1K6Mx8EQQhJzq8jr25WH1m8hgGkCqnks' \
-                         'JDCZPZbDoMbQ6QtroyCyn5ZckCmsLeiHDb1MAxhNUHN'
+        # create an account for the Wallet with the same password via an imported seed
+        text_type = KeystoreTextType.EXTENDED_PRIVATE_KEY
+        text_match = 'tprv8ZgxMBicQKsPd4wsdaJ11eH84eq4hHLX1K6Mx8EQQhJzq8jr25WH1m8hgGkCqnks' \
+                        'JDCZPZbDoMbQ6QtroyCyn5ZckCmsLeiHDb1MAxhNUHN'
 
-            keystore = instantiate_keystore_from_text(text_type, text_match, vars[VNAME.PASSWORD],
-                derivation_text=None, passphrase='')
-            parent_wallet.create_account_from_keystore(
-                KeyStoreResult(AccountCreationType.IMPORTED, keystore))
-            await self._load_wallet(vars[VNAME.WALLET_NAME], vars[VNAME.PASSWORD])
-            response = {"new_wallet": create_filepath}
-            return good_response(response)
-        except Fault as e:
-            return fault_to_http_response(e)
+        keystore = instantiate_keystore_from_text(text_type, text_match, vars[VNAME.PASSWORD],
+            derivation_text=None, passphrase='')
+        parent_wallet.create_account_from_keystore(
+            KeyStoreResult(AccountCreationType.IMPORTED, keystore))
+        await self._load_wallet(vars[VNAME.WALLET_NAME], vars[VNAME.PASSWORD])
+        response = {"new_wallet": create_filepath}
+        return web.json_response(response)
 
     async def get_account(self, request: web.Request) -> web.Response:
         """Overview of a single 'account"""
-        try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
-                                                                VNAME.ACCOUNT_ID])
-            wallet_name = vars[VNAME.WALLET_NAME]
-            account_id = vars[VNAME.ACCOUNT_ID]
+        vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                            VNAME.ACCOUNT_ID])
+        wallet_name = vars[VNAME.WALLET_NAME]
+        account_id = vars[VNAME.ACCOUNT_ID]
 
-            account = self._get_account(wallet_name, account_id)
-            response = self._account_dto(account)
-            return good_response(response)
-        except Fault as e:
-            return fault_to_http_response(e)
+        account = self._get_account(wallet_name, account_id)
+        response = self._account_dto(account)
+        return web.json_response(response)
 
     async def topup_account(self, request):
         """only for regtest"""
-        try:
-            vars = await self.argparser(request,
-                required_vars=[VNAME.WALLET_NAME, VNAME.ACCOUNT_ID])
-            wallet_name = vars[VNAME.WALLET_NAME]
-            account_id = vars[VNAME.ACCOUNT_ID]
-            amount = vars.get(VNAME.AMOUNT, 25)
+        vars = await self.argparser(request,
+            required_vars=[VNAME.WALLET_NAME, VNAME.ACCOUNT_ID])
+        wallet_name = vars[VNAME.WALLET_NAME]
+        account_id = vars[VNAME.ACCOUNT_ID]
+        amount = vars.get(VNAME.AMOUNT, 25)
 
-            account = self._get_account(wallet_name, account_id)
+        account = self._get_account(wallet_name, account_id)
 
-            receive_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
-            receive_address = account.get_script_template_for_derivation(
-                account.get_default_script_type(),
-                receive_key.derivation_type, receive_key.derivation_data2)
-            txid = regtest_topup_account(receive_address, amount)
-            response = {"txid": txid}
-            return good_response(response)
-        except Fault as e:
-            return fault_to_http_response(e)
+        receive_key = account.get_fresh_keys(RECEIVING_SUBPATH, 1)[0]
+        receive_address = account.get_script_template_for_derivation(
+            account.get_default_script_type(),
+            receive_key.derivation_type, receive_key.derivation_data2)
+        txid = regtest_topup_account(receive_address, amount)
+        response = {"txid": txid}
+        return web.json_response(response)
 
     async def generate_blocks(self, request):
         """only for regtest"""
-        try:
-            vars = await self.argparser(request,
-                required_vars=[VNAME.WALLET_NAME, VNAME.ACCOUNT_ID])
-            nblocks = vars.get(VNAME.NBLOCKS, 1)
-            txid = regtest_generate_nblocks(nblocks, REGTEST_P2PKH_ADDRESS)
-            response = {"txid": txid}
-            return good_response(response)
-        except Fault as e:
-            return fault_to_http_response(e)
+        vars = await self.argparser(request,
+            required_vars=[VNAME.WALLET_NAME, VNAME.ACCOUNT_ID])
+        nblocks = vars.get(VNAME.NBLOCKS, 1)
+        txid = regtest_generate_nblocks(nblocks, REGTEST_P2PKH_ADDRESS)
+        response = {"txid": txid}
+        return web.json_response(response)
 
     async def create_payment_request(self, request: web.Request) -> web.Response:
-        try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_ID,
-                VNAME.ACCOUNT_ID, VNAME.MESSAGE ])
-            wallet_id = vars[VNAME.WALLET_ID]
-            account_id = vars[VNAME.ACCOUNT_ID]
-            message = vars[VNAME.MESSAGE]
-            if not len(message):
-                raise Fault(message="Empty message")
+        vars = await self.argparser(request, required_vars=[VNAME.WALLET_ID,
+            VNAME.ACCOUNT_ID, VNAME.MESSAGE ])
+        wallet_id = vars[VNAME.WALLET_ID]
+        account_id = vars[VNAME.ACCOUNT_ID]
+        message = vars[VNAME.MESSAGE]
+        if not len(message):
+            raise web.HTTPBadRequest()
 
-            wallet = self._get_wallet_by_id(wallet_id)
-            account = self._get_account_from_wallet(wallet, account_id)
+        wallet = self._get_wallet_by_id(wallet_id)
+        account = self._get_account_from_wallet(wallet, account_id)
 
-            future, key_data = account.create_payment_request(message)
-            rows = await asyncio.wrap_future(future)
-            if len(rows) != 1:
-                raise Fault(message="Error creating the payment request")
+        future, key_data = account.create_payment_request(message)
+        rows = await asyncio.wrap_future(future)
+        if len(rows) != 1:
+            raise web.HTTPBadRequest()
 
-            script_type = account.get_default_script_type()
-            script_template = account.get_script_template_for_derivation(
-                script_type, key_data.derivation_type, key_data.derivation_data2)
-            if script_template is None:
-                raise Fault(message="Error creating the payment destination")
+        script_type = account.get_default_script_type()
+        script_template = account.get_script_template_for_derivation(
+            script_type, key_data.derivation_type, key_data.derivation_data2)
+        if script_template is None:
+            raise web.HTTPBadRequest()
 
-            text = script_template_to_string(script_template)
+        text = script_template_to_string(script_template)
 
-            return good_response({
-                "script_type": script_type.name,
-                "destination": text,
-            })
-        except Fault as e:
-            return fault_to_http_response(e)
+        return web.json_response({
+            "script_type": script_type.name,
+            "destination": text,
+        })
 
     async def get_coin_state(self, request: web.Request) -> web.Response:
         """get coin state (unconfirmed and confirmed coin count)"""
-        try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
-                VNAME.ACCOUNT_ID])
-            wallet_name = vars[VNAME.WALLET_NAME]
-            account_id = vars[VNAME.ACCOUNT_ID]
+        vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+            VNAME.ACCOUNT_ID])
+        wallet_name = vars[VNAME.WALLET_NAME]
+        account_id = vars[VNAME.ACCOUNT_ID]
 
-            account = self._get_account(wallet_name, account_id)
-            response = self._coin_state_dto(account)
-            return good_response(response)
-        except Fault as e:
-            return fault_to_http_response(e)
+        account = self._get_account(wallet_name, account_id)
+        response = self._coin_state_dto(account)
+        return web.json_response(response)
 
     async def get_utxos(self, request: web.Request) -> web.Response:
-        try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
-                                                                VNAME.ACCOUNT_ID])
-            wallet_name = vars[VNAME.WALLET_NAME]
-            account_id = vars[VNAME.ACCOUNT_ID]
-            exclude_frozen = vars.get(VNAME.EXCLUDE_FROZEN, False)
-            confirmed_only = vars.get(VNAME.CONFIRMED_ONLY, False)
-            mature = vars.get(VNAME.MATURE, True)
+        vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                            VNAME.ACCOUNT_ID])
+        wallet_name = vars[VNAME.WALLET_NAME]
+        account_id = vars[VNAME.ACCOUNT_ID]
+        exclude_frozen = vars.get(VNAME.EXCLUDE_FROZEN, False)
+        confirmed_only = vars.get(VNAME.CONFIRMED_ONLY, False)
+        mature = vars.get(VNAME.MATURE, True)
 
-            account = self._get_account(wallet_name, account_id)
-            utxos = account.get_transaction_outputs_with_key_data(exclude_frozen=exclude_frozen,
-                                      confirmed_only=confirmed_only, mature=mature)
-            result = self._utxo_dto(utxos)
-            response = {"utxos": result}
-            return good_response(response)
-        except Fault as e:
-            return fault_to_http_response(e)
+        account = self._get_account(wallet_name, account_id)
+        utxos = account.get_transaction_outputs_with_key_data(exclude_frozen=exclude_frozen,
+                                    confirmed_only=confirmed_only, mature=mature)
+        result = self._utxo_dto(utxos)
+        response = {"utxos": result}
+        return web.json_response(response)
 
     async def get_balance(self, request: web.Request) -> web.Response:
         """get confirmed, unconfirmed and coinbase balances"""
-        try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
-                                                                VNAME.ACCOUNT_ID])
-            wallet_name = vars[VNAME.WALLET_NAME]
-            account_id = vars[VNAME.ACCOUNT_ID]
+        vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                            VNAME.ACCOUNT_ID])
+        wallet_name = vars[VNAME.WALLET_NAME]
+        account_id = vars[VNAME.ACCOUNT_ID]
 
-            account = self._get_account(wallet_name, account_id)
-            response = self._balance_dto(wallet=account)
-            return good_response(response)
-        except Fault as e:
-            return fault_to_http_response(e)
+        account = self._get_account(wallet_name, account_id)
+        response = self._balance_dto(wallet=account)
+        return web.json_response(response)
 
     async def remove_txs(self, request: web.Request) -> web.Response:
         # follows this spec https://opensource.zalando.com/restful-api-guidelines/#152
         """This might be used to clean up after creating many transactions that were never sent."""
-        try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
-                                                                VNAME.ACCOUNT_ID, VNAME.TXIDS])
-            wallet_name = vars[VNAME.WALLET_NAME]
-            account_id = vars[VNAME.ACCOUNT_ID]
-            txids = vars[VNAME.TXIDS]
-            account = self._get_account(wallet_name, account_id)
+        vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                            VNAME.ACCOUNT_ID, VNAME.TXIDS])
+        wallet_name = vars[VNAME.WALLET_NAME]
+        account_id = vars[VNAME.ACCOUNT_ID]
+        txids = vars[VNAME.TXIDS]
+        account = self._get_account(wallet_name, account_id)
 
-            results = []
-            if txids:
-                for txid in txids:
-                    try:
-                        self.remove_transaction(bitcoinx.hex_str_to_hash(txid), account)
-                        results.append({"id": txid, "result": 200})
-                    except Fault as e:
-                        if e.code == Errors.DISABLED_FEATURE_CODE:
-                            results.append({"id": txid, "result": 400,
-                                            "description": Errors.DISABLED_FEATURE_MESSAGE})
-                        if e.code == Errors.TRANSACTION_NOT_FOUND_CODE:
-                            results.append({"id": txid, "result": 400,
-                                            "description": Errors.TRANSACTION_NOT_FOUND_MESSAGE})
-            return self.batch_response({"items": results})
-        except Fault as e:
-            return fault_to_http_response(e)
+        results = []
+        if txids:
+            for txid in txids:
+                try:
+                    self.remove_transaction(bitcoinx.hex_str_to_hash(txid), account)
+                    results.append({"id": txid, "result": 200})
+                except Fault as e:
+                    if e.code == Errors.DISABLED_FEATURE_CODE:
+                        results.append({"id": txid, "result": 400,
+                                        "description": Errors.DISABLED_FEATURE_MESSAGE})
+                    if e.code == Errors.TRANSACTION_NOT_FOUND_CODE:
+                        results.append({"id": txid, "result": 400,
+                                        "description": Errors.TRANSACTION_NOT_FOUND_MESSAGE})
+        return self.batch_response({"items": results})
 
     async def get_transaction_history(self, request: web.Request) -> web.Response:
         """get transactions - currently only used for debugging via 'postman'"""
-        try:
-            vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
-                                                                VNAME.ACCOUNT_ID])
-            wallet_name = vars[VNAME.WALLET_NAME]
-            account_id = vars[VNAME.ACCOUNT_ID]
-            tx_flags = vars.get(VNAME.TX_FLAGS)
+        vars = await self.argparser(request, required_vars=[VNAME.WALLET_NAME,
+                                                            VNAME.ACCOUNT_ID])
+        wallet_name = vars[VNAME.WALLET_NAME]
+        account_id = vars[VNAME.ACCOUNT_ID]
+        tx_flags = vars.get(VNAME.TX_FLAGS)
 
-            account = self._get_account(wallet_name, account_id)
-            response = self._history_dto(account, tx_flags)
-            return good_response({"history": response})
-        except Fault as e:
-            return fault_to_http_response(e)
+        account = self._get_account(wallet_name, account_id)
+        response = self._history_dto(account, tx_flags)
+        return web.json_response({"history": response})
 
     async def fetch_transaction(self, request: web.Request) -> web.Response:
         """get transaction"""
-        try:
-            required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.TXID]
-            vars = await self.argparser(request, required_vars)
-            wallet_name = vars[VNAME.WALLET_NAME]
-            account_id = vars[VNAME.ACCOUNT_ID]
-            txid = vars[VNAME.TXID]
+        required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.TXID]
+        vars = await self.argparser(request, required_vars)
+        wallet_name = vars[VNAME.WALLET_NAME]
+        account_id = vars[VNAME.ACCOUNT_ID]
+        txid = vars[VNAME.TXID]
 
-            account = self._get_account(wallet_name, account_id)
-            response = self._fetch_transaction_dto(account, tx_id=txid)
-            return good_response(response)
-        except Fault as e:
-            return fault_to_http_response(e)
+        account = self._get_account(wallet_name, account_id)
+        response = self._fetch_transaction_dto(account, tx_id=txid)
+        return web.json_response(response)
 
     async def create_tx(self, request: web.Request) -> web.Response:
         """
@@ -502,126 +457,114 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         - Should handle any kind of output script.( see bitcoinx.address for
         utilities for building p2pkh, multisig etc outputs as hex strings.)
         """
-        account = None
-        tx = None
-        try:
-            tx, account, password = await self._create_tx_helper(request)
-            response = {"txid": tx.txid(),
-                        "rawtx": str(tx)}
-            return good_response(response)
-        except Fault as e:
-            if tx and tx.is_complete() and e.code != Fault(Errors.ALREADY_SENT_TRANSACTION_CODE):
-                self.cleanup_tx(tx, account)
-            return fault_to_http_response(e)
-        except Exception as e:
-            if tx and tx.is_complete():
-                self.cleanup_tx(tx, account)
-            return fault_to_http_response(
-                Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))
+        tx, account, password = await self._create_tx_helper(request)
+        response = {"txid": tx.txid(),
+                    "rawtx": str(tx)}
+        return web.json_response(response)
+        # except Fault as e:
+        #     if tx and tx.is_complete() and e.code != Fault(Errors.ALREADY_SENT_TRANSACTION_CODE):
+        #         self.cleanup_tx(tx, account)
+        #     return fault_to_http_response(e)
+        # except Exception as e:
+        #     if tx and tx.is_complete():
+        #         self.cleanup_tx(tx, account)
+        #     return fault_to_http_response(
+        #         Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))
 
     async def create_and_broadcast(self, request):
-        account = None
-        tx = None
+        tx, account, password = await self._create_tx_helper(request)
         try:
-            tx, account, password = await self._create_tx_helper(request)
-            try:
-                result = await self._broadcast_transaction(str(tx), tx.hash(), account)
-            except aiorpcx.jsonrpc.RPCError as e:
-                raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
-            self.prev_transaction = result
-            response = {"txid": result}
-            self.logger.debug("successful broadcast for %s", result)
-            return good_response(response)
-        except Fault as e:
-            if tx and tx.is_complete() and e.code != Errors.ALREADY_SENT_TRANSACTION_CODE:
-                self.cleanup_tx(tx, account)
-            return fault_to_http_response(e)
-        except Exception as e:
-            self.logger.exception("unexpected error in create_and_broadcast handler")
-            if tx and tx.is_complete() and not (
-                    isinstance(e, AssertionError) and str(e) == 'duplicate set not supported'):
-                self.cleanup_tx(tx, account)
-            return fault_to_http_response(
-                Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))
+            result = await self._broadcast_transaction(str(tx), tx.hash(), account)
+        except aiorpcx.jsonrpc.RPCError as e:
+            raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
+        self.prev_transaction = result
+        response = {"txid": result}
+        self.logger.debug("successful broadcast for %s", result)
+        return web.json_response(response)
+        # except Fault as e:
+        #     if tx and tx.is_complete() and e.code != Errors.ALREADY_SENT_TRANSACTION_CODE:
+        #         self.cleanup_tx(tx, account)
+        #     return fault_to_http_response(e)
+        # except Exception as e:
+        #     self.logger.exception("unexpected error in create_and_broadcast handler")
+        #     if tx and tx.is_complete() and not (
+        #             isinstance(e, AssertionError) and str(e) == 'duplicate set not supported'):
+        #         self.cleanup_tx(tx, account)
+        #     return fault_to_http_response(
+        #         Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))
 
     async def broadcast(self, request: web.Request) -> web.Response:
         """Broadcast a rawtx (hex string) to the network. """
-        try:
-            required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.RAWTX]
-            vars = await self.argparser(request, required_vars=required_vars)
-            wallet_name = vars[VNAME.WALLET_NAME]
-            index = vars[VNAME.ACCOUNT_ID]
-            rawtx = vars[VNAME.RAWTX]
+        required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.RAWTX]
+        vars = await self.argparser(request, required_vars=required_vars)
+        wallet_name = vars[VNAME.WALLET_NAME]
+        index = vars[VNAME.ACCOUNT_ID]
+        rawtx = vars[VNAME.RAWTX]
 
-            account = self._get_account(wallet_name, index)
-            tx = Transaction.from_hex(rawtx)
-            self.raise_for_duplicate_tx(tx)
-            try:
-                result = await self._broadcast_transaction(rawtx, tx.hash(), account)
-            except aiorpcx.jsonrpc.RPCError as e:
-                raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
-            self.prev_transaction = result
-            response = {"txid": result}
-            return good_response(response)
-        except Fault as e:
-            return fault_to_http_response(e)
+        account = self._get_account(wallet_name, index)
+        tx = Transaction.from_hex(rawtx)
+        self.raise_for_duplicate_tx(tx)
+        try:
+            result = await self._broadcast_transaction(rawtx, tx.hash(), account)
+        except aiorpcx.jsonrpc.RPCError as e:
+            raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
+        self.prev_transaction = result
+        response = {"txid": result}
+        return web.json_response(response)
 
     async def split_utxos(self, request: web.Request) -> web.Response:
-        account = None
-        tx = None
-        try:
-            required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.SPLIT_COUNT, VNAME.PASSWORD]
-            vars = await self.argparser(request, required_vars=required_vars)
-            wallet_name = vars[VNAME.WALLET_NAME]
-            account_id = vars[VNAME.ACCOUNT_ID]
-            split_count = vars[VNAME.SPLIT_COUNT]
+        required_vars = [VNAME.WALLET_NAME, VNAME.ACCOUNT_ID, VNAME.SPLIT_COUNT, VNAME.PASSWORD]
+        vars = await self.argparser(request, required_vars=required_vars)
+        wallet_name = vars[VNAME.WALLET_NAME]
+        account_id = vars[VNAME.ACCOUNT_ID]
+        split_count = vars[VNAME.SPLIT_COUNT]
 
-            # optional
-            split_value = vars.get(VNAME.SPLIT_VALUE, 10000)
-            password = vars.get(VNAME.PASSWORD, None)
-            desired_utxo_count = vars.get(VNAME.DESIRED_UTXO_COUNT, 2000)
-            require_confirmed = vars.get(VNAME.REQUIRE_CONFIRMED, False)
+        # optional
+        split_value = vars.get(VNAME.SPLIT_VALUE, 10000)
+        password = vars.get(VNAME.PASSWORD, None)
+        desired_utxo_count = vars.get(VNAME.DESIRED_UTXO_COUNT, 2000)
+        require_confirmed = vars.get(VNAME.REQUIRE_CONFIRMED, False)
 
-            account = self._get_account(wallet_name, account_id)
+        account = self._get_account(wallet_name, account_id)
 
-            # Approximate size of a transaction with one P2PKH input and one P2PKH output.
-            base_fee = self.app_state.config.estimate_fee(TransactionSize(203, 0))
-            loop = asyncio.get_event_loop()
-            # run in thread - CPU intensive code
-            partial_coin_selection = partial(self.select_inputs_and_outputs,
-                self.app_state.config, account, base_fee,
-                split_count=split_count, desired_utxo_count=desired_utxo_count,
-                require_confirmed=require_confirmed, split_value=split_value)
+        # Approximate size of a transaction with one P2PKH input and one P2PKH output.
+        base_fee = self.app_state.config.estimate_fee(TransactionSize(203, 0))
+        loop = asyncio.get_event_loop()
+        # run in thread - CPU intensive code
+        partial_coin_selection = partial(self.select_inputs_and_outputs,
+            self.app_state.config, account, base_fee,
+            split_count=split_count, desired_utxo_count=desired_utxo_count,
+            require_confirmed=require_confirmed, split_value=split_value)
 
-            split_result = await loop.run_in_executor(self.txb_executor, partial_coin_selection)
-            if isinstance(split_result, Fault):
-                return fault_to_http_response(split_result)
-            self.logger.debug("split result: %s", split_result)
-            utxos, outputs, attempted_split = split_result
-            if not attempted_split:
-                fault = Fault(Errors.SPLIT_FAILED_CODE, Errors.SPLIT_FAILED_MESSAGE)
-                return fault_to_http_response(fault)
-            tx, tx_context = account.make_unsigned_transaction(utxos, outputs)
-            future = account.sign_transaction(tx, password, tx_context)
-            if future is not None:
-                future.result()
-            self.raise_for_duplicate_tx(tx)
+        split_result = await loop.run_in_executor(self.txb_executor, partial_coin_selection)
+        # if isinstance(split_result, Fault):
+        #     return fault_to_http_response(split_result)
+        self.logger.debug("split result: %s", split_result)
+        utxos, outputs, attempted_split = split_result
+        # if not attempted_split:
+        #     fault = Fault(Errors.SPLIT_FAILED_CODE, Errors.SPLIT_FAILED_MESSAGE)
+        #     return fault_to_http_response(fault)
+        tx, tx_context = account.make_unsigned_transaction(utxos, outputs)
+        future = account.sign_transaction(tx, password, tx_context)
+        if future is not None:
+            future.result()
+        self.raise_for_duplicate_tx(tx)
 
-            # broadcast
-            result = await self._broadcast_transaction(str(tx), tx.hash(), account)
-            self.prev_transaction = result
-            response = {"txid": result}
-            return good_response(response)
-        except Fault as e:
-            if tx and tx.is_complete() and e.code != Fault(Errors.ALREADY_SENT_TRANSACTION_CODE):
-                self.cleanup_tx(tx, account)
-            return fault_to_http_response(e)
-        except InsufficientCoinsError as e:
-            self.logger.debug(Errors.INSUFFICIENT_COINS_MESSAGE)
-            return fault_to_http_response(
-                Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE))
-        except Exception as e:
-            if tx and tx.is_complete():
-                self.cleanup_tx(tx, account)
-            return fault_to_http_response(
-                Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))
+        # broadcast
+        result = await self._broadcast_transaction(str(tx), tx.hash(), account)
+        self.prev_transaction = result
+        response = {"txid": result}
+        return web.json_response(response)
+        # except Fault as e:
+        #     if tx and tx.is_complete() and e.code != Fault(Errors.ALREADY_SENT_TRANSACTION_CODE):
+        #         self.cleanup_tx(tx, account)
+        #     return fault_to_http_response(e)
+        # except InsufficientCoinsError as e:
+        #     self.logger.debug(Errors.INSUFFICIENT_COINS_MESSAGE)
+        #     return fault_to_http_response(
+        #         Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE))
+        # except Exception as e:
+        #     if tx and tx.is_complete():
+        #         self.cleanup_tx(tx, account)
+        #     return fault_to_http_response(
+        #         Fault(code=Errors.GENERIC_INTERNAL_SERVER_ERROR, message=str(e)))

@@ -227,7 +227,6 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         CREATE TABLE PaymentRequests2 (
             paymentrequest_id           INTEGER     PRIMARY KEY,
             keyinstance_id              INTEGER     NOT NULL,
-            dpp_invoice_id              TEXT        NULL,
             state                       INTEGER     NOT NULL,
             description                 TEXT        NULL,
             expiration                  INTEGER     NULL,
@@ -235,6 +234,8 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             script_type                 INTEGER     NOT NULL,
             pushdata_hash               BLOB        NOT NULL,
             server_id                   INTEGER     NULL,
+            dpp_invoice_id              TEXT        NULL,
+            merchant_reference          TEXT        NULL,
             date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,
             FOREIGN KEY(keyinstance_id) REFERENCES KeyInstances (keyinstance_id)
@@ -287,17 +288,19 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             raise NotImplementedError(f"Unexpected key type {keyinstance_row}")
 
         # server_id and dpp_invoice_id are null for any invoices prior to this migration
-        dpp_invoice_id = None
-        server_id = None
+        server_id: int | None = None
+        dpp_invoice_id: str | None = None
+        merchant_reference: str | None = None
         conn.execute("""
             INSERT INTO PaymentRequests2 (paymentrequest_id, keyinstance_id,
-                state, description, expiration, value, dpp_invoice_id, script_type, pushdata_hash,
-                server_id, date_created, date_updated)
+                state, description, expiration, value, script_type, pushdata_hash,
+                server_id, dpp_invoice_id, merchant_reference, date_created, date_updated)
             SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.description,
-                PR.expiration, PR.value, ?, ?, ?, ?, PR.date_created, PR.date_updated
+                PR.expiration, PR.value, ?, ?, ?, ?, ?, PR.date_created, PR.date_updated
             FROM PaymentRequests AS PR
             WHERE paymentrequest_id=?
-        """, (dpp_invoice_id, script_type, pushdata_hash, server_id, paymentrequest_id))
+        """, (script_type, pushdata_hash, server_id, dpp_invoice_id, merchant_reference,
+            paymentrequest_id))
 
     conn.execute("DROP TABLE PaymentRequests")
     conn.execute("ALTER TABLE PaymentRequests2 RENAME TO PaymentRequests")

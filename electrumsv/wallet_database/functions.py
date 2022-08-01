@@ -129,7 +129,8 @@ def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyR
     timestamp = get_posix_timestamp()
     datas = [ (*t, timestamp, timestamp) for t in entries ]
     sql = ("INSERT INTO MasterKeys (masterkey_id, parent_masterkey_id, derivation_type, "
-        "derivation_data, flags, date_created, date_updated) VALUES (?, ?, ?, ?, ?, ?, ?)")
+        "derivation_data, flags, date_created, date_updated) "
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)")
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, datas)
@@ -139,10 +140,10 @@ def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyR
 def create_payment_requests(db_context: DatabaseContext, entries: list[PaymentRequestRow]) \
         -> concurrent.futures.Future[list[PaymentRequestRow]]:
     sql = """
-        INSERT INTO PaymentRequests (paymentrequest_id, keyinstance_id, dpp_invoice_id, state,
-            value, expiration, description, script_type, pushdata_hash, server_id,
-            date_created, date_updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO PaymentRequests (paymentrequest_id, keyinstance_id, state,
+            value, expiration, description, script_type, pushdata_hash, server_id, dpp_invoice_id,
+            merchant_reference, date_created, date_updated)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
     """
     timestamp = get_posix_timestamp()
     sql_values = [ (*t[:-1], timestamp, timestamp) for t in entries ]
@@ -159,7 +160,7 @@ def create_dpp_messages(entries: list[DPPMessageRow], db: Optional[sqlite3.Conne
     sql = """
         INSERT INTO DPPMessages (message_id, paymentrequest_id, dpp_invoice_id, correlation_id,
             app_id, client_id, user_id, expiration, body, timestamp, type)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
         ON CONFLICT(message_id) DO NOTHING;
     """
     db.executemany(sql, entries)
@@ -853,9 +854,9 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
             GROUP BY KI.keyinstance_id
         )
 
-        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id ,PR.state, PR.value,
+        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value,
             KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash,
-            PR.server_id, PR.date_created
+            PR.server_id, PR.dpp_invoice_id, PR.merchant_reference, PR.date_created
         FROM PaymentRequests PR
         INNER JOIN key_payments KP USING(keyinstance_id)
     """
@@ -868,10 +869,10 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
     else:
         raise NotImplementedError("request_id and keyinstance_id not supported")
     t = db.execute(sql, sql_values).fetchone()
-    if t is not None:
-        return PaymentRequestReadRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6], t[7],
-            t[8], t[9], t[10], t[11])
-    return None
+    if t is None:
+        return None
+    return PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7], t[8],
+        t[9], t[10], t[11], t[12])
 
 
 @replace_db_context_with_connection
@@ -891,9 +892,9 @@ def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None
     else:
         sql = sql.format("")
     sql += """
-        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.dpp_invoice_id, PR.state, PR.value,
-            KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash,
-            PR.server_id, PR.date_created
+        SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value, KP.total_value,
+            PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, PR.server_id,
+            PR.dpp_invoice_id, PR.merchant_reference, PR.date_created
         FROM PaymentRequests PR
         INNER JOIN key_payments KP USING(keyinstance_id)
     """
@@ -912,11 +913,11 @@ def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None
             sql += " AND paymentrequest_id IN ({})"
         rows = read_rows_by_id(PaymentRequestReadRow, db, sql, sql_values, paymentrequest_ids)
         # Type casting of PaymentFlag
-        return [ PaymentRequestReadRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6], t[7],
-            t[8], t[9], t[10], t[11]) for t in rows ]
+        return [ PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7],
+            t[8], t[9], t[10], t[11], t[12]) for t in rows ]
 
-    return [ PaymentRequestReadRow(t[0], t[1], t[2], PaymentFlag(t[3]), t[4], t[5], t[6], t[7],
-        t[8], t[9], t[10], t[11]) for t in db.execute(sql, sql_values).fetchall() ]
+    return [ PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7],
+        t[8], t[9], t[10], t[11], t[12]) for t in db.execute(sql, sql_values).fetchall() ]
 
 
 def create_pushdata_matches_write(rows: list[PushDataMatchRow], processed_message_ids: list[int],
@@ -2244,7 +2245,7 @@ def update_payment_requests_write(entries: Iterable[PaymentRequestUpdateRow],
         db: sqlite3.Connection | None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, expiration=?, "
-        "description=? WHERE paymentrequest_id=?")
+        "description=?, merchant_reference=? WHERE paymentrequest_id=?")
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
     db.executemany(sql, rows)

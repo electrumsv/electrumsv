@@ -12,7 +12,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from concurrent.futures.thread import ThreadPoolExecutor
 
 from electrumsv.constants import ScriptType, TransactionOutputFlag, TxFlags
-from electrumsv.restapi import Fault, good_response
+from electrumsv.restapi import Fault
 from electrumsv.wallet import AbstractAccount, Wallet
 from electrumsv.transaction import Transaction, TransactionContext
 from electrumsv.types import TransactionSize
@@ -366,7 +366,7 @@ class TestDefaultEndpoints:
         mock_request = make_mocked_request("GET", f"/v1/{network}/dapp/wallets/")
         expected_json = {"wallets": all_wallets}
         resp = await self.rest_server.get_all_wallets(mock_request)
-        assert resp.text == good_response(expected_json).text
+        assert resp.text == web.json_response(expected_json).text
 
     async def test_get_parent_wallet_good_response(self, cli):
         # mock request

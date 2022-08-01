@@ -29,6 +29,7 @@
 
 from __future__ import annotations
 import asyncio
+import base64
 import concurrent.futures
 import dataclasses
 from datetime import datetime, timezone
@@ -1087,8 +1088,9 @@ class AbstractAccount:
     def get_masterkey_id(self) -> Optional[int]:
         raise NotImplementedError
 
-    def create_payment_request(self, message: str, dpp_invoice_id: str, server_id: int,
-            amount: Optional[int]=None, expiration_seconds: Optional[int]=None,
+    def create_payment_request(self, amount: int, internal_description: str | None,
+            merchant_reference: str | None, date_expires: int | None = None,
+            server_id: int | None = None, dpp_invoice_id: str | None=None,
             flags: PaymentFlag=PaymentFlag.NONE) \
                 -> tuple[concurrent.futures.Future[list[PaymentRequestRow]], KeyDataProtocol]:
         # The payment request flags that are allowed to be set are just the supplementary flags,
@@ -1100,15 +1102,23 @@ class AbstractAccount:
             KeyInstanceFlag.IS_PAYMENT_REQUEST | KeyInstanceFlag.ACTIVE)
         script_type = self.get_default_script_type()
         pushdata_hash = get_pushdata_hash_for_account_key_data(self, key_data, script_type)
-        expiration: int | None = None
-        if expiration_seconds is not None:
-            date_created = get_posix_timestamp()
-            expiration = date_created + expiration_seconds
-        row = PaymentRequestRow(-1, key_data.keyinstance_id, dpp_invoice_id,
-            flags | PaymentFlag.UNPAID, amount, expiration, message, script_type,
-            pushdata_hash, server_id, get_posix_timestamp())
+
+        date_created: int = get_posix_timestamp()
+        row = PaymentRequestRow(-1, key_data.keyinstance_id, flags | PaymentFlag.UNPAID, amount,
+            date_expires, internal_description, script_type, pushdata_hash, server_id,
+            dpp_invoice_id, merchant_reference, date_created)
         future = self._wallet.create_payment_requests(self._id, [ row ])
         return future, key_data
+
+    def create_hosted_invoice(self, amount_satoshis: int, expiry_date_text: str | None,
+            description: str | None, merchant_reference: str | None) -> bool:
+        external_invoice_id = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
+        # TODO(1.4.0) DPP. Should have more sophisticated server selection than this
+        return True
+
+    def delete_hosted_invoice(self, invoice_id: str) -> None:
+        pass
+
 
 
 class SimpleAccount(AbstractAccount):
@@ -4440,7 +4450,7 @@ class Wallet:
             pr_row.script_type, key_data.derivation_type, key_data.derivation_data2)
         outputs_object = [
             {
-                "description": pr_row.description,
+                "description": "",
                 "amount": pr_row.requested_value,
                 "script": script_template.to_script().to_hex()
             }
@@ -4455,7 +4465,7 @@ class Wallet:
             "paymentUrl": create_DPP_URL(self.dpp_proxy_server_states, pr_row),
             "beneficiary": {"name": "GoldenSocks.com", "paymentReference": "Order-325214",
                 "email": "merchant@m.com"},
-            "memo": pr_row.description,
+            "memo": pr_row.merchant_reference,
 
             # Hybrid Payment Mode
             'modes': {'ef63d9775da5':
@@ -4603,7 +4613,8 @@ class Wallet:
                 new_state = pr_row.state & ~PaymentFlag.MASK_DPP_STATE_MACHINE | new_state_flag
                 pr_row = pr_row._replace(state=new_state)
                 update_row = PaymentRequestUpdateRow(new_state, pr_row.requested_value,
-                    pr_row.expiration, pr_row.description, pr_row.paymentrequest_id)
+                    pr_row.expiration, pr_row.description, pr_row.merchant_reference,
+                    pr_row.paymentrequest_id)
                 await self.data.update_payment_requests_async([ update_row ])
 
             self._logger.debug("State machine processing DPPMessageRow: %s for state: %s",

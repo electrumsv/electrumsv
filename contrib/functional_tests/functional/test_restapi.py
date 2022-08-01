@@ -22,7 +22,6 @@ from async_timeout import timeout
 
 from electrumsv.constants import TxFlags
 from electrumsv.networks import SVRegTestnet, Net
-from electrumsv.restapi import Fault
 
 from ..websocket_client import TxStateWSClient
 from .util import BITCOIN_NODE_URI, REGTEST_FUNDS_PRIVATE_KEY_WIF

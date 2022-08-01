@@ -15,12 +15,12 @@ from electrumsv.coinchooser import PRNG
 from electrumsv.constants import (CHANGE_SUBPATH, CredentialPolicyFlag, DATABASE_EXT,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletSettings)
 from electrumsv.exceptions import NotEnoughFunds
-from electrumsv.restapi_endpoints import ARGTYPES, HandlerUtils, VARNAMES
+from electrumsv.restapi_endpoints import ARGTYPES, VARNAMES
 from electrumsv.transaction import Transaction
 from electrumsv.wallet import AbstractAccount, Wallet
 from electrumsv.logs import logs
 from electrumsv.app_state import app_state
-from electrumsv.restapi import decode_request_body, Fault, get_network_type
+from electrumsv.restapi import get_network_type
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.storage import WalletStorage
 from electrumsv.types import TransactionSize, Outpoint
@@ -95,7 +95,7 @@ ADDITIONAL_ARGTYPES: Dict[str, type] = {
 
 ARGTYPES.update(ADDITIONAL_ARGTYPES)
 
-HEADER_VARS = [VNAME.NETWORK, VNAME.ACCOUNT_ID, VNAME.WALLET_NAME, VNAME.WALLET_ID]
+ROUTE_VARS = [VNAME.NETWORK, VNAME.ACCOUNT_ID, VNAME.WALLET_NAME, VNAME.WALLET_ID]
 BODY_VARS = [VNAME.PASSWORD, VNAME.RAWTX, VNAME.TXIDS, VNAME.UTXOS, VNAME.OUTPUTS,
              VNAME.UTXO_PRESELECTION, VNAME.REQUIRE_CONFIRMED, VNAME.EXCLUDE_FROZEN,
              VNAME.CONFIRMED_ONLY, VNAME.MATURE, VNAME.AMOUNT, VNAME.SPLIT_COUNT,
@@ -115,9 +115,7 @@ WalletInstancePaths: Dict[Union[int, WalletInstanceKind], str] = {
 }
 
 
-class ExtendedHandlerUtils(HandlerUtils):
-    """Extends ElectrumSV HandlerUtils"""
-
+class ExtendedHandlerUtils:
     MAX_WORKERS = 1
 
     def __init__(self):
@@ -132,20 +130,12 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     # ---- Parse Header and Body variables ----- #
 
-    def raise_for_rawtx_size(self, rawtx) -> None:
-        if (len(rawtx) / 2) > 99000:
-            fault = Fault(Errors.DATA_TOO_BIG_CODE, Errors.DATA_TOO_BIG_MESSAGE)
-            raise fault
-
     def raise_for_var_missing(self, vars, required_vars: List[str]) -> None:
         for varname in required_vars:
             if vars.get(varname) is None:
-                if varname in HEADER_VARS:
-                    raise Fault(Errors.GENERIC_BAD_REQUEST_CODE,
-                                Errors.HEADER_VAR_NOT_PROVIDED_MESSAGE.format(varname))
-                else:
-                    raise Fault(Errors.GENERIC_BAD_REQUEST_CODE,
-                                Errors.BODY_VAR_NOT_PROVIDED_MESSAGE.format(varname))
+                if varname in ROUTE_VARS:
+                    raise web.HTTPBadRequest(reason=f"Missing routing variable {varname}")
+                raise web.HTTPBadRequest(reason=f"Missing body variable {varname}")
 
     def raise_for_type_okay(self, vars) -> None:
         for vname in vars:
@@ -154,38 +144,29 @@ class ExtendedHandlerUtils(HandlerUtils):
                 continue
             if vname not in ARGTYPES:
                 message = f"'{vname}' is not a supported type"
-                raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, message)
+                raise web.HTTPBadRequest(reason=message)
             if not isinstance(value, ARGTYPES[vname]):
                 message = f"{value} must be of type: '{ARGTYPES[vname]}'"
-                raise Fault(Errors.GENERIC_BAD_REQUEST_CODE, message)
+                raise web.HTTPBadRequest(reason=message)
 
     def account_id_if_isdigit(self, index: str) -> int:
         if not index.isdigit():
             message = "child wallet index in url must be an integer. You tried " \
                       "index='%s'." % index
-            raise Fault(code=Errors.GENERIC_BAD_REQUEST_CODE, message=message)
+            raise web.HTTPBadRequest(reason=message)
         return int(index)
 
     def raise_for_wallet_availability(self, wallet_name: str) -> str:
         if not self._wallet_name_available(wallet_name):
-            raise Fault(code=Errors.WALLET_NOT_FOUND_CODE,
-                         message=Errors.WALLET_NOT_FOUND_MESSAGE.format(wallet_name))
+            raise web.HTTPNotFound(reason=f"Wallet '{wallet_name}' not found")
         return wallet_name
 
-    def get_route_vars(self, request: web.Request) -> Dict[str, Any]:
+    def get_route_vars(self, request: web.Request) -> dict[str, Any]:
         # This gets the variables embedded implicitly in the path for any given handler.
-        header_vars: Dict[str, Any] = {}
-        for varname in HEADER_VARS:
-            header_vars.update({varname: request.match_info.get(varname)})
-        return header_vars
-
-    async def get_body_vars(self, request: web.Request) -> Dict[str, Any]:
-        # This gets the variables from the body.
-        try:
-            return cast(Dict[str, Any], await decode_request_body(request))
-        except JSONDecodeError as e:
-            message = "JSONDecodeError " + str(e)
-            raise Fault(Errors.JSON_DECODE_ERROR_CODE, message)
+        routing_variables: dict[str, Any] = {}
+        for varname in ROUTE_VARS:
+            routing_variables.update({varname: request.match_info.get(varname)})
+        return routing_variables
 
     async def argparser(self, request: web.Request, required_vars: Optional[List]=None,
             check_wallet_availability: bool=True) -> Dict[str, Any]:
@@ -193,7 +174,10 @@ class ExtendedHandlerUtils(HandlerUtils):
         as a dictionary to feed to the handlers."""
         vars: Dict = {}
         header_vars = self.get_route_vars(request)
-        body_vars = await self.get_body_vars(request)
+        try:
+            body_vars = cast(dict[str, Any], await request.json())
+        except JSONDecodeError:
+            raise web.HTTPBadRequest(reason="JSON request body appears corrupt")
         vars.update(header_vars)
         vars.update(body_vars)
         self.raise_for_type_okay(vars)
@@ -253,8 +237,7 @@ class ExtendedHandlerUtils(HandlerUtils):
         return the txid as an http 200 response."""
         if tx.txid() == self.prev_transaction:
             message = "You've already sent this transaction: {}".format(tx.txid())
-            fault = Fault(Errors.ALREADY_SENT_TRANSACTION_CODE, message)
-            raise fault
+            raise web.HTTPBadRequest(reason=message)
 
     def _get_wallet_path(self, wallet_name: str, is_relative: bool=True) -> str:
         """returns parent wallet path. The wallet_name must include .sqlite extension"""
@@ -262,14 +245,14 @@ class ExtendedHandlerUtils(HandlerUtils):
             wallet_path = os.path.join(self.wallets_path, wallet_name)
             wallet_path = os.path.normpath(wallet_path)
             if wallet_name != os.path.basename(wallet_path):
-                raise Fault(Errors.BAD_WALLET_NAME_CODE, Errors.BAD_WALLET_NAME_MESSAGE)
+                raise web.HTTPBadRequest(reason=Errors.BAD_WALLET_NAME_MESSAGE)
         else:
             if not os.path.isabs(wallet_name):
-                raise Fault(Errors.WALLET_NOT_FOUND_CODE, Errors.WALLET_NOT_FOUND_MESSAGE)
+                raise web.HTTPNotFound(reason=Errors.WALLET_NOT_FOUND_MESSAGE)
             wallet_path = wallet_name
         if os.path.exists(wallet_path):
             return wallet_path
-        raise Fault(Errors.WALLET_NOT_FOUND_CODE, Errors.WALLET_NOT_FOUND_MESSAGE)
+        raise web.HTTPNotFound(reason=Errors.WALLET_NOT_FOUND_MESSAGE)
 
     def _get_all_wallets(self, wallets_path: str) -> List[str]:
         """returns all parent wallet paths"""
@@ -283,41 +266,31 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     def _get_parent_wallet(self, wallet_name: str) -> Wallet:
         """returns a child wallet object"""
-        path_result = self._get_wallet_path(wallet_name)
-        parent_wallet = self.app_state.daemon.get_wallet(path_result)
-        if not parent_wallet:
-            message = Errors.LOAD_BEFORE_GET_MESSAGE.format(get_network_type(),
-                                                            'wallet_name.sqlite')
-            raise Fault(code=Errors.LOAD_BEFORE_GET_CODE, message=message)
-        return parent_wallet
+        resolved_wallet_path = self._get_wallet_path(wallet_name)
+        wallet = self.app_state.daemon.get_wallet(resolved_wallet_path)
+        if wallet is None:
+            raise web.HTTPBadRequest(reason="Wallet not loaded")
+        return wallet
 
     def _get_wallet_by_id(self, wallet_id: int) -> Wallet:
         """returns the wallet object"""
-        parent_wallet = self.app_state.daemon.get_wallet_by_id(wallet_id)
-        if parent_wallet is None:
-            message = Errors.LOAD_BEFORE_GET_MESSAGE.format(get_network_type(),
-                                                            'wallet_name.sqlite')
-            raise Fault(code=Errors.LOAD_BEFORE_GET_CODE, message=message)
-        return parent_wallet
+        wallet = self.app_state.daemon.get_wallet_by_id(wallet_id)
+        if wallet is None:
+            raise web.HTTPBadRequest(reason="Wallet not loaded")
+        return wallet
 
     def _get_account(self, wallet_name: str, account_id: int=1) -> AbstractAccount:
-        parent_wallet = self._get_parent_wallet(wallet_name=wallet_name)
-        child_wallet = parent_wallet.get_account(account_id)
-        if child_wallet is None:
-            message = f"There is no account at account_id: {account_id}."
-            raise Fault(Errors.WALLET_NOT_FOUND_CODE, message)
-        return child_wallet
+        wallet = self._get_parent_wallet(wallet_name=wallet_name)
+        account = wallet.get_account(account_id)
+        if account is None:
+            raise web.HTTPBadRequest(reason=f"Invalid account id '{account_id}'")
+        return account
 
     def _get_account_from_wallet(self, wallet: Wallet, account_id: int=1) -> AbstractAccount:
         account = wallet.get_account(account_id)
         if account is None:
-            message = f"There is no account at account_id: {account_id}."
-            raise Fault(Errors.WALLET_NOT_FOUND_CODE, message)
+            raise web.HTTPBadRequest(reason=f"Invalid account id '{account_id}'")
         return account
-
-    def _is_wallet_ready(self, wallet_name: str) -> bool:
-        wallet = self._get_parent_wallet(wallet_name)
-        return wallet.is_synchronized()
 
     async def _load_wallet(self, wallet_name: str, wallet_password: str,
             enforce_wallet_directory: bool=True) -> Wallet:
@@ -338,7 +311,7 @@ class ExtendedHandlerUtils(HandlerUtils):
 
             wallet = self.app_state.daemon.load_wallet(path_result)
             if wallet is None:
-                raise Fault(Errors.WALLET_NOT_LOADED_CODE, Errors.WALLET_NOT_LOADED_MESSAGE)
+                raise web.HTTPBadRequest(reason="Wallet not loaded")
 
             wallet.events.register_callback(app_state.app.on_triggered_event,
                 [WalletEventNames.TRANSACTION_STATE_CHANGE, WalletEventNames.TRANSACTION_ADDED,
@@ -352,7 +325,7 @@ class ExtendedHandlerUtils(HandlerUtils):
         tx_hash = hex_str_to_hash(tx_id)
         tx_bytes = account._wallet.data.get_transaction_bytes(tx_hash)
         if tx_bytes is None:
-            raise Fault(Errors.TRANSACTION_NOT_FOUND_CODE, Errors.TRANSACTION_NOT_FOUND_MESSAGE)
+            raise web.HTTPNotFound(reason="Transaction not found")
         return {"tx_hex": tx_bytes.hex()}
 
     def _wallet_name_available(self, wallet_name) -> bool:
@@ -523,7 +496,7 @@ class ExtendedHandlerUtils(HandlerUtils):
                 future.result()
             return tx, account, password
         except NotEnoughFunds:
-            raise Fault(Errors.INSUFFICIENT_COINS_CODE, Errors.INSUFFICIENT_COINS_MESSAGE)
+            raise web.HTTPBadRequest(reason="Insufficient coins")
 
     async def _broadcast_transaction(self, rawtx: str, tx_hash: bytes, account: AbstractAccount):
         result = await self.send_request('blockchain.transaction.broadcast', [rawtx])
@@ -540,7 +513,7 @@ class ExtendedHandlerUtils(HandlerUtils):
         is_signed_state = (tx_flags & TxFlags.STATE_SIGNED) == TxFlags.STATE_SIGNED
         # Todo - perhaps remove restriction to STATE_SIGNED only later (if safe for utxos state)
         if not is_signed_state:
-            raise Fault(Errors.DISABLED_FEATURE_CODE, Errors.DISABLED_FEATURE_MESSAGE)
+            raise web.HTTPBadRequest(reason="Disabled feature")
         account._wallet.remove_transaction(tx_hash)
 
     def select_inputs_and_outputs(self, config: SimpleConfig,
@@ -625,10 +598,8 @@ class ExtendedHandlerUtils(HandlerUtils):
 
     def check_if_wallet_exists(self, file_path: str) -> None:
         if os.path.exists(file_path):
-            raise Fault(code=Errors.BAD_WALLET_NAME_CODE,
-                        message=f"'{file_path + DATABASE_EXT}' already exists")
+            raise web.HTTPBadRequest(reason="Wallet already exists")
 
         if not file_path.endswith(DATABASE_EXT):
             if os.path.exists(file_path + DATABASE_EXT):
-                raise Fault(code=Errors.BAD_WALLET_NAME_CODE,
-                            message=f"'{file_path + DATABASE_EXT}' already exists")
+                raise web.HTTPBadRequest(reason="Wallet already exists")

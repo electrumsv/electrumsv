@@ -4,6 +4,7 @@ from functools import partial
 import os
 import random
 import threading
+import time
 from typing import Any, Callable, cast, NamedTuple, Optional
 import weakref
 
@@ -269,9 +270,12 @@ class CoinSplittingTab(TabWidget):
             assert self._dpp_server_state.server.server_id == request_row.server_id
             self._dpp_server_state.active_invoices_queue.put_nowait(request_row)
 
-        pr_future, key_data = self._account.create_payment_request(
-            message=_("Receive faucet dust for coin-splitting."), dpp_invoice_id=new_dpp_invoice_id,
-            server_id=self._dpp_server_state.server.server_id, expiration_seconds=5*60)
+        # TODO(1.4.0) DPP. Faucets used to send what they sent. We have no way of requesting this.
+        date_expires = int(time.time()) + 5 * 60
+        pr_future, key_data = self._account.create_payment_request(1000000000,
+            _("Receive faucet dust for coin-splitting."),
+            _("Please give me faucet coins"), dpp_invoice_id=new_dpp_invoice_id,
+            server_id=self._dpp_server_state.server.server_id, date_expires=date_expires)
         pr_future.add_done_callback(callback)
 
         script_type = self._account.get_default_script_type()

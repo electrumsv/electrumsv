@@ -67,17 +67,17 @@ stages:
         parameters:
           pythonVersion: '3.10'
 
-  - job: RESTAPIUnittests
-    displayName: REST API tests (Python 3.10)
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-      - template: prepare-general-environment.yml
-        parameters:
-          pythonVersion: '3.10'
-      - template: run_restapi_unittests.yml
-        parameters:
-          pythonVersion: '3.10'
+  # - job: RESTAPIUnittests
+  #   displayName: REST API tests (Python 3.10)
+  #   pool:
+  #     vmImage: 'ubuntu-latest'
+  #   steps:
+  #     - template: prepare-general-environment.yml
+  #       parameters:
+  #         pythonVersion: '3.10'
+  #     - template: run_restapi_unittests.yml
+  #       parameters:
+  #         pythonVersion: '3.10'
 
   - job: TestFunctional
     displayName: Functional tests (Python 3.10)

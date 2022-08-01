@@ -177,7 +177,7 @@ class Daemon(DaemonThread):
         os.close(fd)
 
         self.default_api = DefaultEndpoints()
-        self.rest_server.register_routes(self.default_api)
+        self.rest_server.add_routes(self.default_api.routes)
 
     def init_thread_watcher(self) -> None:
         import threading

@@ -194,37 +194,42 @@ class PushDataRegistrationRow(NamedTuple):
 class PaymentRequestReadRow(NamedTuple):
     paymentrequest_id: int
     keyinstance_id: int
-    dpp_invoice_id: str
     state: PaymentFlag
-    requested_value: Optional[int]
-    received_value: Optional[int]
-    expiration: Optional[int]
-    description: Optional[str]
+    requested_value: int | None
+    received_value: int | None
+    expiration: int | None
+    description: str | None
     script_type: ScriptType
     pushdata_hash: bytes
-    server_id: int
-    date_created: int = -1
+    server_id: int | None
+    dpp_invoice_id: str | None
+    merchant_reference: str | None
+    date_created: int
 
 
 class PaymentRequestRow(NamedTuple):
     paymentrequest_id: int
     keyinstance_id: int
-    dpp_invoice_id: Optional[str]
     state: PaymentFlag
-    requested_value: Optional[int]
-    expiration: Optional[int]
-    description: Optional[str]
+    requested_value: int | None
+    expiration: int | None
+    # The local label we apply to transactions (seen in the history tab) received.
+    description: str | None
     script_type: ScriptType
     pushdata_hash: bytes
-    server_id: Optional[int]
-    date_created: int = -1
+    server_id: int | None
+    dpp_invoice_id: str | None
+    # What we put in any outgoing payment terms to describe what the payee is paying for.
+    merchant_reference: str | None
+    date_created: int
 
 
 class PaymentRequestUpdateRow(NamedTuple):
     state: PaymentFlag
-    value: Optional[int]
-    expiration: Optional[int]
-    description: Optional[str]
+    value: int | None
+    expiration: int | None
+    description: str | None
+    merchant_reference: str | None
     paymentrequest_id: int
 
 

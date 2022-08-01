@@ -2,6 +2,7 @@ from __future__ import annotations
 import base64
 import concurrent.futures
 import os
+import time
 from typing import Any, cast, Optional, TYPE_CHECKING
 import weakref
 
@@ -272,11 +273,17 @@ class ReceiveDialog(QDialog):
         self._receive_destination_edit.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         form.add_row(_('Payment destination'), self._receive_destination_edit)
 
-        self._receive_message_e = QLineEdit()
-        form.add_row(_('Description'), self._receive_message_e)
-        self._receive_message_e.setText(
+        self._your_description_edit = QLineEdit()
+        form.add_row(_('Your description'), self._your_description_edit)
+        self._your_description_edit.setText(
             "" if self._request_row is None or self._request_row.description is None
             else self._request_row.description)
+
+        self._their_description_edit = QLineEdit()
+        form.add_row(_('Their description'), self._their_description_edit)
+        self._their_description_edit.setText(
+            "" if self._request_row is None or self._request_row.merchant_reference is None
+            else self._request_row.merchant_reference)
 
         self._receive_amount_e = BTCAmountEdit()
         self._fiat_receive_e = AmountEdit(app_state.fx.get_currency if app_state.fx else lambda: '')
@@ -363,7 +370,7 @@ class ReceiveDialog(QDialog):
 
     def _connect_widgets(self) -> None:
         self._receive_destination_edit.textChanged.connect(self._update_receive_qr)
-        self._receive_message_e.textChanged.connect(self._update_receive_qr)
+        self._their_description_edit.textChanged.connect(self._update_receive_qr)
         self._receive_amount_e.textChanged.connect(self._update_receive_qr)
         self._receive_qr.mouse_release_signal.connect(self._toggle_qr_window)
 
@@ -423,7 +430,7 @@ class ReceiveDialog(QDialog):
         assert self._key_data is not None
 
         amount = self._receive_amount_e.get_amount()
-        message = self._receive_message_e.text()
+        message = self._their_description_edit.text()
         self._save_button.setEnabled((amount is not None) or (message != ""))
 
         if self._request_type & PaymentFlag.INVOICE == PaymentFlag.INVOICE \
@@ -575,23 +582,34 @@ class ReceiveDialog(QDialog):
         The user clicked the "Create"/"Update" button.
         """
         # These are the same constraints imposed in the receive view.
-        message = self._receive_message_e.text()
-        if not message:
-            self._main_window_proxy.show_error(_('A description is required.'))
+        your_text = self._your_description_edit.text().strip()
+        if len(your_text) == 0:
+            self._main_window_proxy.show_error(_('Your description is required.'))
             return
 
+        their_text: str | None = None
+        raw_their_text = self._their_description_edit.text().strip()
+        if len(raw_their_text) > 0:
+            their_text = raw_their_text
+
         amount = self._receive_amount_e.get_amount()
-        if not amount:
-            amount = None
+        if amount is None or amount <= 0:
+            self._main_window_proxy.show_error(_('An amount is required.'))
+            return
 
         if self._request_row is None:
-            self._on_create_button_clicked(message, amount)
+            self._on_create_button_clicked(amount, your_text, their_text)
         else:
-            self._on_update_button_clicked(message, amount)
+            self._on_update_button_clicked(amount, your_text, their_text)
 
-    def _on_create_button_clicked(self, message: str, amount: Optional[int]) -> None:
+    def _on_create_button_clicked(self, amount: int, your_text: str,
+            their_text: str | None) -> None:
         expires_index = self._expires_combo.currentIndex()
         duration_seconds = EXPIRATION_VALUES[expires_index][1]
+
+        date_expires: int | None = None
+        if duration_seconds is not None:
+            date_expires = int(time.time()) + duration_seconds
 
         def callback(future: concurrent.futures.Future[list[PaymentRequestRow]]) -> None:
             """
@@ -656,15 +674,17 @@ class ReceiveDialog(QDialog):
             self._account.get_wallet().dpp_proxy_server_states
         # TODO(1.4.0) DPP. Should have more sophisticated server selection than this
         self._dpp_server_state = dpp_server_states[0]
-        future, _key_data = self._account.create_payment_request(message=message,
-            dpp_invoice_id=new_dpp_invoice_id, server_id=self._dpp_server_state.server.server_id,
-            amount=amount, expiration_seconds=duration_seconds, flags=self._request_type)
+        future, _key_data = self._account.create_payment_request(amount, your_text,
+            server_id=self._dpp_server_state.server.server_id,
+            dpp_invoice_id=new_dpp_invoice_id, merchant_reference=their_text,
+            date_expires=date_expires, flags=self._request_type)
         future.add_done_callback(callback)
 
         # Prevent double-clicking.
         self._save_button.setEnabled(False)
 
-    def _on_update_button_clicked(self, message: str, amount: Optional[int]) -> None:
+    def _on_update_button_clicked(self, amount: int, your_text: str,
+            their_text: str | None) -> None:
         assert self._request_row is not None
 
         def callback(future: concurrent.futures.Future[None]) -> None:
@@ -689,7 +709,8 @@ class ReceiveDialog(QDialog):
         #     server registrations if we do support this in the future, we will need to do a
         #     different form of update where it contacts the server and modifies it.
         entries = [ PaymentRequestUpdateRow(self._request_row.state, amount,
-            self._request_row.expiration, message, self._request_row.paymentrequest_id) ]
+            self._request_row.expiration, your_text, their_text,
+            self._request_row.paymentrequest_id) ]
         future = wallet.data.update_payment_requests(entries)
         future.add_done_callback(callback)
 

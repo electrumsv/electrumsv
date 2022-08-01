@@ -1073,14 +1073,17 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert len(rows) == 0
 
     LINE_COUNT = 3
-    dpp_invoice_id = "ABCDEFG"
+    dpp_invoice_id = "dpp_invoice_id"
+    merchant_reference = "merchant_reference"
     server_id = 1
     date_created = int(get_posix_timestamp())
     expiration = date_created + 60*60
-    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, dpp_invoice_id, PaymentFlag.PAID, None,
-        expiration, TX_DESC1, ScriptType.P2PKH, b'', server_id, date_created)
-    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, dpp_invoice_id, PaymentFlag.UNPAID, 100,
-        expiration, TX_DESC2, ScriptType.P2PKH, b'', server_id)
+    line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None,
+        expiration, TX_DESC1, ScriptType.P2PKH, b'', server_id, dpp_invoice_id, merchant_reference,
+        date_created)
+    line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100,
+        expiration, TX_DESC2, ScriptType.P2PKH, b'', server_id, dpp_invoice_id, merchant_reference,
+        date_created)
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.
@@ -1201,7 +1204,8 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
 
     ## Continue.
     future = db_context.post_to_thread(db_functions.update_payment_requests_write, [
-        PaymentRequestUpdateRow(PaymentFlag.UNKNOWN, 20, 999, "newdesc", line2.paymentrequest_id) ])
+        PaymentRequestUpdateRow(PaymentFlag.UNKNOWN, 20, 999, "newdesc", "newmerchantref",
+        line2.paymentrequest_id) ])
     future.result()
 
     db_lines = db_functions.read_payment_requests(db_context, ACCOUNT_ID)

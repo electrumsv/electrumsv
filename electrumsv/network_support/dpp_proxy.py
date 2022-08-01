@@ -99,16 +99,19 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
     - ServerConnectionState.dpp_messages_queue is used for received messages
     """
     assert state.wallet_data is not None
+    assert payment_request_row.dpp_invoice_id is not None
     try:
         headers = {"Accept": "application/json"}
-        BASE_URL = state.server.url.replace("http", "ws")
-        logger.debug(f"Opening DPP websocket for payment request: {payment_request_row}")
-        websocket_url = f"{BASE_URL.rstrip('/')}/ws/{payment_request_row.dpp_invoice_id}"+ \
-            "?internal=true"
+        server_url = state.server.url.replace("http", "ws")
+        logger.debug("Opening DPP websocket for payment request: %s", payment_request_row)
+        # TODO(1.4.0) DPP / AustEcon. Describe what `internal=true` means.
+        websocket_url = f"{server_url}ws/{payment_request_row.dpp_invoice_id}?internal=true"
 
+        # TODO(1.4.0) DPP / AustEcon. Rationalise why five seconds timeout.
         async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
                 as server_websocket:
             state.dpp_websockets[payment_request_row.dpp_invoice_id] = server_websocket
+
             websocket_message: aiohttp.WSMessage
             async for websocket_message in server_websocket:
                 if websocket_message.type == aiohttp.WSMsgType.TEXT:
@@ -118,10 +121,7 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
                                               "format")
 
                 _validate_dpp_message_json(message_json)
-                if message_json["expiration"] is not None:
-                    expiration = message_json["expiration"]
-                else:
-                    expiration = None
+                expiration_date_text = message_json["expiration"]
 
                 dpp_message = DPPMessageRow(
                     message_id=message_json["messageId"],
@@ -131,7 +131,7 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
                     app_id=message_json["appId"],
                     client_id=message_json["clientID"],
                     user_id=message_json["userId"],
-                    expiration=expiration,
+                    expiration=expiration_date_text,
                     body=json.dumps(message_json["body"]).encode('utf-8'),
                     timestamp=message_json["timestamp"],
                     type=message_json["type"]
@@ -157,7 +157,7 @@ async def manage_dpp_network_connections_async(state: ServerConnectionState) -> 
     try:
         while True:
             payment_request_row = await state.active_invoices_queue.get()
-            app_state.async_.spawn(create_dpp_ws_connection_task_async(state, payment_request_row))
+            app_state.app.run_coro(create_dpp_ws_connection_task_async(state, payment_request_row))
     except Exception:
         logger.exception("Exception in manage_dpp_connections_async")
     finally:
