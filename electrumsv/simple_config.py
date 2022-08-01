@@ -225,12 +225,19 @@ class SimpleConfig:
         os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
 
     def get_preferred_wallet_dirpath(self) -> str:
+        """
+        Raises `FileNotFoundError` if default wallet folder is not found, should it fall back to
+            looking at that as the option to use.
+        """
         wallet_path = self.get_cmdline_wallet_filepath()
         if wallet_path is not None:
             return os.path.dirname(os.path.abspath(wallet_path))
         return self.get_default_wallet_dirpath()
 
     def get_default_wallet_dirpath(self) -> str:
+        """
+        Raises `FileNotFoundError` if `self.path` is not found.
+        """
         util.assert_datadir_available(self.path)
         path = os.path.join(self.path, "wallets")
         make_dir(path)

@@ -1119,6 +1119,9 @@ class AbstractAccount:
     def delete_hosted_invoice(self, invoice_id: str) -> None:
         pass
 
+    def pay_hosted_invoice(self, pay_url: str) -> None:
+        pass
+
 
 
 class SimpleAccount(AbstractAccount):
@@ -2351,6 +2354,10 @@ class Wallet:
 
     def get_storage(self) -> WalletStorage:
         return self._storage
+
+    def get_master_keystore(self) -> BIP32_KeyStore:
+        assert self._wallet_master_keystore is not None
+        return self._wallet_master_keystore
 
     def get_keystore(self, keystore_id: int) -> KeyStore:
         return self._keystores[keystore_id]

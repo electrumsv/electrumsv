@@ -35,13 +35,11 @@ from electrumsv.storage import WalletStorage
 from electrumsv.transaction import Transaction
 from electrumsv.logs import logs
 from electrumsv.networks import BitcoinRegtest, Net
-from electrumsv.restapi import Fault, fault_to_http_response
 from electrumsv.startup import base_dir
 from electrumsv.types import KeyStoreResult, TransactionSize
 
 from .errors import Errors
-from .handler_utils import ExtendedHandlerUtils, VNAME, InsufficientCoinsError, \
-    WalletInstanceKind, WalletInstancePaths
+from .handler_utils import ExtendedHandlerUtils, VNAME, WalletInstanceKind, WalletInstancePaths
 from .txstatewebsocket import TxStateWebSocket
 
 

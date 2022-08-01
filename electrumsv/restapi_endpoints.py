@@ -1,19 +1,21 @@
 """This is designed with extensibility in mind - see examples/applications/restapi. """
 from __future__ import annotations
 import json
+import os
 from types import NoneType
-from typing import cast, TYPE_CHECKING
+from typing import cast
 from typing_extensions import NotRequired, TypedDict
 
 from aiohttp import web
+from bitcoinx import PublicKey
 
 from .logs import logs
 from .app_state import app_state
+from .constants import CredentialPolicyFlag
 from .networks import Net
 from .restapi import get_network_type
-
-if TYPE_CHECKING:
-    from .wallet import AbstractAccount, Wallet
+from .storage import WalletStorage
+from .wallet import AbstractAccount, Wallet
 
 
 logger = logs.get_logger("restapi-endpoints")
@@ -143,16 +145,17 @@ class LocalEndpoints:
     def routes(self) -> list[web.RouteDef]:
         return [
             web.get("/", self.status),
-            web.get("/v1/{network}/ping", self.ping),
+            web.get("/v1/{network}/ping", self.ping_async),
 
-            web.get("/v1/{network}/wallet", self.wallet_status),
-            web.post("/v1/{network}/wallet", self.create_wallet),
-            web.post("/v1/{network}/{wallet}/account", self.create_account),
+            web.post("/v1/{network}/wallet", self.create_wallet_async),
+            web.get("/v1/{network}/{wallet}", self.load_wallet_async),
+            web.post("/v1/{network}/{wallet}/account", self.create_account_async),
 
-            web.post("/v1/{network}/{wallet}/{account}/pay", self.pay_invoice),
-            web.post("/v1/{network}/{wallet}/{account}/invoices", self.create_hosted_invoice),
+            web.post("/v1/{network}/{wallet}/{account}/pay", self.pay_invoice_async),
+            web.post("/v1/{network}/{wallet}/{account}/invoices",
+                self.create_hosted_invoice_async),
             web.delete("/v1/{network}/{wallet}/{account}/invoices/{invoice_id}",
-                self.delete_hosted_invoice),
+                self.delete_hosted_invoice_async),
         ]
 
     async def status(self, request: web.Request) -> web.Response:
@@ -160,24 +163,121 @@ class LocalEndpoints:
             "network": get_network_type(),
         })
 
-    async def ping(self, request: web.Request) -> web.Response:
+    async def ping_async(self, request: web.Request) -> web.Response:
         check_network_for_request(request)
         return web.json_response(True)
 
-    async def wallet_status(self, request: web.Request) -> web.Response:
-        """ ... """
-        load_flag_text = request.match_info.get("load")
-        load_flag = load_flag_text is not None and load_flag_text.lower() == "yes"
-        return web.json_response(True)
+    async def load_wallet_async(self, request: web.Request) -> web.Response:
+        """ Load an existing wallet or get the loaded status of it if it is already loaded. """
+        try:
+            wallet_folder_path = app_state.config.get_preferred_wallet_dirpath()
+        except FileNotFoundError:
+            raise web.HTTPInternalServerError(reason="No preferred wallet path")
 
-    async def create_wallet(self, request: web.Request) -> web.Response:
-        """ ... """
-        return web.json_response(True)
+        raw_file_name = request.query.get("file_name")
+        if raw_file_name is None or len(raw_file_name) == 0:
+            raise web.HTTPBadRequest(reason="Invalid parameter 'file_name'")
 
-    async def create_account(self, request: web.Request) -> web.Response:
-        return web.json_response(True)
+        wallet_password = request.query.get("password")
+        if wallet_password is None or len(wallet_password) < 6:
+            raise web.HTTPBadRequest(reason="Invalid parameter 'password'")
 
-    async def create_hosted_invoice(self, request: web.Request) -> web.Response:
+        file_name = WalletStorage.canonical_path(raw_file_name)
+        wallet_path = os.path.join(wallet_folder_path, file_name)
+        wallet_path = os.path.normpath(wallet_path)
+        if not os.path.exists(wallet_path):
+            raise web.HTTPBadRequest(reason=f"Wallet file does not exist '{raw_file_name}'")
+
+        app_state.credentials.set_wallet_password(wallet_path, wallet_password,
+            CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
+        # This will load any wallet that is not already loaded and return an already loaded one.
+        wallet = app_state.daemon.load_wallet(wallet_path)
+        if wallet is None:
+            # The reason for this will be in the debug log.
+            raise web.HTTPBadRequest(reason=f"Unable to load wallet '{raw_file_name}'")
+
+        accounts_ids = [ account.get_id() for account in wallet.get_visible_accounts() ]
+
+        wallet_status: WalletStatusDict = {
+            "ephemeral_wallet_id": wallet.get_id(),
+            "wallet_path": wallet_path,
+            "account_ids": accounts_ids,
+        }
+        return web.json_response(wallet_status)
+
+    async def create_wallet_async(self, request: web.Request) -> web.Response:
+        """ Creates a new wallet using a specified file name and password. """
+        try:
+            wallet_folder_path = app_state.config.get_preferred_wallet_dirpath()
+        except FileNotFoundError:
+            raise web.HTTPInternalServerError(reason="No preferred wallet path")
+
+        body_data = request.json()
+        if not isinstance(body_data, dict) or "file_name" not in body_data or \
+                "password" not in body_data:
+            raise web.HTTPBadRequest(reason="Invalid request body")
+        body_dict = cast(CreateWalletRequestDict, body_data)
+
+        file_name = body_dict["file_name"]
+        if not isinstance(file_name, str):
+            raise web.HTTPBadRequest(reason="Invalid request body 'file_name'")
+
+        wallet_password = body_dict["password"]
+        if not isinstance(wallet_password, str) or len(wallet_password) < 6:
+            raise web.HTTPBadRequest(reason="Invalid request body 'password'")
+
+        encryption_public_key: PublicKey | None = None
+        encryption_key_hex = body_dict.get("encryption_key_hex", None)
+        if encryption_key_hex is not None:
+            try:
+                encryption_key_bytes = bytes.fromhex(encryption_key_hex)
+                encryption_public_key = PublicKey.from_bytes(encryption_key_bytes)
+            except ValueError:
+                raise web.HTTPBadRequest(reason="Invalid request body 'encryption_key_hex'")
+
+        raw_wallet_path = os.path.normpath(os.path.join(wallet_folder_path, file_name))
+        wallet_path = WalletStorage.canonical_path(raw_wallet_path)
+        if os.path.exists(wallet_path):
+            raise web.HTTPBadRequest(reason=f"Wallet file already exists '{file_name}'")
+
+        password_token = app_state.credentials.set_wallet_password(wallet_path, wallet_password,
+            CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
+        assert password_token is not None
+        storage = WalletStorage.create(wallet_path, password_token)
+        wallet = Wallet(storage, wallet_password)
+        # Register the wallet with the daemon so that it is effectively loaded after this call.
+        app_state.daemon.start_wallet(wallet)
+
+        wallet_status: WalletStatusDict = {
+            "ephemeral_wallet_id": wallet.get_id(),
+            "wallet_path": wallet_path,
+            "account_ids": [],
+        }
+        # If the API client provided an encryption public key we return the wallet seed words,
+        # but ECIES encrypted so that they do not pass over the wire unencrypted.
+        if encryption_public_key is not None:
+            wallet_keystore = wallet.get_master_keystore()
+            wallet_status["wallet_seed"] = encryption_public_key.encrypt_message(
+                wallet_keystore.get_seed(wallet_password)).hex()
+        return web.json_response(wallet_status)
+
+    async def create_account_async(self, request: web.Request) -> web.Response:
+        """ Create a new standard account in the wallet. """
+        wallet_password = request.query.get("password")
+        if wallet_password is None or len(wallet_password) < 6:
+            raise web.HTTPBadRequest(reason="Invalid parameter 'password'")
+
+        wallet = get_wallet_from_request(request)
+
+        keystore_result = wallet.derive_child_keystore(for_account=True, password=wallet_password)
+        account = wallet.create_account_from_keystore(keystore_result)
+
+        account_status: AccountStatusDict = {
+            "account_id": account.get_id(),
+        }
+        return web.json_response(account_status)
+
+    async def create_hosted_invoice_async(self, request: web.Request) -> web.Response:
         """ Create a new invoice with the expectation it is hosted for it to succeed. """
         # Process the route.
         check_network_for_request(request)
@@ -191,17 +291,17 @@ class LocalEndpoints:
 
         payment_amount = body_dict["satoshis"]
         if not isinstance(payment_amount, int):
-            raise web.HTTPBadRequest(reason="Invalid request body 'expiresAt'")
+            raise web.HTTPBadRequest(reason="Invalid request body 'satoshis'")
 
-        expiry_date_text = body_dict.get("expiresAt", None)
+        expiry_date_text = body_dict.get("expiresAt")
         if not isinstance(expiry_date_text, (NoneType, str)):
             raise web.HTTPBadRequest(reason="Invalid request body 'expiresAt'")
 
-        description = body_dict.get("description", None)
+        description = body_dict.get("description")
         if not isinstance(description, (NoneType, str)):
             raise web.HTTPBadRequest(reason="Invalid request body 'description'")
 
-        merchant_reference = body_dict.get("reference", None)
+        merchant_reference = body_dict.get("reference")
         if not isinstance(merchant_reference, (NoneType, str)):
             raise web.HTTPBadRequest(reason="Invalid request body 'reference'")
 
@@ -213,7 +313,7 @@ class LocalEndpoints:
         # TODO Convert the invoice data to a response.
         return web.json_response(True)
 
-    async def delete_hosted_invoice(self, request: web.Request) -> web.Response:
+    async def delete_hosted_invoice_async(self, request: web.Request) -> web.Response:
         """ Close the hosted invoice out and stop hosting it. """
         # Process the route.
         check_network_for_request(request)
@@ -230,7 +330,8 @@ class LocalEndpoints:
         # TODO Extract input parameters
         return web.json_response(True)
 
-    async def pay_invoice(self, request: web.Request) -> web.Response:
+    async def pay_invoice_async(self, request: web.Request) -> web.Response:
+        """ Pay someone else's invoice using the given account. """
         # Process the route.
         check_network_for_request(request)
         wallet, account = get_account_from_request(request)
@@ -239,10 +340,24 @@ class LocalEndpoints:
         if not isinstance(body_data, dict) or "payToURL" not in body_data:
             raise web.HTTPBadRequest(reason="Invalid request body")
         body_dict = cast(PayRequestDict, body_data)
-        pay_url = body_dict["payToURL"]
+        account.pay_hosted_invoice(body_dict["payToURL"])
 
         return web.json_response(True)
 
+
+class CreateWalletRequestDict(TypedDict):
+    file_name: str
+    password: str
+    encryption_key_hex: NotRequired[str]
+
+class WalletStatusDict(TypedDict):
+    ephemeral_wallet_id: int
+    wallet_path: str
+    account_ids: list[int]
+    wallet_seed: NotRequired[str]
+
+class AccountStatusDict(TypedDict):
+    account_id: int
 
 class CreateInvoiceRequestDict(TypedDict):
     satoshis: int
@@ -252,7 +367,6 @@ class CreateInvoiceRequestDict(TypedDict):
     description: NotRequired[str]
     # The reference for the payment to be given to the merchant.
     reference: NotRequired[str]
-
 
 class PayRequestDict(TypedDict):
     payToURL: str

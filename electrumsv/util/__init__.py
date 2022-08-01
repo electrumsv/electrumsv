@@ -146,6 +146,9 @@ def profiler(func: Callable[..., T1]) -> Callable[..., T1]:
 
 
 def assert_datadir_available(config_path: str) -> None:
+    """
+    Raises `FileNotFoundError` if the given path is not found.
+    """
     path = config_path
     if os.path.exists(path):
         return
