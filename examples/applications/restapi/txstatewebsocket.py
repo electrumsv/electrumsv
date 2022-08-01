@@ -9,7 +9,8 @@ from aiohttp import web
 from bitcoinx import hex_str_to_hash
 
 from electrumsv.logs import logs
-from electrumsv.restapi import Fault
+# TODO(1.4.0) RESTAPI clean this up after replacing the `Fault` concept
+# from electrumsv.restapi import Fault
 from electrumsv.wallet import AbstractAccount
 
 from examples.applications.restapi.handler_utils import VNAME
@@ -70,8 +71,9 @@ class TxStateWebSocket(web.View):
             self.logger.debug('%s connected. host=%s.', client.ws_id, self.request.host)
             await self._handle_new_txid_registration(client)
             return ws
-        except Fault as e:
-            await ws.send_str(json.dumps({'code': e.code, 'message': e.message}))
+        # TODO(1.4.0) RESTAPI. Revisit this after cleanup of removing `Fault` concept
+        # except Fault as e:
+        #     await ws.send_str(json.dumps({'code': e.code, 'message': e.message}))
         finally:
             await ws.close()
             self.logger.debug("deleting %s registration", ws_id)

@@ -12,6 +12,7 @@
 # - Add a `pay` API where the caller just provides a destination address and the wallet manages
 #   everything and just returns some result to indicate success.
 
+import aiorpcx
 import asyncio
 import atexit
 from functools import partial
@@ -38,7 +39,6 @@ from electrumsv.networks import BitcoinRegtest, Net
 from electrumsv.startup import base_dir
 from electrumsv.types import KeyStoreResult, TransactionSize
 
-from .errors import Errors
 from .handler_utils import ExtendedHandlerUtils, VNAME, WalletInstanceKind, WalletInstancePaths
 from .txstatewebsocket import TxStateWebSocket
 
@@ -413,16 +413,19 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         results = []
         if txids:
             for txid in txids:
-                try:
-                    self.remove_transaction(bitcoinx.hex_str_to_hash(txid), account)
-                    results.append({"id": txid, "result": 200})
-                except Fault as e:
-                    if e.code == Errors.DISABLED_FEATURE_CODE:
-                        results.append({"id": txid, "result": 400,
-                                        "description": Errors.DISABLED_FEATURE_MESSAGE})
-                    if e.code == Errors.TRANSACTION_NOT_FOUND_CODE:
-                        results.append({"id": txid, "result": 400,
-                                        "description": Errors.TRANSACTION_NOT_FOUND_MESSAGE})
+                # TODO(1.4.0) RESTAPI - Revisit this to ensure the errors are handled and propagated
+                self.remove_transaction(bitcoinx.hex_str_to_hash(txid), account)
+                results.append({"id": txid, "result": 200})
+                # try:
+                #     self.remove_transaction(bitcoinx.hex_str_to_hash(txid), account)
+                #     results.append({"id": txid, "result": 200})
+                # except Fault as e:
+                #     if e.code == Errors.DISABLED_FEATURE_CODE:
+                #         results.append({"id": txid, "result": 400,
+                #                         "description": Errors.DISABLED_FEATURE_MESSAGE})
+                #     if e.code == Errors.TRANSACTION_NOT_FOUND_CODE:
+                #         results.append({"id": txid, "result": 400,
+                #                         "description": Errors.TRANSACTION_NOT_FOUND_MESSAGE})
         return self.batch_response({"items": results})
 
     async def get_transaction_history(self, request: web.Request) -> web.Response:
@@ -474,7 +477,9 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         try:
             result = await self._broadcast_transaction(str(tx), tx.hash(), account)
         except aiorpcx.jsonrpc.RPCError as e:
-            raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
+            # TODO(1.4.0) RESTAPI: Handle this
+            # raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
+            pass
         self.prev_transaction = result
         response = {"txid": result}
         self.logger.debug("successful broadcast for %s", result)
@@ -505,7 +510,9 @@ class ExtensionEndpoints(ExtendedHandlerUtils):
         try:
             result = await self._broadcast_transaction(rawtx, tx.hash(), account)
         except aiorpcx.jsonrpc.RPCError as e:
-            raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
+            # TODO(1.4.0) RESTAPI. handle this
+            # raise Fault(Errors.AIORPCX_ERROR_CODE, e.message)
+            pass
         self.prev_transaction = result
         response = {"txid": result}
         return web.json_response(response)

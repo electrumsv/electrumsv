@@ -15,7 +15,9 @@ from electrumsv.coinchooser import PRNG
 from electrumsv.constants import (CHANGE_SUBPATH, CredentialPolicyFlag, DATABASE_EXT,
     TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletSettings)
 from electrumsv.exceptions import NotEnoughFunds
-from electrumsv.restapi_endpoints import ARGTYPES, VARNAMES
+
+# TODO(1.4.0) RESTAPI. Decide what to do with these imports
+# from electrumsv.restapi_endpoints import ARGTYPES, VARNAMES
 from electrumsv.transaction import Transaction
 from electrumsv.wallet import AbstractAccount, Wallet
 from electrumsv.logs import logs
@@ -41,7 +43,7 @@ class InsufficientCoinsError(Exception):
 
 
 # Request variables
-class VNAME(VARNAMES):
+class VNAME:
     AMOUNT = 'amount'
     NETWORK = 'network'
     ACCOUNT_ID = 'account_id'
@@ -93,7 +95,8 @@ ADDITIONAL_ARGTYPES: Dict[str, type] = {
     VNAME.MESSAGE: str,
 }
 
-ARGTYPES.update(ADDITIONAL_ARGTYPES)
+# TODO(1.4.0) RESTAPI. Decide what to do with this - remove? keep?
+# ARGTYPES.update(ADDITIONAL_ARGTYPES)
 
 ROUTE_VARS = [VNAME.NETWORK, VNAME.ACCOUNT_ID, VNAME.WALLET_NAME, VNAME.WALLET_ID]
 BODY_VARS = [VNAME.PASSWORD, VNAME.RAWTX, VNAME.TXIDS, VNAME.UTXOS, VNAME.OUTPUTS,
