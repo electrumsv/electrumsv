@@ -44,7 +44,7 @@ from .wallet_database.types import PaymentRequestReadRow
 
 if TYPE_CHECKING:
     from .network_support.api_server import NewServer
-    from .dpp_messages import PaymentRequest
+    from .dpp_messages import PaymentTerms
     from .simple_config import SimpleConfig
 
 

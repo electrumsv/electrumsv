@@ -178,7 +178,7 @@ class InvoiceList(MyTreeWidget):
 
     # TODO(invoice-import) What format are these imported files? No idea.
     #   This imported some json files directly into an invoice store.
-    #   https://github.com/electrumsv/electrumsv/blob/sv-1.2.5/electrumsv/dpp_messages.py#L523
+    #   https://github.com/electrumsv/electrumsv/blob/sv-1.2.5/electrumsv/paymentrequest.py#L523
     # def import_invoices(self, account: AbstractAccount) -> None:
     #     try:
     #         wallet_folder = self.config.get_preferred_wallet_dirpath()
