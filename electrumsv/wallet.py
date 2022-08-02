@@ -78,9 +78,10 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
-from .network_support.dpp_proxy import _is_later_dpp_message_sequence, dpp_websocket_send, \
-    manage_dpp_network_connections_async, MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS, \
-    MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT_ACK
+from .network_support.dpp_proxy import _is_later_dpp_message_sequence, \
+    create_dpp_server_connections_async, dpp_websocket_send, \
+    MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_ACK, \
+    MSG_TYPE_PAYMENT_REQUEST_RESPONSE
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
@@ -1111,10 +1112,19 @@ class AbstractAccount:
         return future, key_data
 
     def create_hosted_invoice(self, amount_satoshis: int, expiry_date_text: str | None,
-            description: str | None, merchant_reference: str | None) -> bool:
+            description: str | None, merchant_reference: str | None) -> tuple[Any, int]:
+        # TODO Check that we can connect to the invoicing server.
+        #     TODO It is enough that we have existing connections to the server.
+        #     TODO Otherwise we should ping the server.
+        # if not network_support.dpp_proxy.ensure_dpp_server_connectivity(?):
+        #     return None, ERROR_NO_CONNECTABLE_SERVER
+
+        # TODO Create the invoice and engage the server connection.
+        #     TODO This is shared logic with the payment request code.
         external_invoice_id = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
-        # TODO(1.4.0) DPP. Should have more sophisticated server selection than this
-        return True
+
+        # TODO Return the invoice metadata to the caller.
+        return (True, 0)
 
     def delete_hosted_invoice(self, invoice_id: str) -> None:
         pass
@@ -4583,10 +4593,8 @@ class Wallet:
         from any state in the sequence if needed.
         """
         # Initialize ws:// connections for pre-existing active invoice records from the database
-        for pr_row in pr_rows_for_server:
-            state.active_invoices_queue.put_nowait(pr_row)
-
-        await asyncio.sleep(1)  # yield event loop so that websocket connections open
+        assert len(state.dpp_websockets) == 0
+        await create_dpp_server_connections_async(state, pr_rows_for_server)
 
         # Initialize the state machine message queue for pre-existing active invoice records
         paymentrequest_ids = [pr_row.paymentrequest_id for pr_row in pr_rows_for_server]
@@ -5016,8 +5024,6 @@ class Wallet:
                 credential_id=server.client_api_keys[None])
 
             self.dpp_proxy_server_states.append(state)
-            state.manage_dpp_connections_future = \
-                app_state.app.run_coro(manage_dpp_network_connections_async(state))
 
             pr_rows_for_server = server_to_pr_map[server]
             state.dpp_consumer_future = app_state.async_.spawn(
@@ -5190,9 +5196,6 @@ class Wallet:
             if state.dpp_consumer_future is not None:
                 state.dpp_consumer_future.cancel()
                 pending_futures.add(state.dpp_consumer_future)
-            if state.manage_dpp_connections_future is not None:
-                state.manage_dpp_connections_future.cancel()
-                pending_futures.add(state.manage_dpp_connections_future)
 
         if len(pending_futures) > 0:
             # This should never happen outside of in development errors. We include it both for

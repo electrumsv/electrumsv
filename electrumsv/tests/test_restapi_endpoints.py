@@ -24,6 +24,9 @@ async def test_load_wallet_async_no_file_name(mock_app_state: AppStateProxy, tmp
     request = unittest.mock.Mock()
 
     local_endpoints = LocalEndpoints()
+    request.match_info = {
+        "network": "mainnet",
+    }
     request.query = {
     }
     with pytest.raises(web.HTTPBadRequest) as exception_info:
@@ -37,6 +40,9 @@ async def test_load_wallet_async_no_password(mock_app_state: AppStateProxy, tmp_
     request = unittest.mock.Mock()
 
     local_endpoints = LocalEndpoints()
+    request.match_info = {
+        "network": "mainnet",
+    }
     request.query = {
         "file_name": "wallet_file_name",
     }
@@ -54,6 +60,9 @@ async def test_load_wallet_async_daemon_fail(mock_app_state: AppStateProxy, tmp_
     request = unittest.mock.Mock()
 
     local_endpoints = LocalEndpoints()
+    request.match_info = {
+        "network": "mainnet",
+    }
     request.query = {
         "file_name": "wallet_file_name",
         "password": "123456",
@@ -87,6 +96,9 @@ async def test_load_wallet_async_daemon_success(app_state_restapi: AppStateProxy
 
     local_endpoints = LocalEndpoints()
     request = unittest.mock.Mock()
+    request.match_info = {
+        "network": "mainnet",
+    }
     request.query = {
         "file_name": "wallet_file_name",
         "password": "123456",
@@ -105,6 +117,9 @@ async def test_create_wallet_async_invalid_body(mock_app_state: AppStateProxy, t
     """ Create a wallet with an invalid body. """
     mock_app_state.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
     request = unittest.mock.Mock()
+    request.match_info = {
+        "network": "mainnet",
+    }
     request.json = lambda: {
     }
 
@@ -119,6 +134,9 @@ async def test_create_wallet_async_invalid_file_name(mock_app_state: AppStatePro
     """ Create a wallet with invalid file name in the body. """
     mock_app_state.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
     request = unittest.mock.Mock()
+    request.match_info = {
+        "network": "mainnet",
+    }
     request.json = lambda: {
         "file_name": None,
         "password": "123456",
@@ -135,6 +153,9 @@ async def test_create_wallet_async_invalid_password(mock_app_state: AppStateProx
     """ Create a wallet with invalid password in the body. """
     mock_app_state.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
     request = unittest.mock.Mock()
+    request.match_info = {
+        "network": "mainnet",
+    }
     request.json = lambda: {
         "file_name": "wallet_file_name",
         "password": None,
@@ -159,6 +180,9 @@ async def test_create_wallet_async_success_no_seed(app_state_restapi: AppStatePr
     app_state_restapi.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
     app_state_restapi.credentials.set_wallet_password = lambda *args: password_token # type: ignore
     request = unittest.mock.Mock()
+    request.match_info = {
+        "network": "mainnet",
+    }
     request.json = lambda: {
         "file_name": "wallet_file_name",
         "password": "123456",
@@ -193,6 +217,9 @@ async def test_create_wallet_async_success_encrypted_seed(app_state_restapi: App
     private_key = PrivateKey.from_random()
     public_key = private_key.public_key
     request = unittest.mock.Mock()
+    request.match_info = {
+        "network": "mainnet",
+    }
     request.json = lambda: {
         "file_name": "wallet_file_name",
         "password": "123456",
@@ -218,3 +245,244 @@ async def test_create_wallet_async_success_encrypted_seed(app_state_restapi: App
     words = seed_words_text.split(" ")
     # We do not know what these words are, and we do not care. This is good enough to check.
     assert len(words) == 12
+
+# Endpoint: create account
+
+@unittest.mock.patch('electrumsv.keystore.app_state')
+@unittest.mock.patch(
+    'electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
+async def test_create_account_async_success(app_state_restapi: AppStateProxy,
+        app_state_wallet: AppStateProxy, app_state_migration: AppStateProxy,
+        app_state_keystore: AppStateProxy, tmp_path: Path) -> None:
+    """ Create an account. """
+    # BOILERPLATE STARTS
+    # Inject a wallet path so our folder path isn't a stringified magic mock.
+    app_state_restapi.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
+    # # Inject the wallet so the daemon does not have to exist.
+    # app_state_restapi.daemon.load_wallet = lambda wallet_path: wallet # type: ignore
+    # Ensure the wallet can access the password when being loaded.
+    app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "123456"
+    password_token = unittest.mock.Mock()
+    password_token.password = "123456"
+    app_state_restapi.credentials.set_wallet_password = lambda *args: password_token # type: ignore
+
+    canonical_wallet_path = WalletStorage.canonical_path(str(tmp_path / "wallet_file_name"))
+    password_token = unittest.mock.Mock()
+    password_token.password = "123456"
+    wallet_storage = WalletStorage.create(canonical_wallet_path, password_token)
+    local_wallet = Wallet(wallet_storage, "123456")
+
+    def get_wallet_by_id(wallet_id: int) -> Wallet:
+        nonlocal local_wallet
+        assert local_wallet.get_id() == wallet_id
+        return local_wallet
+    app_state_restapi.daemon.get_wallet_by_id = get_wallet_by_id
+    # BOILERPLATE ENDS
+
+    account_request = unittest.mock.Mock()
+    # Fake routing.
+    account_request.match_info = {
+        "network": "mainnet",
+        "wallet": str(local_wallet.get_id()),
+    }
+    # Fake query string.
+    account_request.query = {
+        "password": "123456",
+    }
+
+    local_endpoints = LocalEndpoints()
+    response = await local_endpoints.create_account_async(cast(web.Request, account_request))
+    account_data = json.loads(cast(bytes, response.body))
+    assert len(account_data) == 1
+    assert "account_id" in account_data
+    assert isinstance(account_data["account_id"], int)
+
+@unittest.mock.patch('electrumsv.keystore.app_state')
+@unittest.mock.patch(
+    'electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
+async def test_create_account_async_fail_no_wallet(app_state_restapi: AppStateProxy,
+        app_state_wallet: AppStateProxy, app_state_migration: AppStateProxy,
+        app_state_keystore: AppStateProxy, tmp_path: Path) -> None:
+    """ Create an account and fail because the referenced wallet does not exist. """
+    def get_wallet_by_id(wallet_id: int) -> Wallet | None:
+        return None
+
+    password_token = unittest.mock.Mock()
+    password_token.password = "123456"
+    app_state_restapi.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
+    app_state_restapi.daemon.get_wallet_by_id = get_wallet_by_id
+    app_state_restapi.credentials.set_wallet_password = lambda *args: password_token # type: ignore
+    # Ensure the wallet can access the password when being loaded.
+    app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "123456"
+    local_endpoints = LocalEndpoints()
+
+    account_request = unittest.mock.Mock()
+    # Fake routing.
+    account_request.match_info = {
+        "network": "mainnet",
+        "wallet": "223232",
+    }
+    # Fake query string.
+    account_request.query = {
+        "password": "123456",
+    }
+
+    local_endpoints = LocalEndpoints()
+    with pytest.raises(web.HTTPBadRequest) as exception_info:
+        await local_endpoints.create_account_async(cast(web.Request, account_request))
+    assert "Wallet with ID '223232' not currently loaded" == exception_info.value.args[0]
+
+@unittest.mock.patch('electrumsv.keystore.app_state')
+@unittest.mock.patch(
+    'electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
+async def test_create_account_async_bad_wallet_id(app_state_restapi: AppStateProxy,
+        app_state_wallet: AppStateProxy, app_state_migration: AppStateProxy,
+        app_state_keystore: AppStateProxy, tmp_path: Path) -> None:
+    """ Create an account. """
+    # BOILERPLATE STARTS
+    # Inject a wallet path so our folder path isn't a stringified magic mock.
+    app_state_restapi.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
+    # # Inject the wallet so the daemon does not have to exist.
+    # app_state_restapi.daemon.load_wallet = lambda wallet_path: wallet # type: ignore
+    # Ensure the wallet can access the password when being loaded.
+    app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "123456"
+    password_token = unittest.mock.Mock()
+    password_token.password = "123456"
+    app_state_restapi.credentials.set_wallet_password = lambda *args: password_token # type: ignore
+
+    canonical_wallet_path = WalletStorage.canonical_path(str(tmp_path / "wallet_file_name"))
+    password_token = unittest.mock.Mock()
+    password_token.password = "123456"
+    wallet_storage = WalletStorage.create(canonical_wallet_path, password_token)
+    local_wallet = Wallet(wallet_storage, "123456")
+
+    def get_wallet_by_id(wallet_id: int) -> Wallet:
+        nonlocal local_wallet
+        assert local_wallet.get_id() == wallet_id
+        return local_wallet
+    app_state_restapi.daemon.get_wallet_by_id = get_wallet_by_id
+    # BOILERPLATE ENDS
+
+    account_request = unittest.mock.Mock()
+    # Fake routing.
+    account_request.match_info = {
+        "network": "mainnet",
+        "wallet": "none",           # NOTE: The existing wallet proves that it is not matched.
+    }
+    # Fake query string.
+    account_request.query = {
+        "password": "123456",
+    }
+
+    local_endpoints = LocalEndpoints()
+    with pytest.raises(web.HTTPBadRequest) as exception_info:
+        await local_endpoints.create_account_async(cast(web.Request, account_request))
+    assert "URL 'wallet' value invalid" == exception_info.value.args[0]
+
+@unittest.mock.patch('electrumsv.keystore.app_state')
+@unittest.mock.patch(
+    'electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
+async def test_create_account_async_fail_wallet_password(app_state_restapi: AppStateProxy,
+        app_state_wallet: AppStateProxy, app_state_migration: AppStateProxy,
+        app_state_keystore: AppStateProxy, tmp_path: Path) -> None:
+    """ Create an account. """
+    # BOILERPLATE STARTS
+    # Inject a wallet path so our folder path isn't a stringified magic mock.
+    app_state_restapi.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
+    # # Inject the wallet so the daemon does not have to exist.
+    # app_state_restapi.daemon.load_wallet = lambda wallet_path: wallet # type: ignore
+    # Ensure the wallet can access the password when being loaded.
+    app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "123456"
+    password_token = unittest.mock.Mock()
+    password_token.password = "123456"
+    app_state_restapi.credentials.set_wallet_password = lambda *args: password_token # type: ignore
+
+    canonical_wallet_path = WalletStorage.canonical_path(str(tmp_path / "wallet_file_name"))
+    password_token = unittest.mock.Mock()
+    password_token.password = "123456"
+    wallet_storage = WalletStorage.create(canonical_wallet_path, password_token)
+    local_wallet = Wallet(wallet_storage, "123456")
+
+    def get_wallet_by_id(wallet_id: int) -> Wallet:
+        nonlocal local_wallet
+        assert local_wallet.get_id() == wallet_id
+        return local_wallet
+    app_state_restapi.daemon.get_wallet_by_id = get_wallet_by_id
+    # BOILERPLATE ENDS
+
+    account_request = unittest.mock.Mock()
+    # Fake routing.
+    account_request.match_info = {
+        "network": "mainnet",
+        "wallet": str(local_wallet.get_id()),
+    }
+    # Fake query string.
+    account_request.query = {
+        "password": "BAD_123456",
+    }
+    password_token.password = "BAD_123456"
+    app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "BAD_123456"
+
+    local_endpoints = LocalEndpoints()
+    with pytest.raises(web.HTTPBadRequest) as exception_info:
+        await local_endpoints.create_account_async(cast(web.Request, account_request))
+    assert "Wallet password is not correct" == exception_info.value.args[0]
+
+# Endpoint: create a hosted invoice
+
+@unittest.mock.patch('electrumsv.keystore.app_state')
+@unittest.mock.patch(
+    'electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state')
+@unittest.mock.patch('electrumsv.wallet.app_state')
+@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
+async def test_create_hosted_invoice_async_success(app_state_restapi: AppStateProxy,
+        app_state_wallet: AppStateProxy, app_state_migration: AppStateProxy,
+        app_state_keystore: AppStateProxy, tmp_path: Path) -> None:
+    """ Create a hosted invoice. """
+    # BOILERPLATE STARTS
+    # Inject a wallet path so our folder path isn't a stringified magic mock.
+    app_state_restapi.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
+    # # Inject the wallet so the daemon does not have to exist.
+    # app_state_restapi.daemon.load_wallet = lambda wallet_path: wallet # type: ignore
+    # Ensure the wallet can access the password when being loaded.
+    app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "123456"
+    password_token = unittest.mock.Mock()
+    password_token.password = "123456"
+    app_state_restapi.credentials.set_wallet_password = lambda *args: password_token # type: ignore
+
+    canonical_wallet_path = WalletStorage.canonical_path(str(tmp_path / "wallet_file_name"))
+    password_token = unittest.mock.Mock()
+    password_token.password = "123456"
+    wallet_storage = WalletStorage.create(canonical_wallet_path, password_token)
+    local_wallet = Wallet(wallet_storage, "123456")
+    keystore_result = local_wallet.derive_child_keystore(for_account=True, password="123456")
+    account = local_wallet.create_account_from_keystore(keystore_result)
+
+    def get_wallet_by_id(wallet_id: int) -> Wallet:
+        nonlocal local_wallet
+        assert local_wallet.get_id() == wallet_id
+        return local_wallet
+    app_state_restapi.daemon.get_wallet_by_id = get_wallet_by_id
+    # BOILERPLATE ENDS
+
+    local_endpoints = LocalEndpoints()
+
+    invoice_request = unittest.mock.Mock()
+    invoice_request.match_info = {
+        "network": "mainnet",
+        "wallet": str(local_wallet.get_id()),
+        "account": str(account.get_id()),
+    }
+    invoice_request.json = lambda: {
+        "satoshis": 10010,
+    }
+    response = await local_endpoints.create_hosted_invoice_async(cast(web.Request, invoice_request))
+

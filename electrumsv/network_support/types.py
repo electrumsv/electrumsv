@@ -237,6 +237,8 @@ class ServerConnectionState:
     # dpp_invoice ID -> open websocket. If websocket is None, it means the ws:// is closed
     dpp_websockets: dict[str, Optional[ClientWebSocketResponse]] = dataclasses.field(
         default_factory=dict[str, Optional[ClientWebSocketResponse]])
+    dpp_websocket_connection_events: dict[str, asyncio.Event] = dataclasses.field(
+        default_factory=dict[str, asyncio.Event])
     # Adding a payment_request_id to this queue results in opening a dpp websocket
     active_invoices_queue: asyncio.Queue[PaymentRequestReadRow] = dataclasses.field(
         default_factory=asyncio.Queue[PaymentRequestReadRow])

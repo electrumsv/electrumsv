@@ -1,4 +1,5 @@
 import asyncio
+from concurrent.futures import Future
 import json
 from typing import Any, cast
 
@@ -111,6 +112,7 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
         async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
                 as server_websocket:
             state.dpp_websockets[payment_request_row.dpp_invoice_id] = server_websocket
+            state.dpp_websocket_connection_events[payment_request_row.dpp_invoice_id].set()
 
             websocket_message: aiohttp.WSMessage
             async for websocket_message in server_websocket:
@@ -151,17 +153,27 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
         state.dpp_websockets.pop(payment_request_row.dpp_invoice_id, None)
 
 
-async def manage_dpp_network_connections_async(state: ServerConnectionState) -> None:
-    """Spawns a new websocket task for each new active invoice pushed to its queue"""
-    logger.debug("Entering manage_dpp_connections_async, server_url=%s", state.server.url)
-    try:
-        while True:
-            payment_request_row = await state.active_invoices_queue.get()
-            app_state.app.run_coro(create_dpp_ws_connection_task_async(state, payment_request_row))
-    except Exception:
-        logger.exception("Exception in manage_dpp_connections_async")
-    finally:
-        logger.debug("Exiting manage_dpp_connections_async, server_url=%s",
-            state.server.url)
+async def create_dpp_server_connections_async(state: ServerConnectionState,
+        payment_request_rows: list[PaymentRequestReadRow]) -> None:
+    """Block until all the requested connections are made and report the results."""
+    active_tasks = list[tuple[PaymentRequestReadRow, Future[None], asyncio.Event]]()
+    for row in payment_request_rows:
+        assert row.dpp_invoice_id is not None
+        event = asyncio.Event()
+        state.dpp_websocket_connection_events[row.dpp_invoice_id] = event
+        future = app_state.app.run_coro(create_dpp_ws_connection_task_async(state, row))
+        active_tasks.append((row, future, event))
 
+    done, pending = await asyncio.wait([ event.wait() for row, future, event in active_tasks ],
+        timeout=6.0)
+    if len(pending) > 0:
+        # TODO(1.4.0) DPP. Handle failure to connect.
+        # - It does not matter what the contents of `pending` are, we can look at the task to
+        #   see why it exited.
+        # - We need some recovery handling or user notification and other things along those lines.
+        pass
+
+
+async def check_dpp_server_connectivity(state: ServerConnectionState) -> None:
+    pass
 

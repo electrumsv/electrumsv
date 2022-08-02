@@ -12,6 +12,7 @@ from bitcoinx import PublicKey
 from .logs import logs
 from .app_state import app_state
 from .constants import CredentialPolicyFlag
+from .exceptions import InvalidPassword
 from .networks import Net
 from .restapi import get_network_type
 from .storage import WalletStorage
@@ -169,6 +170,7 @@ class LocalEndpoints:
 
     async def load_wallet_async(self, request: web.Request) -> web.Response:
         """ Load an existing wallet or get the loaded status of it if it is already loaded. """
+        check_network_for_request(request)
         try:
             wallet_folder_path = app_state.config.get_preferred_wallet_dirpath()
         except FileNotFoundError:
@@ -207,6 +209,7 @@ class LocalEndpoints:
 
     async def create_wallet_async(self, request: web.Request) -> web.Response:
         """ Creates a new wallet using a specified file name and password. """
+        check_network_for_request(request)
         try:
             wallet_folder_path = app_state.config.get_preferred_wallet_dirpath()
         except FileNotFoundError:
@@ -263,13 +266,19 @@ class LocalEndpoints:
 
     async def create_account_async(self, request: web.Request) -> web.Response:
         """ Create a new standard account in the wallet. """
+        check_network_for_request(request)
+        wallet = get_wallet_from_request(request)
+
         wallet_password = request.query.get("password")
         if wallet_password is None or len(wallet_password) < 6:
             raise web.HTTPBadRequest(reason="Invalid parameter 'password'")
 
-        wallet = get_wallet_from_request(request)
+        try:
+            keystore_result = wallet.derive_child_keystore(for_account=True,
+                password=wallet_password)
+        except InvalidPassword:
+            raise web.HTTPBadRequest(reason="Wallet password is not correct")
 
-        keystore_result = wallet.derive_child_keystore(for_account=True, password=wallet_password)
         account = wallet.create_account_from_keystore(keystore_result)
 
         account_status: AccountStatusDict = {
