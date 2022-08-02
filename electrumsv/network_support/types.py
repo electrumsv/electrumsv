@@ -18,8 +18,7 @@ from aiohttp import ClientWebSocketResponse
 
 from ..constants import NetworkServerFlag, ServerConnectionFlag
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
-from ..wallet_database.types import ServerPeerChannelMessageRow, DPPMessageRow, \
-    PaymentRequestReadRow
+from ..wallet_database.types import ServerPeerChannelMessageRow, DPPMessageRow
 
 from .constants import ServerProblemKind
 
@@ -239,9 +238,6 @@ class ServerConnectionState:
         default_factory=dict[str, Optional[ClientWebSocketResponse]])
     dpp_websocket_connection_events: dict[str, asyncio.Event] = dataclasses.field(
         default_factory=dict[str, asyncio.Event])
-    # Adding a payment_request_id to this queue results in opening a dpp websocket
-    active_invoices_queue: asyncio.Queue[PaymentRequestReadRow] = dataclasses.field(
-        default_factory=asyncio.Queue[PaymentRequestReadRow])
 
     # The stage of the connection process it has last reached.
     connection_flags: ServerConnectionFlag = ServerConnectionFlag.INITIALISED

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 import base64
 import concurrent.futures
 import os
@@ -18,6 +19,7 @@ from ...constants import NetworkServerFlag, PaymentFlag, PushDataHashRegistratio
     ServerConnectionFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
+from ...network_support.dpp_proxy import create_dpp_ws_connection_task_async
 from ...network_support.types import ServerConnectionState, TipFilterRegistrationJob, \
     TipFilterRegistrationJobEntry
 from ...networks import Net, TEST_NETWORK_NAMES
@@ -636,7 +638,11 @@ class ReceiveDialog(QDialog):
             # Opens a dpp websocket connection for this server
             assert self._dpp_server_state is not None
             assert self._dpp_server_state.server.server_id == self._request_row.server_id
-            self._dpp_server_state.active_invoices_queue.put_nowait(self._request_row)
+            assert self._request_row.dpp_invoice_id is not None
+            self._dpp_server_state.dpp_websocket_connection_events[
+                self._request_row.dpp_invoice_id] = asyncio.Event()
+            app_state.app.run_coro(create_dpp_ws_connection_task_async(self._dpp_server_state,
+                self._request_row))
 
             # Attempt to start the process of registering with any server.
             wallet = self._main_window_proxy._wallet

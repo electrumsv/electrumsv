@@ -156,6 +156,9 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
 async def create_dpp_server_connections_async(state: ServerConnectionState,
         payment_request_rows: list[PaymentRequestReadRow]) -> None:
     """Block until all the requested connections are made and report the results."""
+    if len(payment_request_rows) == 0:
+        return
+
     active_tasks = list[tuple[PaymentRequestReadRow, Future[None], asyncio.Event]]()
     for row in payment_request_rows:
         assert row.dpp_invoice_id is not None

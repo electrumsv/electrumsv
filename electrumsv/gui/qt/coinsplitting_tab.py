@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import concurrent.futures
 from functools import partial
@@ -21,6 +22,7 @@ from ...constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptT
 from ...exceptions import NotEnoughFunds
 from ...i18n import _
 from ...logs import logs
+from ...network_support.dpp_proxy import create_dpp_ws_connection_task_async
 from ...network_support.types import ServerConnectionState
 from ...networks import Net
 from ...transaction import Transaction, XTxOutput
@@ -268,7 +270,11 @@ class CoinSplittingTab(TabWidget):
             # Opens a dpp websocket connection for this server
             assert self._dpp_server_state is not None
             assert self._dpp_server_state.server.server_id == request_row.server_id
-            self._dpp_server_state.active_invoices_queue.put_nowait(request_row)
+            assert request_row.dpp_invoice_id is not None
+            self._dpp_server_state.dpp_websocket_connection_events[
+                request_row.dpp_invoice_id] = asyncio.Event()
+            app_state.app.run_coro(create_dpp_ws_connection_task_async(self._dpp_server_state,
+                request_row))
 
         # TODO(1.4.0) DPP. Faucets used to send what they sent. We have no way of requesting this.
         date_expires = int(time.time()) + 5 * 60
