@@ -188,7 +188,7 @@ class LocalEndpoints:
         body_dict = cast(LoadWalletRequestDict, body_data)
 
         wallet_password = body_dict["password"]
-        if not isinstance(wallet_password, str) or len(wallet_password) < 6:
+        if not isinstance(wallet_password, str) or len(wallet_password) < 4:
             raise web.HTTPBadRequest(reason="Invalid request body 'password'")
 
         file_name = WalletStorage.canonical_path(raw_file_name)
@@ -233,7 +233,7 @@ class LocalEndpoints:
             raise web.HTTPBadRequest(reason="Invalid request body 'file_name'")
 
         wallet_password = body_dict["password"]
-        if not isinstance(wallet_password, str) or len(wallet_password) < 6:
+        if not isinstance(wallet_password, str) or len(wallet_password) < 4:
             raise web.HTTPBadRequest(reason="Invalid request body 'password'")
 
         encryption_public_key: PublicKey | None = None
@@ -277,7 +277,7 @@ class LocalEndpoints:
         wallet = get_wallet_from_request(request)
 
         wallet_password = request.query.get("password")
-        if wallet_password is None or len(wallet_password) < 6:
+        if wallet_password is None or len(wallet_password) < 4:
             raise web.HTTPBadRequest(reason="Invalid parameter 'password'")
 
         try:

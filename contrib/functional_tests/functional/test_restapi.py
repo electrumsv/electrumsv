@@ -71,8 +71,12 @@ class TestRestAPI:
         pass
 
     def _load_wallet(self):
+        payload = {
+            "password": "test",
+        }
         _result1 = requests.post(
-            f"http://127.0.0.1:9999/v1/regtest/wallet/{self.EXISTING_WALLET_NAME}/load")
+            f"http://127.0.0.1:9999/v1/regtest/wallet/{self.EXISTING_WALLET_NAME}/load",
+                json=payload)
         if _result1.status_code != 200:
             raise requests.exceptions.HTTPError(_result1.text)
         return _result1
@@ -169,7 +173,7 @@ class TestRestAPI:
         assert len(result_json) == 3
         assert isinstance(result_json["ephemeral_wallet_id"], int)
         assert self.EXISTING_WALLET_NAME in result_json["wallet_path"]
-        assert result_json["account_ids"] == []
+        assert result_json["account_ids"] == [2]
 
     if False:
         @pytest.mark.asyncio
