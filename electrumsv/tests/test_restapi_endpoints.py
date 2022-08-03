@@ -19,7 +19,7 @@ from electrumsv.wallet import Wallet
 
 @unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
 async def test_load_wallet_async_daemon_fail(mock_app_state: AppStateProxy, tmp_path: Path) -> None:
-    """ Load a wallet unsuccessfully because it appears unloaded. """
+    """ Load a wallet unsuccessfully because it does not exist. """
     # Inject a wallet path so our folder path isn't a stringified magic mock.
     mock_app_state.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
     # Inject a failed wallet load so the daemon does not have to exist.
@@ -31,6 +31,11 @@ async def test_load_wallet_async_daemon_fail(mock_app_state: AppStateProxy, tmp_
         "network": "mainnet",
         "wallet": "wallet_file_name",
     }
+    async def request_json_async() -> dict[str, Any]:
+        return {
+            "password": "123456",
+        }
+    request.json = request_json_async
     with pytest.raises(web.HTTPBadRequest) as exception_info:
         await local_endpoints.load_wallet_async(cast(web.Request, request))
     assert "Wallet file does not exist 'wallet_file_name'" == exception_info.value.args[0]
@@ -64,6 +69,11 @@ async def test_load_wallet_async_daemon_success(app_state_restapi: AppStateProxy
         "network": "mainnet",
         "wallet": "wallet_file_name",
     }
+    async def request_json_async() -> dict[str, Any]:
+        return {
+            "password": "123456",
+        }
+    request.json = request_json_async
     response = await local_endpoints.load_wallet_async(cast(web.Request, request))
     wallet_data = json.loads(cast(bytes, response.body))
     assert wallet_data["ephemeral_wallet_id"] == wallet.get_id()

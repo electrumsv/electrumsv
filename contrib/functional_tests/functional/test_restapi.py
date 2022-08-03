@@ -71,8 +71,8 @@ class TestRestAPI:
         pass
 
     def _load_wallet(self):
-        _result1 = requests.get(
-            f"http://127.0.0.1:9999/v1/regtest/wallet/{self.EXISTING_WALLET_NAME}")
+        _result1 = requests.post(
+            f"http://127.0.0.1:9999/v1/regtest/wallet/{self.EXISTING_WALLET_NAME}/load")
         if _result1.status_code != 200:
             raise requests.exceptions.HTTPError(_result1.text)
         return _result1

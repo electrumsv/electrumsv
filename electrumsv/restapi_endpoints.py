@@ -151,7 +151,7 @@ class LocalEndpoints:
             web.get("/v1/{network}/ping", self.ping_async),
 
             web.post("/v1/{network}/wallet", self.create_wallet_async),
-            web.get("/v1/{network}/wallet/{wallet}", self.load_wallet_async),
+            web.post("/v1/{network}/wallet/{wallet}/load", self.load_wallet_async),
             web.post("/v1/{network}/wallet/{wallet}/account", self.create_account_async),
 
             web.post("/v1/{network}/wallet/{wallet}/account/{account}/pay", self.pay_invoice_async),
@@ -182,6 +182,15 @@ class LocalEndpoints:
         if not isinstance(raw_file_name, str) or len(raw_file_name) < 1:
             raise web.HTTPBadRequest(reason="Invalid query string for 'wallet'")
 
+        body_data = await request.json()
+        if not isinstance(body_data, dict) or "password" not in body_data:
+            raise web.HTTPBadRequest(reason="Invalid request body")
+        body_dict = cast(LoadWalletRequestDict, body_data)
+
+        wallet_password = body_dict["password"]
+        if not isinstance(wallet_password, str) or len(wallet_password) < 6:
+            raise web.HTTPBadRequest(reason="Invalid request body 'password'")
+
         file_name = WalletStorage.canonical_path(raw_file_name)
         wallet_path = os.path.join(wallet_folder_path, file_name)
         wallet_path = os.path.normpath(wallet_path)
@@ -189,6 +198,8 @@ class LocalEndpoints:
             raise web.HTTPBadRequest(reason=f"Wallet file does not exist '{raw_file_name}'")
 
         # This will load any wallet that is not already loaded and return an already loaded one.
+        app_state.credentials.set_wallet_password(wallet_path, wallet_password,
+            CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
         wallet = app_state.daemon.load_wallet(wallet_path)
         if wallet is None:
             # The reason for this will be in the debug log.
@@ -361,6 +372,9 @@ class LocalEndpoints:
 
         return web.json_response(True)
 
+
+class LoadWalletRequestDict(TypedDict):
+    password: str
 
 class CreateWalletRequestDict(TypedDict):
     file_name: str
