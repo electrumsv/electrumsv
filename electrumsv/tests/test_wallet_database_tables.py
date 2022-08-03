@@ -1087,7 +1087,10 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.
-    with pytest.raises(sqlite3.IntegrityError):
+    # NOTE(pysqlite3-binary) Different errors on Linux and Windows.
+    #     Windows: "sqlite3.IntegrityError: FOREIGN KEY constraint failed"
+    #     Linux:   "pysqlite3.dbapi2.OperationalError: FOREIGN KEY constraint failed"
+    with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)):
         future = db_context.post_to_thread(db_functions.create_payment_requests_write, [ line1 ])
         future.result()
 
