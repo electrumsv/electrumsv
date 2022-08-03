@@ -2,7 +2,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 import unittest.mock
 
 from aiohttp import web
@@ -18,40 +18,6 @@ from electrumsv.wallet import Wallet
 # Endpoint: load wallet
 
 @unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
-async def test_load_wallet_async_no_file_name(mock_app_state: AppStateProxy, tmp_path: Path) \
-        -> None:
-    """ Load a wallet unsuccessfully because no file name provided. """
-    mock_app_state.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
-    request = unittest.mock.Mock()
-
-    local_endpoints = LocalEndpoints()
-    request.match_info = {
-        "network": "mainnet",
-    }
-    request.query = {
-    }
-    with pytest.raises(web.HTTPBadRequest) as exception_info:
-        await local_endpoints.load_wallet_async(cast(web.Request, request))
-    assert "Invalid parameter 'file_name'" == exception_info.value.args[0]
-
-@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
-async def test_load_wallet_async_no_password(mock_app_state: AppStateProxy, tmp_path: Path) -> None:
-    """ Load a wallet unsuccessfully because no password provided. """
-    mock_app_state.config.get_preferred_wallet_dirpath = lambda: str(tmp_path)
-    request = unittest.mock.Mock()
-
-    local_endpoints = LocalEndpoints()
-    request.match_info = {
-        "network": "mainnet",
-    }
-    request.query = {
-        "file_name": "wallet_file_name",
-    }
-    with pytest.raises(web.HTTPBadRequest) as exception_info:
-        await local_endpoints.load_wallet_async(cast(web.Request, request))
-    assert "Invalid parameter 'password'" == exception_info.value.args[0]
-
-@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
 async def test_load_wallet_async_daemon_fail(mock_app_state: AppStateProxy, tmp_path: Path) -> None:
     """ Load a wallet unsuccessfully because it appears unloaded. """
     # Inject a wallet path so our folder path isn't a stringified magic mock.
@@ -63,10 +29,7 @@ async def test_load_wallet_async_daemon_fail(mock_app_state: AppStateProxy, tmp_
     local_endpoints = LocalEndpoints()
     request.match_info = {
         "network": "mainnet",
-    }
-    request.query = {
-        "file_name": "wallet_file_name",
-        "password": "123456",
+        "wallet": "wallet_file_name",
     }
     with pytest.raises(web.HTTPBadRequest) as exception_info:
         await local_endpoints.load_wallet_async(cast(web.Request, request))
@@ -99,10 +62,7 @@ async def test_load_wallet_async_daemon_success(app_state_restapi: AppStateProxy
     request = unittest.mock.Mock()
     request.match_info = {
         "network": "mainnet",
-    }
-    request.query = {
-        "file_name": "wallet_file_name",
-        "password": "123456",
+        "wallet": "wallet_file_name",
     }
     response = await local_endpoints.load_wallet_async(cast(web.Request, request))
     wallet_data = json.loads(cast(bytes, response.body))
@@ -121,8 +81,9 @@ async def test_create_wallet_async_invalid_body(mock_app_state: AppStateProxy, t
     request.match_info = {
         "network": "mainnet",
     }
-    request.json = lambda: {
-    }
+    async def request_json_async() -> dict[str, Any]:
+        return {}
+    request.json = request_json_async
 
     local_endpoints = LocalEndpoints()
     with pytest.raises(web.HTTPBadRequest) as exception_info:
@@ -138,10 +99,12 @@ async def test_create_wallet_async_invalid_file_name(mock_app_state: AppStatePro
     request.match_info = {
         "network": "mainnet",
     }
-    request.json = lambda: {
-        "file_name": None,
-        "password": "123456",
-    }
+    async def request_json_async() -> dict[str, Any]:
+        return {
+            "file_name": None,
+            "password": "123456",
+        }
+    request.json = request_json_async
 
     local_endpoints = LocalEndpoints()
     with pytest.raises(web.HTTPBadRequest) as exception_info:
@@ -157,10 +120,12 @@ async def test_create_wallet_async_invalid_password(mock_app_state: AppStateProx
     request.match_info = {
         "network": "mainnet",
     }
-    request.json = lambda: {
-        "file_name": "wallet_file_name",
-        "password": None,
-    }
+    async def request_json_async() -> dict[str, Any]:
+        return {
+            "file_name": "wallet_file_name",
+            "password": None,
+        }
+    request.json = request_json_async
 
     local_endpoints = LocalEndpoints()
     with pytest.raises(web.HTTPBadRequest) as exception_info:
@@ -184,10 +149,12 @@ async def test_create_wallet_async_success_no_seed(app_state_restapi: AppStatePr
     request.match_info = {
         "network": "mainnet",
     }
-    request.json = lambda: {
-        "file_name": "wallet_file_name",
-        "password": "123456",
-    }
+    async def request_json_async() -> dict[str, Any]:
+        return {
+            "file_name": "wallet_file_name",
+            "password": "123456",
+        }
+    request.json = request_json_async
     # Ensure the wallet can access the password when being loaded.
     app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "123456"
 
@@ -221,11 +188,13 @@ async def test_create_wallet_async_success_encrypted_seed(app_state_restapi: App
     request.match_info = {
         "network": "mainnet",
     }
-    request.json = lambda: {
-        "file_name": "wallet_file_name",
-        "password": "123456",
-        "encryption_key_hex": public_key.to_hex(),
-    }
+    async def request_json_async() -> dict[str, Any]:
+        return {
+            "file_name": "wallet_file_name",
+            "password": "123456",
+            "encryption_key_hex": public_key.to_hex(),
+        }
+    request.json = request_json_async
     # Ensure the wallet can access the password when being loaded.
     app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "123456"
 
@@ -482,9 +451,11 @@ async def test_create_hosted_invoice_async_success(app_state_restapi: AppStatePr
         "wallet": str(local_wallet.get_id()),
         "account": str(account.get_id()),
     }
-    invoice_request.json = lambda: {
-        "satoshis": 10010,
-    }
+    async def request_json_async() -> dict[str, Any]:
+        return {
+            "satoshis": 10010,
+        }
+    invoice_request.json = request_json_async
     mock_server_state = unittest.mock.Mock()
     mock_server_state.server.server_id = 100
     with unittest.mock.patch("electrumsv.wallet.find_connectable_dpp_server") as \
@@ -542,9 +513,11 @@ async def test_create_hosted_invoice_async_fail_no_servers(app_state_restapi: Ap
         "wallet": str(local_wallet.get_id()),
         "account": str(account.get_id()),
     }
-    invoice_request.json = lambda: {
-        "satoshis": 10010,
-    }
+    async def request_json_async() -> dict[str, Any]:
+        return {
+            "satoshis": 10010,
+        }
+    invoice_request.json = request_json_async
     with unittest.mock.patch("electrumsv.wallet.find_connectable_dpp_server") as \
             find_connectable_dpp_server:
         find_connectable_dpp_server.side_effect = lambda *args: None
@@ -595,9 +568,11 @@ async def test_create_hosted_invoice_async_fail_connect_timeout(app_state_restap
         "wallet": str(local_wallet.get_id()),
         "account": str(account.get_id()),
     }
-    invoice_request.json = lambda: {
-        "satoshis": 10010,
-    }
+    async def request_json_async() -> dict[str, Any]:
+        return {
+            "satoshis": 10010,
+        }
+    invoice_request.json = request_json_async
     mock_server_state = unittest.mock.Mock()
     mock_server_state.server.server_id = 100
     with unittest.mock.patch("electrumsv.wallet.find_connectable_dpp_server") as \

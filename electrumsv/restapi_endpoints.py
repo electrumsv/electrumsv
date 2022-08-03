@@ -151,13 +151,13 @@ class LocalEndpoints:
             web.get("/v1/{network}/ping", self.ping_async),
 
             web.post("/v1/{network}/wallet", self.create_wallet_async),
-            web.get("/v1/{network}/{wallet}", self.load_wallet_async),
-            web.post("/v1/{network}/{wallet}/account", self.create_account_async),
+            web.get("/v1/{network}/wallet/{wallet}", self.load_wallet_async),
+            web.post("/v1/{network}/wallet/{wallet}/account", self.create_account_async),
 
-            web.post("/v1/{network}/{wallet}/{account}/pay", self.pay_invoice_async),
-            web.post("/v1/{network}/{wallet}/{account}/invoices",
+            web.post("/v1/{network}/wallet/{wallet}/account/{account}/pay", self.pay_invoice_async),
+            web.post("/v1/{network}/wallet/{wallet}/account/{account}/invoices",
                 self.create_hosted_invoice_async),
-            web.delete("/v1/{network}/{wallet}/{account}/invoices/{invoice_id}",
+            web.delete("/v1/{network}/wallet/{wallet}/account/{account}/invoices/{invoice_id}",
                 self.delete_hosted_invoice_async),
         ]
 
@@ -178,13 +178,9 @@ class LocalEndpoints:
         except FileNotFoundError:
             raise web.HTTPInternalServerError(reason="No preferred wallet path")
 
-        raw_file_name = request.query.get("file_name")
-        if raw_file_name is None or len(raw_file_name) == 0:
-            raise web.HTTPBadRequest(reason="Invalid parameter 'file_name'")
-
-        wallet_password = request.query.get("password")
-        if wallet_password is None or len(wallet_password) < 6:
-            raise web.HTTPBadRequest(reason="Invalid parameter 'password'")
+        raw_file_name = request.match_info["wallet"]
+        if not isinstance(raw_file_name, str) or len(raw_file_name) < 1:
+            raise web.HTTPBadRequest(reason="Invalid query string for 'wallet'")
 
         file_name = WalletStorage.canonical_path(raw_file_name)
         wallet_path = os.path.join(wallet_folder_path, file_name)
@@ -192,8 +188,6 @@ class LocalEndpoints:
         if not os.path.exists(wallet_path):
             raise web.HTTPBadRequest(reason=f"Wallet file does not exist '{raw_file_name}'")
 
-        app_state.credentials.set_wallet_password(wallet_path, wallet_password,
-            CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
         # This will load any wallet that is not already loaded and return an already loaded one.
         wallet = app_state.daemon.load_wallet(wallet_path)
         if wallet is None:
@@ -217,7 +211,7 @@ class LocalEndpoints:
         except FileNotFoundError:
             raise web.HTTPInternalServerError(reason="No preferred wallet path")
 
-        body_data = request.json()
+        body_data = await request.json()
         if not isinstance(body_data, dict) or "file_name" not in body_data or \
                 "password" not in body_data:
             raise web.HTTPBadRequest(reason="Invalid request body")
@@ -295,7 +289,7 @@ class LocalEndpoints:
         _wallet, account = get_account_from_request(request)
 
         # Process the body.
-        body_data = request.json()
+        body_data = await request.json()
         if not isinstance(body_data, dict) or "satoshis" not in body_data:
             raise web.HTTPBadRequest(reason="Invalid request body")
         body_dict = cast(CreateInvoiceRequestDict, body_data)
@@ -359,7 +353,7 @@ class LocalEndpoints:
         check_network_for_request(request)
         wallet, account = get_account_from_request(request)
 
-        body_data = request.json()
+        body_data = await request.json()
         if not isinstance(body_data, dict) or "payToURL" not in body_data:
             raise web.HTTPBadRequest(reason="Invalid request body")
         body_dict = cast(PayRequestDict, body_data)

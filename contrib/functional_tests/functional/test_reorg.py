@@ -44,42 +44,42 @@ class TestReorg:
     def teardown_class(cls):
         pass
 
-    @pytest.mark.asyncio
-    def test_reorg(self, event_loop):
+    # @pytest.mark.asyncio
+    # def test_reorg(self, event_loop):
 
-        async def test_reorg():
-            payload = {
-                "password": "test"
-            }
-            REORGED_TXIDS = "a1fa9460ca105c1396cd338f7fa202bf79a9d244d730e91e19f6302a05b2f07a"
+    #     async def test_reorg():
+    #         payload = {
+    #             "password": "test"
+    #         }
+    #         REORGED_TXIDS = "a1fa9460ca105c1396cd338f7fa202bf79a9d244d730e91e19f6302a05b2f07a"
 
-            # Load the default wallet on ElectrumSV daemon
-            url = f"http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/load_wallet"
-            result = requests.post(url, json=payload)
-            result.raise_for_status()
+    #         # Load the default wallet on ElectrumSV daemon
+    #         url = f"http://127.0.0.1:9999/v1/regtest/dapp/wallets/worker1.sqlite/load_wallet"
+    #         result = requests.post(url, json=payload)
+    #         result.raise_for_status()
 
-            # Submit node1 blocks to node
-            if electrumsv_node.is_node_running():
-                utils.submit_blocks_from_file(node_id='node1',
-                    filepath=Path(MODULE_DIR).joinpath('../reorg_blocks/node1_blocks.dat'))
-            else:
-                logger.exception("node unavailable")
+    #         # Submit node1 blocks to node
+    #         if electrumsv_node.is_node_running():
+    #             utils.submit_blocks_from_file(node_id='node1',
+    #                 filepath=Path(MODULE_DIR).joinpath('../reorg_blocks/node1_blocks.dat'))
+    #         else:
+    #             logger.exception("node unavailable")
 
-            try:
-                await wait_for_reorg_transaction_update([REORGED_TXIDS], 201)
-                # Todo check state of get_balance; get_coin_state; get_transaction_history
+    #         try:
+    #             await wait_for_reorg_transaction_update([REORGED_TXIDS], 201)
+    #             # Todo check state of get_balance; get_coin_state; get_transaction_history
 
-                # Submit node2 blocks to node
-                if electrumsv_node.is_node_running():
-                    utils.submit_blocks_from_file(node_id='node1',
-                        filepath=Path(MODULE_DIR).joinpath('../reorg_blocks/node2_blocks.dat'))
-                else:
-                    logger.exception("node unavailable")
+    #             # Submit node2 blocks to node
+    #             if electrumsv_node.is_node_running():
+    #                 utils.submit_blocks_from_file(node_id='node1',
+    #                     filepath=Path(MODULE_DIR).joinpath('../reorg_blocks/node2_blocks.dat'))
+    #             else:
+    #                 logger.exception("node unavailable")
 
-                await wait_for_reorg_transaction_update([REORGED_TXIDS], 202)
-            except asyncio.TimeoutError:
-                pytest.xfail("work in progress alongside refactoring changes...")
+    #             await wait_for_reorg_transaction_update([REORGED_TXIDS], 202)
+    #         except asyncio.TimeoutError:
+    #             pytest.xfail("work in progress alongside refactoring changes...")
 
-            # Todo check state of get_balance; get_coin_state; get_transaction_history
+    #         # Todo check state of get_balance; get_coin_state; get_transaction_history
 
-        event_loop.run_until_complete(test_reorg())
+    #     event_loop.run_until_complete(test_reorg())
