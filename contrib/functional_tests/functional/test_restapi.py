@@ -60,7 +60,7 @@ if False:
 class TestRestAPI:
     mining_wallet: Dict[str, Any]
 
-    TEST_WALLET_NAME = "worker1"
+    EXISTING_WALLET_NAME = "worker1"
 
     @classmethod
     def setup_class(cls) -> None:
@@ -72,7 +72,7 @@ class TestRestAPI:
 
     def _load_wallet(self):
         _result1 = requests.get(
-            f"http://127.0.0.1:9999/v1/regtest/wallet/{self.TEST_WALLET_NAME}")
+            f"http://127.0.0.1:9999/v1/regtest/wallet/{self.EXISTING_WALLET_NAME}")
         if _result1.status_code != 200:
             raise requests.exceptions.HTTPError(_result1.text)
         return _result1
@@ -149,7 +149,7 @@ class TestRestAPI:
 
     def test_create_new_wallet(self) -> None:
         payload = {
-            "file_name": self.TEST_WALLET_NAME,
+            "file_name": "create_wallet_name",
             "password": "testtest",
         }
         response = requests.post("http://127.0.0.1:9999/v1/regtest/wallet/", json=payload)
@@ -159,15 +159,16 @@ class TestRestAPI:
         result_json = response.json()
         assert len(result_json) == 3
         assert isinstance(result_json["ephemeral_wallet_id"], int)
-        assert self.TEST_WALLET_NAME in result_json["wallet_path"]
+        assert "create_wallet_name" in result_json["wallet_path"]
         assert result_json["account_ids"] == []
 
+    def test_load_existing_wallet(self) -> None:
         # Test the load call directly after the create so we know the create call has happened.
         response = self._load_wallet()
         result_json = response.json()
         assert len(result_json) == 3
         assert isinstance(result_json["ephemeral_wallet_id"], int)
-        assert self.TEST_WALLET_NAME in result_json["wallet_path"]
+        assert self.EXISTING_WALLET_NAME in result_json["wallet_path"]
         assert result_json["account_ids"] == []
 
     if False:
