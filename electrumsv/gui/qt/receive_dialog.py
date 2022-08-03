@@ -1,8 +1,5 @@
 from __future__ import annotations
-import asyncio
-import base64
-import concurrent.futures
-import os
+from concurrent.futures import Future
 import time
 from typing import Any, cast, Optional, TYPE_CHECKING
 import weakref
@@ -19,13 +16,12 @@ from ...constants import NetworkServerFlag, PaymentFlag, PushDataHashRegistratio
     ServerConnectionFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
-from ...network_support.dpp_proxy import create_dpp_ws_connection_task_async
 from ...network_support.types import ServerConnectionState, TipFilterRegistrationJob, \
     TipFilterRegistrationJobEntry
 from ...networks import Net, TEST_NETWORK_NAMES
 from ...transaction import Transaction, TransactionContext
 from ...util import age, get_posix_timestamp
-from ...wallet_database.types import PaymentRequestRow, PaymentRequestUpdateRow
+from ...wallet_database.types import KeyDataProtocol, PaymentRequestRow, PaymentRequestUpdateRow
 
 from .amountedit import AmountEdit, BTCAmountEdit
 from .qrcodewidget import QRCodeWidget
@@ -613,78 +609,105 @@ class ReceiveDialog(QDialog):
         if duration_seconds is not None:
             date_expires = int(time.time()) + duration_seconds
 
-        def callback(future: concurrent.futures.Future[list[PaymentRequestRow]]) -> None:
-            """
-            This callback happens in the database thread. No UI calls can be made in it and any
-            UI calls should happen through emitting a signal.
+        if self._request_type == PaymentFlag.INVOICE:
+            def ui_callback(
+                    future: Future[tuple[tuple[PaymentRequestRow, KeyDataProtocol] | None, int]]) \
+                        -> None:
+                """ `run_coro` ensures that our `on_done` callback happens in the UI thread. """
+                if future.cancelled():
+                    return
 
-            WARNING: Nothing should be done here that does not happen effectively instantly.
-                Database callbacks should hand off work to be done elsewhere, whether in the
-                async or UI thread.
-            """
-            # Skip if the operation was cancelled.
-            if future.cancelled():
-                return
-            # Raise any exception if it errored or get the result if completed successfully.
-            final_rows = future.result()
-            assert len(final_rows) == 1
-            self._request_id = final_rows[0].paymentrequest_id
-            # While we get the 'PaymentRequestRow' type (used for creation) back, we currently
-            # use the `PaymentRequestReadRow` type (used for reads) row type for local storage
-            # (which includes related data like value received).
-            self._read_request_data_from_database()
-            assert self._request_row is not None
+                result, error_code = future.result()
+                if result is None:
+                    # TODO(1.4.0) DPP. Handle the error in creating the hosted invoice.
+                    return
+                row, _key_data = result
 
-            # Opens a dpp websocket connection for this server
-            assert self._dpp_server_state is not None
-            assert self._dpp_server_state.server.server_id == self._request_row.server_id
-            assert self._request_row.dpp_invoice_id is not None
-            self._dpp_server_state.dpp_websocket_connection_events[
-                self._request_row.dpp_invoice_id] = asyncio.Event()
-            app_state.app.run_coro(create_dpp_ws_connection_task_async(self._dpp_server_state,
-                self._request_row))
-
-            # Attempt to start the process of registering with any server.
-            wallet = self._main_window_proxy._wallet
-            indexing_server_state = wallet.get_connection_state_for_usage(
-                NetworkServerFlag.USE_BLOCKCHAIN)
-            if indexing_server_state is not None and \
-                    indexing_server_state.connection_flags & \
-                        ServerConnectionFlag.TIP_FILTER_READY != 0:
+                assert row is not None
+                assert row.paymentrequest_id is not None
+                self._request_id = row.paymentrequest_id
+                # While we get the 'PaymentRequestRow' type (used for creation) back, we currently
+                # use the `PaymentRequestReadRow` type (used for reads) row type for local storage
+                # (which includes related data like value received).
+                self._read_request_data_from_database()
                 assert self._request_row is not None
-                assert self._request_row.expiration is not None
-                assert self._tip_filter_registration_job is None
-                job = self._tip_filter_registration_job = TipFilterRegistrationJob([
-                    TipFilterRegistrationJobEntry(self._request_row.pushdata_hash,
-                    self._request_row.expiration, self._request_row.keyinstance_id) ],
-                    logger=self._logger, paymentrequest_id=self._request_id,
-                    refresh_callback=self.refresh_form_signal.emit,
-                    completion_callback=self.tip_filter_registration_completed_signal.emit)
-                self._logger.debug("Creating TipFilterRegistrationJob task %r", job)
-                app_state.app.run_coro(monitor_tip_filter_job(indexing_server_state, job))
 
-            assert self._view is not None
-            # Notify the view that the dialog now refers to an actual payment request.
-            self._view.upgrade_draft_payment_request(self._request_id)
-            # Notify the request list that it's contents have changed and it should update.
-            self._view._request_list.update_signal.emit()
-            # Refresh the contents of this window to reflect it is now an actual payment request.
-            def ui_callback(args: tuple[Any, ...]) -> None:
+                assert self._view is not None
+                # Notify the view that the dialog now refers to an actual payment request.
+                self._view.upgrade_draft_payment_request(self._request_id)
+                # Notify the request list that it's contents have changed and it should update.
+                self._view._request_list.update_signal.emit()
+                # Refresh the contents of this window to reflect it is now an actual payment
+                # request. This is safe to do here because we are in the UI thread.
                 self.update_destination()
                 self._update_receive_qr()
                 self._update_form()
-            self._main_window_proxy.ui_callback_signal.emit(ui_callback, ())
 
-        new_dpp_invoice_id = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
-        dpp_server_states: list[ServerConnectionState] = \
-            self._account.get_wallet().dpp_proxy_server_states
-        # TODO(1.4.0) DPP. Should have more sophisticated server selection than this
-        self._dpp_server_state = dpp_server_states[0]
-        future, _key_data = self._account.create_payment_request(amount, your_text,
-            server_id=self._dpp_server_state.server.server_id,
-            dpp_invoice_id=new_dpp_invoice_id, merchant_reference=their_text,
-            date_expires=date_expires, flags=self._request_type)
-        future.add_done_callback(callback)
+            assert date_expires is not None
+            app_state.app.run_coro(self._account.create_hosted_invoice_async(amount,
+                date_expires, your_text, their_text), on_done=ui_callback)
+        else:
+            def database_callback(future: Future[tuple[list[PaymentRequestRow], KeyDataProtocol]]) \
+                     -> None:
+                """
+                This callback happens in the database thread. No UI calls can be made in it and any
+                UI calls should happen through emitting a signal.
+
+                WARNING: Nothing should be done here that does not happen effectively instantly.
+                    Database callbacks should hand off work to be done elsewhere, whether in the
+                    async or UI thread.
+                """
+                # Skip if the operation was cancelled.
+                if future.cancelled():
+                    return
+                # Raise any exception if it errored or get the result if completed successfully.
+                rows, _key_data = future.result()
+                assert len(rows) == 1
+                assert rows[0].paymentrequest_id is not None
+                self._request_id = rows[0].paymentrequest_id
+                # While we get the 'PaymentRequestRow' type (used for creation) back, we currently
+                # use the `PaymentRequestReadRow` type (used for reads) row type for local storage
+                # (which includes related data like value received).
+                self._read_request_data_from_database()
+                assert self._request_row is not None
+
+                if self._request_type == PaymentFlag.MONITORED:
+                    # Attempt to start the process of registering with any server.
+                    wallet = self._main_window_proxy._wallet
+                    indexing_server_state = wallet.get_connection_state_for_usage(
+                        NetworkServerFlag.USE_BLOCKCHAIN)
+                    if indexing_server_state is not None and \
+                            indexing_server_state.connection_flags & \
+                                ServerConnectionFlag.TIP_FILTER_READY != 0:
+                        assert self._request_row is not None
+                        assert self._request_row.expiration is not None
+                        assert self._tip_filter_registration_job is None
+                        job = self._tip_filter_registration_job = TipFilterRegistrationJob([
+                            TipFilterRegistrationJobEntry(self._request_row.pushdata_hash,
+                            self._request_row.expiration, self._request_row.keyinstance_id) ],
+                            logger=self._logger, paymentrequest_id=self._request_id,
+                            refresh_callback=self.refresh_form_signal.emit,
+                            completion_callback=self.tip_filter_registration_completed_signal.emit)
+                        self._logger.debug("Creating TipFilterRegistrationJob task %r", job)
+                        app_state.app.run_coro(monitor_tip_filter_job(indexing_server_state, job))
+
+                assert self._view is not None
+                # Notify the view that the dialog now refers to an actual payment request.
+                self._view.upgrade_draft_payment_request(self._request_id)
+                # Notify the request list that it's contents have changed and it should update.
+                self._view._request_list.update_signal.emit()
+                # Refresh the contents of this window to reflect it as an actual payment request.
+                def ui_callback(args: tuple[Any, ...]) -> None:
+                    self.update_destination()
+                    self._update_receive_qr()
+                    self._update_form()
+                self._main_window_proxy.ui_callback_signal.emit(ui_callback, ())
+
+            future = app_state.async_.spawn(
+                self._account.create_payment_request_async(amount, your_text,
+                    merchant_reference=their_text, date_expires=date_expires,
+                    flags=self._request_type))
+            future.add_done_callback(database_callback)
 
         # Prevent double-clicking.
         self._save_button.setEnabled(False)
@@ -693,7 +716,7 @@ class ReceiveDialog(QDialog):
             their_text: str | None) -> None:
         assert self._request_row is not None
 
-        def callback(future: concurrent.futures.Future[None]) -> None:
+        def callback(future: Future[None]) -> None:
             """
             This callback happens in the database thread. No UI calls can be made in it and any
             UI calls should happen through emitting a signal.

@@ -208,7 +208,7 @@ class PaymentRequestReadRow(NamedTuple):
 
 
 class PaymentRequestRow(NamedTuple):
-    paymentrequest_id: int
+    paymentrequest_id: int | None
     keyinstance_id: int
     state: PaymentFlag
     requested_value: int | None
@@ -222,6 +222,7 @@ class PaymentRequestRow(NamedTuple):
     # What we put in any outgoing payment terms to describe what the payee is paying for.
     merchant_reference: str | None
     date_created: int
+    date_updated: int
 
 
 class PaymentRequestUpdateRow(NamedTuple):

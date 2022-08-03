@@ -137,21 +137,16 @@ def create_master_keys(db_context: DatabaseContext, entries: Iterable[MasterKeyR
     return db_context.post_to_thread(_write)
 
 
-def create_payment_requests(db_context: DatabaseContext, entries: list[PaymentRequestRow]) \
-        -> concurrent.futures.Future[list[PaymentRequestRow]]:
-    sql = """
-        INSERT INTO PaymentRequests (paymentrequest_id, keyinstance_id, state,
-            value, expiration, description, script_type, pushdata_hash, server_id, dpp_invoice_id,
-            merchant_reference, date_created, date_updated)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
-    """
-    timestamp = get_posix_timestamp()
-    sql_values = [ (*t[:-1], timestamp, timestamp) for t in entries ]
-    def _write(db: Optional[sqlite3.Connection]=None) -> list[PaymentRequestRow]:
-        assert db is not None and isinstance(db, sqlite3.Connection)
-        db.executemany(sql, sql_values)
-        return entries
-    return db_context.post_to_thread(_write)
+def create_payment_requests_write(entries: list[PaymentRequestRow],
+        db: Optional[sqlite3.Connection]=None) -> list[PaymentRequestRow]:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql_prefix = "INSERT INTO PaymentRequests (paymentrequest_id, keyinstance_id, state, " \
+        "value, expiration, description, script_type, pushdata_hash, server_id, dpp_invoice_id, " \
+        "merchant_reference, date_created, date_updated) VALUES"
+    sql_suffix = "RETURNING paymentrequest_id, keyinstance_id, state, value, expiration, " \
+        "description, script_type, pushdata_hash, server_id, dpp_invoice_id, merchant_reference, " \
+        "date_created, date_updated"
+    return bulk_insert_returning(PaymentRequestRow, db, sql_prefix, sql_suffix, entries)
 
 
 def create_dpp_messages(entries: list[DPPMessageRow], db: Optional[sqlite3.Connection]=None) \
@@ -878,7 +873,7 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
 @replace_db_context_with_connection
 def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None,
         flags: Optional[PaymentFlag]=None, mask: Optional[PaymentFlag]=None,
-        paymentrequest_ids: Optional[Sequence[int]]=None) -> list[PaymentRequestReadRow]:
+        server_id: int | None=None) -> list[PaymentRequestReadRow]:
     sql = """
     WITH key_payments AS (
         SELECT KI.keyinstance_id, TOTAL(TXO.value) AS total_value
@@ -887,7 +882,7 @@ def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None
         {}
         GROUP BY KI.keyinstance_id
     )"""
-    if account_id:
+    if account_id is not None:
         sql = sql.format("WHERE KI.account_id=?")
     else:
         sql = sql.format("")
@@ -899,23 +894,21 @@ def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None
         INNER JOIN key_payments KP USING(keyinstance_id)
     """
     sql_values: list[Any] = []
-    if account_id:
+    if account_id is not None:
         sql_values.append(account_id)
     clause, extra_values = flag_clause("PR.state", flags, mask)
+    used_where = False
     if clause:
         sql += f" WHERE {clause}"
         sql_values.extend(extra_values)
-
-    if paymentrequest_ids:
-        if not clause:
-            sql += " WHERE paymentrequest_id IN ({}) "
+        used_where = True
+    if server_id is not None:
+        if used_where:
+            sql += " AND server_id=?"
         else:
-            sql += " AND paymentrequest_id IN ({})"
-        rows = read_rows_by_id(PaymentRequestReadRow, db, sql, sql_values, paymentrequest_ids)
-        # Type casting of PaymentFlag
-        return [ PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7],
-            t[8], t[9], t[10], t[11], t[12]) for t in rows ]
-
+            sql += " WHERE server_id=?"
+            used_where = True
+        sql_values.append(server_id)
     return [ PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7],
         t[8], t[9], t[10], t[11], t[12]) for t in db.execute(sql, sql_values).fetchall() ]
 

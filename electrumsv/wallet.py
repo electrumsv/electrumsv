@@ -79,7 +79,8 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.dpp_proxy import _is_later_dpp_message_sequence, \
-    create_dpp_server_connections_async, dpp_websocket_send, \
+    create_dpp_server_connection_async, create_dpp_server_connections_async, \
+    dpp_websocket_send, find_connectable_dpp_server, \
     MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_ACK, \
     MSG_TYPE_PAYMENT_REQUEST_RESPONSE
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
@@ -1089,11 +1090,11 @@ class AbstractAccount:
     def get_masterkey_id(self) -> Optional[int]:
         raise NotImplementedError
 
-    def create_payment_request(self, amount: int, internal_description: str | None,
+    async def create_payment_request_async(self, amount: int, internal_description: str | None,
             merchant_reference: str | None, date_expires: int | None = None,
             server_id: int | None = None, dpp_invoice_id: str | None=None,
             flags: PaymentFlag=PaymentFlag.NONE) \
-                -> tuple[concurrent.futures.Future[list[PaymentRequestRow]], KeyDataProtocol]:
+                -> tuple[list[PaymentRequestRow], KeyDataProtocol]:
         # The payment request flags that are allowed to be set are just the supplementary flags,
         # not the state flags.
         assert flags & PaymentFlag.MASK_STATE == 0
@@ -1105,31 +1106,47 @@ class AbstractAccount:
         pushdata_hash = get_pushdata_hash_for_account_key_data(self, key_data, script_type)
 
         date_created: int = get_posix_timestamp()
-        row = PaymentRequestRow(-1, key_data.keyinstance_id, flags | PaymentFlag.UNPAID, amount,
+        # This will get the payment request id assigned on insert.
+        row = PaymentRequestRow(None, key_data.keyinstance_id, flags | PaymentFlag.UNPAID, amount,
             date_expires, internal_description, script_type, pushdata_hash, server_id,
-            dpp_invoice_id, merchant_reference, date_created)
-        future = self._wallet.create_payment_requests(self._id, [ row ])
-        return future, key_data
+            dpp_invoice_id, merchant_reference, date_created, date_created)
+        rows = await self._wallet.data.create_payment_requests_async([ row ])
+        self._wallet.events.trigger_callback(WalletEvent.KEYS_UPDATE, self._id,
+            [ row.keyinstance_id for row in rows ])
+        return rows, key_data
 
-    def create_hosted_invoice(self, amount_satoshis: int, expiry_date_text: str | None,
-            description: str | None, merchant_reference: str | None) -> tuple[Any, int]:
-        # TODO Check that we can connect to the invoicing server.
-        #     TODO It is enough that we have existing connections to the server.
-        #     TODO Otherwise we should ping the server.
-        # if not network_support.dpp_proxy.ensure_dpp_server_connectivity(?):
-        #     return None, ERROR_NO_CONNECTABLE_SERVER
+    async def create_hosted_invoice_async(self, amount_satoshis: int, date_expires: int,
+            description: str | None, merchant_reference: str | None) \
+                -> tuple[tuple[PaymentRequestRow, KeyDataProtocol] | None, int]:
+        server_state = await find_connectable_dpp_server(self._wallet.dpp_proxy_server_states)
+        if server_state is None:
+            return None, -1
 
-        # TODO Create the invoice and engage the server connection.
-        #     TODO This is shared logic with the payment request code.
-        external_invoice_id = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
+        dpp_invoice_id = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
+        rows, key_data = await self.create_payment_request_async(amount_satoshis, description,
+            merchant_reference, server_id=server_state.server.server_id, date_expires=date_expires,
+            dpp_invoice_id=dpp_invoice_id, flags=PaymentFlag.INVOICE)
+        assert len(rows) == 1
+        row = rows[0]
+        # We need to convert it to a "read row" to pass to the web socket.
+        assert row.paymentrequest_id is not None
+        read_row = PaymentRequestReadRow(row.paymentrequest_id, row.keyinstance_id, row.state,
+            row.requested_value, 0, row.expiration, row.description, row.script_type,
+            row.pushdata_hash, row.server_id, row.dpp_invoice_id, row.merchant_reference,
+            row.date_created)
+        try:
+            await create_dpp_server_connection_async(server_state, read_row, timeout_seconds=5.5)
+        except asyncio.TimeoutError:
+            # TODO(1.4.0) DPP. We need to do error handling here, but it should be unexpected
+            #     given our requirement that our server be "connectable".
+            return None, -2
 
-        # TODO Return the invoice metadata to the caller.
-        return (True, 0)
+        return (rows[0], key_data), 0
 
-    def delete_hosted_invoice(self, invoice_id: str) -> None:
+    async def delete_hosted_invoice_async(self, invoice_id: int) -> None:
         pass
 
-    def pay_hosted_invoice(self, pay_url: str) -> None:
+    async def pay_hosted_invoice_async(self, pay_url: str) -> None:
         pass
 
 
@@ -1907,15 +1924,21 @@ class WalletDataAccess:
 
     # Payment requests.
 
+    async def create_payment_requests_async(self, entries: list[PaymentRequestRow]) \
+            -> list[PaymentRequestRow]:
+        return await self._db_context.run_in_thread_async(
+            db_functions.create_payment_requests_write, entries)
+
     def read_payment_request(self, *, request_id: Optional[int]=None,
             keyinstance_id: Optional[int]=None) -> Optional[PaymentRequestReadRow]:
         return db_functions.read_payment_request(self._db_context, request_id=request_id,
             keyinstance_id=keyinstance_id)
 
-    def read_payment_requests(self, account_id: int, flags: Optional[PaymentFlag]=None,
-            mask: Optional[PaymentFlag]=None) -> list[PaymentRequestReadRow]:
+    def read_payment_requests(self, account_id: int | None, flags: PaymentFlag | None=None,
+            mask: PaymentFlag | None=None, server_id: int | None=None) \
+                -> list[PaymentRequestReadRow]:
         return db_functions.read_payment_requests(self._db_context, account_id, flags,
-            mask)
+            mask, server_id)
 
     def read_registered_tip_filter_pushdata_for_request(self, request_id: int) \
             -> Optional[PushDataHashRegistrationRow]:
@@ -2747,30 +2770,6 @@ class Wallet:
         return rows[0]
 
     # Payment requests.
-
-    def create_payment_requests(self, account_id: int, requests: list[PaymentRequestRow]) \
-            -> concurrent.futures.Future[list[PaymentRequestRow]]:
-        def callback(callback_future: concurrent.futures.Future[list[PaymentRequestRow]]) -> None:
-            """
-            After the payment requests have been successfully written to the database.
-            """
-            if callback_future.cancelled():
-                return
-            created_rows = callback_future.result()
-            updated_keyinstance_ids = [ row.keyinstance_id for row in created_rows ]
-            self.events.trigger_callback(WalletEvent.KEYS_UPDATE, account_id,
-                updated_keyinstance_ids)
-
-        request_id = self._storage.get("next_paymentrequest_id", 1)
-        rows: list[PaymentRequestRow] = []
-        for request in requests:
-            rows.append(request._replace(paymentrequest_id=request_id))
-            request_id += 1
-        self._storage.put("next_paymentrequest_id", request_id)
-
-        future = db_functions.create_payment_requests(self.get_db_context(), rows)
-        future.add_done_callback(callback)
-        return future
 
     def delete_payment_request(self, account_id: int, request_id: int, keyinstance_id: int) \
             -> concurrent.futures.Future[KeyInstanceFlag]:
@@ -4577,8 +4576,7 @@ class Wallet:
         # TODO: Do validation
         return True
 
-    async def _consume_dpp_messages_async(self, state: ServerConnectionState,
-            pr_rows_for_server: list[PaymentRequestReadRow]) -> None:
+    async def _consume_dpp_messages_async(self, state: ServerConnectionState) -> None:
         """Consumes and processes all invoice messages for a single DPP Proxy server
 
         A core principle here is that both Payer and Payee should be able to retry any message type
@@ -4592,12 +4590,15 @@ class Wallet:
         successfully delivered, it should be possible for the payer to retry paying the invoice
         from any state in the sequence if needed.
         """
+        payment_request_rows = self.data.read_payment_requests(None,
+            flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID, server_id=state.server.server_id)
+
         # Initialize ws:// connections for pre-existing active invoice records from the database
         assert len(state.dpp_websockets) == 0
-        await create_dpp_server_connections_async(state, pr_rows_for_server)
+        await create_dpp_server_connections_async(state, payment_request_rows)
 
         # Initialize the state machine message queue for pre-existing active invoice records
-        paymentrequest_ids = [pr_row.paymentrequest_id for pr_row in pr_rows_for_server]
+        paymentrequest_ids = [pr_row.paymentrequest_id for pr_row in payment_request_rows]
         dpp_messages = db_functions.read_dpp_messages_by_pr_id(self._db_context, paymentrequest_ids)
         for dpp_message in self._filter_out_earlier_dpp_message_states(dpp_messages):
             state.dpp_messages_queue.put_nowait(dpp_message)
@@ -4609,15 +4610,13 @@ class Wallet:
             if message_row.type == MSG_TYPE_JOIN_SUCCESS:
                 continue
 
-            pr_rows = db_functions.read_payment_requests(self._db_context,
-                paymentrequest_ids=[message_row.paymentrequest_id])
-            if len(pr_rows) != 1:
+            pr_row = self.data.read_payment_request(request_id=message_row.paymentrequest_id)
+            if pr_row is None:
                 self._logger.error(f"Failed to read payment request with id: "
                                    f"{message_row.paymentrequest_id} from the database. "
                                    f"DPPMessageRow data: {message_row}")
                 continue
 
-            pr_row = pr_rows[0]
             assert pr_row.state & PaymentFlag.INVOICE == PaymentFlag.INVOICE
             assert pr_row.state & PaymentFlag.UNPAID == PaymentFlag.UNPAID
 
@@ -4984,52 +4983,22 @@ class Wallet:
     async def _manage_dpp_connections_async(self) -> None:
         assert self._network is not None
 
-        # Petty cash account_id is for ServerConnectionState in case payment is required in future
-        petty_cash_account_id = None
-        for account in self._accounts.values():
-            if account.is_petty_cash():
-                petty_cash_account_id = account.get_id()
-        assert petty_cash_account_id is not None
+        for server in self._servers.values():
+            if server.server_type == NetworkServerType.DPP_PROXY:
+                state = ServerConnectionState(
+                    # TODO(petty-cash) Which petty cash account to bill against when/if we do that.
+                    petty_cash_account_id=self._petty_cash_account.get_id(),
+                    usage_flags=NetworkServerFlag.NONE,
+                    wallet_proxy=weakref.proxy(self),
+                    wallet_data=self.data,
+                    session=self._network.aiohttp_session,
+                    server=server,
+                    credential_id=server.client_api_keys[None])
+                self.dpp_proxy_server_states.append(state)
+                state.dpp_consumer_future = app_state.async_.spawn(
+                    self._consume_dpp_messages_async(state))
 
-        # Scan through all accounts for all active payment requests and get the DPP proxy servers
-        # associated with each invoice ID.
-        unique_dpp_servers: set[NewServer] = { server for server in self._servers.values()
-                if server.server_type == NetworkServerType.DPP_PROXY }
-
-        server_to_pr_map: dict[NewServer, list[PaymentRequestReadRow]] = {}
-        for server in unique_dpp_servers:
-            server_to_pr_map[server] = []
-
-        for account in self._accounts.values():
-            # We are only processing PaymentFlag.INVOICE type invoices (not legacy invoices)
-            flags = PaymentFlag.INVOICE | PaymentFlag.UNPAID
-            active_pr_rows: list[PaymentRequestReadRow] = \
-                self.data.read_payment_requests(account.get_id(), flags=flags)
-
-            # software join on server_id to obtain NewServer info (for the ws:// connection)
-            for active_pr_row in active_pr_rows:
-                for server in unique_dpp_servers:
-                    if active_pr_row.server_id == server.server_id:
-                        server_to_pr_map[server].append(active_pr_row)
-
-        for server in unique_dpp_servers:
-            usage_flags = NetworkServerFlag.CAPABILITY_DPP
-            state = ServerConnectionState(
-                petty_cash_account_id=petty_cash_account_id,
-                usage_flags=usage_flags,
-                wallet_proxy=weakref.proxy(self),
-                wallet_data=self.data,
-                session=self._network.aiohttp_session,
-                server=server,
-                credential_id=server.client_api_keys[None])
-
-            self.dpp_proxy_server_states.append(state)
-
-            pr_rows_for_server = server_to_pr_map[server]
-            state.dpp_consumer_future = app_state.async_.spawn(
-                self._consume_dpp_messages_async(state, pr_rows_for_server))
-
-    def start(self, network: Optional[Network]) -> None:
+    def start(self, network: Network | None) -> None:
         assert app_state.headers is not None
 
         self._network = network

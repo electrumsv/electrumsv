@@ -1,6 +1,8 @@
 import asyncio
 from concurrent.futures import Future
+from http import HTTPStatus
 import json
+import random
 from typing import Any, cast
 
 import aiohttp
@@ -91,7 +93,7 @@ def _validate_dpp_message_json(dpp_message_json: dict[Any, Any]) -> None:
     assert isinstance(dpp_message_json["headers"], dict)
 
 
-async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
+async def manage_dpp_connection_async(state: ServerConnectionState,
         payment_request_row: PaymentRequestReadRow) -> None:
     """One async task per ws:// connection - each invoice ID has its own ws:// connection.
 
@@ -153,6 +155,26 @@ async def create_dpp_ws_connection_task_async(state: ServerConnectionState,
         state.dpp_websockets.pop(payment_request_row.dpp_invoice_id, None)
 
 
+async def create_dpp_server_connection_async(state: ServerConnectionState,
+        row: PaymentRequestReadRow, timeout_seconds: float=0.0) \
+            -> tuple[Future[None], asyncio.Event]:
+    """
+    Raises `asyncio.TimeoutError` if the connection is not made within the given timeout.
+    """
+    assert row.dpp_invoice_id is not None
+    event = state.dpp_websocket_connection_events[row.dpp_invoice_id] = asyncio.Event()
+    future = app_state.async_.spawn(manage_dpp_connection_async(state, row))
+    if timeout_seconds > 0.0:
+        try:
+            await asyncio.wait_for(event.wait(), timeout_seconds)
+        except asyncio.TimeoutError:
+            # TODO(1.4.0) DPP. We need to do error handling here, but it should be unexpected
+            #     given our requirement that our server be "connectable".
+            future.cancel()
+            raise
+    return future, event
+
+
 async def create_dpp_server_connections_async(state: ServerConnectionState,
         payment_request_rows: list[PaymentRequestReadRow]) -> None:
     """Block until all the requested connections are made and report the results."""
@@ -162,9 +184,7 @@ async def create_dpp_server_connections_async(state: ServerConnectionState,
     active_tasks = list[tuple[PaymentRequestReadRow, Future[None], asyncio.Event]]()
     for row in payment_request_rows:
         assert row.dpp_invoice_id is not None
-        event = asyncio.Event()
-        state.dpp_websocket_connection_events[row.dpp_invoice_id] = event
-        future = app_state.app.run_coro(create_dpp_ws_connection_task_async(state, row))
+        future, event = await create_dpp_server_connection_async(state, row)
         active_tasks.append((row, future, event))
 
     done, pending = await asyncio.wait([ event.wait() for row, future, event in active_tasks ],
@@ -177,6 +197,20 @@ async def create_dpp_server_connections_async(state: ServerConnectionState,
         pass
 
 
-async def check_dpp_server_connectivity(state: ServerConnectionState) -> None:
-    pass
+async def find_connectable_dpp_server(server_states: list[ServerConnectionState]) \
+        -> ServerConnectionState | None:
+    connected_server_states = [ state for state in server_states if len(state.dpp_websockets) > 0 ]
+    if len(connected_server_states) > 0:
+        return random.choice(connected_server_states)
 
+    server_states = server_states[:]
+    random.shuffle(server_states)
+    for state in server_states:
+        try:
+            async with state.session.options(state.server.url) as response:
+                if response.status == HTTPStatus.NO_CONTENT:
+                    return state
+        except aiohttp.ClientError:
+            pass
+
+    return None

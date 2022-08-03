@@ -1,7 +1,9 @@
 """This is designed with extensibility in mind - see examples/applications/restapi. """
 from __future__ import annotations
+from datetime import datetime
 import json
 import os
+import time
 from types import NoneType
 from typing import cast
 from typing_extensions import NotRequired, TypedDict
@@ -290,7 +292,7 @@ class LocalEndpoints:
         """ Create a new invoice with the expectation it is hosted for it to succeed. """
         # Process the route.
         check_network_for_request(request)
-        wallet, account = get_account_from_request(request)
+        _wallet, account = get_account_from_request(request)
 
         # Process the body.
         body_data = request.json()
@@ -314,13 +316,21 @@ class LocalEndpoints:
         if not isinstance(merchant_reference, (NoneType, str)):
             raise web.HTTPBadRequest(reason="Invalid request body 'reference'")
 
-        # TODO Create the `create_hosted_invoice` function.
-        # TODO Handle any exceptions.
-        invoice_data = account.create_hosted_invoice(payment_amount, expiry_date_text, description,
-            merchant_reference)
+        date_expires = int(time.time()) + 5 * 60
+        if expiry_date_text is not None:
+            expiry_iso8601_text = expiry_date_text.replace("Z", "+00:00")
+            date_expires = int(datetime.fromisoformat(expiry_iso8601_text).timestamp())
 
-        # TODO Convert the invoice data to a response.
-        return web.json_response(True)
+        result, error_code = await account.create_hosted_invoice_async(payment_amount,
+            date_expires, description, merchant_reference)
+        if result is None:
+            raise web.HTTPBadRequest(reason=f"Failed with error code {error_code}")
+
+        assert result[0].paymentrequest_id is not None
+        create_data: CreateInvoiceResponseDict = {
+            "id": result[0].paymentrequest_id,
+        }
+        return web.json_response(create_data)
 
     async def delete_hosted_invoice_async(self, request: web.Request) -> web.Response:
         """ Close the hosted invoice out and stop hosting it. """
@@ -328,13 +338,17 @@ class LocalEndpoints:
         check_network_for_request(request)
         wallet, account = get_account_from_request(request)
 
-        invoice_id = request.match_info.get("invoice")
-        if invoice_id is None or len(invoice_id) == 0:
+        invoice_id_text = request.match_info.get("invoice")
+        if invoice_id_text is None:
             raise web.HTTPBadRequest(reason="URL 'invoice' value not present")
+        try:
+            invoice_id = int(invoice_id_text)
+        except ValueError:
+            raise web.HTTPBadRequest(reason=f"URL 'invoice' value '{invoice_id_text}' invalid")
 
         # TODO Create the `delete_hosted_invoice` function.
         # TODO Handle any exceptions.
-        account.delete_hosted_invoice(invoice_id)
+        await account.delete_hosted_invoice_async(invoice_id)
 
         # TODO Extract input parameters
         return web.json_response(True)
@@ -349,7 +363,7 @@ class LocalEndpoints:
         if not isinstance(body_data, dict) or "payToURL" not in body_data:
             raise web.HTTPBadRequest(reason="Invalid request body")
         body_dict = cast(PayRequestDict, body_data)
-        account.pay_hosted_invoice(body_dict["payToURL"])
+        await account.pay_hosted_invoice_async(body_dict["payToURL"])
 
         return web.json_response(True)
 
@@ -377,5 +391,9 @@ class CreateInvoiceRequestDict(TypedDict):
     # The reference for the payment to be given to the merchant.
     reference: NotRequired[str]
 
+class CreateInvoiceResponseDict(TypedDict):
+    id: int
+
 class PayRequestDict(TypedDict):
     payToURL: str
+

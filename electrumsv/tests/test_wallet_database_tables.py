@@ -1080,15 +1080,15 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     expiration = date_created + 60*60
     line1 = PaymentRequestRow(1, KEYINSTANCE_ID, PaymentFlag.PAID, None,
         expiration, TX_DESC1, ScriptType.P2PKH, b'', server_id, dpp_invoice_id, merchant_reference,
-        date_created)
+        date_created, date_created)
     line2 = PaymentRequestRow(2, KEYINSTANCE_ID+1, PaymentFlag.UNPAID, 100,
         expiration, TX_DESC2, ScriptType.P2PKH, b'', server_id, dpp_invoice_id, merchant_reference,
-        date_created)
+        date_created, date_created)
 
     # No effect: The transactionoutput foreign key constraint will fail as the key instance
     # does not exist.
     with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.create_payment_requests(db_context, [ line1 ])
+        future = db_context.post_to_thread(db_functions.create_payment_requests_write, [ line1 ])
         future.result()
 
     # Satisfy the masterkey foreign key constraint by creating the masterkey.
@@ -1114,12 +1114,12 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     future = db_functions.create_keyinstances(db_context, entries)
     future.result(timeout=5)
 
-    future = db_functions.create_payment_requests(db_context, [ line1, line2 ])
+    future = db_context.post_to_thread(db_functions.create_payment_requests_write, [ line1, line2 ])
     future.result()
 
     # No effect: The primary key constraint will prevent any conflicting entry from being added.
     with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.create_payment_requests(db_context, [ line1 ])
+        future = db_context.post_to_thread(db_functions.create_payment_requests_write, [ line1 ])
         future.result()
 
     def compare_paymentrequest_rows(row1: PaymentRequestRow, row2: PaymentRequestReadRow) -> None:
@@ -1203,6 +1203,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert transaction_description_update_rows == [ (TX_DESC2, ACCOUNT_ID, TX_HASH) ]
 
     ## Continue.
+    assert line2.paymentrequest_id is not None
     future = db_context.post_to_thread(db_functions.update_payment_requests_write, [
         PaymentRequestUpdateRow(PaymentFlag.UNKNOWN, 20, 999, "newdesc", "newmerchantref",
         line2.paymentrequest_id) ])
@@ -1225,6 +1226,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     db_lines = db_functions.read_payment_requests(db_context, ACCOUNT_ID)
     assert 2 == len(db_lines)
 
+    assert line1.paymentrequest_id is not None
     future = db_functions.delete_payment_request(db_context, line1.paymentrequest_id,
         line1.keyinstance_id)
     future.result()
