@@ -153,7 +153,8 @@ class CredentialCache:
             self._wallet_credentials[wallet_path] = credential
 
             if self._check_thread is None:
-                self._check_thread = threading.Thread(target=self._check_credentials_thread_main)
+                self._check_thread = threading.Thread(target=self._check_credentials_thread_main,
+                    daemon=True)
                 self._check_thread.start()
 
             return WalletPasswordToken(self, wallet_path)

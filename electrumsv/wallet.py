@@ -3906,7 +3906,7 @@ class Wallet:
     def teardown_restapi_connection(self, websocket_id: str) -> None:
         del self._restapi_connections[websocket_id]
 
-    async def _close_restapi_websockets_async(self) -> None:
+    async def _close_restapi_connections_async(self) -> None:
         # NOTE(local-import) Avoid circular imports.
         from .restapi_endpoints import close_restapi_connection_async
 
@@ -5083,9 +5083,10 @@ class Wallet:
         for account in self.get_accounts():
             account.stop()
 
-        # REST API websockets are available online and offline.
-        # TODO(1.4.0) REST API. This breaks the `create_wallet` endpoint (and other things).
-        # app_state.async_.spawn_and_wait(self._close_restapi_websockets_async())
+        # REST API websockets are available online and offline. We do not want to do no-op async
+        # here as it locks up the direct command-line options `create_wallet` / `create_account`.
+        if len(self._restapi_connections) > 0:
+            app_state.async_.spawn_and_wait(self._close_restapi_connections_async())
         if self._network is not None:
             self._shutdown_network_related_tasks()
 
