@@ -196,7 +196,7 @@ class TestRestAPI:
         async with aiohttp.ClientSession() as session:
             async with session.ws_connect(url) as websocket:
                 # It is assumed this is a successful connection as it did not error.
-                pass
+                await websocket.close()
 
     if False:
         @pytest.mark.asyncio

@@ -19,3 +19,4 @@ steps:
     pathToPublish: $(NEW_LOG_DIR)
     artifactName: $(Agent.OS)_functional_testing_server_logs
   displayName: 'Publish logs'
+  condition: succeededOrFailed()
