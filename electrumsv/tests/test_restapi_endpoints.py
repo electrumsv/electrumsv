@@ -29,10 +29,10 @@ async def test_load_wallet_async_daemon_fail(mock_app_state: AppStateProxy, tmp_
     local_endpoints = LocalEndpoints()
     request.match_info = {
         "network": "mainnet",
-        "wallet": "wallet_file_name",
     }
     async def request_json_async() -> dict[str, Any]:
         return {
+            "file_name": "wallet_file_name",
             "password": "123456",
         }
     request.json = request_json_async
@@ -67,10 +67,10 @@ async def test_load_wallet_async_daemon_success(app_state_restapi: AppStateProxy
     request = unittest.mock.Mock()
     request.match_info = {
         "network": "mainnet",
-        "wallet": "wallet_file_name",
     }
     async def request_json_async() -> dict[str, Any]:
         return {
+            "file_name": "wallet_file_name",
             "password": "123456",
         }
     request.json = request_json_async
@@ -174,10 +174,11 @@ async def test_create_wallet_async_success_no_seed(app_state_restapi: AppStatePr
     wallet_path = str(tmp_path / "wallet_file_name")
     expected_wallet_path = WalletStorage.canonical_path(wallet_path)
 
-    assert len(wallet_data) == 3
+    assert len(wallet_data) == 4
     assert isinstance(wallet_data["ephemeral_wallet_id"], int)
     assert wallet_data["wallet_path"] == expected_wallet_path
     assert wallet_data["account_ids"] == []
+    assert isinstance(wallet_data["websocket_access_token"], str)
 
 @unittest.mock.patch('electrumsv.keystore.app_state')
 @unittest.mock.patch(
@@ -214,11 +215,12 @@ async def test_create_wallet_async_success_encrypted_seed(app_state_restapi: App
     wallet_path = str(tmp_path / "wallet_file_name")
     expected_wallet_path = WalletStorage.canonical_path(wallet_path)
 
-    assert len(wallet_data) == 4
+    assert len(wallet_data) == 5
     assert isinstance(wallet_data["ephemeral_wallet_id"], int)
     assert wallet_data["wallet_path"] == expected_wallet_path
     assert wallet_data["account_ids"] == []
     assert "wallet_seed" in wallet_data
+    assert isinstance(wallet_data["websocket_access_token"], str)
 
     encrypted_wallet_seed_hex = wallet_data["wallet_seed"]
     seed_words_text = private_key.decrypt_message(bytes.fromhex(encrypted_wallet_seed_hex)).decode()

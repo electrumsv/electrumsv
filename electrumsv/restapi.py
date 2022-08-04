@@ -49,7 +49,7 @@ class BaseAiohttpServer:
         self.app.on_shutdown.append(self.on_shutdown)
         self.host = host
         self.port = port
-        self.logger = logs.get_logger("aiohttp-rest-api")
+        self.logger = logs.get_logger("rest-server")
 
     async def on_startup(self, app: web.Application) -> None:
         self.logger.debug("starting...")

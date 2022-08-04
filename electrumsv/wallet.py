@@ -132,10 +132,11 @@ from .wallet_support.keys import get_pushdata_hash_for_account_key_data
 from .web import create_DPP_URL
 
 if TYPE_CHECKING:
+    from .devices.hw_wallet.qt import QtPluginBase
+    from .gui.qt.util import WindowProtocol
     from .network import Network
     from .network_support.headers import HeaderServerState
-    from electrumsv.gui.qt.util import WindowProtocol
-    from electrumsv.devices.hw_wallet.qt import QtPluginBase
+    from .restapi_endpoints import LocalWebsocketState
 
 
 logger = logs.get_logger("wallet")
@@ -3891,6 +3892,30 @@ class Wallet:
                 self._servers[server_key] = NewServer(server_key.url, server_key.server_type,
                     row, credential_id)
 
+        # REST API: Tracked on the wallet and not the network because it works in offline mode too.
+        # We can likely come up with a better approach to an access token for the websocket later.
+        self.restapi_websocket_access_token = double_sha256(os.urandom(256)).hex()
+        self._restapi_connections: dict[str, LocalWebsocketState] = {}
+
+    def setup_restapi_connection(self, websocket_state: LocalWebsocketState) -> bool:
+        if self._stopping or self._stopped:
+            return False
+        self._restapi_connections[websocket_state.websocket_id] = websocket_state
+        return True
+
+    def teardown_restapi_connection(self, websocket_id: str) -> None:
+        del self._restapi_connections[websocket_id]
+
+    async def _close_restapi_websockets_async(self) -> None:
+        # NOTE(local-import) Avoid circular imports.
+        from .restapi_endpoints import close_restapi_connection_async
+
+        for websocket_state1 in list(self._restapi_connections.values()):
+            # We only close the connection if it is still open (this loop blocks).
+            websocket_state2 = self._restapi_connections.pop(websocket_state1.websocket_id)
+            if websocket_state2 is not None:
+                await close_restapi_connection_async(websocket_state1)
+
     def is_blockchain_server_active(self) -> bool:
         """
         Determine if the wallet has a configured and in use blockchain server.
@@ -5058,6 +5083,8 @@ class Wallet:
         for account in self.get_accounts():
             account.stop()
 
+        # REST API websockets are available online and offline.
+        app_state.async_.spawn_and_wait(self._close_restapi_websockets_async())
         if self._network is not None:
             self._shutdown_network_related_tasks()
 

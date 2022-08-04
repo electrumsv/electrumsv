@@ -73,9 +73,10 @@ class TestRestAPI:
     def _load_wallet(self):
         payload = {
             "password": "test",
+            "file_name": self.EXISTING_WALLET_NAME,
         }
         _result1 = requests.post(
-            f"http://127.0.0.1:9999/v1/regtest/wallet/{self.EXISTING_WALLET_NAME}/load",
+            f"http://127.0.0.1:9999/v1/regtest/wallet/load",
                 json=payload)
         if _result1.status_code != 200:
             raise requests.exceptions.HTTPError(_result1.text)
@@ -161,19 +162,41 @@ class TestRestAPI:
             raise requests.exceptions.HTTPError(response.text)
 
         result_json = response.json()
-        assert len(result_json) == 3
+        assert len(result_json) == 4
         assert isinstance(result_json["ephemeral_wallet_id"], int)
         assert "create_wallet_name" in result_json["wallet_path"]
         assert result_json["account_ids"] == []
 
-    def test_load_existing_wallet(self) -> None:
+    async def test_load_existing_wallet(self) -> None:
         # Test the load call directly after the create so we know the create call has happened.
         response = self._load_wallet()
         result_json = response.json()
-        assert len(result_json) == 3
+        assert len(result_json) == 4
         assert isinstance(result_json["ephemeral_wallet_id"], int)
         assert self.EXISTING_WALLET_NAME in result_json["wallet_path"]
         assert result_json["account_ids"] == [2]
+        assert "websocket_access_token" in result_json
+
+    async def test_wallet_websocket_connectivity(self) -> None:
+        payload = {
+            "file_name": "websocket_wallet",
+            "password": "testtest",
+        }
+        response = requests.post("http://127.0.0.1:9999/v1/regtest/wallet/", json=payload)
+        if response.status_code != 200:
+            raise requests.exceptions.HTTPError(response.text)
+        result_json = response.json()
+        wallet_id = result_json["ephemeral_wallet_id"]
+        restapi_access_token = result_json["websocket_access_token"]
+
+        # We may as well test the web socket is accessible for the loaded wallet, as testing this
+        # requires the above load anyway.
+        url = f"http://127.0.0.1:9999/v1/regtest/wallet/{wallet_id}/websocket"
+        url += f"?token={restapi_access_token}"
+        async with aiohttp.ClientSession() as session:
+            async with session.ws_connect(url) as websocket:
+                # It is assumed this is a successful connection as it did not error.
+                pass
 
     if False:
         @pytest.mark.asyncio

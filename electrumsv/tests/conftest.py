@@ -2,12 +2,15 @@
 import os
 from os.path import dirname
 from pathlib import Path
+import shutil
+import tempfile
 
 import bitcoinx
 import pytest
 from electrumsv.transaction import Transaction, XPublicKey
 
 from electrumsv.networks import Net, SVMainnet, SVTestnet
+from electrumsv.simple_config import SimpleConfig
 from electrumsv.util.misc import obj_size
 
 
@@ -56,3 +59,16 @@ def test_tx_datacarrier()-> Transaction:
 @pytest.fixture
 def test_tx_small()-> Transaction:
     return get_small_tx()
+
+@pytest.fixture
+def existing_config():
+    electrum_sv_path = tempfile.mkdtemp()
+    yield SimpleConfig({'electrum_sv_path': electrum_sv_path})
+    shutil.rmtree(electrum_sv_path)
+
+
+@pytest.fixture
+def fresh_wallet_path():
+    user_dir = tempfile.mkdtemp()
+    yield os.path.join(user_dir, f"somewallet-{os.urandom(4).hex()}")
+    shutil.rmtree(user_dir)
