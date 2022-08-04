@@ -5084,7 +5084,8 @@ class Wallet:
             account.stop()
 
         # REST API websockets are available online and offline.
-        app_state.async_.spawn_and_wait(self._close_restapi_websockets_async())
+        # TODO(1.4.0) REST API. This breaks the `create_wallet` endpoint (and other things).
+        # app_state.async_.spawn_and_wait(self._close_restapi_websockets_async())
         if self._network is not None:
             self._shutdown_network_related_tasks()
 
