@@ -479,8 +479,9 @@ async def test_create_hosted_invoice_async_success(app_state_restapi: AppStatePr
                 cast(web.Request, invoice_request))
 
     invoice_data = json.loads(cast(bytes, response.body))
-    assert len(invoice_data) == 1
+    assert len(invoice_data) == 2
     assert "id" in invoice_data
+    assert "payment_url" in invoice_data
 
 @unittest.mock.patch('electrumsv.keystore.app_state')
 @unittest.mock.patch(

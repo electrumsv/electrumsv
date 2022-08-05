@@ -56,6 +56,7 @@ class CreateInvoiceRequestDict(TypedDict):
 
 class CreateInvoiceResponseDict(TypedDict):
     id: int
+    payment_url: str
 
 class PayRequestDict(TypedDict):
     payToURL: str
@@ -376,9 +377,10 @@ class LocalEndpoints:
         if result is None:
             raise web.HTTPBadRequest(reason=f"Failed with error code {error_code}")
 
-        assert result[0].paymentrequest_id is not None
+        assert result.payment_request_row.paymentrequest_id is not None
         create_data: CreateInvoiceResponseDict = {
-            "id": result[0].paymentrequest_id,
+            "id": result.payment_request_row.paymentrequest_id,
+            "payment_url": result.payment_url,
         }
         return web.json_response(create_data)
 

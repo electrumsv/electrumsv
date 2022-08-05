@@ -37,13 +37,10 @@ from .bitcoin import COIN, is_address_valid
 from .exceptions import Bip270Exception
 from .i18n import _
 from .logs import logs
-from .network_support.types import ServerConnectionState
 from .networks import Net
 from .util import format_satoshis_plain
-from .wallet_database.types import PaymentRequestReadRow
 
 if TYPE_CHECKING:
-    from .network_support.api_server import NewServer
     from .dpp_messages import PaymentTerms
     from .simple_config import SimpleConfig
 
@@ -84,27 +81,6 @@ def BE_sorted_list() -> Iterable[str]:
     return sorted(Net.BLOCK_EXPLORERS)
 
 
-def create_DPP_URL(dpp_proxy_server_states: list[ServerConnectionState],
-        request_row: PaymentRequestReadRow) -> str:
-    dpp_server: NewServer | None = None
-    for state in dpp_proxy_server_states:
-        if state.server.server_id == request_row.server_id:
-            dpp_server = state.server
-    assert dpp_server is not None
-    full_dpp_invoice_url = f"{dpp_server.url.rstrip('/')}" \
-                           f"/api/v1/payment/{request_row.dpp_invoice_id}"
-    url = f"{full_dpp_invoice_url}"
-    return url
-
-
-def create_DPP_URI(dpp_proxy_server_states: list[ServerConnectionState],
-        request_row: PaymentRequestReadRow) -> str:
-    scheme = Net.PAY_URI_PREFIX
-    full_dpp_invoice_url = create_DPP_URL(dpp_proxy_server_states, request_row)
-    uri = f"{scheme}:?r={full_dpp_invoice_url}&sv"
-    return uri
-
-
 def create_URI(dest: str, amount: Optional[int], message: str) -> str:
     scheme = Net.BITCOIN_URI_PREFIX
     query_parts = ['sv']
@@ -132,7 +108,7 @@ def is_URI(text: str) -> bool:
     scheme_idx = text.find(":")
     if scheme_idx > -1:
         scheme = text[:scheme_idx].lower()
-        if scheme in (Net.BITCOIN_URI_PREFIX, Net.PAY_URI_PREFIX) or scheme == PREFIX_BIP276_SCRIPT:
+        if scheme in (Net.BITCOIN_URI_PREFIX, "pay") or scheme == PREFIX_BIP276_SCRIPT:
             return True
     return False
 
@@ -151,7 +127,7 @@ def parse_URI(uri: str, on_pr: Optional[Callable[["PaymentTerms"], None]]=None,
     # The scheme always comes back in lower case
     pq = urllib.parse.parse_qs(u.query, keep_blank_values=True)
     if not (u.scheme == Net.BITCOIN_URI_PREFIX and 'sv' in pq or
-            u.scheme in (PREFIX_BIP276_SCRIPT, Net.PAY_URI_PREFIX)):
+            u.scheme in (PREFIX_BIP276_SCRIPT, "pay")):
         raise URIError(_('Invalid Bitcoin SV URI: {}').format(uri))
 
     for k, v in pq.items():

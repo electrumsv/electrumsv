@@ -129,7 +129,6 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     WalletEventInsertRow, WalletEventRow, DPPMessageRow)
 from .wallet_database.util import create_derivation_data2
 from .wallet_support.keys import get_pushdata_hash_for_account_key_data
-from .web import create_DPP_URL
 
 if TYPE_CHECKING:
     from .devices.hw_wallet.qt import QtPluginBase
@@ -182,6 +181,13 @@ class MissingTransactionEntry:
     import_flags: TransactionImportFlag
     with_proof: bool = False
     account_ids: list[int] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class HostedInvoiceCreationResult:
+    payment_request_row: PaymentRequestRow
+    key_data: KeyDataProtocol
+    payment_url: str
 
 
 ADDRESS_TYPES = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
@@ -1118,7 +1124,7 @@ class AbstractAccount:
 
     async def create_hosted_invoice_async(self, amount_satoshis: int, date_expires: int,
             description: str | None, merchant_reference: str | None) \
-                -> tuple[tuple[PaymentRequestRow, KeyDataProtocol] | None, int]:
+                -> tuple[HostedInvoiceCreationResult | None, int]:
         server_state = await find_connectable_dpp_server(self._wallet.dpp_proxy_server_states)
         if server_state is None:
             return None, -1
@@ -1142,12 +1148,17 @@ class AbstractAccount:
             #     given our requirement that our server be "connectable".
             return None, -2
 
-        return (rows[0], key_data), 0
+        payment_url = f"{server_state.server.url}api/v1/payment/{row.dpp_invoice_id}"
+        result = HostedInvoiceCreationResult(payment_request_row=rows[0], key_data=key_data,
+            payment_url=payment_url)
+        return result, 0
 
     async def delete_hosted_invoice_async(self, invoice_id: int) -> None:
         pass
 
     async def pay_hosted_invoice_async(self, pay_url: str) -> None:
+        # TODO Fetch the payment terms.
+        # TODO Check the payment terms are ...
         pass
 
 
@@ -4482,6 +4493,15 @@ class Wallet:
                     latest_dpp_messages[dpp_message.dpp_invoice_id] = msg_later
         return [msg for msg in latest_dpp_messages.values()]
 
+    def get_dpp_server_url(self, server_id: int) -> str:
+        server_url: str | None = None
+        for dpp_server_state in self.dpp_proxy_server_states:
+            if dpp_server_state.server.server_id == server_id:
+                server_url = dpp_server_state.server.url
+                break
+        assert server_url is not None
+        return server_url
+
     # ----- DPP Message Creators ----- #
     def dpp_make_payment_request_response(self, pr_row: PaymentRequestReadRow,
             message_row_received: DPPMessageRow) -> DPPMessageRow:
@@ -4498,12 +4518,16 @@ class Wallet:
         ]
 
         assert pr_row.date_created != -1
+        assert pr_row.server_id is not None
+        assert pr_row.dpp_invoice_id is not None
+        server_url = self.get_dpp_server_url(pr_row.server_id)
+        payment_url = f"{server_url}api/v1/payment/{pr_row.dpp_invoice_id}"
 
         paymentRequestData = {
             "network": "regtest",
             "version": "1.0",
             "creationTimestamp": pr_row.date_created,
-            "paymentUrl": create_DPP_URL(self.dpp_proxy_server_states, pr_row),
+            "paymentUrl": payment_url,
             "beneficiary": {"name": "GoldenSocks.com", "paymentReference": "Order-325214",
                 "email": "merchant@m.com"},
             "memo": pr_row.merchant_reference,

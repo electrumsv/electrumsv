@@ -250,13 +250,12 @@ class CoinSplittingTab(TabWidget):
         if result is None:
             # TODO(1.4.0) DPP. Clean up correctly.
             return
-        _row, key_data = result
 
         script_type = self._account.get_default_script_type()
         script_template = self._account.get_script_template_for_derivation(script_type,
-            key_data.derivation_type, key_data.derivation_data2)
-        self._allocated_key_state = AllocatedKeyState(script_template, key_data.keyinstance_id,
-            script_type)
+            result.key_data.derivation_type, result.key_data.derivation_data2)
+        self._allocated_key_state = AllocatedKeyState(script_template,
+            result.key_data.keyinstance_id, script_type)
 
         self.split_stage = STAGE_PREPARING
         self.new_transaction_cv = threading.Condition()

@@ -28,12 +28,11 @@ from .qrcodewidget import QRCodeWidget
 from .qrwindow import QR_Window
 from .util import Buttons, ButtonsLineEdit, EnterButton, FormSectionWidget, FormSeparatorLine, \
     HelpDialogButton, MessageBox
-from ...web import create_DPP_URI
 
 if TYPE_CHECKING:
     from .main_window import ElectrumWindow
     from .receive_view import ReceiveView
-    from ...wallet import AbstractAccount
+    from ...wallet import AbstractAccount, HostedInvoiceCreationResult
     from ...wallet_database.types import KeyInstanceRow, PaymentRequestReadRow
 
 
@@ -400,9 +399,12 @@ class ReceiveDialog(QDialog):
 
         else:
             assert self._request_row is not None
-            uri = create_DPP_URI(self._account.get_wallet().dpp_proxy_server_states,
-                self._request_row)
-            self._receive_destination_edit.setText(uri)
+            assert self._request_row.server_id is not None
+            assert self._request_row.dpp_invoice_id is not None
+            wallet = self._account.get_wallet()
+            server_url = wallet.get_dpp_server_url(self._request_row.server_id)
+            payment_url = f"pay:?r={server_url}api/v1/payment/{self._request_row.dpp_invoice_id}"
+            self._receive_destination_edit.setText(payment_url)
 
     def update_script_type(self, script_type: ScriptType) -> None:
         """
@@ -433,12 +435,15 @@ class ReceiveDialog(QDialog):
 
         if self._request_type & PaymentFlag.INVOICE == PaymentFlag.INVOICE \
                 and self._request_row is not None:
-            uri = create_DPP_URI(self._account.get_wallet().dpp_proxy_server_states,
-                self._request_row)
-            self._receive_qr.setData(uri)
+            assert self._request_row.server_id is not None
+            assert self._request_row.dpp_invoice_id is not None
+            wallet = self._account.get_wallet()
+            server_url = wallet.get_dpp_server_url(self._request_row.server_id)
+            payment_url = f"pay:?r={server_url}api/v1/payment/{self._request_row.dpp_invoice_id}"
+            self._receive_qr.setData(payment_url)
             if self._qr_window and self._qr_window.isVisible():
                 self._qr_window.set_content(self._receive_destination_edit.text(), amount,
-                    message, uri)
+                    message, payment_url)
 
         elif self._request_type & PaymentFlag.MONITORED == PaymentFlag.MONITORED:
             script_template = self._account.get_script_template_for_derivation(
@@ -610,9 +615,8 @@ class ReceiveDialog(QDialog):
             date_expires = int(time.time()) + duration_seconds
 
         if self._request_type == PaymentFlag.INVOICE:
-            def ui_callback(
-                    future: Future[tuple[tuple[PaymentRequestRow, KeyDataProtocol] | None, int]]) \
-                        -> None:
+            def ui_callback(future: Future[tuple[HostedInvoiceCreationResult | None, int]]) \
+                    -> None:
                 """ `run_coro` ensures that our `on_done` callback happens in the UI thread. """
                 if future.cancelled():
                     return
@@ -621,11 +625,9 @@ class ReceiveDialog(QDialog):
                 if result is None:
                     # TODO(1.4.0) DPP. Handle the error in creating the hosted invoice.
                     return
-                row, _key_data = result
 
-                assert row is not None
-                assert row.paymentrequest_id is not None
-                self._request_id = row.paymentrequest_id
+                assert result.payment_request_row.paymentrequest_id is not None
+                self._request_id = result.payment_request_row.paymentrequest_id
                 # While we get the 'PaymentRequestRow' type (used for creation) back, we currently
                 # use the `PaymentRequestReadRow` type (used for reads) row type for local storage
                 # (which includes related data like value received).
