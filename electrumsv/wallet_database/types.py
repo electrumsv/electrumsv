@@ -204,6 +204,7 @@ class PaymentRequestReadRow(NamedTuple):
     server_id: int | None
     dpp_invoice_id: str | None
     merchant_reference: str | None
+    encrypted_key_text: str | None
     date_created: int
 
 
@@ -221,6 +222,7 @@ class PaymentRequestRow(NamedTuple):
     dpp_invoice_id: str | None
     # What we put in any outgoing payment terms to describe what the payee is paying for.
     merchant_reference: str | None
+    encrypted_key_text: str | None
     date_created: int
     date_updated: int
 

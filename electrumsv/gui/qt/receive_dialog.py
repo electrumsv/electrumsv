@@ -20,6 +20,7 @@ from ...network_support.types import ServerConnectionState, TipFilterRegistratio
     TipFilterRegistrationJobEntry
 from ...networks import Net, TEST_NETWORK_NAMES
 from ...transaction import Transaction, TransactionContext
+from ...types import ErrorCodes
 from ...util import age, get_posix_timestamp
 from ...wallet_database.types import KeyDataProtocol, PaymentRequestRow, PaymentRequestUpdateRow
 
@@ -144,6 +145,7 @@ class ReceiveDialog(QDialog):
         if self._request_row is not None:
             self._receive_amount_e.setAmount(self._request_row.requested_value)
 
+        self.show_error_signal.connect(self._show_error)
         self.refresh_form_signal.connect(self._update_form)
         self.tip_filter_registration_completed_signal.connect(
             self._tip_filter_registration_completed)
@@ -182,6 +184,13 @@ class ReceiveDialog(QDialog):
             self._update_form()
         else:
             super().keyPressEvent(event)
+
+    def _show_error(self, text: str) -> None:
+        """
+        Helper method to be called through the signal so that messages are displayed on the GUI
+        thread.
+        """
+        MessageBox.show_error(text, self)
 
     def _read_request_data_from_database(self) -> None:
         assert self._request_id is not None
@@ -403,7 +412,10 @@ class ReceiveDialog(QDialog):
             assert self._request_row.dpp_invoice_id is not None
             wallet = self._account.get_wallet()
             server_url = wallet.get_dpp_server_url(self._request_row.server_id)
-            payment_url = f"pay:?r={server_url}api/v1/payment/{self._request_row.dpp_invoice_id}"
+            _credential_id, secure_public_key = wallet.get_outstanding_invoice_data(
+                self._request_row.dpp_invoice_id)
+            payment_url = f"pay:?r={server_url}api/v1/payment/{self._request_row.dpp_invoice_id}" \
+                f"&pk={secure_public_key.to_hex(compressed=True)}"
             self._receive_destination_edit.setText(payment_url)
 
     def update_script_type(self, script_type: ScriptType) -> None:
@@ -439,7 +451,10 @@ class ReceiveDialog(QDialog):
             assert self._request_row.dpp_invoice_id is not None
             wallet = self._account.get_wallet()
             server_url = wallet.get_dpp_server_url(self._request_row.server_id)
-            payment_url = f"pay:?r={server_url}api/v1/payment/{self._request_row.dpp_invoice_id}"
+            _credential_id, secure_public_key = wallet.get_outstanding_invoice_data(
+                self._request_row.dpp_invoice_id)
+            payment_url = f"pay:?r={server_url}api/v1/payment/{self._request_row.dpp_invoice_id}" \
+                f"&pk={secure_public_key.to_hex(compressed=True)}"
             self._receive_qr.setData(payment_url)
             if self._qr_window and self._qr_window.isVisible():
                 self._qr_window.set_content(self._receive_destination_edit.text(), amount,
@@ -623,7 +638,18 @@ class ReceiveDialog(QDialog):
 
                 result, error_code = future.result()
                 if result is None:
-                    # TODO(1.4.0) DPP. Handle the error in creating the hosted invoice.
+                    assert error_code < 0
+                    # TODO(1.4.0) DPP. The connection time out is something like 5 seconds. If we
+                    #     cannot connect then there is a lag when the UI sits there before the
+                    #     error appears. We need a progress dialog.
+                    if error_code == ErrorCodes.NO_SERVERS:
+                        MessageBox.show_error(_("None of the known invoice servers are "
+                            "currently accessible."), self)
+                    elif error_code == ErrorCodes.CONNECTION_FAILURE:
+                        MessageBox.show_error(_("There was a problem hosting this invoice with "
+                            "the selected invoice server."), self)
+                    elif error_code != ErrorCodes.USER_CANCELLED:
+                        MessageBox.show_error(_("Unknown error"), self)
                     return
 
                 assert result.payment_request_row.paymentrequest_id is not None

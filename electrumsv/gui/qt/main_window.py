@@ -41,6 +41,7 @@ import threading
 import time
 from typing import Any, Callable, cast, Dict, Iterable, List, Optional, Set, Tuple, \
     TYPE_CHECKING, TypeVar, Union
+import urllib.parse
 import weakref
 import webbrowser
 
@@ -1573,20 +1574,44 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             return
 
         send_view = cast(SendView, self.get_send_view(self._account_id))
+
         try:
-            out = web.parse_URI(URI, send_view.on_payment_request,
-                send_view.payment_request_import_error)
-        except Exception as e:
-            self.show_error(str(e))
+            parsed_url = urllib.parse.urlparse(URI)
+        except Exception as parse_error:
+            logger.debug("Error processing payment URI", exc_info=parse_error)
+            self.show_error(_("Unable to process the provided URL"))
             return
-        self.show_send_tab()
 
-        payment_url = out.get('r')
-        if payment_url:
+        if parsed_url.scheme == "pay":
+            try:
+                payment_url, secure_public_key = web.parse_pay_url(URI)
+            except ValueError as value_error:
+                self.show_error(str(value_error))
+                return
+
+            def get_payment_terms_thread() -> None:
+                from ... import dpp_messages
+                from ...exceptions import Bip270Exception
+                try:
+                    request = dpp_messages.get_payment_terms(payment_url, secure_public_key)
+                except Bip270Exception as e:
+                    send_view.payment_request_import_error(e.args[0])
+                    return
+                send_view.on_payment_request(request, secure_public_key)
+            t = threading.Thread(target=get_payment_terms_thread)
+            t.setDaemon(True)
+            t.start()
+
             send_view.prepare_for_payment_request()
-            return
+        else:
+            try:
+                out = web.parse_URI(URI)
+            except Exception as e:
+                self.show_error(str(e))
+                return
+            send_view.set_processed_url_data(out)
 
-        send_view.set_payment_request_data(out)
+        self.show_send_tab()
 
     def show_invoice(self, account: AbstractAccount, row: InvoiceRow) -> None:
         from .invoice_dialog import InvoiceDialog

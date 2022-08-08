@@ -162,6 +162,7 @@ async def create_dpp_server_connection_async(state: ServerConnectionState,
     Raises `asyncio.TimeoutError` if the connection is not made within the given timeout.
     """
     assert row.dpp_invoice_id is not None
+    assert row.dpp_invoice_id not in state.dpp_websocket_connection_events
     event = state.dpp_websocket_connection_events[row.dpp_invoice_id] = asyncio.Event()
     future = app_state.async_.spawn(manage_dpp_connection_async(state, row))
     if timeout_seconds > 0.0:
@@ -171,6 +172,7 @@ async def create_dpp_server_connection_async(state: ServerConnectionState,
             # TODO(1.4.0) DPP. We need to do error handling here, but it should be unexpected
             #     given our requirement that our server be "connectable".
             future.cancel()
+            del state.dpp_websocket_connection_events[row.dpp_invoice_id]
             raise
     return future, event
 

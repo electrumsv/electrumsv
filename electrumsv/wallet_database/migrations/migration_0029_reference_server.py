@@ -236,6 +236,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             server_id                   INTEGER     NULL,
             dpp_invoice_id              TEXT        NULL,
             merchant_reference          TEXT        NULL,
+            encrypted_key_text          TEXT        NULL,
             date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,
             FOREIGN KEY(keyinstance_id) REFERENCES KeyInstances (keyinstance_id)
@@ -287,20 +288,17 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         else:
             raise NotImplementedError(f"Unexpected key type {keyinstance_row}")
 
-        # server_id and dpp_invoice_id are null for any invoices prior to this migration
-        server_id: int | None = None
-        dpp_invoice_id: str | None = None
-        merchant_reference: str | None = None
         conn.execute("""
             INSERT INTO PaymentRequests2 (paymentrequest_id, keyinstance_id,
                 state, description, expiration, value, script_type, pushdata_hash,
-                server_id, dpp_invoice_id, merchant_reference, date_created, date_updated)
+                server_id, dpp_invoice_id, merchant_reference, encrypted_key_text, date_created,
+                date_updated)
             SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.description,
-                PR.expiration, PR.value, ?, ?, ?, ?, ?, PR.date_created, PR.date_updated
+                PR.expiration, PR.value, ?1, ?2, NULL, NULL, NULL, NULL, PR.date_created,
+                PR.date_updated
             FROM PaymentRequests AS PR
             WHERE paymentrequest_id=?
-        """, (script_type, pushdata_hash, server_id, dpp_invoice_id, merchant_reference,
-            paymentrequest_id))
+        """, (script_type, pushdata_hash, paymentrequest_id))
 
     conn.execute("DROP TABLE PaymentRequests")
     conn.execute("ALTER TABLE PaymentRequests2 RENAME TO PaymentRequests")

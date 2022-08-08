@@ -436,6 +436,10 @@ async def test_create_hosted_invoice_async_success(app_state_restapi: AppStatePr
     # app_state_restapi.daemon.load_wallet = lambda wallet_path: wallet # type: ignore
     # Ensure the wallet can access the password when being loaded.
     app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "123456"
+    async def get_or_request_wallet_password_async(wallet_path: str, request_reason: str) -> str:
+        return "123456"
+    app_state_wallet.credentials.get_or_request_wallet_password_async = \
+        get_or_request_wallet_password_async
     password_token = unittest.mock.Mock()
     password_token.password = "123456"
     app_state_restapi.credentials.set_wallet_password = lambda *args: password_token # type: ignore
@@ -479,9 +483,10 @@ async def test_create_hosted_invoice_async_success(app_state_restapi: AppStatePr
                 cast(web.Request, invoice_request))
 
     invoice_data = json.loads(cast(bytes, response.body))
-    assert len(invoice_data) == 2
+    assert len(invoice_data) == 3
     assert "id" in invoice_data
     assert "payment_url" in invoice_data
+    assert "public_key_hex" in invoice_data
 
 @unittest.mock.patch('electrumsv.keystore.app_state')
 @unittest.mock.patch(
@@ -554,6 +559,10 @@ async def test_create_hosted_invoice_async_fail_connect_timeout(app_state_restap
     # app_state_restapi.daemon.load_wallet = lambda wallet_path: wallet # type: ignore
     # Ensure the wallet can access the password when being loaded.
     app_state_wallet.credentials.get_wallet_password = lambda wallet_path: "123456"
+    async def get_or_request_wallet_password_async(wallet_path: str, request_reason: str) -> str:
+        return "123456"
+    app_state_wallet.credentials.get_or_request_wallet_password_async = \
+        get_or_request_wallet_password_async
     password_token = unittest.mock.Mock()
     password_token.password = "123456"
     app_state_restapi.credentials.set_wallet_password = lambda *args: password_token # type: ignore

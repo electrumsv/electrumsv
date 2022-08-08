@@ -142,10 +142,10 @@ def create_payment_requests_write(entries: list[PaymentRequestRow],
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql_prefix = "INSERT INTO PaymentRequests (paymentrequest_id, keyinstance_id, state, " \
         "value, expiration, description, script_type, pushdata_hash, server_id, dpp_invoice_id, " \
-        "merchant_reference, date_created, date_updated) VALUES"
+        "merchant_reference, encrypted_key_text, date_created, date_updated) VALUES"
     sql_suffix = "RETURNING paymentrequest_id, keyinstance_id, state, value, expiration, " \
         "description, script_type, pushdata_hash, server_id, dpp_invoice_id, merchant_reference, " \
-        "date_created, date_updated"
+        "encrypted_key_text, date_created, date_updated"
     return bulk_insert_returning(PaymentRequestRow, db, sql_prefix, sql_suffix, entries)
 
 
@@ -851,7 +851,8 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
 
         SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value,
             KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash,
-            PR.server_id, PR.dpp_invoice_id, PR.merchant_reference, PR.date_created
+            PR.server_id, PR.dpp_invoice_id, PR.merchant_reference, PR.encrypted_key_text,
+            PR.date_created
         FROM PaymentRequests PR
         INNER JOIN key_payments KP USING(keyinstance_id)
     """
@@ -867,7 +868,7 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
     if t is None:
         return None
     return PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7], t[8],
-        t[9], t[10], t[11], t[12])
+        t[9], t[10], t[11], t[12], t[13])
 
 
 @replace_db_context_with_connection
@@ -889,7 +890,7 @@ def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None
     sql += """
         SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value, KP.total_value,
             PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, PR.server_id,
-            PR.dpp_invoice_id, PR.merchant_reference, PR.date_created
+            PR.dpp_invoice_id, PR.merchant_reference, PR.encrypted_key_text, PR.date_created
         FROM PaymentRequests PR
         INNER JOIN key_payments KP USING(keyinstance_id)
     """
@@ -910,7 +911,7 @@ def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None
             used_where = True
         sql_values.append(server_id)
     return [ PaymentRequestReadRow(t[0], t[1], PaymentFlag(t[2]), t[3], t[4], t[5], t[6], t[7],
-        t[8], t[9], t[10], t[11], t[12]) for t in db.execute(sql, sql_values).fetchall() ]
+        t[8], t[9], t[10], t[11], t[12], t[13]) for t in db.execute(sql, sql_values).fetchall() ]
 
 
 def create_pushdata_matches_write(rows: list[PushDataMatchRow], processed_message_ids: list[int],

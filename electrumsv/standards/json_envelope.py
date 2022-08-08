@@ -2,7 +2,7 @@ import binascii
 import codecs
 from typing import TypedDict
 
-from bitcoinx import PublicKey
+from bitcoinx import PrivateKey, PublicKey
 
 
 class JSONEnvelope(TypedDict):
@@ -11,6 +11,18 @@ class JSONEnvelope(TypedDict):
     publicKey: str | None
     encoding: str
     mimetype: str
+
+
+def pack_json_envelope(payload: str, private_key: PrivateKey, encoding: str="UTF-8",
+        mimetype: str="application/json") -> JSONEnvelope:
+    return {
+        "payload": payload,
+        "signature": private_key.sign(payload.encode()).hex(),
+        "publicKey": private_key.public_key.to_hex(),
+        "encoding": encoding,
+        "mimetype": mimetype,
+    }
+
 
 
 def validate_json_envelope(envelope_object: JSONEnvelope,

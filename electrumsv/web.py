@@ -25,16 +25,14 @@ from __future__ import annotations
 from decimal import Decimal
 import random
 import re
-import threading
-from typing import Any, Callable, Dict, Iterable, List, Optional, TYPE_CHECKING
+from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING
 import urllib
 import urllib.parse
 
-from bitcoinx import Address
+from bitcoinx import Address, PublicKey
 
 from .bip276 import PREFIX_BIP276_SCRIPT, bip276_decode, NetworkMismatchError, ChecksumMismatchError
 from .bitcoin import COIN, is_address_valid
-from .exceptions import Bip270Exception
 from .i18n import _
 from .logs import logs
 from .networks import Net
@@ -117,8 +115,33 @@ class URIError(Exception):
     pass
 
 
-def parse_URI(uri: str, on_pr: Optional[Callable[["PaymentTerms"], None]]=None,
-        on_pr_error: Optional[Callable[[str], None]]=None) -> Dict[str, Any]:
+
+def parse_pay_url(url: str) -> tuple[str, PublicKey]:
+    parsed_url = urllib.parse.urlparse(url)
+    if parsed_url.scheme != "pay":
+        raise ValueError("The URL does not have the 'pay' scheme")
+
+    # NOTE(rt12) This is currently direct payment specific. It may not always be.
+    parsed_query = urllib.parse.parse_qs(parsed_url.query, keep_blank_values=True)
+    if "r" not in parsed_query:
+        raise ValueError("The URL does not have a payment URL")
+    payment_url = parsed_query["r"][0]
+
+    if "pk" not in parsed_query:
+        raise ValueError("The URL does not have credentials")
+    public_key_hex = parsed_query["pk"][0]
+
+    try:
+        public_key = PublicKey.from_hex(public_key_hex)
+    except (ValueError, TypeError):
+        # ValueError <- PublicKey.from_hex()
+        # TypeError <- PublicKey()
+        raise ValueError("The URL has unusable credentials")
+
+    return payment_url, public_key
+
+
+def parse_URI(uri: str) -> dict[str, Any]:
     if is_address_valid(uri):
         return {'address': uri}
 
@@ -165,23 +188,5 @@ def parse_URI(uri: str, on_pr: Optional[Callable[["PaymentTerms"], None]]=None,
         out['time'] = int(out['time'])
     if 'exp' in out:
         out['exp'] = int(out['exp'])
-
-    payment_url = out.get('r')
-    if on_pr and payment_url:
-        def get_payment_terms_thread() -> None:
-            from . import dpp_messages
-            assert payment_url is not None
-            try:
-                request = dpp_messages.get_payment_terms(payment_url)
-            except Bip270Exception as e:
-                if on_pr_error:
-                    on_pr_error(e.args[0])
-                    return
-                raise e
-            if on_pr:
-                on_pr(request)
-        t = threading.Thread(target=get_payment_terms_thread)
-        t.setDaemon(True)
-        t.start()
 
     return out

@@ -94,7 +94,7 @@ from .network_support.types import GenericPeerChannelMessage, ServerConnectionPr
     ServerConnectionState, TipFilterPushDataMatchesData
 from .networks import Net
 from .standards.electrum_transaction_extended import transaction_from_electrumsv_dict
-from .standards.json_envelope import JSONEnvelope, validate_json_envelope
+from .standards.json_envelope import JSONEnvelope, pack_json_envelope, validate_json_envelope
 from .standards.mapi import MAPICallbackResponse, validate_mapi_callback_response
 from .standards.tsc_merkle_proof import separate_proof_and_embedded_transaction, TSCMerkleProof, \
     TSCMerkleProofError, TSCMerkleProofJson, verify_proof
@@ -103,7 +103,7 @@ from .transaction import (HardwareSigningMetadata, Transaction, TransactionConte
     TransactionFeeEstimator, tx_dict_from_text, TxSerialisationFormat, XPublicKey, XTxInput,
     XTxOutput)
 from .types import (ConnectHeaderlessProofWorkerState, DatabaseKeyDerivationData,
-    IndefiniteCredentialId, FeeEstimatorProtocol, FeeQuoteCommon,
+    FeeEstimatorProtocol, FeeQuoteCommon, IndefiniteCredentialId, ErrorCodes,
     KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult,
     MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
     Outpoint, OutputSpend, ServerAccountKey, ServerAndCredential, TransactionFeeContext, \
@@ -188,6 +188,7 @@ class HostedInvoiceCreationResult:
     payment_request_row: PaymentRequestRow
     key_data: KeyDataProtocol
     payment_url: str
+    secure_public_key: PublicKey
 
 
 ADDRESS_TYPES = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
@@ -1100,7 +1101,7 @@ class AbstractAccount:
     async def create_payment_request_async(self, amount: int, internal_description: str | None,
             merchant_reference: str | None, date_expires: int | None = None,
             server_id: int | None = None, dpp_invoice_id: str | None=None,
-            flags: PaymentFlag=PaymentFlag.NONE) \
+            encrypted_key_text: str | None=None, flags: PaymentFlag=PaymentFlag.NONE) \
                 -> tuple[list[PaymentRequestRow], KeyDataProtocol]:
         # The payment request flags that are allowed to be set are just the supplementary flags,
         # not the state flags.
@@ -1116,7 +1117,7 @@ class AbstractAccount:
         # This will get the payment request id assigned on insert.
         row = PaymentRequestRow(None, key_data.keyinstance_id, flags | PaymentFlag.UNPAID, amount,
             date_expires, internal_description, script_type, pushdata_hash, server_id,
-            dpp_invoice_id, merchant_reference, date_created, date_created)
+            dpp_invoice_id, merchant_reference, encrypted_key_text, date_created, date_created)
         rows = await self._wallet.data.create_payment_requests_async([ row ])
         self._wallet.events.trigger_callback(WalletEvent.KEYS_UPDATE, self._id,
             [ row.keyinstance_id for row in rows ])
@@ -1127,12 +1128,26 @@ class AbstractAccount:
                 -> tuple[HostedInvoiceCreationResult | None, int]:
         server_state = await find_connectable_dpp_server(self._wallet.dpp_proxy_server_states)
         if server_state is None:
-            return None, -1
+            return None, ErrorCodes.NO_SERVERS
 
-        dpp_invoice_id = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
+        password = await app_state.credentials.get_or_request_wallet_password_async(
+            self._wallet.get_storage_path(), _("We need your password to encrypt the key that "
+                "will be used to ensure the payer knows they are paying you."))
+        if password is None:
+            return None, ErrorCodes.USER_CANCELLED
+
+        # NOTE(DPP) ElectrumSV only solicits payment to secure invoices. These have what should be
+        #     the `sec/` route preceding the invoice ID. However the proxy does not differentiate
+        #     between secure and insecure invoices and treats this as part of the invoice ID so
+        #     we do too.
+        secure_private_key = PrivateKey.from_random()
+        secure_public_key = cast(PublicKey, secure_private_key.public_key)
+        encrypted_key_text = pw_encode(secure_private_key.to_hex(), password)
+        dpp_invoice_id = "sec/"+ base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
         rows, key_data = await self.create_payment_request_async(amount_satoshis, description,
             merchant_reference, server_id=server_state.server.server_id, date_expires=date_expires,
-            dpp_invoice_id=dpp_invoice_id, flags=PaymentFlag.INVOICE)
+            dpp_invoice_id=dpp_invoice_id, encrypted_key_text=encrypted_key_text,
+            flags=PaymentFlag.INVOICE)
         assert len(rows) == 1
         row = rows[0]
         # We need to convert it to a "read row" to pass to the web socket.
@@ -1140,17 +1155,22 @@ class AbstractAccount:
         read_row = PaymentRequestReadRow(row.paymentrequest_id, row.keyinstance_id, row.state,
             row.requested_value, 0, row.expiration, row.description, row.script_type,
             row.pushdata_hash, row.server_id, row.dpp_invoice_id, row.merchant_reference,
-            row.date_created)
+            row.encrypted_key_text, row.date_created)
+        self._wallet.register_outstanding_invoice(read_row, password)
+        # TODO(1.4.0) DPP. We want to unregister the invoice when it is paid.
         try:
             await create_dpp_server_connection_async(server_state, read_row, timeout_seconds=5.5)
         except asyncio.TimeoutError:
-            # TODO(1.4.0) DPP. We need to do error handling here, but it should be unexpected
-            #     given our requirement that our server be "connectable".
-            return None, -2
+            # TODO(1.4.0) DPP. We need to do error handling here. We should consider deleting the
+            #     invoice and all other data related to it. However this is complicated in that
+            #     the `AbstractAccount.create_payment_request_async` function has side effects we
+            #     need to remove from it and delay. Alternatively, we could move this before
+            #     the row creation, which would be cleaner.
+            return None, ErrorCodes.CONNECTION_FAILURE
 
         payment_url = f"{server_state.server.url}api/v1/payment/{row.dpp_invoice_id}"
         result = HostedInvoiceCreationResult(payment_request_row=rows[0], key_data=key_data,
-            payment_url=payment_url)
+            payment_url=payment_url, secure_public_key=secure_public_key)
         return result, 0
 
     async def delete_hosted_invoice_async(self, invoice_id: int) -> None:
@@ -2297,6 +2317,7 @@ class Wallet:
 
         self._cache_identity_keys(password)
         self._load_servers(password)
+        self._process_outstanding_invoices(password)
 
     def __str__(self) -> str:
         return f"wallet(path='{self._storage.get_path()}')"
@@ -3927,6 +3948,32 @@ class Wallet:
             if websocket_state2 is not None:
                 await close_restapi_connection_async(websocket_state1)
 
+    def _process_outstanding_invoices(self, password: str) -> None:
+        self._dpp_invoice_credentials: dict[str, tuple[IndefiniteCredentialId, PublicKey]] = {}
+        payment_request_rows = self.data.read_payment_requests(None,
+            flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID | PaymentFlag.PAYMENT_PENDING,
+            mask= PaymentFlag.INVOICE | PaymentFlag.MASK_DPP_STATE_MACHINE)
+        for payment_request_row in payment_request_rows:
+            self.register_outstanding_invoice(payment_request_row, password)
+
+    def register_outstanding_invoice(self, payment_request_row: PaymentRequestReadRow,
+            password: str) -> None:
+        assert payment_request_row.dpp_invoice_id is not None
+        assert payment_request_row.encrypted_key_text is not None
+        secure_key_text = pw_decode(payment_request_row.encrypted_key_text, password)
+        credential_id = app_state.credentials.add_indefinite_credential(secure_key_text)
+        secure_public_key = PrivateKey.from_hex(secure_key_text).public_key
+        self._dpp_invoice_credentials[payment_request_row.dpp_invoice_id] = \
+            credential_id, secure_public_key
+
+    def get_outstanding_invoice_data(self, invoice_id: str) \
+            -> tuple[IndefiniteCredentialId, PublicKey]:
+        return self._dpp_invoice_credentials[invoice_id]
+
+    def unregister_outstanding_invoice(self, payment_request_row: PaymentRequestReadRow) -> None:
+        assert payment_request_row.dpp_invoice_id is not None
+        del self._dpp_invoice_credentials[payment_request_row.dpp_invoice_id]
+
     def is_blockchain_server_active(self) -> bool:
         """
         Determine if the wallet has a configured and in use blockchain server.
@@ -4523,7 +4570,7 @@ class Wallet:
         server_url = self.get_dpp_server_url(pr_row.server_id)
         payment_url = f"{server_url}api/v1/payment/{pr_row.dpp_invoice_id}"
 
-        paymentRequestData = {
+        payment_terms_data = {
             "network": "regtest",
             "version": "1.0",
             "creationTimestamp": pr_row.date_created,
@@ -4554,7 +4601,13 @@ class Wallet:
                 }}
         }
         if pr_row.expiration is not None:
-            paymentRequestData['expirationTimestamp'] = pr_row.expiration
+            payment_terms_data['expirationTimestamp'] = pr_row.expiration
+        payment_terms_json = json.dumps(payment_terms_data)
+
+        credential_id, _secure_public_key = self._dpp_invoice_credentials[pr_row.dpp_invoice_id]
+        secure_private_key = PrivateKey.from_hex(
+            app_state.credentials.get_indefinite_credential(credential_id))
+        response_json = pack_json_envelope(payment_terms_json, secure_private_key)
 
         message_row_response = DPPMessageRow(
             message_id=str(uuid.uuid4()),
@@ -4565,7 +4618,7 @@ class Wallet:
             client_id=message_row_received.client_id,
             user_id=message_row_received.user_id,
             expiration=message_row_received.expiration,
-            body=json.dumps(paymentRequestData).encode('utf-8'),
+            body=json.dumps(response_json).encode('utf-8'),
             timestamp=datetime.now(tz=timezone.utc).isoformat(),
             type=MSG_TYPE_PAYMENT_REQUEST_RESPONSE
         )
@@ -4661,9 +4714,8 @@ class Wallet:
 
             pr_row = self.data.read_payment_request(request_id=message_row.paymentrequest_id)
             if pr_row is None:
-                self._logger.error(f"Failed to read payment request with id: "
-                                   f"{message_row.paymentrequest_id} from the database. "
-                                   f"DPPMessageRow data: {message_row}")
+                self._logger.error("Failed to read payment request with id: %s from the database. "
+                    "DPPMessageRow data: %s", message_row.paymentrequest_id, message_row)
                 continue
 
             assert pr_row.state & PaymentFlag.INVOICE == PaymentFlag.INVOICE

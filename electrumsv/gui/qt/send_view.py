@@ -41,7 +41,7 @@ import time
 from typing import Any, cast, Dict, Iterable, List, Tuple, Optional, TYPE_CHECKING
 import weakref
 
-from bitcoinx import hash_to_hex_str
+from bitcoinx import hash_to_hex_str, PublicKey
 
 from PyQt6.QtCore import pyqtSignal, QPoint, QStringListModel, Qt
 from PyQt6.QtWidgets import (QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QMenu,
@@ -104,7 +104,8 @@ class SendView(QWidget):
         self._is_max = False
         self._not_enough_funds = False
         self._require_fee_update: Optional[float] = None
-        self._payment_request: Optional[PaymentTerms] = None
+        self._payment_request: PaymentTerms | None = None
+        self._secure_public_key: PublicKey | None = None
         self._completions = QStringListModel()
         self._transaction_creation_context = TransactionCreationContext()
         self._transaction_creation_context.set_account(self._account)
@@ -655,6 +656,9 @@ class SendView(QWidget):
         self.payment_request_ok()
 
     def prepare_for_payment_request(self) -> None:
+        """
+        Calling context: Guaranteed to be the UI thread.
+        """
         self._payto_e.is_pr = True
         edit_widgets: list[FrozenEditProtocol] = [self._payto_e, self.amount_e, self._message_e]
         for widget in edit_widgets:
@@ -662,12 +666,19 @@ class SendView(QWidget):
         self._max_button.setDisabled(True)
         self._payto_e.setText(_("please wait..."))
 
-    def on_payment_request(self, request: PaymentTerms) -> None:
+    def on_payment_request(self, request: PaymentTerms, secure_public_key: PublicKey) -> None:
+        """
+        Calling context: Not guaranteed to be the UI thread.
+        """
+        self._secure_public_key = secure_public_key
         self._payment_request = request
         # Proceed to process the payment request on the GUI thread.
         self.payment_request_ok_signal.emit()
 
     def payment_request_import_error(self, text: str) -> None:
+        """
+        Calling context: Not guaranteed to be the UI thread.
+        """
         self.payment_request_import_error_signal.emit(text)
 
     def _payment_request_import_error(self, text: str) -> None:
@@ -677,7 +688,7 @@ class SendView(QWidget):
         extended_text += text
         self._main_window.show_error(extended_text)
 
-    def set_payment_request_data(self, data: Dict[str, Any]) -> None:
+    def set_processed_url_data(self, data: Dict[str, Any]) -> None:
         address = data.get('address')
         bip276_text = data.get('bip276')
         amount = data.get('amount')

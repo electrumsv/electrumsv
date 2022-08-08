@@ -30,7 +30,7 @@ from typing import Any, cast, List, Optional, Dict, TYPE_CHECKING, Union, TypedD
 import types
 import urllib.parse
 
-from bitcoinx import Script
+from bitcoinx import PublicKey, Script
 import requests
 
 from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
@@ -38,6 +38,7 @@ from .exceptions import Bip270Exception
 from .i18n import _
 from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
+from .standards.json_envelope import JSONEnvelope, validate_json_envelope
 from .transaction import XTxOutput
 from .util import get_posix_timestamp
 from .wallet_database.types import PaymentRequestReadRow
@@ -596,41 +597,46 @@ class PaymentACK:
         return cls.from_dict(data)
 
 
-def get_payment_terms(url: str) -> PaymentTerms:
-    error = None
-    response = None
-    data: Any = None
+def get_payment_terms(url: str, public_key: PublicKey) -> PaymentTerms:
     u = urllib.parse.urlparse(url)
-    if u.scheme in ['http', 'https']:
-        try:
-            response = requests.request('GET', url, headers=REQUEST_HEADERS)
-            response.raise_for_status()
-            # Guard against `bitcoin:`-URIs with invalid payment request URLs
-            contentType = response.headers.get("Content-Type", "")
-            if "application/json" not in contentType:
-                logger.debug("Failed payment request, content type '%s'", contentType)
-                data = None
-                error = "payment URL not pointing to a bitcoinSV payment request handling server"
-            else:
-                data = response.content
-            logger.debug('fetched payment request \'%s\' (%d)', url, len(response.content))
-        except requests.exceptions.RequestException:
-            data = None
-            if response is not None:
-                error = response.content.decode()
-            else:
-                error = "payment URL not pointing to a valid server"
-    elif u.scheme == 'file':
-        try:
-            with open(u.path, 'r', encoding='utf-8') as f:
-                data = f.read()
-        except IOError:
-            data = None
-            error = "payment URL not pointing to a valid file"
-    else:
-        error = f"unknown scheme {url}"
+    if u.scheme not in ['http', 'https']:
+        raise Bip270Exception(f"unknown scheme {url}")
 
-    if error:
-        raise Bip270Exception(error)
+    try:
+        response = requests.request('GET', url, headers=REQUEST_HEADERS)
+    except requests.exceptions.RequestException:
+        raise Bip270Exception("payment URL not pointing to a valid server")
 
-    return PaymentTerms.from_json(data)
+    try:
+        response.raise_for_status()
+        # Guard against `bitcoin:`-URIs with invalid payment request URLs
+        contentType = response.headers.get("Content-Type", "")
+        if "application/json" not in contentType:
+            logger.debug("Failed payment request, content type '%s'", contentType)
+            raise Bip270Exception("payment URL not pointing to a bitcoinSV payment request "
+                "handling server")
+
+        data = cast(dict[str, Any], response.json())
+        logger.debug('fetched payment request \'%s\'', url)
+    except requests.exceptions.RequestException:
+        raise Bip270Exception(response.content.decode())
+
+    envelope_data = cast(JSONEnvelope, data)
+    try:
+        validate_json_envelope(envelope_data, { "application/json" })
+    except ValueError as value_error:
+        raise Bip270Exception(value_error.args[0])
+
+    received_public_key_hex = envelope_data["publicKey"]
+    received_signature = envelope_data["signature"]
+    if received_public_key_hex is None or received_signature is None:
+        raise Bip270Exception("The payment terms are unsigned")
+
+    received_public_key = PublicKey.from_hex(received_public_key_hex)
+    if public_key != received_public_key:
+        raise Bip270Exception("The payment terms were signed by an unknown party")
+
+    # Because we have checked that the data has a signature and public key, we know that the
+    # signature was checked in `validate_json_envelope` and must be valid for our public key.
+    payload_text = cast(str, data["payload"])
+    return PaymentTerms.from_json(payload_text)

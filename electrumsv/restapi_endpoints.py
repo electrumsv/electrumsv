@@ -57,6 +57,7 @@ class CreateInvoiceRequestDict(TypedDict):
 class CreateInvoiceResponseDict(TypedDict):
     id: int
     payment_url: str
+    public_key_hex: str
 
 class PayRequestDict(TypedDict):
     payToURL: str
@@ -381,6 +382,7 @@ class LocalEndpoints:
         create_data: CreateInvoiceResponseDict = {
             "id": result.payment_request_row.paymentrequest_id,
             "payment_url": result.payment_url,
+            "public_key_hex": result.secure_public_key.to_hex(),
         }
         return web.json_response(create_data)
 
