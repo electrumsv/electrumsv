@@ -4564,7 +4564,9 @@ class Wallet:
         assert pr_row.server_id is not None
         assert pr_row.dpp_invoice_id is not None
         server_url = self.get_dpp_server_url(pr_row.server_id)
-        payment_url = f"{server_url}api/v1/payment/sec/{pr_row.dpp_invoice_id}"
+        # This the actual payment URL for the payer to send the `Payment`, not the `PaymentTerms`
+        # secure url.
+        payment_url = f"{server_url}api/v1/payment/{pr_row.dpp_invoice_id}"
 
         payment_terms_data = {
             "network": "regtest",
