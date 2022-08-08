@@ -1136,14 +1136,10 @@ class AbstractAccount:
         if password is None:
             return None, ErrorCodes.USER_CANCELLED
 
-        # NOTE(DPP) ElectrumSV only solicits payment to secure invoices. These have what should be
-        #     the `sec/` route preceding the invoice ID. However the proxy does not differentiate
-        #     between secure and insecure invoices and treats this as part of the invoice ID so
-        #     we do too.
         secure_private_key = PrivateKey.from_random()
         secure_public_key = cast(PublicKey, secure_private_key.public_key)
         encrypted_key_text = pw_encode(secure_private_key.to_hex(), password)
-        dpp_invoice_id = "sec/"+ base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
+        dpp_invoice_id = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
         rows, key_data = await self.create_payment_request_async(amount_satoshis, description,
             merchant_reference, server_id=server_state.server.server_id, date_expires=date_expires,
             dpp_invoice_id=dpp_invoice_id, encrypted_key_text=encrypted_key_text,
@@ -1168,7 +1164,7 @@ class AbstractAccount:
             #     the row creation, which would be cleaner.
             return None, ErrorCodes.CONNECTION_FAILURE
 
-        payment_url = f"{server_state.server.url}api/v1/payment/{row.dpp_invoice_id}"
+        payment_url = f"{server_state.server.url}api/v1/payment/sec/{row.dpp_invoice_id}"
         result = HostedInvoiceCreationResult(payment_request_row=rows[0], key_data=key_data,
             payment_url=payment_url, secure_public_key=secure_public_key)
         return result, 0
@@ -3951,8 +3947,8 @@ class Wallet:
     def _process_outstanding_invoices(self, password: str) -> None:
         self._dpp_invoice_credentials: dict[str, tuple[IndefiniteCredentialId, PublicKey]] = {}
         payment_request_rows = self.data.read_payment_requests(None,
-            flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID | PaymentFlag.PAYMENT_PENDING,
-            mask= PaymentFlag.INVOICE | PaymentFlag.MASK_DPP_STATE_MACHINE)
+            flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID,
+            mask= PaymentFlag.INVOICE | PaymentFlag.UNPAID)
         for payment_request_row in payment_request_rows:
             self.register_outstanding_invoice(payment_request_row, password)
 
@@ -4568,7 +4564,7 @@ class Wallet:
         assert pr_row.server_id is not None
         assert pr_row.dpp_invoice_id is not None
         server_url = self.get_dpp_server_url(pr_row.server_id)
-        payment_url = f"{server_url}api/v1/payment/{pr_row.dpp_invoice_id}"
+        payment_url = f"{server_url}api/v1/payment/sec/{pr_row.dpp_invoice_id}"
 
         payment_terms_data = {
             "network": "regtest",
