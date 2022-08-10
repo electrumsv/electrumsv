@@ -62,7 +62,7 @@ def set_and_unset_signing(func: D1) -> D1:
 class YInput(NamedTuple):
     value: Optional[int]
     script_sig: bytes
-    txin_xpub_idx: int
+    public_key_bytes: bytes
     sequence: int
 
 
@@ -357,9 +357,9 @@ class Ledger_KeyStore(Hardware_KeyStore):
             foundP2SHSpend = foundP2SHSpend or txin.type() == ScriptType.MULTISIG_P2SH
             allSpendsAreP2SH = allSpendsAreP2SH and txin.type() == ScriptType.MULTISIG_P2SH
 
-            for i, x_pubkey in enumerate(txin.x_pubkeys):
+            for i, (public_key_bytes, x_pubkey) in enumerate(txin.x_pubkeys.items()):
                 if self.is_signature_candidate(x_pubkey):
-                    txin_xpub_idx = i
+                    matched_public_key_bytes = public_key_bytes
                     inputPath = self.get_derivation()[2:] +"/"+ \
                         "/".join(str(pv) for pv in x_pubkey.bip32_path())
                     break
@@ -367,7 +367,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
                 self.give_error("No matching x_key for sign_transaction") # should never happen
 
             inputs.append(YInput(txin.value, Transaction.get_preimage_script_bytes(txin),
-                txin_xpub_idx, txin.sequence))
+                matched_public_key_bytes, txin.sequence))
             inputsPaths.append(inputPath)
 
         # Sanity check
@@ -444,7 +444,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
             self.handler_qt.finished()
 
         for txin, input, signature in zip(tx.inputs, inputs, signatures):
-            txin.signatures[input.txin_xpub_idx] = signature
+            txin.signatures[input.public_key_bytes] = signature
 
     @set_and_unset_signing
     def show_address(self, derivation_subpath: str) -> None:

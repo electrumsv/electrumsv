@@ -519,7 +519,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                 if txin.type() != ScriptType.P2PKH:
                     p2pkhTransaction = False
 
-                for x_pubkey in txin.x_pubkeys:
+                for x_pubkey in txin.x_pubkeys.values():
                     if self.is_signature_candidate(x_pubkey):
                         key_derivation = x_pubkey.bip32_path()
                         assert len(key_derivation) == 2
@@ -536,13 +536,12 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             # Build pubkeyarray from annotated change outputs.
             # The user is on their own if they have unannotated non-change self-outputs.
             for txout in tx.outputs:
-                if txout.x_pubkeys:
-                    for xpubkey in [ xpk for xpk in txout.x_pubkeys
-                            if self.is_signature_candidate(xpk) ]:
-                        key_path_text = bip32_build_chain_string(xpubkey.derivation_path)[1:]
+                for public_key_bytes, x_public_key in txout.x_pubkeys.items():
+                    if self.is_signature_candidate(x_public_key):
+                        key_path_text = bip32_build_chain_string(x_public_key.derivation_path)[1:]
                         changePath = self.get_derivation() + key_path_text # "/1/0", no "m"
                         pubkeyarray.append({
-                            'pubkey': xpubkey.to_public_key().to_hex(),
+                            'pubkey': public_key_bytes.hex(),
                             'keypath': changePath,
                         })
 
@@ -627,24 +626,23 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             for txin, siginfo, pre_hash in zip(tx.inputs, dbb_signatures, inputhasharray):
                 if txin.is_complete():
                     continue
-                for pubkey_index, x_pubkey in enumerate(txin.x_pubkeys):
+                for public_key_bytes in txin.x_pubkeys:
                     compact_sig = bytes.fromhex(siginfo['sig'])
-                    pk: PublicKey
                     if 'recid' in siginfo:
                         # firmware > v2.1.1
                         recid = int(siginfo['recid'], 16)
                         recoverable_sig = compact_sig + bytes([recid])
-                        pk = PublicKey.from_recoverable_signature(recoverable_sig, pre_hash, None)
+                        public_key = PublicKey.from_recoverable_signature(recoverable_sig,
+                            pre_hash, None)
                     elif 'pubkey' in siginfo:
                         # firmware <= v2.1.1
-                        pk = PublicKey.from_hex(siginfo['pubkey'])
+                        public_key = PublicKey.from_hex(siginfo['pubkey'])
                     else:
                         raise Exception("Bad sig info")
-                    if pk != x_pubkey.to_public_key():
-                        continue
-                    full_sig = (compact_signature_to_der(compact_sig) +
-                                bytes([Transaction.nHashType() & 255]))
-                    txin.signatures[pubkey_index] = full_sig
+                    if public_key.to_bytes(compressed=True) == public_key_bytes:
+                        full_sig = (compact_signature_to_der(compact_sig) +
+                                    bytes([Transaction.nHashType() & 255]))
+                        txin.signatures[public_key_bytes] = full_sig
         except UserCancelled:
             raise
         except Exception as e:

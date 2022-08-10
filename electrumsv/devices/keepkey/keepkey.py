@@ -106,7 +106,7 @@ class KeepKey_KeyStore(Hardware_KeyStore):
         # path of the xpubs that are involved
         xpub_path: Dict[str, str] = {}
         for txin in tx.inputs:
-            for x_pubkey in txin.x_pubkeys:
+            for x_pubkey in txin.x_pubkeys.values():
                 if not x_pubkey.is_bip32_key():
                     continue
                 xpub = x_pubkey.bip32_extended_key()
@@ -382,10 +382,9 @@ class KeepKeyPlugin(HW_PluginBase):
         for txin in tx.inputs:
             txinputtype = types.TxInputType()
 
-            x_pubkeys = txin.x_pubkeys
             path: DerivationPath
-            if len(x_pubkeys) == 1:
-                x_pubkey = x_pubkeys[0]
+            if len(txin.x_pubkeys) == 1:
+                x_pubkey = list(txin.x_pubkeys.values())[0]
                 xpub, path = x_pubkey.bip32_extended_key_and_path()
                 xpub_n = bip32_decompose_chain_string(xpub_path[xpub])
                 txinputtype.address_n.extend(xpub_n)
@@ -402,10 +401,15 @@ class KeepKeyPlugin(HW_PluginBase):
                         path = cast(DerivationPath, ())
                     node = keepkeylib.ckd_public.deserialize(xpub)
                     return types.HDNodePathType(node=node, address_n=path)
-                pubkeys = [f(x) for x in x_pubkeys]
+                pubkeys: list[types.HDNodePathType] = []
+                signatures: list[bytes] = []
+                for public_key_bytes, x_pubkey in txin.x_pubkeys.items():
+                    pubkeys.append(f(x_pubkey))
+                    signatures.append(txin.signatures[public_key_bytes][:-1] if public_key_bytes
+                        in txin.signatures else b'')
                 multisig = types.MultisigRedeemScriptType(
                     pubkeys=pubkeys,
-                    signatures=txin.stripped_signatures_with_blanks(),
+                    signatures=signatures,
                     m=txin.threshold,
                 )
                 script_type = types.SPENDMULTISIG
@@ -414,7 +418,7 @@ class KeepKeyPlugin(HW_PluginBase):
                     multisig=multisig
                 )
                 # find which key is mine
-                for x_pubkey in x_pubkeys:
+                for x_pubkey in txin.x_pubkeys.values():
                     if x_pubkey.is_bip32_key():
                         xpub, path = x_pubkey.bip32_extended_key_and_path()
                         if xpub in xpub_path:

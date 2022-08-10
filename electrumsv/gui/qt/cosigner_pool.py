@@ -43,6 +43,8 @@ from ...extensions import cosigner_pool
 from ...i18n import _
 from ...keystore import BIP32_KeyStore, Hardware_KeyStore
 from ...logs import logs
+from ...standards.electrum_transaction_extended import transaction_from_electrumsv_dict, \
+    transaction_to_electrumsv_dict
 from ...transaction import Transaction, TransactionContext
 from ...wallet import MultisigAccount, AbstractAccount
 
@@ -155,7 +157,7 @@ class CosignerPool:
     def _cosigner_can_sign(self, tx: Transaction, cosigner_xpub: str) -> bool:
         xpub_set = set()
         for txin in tx.inputs:
-            for x_pubkey in txin.x_pubkeys:
+            for x_pubkey in txin.x_pubkeys.values():
                 if x_pubkey.is_bip32_key():
                     xpub_set.add(x_pubkey.bip32_extended_key())
         return cosigner_xpub in xpub_set
@@ -195,7 +197,7 @@ class CosignerPool:
         context = TransactionContext()
         for item in self._items:
             if self._is_theirs(window, account_id, item, tx):
-                raw_tx_bytes = json.dumps(tx.to_dict(context, [])).encode()
+                raw_tx_bytes = json.dumps(transaction_to_electrumsv_dict(tx, context, [])).encode()
                 public_key = PublicKey.from_bytes(item.pubkey_bytes)
                 message = public_key.encrypt_message_to_base64(raw_tx_bytes)
                 WaitingDialog(item.window, _('Sending transaction to cosigning pool...'),
@@ -246,5 +248,5 @@ class CosignerPool:
             return
 
         txdict = json.loads(message)
-        tx, context = Transaction.from_dict(txdict, [ account ])
+        tx, context = transaction_from_electrumsv_dict(txdict, [ account ])
         window.show_transaction(account, tx, context, prompt_if_unsaved=True)

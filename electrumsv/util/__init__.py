@@ -75,8 +75,10 @@ class MyEncoder(json.JSONEncoder):
     # https://github.com/PyCQA/pylint/issues/414
     def default(self, o: Any) -> Any: # pylint: disable=method-hidden
         from ..transaction import Transaction, TransactionContext
+        from ..standards.electrum_transaction_extended import transaction_to_electrumsv_dict
+        # TODO(1.4.0) PSBT. Replace with PSBT hex.
         if isinstance(o, Transaction):
-            return o.to_dict(TransactionContext(), [])
+            return transaction_to_electrumsv_dict(o, TransactionContext(), [])
         return super(MyEncoder, self).default(o)
 
 

@@ -2,7 +2,7 @@ import pytest
 
 from electrumsv.constants import ScriptType
 from electrumsv.script import AccumulatorMultiSigOutput
-from electrumsv.transaction import create_script_sig, NO_SIGNATURE
+from electrumsv.transaction import create_script_sig, XPublicKey
 
 from bitcoinx import PrivateKey
 
@@ -80,16 +80,19 @@ accumulator_scripts_of3 = {
     (signing_masks_of3, accumulator_scripts_of3) ])
 def test_accumulator_multisig_scriptsig_NofM(masks, scripts_hex):
     for mask in masks:
-        pubkeys = []
-        signatures = []
+        pubkeys: dict[bytes, XPublicKey] = {}
+        signatures: dict[bytes, bytes] = {}
+        ordered_public_key_bytes: list[bytes] = []
         for key_index in range(len(mask)):
             private_key = PrivateKey.from_hex(private_keys_hex[key_index])
-            pubkeys.append(private_key.public_key)
+            public_key_bytes = private_key.public_key.to_bytes()
+            pubkeys[public_key_bytes] = private_key.public_key
+            ordered_public_key_bytes.append(public_key_bytes)
             if mask[key_index]:
-                signatures.append(bytes.fromhex(signatures_hex[key_index]))
-            else:
-                signatures.append(NO_SIGNATURE)
-        script = create_script_sig(ScriptType.MULTISIG_ACCUMULATOR, sum(mask), pubkeys, signatures)
+                signatures[public_key_bytes] = bytes.fromhex(signatures_hex[key_index])
+        script = create_script_sig(ScriptType.MULTISIG_ACCUMULATOR, sum(mask), pubkeys, signatures,
+            ordered_public_key_bytes)
+        assert script is not None
         assert scripts_hex[mask] == script.to_hex()
 
 

@@ -54,7 +54,7 @@ from .i18n import _
 from .keystore import bip44_derivation
 from .logs import logs
 from .networks import Net
-from .transaction import Transaction, classify_tx_output, parse_script_sig
+from .transaction import classify_tx_output, parse_script_sig, Transaction, XPublicKey
 from .util import get_posix_timestamp
 from .util.misc import ProgressCallbacks
 from .wallet_database import migration
@@ -1065,9 +1065,13 @@ class TextStore(AbstractStore):
                         if tx_input.is_coinbase():
                             continue
 
-                        script_data: Dict[str, Any] = {}
-                        parse_script_sig(tx_input.script_sig.to_bytes(), script_data)
-                        address_string = script_data["address"].to_string()
+                        # We do not store partial transactions so we know that any public key
+                        # embedded in the `script_sig` will be standard bitcoin ones and not
+                        # Electrum extended forms.
+                        script_data = parse_script_sig(tx_input.script_sig.to_bytes(),
+                            XPublicKey.from_bytes)
+                        assert script_data.address is not None
+                        address_string = script_data.address.to_string()
 
                         if address_string in address_states:
                             address_state = address_states[address_string]

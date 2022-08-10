@@ -85,12 +85,13 @@ from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_
 from .network_support.types import GenericPeerChannelMessage, ServerConnectionProblems, \
     ServerConnectionState, TipFilterPushDataMatchesData
 from .networks import Net
+from .standards.electrum_transaction_extended import transaction_from_electrumsv_dict
 from .standards.json_envelope import JSONEnvelope, validate_json_envelope
 from .standards.mapi import MAPICallbackResponse, validate_mapi_callback_response
 from .standards.tsc_merkle_proof import separate_proof_and_embedded_transaction, TSCMerkleProof, \
     TSCMerkleProofError, TSCMerkleProofJson, verify_proof
 from .storage import WalletStorage
-from .transaction import (HardwareSigningMetadata, NO_SIGNATURE, Transaction, TransactionContext,
+from .transaction import (HardwareSigningMetadata, Transaction, TransactionContext,
     TransactionFeeEstimator, tx_dict_from_text, TxSerialisationFormat, XPublicKey, XTxInput,
     XTxOutput)
 from .types import (ConnectHeaderlessProofWorkerState, DatabaseKeyDerivationData,
@@ -560,7 +561,6 @@ class AbstractAccount:
             sequence           = 0xffffffff,
             threshold          = self.get_threshold(),
             script_type        = row.script_type,
-            signatures         = [NO_SIGNATURE] * len(x_pubkeys),
             x_pubkeys          = x_pubkeys,
             value              = row.value,
         )
@@ -816,7 +816,7 @@ class AbstractAccount:
                 return True
         return False
 
-    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> list[XPublicKey]:
+    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> dict[bytes, XPublicKey]:
         raise NotImplementedError
 
     def get_master_public_key(self) -> Optional[str]:
@@ -952,7 +952,7 @@ class AbstractAccount:
             if tx_output.script_type == ScriptType.MULTISIG_BARE:
                 context.hardware_signing_metadata.append(output_items)
                 continue
-            for x_public_key in tx_output.x_pubkeys:
+            for x_public_key in tx_output.x_pubkeys.values():
                 candidate_keystores = [ k for k in self.get_keystores()
                     if k.is_signature_candidate(x_public_key) ]
                 if len(candidate_keystores) == 0:
@@ -1263,9 +1263,10 @@ class ImportedPrivkeyAccount(ImportedAccountBase):
         keystore = cast(Imported_KeyStore, self.get_keystore())
         return keystore.decrypt_message(public_key, message, password)
 
-    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> list[XPublicKey]:
+    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> dict[bytes, XPublicKey]:
         data = DatabaseKeyDerivationData.from_key_data(row, DatabaseKeyDerivationType.SIGNING)
-        return [ XPublicKey(pubkey_bytes=row.derivation_data2, derivation_data=data) ]
+        x_pubkey = XPublicKey(pubkey_bytes=row.derivation_data2, derivation_data=data)
+        return { x_pubkey.to_bytes(): x_pubkey }
 
     def get_script_template_for_derivation(self, script_type: ScriptType,
             derivation_type: DerivationType, derivation_data2: Optional[bytes]) -> ScriptTemplate:
@@ -1516,12 +1517,14 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
         public_key = xpub_keystore.derive_pubkey(derivation_path)
         return self.get_script_template(public_key, script_type)
 
-    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> list[XPublicKey]:
+    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> dict[bytes, XPublicKey]:
         data = DatabaseKeyDerivationData.from_key_data(row, DatabaseKeyDerivationType.SIGNING)
         keystore = cast(KeyStore, self.get_keystore())
         if keystore.type() == KeystoreType.OLD:
-            return [ cast(Old_KeyStore, keystore).get_xpubkey(data) ]
-        return [ cast(Xpub, keystore).get_xpubkey(data) ]
+            x_pubkey = cast(Old_KeyStore, keystore).get_xpubkey(data)
+        else:
+            x_pubkey = cast(Xpub, keystore).get_xpubkey(data)
+        return { x_pubkey.to_bytes(): x_pubkey }
 
     def derive_pubkeys(self, derivation_path: DerivationPath) -> PublicKey:
         keystore = cast(KeyStore, self.get_keystore())
@@ -1641,13 +1644,10 @@ class MultisigAccount(DeterministicAccount):
         _sorted_mpks, sorted_fingerprints = zip(*sorted(zip(mpks, fingerprints)))
         return b''.join(cast(Sequence[bytes], sorted_fingerprints))
 
-    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> list[XPublicKey]:
+    def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> dict[bytes, XPublicKey]:
         data = DatabaseKeyDerivationData.from_key_data(row, DatabaseKeyDerivationType.SIGNING)
-        x_pubkeys = [ k.get_xpubkey(data) for k in self.get_keystores() ]
-        # Sort them using the order of the realized pubkeys
-        sorted_pairs = sorted((x_pubkey.to_public_key().to_hex(), x_pubkey)
-            for x_pubkey in x_pubkeys)
-        return [x_pubkey for _hex, x_pubkey in sorted_pairs]
+        unordered_x_pubkeys = [ k.get_xpubkey(data) for k in self.get_keystores() ]
+        return { x_pubkey.to_bytes(): x_pubkey  for x_pubkey in unordered_x_pubkeys }
 
 
 class WalletDataAccess:
@@ -2427,6 +2427,27 @@ class Wallet:
     def get_visible_accounts(self) -> list[AbstractAccount]:
         return [ account for account in self._accounts.values() if not account.is_petty_cash() ]
 
+    def get_xpubs_by_fingerprint(self) -> dict[bytes, str]:
+        bip32_keystores: list[BIP32_KeyStore] = []
+        for account in self._accounts.values():
+            if account.type() == AccountType.STANDARD:
+                standard_account = cast(StandardAccount, account)
+                keystore = standard_account.get_keystore()
+                if isinstance(keystore, BIP32_KeyStore):
+                    bip32_keystores.append(keystore)
+            elif account.type() == AccountType.MULTISIG:
+                multisig_account = cast(MultisigAccount, account)
+                for keystore in multisig_account.get_keystores():
+                    if isinstance(keystore, BIP32_KeyStore):
+                        bip32_keystores.append(keystore)
+
+        xpub_by_fingerprint: dict[bytes, str] = {}
+        for bip32_keystore in bip32_keystores:
+            xpub = bip32_keystore.get_master_public_key()
+            assert xpub is not None
+            xpub_by_fingerprint[bip32_keystore.get_fingerprint()] = xpub
+        return xpub_by_fingerprint
+
     def get_default_account(self) -> Optional[AbstractAccount]:
         if len(self._accounts):
             return list(self._accounts.values())[0]
@@ -2869,8 +2890,9 @@ class Wallet:
         for input in tx.inputs:
             outpoint = Outpoint(input.prev_hash, input.prev_idx)
 
-            if len(input.x_pubkeys):
-                data = input.x_pubkeys[0].get_derivation_data()
+            if len(input.x_pubkeys) > 0:
+                x_pubkey = list(input.x_pubkeys.values())[0]
+                data = x_pubkey.get_derivation_data()
                 if data is not None:
                     tx_context.key_datas_by_spent_outpoint[outpoint] = data
 
@@ -2880,7 +2902,7 @@ class Wallet:
 
         for txo_index, output in enumerate(tx.outputs):
             if len(output.x_pubkeys):
-                data = output.x_pubkeys[0].get_derivation_data()
+                data = list(output.x_pubkeys.values())[0].get_derivation_data()
                 if data is not None:
                     tx_context.key_datas_by_txo_index[txo_index] = data
 
@@ -3095,7 +3117,7 @@ class Wallet:
             return None, None
 
         txdict = tx_dict_from_text(text)
-        tx, context = Transaction.from_dict(txdict, self.get_accounts())
+        tx, context = transaction_from_electrumsv_dict(txdict, self.get_accounts())
 
         # Incomplete transactions should not be cached.
         if not tx.is_complete():
@@ -3400,9 +3422,9 @@ class Wallet:
         # - If the transaction creator added any of their own receiving addresses as destinations
         #   then there is no guarantee that they have the extended public key metadata.
         for txout in tx.outputs:
-            if not len(txout.x_pubkeys):
+            if len(txout.x_pubkeys) == 0:
                 continue
-            for extended_public_key in txout.x_pubkeys:
+            for extended_public_key in txout.x_pubkeys.values():
                 account = self.find_account_for_extended_public_key(extended_public_key)
                 if account is not None:
                     last_future, new_keyinstance_rows = account.derive_new_keys_until(

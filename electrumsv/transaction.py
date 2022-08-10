@@ -28,20 +28,20 @@ import enum
 from io import BytesIO
 import struct
 from struct import error as struct_error
-from typing import Any, Callable, cast, Dict, Generator, List, Optional, Protocol, Sequence, \
-    Tuple, TYPE_CHECKING, TypedDict, TypeVar, Union
+from typing import Any, Callable, cast, Generator, Protocol, Sequence, TYPE_CHECKING, TypeVar
 
 import attr
 from bitcoinx import (
-    Address, base58_encode_check, bip32_key_from_string, BIP32PublicKey, classify_output_script,
+    Address, bip32_key_from_string, BIP32PublicKey, classify_output_script,
     der_signature_to_compact, double_sha256, hash160, hash_to_hex_str, InvalidSignature,
     Ops, P2PK_Output, P2SH_Address, pack_byte, pack_le_int32, pack_le_uint32, pack_list,
     PrivateKey, PublicKey, push_int, push_item, read_le_int32, read_le_int64, read_le_uint32,
-    read_varint, Script, SigHash, Tx, TxInput, TxOutput, unpack_le_uint16, varint_len
+    read_varint, Script, SigHash, Tx, TxInput, TxOutput, varint_len
 )
 
 from .bitcoin import ScriptTemplate
-from .constants import DatabaseKeyDerivationType, DerivationPath, ScriptType
+from .constants import DerivationPath, MULTI_SIGNER_SCRIPT_TYPES, ScriptType, \
+    SINGLE_SIGNER_SCRIPT_TYPES
 from .logs import logs
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
@@ -54,7 +54,7 @@ if TYPE_CHECKING:
 
 
 class SupportsToBytes(Protocol):
-    def to_bytes(self, *, compressed: Optional[bool]=None) -> bytes:
+    def to_bytes(self) -> bytes:
        ...
 
 
@@ -79,21 +79,21 @@ TxFileExtensions = {
     TxSerialisationFormat.JSON_WITH_PROOFS: "json",
 }
 
-TxSerialisedType = Union[bytes, str, Dict[str, Any]]
+TxSerialisedType = bytes | str | dict[str, Any]
 ReadBytesFunc = Callable[[int], bytes]
 TellFunc = Callable[[], int]
 T = TypeVar('T')
 
 # Duplicated and extended from the bitcoinx implementation.
 def xread_list(read: ReadBytesFunc, tell: TellFunc,
-        read_one: Callable[[ReadBytesFunc, TellFunc], T]) -> List[T]:
+        read_one: Callable[[ReadBytesFunc, TellFunc], T]) -> list[T]:
     '''Return a list of items.
 
     Each item is read with read_one, the stream begins with a count of the items.'''
     return [read_one(read, tell) for _ in range(read_varint(read))]
 
 # Reimplemented from bitcoinx, to take the tell argument and return the offset.
-def xread_varbytes(read: ReadBytesFunc, tell: TellFunc) -> Tuple[bytes, int]:
+def xread_varbytes(read: ReadBytesFunc, tell: TellFunc) -> tuple[bytes, int]:
     n = read_varint(read)
     offset = tell()
     result = read(n)
@@ -118,34 +118,27 @@ def script_to_display_text(script: Script, kind: ScriptTemplate) -> str:
         text = script.to_asm(False)
     return cast(str, text)
 
-def tx_output_to_display_text(tx_output: TxOutput) -> Tuple[str, ScriptTemplate]:
+def tx_output_to_display_text(tx_output: TxOutput) -> tuple[str, ScriptTemplate]:
     kind = classify_tx_output(tx_output)
     text = script_to_display_text(tx_output.script_pubkey, kind)
     return text, kind
 
 
-HardwareSigningMetadata = Dict[bytes, Tuple[DerivationPath, Tuple[str], int]]
+HardwareSigningMetadata = dict[bytes, tuple[DerivationPath, tuple[str], int]]
 
 @dataclasses.dataclass
 class TransactionContext:
-    invoice_id: Optional[int] = dataclasses.field(default=None)
+    invoice_id: int | None = dataclasses.field(default=None)
     account_descriptions: dict[int, str] = dataclasses.field(default_factory=dict)
-    parent_transactions: Dict[bytes, 'Transaction'] = dataclasses.field(default_factory=dict)
-    hardware_signing_metadata: List[HardwareSigningMetadata] \
+    parent_transactions: dict[bytes, 'Transaction'] = dataclasses.field(default_factory=dict)
+    hardware_signing_metadata: list[HardwareSigningMetadata] \
         = dataclasses.field(default_factory=list)
-    spent_outpoint_values: Dict[Outpoint, int] = dataclasses.field(default_factory=dict)
-    key_datas_by_spent_outpoint: Dict[Outpoint, DatabaseKeyDerivationData] \
+    spent_outpoint_values: dict[Outpoint, int] = dataclasses.field(default_factory=dict)
+    key_datas_by_spent_outpoint: dict[Outpoint, DatabaseKeyDerivationData] \
         = dataclasses.field(default_factory=dict)
-    key_datas_by_txo_index: Dict[int, DatabaseKeyDerivationData] \
+    key_datas_by_txo_index: dict[int, DatabaseKeyDerivationData] \
         = dataclasses.field(default_factory=dict)
     mapi_server_hint: ServerAndCredential | None = dataclasses.field(default=None)
-
-
-class SerialisedXPublicKeyDict(TypedDict, total=False):
-    pubkey_bytes: Optional[str]
-    bip32_xpub: Optional[str]
-    old_mpk: Optional[str]
-    derivation_path: Optional[DerivationPath]
 
 
 
@@ -168,17 +161,20 @@ class XPublicKey:
     derivation path, which is not directly coupled to the database unlike the id fields.
     """
 
-    _old_mpk: Optional[bytes] = None
-    _bip32_xpub: Optional[str] = None
-    _pubkey_bytes: Optional[bytes] = None
+    _old_mpk: bytes|None = None
+    _bip32_xpub: str|None = None
+    _pubkey_bytes: bytes|None = None
     # Logic should know when this field has populated id fields and when it does not. This is
     # addressed in the class docstring above. If the public key is a master public key, then this
     # field will have a value and only `derivation_path` will be provided externally.
-    _derivation_data: Optional[DatabaseKeyDerivationData] = None
+    _derivation_data: DatabaseKeyDerivationData|None = None
+    _keystore_fingerprint: bytes|None = None
 
-    def __init__(self, pubkey_bytes: Optional[bytes]=None, bip32_xpub: Optional[str]=None,
-            old_mpk: Optional[bytes]=None,
-            derivation_data: Optional[DatabaseKeyDerivationData]=None) -> None:
+    def __init__(self, pubkey_bytes: bytes|None=None, bip32_xpub: str|None=None,
+            old_mpk: bytes|None=None, derivation_data: DatabaseKeyDerivationData|None=None,
+            keystore_fingerprint: bytes|None=None) -> None:
+        self._keystore_fingerprint = keystore_fingerprint
+
         if pubkey_bytes is not None:
             assert isinstance(pubkey_bytes, bytes)
             self._pubkey_bytes = pubkey_bytes
@@ -194,83 +190,18 @@ class XPublicKey:
             self._derivation_data = derivation_data
         else:
             raise NotImplementedError
-        # Verify that the public key data is valid.
-        self.to_public_key()
 
     @classmethod
-    def from_dict(cls, data: SerialisedXPublicKeyDict) -> 'XPublicKey':
-        bip32_xpub: Optional[str] = data.get("bip32_xpub")
-        pubkey_bytes: Optional[bytes] = None
-        pubkey_bytes_hex: Optional[str] = data.get("pubkey_bytes", None)
-        if pubkey_bytes_hex:
-            pubkey_bytes = bytes.fromhex(pubkey_bytes_hex)
-        old_mpk: Optional[bytes] = None
-        old_mpk_hex: Optional[str] = data.get("old_mpk", None)
-        if old_mpk_hex is not None:
-            old_mpk = bytes.fromhex(old_mpk_hex)
-        derivation_data: Optional[DatabaseKeyDerivationData] = None
-        derivation_path: Optional[DerivationPath] = data.get("derivation_path")
-        if derivation_path is not None:
-            derivation_data = DatabaseKeyDerivationData(derivation_path=tuple(derivation_path),
-                source=DatabaseKeyDerivationType.IMPORTED)
-        return cls(pubkey_bytes=pubkey_bytes, bip32_xpub=bip32_xpub, old_mpk=old_mpk,
-            derivation_data=derivation_data)
+    def from_bytes(cls, raw: bytes) -> XPublicKey:
+        assert raw[0] in {0x02, 0x03, 0x04}
+        return cls(pubkey_bytes=raw)
 
     @classmethod
-    def from_bytes(cls, raw: bytes) -> 'XPublicKey':
-        """ In addition to importing public keys, we also support the legacy Electrum
-        serialisation, except for the case of addresses. """
-        bip32_xpub: Optional[str] = None
-        pubkey_bytes: Optional[bytes] = None
-        old_mpk: Optional[bytes] = None
-        derivation_data: Optional[DatabaseKeyDerivationData] = None
-        kind = raw[0]
-        if kind in {0x02, 0x03, 0x04}:
-            pubkey_bytes = raw
-        elif kind == 0xff:
-            # 83 is 79 + 2 + 2.
-            assert len(raw) == 83, f"got {len(raw)}"
-            bip32_xpub = base58_encode_check(raw[1:79])
-            derivation_data = DatabaseKeyDerivationData(
-                derivation_path=tuple(unpack_le_uint16(raw[n: n+2])[0] for n in (79, 81)),
-                source=DatabaseKeyDerivationType.IMPORTED)
-        elif kind == 0xfe:
-            assert len(raw) == 69
-            old_mpk = raw[1:65]  # The public key bytes without the 0x04 prefix
-            derivation_data = DatabaseKeyDerivationData(
-                derivation_path=tuple(unpack_le_uint16(raw[n: n+2])[0] for n in (65, 67)),
-                source=DatabaseKeyDerivationType.IMPORTED)
-        else:
-            # NOTE(rt12) We do not appear to handle this? Was this ever a thing?
-            # kwargs["extended_kind"] = hex(raw[0])
-            raise NotImplementedError
-        return cls(pubkey_bytes=pubkey_bytes, bip32_xpub=bip32_xpub, old_mpk=old_mpk,
-            derivation_data=derivation_data)
+    def from_hex(cls, text: str) -> XPublicKey:
+        return cls.from_bytes(bytes.fromhex(text))
 
-    @classmethod
-    def from_hex(cls, text: str) -> 'XPublicKey':
-        raw = bytes.fromhex(text)
-        return cls.from_bytes(raw)
-
-    def to_dict(self) -> SerialisedXPublicKeyDict:
-        d: SerialisedXPublicKeyDict = {}
-        if self._pubkey_bytes is not None:
-            d["pubkey_bytes"] = self._pubkey_bytes.hex()
-            return d
-        assert self._derivation_data is not None and \
-            self._derivation_data.derivation_path is not None
-        if self._old_mpk is not None:
-            d["old_mpk"] = self._old_mpk.hex()
-            d["derivation_path"] = self._derivation_data.derivation_path
-            return d
-        if self._bip32_xpub is not None:
-            d["bip32_xpub"] = self._bip32_xpub
-            d["derivation_path"] = self._derivation_data.derivation_path
-            return d
-        raise NotImplementedError
-
-    def to_bytes(self, *, compressed: Optional[bool]=None) -> bytes:
-        return cast(bytes, self.to_public_key().to_bytes(compressed=compressed))
+    def to_bytes(self) -> bytes:
+        return cast(bytes, self.to_public_key().to_bytes(compressed=True))
 
     def __eq__(self, other: object) -> bool:
         return (isinstance(other, XPublicKey) and self._pubkey_bytes == other._pubkey_bytes and
@@ -294,7 +225,10 @@ class XPublicKey:
             return XPublicKeyKind.PRIVATE_KEY
         return XPublicKeyKind.UNKNOWN
 
-    def get_derivation_data(self) -> Optional[DatabaseKeyDerivationData]:
+    def get_keystore_fingerprint(self) -> bytes|None:
+        return self._keystore_fingerprint
+
+    def get_derivation_data(self) -> DatabaseKeyDerivationData|None:
         return self._derivation_data
 
     @property
@@ -321,19 +255,19 @@ class XPublicKey:
         assert self._derivation_data.derivation_path is not None
         return self._derivation_data.derivation_path
 
-    def bip32_extended_key_and_path(self) -> Tuple[str, DerivationPath]:
+    def bip32_extended_key_and_path(self) -> tuple[str, DerivationPath]:
         assert self._bip32_xpub is not None
         assert self._derivation_data is not None
         assert self._derivation_data.derivation_path is not None
         return self._bip32_xpub, self._derivation_data.derivation_path
 
-    def old_keystore_mpk_and_path(self) -> Tuple[bytes, DerivationPath]:
+    def old_keystore_mpk_and_path(self) -> tuple[bytes, DerivationPath]:
         assert self._old_mpk is not None
         assert self._derivation_data is not None
         assert self._derivation_data.derivation_path is not None
         return self._old_mpk, self._derivation_data.derivation_path
 
-    def to_public_key(self) -> Union[BIP32PublicKey, PublicKey]:
+    def to_public_key(self) -> BIP32PublicKey | PublicKey:
         '''Returns either a bitcoinx BIP32PublicKey or PublicKey instance.'''
         if self._pubkey_bytes is not None:
             return PublicKey.from_bytes(self._pubkey_bytes)
@@ -379,12 +313,10 @@ class XPublicKey:
 @attr.s(slots=True, repr=False)
 class XTxInput(TxInput): # type: ignore[misc]
     '''An extended bitcoin transaction input.'''
-    # Used for signing metadata for hardware wallets.
-    # Exchanged in incomplete transactions to aid in comprehending unknown inputs.
-    value: Optional[int] = attr.ib(default=None)
-    x_pubkeys: List[XPublicKey] = attr.ib(default=attr.Factory(list))
+    value: int | None = attr.ib(default=None)
+    x_pubkeys: dict[bytes, XPublicKey] = attr.ib(default=attr.Factory(dict[bytes, XPublicKey]))
     threshold: int = attr.ib(default=0)
-    signatures: List[bytes] = attr.ib(default=attr.Factory(list))
+    signatures: dict[bytes, bytes] = attr.ib(default=attr.Factory(dict[bytes, bytes]))
     script_type: ScriptType = attr.ib(default=ScriptType.NONE)
 
     # Parsing metadata that we store in the database for easy script access.
@@ -395,87 +327,73 @@ class XTxInput(TxInput): # type: ignore[misc]
 
     @classmethod
     def read(cls, read: ReadBytesFunc, tell: TellFunc) -> 'XTxInput':
-        # This section is duplicated in `XTxInput.read_extended`
         prev_hash = read(32)
         prev_idx = read_le_uint32(read)
         script_sig_bytes, script_sig_offset = xread_varbytes(read, tell)
         script_sig = Script(script_sig_bytes)
         sequence = read_le_uint32(read)
-
-        assert script_sig_offset != 0
-        assert len(script_sig_bytes) != 0
 
         # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
         return cls(prev_hash, prev_idx, script_sig, sequence, # type: ignore[arg-type]
             script_offset=script_sig_offset, script_length=len(script_sig_bytes))
 
-    @classmethod
-    def read_extended(cls, read: ReadBytesFunc, tell: TellFunc) -> 'XTxInput':
-        # This section is duplicated in `XTxInput.read`
-        prev_hash = read(32)
-        prev_idx = read_le_uint32(read)
-        script_sig_bytes, script_sig_offset = xread_varbytes(read, tell)
-        script_sig = Script(script_sig_bytes)
-        sequence = read_le_uint32(read)
-
-        kwargs = {
-            'x_pubkeys': [],
-            'threshold': 0,
-            'signatures': [],
-            'script_offset': script_sig_offset,
-            'script_length': len(script_sig_bytes),
-        }
-        assert script_sig_offset != 0
-        assert len(script_sig_bytes) != 0
-
-        if prev_hash != bytes(32):
-            parse_script_sig(script_sig_bytes, kwargs)
-            # NOTE(rt12) Why do we delete this?
-            if 'address' in kwargs:
-                del kwargs['address']
-        # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
-        result = cls(prev_hash, prev_idx, script_sig, sequence, # type: ignore[arg-type]
-            value=None, **kwargs) # type: ignore
-        if not result.is_complete():
-            result.value = read_le_int64(read)
-        return result
-
     def to_bytes(self) -> bytes:
-        if self.x_pubkeys:
-            self.script_sig = create_script_sig(self.script_type,  # type: ignore[misc]
-                self.threshold, self.x_pubkeys, self.signatures)
+        # NOTE(typing) I have no idea what is going on with this.
+        #     Cannot determine type of "script_sig"  [has-type]
+        existing_script_sig = cast(Script, self.script_sig) # type: ignore[has-type]
+        if self.is_complete():
+            assert len(existing_script_sig) > 0
+        else:
+            assert existing_script_sig == b""
+            assert len(self.x_pubkeys) > 0
         return cast(bytes, super().to_bytes())
 
-    def signatures_present(self) -> List[bytes]:
+    def finalize_if_complete(self) -> None:
+        # NOTE(typing) I have no idea what is going on with this.
+        #     Cannot determine type of "script_sig"  [has-type]
+        assert self.script_sig == b"" # type: ignore[has-type]
+        if self.is_complete():
+            script_sig = create_script_sig(self.script_type, self.threshold, self.x_pubkeys,
+                self.signatures)
+            assert script_sig is not None
+            # NOTE(typing) Trying to assign name "script_sig" that is not in "__slots__" of type
+            #     "electrumsv.transaction.XTxInput"  [misc]
+            self.script_sig = script_sig # type: ignore[misc]
+
+    def signatures_present(self) -> list[bytes]:
         '''Return a list of all signatures that are present.'''
-        return [sig for sig in self.signatures if sig != NO_SIGNATURE]
+        return list(self.signatures.values())
 
     def is_complete(self) -> bool:
         '''Return true if this input has all signatures present.'''
-        if not self.signatures:
+        if len(self.signatures) == 0 and len(self.x_pubkeys) == 0:
             return True
         return len(self.signatures_present()) >= self.threshold
 
-    def stripped_signatures_with_blanks(self) -> List[bytes]:
-        '''Strips the sighash byte.'''
-        return [b'' if sig == NO_SIGNATURE else sig[:-1] for sig in self.signatures]
-
-    def unused_x_pubkeys(self) -> List[XPublicKey]:
+    def unused_x_pubkeys(self) -> list[XPublicKey]:
         if self.is_complete():
             return []
-        return [x_pubkey for x_pubkey, signature in zip(self.x_pubkeys, self.signatures)
-                if signature == NO_SIGNATURE]
+        return [ x_pubkey for public_key_bytes, x_pubkey in self.x_pubkeys.items() if
+            public_key_bytes not in self.signatures ]
 
     def estimated_size(self) -> TransactionSize:
         '''Return an estimated of serialized input size in bytes.'''
+        # We substitute in signatures of a kind of realistic size. With high r and high s values
+        # the size us 73 bytes. In reality with low s enforced because of "malleability hysteria"
+        # the actual size would be 71 or 72 bytes.
+        dummy_signature = bytearray(73)
+        signature_by_key: dict[bytes, bytes] = {
+            public_key_bytes: dummy_signature if public_key_bytes not in self.signatures else \
+                self.signatures[public_key_bytes] for public_key_bytes in list(self.x_pubkeys) }
+        script_sig = create_script_sig(self.script_type, self.threshold, self.x_pubkeys,
+            signature_by_key)
+        assert script_sig is not None
         saved_script_sig = self.script_sig
-        # TODO(MAPI) Should this be the raw x_pubkeys not the public keys? It does not matter
-        #   as the `create_script_sig` method only calls `to_bytes`.
-        x_pubkeys = [x_pubkey.to_public_key() for x_pubkey in self.x_pubkeys]
-        signatures = [dummy_signature] * self.threshold
-        self.script_sig = create_script_sig(self.script_type, self.threshold, x_pubkeys, signatures)
-        size = self.size()
-        self.script_sig = saved_script_sig
+        self.script_sig = script_sig
+        try:
+            size = self.size()
+        finally:
+            self.script_sig = saved_script_sig
         return TransactionSize(size, 0)
 
     def size(self) -> int:
@@ -490,8 +408,8 @@ class XTxInput(TxInput): # type: ignore[misc]
         return (
             f'XTxInput(prev_hash="{hash_to_hex_str(self.prev_hash)}", prev_idx={self.prev_idx}, '
             f'script_sig="{self.script_sig}", sequence={self.sequence}), value={self.value}, '
-            f'threshold={self.threshold}, '
-            f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys}), '
+            f'threshold={self.threshold}, script_type={self.script_type}, '
+            f'x_pubkeys={self.x_pubkeys}), signatures={self.signatures}, '
             f'script_length={self.script_length}, script_offset={self.script_offset}'
         )
 
@@ -509,7 +427,7 @@ class XTxOutput(TxOutput): # type: ignore[misc]
     # Used for constructing output scripts.
     # Exchanged in incomplete transactions as useful metadata.
     script_type: ScriptType = attr.ib(default=ScriptType.NONE)
-    x_pubkeys: List[XPublicKey] = attr.ib(default=attr.Factory(list))
+    x_pubkeys: dict[bytes, XPublicKey] = attr.ib(default=attr.Factory(dict[bytes, XPublicKey]))
 
     # Parsing metadata that we store in the database for easy script access.
     # TODO(script-offset-length) work out if this can be obtained without storing it on the class.
@@ -518,7 +436,7 @@ class XTxOutput(TxOutput): # type: ignore[misc]
     script_length: int = attr.ib(default=0)
 
     @classmethod
-    def read(cls, read: ReadBytesFunc, tell: TellFunc) -> 'XTxOutput':
+    def read(cls, read: ReadBytesFunc, tell: TellFunc) -> XTxOutput:
         value = read_le_int64(read)
         script_pubkey_bytes, script_pubkey_offset = xread_varbytes(read, tell)
         script_pubkey = Script(script_pubkey_bytes)
@@ -547,7 +465,7 @@ class XTxOutput(TxOutput): # type: ignore[misc]
         )
 
 
-def _script_GetOp(_bytes: bytes) -> Generator[Tuple[int, Optional[bytes], int], None, None]:
+def _script_GetOp(_bytes: bytes) -> Generator[tuple[int, bytes | None, int], None, None]:
     i = 0
     blen = len(_bytes)
     while i < blen:
@@ -574,8 +492,8 @@ def _script_GetOp(_bytes: bytes) -> Generator[Tuple[int, Optional[bytes], int], 
         yield opcode, vch, i
 
 
-def _match_decoded(decoded: List[Tuple[int, Optional[bytes], int]],
-        to_match: List[Union[int, Ops]]) -> bool:
+def _match_decoded(decoded: list[tuple[int, bytes | None, int]],
+        to_match: list[int | Ops]) -> bool:
     if len(decoded) != len(to_match):
         return False
     for i in range(len(decoded)):
@@ -588,133 +506,161 @@ def _match_decoded(decoded: List[Tuple[int, Optional[bytes], int]],
     return True
 
 
-def _extract_multisig_pattern(decoded: List[Tuple[int, Optional[bytes], int]]) \
-        -> Tuple[int, int, List[Union[int, Ops]]]:
+def _extract_multisig_pattern(decoded: list[tuple[int, bytes | None, int]]) \
+        -> tuple[int, int, list[int | Ops]]:
     m = decoded[0][0] - Ops.OP_1 + 1
     n = decoded[-2][0] - Ops.OP_1 + 1
     op_m = Ops.OP_1 + m - 1
     op_n = Ops.OP_1 + n - 1
-    l: List[Union[int, Ops]] = [ op_m, *[Ops.OP_PUSHDATA4]*n, op_n, Ops.OP_CHECKMULTISIG ]
+    l: list[int | Ops] = [ op_m, *[Ops.OP_PUSHDATA4]*n, op_n, Ops.OP_CHECKMULTISIG ]
     return m, n, l
 
 
-def multisig_script(pubkeylikes: Sequence[SupportsToBytes], threshold: int) -> bytes:
-    '''Returns bytes.
-
-    x_pubkeys is an array of XPulicKey objects or an array of PublicKey objects.
-    '''
-    assert 1 <= threshold <= len(pubkeylikes)
+def to_bare_multisig_script_bytes(public_key_bytes_list: Sequence[bytes], threshold: int) -> bytes:
+    assert 1 <= threshold <= len(public_key_bytes_list)
     parts = [push_int(threshold)]
-    parts.extend(push_item(x_pubkey.to_bytes()) for x_pubkey in pubkeylikes)
-    parts.append(push_int(len(pubkeylikes)))
+    parts.extend(push_item(public_key_bytes) for public_key_bytes in public_key_bytes_list)
+    parts.append(push_int(len(public_key_bytes_list)))
     parts.append(pack_byte(Ops.OP_CHECKMULTISIG))
     return b''.join(parts)
 
-def bare_multisignatures(threshold: int, signatures: List[bytes]) -> List[bytes]:
-    '''
-    Forms of bare multi-signature need to only provide a number of signatures meeting the
-    threshold level. The signing protocol keeps track of the signature of each co-signer
-    which usually counts more than the threshold. If there are not enough signatures it is
-    padded out with NO_SIGNATURE entries to keep the script in correct structure, this only
-    happens for incomplete transactions.
-    '''
-    present_signatures = [ value for value in signatures if value != NO_SIGNATURE ][:threshold]
-    while len(present_signatures) < threshold:
-        present_signatures.append(NO_SIGNATURE)
-    return present_signatures
-
 
 def create_script_sig(script_type: ScriptType, threshold: int,
-        pubkeylikes: Sequence[SupportsToBytes], signatures: List[bytes]) -> Script:
-    if script_type == ScriptType.P2PK:
-        return Script(push_item(signatures[0]))
-    elif script_type == ScriptType.P2PKH:
-        return Script(push_item(signatures[0]) + push_item(pubkeylikes[0].to_bytes()))
-    elif script_type == ScriptType.MULTISIG_P2SH:
-        prepared_signatures = bare_multisignatures(threshold, signatures)
-        parts = [pack_byte(Ops.OP_0)]
-        parts.extend(push_item(signature) for signature in prepared_signatures)
-        nested_script = multisig_script(pubkeylikes, threshold)
-        parts.append(push_item(nested_script))
-        return Script(b''.join(parts))
-    elif script_type == ScriptType.MULTISIG_BARE:
-        prepared_signatures = bare_multisignatures(threshold, signatures)
-        parts = [pack_byte(Ops.OP_0)]
-        parts.extend(push_item(signature) for signature in prepared_signatures)
-        return Script(b''.join(parts))
-    elif script_type == ScriptType.MULTISIG_ACCUMULATOR:
-        parts = []
-        for i, signature in enumerate(signatures):
-            if signature == NO_SIGNATURE:
-                parts.append([ pack_byte(Ops.OP_FALSE) ])
-            else:
-                parts.append([
-                    push_item(signature),
-                    push_item(pubkeylikes[i].to_bytes()),
-                    pack_byte(Ops.OP_TRUE),
-                ])
-        parts.reverse()
-        return Script(b''.join([ value for l in parts for value in l ]))
+        x_pubkeys: dict[bytes, XPublicKey], signature_by_key: dict[bytes, bytes],
+        ordered_public_key_bytes: Sequence[bytes]|None=None) -> Script | None:
+    # This should not be called unless we know of all the required signing keys.
+    assert len(x_pubkeys) >= threshold
+    if len(signature_by_key) < threshold:
+        return None
+
+    public_keys_bytes = list(signature_by_key)
+    if script_type in SINGLE_SIGNER_SCRIPT_TYPES:
+        if script_type == ScriptType.P2PK:
+            assert len(public_keys_bytes) == 1
+            public_key_bytes = public_keys_bytes[0]
+            assert public_key_bytes in x_pubkeys
+            return Script(push_item(signature_by_key[public_key_bytes]))
+        elif script_type == ScriptType.P2PKH:
+            assert len(public_keys_bytes) == 1
+            public_key_bytes = public_keys_bytes[0]
+            assert public_key_bytes in x_pubkeys
+            return Script(push_item(signature_by_key[public_key_bytes]) +
+                push_item(x_pubkeys[public_key_bytes].to_bytes()))
+    elif script_type in MULTI_SIGNER_SCRIPT_TYPES:
+        if script_type in (ScriptType.MULTISIG_P2SH, ScriptType.MULTISIG_BARE):
+            signature_entries = list(signature_by_key.items())
+            # Place the signatures in an order determined by the public key bytes.
+            signature_entries = sorted(signature_entries[:threshold])
+
+            if script_type == ScriptType.MULTISIG_P2SH:
+                parts = [pack_byte(Ops.OP_0)]
+                parts.extend(push_item(signature_bytes)
+                    for public_key_bytes, signature_bytes in signature_entries)
+                nested_script = to_bare_multisig_script_bytes([ public_key_bytes
+                    for public_key_bytes, signature_bytes in signature_entries ], threshold)
+                parts.append(push_item(nested_script))
+                return Script(b''.join(parts))
+            elif script_type == ScriptType.MULTISIG_BARE:
+                parts = [pack_byte(Ops.OP_0)]
+                parts.extend(push_item(signature_bytes)
+                    for public_key_bytes, signature_bytes in signature_entries)
+                return Script(b''.join(parts))
+        elif script_type == ScriptType.MULTISIG_ACCUMULATOR:
+            # These signatures must be in order, in this case we rely on insertion order.
+            assert ordered_public_key_bytes is not None
+            parts = []
+            for public_key_bytes in ordered_public_key_bytes:
+                if public_key_bytes in signature_by_key:
+                    parts.append([
+                        push_item(signature_by_key[public_key_bytes]),
+                        push_item(public_key_bytes),
+                        pack_byte(Ops.OP_TRUE),
+                    ])
+                else:
+                    parts.append([ pack_byte(Ops.OP_FALSE) ])
+            parts.reverse()
+            return Script(b''.join([ value for l in parts for value in l ]))
     raise ValueError(f"unable to realize script {script_type}")
 
 
-def parse_script_sig(script: bytes, kwargs: Dict[str, Any]) -> None:
+@dataclasses.dataclass
+class ScriptSigData:
+    signatures: dict[bytes, bytes] = dataclasses.field(default_factory=dict)
+    threshold: int = dataclasses.field(default=0)
+    x_pubkeys: dict[bytes, XPublicKey] = dataclasses.field(default_factory=dict)
+    script_type: ScriptType = dataclasses.field(default=ScriptType.NONE)
+    address: Address|None = dataclasses.field(default=None)
+
+
+def parse_script_sig(script: bytes, to_x_public_key: Callable[[bytes], XPublicKey], *,
+        signature_placeholder: bytes|None = None) -> ScriptSigData:
+    """
+    What we can identify just using the script signature is P2PKH and P2SH. It is probably a given
+    that we will have the spent output and it's script to work with.
+    """
     try:
         decoded = list(_script_GetOp(script))
     except Exception:
         # coinbase transactions raise an exception
         logger.exception("cannot find address in input script %s", script.hex())
-        return
+        return ScriptSigData()
 
-    match: List[Union[int, Ops]]
+    x_pubkeys: dict[bytes, XPublicKey] = {}
+    signatures: dict[bytes, bytes] = {}
+
+    match: list[int|Ops]
     # P2PK
-    match = [ Ops.OP_PUSHDATA4 ]
-    if _match_decoded(decoded, match):
-        item = decoded[0][1]
-        kwargs['signatures'] = [item]
-        kwargs['threshold'] = 1
-        kwargs['script_type'] = ScriptType.P2PK
-        return
+    # match = [ Ops.OP_PUSHDATA4 ]
+    # if _match_decoded(decoded, match):
+    #     signature_bytes = cast(bytes, decoded[0][1])
+    #     return ScriptSigData(script_type=ScriptType.P2PK, threshold=1,
+    #         signatures=[ signature_bytes ])
 
     # P2PKH inputs push a signature (around seventy bytes) and then their public key
     # (65 bytes) onto the stack
     match = [ Ops.OP_PUSHDATA4, Ops.OP_PUSHDATA4 ]
     if _match_decoded(decoded, match):
-        sig = decoded[0][1]
-        xpubkey_bytes = decoded[1][1]
-        assert xpubkey_bytes is not None
-        x_pubkey = XPublicKey.from_bytes(xpubkey_bytes)
-        kwargs['signatures'] = [sig]
-        kwargs['threshold'] = 1
-        kwargs['x_pubkeys'] = [x_pubkey]
-        kwargs['script_type'] = ScriptType.P2PKH
-        kwargs['address'] = x_pubkey.to_address()
-        return
+        signature_bytes = cast(bytes, decoded[0][1])
+        public_key_bytes = decoded[1][1]
+        assert public_key_bytes is not None
+        x_public_key = to_x_public_key(public_key_bytes)
+        x_pubkeys = { public_key_bytes: x_public_key }
+        if signature_bytes != signature_placeholder:
+            signatures[public_key_bytes] = signature_bytes
+        return ScriptSigData(script_type=ScriptType.P2PKH, threshold=1,
+            signatures=signatures, x_pubkeys=x_pubkeys, address=x_public_key.to_address())
 
     # p2sh transaction, m of n
     match = [ Ops.OP_0, *[ Ops.OP_PUSHDATA4 ] * (len(decoded) - 1) ]
     if not _match_decoded(decoded, match):
         logger.error("cannot find address in input script %s", script.hex())
-        return
+        return ScriptSigData()
 
     nested_script = decoded[-1][1]
     assert nested_script is not None
     nested_decoded = [ x for x in _script_GetOp(nested_script) ]
-    nested_decoded_inner = cast(List[Tuple[int, bytes, int]], nested_decoded[1:-2])
-    x_pubkeys = [XPublicKey.from_bytes(x[1]) for x in nested_decoded_inner]
+    nested_decoded_inner = cast(list[tuple[int, bytes, int]], nested_decoded[1:-2])
+    ordered_x_public_keys = [ to_x_public_key(x[1]) for x in nested_decoded_inner ]
+    public_key_bytes_list = [ x_pubkey.to_bytes() for x_pubkey in ordered_x_public_keys ]
+
     m, n, match_multisig = _extract_multisig_pattern(nested_decoded)
     if not _match_decoded(nested_decoded, match_multisig):
         logger.error("cannot find address in input script %s", script.hex())
-        return
-    kwargs['script_type'] = ScriptType.MULTISIG_P2SH
-    kwargs['x_pubkeys'] = x_pubkeys
-    kwargs['threshold'] = m
-    kwargs['address'] = P2SH_Address(hash160(multisig_script(x_pubkeys, m)), Net.COIN)
-    kwargs['signatures'] = [x[1] for x in decoded[1:-1]]
-    return
+        return ScriptSigData()
+
+    ordered_signature_bytes = [ cast(bytes, x[1]) for x in decoded[1:-1] ]
+    assert len(ordered_x_public_keys) == len(ordered_signature_bytes)
+
+    for order_index, public_key_bytes in enumerate(public_key_bytes_list):
+        x_pubkeys[public_key_bytes] = ordered_x_public_keys[order_index]
+        if ordered_signature_bytes[order_index] != signature_placeholder:
+            signatures[public_key_bytes] = ordered_signature_bytes[order_index]
+    return ScriptSigData(script_type=ScriptType.MULTISIG_P2SH, threshold=m, x_pubkeys=x_pubkeys,
+        address=P2SH_Address(hash160(to_bare_multisig_script_bytes(public_key_bytes_list, m)),
+        Net.COIN), signatures=signatures)
 
 
-def tx_dict_from_text(text: str) -> Dict[str, Any]:
+def tx_dict_from_text(text: str) -> dict[str, Any]:
     """
     Takes json or hexadecimal, returns a dictionary.
 
@@ -732,7 +678,7 @@ def tx_dict_from_text(text: str) -> Dict[str, Any]:
     else:
         return { "hex": text }
 
-    tx_dict = cast(Dict[str, Any], json.loads(text))
+    tx_dict = cast(dict[str, Any], json.loads(text))
     if "hex" not in tx_dict:
         raise ValueError("invalid transaction format")
     return tx_dict
@@ -747,11 +693,11 @@ DATA_PREFIX2 = bytes.fromhex("006a")
 class Transaction(Tx): # type: ignore[misc]
     SIGHASH_FORKID = 0x40
 
-    inputs: List[XTxInput] = attr.ib(default=attr.Factory(list))
-    outputs: List[XTxOutput] = attr.ib(default=attr.Factory(list))
+    inputs: list[XTxInput] = attr.ib(default=attr.Factory(list))
+    outputs: list[XTxOutput] = attr.ib(default=attr.Factory(list))
 
     @classmethod
-    def from_io(cls, inputs: List[XTxInput], outputs: List[XTxOutput], locktime: int=0) \
+    def from_io(cls, inputs: list[XTxInput], outputs: list[XTxOutput], locktime: int=0) \
             -> "Transaction":
         # NOTE(typing) Until the base class is fully typed it's attrs won't be found properly.
         return cls(version=1, locktime=locktime, # type: ignore[call-arg]
@@ -768,18 +714,9 @@ class Transaction(Tx): # type: ignore[misc]
             locktime=read_le_uint32(read),
         )
 
-    @classmethod
-    def read_extended(cls, read: Callable[[int], bytes], tell: Callable[[], int]) -> 'Transaction':
-        '''Overridden to specialize reading the inputs.'''
-        return cls(
-            # NOTE(typing) Until the base class is fully typed it's attrs won't be found properly.
-            version=read_le_int32(read), # type: ignore[call-arg]
-            inputs=xread_list(read, tell, XTxInput.read_extended),
-            outputs=xread_list(read, tell, XTxOutput.read),
-            locktime=read_le_uint32(read),
-        )
-
     def to_bytes(self) -> bytes:
+        # If the transaction is complete this should produce the expected transaction.
+        # If the transaction is incomplete this will produce transaction with empty input scripts.
         return b''.join((
             pack_le_int32(self.version),
             pack_list(self.inputs, XTxInput.to_bytes),
@@ -788,14 +725,9 @@ class Transaction(Tx): # type: ignore[misc]
         ))
 
     @classmethod
-    def from_bytes(cls, raw: bytes) -> 'Transaction':
+    def from_bytes(cls, raw: bytes) -> Transaction:
         stream = BytesIO(raw)
         return cls.read(stream.read, stream.tell)
-
-    @classmethod
-    def from_extended_bytes(cls, raw: bytes) -> 'Transaction':
-        stream = BytesIO(raw)
-        return cls.read_extended(stream.read, stream.tell)
 
     def __str__(self) -> str:
         return self.serialize()
@@ -816,12 +748,13 @@ class Transaction(Tx): # type: ignore[misc]
         '''Return true if this input has all signatures present.'''
         return all(txin.is_complete() for txin in self.inputs)
 
-    def update_signatures(self, signatures: List[bytes]) -> None:
+    def update_signatures(self, signatures: list[bytes]) -> None:
         """Add new signatures to a transaction
 
         `signatures` is expected to be a list of binary sigs with signatures[i]
         intended for self.inputs[i], without the SIGHASH appended.
-        This is used by hardware device code.
+
+        NOTE: This is only used by hardware device code.
         """
         if self.is_complete():
             return
@@ -832,10 +765,9 @@ class Transaction(Tx): # type: ignore[misc]
         signature: bytes
         for txin, signature in zip(self.inputs, signatures):
             full_sig = signature + bytes([self.nHashType()])
-            logger.warning(f'Signature: {full_sig.hex()}')
-            if full_sig in txin.signatures:
+            if full_sig in txin.signatures.values():
                 continue
-            pubkeys = [x_pubkey.to_public_key() for x_pubkey in txin.x_pubkeys]
+            public_key_bytes_list = list(txin.x_pubkeys)
             pre_hash = self.preimage_hash(txin)
             rec_sig_base = der_signature_to_compact(signature)
             for recid in range(4):
@@ -845,32 +777,36 @@ class Transaction(Tx): # type: ignore[misc]
                 except (InvalidSignature, ValueError):
                     # the point might not be on the curve for some recid values
                     continue
-                if public_key in pubkeys:
+                public_key_bytes = public_key.to_bytes(compressed=True)
+                if public_key_bytes in public_key_bytes_list:
                     try:
                         public_key.verify_recoverable_signature(rec_sig, pre_hash, None)
                     except Exception:
                         logger.exception('')
                         continue
-                    j = pubkeys.index(public_key)
-                    logger.debug('adding sig %d %s %r', j, public_key, full_sig)
-                    txin.signatures[j] = full_sig
+                    logger.debug('adding sig %s %r', public_key, full_sig)
+                    txin.signatures[public_key_bytes] = full_sig
                     break
+            txin.finalize_if_complete()
 
     @classmethod
     def get_preimage_script_bytes(cls, txin: XTxInput) -> bytes:
         _type = txin.type()
         if _type == ScriptType.P2PKH:
-            x_pubkey = txin.x_pubkeys[0]
-            script = x_pubkey.to_public_key().P2PKH_script()
-            return cast(bytes, script.to_bytes())
+            assert len(txin.x_pubkeys) == 1
+            public_key = PublicKey.from_bytes(list(txin.x_pubkeys)[0])
+            return cast(bytes, public_key.P2PKH_script().to_bytes())
         elif _type == ScriptType.MULTISIG_P2SH or _type == ScriptType.MULTISIG_BARE:
-            return multisig_script(txin.x_pubkeys, txin.threshold)
+            public_key_bytes_list = sorted(txin.x_pubkeys)
+            return to_bare_multisig_script_bytes(public_key_bytes_list, txin.threshold)
         elif _type == ScriptType.MULTISIG_ACCUMULATOR:
-            return AccumulatorMultiSigOutput(
-                [ v.to_bytes() for v in txin.x_pubkeys ], txin.threshold).to_script_bytes()
+            public_key_bytes_list = sorted(txin.x_pubkeys)
+            output = AccumulatorMultiSigOutput(public_key_bytes_list, txin.threshold)
+            return output.to_script_bytes()
         elif _type == ScriptType.P2PK:
-            x_pubkey = txin.x_pubkeys[0]
-            script = x_pubkey.to_public_key().P2PK_script()
+            assert len(txin.x_pubkeys) == 1
+            public_key = PublicKey.from_bytes(list(txin.x_pubkeys)[0])
+            script = public_key.P2PK_script()
             return cast(bytes, script.to_bytes())
         else:
             raise RuntimeError('Unknown txin type', _type)
@@ -897,7 +833,7 @@ class Transaction(Tx): # type: ignore[misc]
     def serialize(self) -> str:
         return self.to_bytes().hex()
 
-    def txid(self) -> Optional[str]:
+    def txid(self) -> str | None:
         '''A hexadecimal string if complete, otherwise None.'''
         if self.is_complete():
             return cast(str, hash_to_hex_str(self.hash()))
@@ -958,7 +894,7 @@ class Transaction(Tx): # type: ignore[misc]
             estimated_total_size += output.estimated_size()
         return estimated_total_size
 
-    def signature_count(self) -> Tuple[int, int]:
+    def signature_count(self) -> tuple[int, int]:
         r = 0
         s = 0
         for txin in self.inputs:
@@ -967,15 +903,16 @@ class Transaction(Tx): # type: ignore[misc]
             r += txin.threshold
         return s, r
 
-    def sign(self, keypairs: Dict[XPublicKey, PrivateKey]) -> None:
+    def sign(self, keypairs: dict[XPublicKey, PrivateKey]) -> None:
         assert all(isinstance(key, XPublicKey) for key in keypairs)
         for txin in self.inputs:
             if txin.is_complete():
                 continue
-            for j, x_pubkey in enumerate(txin.x_pubkeys):
+            for public_key_bytes, x_pubkey in sorted(txin.x_pubkeys.items()):
                 if x_pubkey in keypairs:
                     logger.debug("adding signature for %s", x_pubkey)
-                    txin.signatures[j] = self._sign_txin(txin, keypairs[x_pubkey])
+                    txin.signatures[public_key_bytes] = self._sign_txin(txin, keypairs[x_pubkey])
+            txin.finalize_if_complete()
         logger.debug("is_complete %s", self.is_complete())
 
     def _sign_txin(self, txin: XTxInput, private_key: PrivateKey) -> bytes:
@@ -983,90 +920,8 @@ class Transaction(Tx): # type: ignore[misc]
         sig = cast(bytes, private_key.sign(pre_hash, None))
         return sig + cast(bytes, pack_byte(self.nHashType()))
 
-    @classmethod
-    def from_dict(cls, data: dict[str, Any], accounts: list[AbstractAccount]) \
-            -> tuple[Transaction, TransactionContext]:
-        account_by_fingerprint = { account.get_fingerprint(): account for account in accounts }
-
-        version = data.get('version', 0)
-        tx = cls.from_hex(data['hex'])
-        context = TransactionContext()
-        if version == 2:
-            if 'descriptions' in data:
-                for account_fingerprint_hex, description in data["descriptions"]:
-                    account_fingerprint = bytes.fromhex(account_fingerprint_hex)
-                    account = account_by_fingerprint.get(account_fingerprint, None)
-                    # There's not much we can do if they do not have the account.
-                    if account is not None:
-                        context.account_descriptions[account.get_id()] = description
-        if version >= 1:
-            input_data: Optional[List[Dict[str, Any]]] = data.get('inputs')
-            if input_data is not None:
-                assert len(tx.inputs) == len(input_data)
-                for i, txin in enumerate(tx.inputs):
-                    txin.script_type = ScriptType(input_data[i]['script_type'])
-                    txin.threshold = int(input_data[i]['threshold'])
-                    txin.value = int(input_data[i]['value'])
-                    txin.signatures = [ bytes.fromhex(v) for v in input_data[i]['signatures'] ]
-                    txin.x_pubkeys = [ XPublicKey.from_dict(v) for v in input_data[i]['x_pubkeys']]
-            output_data: Optional[List[Dict[str, Any]]] = data.get('outputs')
-            if output_data is not None:
-                assert len(tx.outputs) == len(output_data)
-                for i, txout in enumerate(tx.outputs):
-                    txout.script_type = ScriptType(output_data[i]['script_type'])
-                    txout.x_pubkeys = [ XPublicKey.from_dict(v)
-                        for v in output_data[i]['x_pubkeys']]
-            if 'description' in data:
-                for account in accounts:
-                    if not account.is_petty_cash():
-                        context.account_descriptions[account.get_id()] = str(data['description'])
-            if 'prev_txs' in data:
-                for tx_hex in data["prev_txs"]:
-                    ptx = cls.from_hex(tx_hex)
-                    context.parent_transactions[ptx.hash()] = ptx
-            assert tx.is_complete() == data["complete"], "transaction completeness mismatch"
-        elif version == 0:
-            assert tx.is_complete(), "raw transactions must be complete"
-        return tx, context
-
-    def to_dict(self, context: TransactionContext, accounts: list[AbstractAccount],
-            force_signing_metadata: bool=False) -> dict[str, Any]:
-        account_by_id = { account.get_id(): account for account in accounts }
-
-        out: dict[str, Any] = {
-            'version': 2,
-            'hex': self.to_hex(),
-            'complete': self.is_complete(),
-        }
-        if len(context.account_descriptions):
-            descriptions: list[tuple[str, str]] = []
-            for account_id, account_description in context.account_descriptions.items():
-                account = account_by_id.get(account_id, None)
-                if account is not None:
-                    descriptions.append((account.get_fingerprint().hex(), account_description))
-            out["descriptions"] = descriptions
-        if force_signing_metadata or not out['complete']:
-            input: XTxInput
-            output: XTxOutput
-            out['inputs'] = []
-            for input in self.inputs:
-                input_entry: Dict[str, Any] = {}
-                input_entry['script_type'] = input.script_type
-                input_entry['threshold'] = input.threshold
-                input_entry['value'] = input.value
-                input_entry['signatures'] = [ sig.hex() for sig in input.signatures ]
-                input_entry['x_pubkeys'] = [ xpk.to_dict() for xpk in input.x_pubkeys ]
-                out['inputs'].append(input_entry)
-            output_data = []
-            if any(len(output.x_pubkeys) for output in self.outputs):
-                for txout in self.outputs:
-                    output_entry: Dict[str, Any] = {}
-                    output_entry['script_type'] = txout.script_type
-                    output_entry['x_pubkeys'] = [ xpk.to_dict() for xpk in txout.x_pubkeys ]
-                    output_data.append(output_entry)
-            if len(output_data):
-                out['outputs'] = output_data
-        return out
+    def to_hex(self) -> str:
+        return self.to_bytes().hex()
 
     def to_format(self, format: TxSerialisationFormat, context: TransactionContext,
             accounts: list[AbstractAccount]) \
@@ -1075,11 +930,13 @@ class Transaction(Tx): # type: ignore[misc]
         if format == TxSerialisationFormat.RAW:
             return self.to_bytes()
         elif format == TxSerialisationFormat.HEX:
-            return cast(str, self.to_hex())
+            return self.to_hex()
         elif format in (TxSerialisationFormat.JSON, TxSerialisationFormat.JSON_WITH_PROOFS):
             # It is expected the caller may wish to extend this and they will take care of the
             # final serialisation step.
-            return self.to_dict(context, accounts)
+            # TODO(1.4.0) PSBT. Replace.
+            from .standards.electrum_transaction_extended import transaction_to_electrumsv_dict
+            return transaction_to_electrumsv_dict(self, context, accounts)
         raise NotImplementedError(f"unhanded format {format}")
 
 

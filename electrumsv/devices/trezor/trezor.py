@@ -1,4 +1,4 @@
-from typing import cast, Dict, List, Optional, Tuple, TYPE_CHECKING, Union
+from typing import cast, Optional, TYPE_CHECKING, Union
 
 from bitcoinx import Address, bip32_key_from_string, be_bytes_to_int, \
     bip32_decompose_chain_string, BIP32PublicKey
@@ -91,9 +91,9 @@ class TrezorKeyStore(Hardware_KeyStore):
 
         assert len(context.parent_transactions), "This keystore requires all input transactions"
         # path of the xpubs that are involved
-        xpub_path: Dict[str, str] = {}
+        xpub_path: dict[str, str] = {}
         for txin in tx.inputs:
-            for x_pubkey in txin.x_pubkeys:
+            for x_pubkey in txin.x_pubkeys.values():
                 if not x_pubkey.is_bip32_key():
                     continue
                 xpub = x_pubkey.bip32_extended_key()
@@ -136,7 +136,7 @@ class TrezorPlugin(HW_PluginBase):
         else:
             raise LibraryFoundButUnusable(library_version=version)
 
-    def enumerate_devices(self) -> List[Device]:
+    def enumerate_devices(self) -> list[Device]:
         if not TREZORLIB:
             return []
         devices = trezorlib.transport.enumerate_devices()
@@ -213,7 +213,7 @@ class TrezorPlugin(HW_PluginBase):
             #     # signal that this is not the case:
             #     raise UserCancelled()
 
-    def _initialize_device_safe(self, settings: Tuple[int, str, bool, bool, Optional[int]],
+    def _initialize_device_safe(self, settings: tuple[int, str, bool, bool, int|None],
             method: int, device_id: str, wizard: "AccountWizard",
             handler: "QtHandler") -> None:
         exit_code = 0
@@ -230,7 +230,7 @@ class TrezorPlugin(HW_PluginBase):
             pass
             # wizard.loop.exit(exit_code)
 
-    def _initialize_device(self, settings: Tuple[int, str, bool, bool, Optional[int]],
+    def _initialize_device(self, settings: tuple[int, str, bool, bool, int|None],
             method: int, device_id: str, wizard: "AccountWizard", handler: "QtHandler") -> None:
         item, label, pin_protection, passphrase_protection, recovery_type = settings
 
@@ -306,9 +306,9 @@ class TrezorPlugin(HW_PluginBase):
             return cast(int, InputScriptType.SPENDADDRESS)
 
     def sign_transaction(self, keystore: TrezorKeyStore, tx: Transaction,
-            xpub_path: Dict[str, str], signing_metadata: List[HardwareSigningMetadata],
-            previous_transactions: Dict[bytes, Transaction]) -> None:
-        prev_txtypes: Dict[bytes, TransactionType] = {}
+            xpub_path: dict[str, str], signing_metadata: list[HardwareSigningMetadata],
+            previous_transactions: dict[bytes, Transaction]) -> None:
+        prev_txtypes: dict[bytes, TransactionType] = {}
         for prev_tx_hash, prev_tx in previous_transactions.items():
             txtype = TransactionType()
             txtype.version = prev_tx.version
@@ -359,8 +359,8 @@ class TrezorPlugin(HW_PluginBase):
         script_type = self.get_trezor_input_script_type(multisig is not None)
         client.show_address(derivation_text, script_type, multisig)
 
-    def tx_inputs(self, tx: Transaction, xpub_path: Optional[Dict[str, str]]=None,
-            is_prev_tx: bool=False) -> List["TxInputType"]:
+    def tx_inputs(self, tx: Transaction, xpub_path: dict[str, str]|None=None,
+            is_prev_tx: bool=False) -> list["TxInputType"]:
         inputs = []
         txin: XTxInput
         for txin in tx.inputs:
@@ -374,9 +374,16 @@ class TrezorPlugin(HW_PluginBase):
                 txinputtype.script_sig = bytes(txin.script_sig)
             if not is_prev_tx:
                 assert xpub_path is not None, "no xpubs provided for hw signing operation"
-                xpubs = [x_pubkey.bip32_extended_key_and_path() for x_pubkey in txin.x_pubkeys]
-                txinputtype.multisig = self._make_multisig(txin.threshold,
-                    xpubs, txin.stripped_signatures_with_blanks())
+                xpubs: list[tuple[str, DerivationPath]] = []
+                signatures: list[bytes] = []
+                for public_key_bytes, x_pubkey in txin.x_pubkeys.items():
+                    xpubs.append(x_pubkey.bip32_extended_key_and_path())
+                    signatures.append(txin.signatures[public_key_bytes][:-1] if public_key_bytes
+                        in txin.signatures else b'')
+                multisig = self._make_multisig(txin.threshold, xpubs,
+                    signatures)
+                assert multisig is not None
+                txinputtype.multisig = multisig
                 txinputtype.script_type = self.get_trezor_input_script_type(
                     txinputtype.multisig is not None)
                 # find which key is mine
@@ -390,8 +397,8 @@ class TrezorPlugin(HW_PluginBase):
 
         return inputs
 
-    def _make_multisig(self, m: int, xpubs: List[Tuple[str, DerivationPath]],
-            signatures: Optional[List[bytes]]=None) -> Optional["MultisigRedeemScriptType"]:
+    def _make_multisig(self, m: int, xpubs: list[tuple[str, DerivationPath]],
+            signatures: list[bytes]|None=None) -> Optional["MultisigRedeemScriptType"]:
         if len(xpubs) == 1:
             return None
 
@@ -407,11 +414,11 @@ class TrezorPlugin(HW_PluginBase):
             m=m)
 
     def tx_outputs(self, keystore: TrezorKeyStore, derivation: str, tx: Transaction,
-            signing_metadata: List[HardwareSigningMetadata]) -> List["TxOutputType"]:
+            signing_metadata: list[HardwareSigningMetadata]) -> list["TxOutputType"]:
         account_derivation: DerivationPath = tuple(bip32_decompose_chain_string(derivation))
         keystore_fingerprint = keystore.get_fingerprint()
 
-        def create_output_by_derivation(key_derivation: DerivationPath, xpubs: Tuple[str],
+        def create_output_by_derivation(key_derivation: DerivationPath, xpubs: tuple[str],
                 m: int) -> TxOutputType:
             multisig = self._make_multisig(m, [(xpub, key_derivation) for xpub in xpubs])
             if multisig is None:

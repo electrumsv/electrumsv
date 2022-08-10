@@ -50,6 +50,7 @@ from ...i18n import _
 from ...logs import logs
 from ...paymentrequest import PaymentRequest
 from ...platform import platform
+from ...standards.electrum_transaction_extended import transaction_to_electrumsv_dict
 from ...standards.tsc_merkle_proof import TSCMerkleProof
 from ...transaction import (Transaction, TransactionContext, TxFileExtensions,
     TxSerialisationFormat, tx_output_to_display_text, XTxInput, XTxOutput)
@@ -420,7 +421,8 @@ class TxDialog(QDialog, MessageBoxMixin):
     def _tx_to_text(self, prefer_readable: bool=False) -> str:
         assert not self.tx.is_complete(), "complete transactions are directly encoded from raw"
 
-        tx_dict = self.tx.to_dict(self._context, self._wallet.get_accounts())
+        tx_dict = transaction_to_electrumsv_dict(self.tx, self._context,
+            self._wallet.get_accounts())
         if prefer_readable:
             return json.dumps(tx_dict, indent=4) + '\n'
         return json.dumps(tx_dict)

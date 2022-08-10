@@ -105,13 +105,14 @@ def strip_unneeded_coins(bkts: List[Bucket], sufficient_funds: SufficientFundsCh
 
 
 class CoinChooserBase:
-    def keys(self, coins: List[XTxInput]) -> List[int]:
+    def keys(self, coins: list[XTxInput]) -> list[int]:
         # We do not care about privacy if people reuse keys. So the key for a bucket of coins is
         # the database `keyinstance_id`.
-        coin_keyinstance_ids = [ c.x_pubkeys[0].derivation_data.keyinstance_id for c in coins ]
+        coin_keyinstance_ids = [ list(c.x_pubkeys.values())[0].derivation_data.keyinstance_id
+            for c in coins ]
         assert all(isinstance(coin_keyinstance_id, int)
             for coin_keyinstance_id in coin_keyinstance_ids)
-        return cast(List[int], coin_keyinstance_ids)
+        return cast(list[int], coin_keyinstance_ids)
 
     def bucketize_coins(self, coins: List[XTxInput]) -> List[Bucket]:
         buckets: Dict[int, List[XTxInput]] = {}

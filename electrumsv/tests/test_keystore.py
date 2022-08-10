@@ -9,6 +9,7 @@ from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import BIP32_KeyStore, Imported_KeyStore, \
     instantiate_keystore_from_text, Old_KeyStore, private_key_from_bip32_seed
 from electrumsv.networks import Net, SVMainnet, SVTestnet
+from electrumsv.standards.electrum_transaction_extended import x_public_key_from_electrum_bytes
 from electrumsv.transaction import XPublicKey
 from electrumsv.types import DatabaseKeyDerivationData
 
@@ -83,34 +84,13 @@ class TestOld_KeyStore:
         assert keystore.to_derivation_data() == { 'mpk': mpk_hex, "seed": None }
         assert keystore.is_watching_only()
         data = DatabaseKeyDerivationData(derivation_path=(0, 4))
-        assert keystore.get_xpubkey(data) == XPublicKey.from_hex(
+        assert keystore.get_xpubkey(data) == x_public_key_from_electrum_bytes(bytes.fromhex(
             'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68'
-            '863b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d000000400'
-        )
+            '863b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d000000400'))
         data = DatabaseKeyDerivationData(derivation_path=(1, 259))
-        assert keystore.get_xpubkey(data) == XPublicKey.from_hex(
+        assert keystore.get_xpubkey(data) == x_public_key_from_electrum_bytes(bytes.fromhex(
             'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68863b37d'
-            'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
-        )
-
-    def test_is_signature_candidate(self):
-        mpk_hex = ("08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a688"
-                   "63b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d0")
-        keystore = cast(Old_KeyStore, instantiate_keystore_from_text(
-            KeystoreTextType.ELECTRUM_OLD_SEED_WORDS, mpk_hex, password="OLD"))
-        assert keystore.is_signature_candidate(XPublicKey.from_hex(
-            'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68'
-            '863b37df75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d000000400'
-        ))
-        assert keystore.is_signature_candidate(XPublicKey.from_hex(
-            'fe08863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68863b37d'
-            'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
-        ))
-        with pytest.raises(ValueError):
-            keystore.is_signature_candidate(XPublicKey.from_hex(
-                'fe18863ac1de668decc6406880c4c8d9a74e9986a5e8d9f2be262ac4af8a68863b37d'
-                'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'
-            ))
+            'f75ac48afcbb68bdd6a00f58a648bda9e5eb5e73bd51ef130a6e72dc698d001000301'))
 
 
 # Password b'password'; one minikey, one WIF
@@ -226,14 +206,14 @@ class TestImported_KeyStore:
         assert not imported_keystore.is_signature_candidate(XPublicKey.from_hex(
             '02c113be5c752294f8b0be2727bbf7f1bf71e6bba5c9e9141f611610707bbce4db'
         ))
+        # We are not testing Electrum extended `XPublicKey` values here, just that they
+        # are not accepted.
         with pytest.raises(NotImplementedError):
-            imported_keystore.is_signature_candidate(XPublicKey.from_hex(
-                'fd76a914d9351dcbad5b8f3b8bfa2f2cdc85c28118ca932688ac'
-            ))
+            imported_keystore.is_signature_candidate(x_public_key_from_electrum_bytes(bytes.fromhex(
+                'fd76a914d9351dcbad5b8f3b8bfa2f2cdc85c28118ca932688ac')))
         with pytest.raises(NotImplementedError):
-            imported_keystore.is_signature_candidate(XPublicKey.from_hex(
-                'fd76a914753e5cd1dd15a7028daa03fe5e47389297ac227a88ac'
-            ))
+            imported_keystore.is_signature_candidate(x_public_key_from_electrum_bytes(bytes.fromhex(
+                'fd76a914753e5cd1dd15a7028daa03fe5e47389297ac227a88ac')))
 
 
 class TestBIP32_KeyStore:
@@ -277,19 +257,6 @@ class TestXPub:
         keystore = BIP32_KeyStore({'xpub': xpub})
         pubkey = keystore.derive_pubkey((for_change, n))
         assert pubkey == XPublicKey.from_hex(pubkey_hex).to_public_key()
-
-    def test_xpubkey(self):
-        xpub = ('xpub661MyMwAqRbcH1RHYeZc1zgwYLJ1dNozE8npCe81pnNYtN6e5KsF6cmt17Fv8w'
-                'GvJrRiv6Kewm8ggBG6N3XajhoioH3stUmLRi53tk46CiA')
-        xpubkey_hex =(
-            'ff0488b21e000000000000000000f79d7a4d3ea07099f09fbf35c3103908cbb4b1f30e8602a06ffbdb'
-            'b213d0025602e9aa22cc7106abab85e4c41f18f030c370213769c18d6754f3d0584e69a7fa12')
-        # The 1-depth case falls back to the old 2 byte 2 byte parsing.
-        assert XPublicKey.from_hex(
-            xpubkey_hex + '01000a00').bip32_extended_key_and_path() == (xpub, (1, 10))
-        # Derivation path size must be multiples of 16 bit.
-        with pytest.raises(AssertionError):
-            assert XPublicKey.from_hex(xpubkey_hex + '0a').bip32_extended_key_and_path()
 
 
 def test_from_bip39_seed():

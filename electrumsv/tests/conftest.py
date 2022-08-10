@@ -28,10 +28,10 @@ def get_datacarrier_tx() -> Transaction:
         rawtx = f.read()
 
     tx = Transaction.from_hex(rawtx)
-    priv_key_bytes = bitcoinx.PrivateKey(bytes.fromhex(
+    public_key_bytes = bitcoinx.PrivateKey(bytes.fromhex(
         'a2d9803c912ab380c1491d3bd1aaab34ca06742d7885a224ec8d386182d26ed2')
     ).public_key.to_bytes()
-    tx.inputs[0].x_pubkeys.append(XPublicKey.from_bytes(priv_key_bytes))
+    tx.inputs[0].x_pubkeys[public_key_bytes] = XPublicKey.from_bytes(public_key_bytes)
     return tx
 
 def get_small_tx() -> Transaction:
