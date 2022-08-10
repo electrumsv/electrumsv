@@ -191,13 +191,14 @@ def transaction_input_from_electrum_bytes_stream(read: ReadBytesFunc, tell: Tell
         kwargs["threshold"] = script_data.threshold
         kwargs["signatures"] = script_data.signatures
         kwargs["script_type"] = script_data.script_type
+        # Incomplete modern transaction inputs have an empty `script_sig`.
+        if len(script_data.signatures) < script_data.threshold:
+            script_sig = Script(b"")
 
     # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
     result = XTxInput(prev_hash, prev_idx, script_sig, sequence, # type: ignore[arg-type]
         value=None, **kwargs) # type: ignore
     if not result.is_complete():
-        # NOTE(typing) Cannot determine type of "script_sig"  [has-type]
-        result.script_sig = Script(b"")
         result.value = read_le_int64(read)
     return result
 

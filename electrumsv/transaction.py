@@ -35,8 +35,8 @@ from bitcoinx import (
     Address, bip32_key_from_string, BIP32PublicKey, classify_output_script,
     der_signature_to_compact, double_sha256, hash160, hash_to_hex_str, InvalidSignature,
     Ops, P2PK_Output, P2SH_Address, pack_byte, pack_le_int32, pack_le_uint32, pack_list,
-    PrivateKey, PublicKey, push_int, push_item, read_le_int32, read_le_int64, read_le_uint32,
-    read_varint, Script, SigHash, Tx, TxInput, TxOutput, varint_len
+    pack_varbytes, PrivateKey, PublicKey, push_int, push_item, read_le_int32, read_le_int64,
+    read_le_uint32, read_varint, Script, SigHash, Tx, TxInput, TxOutput, varint_len
 )
 
 from .bitcoin import ScriptTemplate
@@ -60,7 +60,7 @@ class SupportsToBytes(Protocol):
 
 NO_SIGNATURE = b'\xff'
 dummy_public_key = PublicKey.from_bytes(bytes(range(3, 36)))
-dummy_signature = bytes(72)
+dummy_signature = bytes(73)
 
 logger = logs.get_logger("transaction")
 
@@ -325,8 +325,13 @@ class XTxInput(TxInput): # type: ignore[misc]
     script_offset: int = attr.ib(default=0)
     script_length: int = attr.ib(default=0)
 
+    def type(self) -> ScriptType:
+        if self.is_coinbase():
+            return ScriptType.COINBASE
+        return self.script_type
+
     @classmethod
-    def read(cls, read: ReadBytesFunc, tell: TellFunc) -> 'XTxInput':
+    def read(cls, read: ReadBytesFunc, tell: TellFunc) -> XTxInput:
         prev_hash = read(32)
         prev_idx = read_le_uint32(read)
         script_sig_bytes, script_sig_offset = xread_varbytes(read, tell)
@@ -337,21 +342,45 @@ class XTxInput(TxInput): # type: ignore[misc]
         return cls(prev_hash, prev_idx, script_sig, sequence, # type: ignore[arg-type]
             script_offset=script_sig_offset, script_length=len(script_sig_bytes))
 
-    def to_bytes(self) -> bytes:
+    def to_bytes(self, substitute_script_sig: Script|None=None) -> bytes:
         # NOTE(typing) I have no idea what is going on with this.
         #     Cannot determine type of "script_sig"  [has-type]
-        existing_script_sig = cast(Script, self.script_sig) # type: ignore[has-type]
-        if self.is_complete():
-            assert len(existing_script_sig) > 0
-        else:
-            assert existing_script_sig == b""
-            assert len(self.x_pubkeys) > 0
-        return cast(bytes, super().to_bytes())
+        script_sig = substitute_script_sig if substitute_script_sig is not None \
+            else self.script_sig # type: ignore[has-type]
+        return b''.join((
+            self.prevout_bytes(),
+            pack_varbytes(bytes(script_sig)),
+            pack_le_uint32(self.sequence),
+        ))
+
+    def size(self, substitute_script_sig: Script|None=None) -> int:
+        return len(self.to_bytes(substitute_script_sig))
+
+    def estimated_size(self) -> TransactionSize:
+        '''Return an estimated of serialized input size in bytes.'''
+        # We substitute in signatures of a kind of realistic size. With high r and high s values
+        # the size us 73 bytes. In reality with low s enforced because of "malleability hysteria"
+        # the actual size would be 71 or 72 bytes.
+        signature_by_key: dict[bytes, bytes] = {
+            public_key_bytes: dummy_signature if public_key_bytes not in self.signatures else \
+                self.signatures[public_key_bytes] for public_key_bytes in list(self.x_pubkeys) }
+        script_sig = create_script_sig(self.script_type, self.threshold, self.x_pubkeys,
+            signature_by_key)
+        assert script_sig is not None
+        return TransactionSize(self.size(script_sig), 0)
+
+    def is_complete(self) -> bool:
+        '''Return true if this input has all signatures present.'''
+        # NOTE(typing) I have no idea what is going on with this.
+        #     Cannot determine type of "script_sig"  [has-type]
+        if len(self.script_sig) > 0: # type: ignore[has-type]
+            return True
+        return len(self.signatures) >= self.threshold
 
     def finalize_if_complete(self) -> None:
         # NOTE(typing) I have no idea what is going on with this.
         #     Cannot determine type of "script_sig"  [has-type]
-        assert self.script_sig == b"" # type: ignore[has-type]
+        assert len(self.script_sig) == 0 # type: ignore[has-type]
         if self.is_complete():
             script_sig = create_script_sig(self.script_type, self.threshold, self.x_pubkeys,
                 self.signatures)
@@ -360,49 +389,11 @@ class XTxInput(TxInput): # type: ignore[misc]
             #     "electrumsv.transaction.XTxInput"  [misc]
             self.script_sig = script_sig # type: ignore[misc]
 
-    def signatures_present(self) -> list[bytes]:
-        '''Return a list of all signatures that are present.'''
-        return list(self.signatures.values())
-
-    def is_complete(self) -> bool:
-        '''Return true if this input has all signatures present.'''
-        if len(self.signatures) == 0 and len(self.x_pubkeys) == 0:
-            return True
-        return len(self.signatures_present()) >= self.threshold
-
     def unused_x_pubkeys(self) -> list[XPublicKey]:
         if self.is_complete():
             return []
         return [ x_pubkey for public_key_bytes, x_pubkey in self.x_pubkeys.items() if
             public_key_bytes not in self.signatures ]
-
-    def estimated_size(self) -> TransactionSize:
-        '''Return an estimated of serialized input size in bytes.'''
-        # We substitute in signatures of a kind of realistic size. With high r and high s values
-        # the size us 73 bytes. In reality with low s enforced because of "malleability hysteria"
-        # the actual size would be 71 or 72 bytes.
-        dummy_signature = bytearray(73)
-        signature_by_key: dict[bytes, bytes] = {
-            public_key_bytes: dummy_signature if public_key_bytes not in self.signatures else \
-                self.signatures[public_key_bytes] for public_key_bytes in list(self.x_pubkeys) }
-        script_sig = create_script_sig(self.script_type, self.threshold, self.x_pubkeys,
-            signature_by_key)
-        assert script_sig is not None
-        saved_script_sig = self.script_sig
-        self.script_sig = script_sig
-        try:
-            size = self.size()
-        finally:
-            self.script_sig = saved_script_sig
-        return TransactionSize(size, 0)
-
-    def size(self) -> int:
-        return len(TxInput.to_bytes(self))
-
-    def type(self) -> ScriptType:
-        if self.is_coinbase():
-            return ScriptType.COINBASE
-        return self.script_type
 
     def __repr__(self) -> str:
         return (
@@ -609,6 +600,8 @@ def parse_script_sig(script: bytes, to_x_public_key: Callable[[bytes], XPublicKe
     signatures: dict[bytes, bytes] = {}
 
     match: list[int|Ops]
+    # TODO(1.4.0) PSBT. Look into whether we can provide the spent output whether via passed
+    #     parent transaction or spent output.
     # P2PK
     # match = [ Ops.OP_PUSHDATA4 ]
     # if _match_decoded(decoded, match):
@@ -698,13 +691,13 @@ class Transaction(Tx): # type: ignore[misc]
 
     @classmethod
     def from_io(cls, inputs: list[XTxInput], outputs: list[XTxOutput], locktime: int=0) \
-            -> "Transaction":
+            -> Transaction:
         # NOTE(typing) Until the base class is fully typed it's attrs won't be found properly.
         return cls(version=1, locktime=locktime, # type: ignore[call-arg]
             inputs=inputs, outputs=outputs.copy())
 
     @classmethod
-    def read(cls, read: Callable[[int], bytes], tell: Callable[[], int]) -> 'Transaction':
+    def read(cls, read: Callable[[int], bytes], tell: Callable[[], int]) -> Transaction:
         '''Overridden to specialize reading the inputs.'''
         # NOTE(typing) Until the base class is fully typed it's attrs won't be found properly.
         return cls(
@@ -895,13 +888,12 @@ class Transaction(Tx): # type: ignore[misc]
         return estimated_total_size
 
     def signature_count(self) -> tuple[int, int]:
-        r = 0
-        s = 0
+        signatures_required = 0
+        signatures_present = 0
         for txin in self.inputs:
-            signatures = txin.signatures_present()
-            s += len(signatures)
-            r += txin.threshold
-        return s, r
+            signatures_present += len(txin.signatures)
+            signatures_required += txin.threshold
+        return signatures_present, signatures_required
 
     def sign(self, keypairs: dict[XPublicKey, PrivateKey]) -> None:
         assert all(isinstance(key, XPublicKey) for key in keypairs)
