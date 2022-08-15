@@ -175,7 +175,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.tl_windows: List[QDialog] = []
 
         self.create_status_bar()
-        self.need_update = threading.Event()
+        self._update_account_specific_event = threading.Event()
+        self._update_common_event = threading.Event()
 
         self.fee_unit = self.config.get('fee_unit', 0)
 
@@ -375,21 +376,20 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.tx_notifications.append(tx)
             self.notify_transactions_signal.emit()
 
-        # Only update the display for the new transaction if it is in the current account?
-        if self._account_id in link_result.account_ids:
-            self.need_update.set()
-
+        self._update_account_specific_event.set()
+        self._update_common_event.set()
         self.transaction_added_signal.emit(tx_hash, tx, link_result.account_ids)
 
     # Map the wallet event to a Qt UI signal.
     def _on_transaction_deleted(self, event_name: str, account_id: int, tx_hash: bytes) -> None:
-        self.need_update.set()
+        self._update_account_specific_event.set()
+        self._update_common_event.set()
         self.transaction_deleted_signal.emit(account_id, tx_hash)
 
     # Map the wallet event to a Qt UI signal.
     def _on_transaction_verified(self, event_name: str, tx_hash: bytes, header: Header,
             tsc_proof: TSCMerkleProof) -> None:
-        self.need_update.set()
+        self._update_account_specific_event.set()
         self.transaction_verified_signal.emit(tx_hash, header, tsc_proof)
         # NOTE(rt12): Disabled due to fact we can't update individual rows and their order due
         # to the balance column being dependent on order. Redirected to the `need_update` flow.
@@ -408,8 +408,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.account_created_signal.emit(new_account_id, account)
         self.set_active_account(account)
 
-        if flags & AccountInstantiationFlags.NEW == 0 and (account.is_deterministic() or
-                flags & (AccountInstantiationFlags.IMPORTED_PRIVATE_KEYS|
+        if self.network is not None and flags & AccountInstantiationFlags.NEW == 0 and \
+                (account.is_deterministic() or
+                    flags & (AccountInstantiationFlags.IMPORTED_PRIVATE_KEYS|
                 AccountInstantiationFlags.IMPORTED_ADDRESSES) != 0):
             # This delays the opening of the account restoration UI as otherwise the account
             # wizard window does not close.
@@ -450,7 +451,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # Update the status bar, and maybe the tab contents. If we are mid-synchronisation the
         # tab contents will be skipped, but that's okay as the synchronisation completion takes
         # care of triggering an update.
-        self.need_update.set()
+        self._update_account_specific_event.set()
+        self._update_common_event.set()
 
     def _on_show_secured_data(self, account_id: int) -> None:
         main_window_proxy: ElectrumWindow = weakref.proxy(self)
@@ -548,7 +550,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def on_network(self, event: NetworkEventNames, *args: Any) -> None:
         if event == NetworkEventNames.GENERIC_UPDATE:
-            self.need_update.set()
+            self._update_account_specific_event.set()
+            self._update_common_event.set()
             return
 
         if event in [ NetworkEventNames.GENERIC_STATUS, NetworkEventNames.BANNER ]:
@@ -1086,9 +1089,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def timer_actions(self) -> None:
         # Note this runs in the GUI thread
-        if self.need_update.is_set():
-            self.need_update.clear()
-            self.refresh_wallet_display()
+        if self._update_account_specific_event.is_set():
+            self._update_account_specific_event.clear()
+            self._refresh_account_specific_ui()
+
+        if self._update_common_event.is_set():
+            self._update_common_event.clear()
+            self._refresh_common_ui()
 
         if self.is_send_view_active():
             assert isinstance(self._send_view, SendView)
@@ -1153,9 +1160,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     @profiler
     def refresh_wallet_display(self) -> None:
+        self._refresh_common_ui()
+        self._refresh_account_specific_ui()
+
+    def _refresh_common_ui(self) -> None:
         self.update_status_bar()
         self._navigation_view.refresh_account_balances()
         self._navigation_view.refresh_notifications()
+
+    def _refresh_account_specific_ui(self) -> None:
         if not self.network or self._wallet.is_synchronized() or \
                 not self._wallet.is_connected_to_blockchain_server():
             self.update_tabs()
@@ -1470,8 +1483,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) -> None:
         '''Sign the transaction in a separate thread.  When done, calls
         the callback with a success code of True or False.'''
-        assert self._account is not None
-        account = self._account
+        usable_accounts = [ account for account in self._wallet.get_visible_accounts()
+            if account.can_sign(tx) ]
+        assert len(usable_accounts) > 0
+        account = usable_accounts[0]
 
         def on_done(future: concurrent.futures.Future[None]) -> None:
             try:

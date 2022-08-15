@@ -422,8 +422,10 @@ class HistoryList(MyTreeWidget):
                     broadcast_action.triggered.connect(
                         partial(self._main_window.pay_invoice, row.invoice_id))
             else:
-                menu.addAction(_("Broadcast"),
+                broadcast_action = menu.addAction(_("Broadcast"),
                     lambda: self._broadcast_transaction(tx_hash))
+                if app_state.daemon.network is None:
+                    broadcast_action.setEnabled(False)
 
             menu.addAction(_("Remove from account"), partial(self._delete_transaction, tx_hash))
 

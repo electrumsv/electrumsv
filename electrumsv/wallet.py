@@ -4950,7 +4950,6 @@ class Wallet:
              takes care not to block between getting the current header source blockchain state,
              processing it and setting `self._current_chain`.
         """
-        assert self._network is not None
         # NOTE(technical-debt) This event is currently only set when a server is reconciled as a
         # header source. In the longer term we would want this to respond to updates to the
         # longest valid chain (if we are not following a server).
@@ -4983,7 +4982,8 @@ class Wallet:
                         (header, extension_chain))
                 self._connect_headerless_proof_worker_state.header_event.set()
 
-                self._network.trigger_callback(NetworkEventNames.GENERIC_UPDATE)
+                if self._network is not None:
+                    self._network.trigger_callback(NetworkEventNames.GENERIC_UPDATE)
                 continue
             elif item_kind == ChainManagementKind.BLOCKCHAIN_REORGANISATION:
                 new_chain, orphaned_block_hashes, new_headers = cast(
@@ -5204,7 +5204,6 @@ class Wallet:
         NOTE The P2P network is not currently supported.
         """
         assert app_state.headers is not None
-        assert self._network is not None
 
         if self._is_wallet_header_source(server_state):
             # `_reconcile_wallet_with_header_source` sets this before we make use of these updates.

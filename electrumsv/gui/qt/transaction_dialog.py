@@ -74,7 +74,6 @@ class TxInfo(NamedTuple):
     hash: bytes
     state: TxFlags
     status: str
-    label: str
     can_broadcast: bool
     is_external: bool
     amount: Optional[int]
@@ -438,8 +437,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         self.tx_hash_e.setText(tx_id)
 
         is_tx_complete = self.tx.is_complete()
-        can_sign = not is_tx_complete and self._account is not None and \
-            self._account.can_sign(self.tx)
+        can_sign = not is_tx_complete and \
+            any(account.can_sign(self.tx) for account in self._wallet.get_visible_accounts())
         self.sign_button.setEnabled(can_sign)
 
         self.broadcast_button.setEnabled(tx_info.can_broadcast)
@@ -530,6 +529,11 @@ class TxDialog(QDialog, MessageBoxMixin):
             weakself._save_transaction(format)
         def show_transaction_qrcode(format: TxSerialisationFormat) -> None:
             weakself._show_transaction_qrcode(format)
+
+        self._copy_menu.clear()
+        self._save_menu.clear()
+        self._show_qr_menu.clear()
+
         if self.tx.is_complete():
             self._copy_menu.addAction(_("Transaction (hex)"),
                 partial(copy_transaction, TxSerialisationFormat.HEX))
@@ -895,7 +899,6 @@ class TxDialog(QDialog, MessageBoxMixin):
         value_delta = 0
         can_broadcast = False
         is_external = False
-        label = ''
         fee = height = conf = date_created = date_mined = None
         state = TxFlags.UNSET
 
@@ -920,8 +923,11 @@ class TxDialog(QDialog, MessageBoxMixin):
                     if header_and_chain is not None:
                         date_mined = header_and_chain[0].timestamp
 
-                assert self._account is not None
-                label = self._account.get_transaction_label(self._tx_hash)
+                self._context.account_descriptions.clear()
+                self._context.account_descriptions = {
+                    description_row.account_id: description_row.description
+                    for description_row in self._wallet.data.read_transaction_descriptions(
+                        tx_hashes=[ self._tx_hash ]) if description_row.description is not None }
 
                 tx_flags = cast(TxFlags, wallet.data.get_transaction_flags(self._tx_hash))
                 state = tx_flags & TxFlags.MASK_STATE
@@ -976,7 +982,7 @@ class TxDialog(QDialog, MessageBoxMixin):
         else:
             amount = None
 
-        return TxInfo(self._tx_hash, state, status, label, can_broadcast, is_external, amount, fee,
+        return TxInfo(self._tx_hash, state, status, can_broadcast, is_external, amount, fee,
             height, conf, date_mined, date_created)
 
     def select_keys_in_keys_tab(self, account_id: int, key_id: int) -> None:
