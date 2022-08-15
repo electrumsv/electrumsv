@@ -720,6 +720,9 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         save_copy_action.setShortcut(QKeySequence.StandardKey.SaveAs)
         save_copy_action.setEnabled(False)
         file_menu.addSeparator()
+        import_submenu = file_menu.addMenu(_("&Import"))
+        import_submenu.addAction(_("&Transaction"), self._show_transaction_from_file)
+        file_menu.addSeparator()
         # NOTE(typing) `close` has an incorrect signature for `addAction`, not that it matters.
         file_menu.addAction(_("&Quit"), self.close) # type: ignore
 

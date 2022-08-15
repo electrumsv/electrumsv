@@ -386,6 +386,13 @@ class TxDialog(QDialog, MessageBoxMixin):
 
     def _on_button_clicked_sign(self) -> None:
         def sign_done(success: bool) -> None:
+            if not success and self._wallet.have_transaction(self.tx.hash()):
+                # TODO(technical-debt) Clean up the WaitingDialog so we actually receive the
+                #     error that happened during the signing process. For now we manually check
+                #     if the reason we failed was because the transaction had already been signed
+                #     and imported.
+                success = True
+
             if success:
                 # If the signing was successful the hash will have changed.
                 self._tx_hash = self.tx.hash()
