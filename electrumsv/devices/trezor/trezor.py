@@ -382,10 +382,9 @@ class TrezorPlugin(HW_PluginBase):
                         in txin.signatures else b'')
                 multisig = self._make_multisig(txin.threshold, xpubs,
                     signatures)
-                assert multisig is not None
-                txinputtype.multisig = multisig
-                txinputtype.script_type = self.get_trezor_input_script_type(
-                    txinputtype.multisig is not None)
+                if multisig is not None:
+                    txinputtype.multisig = multisig
+                txinputtype.script_type = self.get_trezor_input_script_type(multisig is not None)
                 # find which key is mine
                 for xpub, path in xpubs:
                     if xpub in xpub_path:

@@ -25,7 +25,8 @@
 import threading
 from typing import cast, Dict, Generator, List, Optional, Tuple, TYPE_CHECKING, Union
 
-from bitcoinx import Address, BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string
+from bitcoinx import Address, BIP32PublicKey, BIP32Derivation, bip32_decompose_chain_string, \
+    Bitcoin, P2PKH_Address
 
 from ...app_state import app_state
 from ...constants import DerivationPath, unpack_derivation_path
@@ -478,7 +479,32 @@ class KeepKeyPlugin(HW_PluginBase):
                 if isinstance(address, Address):
                     txoutputtype.script_type = types.PAYTOADDRESS
                     txoutputtype.address = address.to_string()
+                    # NOTE(rt12) Bypass "Failed to compile output" failures on test networks.
+                    # txoutputtype.address = self.get_string_for_address(address)
 
             outputs.append(txoutputtype)
 
         return outputs
+
+    def get_string_for_address(self, address: Address) -> str:
+        """
+        There is no BSV Keepkey support in their firmware:
+        https://github.com/keepkey/keepkey-firmware/blob/master/include/keepkey/firmware/coins.def
+
+        This can be used to replace testnet addresses with mainnet addresses, but it is not checked
+        in enabled as it is a bad idea to sign potential mainnet payments with a testnet
+        application. The addresses that are passed to Keepkey for non-mainnet addresses are the
+        text testnet addresses. These are not accepted by Keepkey and result in
+        "Failed to compile output" with a code of 9.
+
+        This function replaces them with mainnet addresses which sign correctly without error.
+        It is possible Keepkey do not support testnet at all in their firmware.
+        """
+        if Net.is_mainnet():
+            return cast(str, address.to_string())
+
+        # NOTE(rt12) Ensure we do not pass the Keepkey non-mainnet addresses for now. We do not
+        #     have to care about the user signing a P2SH spend as they can no longer be made
+        #     anyway.
+        assert isinstance(address, P2PKH_Address)
+        return cast(str, P2PKH_Address(address.hash160(), Bitcoin).to_string())
