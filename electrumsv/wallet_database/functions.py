@@ -2537,7 +2537,7 @@ class AsynchronousFunctions:
                 "date_created, date_updated) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", tx_row)
         except sqlite3.IntegrityError as e:
             if e.args[0] == "UNIQUE constraint failed: Transactions.tx_hash":
-                raise TransactionAlreadyExistsError(_("This tranaction is already imported."))
+                raise TransactionAlreadyExistsError(_("This transaction is already imported."))
 
         # Constraint: (tx_hash, tx_index) should be unique.
         db.executemany("INSERT INTO TransactionInputs (tx_hash, txi_index, spent_tx_hash, "
