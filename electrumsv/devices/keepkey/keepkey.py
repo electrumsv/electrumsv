@@ -36,8 +36,8 @@ from ...i18n import _
 from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
-from ...transaction import classify_tx_output, HardwareSigningMetadata, Transaction, \
-    TransactionContext, XPublicKey, XTxInput
+from ...transaction import classify_transaction_output_script, HardwareSigningMetadata, \
+    Transaction, TransactionContext, XPublicKey, XTxInput
 from ...wallet import AbstractAccount
 from ...wallet_database.types import KeyListRow
 
@@ -473,7 +473,8 @@ class KeepKeyPlugin(HW_PluginBase):
             else:
                 txoutputtype = types.TxOutputType()
                 txoutputtype.amount = tx_output.value
-                address = classify_tx_output(tx_output)
+                _esv_script_type, _threshold, address = classify_transaction_output_script(
+                    tx_output.script_pubkey)
                 if isinstance(address, Address):
                     txoutputtype.script_type = types.PAYTOADDRESS
                     txoutputtype.address = address.to_string()

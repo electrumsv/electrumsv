@@ -64,9 +64,8 @@ class ScanQRTextEdit(ButtonsTextEdit, MessageBoxMixin):
 
     def qr_input(self, result_callback: Optional[Callable[[str], None]]=None,
             ignore_uris: bool=False) -> None:
-        def callback(text: Optional[str]) -> None:
-            if text is None:
-                text = ""
+        def callback(raw: bytes | None) -> None:
+            text = raw.decode() if raw is not None else ""
             if self.allow_multi:
                 new_text = self.text() + text + '\n'
             else:

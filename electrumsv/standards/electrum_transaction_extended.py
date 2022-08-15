@@ -1,9 +1,33 @@
+# Electrum - lightweight Bitcoin client
+# Copyright (C) 2011 Thomas Voegtlin
+# Copyright (C) 2019 Neil Booth
+#
+# Permission is hereby granted, free of charge, to any person
+# obtaining a copy of this software and associated documentation files
+# (the "Software"), to deal in the Software without restriction,
+# including without limitation the rights to use, copy, modify, merge,
+# publish, distribute, sublicense, and/or sell copies of the Software,
+# and to permit persons to whom the Software is furnished to do so,
+# subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+# MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+# BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+# ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
 from __future__ import annotations
 from io import BytesIO
-from typing import Any, cast, TYPE_CHECKING, TypedDict
+from typing import Any, TYPE_CHECKING, TypedDict
 
 from bitcoinx import base58_encode_check, pack_le_uint32, pack_list, pack_le_int32, read_le_int32, \
-    read_le_int64, read_le_uint32, Script, TxInput, unpack_le_uint16
+    read_le_int64, read_le_uint32, Script, unpack_le_uint16
 
 from ..constants import DatabaseKeyDerivationType, DerivationPath, ScriptType
 from ..transaction import create_script_sig, NO_SIGNATURE, parse_script_sig, ReadBytesFunc, \
@@ -86,29 +110,18 @@ def x_public_key_from_electrumsv_dict(data: SerialisedXPublicKeyDict) -> XPublic
         derivation_data=derivation_data)
 
 def transaction_input_to_electrum_bytes(transaction_input: XTxInput) -> bytes:
-    # NOTE(typing) I have no idea what is going on with this.
-    #     Cannot determine type of "script_sig"  [has-type]
-    existing_script_sig = cast(Script, transaction_input.script_sig) # xtype: ignore[has-type]
-    if transaction_input.is_complete():
-        assert len(existing_script_sig) > 0
-    else:
-        assert existing_script_sig == b""
+    if not transaction_input.is_complete():
         assert len(transaction_input.x_pubkeys) > 0
         signatures: dict[bytes, bytes] = {}
         for public_key_bytes in transaction_input.x_pubkeys:
             signatures[public_key_bytes] = \
                 transaction_input.signatures.get(public_key_bytes, NO_SIGNATURE)
         script_sig = create_script_sig(transaction_input.script_type, transaction_input.threshold,
-            transaction_input.x_pubkeys,
-            signatures)
+            transaction_input.x_pubkeys, signatures)
         assert script_sig is not None
-        transaction_input.script_sig = script_sig
-        try:
-            return cast(bytes, TxInput.to_bytes(transaction_input))
-        finally:
-            transaction_input.script_sig = existing_script_sig
+        return transaction_input.to_bytes(script_sig)
 
-    return cast(bytes, TxInput.to_bytes(transaction_input))
+    return transaction_input.to_bytes()
 
 
 def transaction_to_electrum_bytes(transaction: Transaction) -> bytes:

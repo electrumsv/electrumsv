@@ -967,7 +967,10 @@ class AbstractAccount:
         return hardware_output_info
 
     def obtain_previous_transactions(self, tx: Transaction, context: TransactionContext,
-            update_cb: Optional[WaitingUpdateCallback]=None) -> None:
+            update_cb: Optional[WaitingUpdateCallback]=None, *,
+            # NOTE(rt12) This is disabled by default as we do not want unexpected network access,
+            #     post-electrumx.
+            allow_remote_access: bool=False) -> None:
         # Called by the signing logic to ensure all the required data is present.
         # Should be called by the logic that serialises incomplete transactions to gather the
         # context for the next party.
@@ -987,7 +990,7 @@ class AbstractAccount:
                     if update_cb is not None:
                         update_cb(False, _("Retrieving local transaction.."))
                     prev_tx = self._wallet.get_transaction(txin.prev_hash)
-                else:
+                elif allow_remote_access:
                     if update_cb is not None:
                         update_cb(False, _("Requesting transaction from external service.."))
                     prev_tx = self._external_transaction_request(txin.prev_hash)
@@ -3101,55 +3104,48 @@ class Wallet:
                         if not script_hashes:
                             return
 
-    def load_transaction_from_text(self, text: str) \
-            -> tuple[Optional[Transaction], Optional[TransactionContext]]:
-        """
-        Takes user-provided text and attempts to extract a transaction from it.
-
-        Returns the loaded transaction if the text contains a valid one. The transaction is not
-        guaranteed to be in the database, and if it is not may even conflict with existing coin
-        spends known to the wallet. Returns `None` if the text does not contain a valid
-        transaction.
-
-        Raises `ValueError` if the text is not found to contain viable transaction data.
-        """
-        if not text:
-            return None, None
-
-        txdict = tx_dict_from_text(text)
-        tx, context = transaction_from_electrumsv_dict(txdict, self.get_accounts())
-
-        # Incomplete transactions should not be cached.
-        if not tx.is_complete():
-            return tx, context
-
-        tx_hash = tx.hash()
-        # Update the cached transaction for the given hash.
-        lock = self._obtain_transaction_lock(tx_hash)
-        with lock:
-            try:
-                self._transaction_cache2.set(tx_hash, tx)
-            finally:
-                self._relinquish_transaction_lock(tx_hash)
-
-        return tx, context
-
-    def load_transaction_from_bytes(self, data: bytes) -> Transaction:
+    def load_transaction_from_bytes(self, data: bytes) \
+            -> tuple[Transaction | None, TransactionContext | None]:
         """
         Loads a transaction using given transaction data.
 
         If the transaction is already in the cache, it will return that transaction.
         If the transaction is in the database, this will load it in extended form and cache it.
         Otherwise the transaction data will be parsed, loaded in extended form and cached.
+
+        Raises `ValueError` if the text is not found to contain viable transaction data.
         """
-        tx_hash = double_sha256(data)
+        if not data:
+            return None, None
+
+        context: TransactionContext | None = None
+        if data.startswith(b"psbt\xff"):
+            # Bitcoin Core compatible partial transactions.
+            from .standards.psbt import parse_psbt_bytes
+            psbt_data = parse_psbt_bytes(data, self.get_xpubs_by_fingerprint())
+            tx = psbt_data.transaction
+            if tx is None or not tx.is_complete():
+                return tx, context
+
+            tx_hash = tx.hash()
+        elif data.startswith(b"{"):
+            # Legacy ElectrumSV partial transactions.
+            txdict = tx_dict_from_text(data.decode())
+            tx, context = transaction_from_electrumsv_dict(txdict, self.get_accounts())
+            if not tx.is_complete():
+                return tx, context
+
+            tx_hash = tx.hash()
+        else:
+            tx_hash = double_sha256(data)
+
         lock = self._obtain_transaction_lock(tx_hash)
         with lock:
             try:
                 # Get it if cached in memory / load from database if present.
                 tx = self._get_cached_transaction(tx_hash)
                 if tx is not None:
-                    return tx
+                    return tx, context
 
                 # Parse the transaction data.
                 tx = Transaction.from_bytes(data)
@@ -3157,7 +3153,7 @@ class Wallet:
             finally:
                 self._relinquish_transaction_lock(tx_hash)
 
-        return tx
+        return tx, context
 
     async def add_local_transaction(self, tx_hash: bytes, tx: Transaction, flags: TxFlags,
             block_height: int, block_hash: Optional[bytes]=None, block_position: Optional[int]=None,

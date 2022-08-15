@@ -63,7 +63,8 @@ def test_electrum_extended_transaction_unsigned() -> None:
     assert txin.value == 20112600
     assert txin.signatures == {}
     assert txin.x_pubkeys == {
-        bytes.fromhex("ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300"):
+        # This has been implicitly converted to the compressed public key.
+        bytes.fromhex("03b5bbebceeb33c1b61f649596b9c3611c6b2853a1f6b48bce05dd54f667fa2166"):
         x_public_key_from_electrum_bytes(bytes.fromhex('ff0488b21e0000000000000000004f130d773e678a58366711837ec2e33ea601858262f8eaef246a7ebd19909c9a03c3b30e38ca7d797fee1223df1c9827b2a9f3379768f520910260220e0560014600002300'))
     }
     assert txin.threshold == 1
@@ -98,7 +99,7 @@ def test_electrum_extended_transaction_signed() -> None:
     assert txout.script_offset == 162
     assert tx.locktime == 507231
     assert transaction_to_electrumsv_dict(tx, TransactionContext(), []) == {'hex': signed_blob, 'complete': True, 'version': 2}
-    assert tx.serialize() == signed_blob
+    assert tx.to_hex() == signed_blob
     assert sum(tx.estimated_size()) == len(tx_bytes)
 
 def test_electrum_extended_transaction_update_signatures() -> None:
@@ -205,7 +206,7 @@ def test_electrumsv_dict_multisig_2(unsigned_pair, signed1_pair, fully_signed_pa
     assert json.dumps(transaction_to_electrumsv_dict(tx, TransactionContext(), [])) == signed1_json
 
     keystore2.sign_transaction(tx, "BIP32", TransactionContext())
-    assert tx.serialize() == fully_signed_hex
+    assert tx.to_hex() == fully_signed_hex
 
     # Sign with keystore 2, then 1
     tx = transaction_from_electrum_bytes(bytes.fromhex(unsigned_hex))
@@ -216,7 +217,7 @@ def test_electrumsv_dict_multisig_2(unsigned_pair, signed1_pair, fully_signed_pa
 
     keystore1.sign_transaction(tx, "OLD", TransactionContext())
     assert tx.is_complete()
-    assert tx.serialize() == fully_signed_hex
+    assert tx.to_hex() == fully_signed_hex
     assert json.dumps(transaction_to_electrumsv_dict(tx, TransactionContext(), [])) == fully_signed_json
 
 
@@ -233,7 +234,7 @@ def test_electrum_extended_transaction_obsolete() -> None:
         '00000000')
     tx = transaction_from_electrum_bytes(bytes.fromhex(tx_hex))
     # We do not serialize the old extended byte format anymore.
-    assert tx.serialize() != tx_hex
+    assert tx.to_hex() != tx_hex
 
 
 @pytest.mark.parametrize("raw_hex, path", (

@@ -77,7 +77,10 @@ def base_decode(value: str, base: int) -> bytes:
     chars = __b43chars
     long_value: int = 0
     for (i, c) in enumerate(v[::-1]):
-        long_value += chars.find(bytes([c])) * (base**i)
+        digit = chars.find(bytes([c]))
+        if digit == -1:
+            raise ValueError("Forbidden character {} for base {}".format(c, base))
+        long_value += digit * (base**i)
     result = bytearray()
     while long_value >= 256:
         div, mod = divmod(long_value, 256)

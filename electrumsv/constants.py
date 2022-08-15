@@ -439,6 +439,7 @@ class ServerCapability(IntEnum):
 
 
 PREFIX_ASM_SCRIPT = "asm:"
+PREFIX_PSBT_BYTES = b"psbt\xff"
 
 ADDRESS_DERIVATION_TYPES = [ DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH ]
 

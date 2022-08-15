@@ -25,6 +25,7 @@
 from __future__ import annotations
 import asyncio
 import base64
+import binascii
 from collections import Counter
 import concurrent.futures
 import csv
@@ -2082,26 +2083,37 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
         return password
 
-    def read_tx_from_file(self) -> Tuple[Optional[Transaction], Optional[TransactionContext]]:
-        fileName = self.getOpenFileName(_("Select your transaction file"),
-            "*.json;;*.txn;;*.txt;;*.*")
-        if not fileName:
+    def read_tx_from_file(self) -> Tuple[Transaction | None, TransactionContext | None]:
+        file_name = self.getOpenFileName(_("Select your transaction file"),
+            "Transactions (*.json *.psbt *.raw *.txn *.txt);;*.*")
+        if not file_name:
             return None, None
-        with open(fileName, "r") as f:
-            file_content = f.read()
-        return self._wallet.load_transaction_from_text(file_content.strip())
+
+        if any(file_name.endswith(suffix) for suffix in { ".psbt" }):
+            # Binary-encoded files.
+            with open(file_name, "rb") as f:
+                data = f.read()
+        else:
+            # Text-encoded files.
+            with open(file_name, "r") as f:
+                file_content = f.read()
+            text = file_content.strip()
+            if text == "":
+                return None, None
+            data = text.encode()
+        return self._wallet.load_transaction_from_bytes(data)
 
     def _show_transaction_from_qrcode(self) -> None:
-        def callback(text: Optional[str]) -> None:
-            assert text is not None
-            tx, tx_context = self._wallet.load_transaction_from_text(text)
+        def callback(raw: bytes | None) -> None:
+            assert raw is not None
+            tx, tx_context = self._wallet.load_transaction_from_bytes(raw)
             if tx is not None:
                 self.show_transaction(self._account, tx, tx_context)
         self.read_qrcode_and_call_callback(callback, expect_transaction=True)
 
-    def read_qrcode_and_call_callback(self, result_callback: Callable[[Optional[str]], None],
+    def read_qrcode_and_call_callback(self, result_callback: Callable[[bytes | None], None],
             expect_transaction: bool=False) -> None:
-        def scan_callback(success: bool, error_text: str, text: Optional[str]) -> None:
+        def scan_callback(success: bool, error_text: str, text: str | None) -> None:
             if not success:
                 if error_text:
                     self.show_error(error_text)
@@ -2111,13 +2123,35 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 if not text:
                     return
 
-                qrcode_bytes = bitcoin.base_decode(text, base=43)
-                if qrcode_bytes.startswith(b"\x1f\x8b"):
-                    text = gzip.decompress(qrcode_bytes).decode()
+                # First try base 43.
+                try:
+                    qrcode_bytes = bitcoin.base_decode(text, base=43)
+                except ValueError:
+                    # The text was not a valid base 43 encoded value.
+                    pass
                 else:
-                    text = qrcode_bytes.hex()
+                    if qrcode_bytes.startswith(b"\x1f\x8b"):
+                        raw = gzip.decompress(qrcode_bytes)
+                    else:
+                        raw = qrcode_bytes
+                    result_callback(raw)
+                    return
 
-            result_callback(text)
+                # Next try base 64
+                try:
+                    qrcode_bytes = base64.b64decode(text, validate=True)
+                except binascii.Error:
+                    # The text was not a valid base 64 value.
+                    pass
+                else:
+                    if qrcode_bytes.startswith(b"\x1f\x8b"):
+                        raw = gzip.decompress(qrcode_bytes)
+                    else:
+                        raw = qrcode_bytes
+                    result_callback(raw)
+                    return
+
+            self.show_error("Unable to decode QR code")
 
             # # if the user scanned a bitcoin URI
             # if web.is_URI(data):
@@ -2142,9 +2176,15 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             -> tuple[Optional[Transaction], Optional[TransactionContext]]:
         text = text_dialog(self, _('Enter the raw transaction below..'), _("Transaction (hex):"),
                            _("View"))
-        if text is not None:
+        if text is not None and len(text) != 0:
             try:
-                return self._wallet.load_transaction_from_text(text)
+                raw = bytes.fromhex(text)
+            except ValueError:
+                self.show_critical(_("Unable to recognize the hex encoding."))
+                return None, None
+
+            try:
+                return self._wallet.load_transaction_from_bytes(raw)
             except Exception as reason:
                 self._logger.exception(reason)
                 self.show_critical(_("ElectrumSV was unable to read the transaction:") +

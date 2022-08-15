@@ -76,8 +76,10 @@ class MyEncoder(json.JSONEncoder):
     def default(self, o: Any) -> Any: # pylint: disable=method-hidden
         from ..transaction import Transaction, TransactionContext
         from ..standards.electrum_transaction_extended import transaction_to_electrumsv_dict
-        # TODO(1.4.0) PSBT. Replace with PSBT hex.
         if isinstance(o, Transaction):
+            # In theory we could have a setting in the wallet and allow the user to set default
+            # encodings for transactions to be serialised as, but.. it kind of fits to keep this
+            # JSON encoding here for now at least.
             return transaction_to_electrumsv_dict(o, TransactionContext(), [])
         return super(MyEncoder, self).default(o)
 

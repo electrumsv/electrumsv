@@ -34,9 +34,10 @@ import attr
 from bitcoinx import (
     Address, bip32_key_from_string, BIP32PublicKey, classify_output_script,
     der_signature_to_compact, double_sha256, hash160, hash_to_hex_str, InvalidSignature,
-    Ops, P2PK_Output, P2SH_Address, pack_byte, pack_le_int32, pack_le_uint32, pack_list,
-    pack_varbytes, PrivateKey, PublicKey, push_int, push_item, read_le_int32, read_le_int64,
-    read_le_uint32, read_varint, Script, SigHash, Tx, TxInput, TxOutput, varint_len
+    Ops, P2MultiSig_Output, P2PK_Output, P2PKH_Address, P2SH_Address, pack_byte, pack_le_int32,
+    pack_le_uint32, pack_list, pack_varbytes, PrivateKey, PublicKey, push_int, push_item,
+    read_le_int32, read_le_int64, read_le_uint32, read_varint, Script, SigHash, Tx, TxInput,
+    TxOutput, varint_len
 )
 
 from .bitcoin import ScriptTemplate
@@ -70,11 +71,13 @@ class TxSerialisationFormat(enum.IntEnum):
     HEX = 1
     JSON = 2
     JSON_WITH_PROOFS = 3
+    PSBT = 4
 
 
 TxFileExtensions = {
     TxSerialisationFormat.RAW: "txn",
     TxSerialisationFormat.HEX: "txt",
+    TxSerialisationFormat.PSBT: "psbt",
     TxSerialisationFormat.JSON: "json",
     TxSerialisationFormat.JSON_WITH_PROOFS: "json",
 }
@@ -102,11 +105,18 @@ def xread_varbytes(read: ReadBytesFunc, tell: TellFunc) -> tuple[bytes, int]:
     return result, offset
 
 
-
-def classify_tx_output(tx_output: TxOutput) -> ScriptTemplate:
-    # This returns a P2PKH_Address, P2SH_Address, P2PK_Output, OP_RETURN_Output,
-    # P2MultiSig_Output or Unknown_Output
-    return classify_output_script(tx_output.script_pubkey, Net.COIN)
+def classify_transaction_output_script(script: Script) \
+        -> tuple[ScriptType | None, int | None, ScriptTemplate]:
+    script_template = classify_output_script(script, Net.COIN)
+    if isinstance(script_template, P2MultiSig_Output):
+        return ScriptType.MULTISIG_BARE, script_template.threshold, script_template
+    elif isinstance(script_template, P2PK_Output):
+        return ScriptType.P2PK, 1, script_template
+    elif isinstance(script_template, P2PKH_Address):
+        return ScriptType.P2PKH, 1, script_template
+    elif isinstance(script_template, P2SH_Address):
+        return ScriptType.MULTISIG_P2SH, None, script_template
+    return None, None, script_template
 
 
 def script_to_display_text(script: Script, kind: ScriptTemplate) -> str:
@@ -119,9 +129,10 @@ def script_to_display_text(script: Script, kind: ScriptTemplate) -> str:
     return cast(str, text)
 
 def tx_output_to_display_text(tx_output: TxOutput) -> tuple[str, ScriptTemplate]:
-    kind = classify_tx_output(tx_output)
-    text = script_to_display_text(tx_output.script_pubkey, kind)
-    return text, kind
+    _script_type, _threshold, script_template = classify_transaction_output_script(
+        tx_output.script_pubkey)
+    text = script_to_display_text(tx_output.script_pubkey, script_template)
+    return text, script_template
 
 
 HardwareSigningMetadata = dict[bytes, tuple[DerivationPath, tuple[str], int]]
@@ -339,7 +350,8 @@ class XTxInput(TxInput): # type: ignore[misc]
         sequence = read_le_uint32(read)
 
         # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
-        return cls(prev_hash, prev_idx, script_sig, sequence, # type: ignore[arg-type]
+        return cls(prev_hash=prev_hash, prev_idx=prev_idx, # type: ignore[call-arg]
+            script_sig=script_sig, sequence=sequence,
             script_offset=script_sig_offset, script_length=len(script_sig_bytes))
 
     def to_bytes(self, substitute_script_sig: Script|None=None) -> bytes:
@@ -373,15 +385,13 @@ class XTxInput(TxInput): # type: ignore[misc]
         '''Return true if this input has all signatures present.'''
         # NOTE(typing) I have no idea what is going on with this.
         #     Cannot determine type of "script_sig"  [has-type]
-        if len(self.script_sig) > 0: # type: ignore[has-type]
-            return True
-        return len(self.signatures) >= self.threshold
+        return len(self.script_sig) > 0 # type: ignore[has-type]
 
     def finalize_if_complete(self) -> None:
         # NOTE(typing) I have no idea what is going on with this.
         #     Cannot determine type of "script_sig"  [has-type]
         assert len(self.script_sig) == 0 # type: ignore[has-type]
-        if self.is_complete():
+        if len(self.signatures) >= self.threshold:
             script_sig = create_script_sig(self.script_type, self.threshold, self.x_pubkeys,
                 self.signatures)
             assert script_sig is not None
@@ -390,15 +400,15 @@ class XTxInput(TxInput): # type: ignore[misc]
             self.script_sig = script_sig # type: ignore[misc]
 
     def unused_x_pubkeys(self) -> list[XPublicKey]:
-        if self.is_complete():
+        if len(self.signatures) >= self.threshold:
             return []
-        return [ x_pubkey for public_key_bytes, x_pubkey in self.x_pubkeys.items() if
-            public_key_bytes not in self.signatures ]
+        return [ x_pubkey for public_key_bytes, x_pubkey in self.x_pubkeys.items()
+            if public_key_bytes not in self.signatures ]
 
     def __repr__(self) -> str:
         return (
             f'XTxInput(prev_hash="{hash_to_hex_str(self.prev_hash)}", prev_idx={self.prev_idx}, '
-            f'script_sig="{self.script_sig}", sequence={self.sequence}), value={self.value}, '
+            f'script_sig="{self.script_sig}", sequence={self.sequence}, value={self.value}, '
             f'threshold={self.threshold}, script_type={self.script_type}, '
             f'x_pubkeys={self.x_pubkeys}), signatures={self.signatures}, '
             f'script_length={self.script_length}, script_offset={self.script_offset}'
@@ -434,6 +444,11 @@ class XTxOutput(TxOutput): # type: ignore[misc]
         return cls(value, script_pubkey,
             script_offset=script_pubkey_offset,
             script_length=len(script_pubkey_bytes))
+
+    @classmethod
+    def from_bytes(cls, raw: bytes) -> XTxOutput:
+        stream = BytesIO(raw)
+        return cls.read(stream.read, stream.tell)
 
     def estimated_size(self) -> TransactionSize:
         # 8               <value>
@@ -600,23 +615,25 @@ def parse_script_sig(script: bytes, to_x_public_key: Callable[[bytes], XPublicKe
     signatures: dict[bytes, bytes] = {}
 
     match: list[int|Ops]
-    # TODO(1.4.0) PSBT. Look into whether we can provide the spent output whether via passed
-    #     parent transaction or spent output.
     # P2PK
     # match = [ Ops.OP_PUSHDATA4 ]
     # if _match_decoded(decoded, match):
+    #     # We can only match P2PK in a useful way if we have the spent output.
     #     signature_bytes = cast(bytes, decoded[0][1])
     #     return ScriptSigData(script_type=ScriptType.P2PK, threshold=1,
-    #         signatures=[ signature_bytes ])
+    #         signatures={ public_key_bytes: signature_bytes })
 
     # P2PKH inputs push a signature (around seventy bytes) and then their public key
     # (65 bytes) onto the stack
     match = [ Ops.OP_PUSHDATA4, Ops.OP_PUSHDATA4 ]
     if _match_decoded(decoded, match):
         signature_bytes = cast(bytes, decoded[0][1])
-        public_key_bytes = decoded[1][1]
-        assert public_key_bytes is not None
-        x_public_key = to_x_public_key(public_key_bytes)
+        raw_public_key_bytes = decoded[1][1]
+        assert raw_public_key_bytes is not None
+        # The raw public key bytes are not guaranteed to be the same as what we actually use.
+        # They may be encoded Electrum extended keys or uncompressed public keys.
+        x_public_key = to_x_public_key(raw_public_key_bytes)
+        public_key_bytes = x_public_key.to_bytes()
         x_pubkeys = { public_key_bytes: x_public_key }
         if signature_bytes != signature_placeholder:
             signatures[public_key_bytes] = signature_bytes
@@ -684,8 +701,6 @@ DATA_PREFIX2 = bytes.fromhex("006a")
 # NOTE(typing) Disable the 'Class cannot subclass "Tx" (has type "Any")' message.
 @attr.s(slots=True)
 class Transaction(Tx): # type: ignore[misc]
-    SIGHASH_FORKID = 0x40
-
     inputs: list[XTxInput] = attr.ib(default=attr.Factory(list))
     outputs: list[XTxOutput] = attr.ib(default=attr.Factory(list))
 
@@ -723,7 +738,7 @@ class Transaction(Tx): # type: ignore[misc]
         return cls.read(stream.read, stream.tell)
 
     def __str__(self) -> str:
-        return self.serialize()
+        return cast(str, self.to_hex())
 
     def update_script_offsets(self) -> None:
         """Amend inputs and outputs in-situ to include script_offset and script_length data"""
@@ -812,7 +827,7 @@ class Transaction(Tx): # type: ignore[misc]
     @classmethod
     def nHashType(cls) -> int:
         '''Hash type in hex.'''
-        return 0x01 | cls.SIGHASH_FORKID
+        return cast(int, SigHash.ALL | SigHash.FORKID)
 
     def preimage_hash(self, txin: XTxInput) -> bytes:
         input_index = self.inputs.index(txin)
@@ -822,9 +837,6 @@ class Transaction(Tx): # type: ignore[misc]
         # Current algorithm: https://github.com/electrumsv/bips/blob/master/bip-0143.mediawiki
         return cast(bytes,
             self.signature_hash(input_index, txin.value, script_code, sighash=sighash))
-
-    def serialize(self) -> str:
-        return self.to_bytes().hex()
 
     def txid(self) -> str | None:
         '''A hexadecimal string if complete, otherwise None.'''
@@ -863,8 +875,9 @@ class Transaction(Tx): # type: ignore[misc]
             return len(self.to_bytes())
         return sum(self.estimated_size())
 
-    def base_size(self) -> int:
-        return 10
+    # def base_size(self) -> int:
+    #     super().base_size()
+    #     return 10
 
     def estimated_size(self) -> TransactionSize:
         '''Return an estimated tx size in bytes.'''
@@ -911,25 +924,6 @@ class Transaction(Tx): # type: ignore[misc]
         pre_hash = self.preimage_hash(txin)
         sig = cast(bytes, private_key.sign(pre_hash, None))
         return sig + cast(bytes, pack_byte(self.nHashType()))
-
-    def to_hex(self) -> str:
-        return self.to_bytes().hex()
-
-    def to_format(self, format: TxSerialisationFormat, context: TransactionContext,
-            accounts: list[AbstractAccount]) \
-            -> TxSerialisedType:
-        # Will raise `NotImplementedError` on incomplete implementation of new formats.
-        if format == TxSerialisationFormat.RAW:
-            return self.to_bytes()
-        elif format == TxSerialisationFormat.HEX:
-            return self.to_hex()
-        elif format in (TxSerialisationFormat.JSON, TxSerialisationFormat.JSON_WITH_PROOFS):
-            # It is expected the caller may wish to extend this and they will take care of the
-            # final serialisation step.
-            # TODO(1.4.0) PSBT. Replace.
-            from .standards.electrum_transaction_extended import transaction_to_electrumsv_dict
-            return transaction_to_electrumsv_dict(self, context, accounts)
-        raise NotImplementedError(f"unhanded format {format}")
 
 
 class TransactionFeeEstimator:

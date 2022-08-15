@@ -713,9 +713,9 @@ class ReceiveDialog(QDialog):
             self._attempt_import_transaction(tx, tx_context)
 
     def _on_menu_import_from_qrcode(self) -> None:
-        def callback(text: Optional[str]) -> None:
-            assert text is not None
-            tx, tx_context = self._main_window_proxy._wallet.load_transaction_from_text(text)
+        def callback(raw: bytes | None) -> None:
+            assert raw is not None
+            tx, tx_context = self._main_window_proxy._wallet.load_transaction_from_bytes(raw)
             if tx is not None:
                 self._attempt_import_transaction(tx, tx_context)
         self._main_window_proxy.read_qrcode_and_call_callback(callback, expect_transaction=True)

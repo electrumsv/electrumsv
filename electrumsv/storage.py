@@ -54,7 +54,8 @@ from .i18n import _
 from .keystore import bip44_derivation
 from .logs import logs
 from .networks import Net
-from .transaction import classify_tx_output, parse_script_sig, Transaction, XPublicKey
+from .transaction import classify_transaction_output_script, parse_script_sig, Transaction, \
+    XPublicKey
 from .util import get_posix_timestamp
 from .util.misc import ProgressCallbacks
 from .wallet_database import migration
@@ -1031,7 +1032,8 @@ class TextStore(AbstractStore):
                 # Locate all the outputs.
                 for tx_id, tx_state in tx_states.items():
                     for n, tx_output in enumerate(tx_state.tx.outputs):
-                        output = classify_tx_output(tx_output)
+                        _script_type, _threshold, output = classify_transaction_output_script(
+                            tx_output.script_pubkey)
                         if not isinstance(output, script_classes):
                             continue
 

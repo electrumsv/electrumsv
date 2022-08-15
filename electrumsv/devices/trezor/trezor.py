@@ -11,8 +11,8 @@ from ...i18n import _
 from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
-from ...transaction import classify_tx_output, HardwareSigningMetadata, Transaction, \
-    TransactionContext, XTxInput, XTxOutput
+from ...transaction import classify_transaction_output_script, HardwareSigningMetadata, \
+    Transaction, TransactionContext, XTxInput, XTxOutput
 from ...wallet import MultisigAccount, StandardAccount
 from ...wallet_database.types import KeyListRow
 
@@ -435,7 +435,8 @@ class TrezorPlugin(HW_PluginBase):
         def create_output_by_address(tx_output: XTxOutput) -> TxOutputType:
             txoutputtype = TxOutputType()
             txoutputtype.amount = tx_output.value
-            address = classify_tx_output(tx_output)
+            _esv_script_type, _threshold, address = classify_transaction_output_script(
+                tx_output.script_pubkey)
             if isinstance(address, Address):
                 txoutputtype.script_type = OutputScriptType.PAYTOADDRESS
                 txoutputtype.address = address.to_string()

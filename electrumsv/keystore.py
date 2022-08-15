@@ -355,7 +355,8 @@ class Xpub:
         return pubkey
 
     def get_xpubkey(self, data: DatabaseKeyDerivationData) -> XPublicKey:
-        return XPublicKey(bip32_xpub=self.xpub, derivation_data=data)
+        return XPublicKey(bip32_xpub=self.xpub, derivation_data=data,
+            keystore_fingerprint=self.get_fingerprint())
 
     def is_signature_candidate(self, x_pubkey: XPublicKey) -> bool:
         if x_pubkey.kind() == XPublicKeyKind.BIP32:
@@ -368,9 +369,9 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
 
     _xprv_credential_id: Optional[IndefiniteCredentialId] = None
 
-    def __init__(self, data: MasterKeyDataBIP32, row: Optional[MasterKeyRow]=None,
-            parent_keystore: Optional[KeyStore]=None,
-            masterkey_flags: Optional[MasterKeyFlags]=None) -> None:
+    def __init__(self, data: MasterKeyDataBIP32, row: MasterKeyRow | None=None,
+            parent_keystore: KeyStore | None=None,
+            masterkey_flags: MasterKeyFlags | None=None) -> None:
         Xpub.__init__(self)
         Deterministic_KeyStore.__init__(self, row)
         self._parent_keystore = parent_keystore
@@ -385,13 +386,13 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         # Either BIP39 or Electrum seed words.
         self.seed: Optional[str] = data.get('seed')
         # The full textual derivation path of the xpub and xprv from whatever.
-        self.derivation: Optional[str] = data.get('derivation')
-        self.passphrase: Optional[str] = data.get('passphrase')
-        self.label: Optional[str] = data.get('label')
+        self.derivation: str | None = data.get('derivation')
+        self.passphrase: str | None = data.get('passphrase')
+        self.label: str | None = data.get('label')
         # The BIP32 master public key.
-        self.xpub: Optional[str] = data.get('xpub')
+        self.xpub: str | None = data.get('xpub')
         # The BIP32 master private key (encrypted with the wallet password).
-        self.xprv: Optional[str] = data.get('xprv')
+        self.xprv: str | None = data.get('xprv')
 
     def cache_xprv_as_indefinite_credential(self, password: str) -> None:
         xprv = self.get_master_private_key(password)
@@ -521,6 +522,8 @@ class Old_KeyStore(Deterministic_KeyStore):
         self.seed = data['seed']
         self.mpk = data['mpk']
 
+        self._keystore_fingerprint = cast(bytes, hash160(bytes.fromhex(self.mpk))[:4])
+
     def type(self) -> KeystoreType:
         return KeystoreType.OLD
 
@@ -623,14 +626,15 @@ class Old_KeyStore(Deterministic_KeyStore):
         self.check_seed(seed)
 
     def get_fingerprint(self) -> bytes:
-        return cast(bytes, hash160(bytes.fromhex(self.mpk))[:4])
+        return self._keystore_fingerprint
 
     def get_master_public_key(self) -> Optional[str]:
         return self.mpk
 
     def get_xpubkey(self, data: DatabaseKeyDerivationData) -> XPublicKey:
         assert data.derivation_path is not None and len(data.derivation_path) == 2
-        return XPublicKey(old_mpk=bytes.fromhex(self.mpk), derivation_data=data)
+        return XPublicKey(old_mpk=bytes.fromhex(self.mpk), derivation_data=data,
+            keystore_fingerprint=self.get_fingerprint())
 
     def is_signature_candidate(self, x_pubkey: XPublicKey) -> bool:
         """

@@ -36,6 +36,7 @@ def tear_down_async():
 
 TEST_DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
 TEST_WALLET_PATH = os.path.join(TEST_DATA_PATH, "wallets")
+TEST_TRANSACTION_PATH = os.path.join(TEST_DATA_PATH, "transactions")
 
 
 class PasswordToken(PasswordTokenProtocol):

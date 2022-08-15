@@ -23,6 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import base64
 import concurrent.futures
 import copy
 import datetime
@@ -254,8 +255,10 @@ class TxDialog(QDialog, MessageBoxMixin):
         b.setDefault(True)
 
         qr_button = QPushButton()
+        qr_button.setToolTip(_("Show transaction as QR code"))
         qr_button.setIcon(read_QIcon("qrcode.png"))
-        qr_button.clicked.connect(self._on_button_clicked_show_qr)
+        self._show_qr_menu = QMenu()
+        qr_button.setMenu(self._show_qr_menu)
 
         copy_button = QPushButton(_("Copy"))
         self._copy_menu = QMenu()
@@ -381,19 +384,6 @@ class TxDialog(QDialog, MessageBoxMixin):
             self.accept()
         else:
             event.ignore()
-
-    def _on_button_clicked_show_qr(self) -> None:
-        if self.tx.is_complete():
-            text = base_encode(self.tx.to_bytes(), base=43)
-        else:
-            data = self._tx_to_text().encode()
-            data = gzip.compress(data)
-            text = base_encode(data, base=43)
-
-        try:
-            self._main_window.show_qrcode(text, 'Transaction', parent=self)
-        except Exception as e:
-            self.show_message(str(e))
 
     def _on_button_clicked_sign(self) -> None:
         def sign_done(success: bool) -> None:
@@ -533,11 +523,13 @@ class TxDialog(QDialog, MessageBoxMixin):
         # have to work. Normally menus are created on demand, which limits the lifetime of the
         # `self` reference. In this case, we want to avoid leaking the transaction dialog by
         # not locking in a `self` reference.
-        weakself = weakref.proxy(self)
+        weakself = cast(TxDialog, weakref.proxy(self))
         def copy_transaction(format: TxSerialisationFormat) -> None:
             weakself._copy_transaction(format)
         def save_transaction(format: TxSerialisationFormat) -> None:
             weakself._save_transaction(format)
+        def show_transaction_qrcode(format: TxSerialisationFormat) -> None:
+            weakself._show_transaction_qrcode(format)
         if self.tx.is_complete():
             self._copy_menu.addAction(_("Transaction (hex)"),
                 partial(copy_transaction, TxSerialisationFormat.HEX))
@@ -556,20 +548,55 @@ class TxDialog(QDialog, MessageBoxMixin):
                 partial(save_transaction, TxSerialisationFormat.RAW))
             self._save_menu.addAction(_("Transaction (hex)"),
                 partial(save_transaction, TxSerialisationFormat.HEX))
-            if self._account:
-                self._save_menu.addAction(_("Transaction with proofs (JSON)"),
-                    partial(save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
         else:
             self._save_menu.addAction(_("Incomplete transaction (JSON)"),
                 partial(save_transaction, TxSerialisationFormat.JSON))
             if self._account:
                 self._save_menu.addAction(_("Incomplete transaction with proofs (JSON)"),
                     partial(save_transaction, TxSerialisationFormat.JSON_WITH_PROOFS))
+            if self._account:
+                self._save_menu.addAction(_("Incomplete transaction (PSBT)"),
+                    partial(save_transaction, TxSerialisationFormat.PSBT))
+
+        if self.tx.is_complete():
+            self._show_qr_menu.addAction(_("Show transaction as QR code"),
+                partial(show_transaction_qrcode, TxSerialisationFormat.RAW))
+        else:
+            self._show_qr_menu.addAction(_("Show incomplete transaction as QR code using PSBT "
+                    "(recommended)"), partial(show_transaction_qrcode, TxSerialisationFormat.PSBT))
+            self._show_qr_menu.addAction(_("Show incomplete transaction as QR code using JSON"),
+                partial(show_transaction_qrcode, TxSerialisationFormat.JSON))
 
     def _obtain_transaction_data(self, format: TxSerialisationFormat,
-            completion_signal: Optional[pyqtBoundSignal], done_signal: pyqtBoundSignal,
+            completion_signal: pyqtBoundSignal | None, done_signal: pyqtBoundSignal,
             completion_text: str) -> None:
-        tx_data = self.tx.to_format(format, self._context, self._wallet.get_accounts())
+        assert self.tx is not None
+        # Will raise `NotImplementedError` on incomplete implementation of new formats.
+        tx_data: dict[str, Any] | bytes | str
+        if format == TxSerialisationFormat.RAW:
+            tx_data = self.tx.to_bytes()
+        elif format == TxSerialisationFormat.HEX:
+            tx_data = self.tx.to_hex()
+        elif format == TxSerialisationFormat.PSBT:
+            from ...standards.psbt import serialise_transaction_to_psbt_bytes
+            parent_transactions: dict[bytes, bytes] = {}
+            if self._account is not None:
+                context = TransactionContext()
+                self._account.obtain_previous_transactions(self.tx, context)
+                parent_transactions = { parent_transaction_hash: parent_transaction.to_bytes()
+                    for parent_transaction_hash, parent_transaction in
+                        context.parent_transactions.items()   }
+            tx_data = serialise_transaction_to_psbt_bytes(self.tx,
+                parent_transactions=parent_transactions)
+        elif format in (TxSerialisationFormat.JSON, TxSerialisationFormat.JSON_WITH_PROOFS):
+            # It is expected the caller may wish to extend this and they will take care of the
+            # final serialisation step.
+            from ...standards.electrum_transaction_extended import transaction_to_electrumsv_dict
+            tx_data = transaction_to_electrumsv_dict(self.tx, self._context,
+                self._wallet.get_accounts())
+        else:
+            raise NotImplementedError(f"unhandled format {format}")
+
         if not isinstance(tx_data, dict):
             if completion_signal is not None:
                 completion_signal.emit(format, tx_data)
@@ -631,6 +658,39 @@ class TxDialog(QDialog, MessageBoxMixin):
         tx_text: str = tx_data if type(tx_data) is str else json.dumps(tx_data)
         self._main_window.app.clipboard().setText(tx_text)
 
+    def _show_transaction_qrcode(self, format: TxSerialisationFormat) -> None:
+        if self.tx.is_complete():
+            assert format == TxSerialisationFormat.RAW
+            text = base_encode(self.tx.to_bytes(), base=43)
+        else:
+            if format == TxSerialisationFormat.PSBT:
+                from ...standards.psbt import serialise_transaction_to_psbt_bytes
+                parent_transactions: dict[bytes, bytes] = {}
+                if self._account is not None:
+                    context = TransactionContext()
+                    self._account.obtain_previous_transactions(self.tx, context)
+                    parent_transactions = { parent_transaction_hash: parent_transaction.to_bytes()
+                        for parent_transaction_hash, parent_transaction in
+                            context.parent_transactions.items()   }
+                data = serialise_transaction_to_psbt_bytes(self.tx,
+                    parent_transactions=parent_transactions)
+                # We follow the Bitcoin Core standard here, including what Electrum Core does and
+                # encode with base 64 rather than base 43 or whatever else. Also no gzipping..
+                text = base64.b64encode(data).decode()
+            elif format == TxSerialisationFormat.JSON:
+                data = self._tx_to_text().encode()
+                data = gzip.compress(data)
+                text = base_encode(data, base=43)
+            else:
+                raise NotImplementedError("QR codes for '{}' not supported yet.".format(format))
+
+        try:
+            self._main_window.show_qrcode(text, _("Transaction"), parent=self)
+        except Exception as e:
+            self.show_message(str(e))
+        # weakself._show_transaction_qrcode(format)
+        # qr_button.clicked.connect(self._on_button_clicked_show_qr)
+
     def _save_transaction(self, format: TxSerialisationFormat) -> None:
         # Completion: The dialog is still open and it is not the right time to save.
         # Done: The dialog is closed, give them the option to save then.
@@ -638,7 +698,7 @@ class TxDialog(QDialog, MessageBoxMixin):
             _("Data ready to save"))
 
     def _save_transaction_ready(self, format: TxSerialisationFormat,
-            tx_data: Optional[Dict[str, Any]]=None) -> None:
+            tx_data: dict[str, Any] | bytes | None=None) -> None:
         if tx_data is None:
             logger.debug("_copy_transaction_ready aborted")
             return
@@ -653,7 +713,8 @@ class TxDialog(QDialog, MessageBoxMixin):
         fileName = self._main_window.getSaveFileName(_("Select where to save your transaction"),
             name, filter=f"*.{suffix_text}", parent=self)
         if fileName:
-            mode = "wb" if format == TxSerialisationFormat.RAW else "w"
+            mode = "wb" \
+                if format in { TxSerialisationFormat.RAW, TxSerialisationFormat.PSBT } else "w"
             write_data = json.dumps(tx_data) if type(tx_data) is dict else tx_data
             with open(fileName, mode) as f:
                 f.write(write_data)

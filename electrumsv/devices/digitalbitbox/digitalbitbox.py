@@ -550,7 +550,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
             # At the moment, verification only works for p2pkh transactions.
             tx_dbb_serialized: Optional[str]
             if p2pkhTransaction:
-                tx_dbb_serialized = tx.serialize()
+                tx_dbb_serialized = tx.to_hex()
             else:
                 # We only need this for the signing echo / verification.
                 tx_dbb_serialized = None
@@ -643,6 +643,7 @@ class DigitalBitbox_KeyStore(Hardware_KeyStore):
                         full_sig = (compact_signature_to_der(compact_sig) +
                                     bytes([Transaction.nHashType() & 255]))
                         txin.signatures[public_key_bytes] = full_sig
+                        txin.finalize_if_complete()
         except UserCancelled:
             raise
         except Exception as e:

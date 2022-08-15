@@ -1,16 +1,84 @@
+# Open BSV License version 4
+#
+# Copyright (c) 2021,2022 Bitcoin Association for BSV ("Bitcoin Association")
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# 1 - The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# 2 - The Software, and any software that is derived from the Software or parts thereof,
+# can only be used on the Bitcoin SV blockchains. The Bitcoin SV blockchains are defined,
+# for purposes of this license, as the Bitcoin blockchain containing block height #556767
+# with the hash "000000000000000001d956714215d96ffc00e0afda4cd0a96c96f8d802b1662b" and
+# that contains the longest persistent chain of blocks accepted by this Software and which
+# are valid under the rules set forth in the Bitcoin white paper (S. Nakamoto, Bitcoin: A
+# Peer-to-Peer Electronic Cash System, posted online October 2008) and the latest version
+# of this Software available in this repository or another repository designated by Bitcoin
+# Association, as well as the test blockchains that contain the longest persistent chains
+# of blocks accepted by this Software and which are valid under the rules set forth in the
+# Bitcoin whitepaper (S. Nakamoto, Bitcoin: A Peer-to-Peer Electronic Cash System, posted
+# online October 2008) and the latest version of this Software available in this repository,
+# or another repository designated by Bitcoin Association
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
 import dataclasses
 from enum import IntEnum
 from io import BytesIO
 import os
 from typing import BinaryIO, cast, NamedTuple
 
-from bitcoinx import pack_le_uint32, pack_varint, read_le_uint32, read_varint, Script, \
-    unpack_le_uint32
+from bitcoinx import pack_le_int64, pack_le_uint32, pack_varint, read_le_uint32, read_varint, \
+    Script, Unknown_Output, unpack_le_uint32
 
 from ..constants import DerivationPath, ScriptType
 from ..logs import logs
-from ..transaction import parse_script_sig, Transaction, XPublicKey
+from ..transaction import classify_transaction_output_script, parse_script_sig, Transaction, \
+    XPublicKey, XPublicKeyKind, XTxOutput
 from ..types import DatabaseKeyDerivationData
+
+# # A PSBT implementation.
+#
+# This is an implementation of the Bitcoin Core "Partially Signed Bitcoin Transaction" (PSBT)
+# specification, with some minor experimental modifications.
+#
+# A decoded transaction should be checked to see if it is valid. If the encoding party did not
+# provide enough information, we have no way to know what is being spent that should be signed.
+# This will be observable through the following values:
+#
+# - An incomplete input will have `.threshold == 0`.
+# - An incomplete input will have `.script_type == ScriptType.NONE`.
+#
+# These values are usually derived from checking the `script_sig` but in PSBT incomplete inputs
+# have `script_sig == b""` which provides no information. It is not a given that the decoding
+# party has the parent transaction, espcially not offline signers or hardware wallets, which
+# will require the encoding party to provide them.
+#
+# ### Future addition
+#
+# It makes a lot of sense to state the script template for inputs, and perhaps also outputs.
+# Script templates should be able to survive injection of `OP_PUSH` / `OP_DROP` and have trailing
+# `OP_RETURN` data.
+#
+# ## Reading material:
+#
+# - BIP0174: Partially Signed Bitcoin Transaction Format
+#   https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki
+#
+# - BIP0380: PSBT Version 2
+#   https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki
 
 
 logger = logs.get_logger("psbt")
@@ -29,17 +97,12 @@ class PSBTIncompatibleError(PSBTError):
 class PSBTUnknownFingerprintError(PSBTError):
     ...
 
-# BIP0174: Partially Signed Bitcoin Transaction Format
-# https://github.com/bitcoin/bips/blob/master/bip-0174.mediawiki
-# BIP0380: PSBT Version 2
-# https://github.com/bitcoin/bips/blob/master/bip-0370.mediawiki
-
 class PSBTGlobalTypes(IntEnum):
     # Key data:   None.
     # Value data: <bytes transaction>
     #             The transaction in network serialization. The scriptSigs and witnesses for each
     #             input must be empty.
-    PSBT_GLOBAL_UNSIGNED_TX             = 0x00
+    UNSIGNED_TX             = 0x00
     # Key data:   <bytes xpub>
     #             The 78 byte serialized extended public key as defined by BIP 32. Extended public
     #             keys are those that can be used to derive public keys used in the inputs and
@@ -52,21 +115,21 @@ class PSBTGlobalTypes(IntEnum):
     #             endian unsigned integer indexes concatenated with each other. The number of 32
     #             bit unsigned integer indexes must match the depth provided in the extended public
     #             key.
-    PSBT_GLOBAL_XPUB                    = 0x01
+    XPUB                    = 0x01
     # The 32-bit little endian signed integer representing the version number of the transaction
     # being created.
-    PSBT_GLOBAL_TX_VERSION              = 0x02
+    TX_VERSION              = 0x02
     # The 32-bit little endian unsigned integer representing the transaction locktime to use if
     # no inputs specify a required locktime.
-    PSBT_GLOBAL_FALLBACK_LOCKTIME       = 0x03
+    FALLBACK_LOCKTIME       = 0x03
     # Key data:   None.
     # Value data: <compact size uint input count>
     #             Compact size unsigned integer representing the number of inputs in this PSBT.
-    PSBT_GLOBAL_INPUT_COUNT             = 0x04
+    INPUT_COUNT             = 0x04
     # Key data:   None.
     # Value data: <compact size uint output count>
     #             Compact size unsigned integer representing the number of outputs in this PSBT.
-    PSBT_GLOBAL_OUTPUT_COUNT            = 0x05
+    OUTPUT_COUNT            = 0x05
     # An 8 bit little endian unsigned integer as a bitfield for various transaction modification
     # flags.
     # Bit 0 is the Inputs Modifiable Flag and indicates whether inputs can be modified.
@@ -75,13 +138,13 @@ class PSBTGlobalTypes(IntEnum):
     #   SIGHASH_SINGLE signature who's input and output pairing must be preserved. Bit 2
     #   essentially indicates that the Constructor must iterate the inputs to determine whether
     #   and how to add an input.
-    PSBT_GLOBAL_TX_MODIFIABLE           = 0x06
+    TX_MODIFIABLE           = 0x06
     # Key data:   None.
     # Value data: <32-bit little endian uint version>
     #             The 32-bit little endian unsigned integer representing the version number of this
     #             PSBT. If omitted, the version number is 0.
-    PSBT_GLOBAL_VERSION                 = 0xFB
-    PSBT_GLOBAL_PROPRIETARY             = 0xFC
+    VERSION                 = 0xFB
+    PROPRIETARY             = 0xFC
 
 class PSBTInputTypes(IntEnum):
     # Key data:   None.
@@ -186,6 +249,8 @@ class PSBTInputTypes(IntEnum):
     TAP_BIP32_DERIVATION        = 0x16 # Irrelevant.
     TAP_INTERNAL_KEY            = 0x17 # Irrelevant.
     TAP_MERKLE_ROOT             = 0x18 # Irrelevant.
+
+    # For non-public uses.
     PROPRIETARY                 = 0xFC
 
 IRRELEVANT_INPUT_TYPES = { PSBTInputTypes.WITNESS_UTXO, PSBTInputTypes.WITNESS_SCRIPT,
@@ -225,20 +290,27 @@ IRRELEVANT_OUTPUT_TYPES = { PSBTOutputTypes.WITNESS_SCRIPT, PSBTOutputTypes.TAP_
     PSBTOutputTypes.TAP_TREE, PSBTOutputTypes.TAP_BIP32_DERIVATION }
 
 @dataclasses.dataclass
+class PSBTProprietaryKey:
+    identifier_bytes: bytes
+    key_subtype: int
+    data: bytes
+
+@dataclasses.dataclass
 class PSBTKeyPair:
     key_type: int
     key_data: bytes
     value_data: bytes
 
+    proprietary_key: PSBTProprietaryKey|None = dataclasses.field(default=None)
     # Error reporting information?
-    stream_offset: int
+    stream_offset: int = dataclasses.field(default=0)
 
 def unpack_fingerprint_and_derivation_path(raw: bytes) -> tuple[bytes, DerivationPath]:
     stream_length = len(raw)
     stream = BytesIO(raw)
     fingerprint = stream.read(4)
     path_values: list[int] = []
-    while stream.tell() + 4 < stream_length:
+    while stream.tell() + 4 <= stream_length:
         path_values.append(read_le_uint32(stream.read))
     return fingerprint, tuple(path_values)
 
@@ -259,12 +331,26 @@ def _read_psbt_section(stream: BinaryIO) -> dict[int, list[PSBTKeyPair]]:
         key_offset = stream.tell()
         key_type = cast(int, read_varint(stream.read))
         key_data_size = key_size - (stream.tell() - key_offset)
-        key_data = stream.read(key_data_size)
-        if len(key_data) != key_data_size:
-            logger.debug("PSBT parse section error, key data size mismatch, offset %d, "
-                "key type %d, expected size %d, actual size %d", key_offset, key_type,
-                key_data_size, len(key_data))
-            raise PSBTInvalidError("PSBT invalid")
+
+        proprietary_key: PSBTProprietaryKey | None = None
+        if key_type in { PSBTGlobalTypes.PROPRIETARY, PSBTInputTypes.PROPRIETARY,
+                PSBTOutputTypes.PROPRIETARY }:
+
+            identifier_size = cast(int, read_varint(stream.read))
+            identifier_bytes = stream.read(identifier_size)
+            key_subtype = cast(int, read_varint(stream.read))
+            subkey_data_size = key_size - (stream.tell() - key_offset)
+            subkey_data = stream.read(subkey_data_size)
+
+            proprietary_key = PSBTProprietaryKey(identifier_bytes, key_subtype, subkey_data)
+            key_data = b""
+        else:
+            key_data = stream.read(key_data_size)
+            if len(key_data) != key_data_size:
+                logger.debug("PSBT parse section error, key data size mismatch, offset %d, "
+                    "key type %d, expected size %d, actual size %d", key_offset, key_type,
+                    key_data_size, len(key_data))
+                raise PSBTInvalidError("PSBT invalid")
 
         value_size = cast(int, read_varint(stream.read))
         value_data = stream.read(value_size)
@@ -280,7 +366,7 @@ def _read_psbt_section(stream: BinaryIO) -> dict[int, list[PSBTKeyPair]]:
         #  the <key> must be unique."
         if any(key_pair.key_data == key_data for key_pair in section_data[key_type]):
             raise PSBTInvalidError("Duplicate key for type {}".format(key_type))
-        section_data[key_type].append(PSBTKeyPair(key_type, key_data, value_data,
+        section_data[key_type].append(PSBTKeyPair(key_type, key_data, value_data, proprietary_key,
             stream_offset))
 
 class PSBTMasterKeyDerivation(NamedTuple):
@@ -292,7 +378,8 @@ class PSBTInputMetadata:
     signatures: dict[bytes, bytes] = dataclasses.field(default_factory=dict)
     sighash: int | None = None
     redeem_script: Script | None = None
-    script_sig: bytes | None = None
+    complete_script_sig: bytes | None = None
+    spent_amount: int | None = None
 
 @dataclasses.dataclass
 class PSBTOutputMetadata:
@@ -334,22 +421,22 @@ def read_psbt_stream(stream: BinaryIO, xpubs_by_fingerprint: dict[bytes, str]) \
             if DEBUG:
                 logger.debug("GLOBAL %s %s %s", global_key, key_pair.key_data,
                     key_pair.value_data)
-            if global_key == PSBTGlobalTypes.PSBT_GLOBAL_UNSIGNED_TX:
+            if global_key == PSBTGlobalTypes.UNSIGNED_TX:
                 if metadata.transaction is not None:
-                    raise PSBTInvalidError("Too many PSBT_GLOBAL_UNSIGNED_TX values")
+                    raise PSBTInvalidError("Too many UNSIGNED_TX values")
                 if len(key_pair.key_data) != 0:
-                    raise PSBTInvalidError("Invalid PSBT_GLOBAL_UNSIGNED_TX key value")
+                    raise PSBTInvalidError("Invalid UNSIGNED_TX key value")
 
                 transaction_stream = BytesIO(key_pair.value_data)
                 metadata.transaction = Transaction.read(transaction_stream.read,
                     transaction_stream.tell)
-            elif global_key == PSBTGlobalTypes.PSBT_GLOBAL_INPUT_COUNT:
+            elif global_key == PSBTGlobalTypes.INPUT_COUNT:
                 input_count = read_varint(BytesIO(key_pair.value_data))
-            elif global_key == PSBTGlobalTypes.PSBT_GLOBAL_OUTPUT_COUNT:
+            elif global_key == PSBTGlobalTypes.OUTPUT_COUNT:
                 output_count = read_varint(BytesIO(key_pair.value_data))
-            elif global_key == PSBTGlobalTypes.PSBT_GLOBAL_VERSION:
+            elif global_key == PSBTGlobalTypes.VERSION:
                 if metadata.psbt_version is not None:
-                    raise PSBTInvalidError("Too many PSBT_GLOBAL_VERSION values")
+                    raise PSBTInvalidError("Too many VERSION values")
                 metadata.psbt_version = cast(int, unpack_le_uint32(key_pair.value_data)[0])
             else:
                 raise PSBTInvalidError("Unexpected global key {}".format(global_key))
@@ -405,6 +492,9 @@ def read_psbt_stream(stream: BinaryIO, xpubs_by_fingerprint: dict[bytes, str]) \
                             signature_length))
                     input_metadata.signatures[key_pair.key_data] = key_pair.value_data
                 elif input_key == PSBTInputTypes.SIGHASH_TYPE:
+                    # TODO(incomplete-transactions) It would be good to store this on the input.
+                    #     Need to look into what happens if different signatures have different
+                    #     sig hashes.
                     input_metadata.sighash = cast(int, unpack_le_uint32(key_pair.value_data)[0])
                 elif input_key == PSBTInputTypes.REDEEM_SCRIPT:
                     input_metadata.redeem_script = Script(key_pair.value_data)
@@ -416,15 +506,17 @@ def read_psbt_stream(stream: BinaryIO, xpubs_by_fingerprint: dict[bytes, str]) \
                         unpack_fingerprint_and_derivation_path(key_pair.value_data)
                     if masterkey_fingerprint not in xpubs_by_fingerprint:
                         raise PSBTUnknownFingerprintError(
-                            "Unknown BIP32 input fingerprint {}".format(
+                            "Wallet errored processing the PSBT data: An unknown BIP32 input "
+                            "fingerprint '{}' was encountered.".format(
                                 masterkey_fingerprint.hex()))
                     metadata.transaction.inputs[input_index].x_pubkeys[key_pair.key_data] = \
                         XPublicKey(bip32_xpub=xpubs_by_fingerprint[masterkey_fingerprint],
-                            derivation_data=DatabaseKeyDerivationData(derivation_path))
+                            derivation_data=DatabaseKeyDerivationData(derivation_path),
+                            keystore_fingerprint=masterkey_fingerprint)
                 elif input_key == PSBTInputTypes.FINAL_SCRIPTSIG:
                     if len(key_pair.key_data) > 0:
                         raise PSBTInvalidError("Unexpected FINAL_SCRIPTSIG key data")
-                    input_metadata.script_sig = key_pair.key_data
+                    input_metadata.complete_script_sig = key_pair.key_data
                 elif input_key in IRRELEVANT_INPUT_TYPES:
                     raise PSBTIncompatibleError("Incompatible input key {}".format(input_key.name))
                 else:
@@ -460,7 +552,8 @@ def read_psbt_stream(stream: BinaryIO, xpubs_by_fingerprint: dict[bytes, str]) \
                                 masterkey_fingerprint.hex()))
                     metadata.transaction.outputs[output_index].x_pubkeys[key_pair.key_data] = \
                         XPublicKey(bip32_xpub=xpubs_by_fingerprint[masterkey_fingerprint],
-                            derivation_data=DatabaseKeyDerivationData(derivation_path))
+                            derivation_data=DatabaseKeyDerivationData(derivation_path),
+                            keystore_fingerprint=masterkey_fingerprint)
                 elif output_key in IRRELEVANT_OUTPUT_TYPES:
                     raise PSBTIncompatibleError("Incompatible output key {}".format(
                         output_key.name))
@@ -476,13 +569,49 @@ def read_psbt_stream(stream: BinaryIO, xpubs_by_fingerprint: dict[bytes, str]) \
         # PSBTv2 preparation means not assuming we have the input the metadata is for.
         if len(metadata.transaction.inputs) > input_index:
             transaction_input = metadata.transaction.inputs[input_index]
-            if input_metadata.script_sig is not None:
-                script_data = parse_script_sig(input_metadata.script_sig,
+
+            spent_output: XTxOutput | None = None
+            if transaction_input.prev_hash in metadata.parent_transactions:
+                spent_output = metadata.parent_transactions[transaction_input.prev_hash].outputs[
+                    transaction_input.prev_idx]
+
+            if spent_output is not None:
+                script_type, threshold, script_template = classify_transaction_output_script(
+                    spent_output.script_pubkey)
+                if script_type is not None:
+                    transaction_input.script_type = script_type
+
+                if input_metadata.redeem_script is not None:
+                    assert threshold is None
+                    _script_type, threshold, _script_template = \
+                        classify_transaction_output_script(input_metadata.redeem_script)
+
+                if threshold is not None:
+                    transaction_input.threshold = threshold
+
+                if script_type is None:
+                    if isinstance(script_template, Unknown_Output):
+                        raise PSBTIncompatibleError(
+                            "Unrecognised spent output script, index={}".format(input_index))
+                    else:
+                        raise PSBTIncompatibleError("Script template recognised but unsupported, "
+                            "index={}, template={}".format(input_index, script_template))
+
+                transaction_input.value = spent_output.value
+            elif input_metadata.spent_amount is not None:
+                transaction_input.value = input_metadata.spent_amount
+
+            if input_metadata.complete_script_sig is not None:
+                script_data = parse_script_sig(input_metadata.complete_script_sig,
                     XPublicKey.from_bytes)
-                transaction_input.script_sig = Script(input_metadata.script_sig)
+                transaction_input.script_sig = Script(input_metadata.complete_script_sig)
                 # If we recognised the script type then copy across what we extracted from it.
                 if script_data.script_type != ScriptType.NONE:
-                    transaction_input.script_type = script_data.script_type
+                    if transaction_input.script_type is None:
+                        transaction_input.script_type = script_data.script_type
+                    elif transaction_input.script_type != script_data.script_type:
+                        raise PSBTInvalidError("input script type expected {}, got {}".format(
+                            transaction_input.script_type, script_data.script_type))
                     transaction_input.threshold = script_data.threshold
 
                     # Remember these are only full extended public keys for legacy extended
@@ -502,6 +631,27 @@ def read_psbt_stream(stream: BinaryIO, xpubs_by_fingerprint: dict[bytes, str]) \
                 for public_key_hash in input_metadata.signatures)
             transaction_input.signatures = input_metadata.signatures
 
+            if not transaction_input.is_complete() and (transaction_input.threshold == 0 or \
+                    transaction_input.script_type == ScriptType.NONE):
+                # There is insufficient metadata for the recipient to know what is being signed.
+                # One of the following needs to happen:
+                # - The spent output for this input needs to be included.
+                # - The parent transaction for this input needs to be included.
+                # - Some additional metadata needs to be included (script type, threshold, value).
+                logger.warning("Input %d is missing threshold/script_type values; it is "
+                        "likely not enough information was included in the PSBT (like the "
+                        "parent transaction)", input_index)
+
+    for output_index, output_metadata in enumerate(metadata.output_metadata):
+        # PSBTv2 preparation means not assuming we have the input the metadata is for.
+        if len(metadata.transaction.outputs) > output_index:
+            transaction_output = metadata.transaction.outputs[output_index]
+            script_type, threshold, script_template = classify_transaction_output_script(
+                transaction_output.script_pubkey)
+            if script_type is not None:
+                assert transaction_output.script_type == ScriptType.NONE
+                transaction_output.script_type = script_type
+
     return metadata
 
 def parse_psbt_bytes(psbt_bytes: bytes, xpubs_by_fingerprint: dict[bytes, str]) \
@@ -511,43 +661,119 @@ def parse_psbt_bytes(psbt_bytes: bytes, xpubs_by_fingerprint: dict[bytes, str]) 
 
 # SERIALISATION
 
-def _write_psbt_section(stream: BinaryIO, type_data: list[tuple[int, list[PSBTKeyPair]]]) -> None:
-    for key_type, key_pairs in type_data:
-        key_type_bytes = pack_varint(key_type)
-        for key_pair in key_pairs:
-            key_size_bytes = pack_varint(len(key_type_bytes) + len(key_pair.key_data))
-            stream.write(key_size_bytes)
-            stream.write(key_pair.key_data)
-            stream.write(pack_varint(len(key_pair.value_data)))
-            stream.write(key_pair.value_data)
+def _write_psbt_section(stream: BinaryIO, key_pairs: list[PSBTKeyPair]) -> None:
+    for key_pair in key_pairs:
+        if key_pair.proprietary_key is not None:
+            assert key_pair.key_type in { PSBTGlobalTypes.PROPRIETARY, PSBTInputTypes.PROPRIETARY,
+                PSBTOutputTypes.PROPRIETARY }
+
+            substream = BytesIO()
+            substream.write(pack_varint(len(key_pair.proprietary_key.identifier_bytes)))
+            substream.write(key_pair.proprietary_key.identifier_bytes)
+            substream.write(pack_varint(key_pair.proprietary_key.key_subtype))
+            substream.write(key_pair.proprietary_key.data)
+
+            key_data = substream.getvalue()
+        else:
+            key_data = key_pair.key_data
+        key_type_bytes = pack_varint(key_pair.key_type)
+        key_size_bytes = pack_varint(len(key_type_bytes) + len(key_data))
+        stream.write(key_size_bytes)
+        stream.write(key_type_bytes)
+        stream.write(key_data)
+        stream.write(pack_varint(len(key_pair.value_data)))
+        stream.write(key_pair.value_data)
     # End the map.
     stream.write(pack_varint(0))
 
-def serialise_transaction(transaction: Transaction) -> bytes:
-    if not transaction.is_complete():
+def serialise_transaction_to_psbt_bytes(transaction: Transaction, *,
+        psbt_version: int=0,
+        parent_transactions: dict[bytes, bytes] | None=None) -> bytes:
+    if transaction.is_complete():
         raise PSBTInvalidError("Transaction is fully signed already")
 
-    # TODO This should not have placeholder scriptsig.
-    # TODO This should have a public key to signature mapping.
-    # TODO This should have a public key to bip32 derivation mapping.
-    transaction_bytes = transaction.to_bytes()
-    # def to_bytes(self) -> bytes:
-    # transaction_bytes = b''.join((
-    #         pack_le_int32(self.version),
-    #         pack_list(self.inputs, XTxInput.to_bytes),
-    #         pack_list(self.outputs, XTxOutput.to_bytes),
-    #         pack_le_uint32(self.locktime),
-    #     ))
+    global_section: list[PSBTKeyPair] = []
+    input_sections: list[list[PSBTKeyPair]] = []
+    output_sections: list[list[PSBTKeyPair]] = []
 
+    if psbt_version == 0:
+        # The unsigned transaction field is required for PSBT version 0. The serialised transaction
+        # should include all completed inputs and outputs. Incomplete inputs have an empty
+        # `script_sig`.
+        transaction_bytes = transaction.to_bytes()
+        global_section.append(PSBTKeyPair(PSBTGlobalTypes.UNSIGNED_TX, b"",
+            transaction_bytes))
+    elif psbt_version == 2:
+        global_section.append(PSBTKeyPair(PSBTGlobalTypes.VERSION, b"",
+            pack_le_uint32(psbt_version)))
+        # Required for inclusion in PSBT version 2, exclusion in PSBT version 0.
+        global_section.append(PSBTKeyPair(PSBTGlobalTypes.INPUT_COUNT, b"",
+            pack_le_uint32(len(transaction.inputs))))
+        global_section.append(PSBTKeyPair(PSBTGlobalTypes.OUTPUT_COUNT, b"",
+            pack_le_uint32(len(transaction.inputs))))
 
-    global_map: list[tuple[int, list[PSBTKeyPair]]] = []
-    input_map: list[tuple[int, list[PSBTKeyPair]]] = []
-    output_map: list[tuple[int, list[PSBTKeyPair]]] = []
+    if parent_transactions is None:
+        parent_transactions = {}
+
+    for transaction_input in transaction.inputs:
+        input_entries: list[PSBTKeyPair] = []
+        if psbt_version == 2:
+            # Required for inclusion in PSBT version 2, exclusion in PSBT version 0.
+            input_entries.append(PSBTKeyPair(PSBTInputTypes.PREVIOUS_TXID, b"",
+                transaction_input.prev_hash))
+            input_entries.append(PSBTKeyPair(PSBTInputTypes.OUTPUT_INDEX, b"",
+                pack_le_uint32(transaction_input.prev_idx)))
+            if transaction_input.sequence != 0xFFFFFFFF:
+                input_entries.append(PSBTKeyPair(PSBTInputTypes.SEQUENCE, b"",
+                    pack_le_uint32(transaction_input.sequence)))
+
+        if not transaction_input.is_complete():
+            if transaction_input.prev_hash not in parent_transactions:
+                raise PSBTInvalidError("Parent transactions required for incomplete inputs")
+            input_entries.append(PSBTKeyPair(PSBTInputTypes.PARENT_TRANSACTION, b"",
+                parent_transactions[transaction_input.prev_hash]))
+
+            for public_key_bytes, x_public_key in transaction_input.x_pubkeys.items():
+                if x_public_key.kind() == XPublicKeyKind.BIP32:
+                    fingerprint = x_public_key.get_keystore_fingerprint()
+                    assert fingerprint is not None
+                    value_bytes = pack_fingerprint_and_derivation_path(fingerprint,
+                        x_public_key.bip32_path())
+                    input_entries.append(PSBTKeyPair(PSBTInputTypes.BIP32_DERIVATION,
+                        public_key_bytes, value_bytes))
+
+            for public_key_bytes, signature_bytes in transaction_input.signatures.items():
+                input_entries.append(PSBTKeyPair(PSBTInputTypes.PARTIAL_SIG, public_key_bytes,
+                    signature_bytes))
+
+        input_sections.append(input_entries)
+
+    for transaction_output in transaction.outputs:
+        output_entries: list[PSBTKeyPair] = []
+
+        if psbt_version == 2:
+            # Required for inclusion in PSBT version 2, exclusion in PSBT version 0.
+            output_entries.append(PSBTKeyPair(PSBTOutputTypes.AMOUNT, b"",
+                pack_le_int64(transaction_output.value)))
+            output_entries.append(PSBTKeyPair(PSBTOutputTypes.SCRIPT, b"",
+                transaction_output.script_pubkey.to_bytes()))
+
+        for public_key_bytes, x_public_key in transaction_output.x_pubkeys.items():
+            if x_public_key.kind() == XPublicKeyKind.BIP32:
+                fingerprint = x_public_key.get_keystore_fingerprint()
+                assert fingerprint is not None
+                value_bytes = pack_fingerprint_and_derivation_path(fingerprint,
+                    x_public_key.bip32_path())
+                output_entries.append(PSBTKeyPair(PSBTOutputTypes.BIP32_DERIVATION,
+                    public_key_bytes, value_bytes))
+
+        output_sections.append(output_entries)
 
     stream = BytesIO()
     stream.write(b"psbt\xff")
-    _write_psbt_section(stream, global_map)
-    _write_psbt_section(stream, input_map)
-    _write_psbt_section(stream, output_map)
-
-    return b""
+    _write_psbt_section(stream, global_section)
+    for input_section in input_sections:
+        _write_psbt_section(stream, input_section)
+    for output_section in output_sections:
+        _write_psbt_section(stream, output_section)
+    return stream.getvalue()

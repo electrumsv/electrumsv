@@ -14,7 +14,8 @@ from ...i18n import _
 from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
-from ...transaction import classify_tx_output, Transaction, TransactionContext, XTxOutput
+from ...transaction import classify_transaction_output_script, Transaction, TransactionContext, \
+    XTxOutput
 from ...types import MasterKeyDataHardware, MasterKeyDataHardwareCfg
 from ...util import versiontuple
 from ...wallet import AbstractAccount
@@ -388,7 +389,8 @@ class Ledger_KeyStore(Hardware_KeyStore):
                     key_subpath = bip32_build_chain_string(key_derivation)[1:]
                     changePath = self.get_derivation()[2:] + key_subpath
                 else:
-                    output = classify_tx_output(tx_output)
+                    _esv_script_type, _threshold, output = classify_transaction_output_script(
+                        tx_output.script_pubkey)
 
         self.handler_qt.show_message(_("Confirm Transaction on your Ledger device..."))
         try:
@@ -445,6 +447,7 @@ class Ledger_KeyStore(Hardware_KeyStore):
 
         for txin, input, signature in zip(tx.inputs, inputs, signatures):
             txin.signatures[input.public_key_bytes] = signature
+            txin.finalize_if_complete()
 
     @set_and_unset_signing
     def show_address(self, derivation_subpath: str) -> None:
