@@ -197,7 +197,7 @@ class PaymentRequestReadRow(NamedTuple):
     state: PaymentFlag
     requested_value: int | None
     received_value: int | None
-    expiration: int | None
+    date_expires: int | None
     description: str | None
     script_type: ScriptType
     pushdata_hash: bytes
@@ -213,7 +213,7 @@ class PaymentRequestRow(NamedTuple):
     keyinstance_id: int
     state: PaymentFlag
     requested_value: int | None
-    expiration: int | None
+    date_expires: int | None
     # The local label we apply to transactions (seen in the history tab) received.
     description: str | None
     script_type: ScriptType
@@ -230,7 +230,7 @@ class PaymentRequestRow(NamedTuple):
 class PaymentRequestUpdateRow(NamedTuple):
     state: PaymentFlag
     value: int | None
-    expiration: int | None
+    date_expires: int | None
     description: str | None
     merchant_reference: str | None
     paymentrequest_id: int

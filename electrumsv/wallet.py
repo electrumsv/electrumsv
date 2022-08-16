@@ -1149,7 +1149,7 @@ class AbstractAccount:
         # We need to convert it to a "read row" to pass to the web socket.
         assert row.paymentrequest_id is not None
         read_row = PaymentRequestReadRow(row.paymentrequest_id, row.keyinstance_id, row.state,
-            row.requested_value, 0, row.expiration, row.description, row.script_type,
+            row.requested_value, 0, row.date_expires, row.description, row.script_type,
             row.pushdata_hash, row.server_id, row.dpp_invoice_id, row.merchant_reference,
             row.encrypted_key_text, row.date_created)
         self._wallet.register_outstanding_invoice(read_row, password)
@@ -4598,8 +4598,8 @@ class Wallet:
                     },
                 }}
         }
-        if pr_row.expiration is not None:
-            payment_terms_data['expirationTimestamp'] = pr_row.expiration
+        if pr_row.date_expires is not None:
+            payment_terms_data['expirationTimestamp'] = pr_row.date_expires
         payment_terms_json = json.dumps(payment_terms_data)
 
         credential_id, _secure_public_key = self._dpp_invoice_credentials[pr_row.dpp_invoice_id]
@@ -4726,7 +4726,7 @@ class Wallet:
                 new_state = pr_row.state & ~PaymentFlag.MASK_DPP_STATE_MACHINE | new_state_flag
                 pr_row = pr_row._replace(state=new_state)
                 update_row = PaymentRequestUpdateRow(new_state, pr_row.requested_value,
-                    pr_row.expiration, pr_row.description, pr_row.merchant_reference,
+                    pr_row.date_expires, pr_row.description, pr_row.merchant_reference,
                     pr_row.paymentrequest_id)
                 await self.data.update_payment_requests_async([ update_row ])
 

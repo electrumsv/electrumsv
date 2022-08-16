@@ -141,9 +141,10 @@ def create_payment_requests_write(entries: list[PaymentRequestRow],
         db: Optional[sqlite3.Connection]=None) -> list[PaymentRequestRow]:
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql_prefix = "INSERT INTO PaymentRequests (paymentrequest_id, keyinstance_id, state, " \
-        "value, expiration, description, script_type, pushdata_hash, server_id, dpp_invoice_id, " \
-        "merchant_reference, encrypted_key_text, date_created, date_updated) VALUES"
-    sql_suffix = "RETURNING paymentrequest_id, keyinstance_id, state, value, expiration, " \
+        "value, date_expires, description, script_type, pushdata_hash, server_id, " \
+        "dpp_invoice_id, merchant_reference, encrypted_key_text, date_created, date_updated) " \
+        "VALUES"
+    sql_suffix = "RETURNING paymentrequest_id, keyinstance_id, state, value, date_expires, " \
         "description, script_type, pushdata_hash, server_id, dpp_invoice_id, merchant_reference, " \
         "encrypted_key_text, date_created, date_updated"
     return bulk_insert_returning(PaymentRequestRow, db, sql_prefix, sql_suffix, entries)
@@ -850,7 +851,7 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
         )
 
         SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value,
-            KP.total_value, PR.expiration, PR.description, PR.script_type, PR.pushdata_hash,
+            KP.total_value, PR.date_expires, PR.description, PR.script_type, PR.pushdata_hash,
             PR.server_id, PR.dpp_invoice_id, PR.merchant_reference, PR.encrypted_key_text,
             PR.date_created
         FROM PaymentRequests PR
@@ -889,7 +890,7 @@ def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None
         sql = sql.format("")
     sql += """
         SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.value, KP.total_value,
-            PR.expiration, PR.description, PR.script_type, PR.pushdata_hash, PR.server_id,
+            PR.date_expires, PR.description, PR.script_type, PR.pushdata_hash, PR.server_id,
             PR.dpp_invoice_id, PR.merchant_reference, PR.encrypted_key_text, PR.date_created
         FROM PaymentRequests PR
         INNER JOIN key_payments KP USING(keyinstance_id)
@@ -1029,7 +1030,7 @@ def read_unregistered_tip_filter_pushdatas(db: sqlite3.Connection) -> list[tuple
     #     disallow that for now. It is not likely we will ever support it.
     # TODO(petty-cash) This should likely limit results to a given petty cash account
     sql = """
-        SELECT PR.pushdata_hash, PR.expiration, PR.keyinstance_id
+        SELECT PR.pushdata_hash, PR.date_expires, PR.keyinstance_id
         FROM PaymentRequests PR
         INNER JOIN KeyInstances KI ON KI.keyinstance_id=PR.keyinstance_id
         LEFT JOIN ServerPushDataRegistrations PDR ON KI.keyinstance_id=PDR.keyinstance_id
@@ -2238,7 +2239,7 @@ async def close_paid_payment_requests_async(db_context: DatabaseContext) \
 def update_payment_requests_write(entries: Iterable[PaymentRequestUpdateRow],
         db: sqlite3.Connection | None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
-    sql = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, expiration=?, "
+    sql = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, date_expires=?, "
         "description=?, merchant_reference=? WHERE paymentrequest_id=?")
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]

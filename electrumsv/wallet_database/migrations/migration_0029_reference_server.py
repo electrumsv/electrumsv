@@ -229,7 +229,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             keyinstance_id              INTEGER     NOT NULL,
             state                       INTEGER     NOT NULL,
             description                 TEXT        NULL,
-            expiration                  INTEGER     NULL,
+            date_expires                INTEGER     NULL,
             value                       INTEGER     NULL,
             script_type                 INTEGER     NOT NULL,
             pushdata_hash               BLOB        NOT NULL,
@@ -288,13 +288,16 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         else:
             raise NotImplementedError(f"Unexpected key type {keyinstance_row}")
 
+        # Expiration dates went from a relative number of seconds from `date_created` to the
+        # absolute expiry date.
         conn.execute("""
             INSERT INTO PaymentRequests2 (paymentrequest_id, keyinstance_id,
-                state, description, expiration, value, script_type, pushdata_hash,
+                state, description, date_expires, value, script_type, pushdata_hash,
                 server_id, dpp_invoice_id, merchant_reference, encrypted_key_text, date_created,
                 date_updated)
             SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.description,
-                PR.expiration, PR.value, ?1, ?2, NULL, NULL, NULL, NULL, PR.date_created,
+                CASE WHEN PR.expiration IS NULL THEN NULL ELSE PR.date_created + PR.expiration END,
+                PR.value, ?1, ?2, NULL, NULL, NULL, NULL, PR.date_created,
                 PR.date_updated
             FROM PaymentRequests AS PR
             WHERE paymentrequest_id=?

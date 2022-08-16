@@ -225,7 +225,7 @@ class ReceiveDialog(QDialog):
             self._timer.stop()
             self._timer = None
         if expiry_timestamp is not None:
-            interval_ms = (int(get_posix_timestamp()) - expiry_timestamp) * 1000
+            interval_ms = (expiry_timestamp - int(time.time())) * 1000
             if interval_ms > 0:
                 self._timer = QTimer(self)
                 self._timer.setSingleShot(True)
@@ -398,15 +398,7 @@ class ReceiveDialog(QDialog):
         if self._key_data is None:
             return
 
-        if self._request_type == PaymentFlag.MONITORED:
-            if self._request_row is None:
-                script_type = self._account.get_default_script_type()
-            else:
-                script_type = self._request_row.script_type
-
-            self.update_script_type(script_type)
-
-        else:
+        if self._request_type == PaymentFlag.INVOICE:
             assert self._request_row is not None
             assert self._request_row.server_id is not None
             assert self._request_row.dpp_invoice_id is not None
@@ -417,6 +409,12 @@ class ReceiveDialog(QDialog):
             payment_url = f"pay:?r={server_url}api/v1/payment/sec/" \
                 f"{self._request_row.dpp_invoice_id}&pk={secure_public_key.to_hex(compressed=True)}"
             self._receive_destination_edit.setText(payment_url)
+        else:
+            if self._request_row is None:
+                script_type = self._account.get_default_script_type()
+            else:
+                script_type = self._request_row.script_type
+            self.update_script_type(script_type)
 
     def update_script_type(self, script_type: ScriptType) -> None:
         """
@@ -460,7 +458,7 @@ class ReceiveDialog(QDialog):
                 self._qr_window.set_content(self._receive_destination_edit.text(), amount,
                     message, payment_url)
 
-        elif self._request_type & PaymentFlag.MONITORED == PaymentFlag.MONITORED:
+        else:
             script_template = self._account.get_script_template_for_derivation(
                 self._account.get_default_script_type(),
                 self._key_data.derivation_type, self._key_data.derivation_data2)
@@ -547,10 +545,9 @@ class ReceiveDialog(QDialog):
             elif self._request_type == PaymentFlag.IMPORTED:
                 status_text = IMPORTING_IN_PROGRESS_STATUS_TEXT
                 enable_import_button = True
-                if self._request_row.expiration:
-                    current_timestamp = int(get_posix_timestamp())
-                    expiry_timestamp = self._request_row.date_created + self._request_row.expiration
-                    if expiry_timestamp <= current_timestamp:
+                if self._request_row.date_expires:
+                    expiry_timestamp = self._request_row.date_expires
+                    if expiry_timestamp <= int(time.time()):
                         status_text = IMPORTING_EXPIRED_TEXT
                         enable_import_button = False
             elif self._request_type == PaymentFlag.INVOICE:
@@ -708,11 +705,11 @@ class ReceiveDialog(QDialog):
                             indexing_server_state.connection_flags & \
                                 ServerConnectionFlag.TIP_FILTER_READY != 0:
                         assert self._request_row is not None
-                        assert self._request_row.expiration is not None
+                        assert self._request_row.date_expires is not None
                         assert self._tip_filter_registration_job is None
                         job = self._tip_filter_registration_job = TipFilterRegistrationJob([
                             TipFilterRegistrationJobEntry(self._request_row.pushdata_hash,
-                            self._request_row.expiration, self._request_row.keyinstance_id) ],
+                            self._request_row.date_expires, self._request_row.keyinstance_id) ],
                             logger=self._logger, paymentrequest_id=self._request_id,
                             refresh_callback=self.refresh_form_signal.emit,
                             completion_callback=self.tip_filter_registration_completed_signal.emit)
@@ -766,7 +763,7 @@ class ReceiveDialog(QDialog):
         #     server registrations if we do support this in the future, we will need to do a
         #     different form of update where it contacts the server and modifies it.
         entries = [ PaymentRequestUpdateRow(self._request_row.state, amount,
-            self._request_row.expiration, your_text, their_text,
+            self._request_row.date_expires, your_text, their_text,
             self._request_row.paymentrequest_id) ]
         future = wallet.data.update_payment_requests(entries)
         future.add_done_callback(callback)
@@ -820,7 +817,8 @@ class ReceiveDialog(QDialog):
             self._attempt_import_transaction(tx, tx_context)
 
     def _on_menu_import_from_text(self) -> None:
-        tx, tx_context = self._main_window_proxy.prompt_obtain_transaction_from_text()
+        tx, tx_context = self._main_window_proxy.prompt_obtain_transaction_from_text(
+            ok_text=_("Import"))
         if tx is not None:
             self._attempt_import_transaction(tx, tx_context)
 

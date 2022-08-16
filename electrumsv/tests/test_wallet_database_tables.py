@@ -1130,7 +1130,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         assert row1.keyinstance_id == row2.keyinstance_id
         assert row1.state == row2.state
         assert row1.requested_value == row2.requested_value
-        assert row1.expiration == row2.expiration
+        assert row1.date_expires == row2.date_expires
         assert row1.description == row2.description
         assert row1.script_type == row2.script_type
         assert row1.pushdata_hash == row2.pushdata_hash
@@ -1220,7 +1220,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert db_line2.requested_value == 20
     assert db_line2.state == PaymentFlag.UNKNOWN
     assert db_line2.description == "newdesc"
-    assert db_line2.expiration == 999
+    assert db_line2.date_expires == 999
 
     # Account does not exist.
     db_lines = db_functions.read_payment_requests(db_context, 1000)

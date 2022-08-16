@@ -176,8 +176,8 @@ class RequestList(MyTreeWidget):
             received_amount_str = app_state.format_amount(row.received_value, whitespaces=True) \
                 if row.received_value else ""
 
-            if flags == PaymentFlag.UNPAID and row.expiration is not None:
-                date_expires = row.date_created + row.expiration
+            if flags == PaymentFlag.UNPAID and row.date_expires is not None:
+                date_expires = row.date_expires
                 if date_expires < current_time + 5:
                     flags = (flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
                 else:
@@ -254,8 +254,8 @@ class RequestList(MyTreeWidget):
 
         URI = create_URI(address_text, req.requested_value, message)
         URI += f"&time={req.date_created}"
-        if req.expiration:
-            URI += f"&exp={req.expiration}"
+        if req.date_expires:
+            URI += f"&exp={req.date_expires}"
         return str(URI)
 
     def _export_payment_request(self, pr_id: int) -> None:

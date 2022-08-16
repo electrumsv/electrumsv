@@ -2218,10 +2218,12 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         if tx is not None:
             self.show_transaction(self._account, tx, tx_context)
 
-    def prompt_obtain_transaction_from_text(self) \
-            -> tuple[Optional[Transaction], Optional[TransactionContext]]:
+    def prompt_obtain_transaction_from_text(self, *, ok_text: str | None=None) \
+            -> tuple[Transaction | None, TransactionContext | None]:
+        if ok_text is None:
+            ok_text = _("View")
         text = text_dialog(self, _('Enter the raw transaction below..'), _("Transaction (hex):"),
-                           _("View"))
+            ok_text)
         if text is not None and len(text) != 0:
             try:
                 raw = bytes.fromhex(text)
@@ -2243,7 +2245,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_transaction(self._account, tx, tx_context)
 
     def prompt_obtain_transaction_from_file(self) \
-            -> tuple[Optional[Transaction], Optional[TransactionContext]]:
+            -> tuple[Transaction | None, TransactionContext | None]:
         try:
             return self.read_tx_from_file()
         except Exception as reason:

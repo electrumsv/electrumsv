@@ -236,12 +236,12 @@ class PaymentTerms:
         script_type = account.get_default_script_type()
         script = account.get_script_for_derivation(script_type, keyinstance.derivation_type,
             keyinstance.derivation_data2)
-        date_expiry = None
-        if pr.expiration is not None:
-            date_expiry = pr.date_created + pr.expiration
+        date_expires = None
+        if pr.date_expires is not None:
+            date_expires = pr.date_expires
         outputs = [ Output(script, pr.requested_value) ]
         return cls(outputs, "1.0", creation_timestamp=pr.date_created,
-            expiration_timestamp=date_expiry, memo=pr.description)
+            expiration_timestamp=date_expires, memo=pr.description)
 
     @classmethod
     def from_json(cls, s: Union[bytes, str]) -> PaymentTerms:
