@@ -58,12 +58,6 @@ REQUEST_HEADERS = {
     'User-Agent': 'ElectrumSV'
 }
 
-ACK_HEADERS = {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    'User-Agent': 'ElectrumSV'
-}
-
 # BIP 270 - Simplified Payment Protocol
 # https://github.com/electrumsv/bips/blob/master/bip-0270.mediawiki
 
@@ -398,65 +392,6 @@ class PaymentTerms:
 
     def get_outputs(self) -> List[XTxOutput]:
         return [output.to_tx_output() for output in self.outputs]
-
-    def send_payment(self, account: 'AbstractAccount', transaction_hex: str) -> bool:
-        self.error = None
-        if not self.payment_url:
-            self.error = _("No URL")
-            return False
-
-        payment_memo = "Paid using ElectrumSV"
-        payment = Payment(transaction_hex=transaction_hex, memo=payment_memo)
-        assert self.payment_url is not None
-
-        logger.debug(f"Payment url: {self.payment_url}")
-        response = self._make_request(self.payment_url, payment.to_json())
-        if response.get_status_code() not in (200, 201, 202):
-            # Propagate 'Bad request' (HTTP 400) messages to the user since they
-            # contain valuable information.
-            if response.get_status_code() == 400:
-                self.error = f"{response.get_reason()}: {response.get_content().decode('UTF-8')}"
-                return False
-            # Some other errors might display an entire HTML document.
-            # Hide those and just display the name of the error code.
-            self.error = response.get_reason()
-            return False
-
-        ack_json = response.get_content()
-        ack_data = json.loads(ack_json)
-
-        # Handcash response.
-        # https://handcash.github.io/handcash-merchant-integration/#/merchant-payments?id=examples
-        if "success" in ack_data and ack_data["success"] is True:
-            return True
-
-        # BIP270 response.
-        try:
-            payment_ack = PaymentACK.from_json(ack_json)
-        except Bip270Exception as e:
-            self.error = e.args[0]
-            return False
-
-        logger.debug("PaymentACK message received: %s", payment_ack.to_json())
-        return True
-
-    # The following function and classes is abstracted to allow unit testing.
-    def _make_request(self, url: str, message: str) -> "_RequestsResponseWrapper":
-        r = requests.post(url, data=message, headers=ACK_HEADERS)
-        return self._RequestsResponseWrapper(r)
-
-    class _RequestsResponseWrapper:
-        def __init__(self, response: requests.Response) -> None:
-            self._response = response
-
-        def get_status_code(self) -> int:
-            return self._response.status_code
-
-        def get_reason(self) -> str:
-            return self._response.reason
-
-        def get_content(self) -> bytes:
-            return self._response.content
 
 
 class Payment:

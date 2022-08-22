@@ -1199,7 +1199,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     db = db_context.acquire_connection()
     try:
         closed_request_ids, updated_key_rows, transaction_description_update_rows = \
-            db_functions._close_paid_payment_requests(db)
+            db_functions.close_paid_payment_requests(db)
     finally:
         db_context.release_connection(db)
     assert closed_request_ids == { line2.paymentrequest_id }
@@ -1293,8 +1293,9 @@ def test_table_walletevents_CRUD(db_context: DatabaseContext) -> None:
     assert 1 == len(db_lines)
 
 
+@pytest.mark.asyncio
 @unittest.mock.patch('electrumsv.wallet_database.functions.get_posix_timestamp')
-def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: DatabaseContext) -> None:
+async def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: DatabaseContext) -> None:
     mock_get_posix_timestamp.side_effect = lambda: 111
 
     db_lines = db_functions.read_invoices_for_account(db_context, 1)
@@ -1445,9 +1446,8 @@ def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: DatabaseContex
     assert row is not None
     assert row.description == "newdesc3.2"
 
-    future = db_functions.update_invoice_flags(db_context,
+    await db_context.run_in_thread_async(db_functions.update_invoice_flags,
         [ (PaymentFlag.NOT_ARCHIVED, PaymentFlag.ARCHIVED, line3_2.invoice_id), ])
-    future.result()
 
     # Verify the invoice now has the new description.
     row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)

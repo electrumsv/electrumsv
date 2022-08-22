@@ -67,7 +67,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
-from .dpp_messages import HYBRID_PAYMENT_MODE_BRFCID, Payment
+from .dpp_messages import HYBRID_PAYMENT_MODE_BRFCID, Payment, PaymentACK
 from .exceptions import (BroadcastError, ExcessiveFee, InvalidPassword, NotEnoughFunds,
     PreviousTransactionsMissingException, ServerConnectionError, UnsupportedAccountTypeError,
     UnsupportedScriptTypeError, UserCancelled, WalletLoadError)
@@ -78,6 +78,7 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
+from .network_support.direct_payments import send_outgoing_direct_payment_async
 from .network_support.dpp_proxy import _is_later_dpp_message_sequence, \
     create_dpp_server_connection_async, create_dpp_server_connections_async, \
     dpp_websocket_send, find_connectable_dpp_server, \
@@ -93,6 +94,8 @@ from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_
 from .network_support.types import GenericPeerChannelMessage, ServerConnectionProblems, \
     ServerConnectionState, TipFilterPushDataMatchesData
 from .networks import Net
+from .restapi_websocket import broadcast_restapi_event_async, BroadcastEventNames, \
+    close_restapi_connection_async
 from .standards.electrum_transaction_extended import transaction_from_electrumsv_dict
 from .standards.json_envelope import JSONEnvelope, pack_json_envelope, validate_json_envelope
 from .standards.mapi import MAPICallbackResponse, validate_mapi_callback_response
@@ -135,7 +138,7 @@ if TYPE_CHECKING:
     from .gui.qt.util import WindowProtocol
     from .network import Network
     from .network_support.headers import HeaderServerState
-    from .restapi_endpoints import LocalWebsocketState
+    from .restapi_websocket import LocalWebsocketState
 
 
 logger = logs.get_logger("wallet")
@@ -1121,6 +1124,7 @@ class AbstractAccount:
         rows = await self._wallet.data.create_payment_requests_async([ row ])
         self._wallet.events.trigger_callback(WalletEvent.KEYS_UPDATE, self._id,
             [ row.keyinstance_id for row in rows ])
+
         return rows, key_data
 
     async def create_hosted_invoice_async(self, amount_satoshis: int, date_expires: int,
@@ -1815,9 +1819,9 @@ class WalletDataAccess:
             -> concurrent.futures.Future[None]:
         return db_functions.update_invoice_descriptions(self._db_context, entries)
 
-    def update_invoice_flags(self, entries: Iterable[tuple[PaymentFlag, PaymentFlag, int]]) \
-            -> concurrent.futures.Future[None]:
-        return db_functions.update_invoice_flags(self._db_context, entries)
+    async def update_invoice_flags_async(self,
+            entries: Iterable[tuple[PaymentFlag, PaymentFlag, int]]) -> None:
+        await self._db_context.run_in_thread_async(db_functions.update_invoice_flags, entries)
 
     def delete_invoices(self, entries: Iterable[tuple[int]]) -> concurrent.futures.Future[None]:
         return db_functions.delete_invoices(self._db_context, entries)
@@ -1968,6 +1972,11 @@ class WalletDataAccess:
         return db_functions.read_payment_requests(self._db_context, account_id, flags,
             mask, server_id)
 
+    async def read_payment_request_transactions_hashes_async(self, paymentrequest_ids: list[int]) \
+            -> dict[int, list[bytes]]:
+        return await self._db_context.run_in_thread_async(
+            db_functions.read_payment_request_transactions_hashes, paymentrequest_ids)
+
     def read_registered_tip_filter_pushdata_for_request(self, request_id: int) \
             -> Optional[PushDataHashRegistrationRow]:
         return db_functions.read_registered_tip_filter_pushdata_for_request(self._db_context,
@@ -1981,6 +1990,14 @@ class WalletDataAccess:
             -> None:
         await self._db_context.run_in_thread_async(
             db_functions.update_payment_requests_write, entries)
+
+    async def close_paid_payment_requests_async(self) \
+            -> tuple[set[int], list[tuple[int, int, int]], list[tuple[str, int, bytes]]]:
+        """
+        Wrap the database operations required to link a transaction so the processing is
+        offloaded to the SQLite writer thread while this task is blocked.
+        """
+        return await self._db_context.run_in_thread_async(db_functions.close_paid_payment_requests)
 
     # Peer channels.
 
@@ -2288,6 +2305,11 @@ class Wallet:
         self._transaction_lock = threading.RLock()
         # Guards per-transaction locks to limit blocking to per-transaction activity.
         self._transaction_locks: dict[bytes, tuple[threading.RLock, int]] = {}
+
+        self.events.register_callback(self._event_payment_requests_paid,
+            [ WalletEvent.PAYMENT_REQUEST_PAID ])
+        self.events.register_callback(self._event_transaction_verified,
+            [ WalletEvent.TRANSACTION_VERIFIED ])
 
         self.load_state()
 
@@ -3406,12 +3428,13 @@ class Wallet:
         keys. It will mark those as `PAID` and it will remove the flag on the keys that
         identifies them as used in a payment request.
         """
-        paymentrequest_ids, key_update_rows, transaction_description_update_rows = \
-            await db_functions.close_paid_payment_requests_async(self.get_db_context())
+        paymentrequest_ids_set, key_update_rows, transaction_description_update_rows = \
+            await self.data.close_paid_payment_requests_async()
+        paymentrequest_ids = list(paymentrequest_ids_set)
 
         # Notify any dependent systems including the GUI that payment requests have updated.
-        if len(paymentrequest_ids):
-            self.events.trigger_callback(WalletEvent.PAYMENT_REQUEST_PAID, list(paymentrequest_ids))
+        if len(paymentrequest_ids_set):
+            self.events.trigger_callback(WalletEvent.PAYMENT_REQUEST_PAID, paymentrequest_ids)
 
         # Unsubscribe from any deactivated keys.
         account_keyinstance_ids = dict[int, set[int]]()
@@ -3428,7 +3451,7 @@ class Wallet:
             self.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE,
                 transaction_description_update_rows)
 
-        return paymentrequest_ids, key_update_rows, transaction_description_update_rows
+        return paymentrequest_ids_set, key_update_rows, transaction_description_update_rows
 
     def read_bip32_keys_gap_size(self, account_id: int, masterkey_id: int, prefix_bytes: bytes) \
             -> int:
@@ -3926,23 +3949,80 @@ class Wallet:
         self._restapi_connections: dict[str, LocalWebsocketState] = {}
 
     def setup_restapi_connection(self, websocket_state: LocalWebsocketState) -> bool:
+        "Register a new external REST API websocket connection for this wallet."
         if self._stopping or self._stopped:
             return False
         self._restapi_connections[websocket_state.websocket_id] = websocket_state
         return True
 
     def teardown_restapi_connection(self, websocket_id: str) -> None:
+        "Unregister an existing external REST API websocket connection for this wallet."
         del self._restapi_connections[websocket_id]
 
     async def _close_restapi_connections_async(self) -> None:
-        # NOTE(local-import) Avoid circular imports.
-        from .restapi_endpoints import close_restapi_connection_async
-
+        "Shutdown all external REST API websocket connections for this wallet."
         for websocket_state1 in list(self._restapi_connections.values()):
             # We only close the connection if it is still open (this loop blocks).
             websocket_state2 = self._restapi_connections.pop(websocket_state1.websocket_id)
             if websocket_state2 is not None:
                 await close_restapi_connection_async(websocket_state1)
+
+    async def send_outgoing_direct_payment_async(self, invoice_id: int,
+            transaction: Transaction) -> PaymentACK:
+        """
+        Raises `Bip270Exception` if the remote server returned an error. `exception.args[0]`
+            contains text describing the error.
+        """
+        assert self._network is not None
+        invoice_row = self.data.read_invoice(invoice_id=invoice_id)
+        assert invoice_row is not None
+        # Calling logic should have detected this and warned/confirmed with the user.
+        transaction_hash = transaction.hash()
+        assert transaction_hash == invoice_row.tx_hash
+
+        payment_ack = await send_outgoing_direct_payment_async(
+            invoice_row.payment_uri, transaction.to_hex())
+
+        await self.data.update_invoice_flags_async(
+            [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
+        await self.notify_external_listeners_async("outgoing-payment-delivered",
+            invoice_id=invoice_id)
+
+        return payment_ack
+
+    def _event_transaction_verified(self, event_name: str, transaction_hash: bytes, header: Header,
+            tsc_proof: TSCMerkleProof) -> None:
+        # NOTE(rt12) The `TriggeredEvents` mechanic has no async capabilities so we do this for now.
+        app_state.async_.spawn(self._event_transaction_verified_async(transaction_hash, header,
+            tsc_proof))
+
+    async def _event_transaction_verified_async(self, transaction_hash: bytes, header: Header,
+            tsc_proof: TSCMerkleProof) -> None:
+        await self.notify_external_listeners_async("transaction-mined",
+            transaction_hash=transaction_hash, header=header, tsc_proof=tsc_proof)
+
+    def _event_payment_requests_paid(self, event_name: str, paymentrequest_ids: list[int]) -> None:
+        # NOTE(rt12) The `TriggeredEvents` mechanic has no async capabilities so we do this for now.
+        app_state.async_.spawn(self._event_payment_requests_paid_async(paymentrequest_ids))
+
+    async def _event_payment_requests_paid_async(self, paymentrequest_ids: list[int]) -> None:
+        transaction_ids_by_request_id = \
+            await self.data.read_payment_request_transactions_hashes_async(paymentrequest_ids)
+        await self.notify_external_listeners_async("incoming-payment-received",
+            request_payment_hashes=list(transaction_ids_by_request_id.items()))
+
+    async def notify_external_listeners_async(self, event_name: BroadcastEventNames, *,
+            request_payment_hashes: list[tuple[int, list[bytes]]] | None = None,
+            invoice_id: int | None = None, transaction_hash: bytes | None = None,
+            header: Header | None = None, tsc_proof: TSCMerkleProof | None = None) -> None:
+        """
+        This is used for broadcasts to any external connections for this wallet. The responsibility
+        is on the external connection type to transform the raw wallet data into the outgoing data
+        structures it sends to connected parties.
+        """
+        for websocket_state in list(self._restapi_connections.values()):
+            await broadcast_restapi_event_async(websocket_state, event_name, request_payment_hashes,
+                invoice_id, transaction_hash, header, tsc_proof)
 
     def _process_outstanding_invoices(self, password: str) -> None:
         self._dpp_invoice_credentials: dict[str, tuple[IndefiniteCredentialId, PublicKey]] = {}

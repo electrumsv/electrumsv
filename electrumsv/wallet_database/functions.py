@@ -840,6 +840,26 @@ def read_parent_transaction_outputs_with_key_data(db: sqlite3.Connection, tx_has
 
 
 @replace_db_context_with_connection
+def read_payment_request_transactions_hashes(db: sqlite3.Connection,
+        paymentrequest_ids: list[int]) -> dict[int, list[bytes]]:
+    sql = """
+    SELECT DISTINCT PR.paymentrequest_id, TXO.tx_hash
+    FROM KeyInstances KI
+    INNER JOIN PaymentRequests PR ON PR.keyinstance_id=KI.keyinstance_id
+    LEFT JOIN TransactionOutputs TXO ON KI.keyinstance_id=TXO.keyinstance_id
+    WHERE PR.paymentrequest_id IN ({}) AND TXO.tx_hash IS NOT NULL
+    """
+    transaction_hashes_by_paymentrequest_id: dict[int, list[bytes]] = {}
+    # NOTE(typing) Type application has too many types (1 expected)
+    for row in read_rows_by_id(tuple[int, bytes], db, sql, (), # type: ignore[misc]
+            paymentrequest_ids):
+        if row[0] not in transaction_hashes_by_paymentrequest_id:
+            transaction_hashes_by_paymentrequest_id[row[0]] = []
+        transaction_hashes_by_paymentrequest_id[row[0]].append(row[1])
+    return transaction_hashes_by_paymentrequest_id
+
+
+@replace_db_context_with_connection
 def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=None,
         keyinstance_id: Optional[int]=None) -> Optional[PaymentRequestReadRow]:
     sql = """
@@ -1991,17 +2011,14 @@ def update_invoice_descriptions(db_context: DatabaseContext,
     return db_context.post_to_thread(_write)
 
 
-def update_invoice_flags(db_context: DatabaseContext,
-        entries: Iterable[tuple[PaymentFlag, PaymentFlag, int]]) -> concurrent.futures.Future[None]:
-    sql = ("UPDATE Invoices SET date_updated=?, "
-            "invoice_flags=((invoice_flags&?)|?) "
-        "WHERE invoice_id=?")
-    timestamp = get_posix_timestamp()
+def update_invoice_flags(entries: Iterable[tuple[PaymentFlag, PaymentFlag, int]],
+        db: sqlite3.Connection | None=None) -> None:
+    assert db is not None
+    sql = "UPDATE Invoices SET date_updated=?, invoice_flags=(invoice_flags&?)|? " \
+        "WHERE invoice_id=?"
+    timestamp = int(time.time())
     rows = [ (timestamp, *entry) for entry in entries ]
-    def _write(db: Optional[sqlite3.Connection]=None) -> None:
-        assert db is not None and isinstance(db, sqlite3.Connection)
-        db.executemany(sql, rows)
-    return db_context.post_to_thread(_write)
+    db.executemany(sql, rows)
 
 
 def update_keyinstance_derivation_datas(db_context: DatabaseContext,
@@ -2159,7 +2176,7 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
     return db_context.post_to_thread(_write)
 
 
-def _close_paid_payment_requests(db: Optional[sqlite3.Connection]=None) \
+def close_paid_payment_requests(db: Optional[sqlite3.Connection]=None) \
         -> tuple[set[int], list[tuple[int, int, int]], list[tuple[str, int, bytes]]]:
     assert db is not None and isinstance(db, sqlite3.Connection)
     timestamp = get_posix_timestamp()
@@ -2225,15 +2242,6 @@ def _close_paid_payment_requests(db: Optional[sqlite3.Connection]=None) \
         txdesc_rows = db.execute(sql_write_3b, list(paymentrequest_ids)).fetchall()
 
     return paymentrequest_ids, keyinstance_rows, txdesc_rows
-
-
-async def close_paid_payment_requests_async(db_context: DatabaseContext) \
-        -> tuple[set[int], list[tuple[int, int, int]], list[tuple[str, int, bytes]]]:
-    """
-    Wrap the database operations required to link a transaction so the processing is
-    offloaded to the SQLite writer thread while this task is blocked.
-    """
-    return await db_context.run_in_thread_async(_close_paid_payment_requests)
 
 
 def update_payment_requests_write(entries: Iterable[PaymentRequestUpdateRow],

@@ -234,7 +234,7 @@ async def test_create_wallet_async_success_encrypted_seed(app_state_restapi: App
 @unittest.mock.patch(
     'electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state')
 @unittest.mock.patch('electrumsv.wallet.app_state')
-@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
+@unittest.mock.patch('electrumsv.restapi.app_state')
 async def test_create_account_async_success(app_state_restapi: AppStateProxy,
         app_state_wallet: AppStateProxy, app_state_migration: AppStateProxy,
         app_state_keystore: AppStateProxy, tmp_path: Path) -> None:
@@ -285,7 +285,7 @@ async def test_create_account_async_success(app_state_restapi: AppStateProxy,
 @unittest.mock.patch(
     'electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state')
 @unittest.mock.patch('electrumsv.wallet.app_state')
-@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
+@unittest.mock.patch('electrumsv.restapi.app_state')
 async def test_create_account_async_fail_no_wallet(app_state_restapi: AppStateProxy,
         app_state_wallet: AppStateProxy, app_state_migration: AppStateProxy,
         app_state_keystore: AppStateProxy, tmp_path: Path) -> None:
@@ -371,7 +371,7 @@ async def test_create_account_async_bad_wallet_id(app_state_restapi: AppStatePro
 @unittest.mock.patch(
     'electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state')
 @unittest.mock.patch('electrumsv.wallet.app_state')
-@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
+@unittest.mock.patch('electrumsv.restapi.app_state')
 async def test_create_account_async_fail_wallet_password(app_state_restapi: AppStateProxy,
         app_state_wallet: AppStateProxy, app_state_migration: AppStateProxy,
         app_state_keystore: AppStateProxy, tmp_path: Path) -> None:
@@ -424,7 +424,7 @@ async def test_create_account_async_fail_wallet_password(app_state_restapi: AppS
 @unittest.mock.patch(
     'electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state')
 @unittest.mock.patch('electrumsv.wallet.app_state')
-@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
+@unittest.mock.patch('electrumsv.restapi.app_state')
 async def test_create_hosted_invoice_async_success(app_state_restapi: AppStateProxy,
         app_state_wallet: AppStateProxy, app_state_migration: AppStateProxy,
         app_state_keystore: AppStateProxy, tmp_path: Path) -> None:
@@ -484,7 +484,7 @@ async def test_create_hosted_invoice_async_success(app_state_restapi: AppStatePr
 
     invoice_data = json.loads(cast(bytes, response.body))
     assert len(invoice_data) == 3
-    assert "id" in invoice_data
+    assert "incoming_payment_id" in invoice_data
     assert "payment_url" in invoice_data
     assert "public_key_hex" in invoice_data
 
@@ -492,7 +492,7 @@ async def test_create_hosted_invoice_async_success(app_state_restapi: AppStatePr
 @unittest.mock.patch(
     'electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state')
 @unittest.mock.patch('electrumsv.wallet.app_state')
-@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
+@unittest.mock.patch('electrumsv.restapi.app_state')
 async def test_create_hosted_invoice_async_fail_no_servers(app_state_restapi: AppStateProxy,
         app_state_wallet: AppStateProxy, app_state_migration: AppStateProxy,
         app_state_keystore: AppStateProxy, tmp_path: Path) -> None:
@@ -547,7 +547,7 @@ async def test_create_hosted_invoice_async_fail_no_servers(app_state_restapi: Ap
 @unittest.mock.patch(
     'electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state')
 @unittest.mock.patch('electrumsv.wallet.app_state')
-@unittest.mock.patch('electrumsv.restapi_endpoints.app_state')
+@unittest.mock.patch('electrumsv.restapi.app_state')
 async def test_create_hosted_invoice_async_fail_connect_timeout(app_state_restapi: AppStateProxy,
         app_state_wallet: AppStateProxy, app_state_migration: AppStateProxy,
         app_state_keystore: AppStateProxy, tmp_path: Path) -> None:

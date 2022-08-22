@@ -1,5 +1,6 @@
+from __future__ import annotations
 import asyncio
-from typing import Awaitable, Callable
+from typing import Awaitable, cast, Callable, TYPE_CHECKING
 
 from base64 import b64decode
 from aiohttp import web
@@ -8,7 +9,12 @@ from aiohttp_middlewares import cors_middleware # type: ignore
 
 from .logs import logs
 from .app_state import app_state, AppStateProxy
+from .networks import Net, NetworkNames
 from .util import constant_time_compare
+
+if TYPE_CHECKING:
+    from .wallet import AbstractAccount, Wallet
+
 
 # Supported networks in restapi url
 MAINNET = 'main'
@@ -34,8 +40,58 @@ def get_network_type() -> str:
         return MAINNET
 
 
-class BaseAiohttpServer:
+def check_network_for_request(request: web.Request) -> None:
+    network = cast(NetworkNames, request.match_info.get("network"))
+    if network == "mainnet":
+        is_valid = Net.is_mainnet()
+    elif network == "testnet":
+        is_valid = Net.is_testnet()
+    elif network == "scalingtestnet":
+        is_valid = Net.is_scaling_testnet()
+    elif network == "regtest":
+        is_valid = Net.is_regtest()
+    else:
+        raise web.HTTPBadRequest(reason=f"URL 'network' value '{network}' unrecognised")
 
+    if not is_valid:
+        raise web.HTTPBadRequest(reason=f"URL 'network' value '{network}' incorrect")
+
+def get_wallet_from_request(request: web.Request) -> Wallet:
+    wallet_id_text = request.match_info.get("wallet")
+    if wallet_id_text is None:
+        raise web.HTTPBadRequest(reason="URL 'wallet' not specified in URL")
+
+    try:
+        wallet_id = int(wallet_id_text)
+    except ValueError:
+        raise web.HTTPBadRequest(reason="URL 'wallet' value invalid")
+
+    wallet = app_state.daemon.get_wallet_by_id(wallet_id)
+    if wallet is None:
+        raise web.HTTPBadRequest(reason=f"Wallet with ID '{wallet_id}' not currently loaded")
+
+    return wallet
+
+def get_account_from_request(request: web.Request) -> tuple[Wallet, AbstractAccount]:
+    wallet = get_wallet_from_request(request)
+
+    account_id_text = request.match_info.get("account")
+    if account_id_text is None:
+        raise web.HTTPBadRequest(reason="URL 'account' not specified in URL")
+
+    try:
+        account_id = int(account_id_text)
+    except ValueError:
+        raise web.HTTPBadRequest(reason="URL 'account' value invalid")
+
+    account = wallet.get_account(account_id)
+    if account is None:
+        raise web.HTTPBadRequest(reason=f"Wallet does not have an account with ID '{account_id}'")
+
+    return wallet, account
+
+
+class BaseAiohttpServer:
     def __init__(self, host: str = "localhost", port: int = 9999) -> None:
         self.runner: web.AppRunner | None = None
         self.is_alive = False

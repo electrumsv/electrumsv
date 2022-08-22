@@ -121,7 +121,7 @@ This column stores the block hash for the block the transaction was mined in. It
 is a matching row to the transaction hash and block hash in the `TransactionProofs` table.
 
 `block_height` / `block_position`
-!!!!!!!!!!!!!!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
 These columns are intended to track the block height and block position of a transaction, once
 it has been mined, into the long term future. In theory, it is possible to map the block hash and

@@ -10,6 +10,7 @@ import unittest.mock
 from bitcoinx import Chain, double_sha256, Header, hex_str_to_hash, MissingHeader, Ops, Script
 import pytest
 
+from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import (AccountFlags, BlockHeight, CHANGE_SUBPATH, DATABASE_EXT,
     DerivationType, DatabaseKeyDerivationType, KeystoreTextType,
     MasterKeyFlags, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
@@ -1480,3 +1481,20 @@ def test_lookup_header_for_hash(app_state) -> None:
     wallet._current_chain = cast(Chain, fake_chain1)
     fake_chain1.common_chain_and_height = common_chain_and_height_is_1
     assert wallet.lookup_header_for_hash(block_hash) == (fake_header2, fake_chain1)
+
+
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
+async def test_close_paid_payment_requests_async_notifies(app_state: AppStateProxy) -> None:
+    app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+
+    mock_storage = cast(WalletStorage, MockStorage("password"))
+    wallet = Wallet(mock_storage)
+    wallet.data = unittest.mock.Mock()
+    async def fake_close_paid_payment_requests_async() -> tuple[set[int], list[Any], list[Any]]:
+        return { 1 }, [], []
+    wallet.data.close_paid_payment_requests_async.side_effect = \
+        fake_close_paid_payment_requests_async
+
+    wallet._event_payment_requests_paid_async = unittest.mock.AsyncMock()
+    await wallet._close_paid_payment_requests_async()
+    wallet._event_payment_requests_paid_async.assert_called_once_with([ 1 ])

@@ -49,7 +49,7 @@ from PyQt6.QtWidgets import (QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QM
 
 from ...app_state import app_state
 from ...constants import MAX_VALUE, NetworkServerFlag, PaymentFlag, TransactionImportFlag
-from ...exceptions import ExcessiveFee, NotEnoughFunds
+from ...exceptions import Bip270Exception, ExcessiveFee, NotEnoughFunds
 from ...i18n import _
 from ...logs import logs
 from ...dpp_messages import has_expired, PaymentTerms
@@ -84,7 +84,7 @@ class SendView(QWidget):
     """
 
     payment_request_ok_signal = pyqtSignal()
-    payment_request_error_signal = pyqtSignal(int, bytes)
+    payment_request_error_signal = pyqtSignal(int, bytes, str)
     payment_request_import_error_signal = pyqtSignal(object)
     payment_request_imported_signal = pyqtSignal(object)
     payment_request_deleted_signal = pyqtSignal(int)
@@ -619,30 +619,27 @@ class SendView(QWidget):
         invoice_id = self._payment_request.get_id()
         assert invoice_id is not None
 
+        if self._payment_request.has_expired():
+            self.payment_request_error_signal.emit(invoice_id, tx_hash,
+                _("The invoice has expired"))
+            return False
+
+        if not self._payment_request.payment_url:
+            self.payment_request_error_signal.emit(invoice_id, tx_hash, _("This invoice does "
+                "not have a payment URL"))
+            return False
+
         # TODO: Remove the dependence of broadcasting a transaction to pay an invoice on that
         # invoice being active in the send tab. Until then we assume that broadcasting a
         # transaction that is not related to the active invoice and it's repercussions, has
         # been confirmed by the appropriate calling logic. Like `confirm_broadcast_transaction`
         # in the main window logic.
-        invoice_row = self._account._wallet.data.read_invoice(invoice_id=invoice_id)
-        assert invoice_row is not None
-        if tx_hash != invoice_row.tx_hash:
-            # Calling logic should have detected this and warned/confirmed with the user.
+        try:
+            app_state.async_.spawn_and_wait(
+                self._account._wallet.send_outgoing_direct_payment_async(invoice_id, tx))
+        except Bip270Exception as bip270_exception:
+            self.payment_request_error_signal.emit(invoice_id, tx_hash, bip270_exception.args[0])
             return False
-
-        if self._payment_request.has_expired():
-            self._payment_request.error = _("The invoice has expired")
-            self.payment_request_error_signal.emit(invoice_id, tx_hash)
-            return False
-
-        invoice_payment_success = self._payment_request.send_payment(self._account, str(tx))
-        if not invoice_payment_success:
-            self.payment_request_error_signal.emit(invoice_id, tx_hash)
-            return False
-
-        future = self._account._wallet.data.update_invoice_flags(
-            [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
-        future.result()
 
         self._payment_request = None
         # On success we broadcast as well, but it is assumed that the merchant also
@@ -780,15 +777,14 @@ class SendView(QWidget):
         # Update the invoice list.
         self.update_widgets()
 
-    def payment_request_error(self, invoice_id: int, tx_hash: bytes) -> None:
+    def payment_request_error(self, invoice_id: int, tx_hash: bytes, message: str) -> None:
         assert self._payment_request is not None
         # The transaction is still signed and associated with the invoice. This should be
         # indicated to the user in the UI, and they can deal with it.
 
         d = UntrustedMessageDialog(
             self._main_window.reference(), _("Invoice Payment Error"),
-            _("Your payment was rejected for some reason."),
-            untrusted_text=str(self._payment_request.error))
+            _("Your payment was rejected for some reason."), untrusted_text=message)
         d.exec()
 
         self._payment_request = None

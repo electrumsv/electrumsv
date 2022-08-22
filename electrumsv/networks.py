@@ -30,23 +30,16 @@
 # being used by dark coins like Bitcoin Cash.
 
 import json
-from typing import Any, Dict, Optional, Tuple, Type, Union
+from typing import Any, Literal, Type
 
-from bitcoinx import CheckPoint, Bitcoin, BitcoinTestnet, BitcoinScalingTestnet, \
-    BitcoinRegtest
+from bitcoinx import Bitcoin, BitcoinTestnet, BitcoinScalingTestnet, BitcoinRegtest, CheckPoint
 
 from .util import resource_path
 
-BLOCK_HEIGHT_OUT_OF_RANGE_ERROR = -8
 
 
-class NetworkName:
-    MAINNET = 'mainnet'
-    REGTEST = 'regtest'
-    TESTNET = 'testnet'
-    SCALING_TESTNET = 'scalingtestnet'
-
-TEST_NETWORK_NAMES = { NetworkName.REGTEST, NetworkName.TESTNET, NetworkName.SCALING_TESTNET }
+NetworkNames = Literal["mainnet", "testnet", "scalingtestnet", "regtest"]
+TEST_NETWORK_NAMES: set[NetworkNames] = { "regtest", "testnet", "scalingtestnet" }
 
 
 def read_json_dict(filename: str) -> Any:
@@ -62,7 +55,7 @@ class SVMainnet(object):
     DEFAULT_PORTS = {'t': '50001', 's': '50002'}
     DEFAULT_SERVERS_API = read_json_dict('api_servers.json')
     GENESIS = "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f"
-    NAME = NetworkName.MAINNET
+    NAME: NetworkNames = "mainnet"
     BITCOIN_URI_PREFIX = "bitcoin"
     WIF_PREFIX = 0x80
     BIP276_VERSION = 1
@@ -80,7 +73,7 @@ class SVMainnet(object):
         '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
         '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4a29ab5f49ffff001d1dac2b7c'
     ), height=0, prev_work=0)
-    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = None
+    VERIFICATION_BLOCK_MERKLE_ROOT: str | None = None
 
     BIP44_COIN_TYPE = 0
 
@@ -114,7 +107,7 @@ class SVTestnet(object):
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
     DEFAULT_SERVERS_API = read_json_dict('api_servers_testnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
-    NAME = NetworkName.TESTNET
+    NAME: NetworkNames = "testnet"
     BITCOIN_URI_PREFIX = "bitcoin"
     WIF_PREFIX = 0xef
     BIP276_VERSION = 2
@@ -133,7 +126,7 @@ class SVTestnet(object):
         '767dc2e6fdb63e82d570461da2daa2f4fd9fe375ebce93f5b180a6f5ae7e285faef5021a7f406d4d'
     ), height=1377549, prev_work=0xade538ee77b27b019d)
 
-    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = (
+    VERIFICATION_BLOCK_MERKLE_ROOT: str | None = (
         'c2ca8aef7a20779fc9b7cc00af6b9b65f7ff99ae68fe22132c448d15de0d5943'
     )
 
@@ -174,7 +167,7 @@ class SVScalingTestnet(object):
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
     DEFAULT_SERVERS_API = read_json_dict('api_servers_scalingtestnet.json')
     GENESIS = "000000000933ea01ad0ee984209779baaec3ced90fa3f408719526f8d77f4943"
-    NAME = NetworkName.SCALING_TESTNET
+    NAME: NetworkNames = "scalingtestnet"
     BITCOIN_URI_PREFIX = "bitcoin"
     WIF_PREFIX = 0xef
     BIP276_VERSION = 3
@@ -193,7 +186,7 @@ class SVScalingTestnet(object):
     #     '0a4ff9d2499db4524ca1663b82736211390885bd5d813ef2d4612c798e7e285f99d91d1cb33ad085'
     # ), height=15789, prev_work=0x12c8202e00871)
 
-    # VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = (
+    # VERIFICATION_BLOCK_MERKLE_ROOT: str | None = (
     #     '3c6449749d6376dd341f4e1b2192ec658b68c241beaaf665e5615ae01c35b853'
     # )
 
@@ -202,7 +195,7 @@ class SVScalingTestnet(object):
         '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
         '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff001d1aa4ae18'
     ), height=0, prev_work=0)
-    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = None
+    VERIFICATION_BLOCK_MERKLE_ROOT: str | None = None
 
     BIP44_COIN_TYPE = 1
 
@@ -241,7 +234,7 @@ class SVRegTestnet(object):
     DEFAULT_PORTS = {'t': '51001', 's': '51002'}
     DEFAULT_SERVERS_API = read_json_dict('api_servers_regtest.json')
     GENESIS = "0f9188f13cb7b2c71f2a335e3a4fc328bf5beb436012afca590b1a11466e2206"
-    NAME = NetworkName.REGTEST
+    NAME: NetworkNames = "regtest"
     BITCOIN_URI_PREFIX = "bitcoin"
     WIF_PREFIX = 0xef
     BIP276_VERSION = 2
@@ -252,11 +245,11 @@ class SVRegTestnet(object):
         '0100000000000000000000000000000000000000000000000000000000000000000000003ba3edfd'
         '7a7b12b27ac72c3e67768f617fc81bc3888a51323a9fb8aa4b1e5e4adae5494dffff7f2002000000'
     ), height=0, prev_work=0)
-    VERIFICATION_BLOCK_MERKLE_ROOT: Optional[str] = None
+    VERIFICATION_BLOCK_MERKLE_ROOT: str | None = None
 
     BIP44_COIN_TYPE = 1
 
-    BLOCK_EXPLORERS: Dict[str, Tuple[str, Dict[str, str]]] = {}
+    BLOCK_EXPLORERS: dict[str, tuple[str, dict[str, str]]] = {}
 
     FAUCET_URL = ""
     KEEPKEY_DISPLAY_COIN_NAME = 'Testnet'
@@ -265,7 +258,7 @@ class SVRegTestnet(object):
     TWENTY_MINUTE_RULE = True
 
 
-NetworkTypes = Union[SVMainnet, SVTestnet, SVScalingTestnet, SVRegTestnet]
+NetworkTypes = SVMainnet | SVTestnet | SVScalingTestnet | SVRegTestnet
 
 
 class _CurrentNetMeta(type):

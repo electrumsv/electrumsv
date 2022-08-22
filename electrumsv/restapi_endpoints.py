@@ -1,26 +1,24 @@
 from __future__ import annotations
 from datetime import datetime
-import dataclasses
 import json
 import os
 import time
 from types import NoneType
 from typing import cast
 from typing_extensions import NotRequired, TypedDict
-import uuid
 
-import aiohttp
-from aiohttp import web, web_ws
+from aiohttp import web
 from bitcoinx import PublicKey
 
 from .logs import logs
 from .app_state import app_state
 from .constants import CredentialPolicyFlag
 from .exceptions import InvalidPassword
-from .networks import Net
-from .restapi import get_network_type
+from .restapi import check_network_for_request, get_account_from_request, get_network_type, \
+    get_wallet_from_request
+from .restapi_websocket import LocalWebSocket
 from .storage import WalletStorage
-from .wallet import AbstractAccount, Wallet
+from .wallet import Wallet
 
 
 logger = logs.get_logger("restapi-endpoints")
@@ -55,64 +53,12 @@ class CreateInvoiceRequestDict(TypedDict):
     reference: NotRequired[str]
 
 class CreateInvoiceResponseDict(TypedDict):
-    id: int
+    incoming_payment_id: int
     payment_url: str
     public_key_hex: str
 
 class PayRequestDict(TypedDict):
     payToURL: str
-
-
-
-def check_network_for_request(request: web.Request) -> None:
-    network = request.match_info.get("network")
-    if network == "mainnet":
-        is_valid = Net.is_mainnet()
-    elif network == "testnet":
-        is_valid = Net.is_testnet()
-    elif network == "scalingtestnet":
-        is_valid = Net.is_scaling_testnet()
-    elif network == "regtest":
-        is_valid = Net.is_regtest()
-    else:
-        raise web.HTTPBadRequest(reason=f"URL 'network' value '{network}' unrecognised")
-
-    if not is_valid:
-        raise web.HTTPBadRequest(reason=f"URL 'network' value '{network}' incorrect")
-
-def get_wallet_from_request(request: web.Request) -> Wallet:
-    wallet_id_text = request.match_info.get("wallet")
-    if wallet_id_text is None:
-        raise web.HTTPBadRequest(reason="URL 'wallet' not specified in URL")
-
-    try:
-        wallet_id = int(wallet_id_text)
-    except ValueError:
-        raise web.HTTPBadRequest(reason="URL 'wallet' value invalid")
-
-    wallet = app_state.daemon.get_wallet_by_id(wallet_id)
-    if wallet is None:
-        raise web.HTTPBadRequest(reason=f"Wallet with ID '{wallet_id}' not currently loaded")
-
-    return wallet
-
-def get_account_from_request(request: web.Request) -> tuple[Wallet, AbstractAccount]:
-    wallet = get_wallet_from_request(request)
-
-    account_id_text = request.match_info.get("account")
-    if account_id_text is None:
-        raise web.HTTPBadRequest(reason="URL 'account' not specified in URL")
-
-    try:
-        account_id = int(account_id_text)
-    except ValueError:
-        raise web.HTTPBadRequest(reason="URL 'account' value invalid")
-
-    account = wallet.get_account(account_id)
-    if account is None:
-        raise web.HTTPBadRequest(reason=f"Wallet does not have an account with ID '{account_id}'")
-
-    return wallet, account
 
 
 class DefaultEndpoints:
@@ -197,8 +143,8 @@ class LocalEndpoints:
             web.post("/v1/{network}/wallet/{wallet}/account/{account}/pay", self.pay_invoice_async),
             web.post("/v1/{network}/wallet/{wallet}/account/{account}/invoices",
                 self.create_hosted_invoice_async),
-            web.delete("/v1/{network}/wallet/{wallet}/account/{account}/invoices/{invoice_id}",
-                self.delete_hosted_invoice_async),
+            web.delete("/v1/{network}/wallet/{wallet}/account/{account}/invoices/"
+                "{incoming_payment_id}", self.delete_hosted_invoice_async),
 
             web.view("/v1/{network}/wallet/{wallet}/websocket", LocalWebSocket),
         ]
@@ -380,7 +326,7 @@ class LocalEndpoints:
 
         assert result.payment_request_row.paymentrequest_id is not None
         create_data: CreateInvoiceResponseDict = {
-            "id": result.payment_request_row.paymentrequest_id,
+            "incoming_payment_id": result.payment_request_row.paymentrequest_id,
             "payment_url": result.payment_url,
             "public_key_hex": result.secure_public_key.to_hex(),
         }
@@ -392,13 +338,14 @@ class LocalEndpoints:
         check_network_for_request(request)
         wallet, account = get_account_from_request(request)
 
-        invoice_id_text = request.match_info.get("invoice")
-        if invoice_id_text is None:
-            raise web.HTTPBadRequest(reason="URL 'invoice' value not present")
+        incoming_payment_id_text = request.match_info.get("incoming_payment_id")
+        if incoming_payment_id_text is None:
+            raise web.HTTPBadRequest(reason="URL 'incoming_payment_id' value not present")
         try:
-            invoice_id = int(invoice_id_text)
+            invoice_id = int(incoming_payment_id_text)
         except ValueError:
-            raise web.HTTPBadRequest(reason=f"URL 'invoice' value '{invoice_id_text}' invalid")
+            raise web.HTTPBadRequest(reason="URL 'incoming_payment_id' value "
+                f"'{incoming_payment_id_text}' invalid")
 
         # TODO Create the `delete_hosted_invoice` function.
         # TODO Handle any exceptions.
@@ -420,94 +367,3 @@ class LocalEndpoints:
         await account.pay_hosted_invoice_async(body_dict["payToURL"])
 
         return web.json_response(True)
-
-
-@dataclasses.dataclass
-class LocalWebsocketState:
-    websocket_id: str
-    websocket: web_ws.WebSocketResponse
-    accept_type: str
-
-
-class LocalWebSocket(web.View):
-    """
-    Each connected client receives account-related notifications on this websocket.
-
-    Protocol versioning is based on the endpoint discovery apiVersion field.
-    Requires a master bearer token as this authorizes for notifications from any peer channel
-    """
-
-    _logger = logs.get_logger("rest-websocket")
-
-    async def get(self) -> web_ws.WebSocketResponse:
-        """The communication for this is one-way for outgoing notifications."""
-        # We have to check for the credentials in the query string as javascript clients appear
-        # to be broken and do not support `Authorization` headers for web sockets. All other
-        # languages can.
-        access_token = self.request.query.get('token', None)
-        if access_token is None:
-            self._logger.warning("Failed connection to wallet '%s' websocket (no access token)",
-                self.request.match_info["wallet"])
-            raise web.HTTPUnauthorized(reason="No access key")
-
-        wallet = get_wallet_from_request(self.request)
-        if wallet is None:
-            self._logger.warning("Failed connection to wallet '%s' websocket (wallet not loaded)",
-                self.request.match_info["wallet"])
-            raise web.HTTPUnauthorized(reason="Invalid access key")
-
-        if access_token != wallet.restapi_websocket_access_token:
-            self._logger.warning("Failed connection to wallet '%s' websocket (wrong access token)",
-                self.request.match_info["wallet"])
-            raise web.HTTPUnauthorized(reason="Invalid access key")
-
-        websocket_id = str(uuid.uuid4())
-        accept_type = self.request.headers.get('Accept', 'application/json')
-        if accept_type == "*/*":
-            accept_type = 'application/json'
-        if accept_type != 'application/json':
-            raise web.HTTPBadRequest(reason="'application/json' support is required")
-
-        websocket = web.WebSocketResponse()
-        await websocket.prepare(self.request)
-
-        websocket_state = LocalWebsocketState(
-            websocket_id=websocket_id,
-            websocket=websocket,
-            accept_type=accept_type
-        )
-        if not wallet.setup_restapi_connection(websocket_state):
-            raise web.HTTPServiceUnavailable()
-
-        self._logger.debug("Websocket connected, host=%s, accept_type=%s, websocket_id=%s",
-            self.request.host, accept_type, websocket_state.websocket_id)
-        try:
-            await self._websocket_message_loop(websocket_state)
-        finally:
-            if not websocket.closed:
-                await websocket.close()
-            self._logger.debug("Websocket disconnecting, websocket_id=%s", websocket_id)
-            wallet.teardown_restapi_connection(websocket_id)
-
-        return websocket
-
-    async def _websocket_message_loop(self, websocket_state: LocalWebsocketState) -> None:
-        # Loop until the connection is closed. This is a broken usage of the `for` loop by
-        # aiohttp, where the number of iterations is not bounded.
-        async for message in websocket_state.websocket:
-            if message.type in (aiohttp.WSMsgType.text, aiohttp.WSMsgType.binary):
-                # We do not accept incoming messages. To ignore them would be to encourage badly
-                # implemented clients, is the theory.
-                await websocket_state.websocket.close()
-
-            elif message.type == aiohttp.WSMsgType.error:
-                self._logger.error("Websocket error, websocket_id=%s", websocket_state.websocket_id,
-                    exc_info=websocket_state.websocket.exception())
-
-
-async def close_restapi_connection_async(websocket_state: LocalWebsocketState) -> None:
-    try:
-        await websocket_state.websocket.close()
-    except Exception:
-        logger.exception("Unexpected exception closing REST API websocket")
-
