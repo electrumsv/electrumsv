@@ -4808,8 +4808,8 @@ class Wallet:
                     "DPPMessageRow data: %s", message_row.paymentrequest_id, message_row)
                 continue
 
-            assert pr_row.state & PaymentFlag.INVOICE == PaymentFlag.INVOICE
-            assert pr_row.state & PaymentFlag.UNPAID == PaymentFlag.UNPAID
+            assert pr_row.state & PaymentFlag.MASK_TYPE == PaymentFlag.INVOICE
+            assert pr_row.state & PaymentFlag.MASK_STATE == PaymentFlag.UNPAID
             if pr_row.state & PaymentFlag.UNPAID != 0:
                 assert pr_row.state & PaymentFlag.PAID == 0, pr_row.state
             if pr_row.state & PaymentFlag.PAID != 0:

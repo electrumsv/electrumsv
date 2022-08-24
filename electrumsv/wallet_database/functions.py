@@ -856,8 +856,7 @@ def read_payment_request_transactions_hashes(db: sqlite3.Connection,
 
     transaction_hashes_by_paymentrequest_id: dict[int, list[bytes]] = {}
     # NOTE(typing) Type application has too many types (1 expected)
-    for row in read_rows_by_id(PaymentRequestTxHashResult, db, sql, (), # type: ignore[misc]
-            paymentrequest_ids):
+    for row in read_rows_by_id(PaymentRequestTxHashResult, db, sql, (), paymentrequest_ids):
         if row[0] not in transaction_hashes_by_paymentrequest_id:
             transaction_hashes_by_paymentrequest_id[row[0]] = []
         transaction_hashes_by_paymentrequest_id[row[0]].append(row[1])

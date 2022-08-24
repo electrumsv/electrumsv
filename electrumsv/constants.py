@@ -572,7 +572,7 @@ class ServerPeerChannelFlag(IntFlag):
     # where it performs sanity checks of database state vs remote server state
     ADDED_AS_LISTENER                           = 0b001 << 18
 
-    MASK_PURPOSE                                = 0b111 << 20
+    MASK_PURPOSE                                = 0b111 << 16
 
 
 class PeerChannelMessageFlag(IntFlag):
