@@ -4757,6 +4757,7 @@ class Wallet:
         peer_channel = peer_channel_rows[0]
         assert peer_channel.remote_channel_id is not None
 
+        assert mapi_row.peer_channel_id is not None
         peer_channel_token_rows = self.data.read_server_peer_channel_access_tokens(
             mapi_row.peer_channel_id, flags=PeerChannelAccessTokenFlag.FOR_PAYER_USAGE)
         assert len(peer_channel_token_rows) == 1

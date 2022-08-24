@@ -38,7 +38,7 @@ from __future__ import annotations
 from datetime import datetime
 from http import HTTPStatus
 import json
-from typing import Any, cast, TYPE_CHECKING, TypedDict
+from typing import Any, cast, TYPE_CHECKING
 
 import aiohttp
 
@@ -259,6 +259,7 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
     assert state.wallet_data is not None
     assert state.cached_peer_channel_rows is not None
 
+    assert state.wallet_proxy is not None
     logger.debug("Entering process_incoming_peer_channel_messages_async, server_id=%d "
                  "(Wallet='%s')", state.server.server_id, state.wallet_proxy.name())
 

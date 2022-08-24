@@ -1532,10 +1532,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                     return False
                 return True
             else:
-                have_broadcast = app_state.async_.spawn_and_wait(
+                broadcast_response, _peer_channel_server_state = app_state.async_.spawn_and_wait(
                     self._wallet.broadcast_transaction_async(tx, context))
                 update_cb(False, _("Done."))
-                return have_broadcast
+                return broadcast_response["returnResult"] == "success"
 
         def on_done(future: concurrent.futures.Future[bool]) -> None:
             assert window is not None
