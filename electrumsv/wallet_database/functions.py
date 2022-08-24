@@ -32,7 +32,7 @@ except ModuleNotFoundError:
     import sqlite3 # type: ignore[no-redef]
 import time
 from types import TracebackType
-from typing import Any, cast, Iterable, Optional, Sequence, Type
+from typing import Any, cast, Iterable, Optional, Sequence, Type, NamedTuple
 
 from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, execute_sql_by_id, \
     read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
@@ -849,9 +849,14 @@ def read_payment_request_transactions_hashes(db: sqlite3.Connection,
     LEFT JOIN TransactionOutputs TXO ON KI.keyinstance_id=TXO.keyinstance_id
     WHERE PR.paymentrequest_id IN ({}) AND TXO.tx_hash IS NOT NULL
     """
+
+    class PaymentRequestTxHashResult(NamedTuple):
+        paymentrequest_id: int
+        transaction_hash: bytes
+
     transaction_hashes_by_paymentrequest_id: dict[int, list[bytes]] = {}
     # NOTE(typing) Type application has too many types (1 expected)
-    for row in read_rows_by_id(tuple[int, bytes], db, sql, (), # type: ignore[misc]
+    for row in read_rows_by_id(PaymentRequestTxHashResult, db, sql, (), # type: ignore[misc]
             paymentrequest_ids):
         if row[0] not in transaction_hashes_by_paymentrequest_id:
             transaction_hashes_by_paymentrequest_id[row[0]] = []
