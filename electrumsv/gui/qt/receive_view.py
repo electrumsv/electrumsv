@@ -1,3 +1,4 @@
+from functools import partial
 from typing import Dict, List, Optional, TYPE_CHECKING
 import weakref
 
@@ -119,7 +120,32 @@ class ReceiveView(QWidget):
                 "payment. Please complete that one first."))
             return
 
-        self.show_dialog(None, PaymentFlag.INVOICE)
+        # The message box service is required to get mAPI merkle proof callbacks.
+        required_flags = NetworkServerFlag.USE_MESSAGE_BOX
+        if self._main_window_proxy._wallet.have_wallet_servers(required_flags):
+            self.show_dialog(None, PaymentFlag.INVOICE)
+            return
+
+        dialog_text = _("Receiving Direct Payment Protocol invoice payments requires signing up "
+            "with a message box service for receipt of merkle proofs and sharing them with the "
+            "payer (i.e. the other peer SPV wallet)"
+            "<br/><br/>"
+            "This wallet has not been set up to use all the required services. If you run your "
+            "own servers or wish to use third party servers, choose the 'Manage servers' option.")
+
+        from importlib import reload
+        reload(server_required_dialog)
+
+        dialog = server_required_dialog.ServerRequiredDialog(self, self._main_window_proxy._wallet,
+            NetworkServerFlag.USE_MESSAGE_BOX, dialog_text)
+        # There are two paths to the user accepting this dialog:
+        # - They checked "select servers on my behalf" then the OK buton and then servers were
+        #   selected and connected to.
+        # - They chose "Manage servers" which selected and connected to servers and then on exit
+        #   from that wizard this dialog auto-accepted.
+        dialog.accepted.connect(partial(self.show_dialog, None, PaymentFlag.INVOICE))
+        dialog.show()
+
 
     def _event_action_triggered_import(self) -> None:
         if None in self._dialogs:

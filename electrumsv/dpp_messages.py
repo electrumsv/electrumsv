@@ -72,7 +72,7 @@ HYBRID_PAYMENT_MODE_BRFCID = "ef63d9775da5"
 class PeerChannelDict(TypedDict):
     host: str
     token: str
-    channelid: str
+    channel_id: str
 
 
 class PeerChannelsDict(TypedDict):
@@ -371,7 +371,7 @@ class PaymentTerms:
             network = BIP276Network.NETWORK_TESTNET
         elif Net._net is SVScalingTestnet:
             network = BIP276Network.NETWORK_SCALINGTESTNET
-        elif isinstance(Net._net, SVRegTestnet):
+        elif Net._net is SVRegTestnet:
             network = BIP276Network.NETWORK_REGTEST
         else:
             raise Exception("unhandled network", Net._net)

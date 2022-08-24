@@ -1148,7 +1148,7 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
         assert len(db_access_tokens) == 1
         tip_filter_access_token = db_access_tokens[0]
     else:
-        peer_channel_row, tip_filter_access_token = \
+        peer_channel_row, tip_filter_access_token, read_only_access_token = \
             await create_peer_channel_locally_and_remotely_async(
                 peer_channel_server_state, ServerPeerChannelFlag.TIP_FILTER_DELIVERY,
                 PeerChannelAccessTokenFlag.FOR_TIP_FILTER_SERVER,

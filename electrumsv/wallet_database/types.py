@@ -573,7 +573,6 @@ class ServerPeerChannelRow(NamedTuple):
 
 class ServerPeerChannelAccessTokenRow(NamedTuple):
     peer_channel_id: int
-    remote_token_id: int
     token_flags: PeerChannelAccessTokenFlag
     permission_flags: int
     access_token: str

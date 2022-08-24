@@ -152,6 +152,7 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
         #  or so. Otherwise we will no longer have open websocket connections for invoices even
         #  though the DPP proxy server is back online again. Currently the user will have to
         #  restart to wallet to reconnect.
+        logger.debug("Closing DPP websocket for payment request: %s", payment_request_row)
         state.dpp_websockets.pop(payment_request_row.dpp_invoice_id, None)
 
 

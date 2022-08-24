@@ -567,7 +567,12 @@ class ServerPeerChannelFlag(IntFlag):
     TIP_FILTER_DELIVERY                         = 0b001 << 16
     MAPI_BROADCAST_CALLBACK                     = 0b010 << 16
 
-    MASK_PURPOSE                                = 0b111 << 16
+    # These channels will not be returned by `list_peer_channels_async`
+    # as these channels were not created by us. Relevant in `peer_channel_preconnection_async`
+    # where it performs sanity checks of database state vs remote server state
+    ADDED_AS_LISTENER                           = 0b001 << 18
+
+    MASK_PURPOSE                                = 0b111 << 20
 
 
 class PeerChannelMessageFlag(IntFlag):
@@ -582,6 +587,7 @@ class PeerChannelAccessTokenFlag(IntFlag):
     FOR_TIP_FILTER_SERVER                       = 1 << 0
     FOR_LOCAL_USAGE                             = 1 << 1
     FOR_MAPI_CALLBACK_USAGE                     = 1 << 2
+    FOR_PAYER_USAGE                             = 1 << 3  # i.e. a read-only token
 
 
 class PushDataHashRegistrationFlag(IntFlag):

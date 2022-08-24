@@ -452,8 +452,8 @@ class SendView(QWidget):
             "with a way to notify you. This is done through the use of a message box server, and "
             "you do not currently have one selected."
             "<br/><br/>"
-            "This wallet has not yet been set up to use a blockchain service. If you run your "
-            "own servers or wish to use third party servers, choose the 'Manage servers' option.")
+            "If you run your own servers or wish to use third party servers, choose the "
+            "'Manage servers' option.")
 
         from importlib import reload
         reload(server_required_dialog)

@@ -322,7 +322,6 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     conn.execute("""
         CREATE TABLE ServerPeerChannelAccessTokens (
             peer_channel_id             INTEGER     NOT NULL,
-            remote_token_id             INTEGER     NOT NULL,
             token_flags                 INTEGER     NOT NULL,
             permission_flags            INTEGER     NOT NULL,
             access_token                TEXT        NOT NULL,

@@ -1461,14 +1461,29 @@ def create_server_peer_channel_write(row: ServerPeerChannelRow,
 
 
 @replace_db_context_with_connection
-def read_server_peer_channels(db: sqlite3.Connection, server_id: int) \
-        -> list[ServerPeerChannelRow]:
+def read_server_peer_channels(db: sqlite3.Connection, server_id: int | None=None,
+        peer_channel_id: int | None=None) -> list[ServerPeerChannelRow]:
     sql = """
         SELECT peer_channel_id, server_id, remote_channel_id, remote_url, peer_channel_flags,
             date_created, date_updated
-        FROM ServerPeerChannels WHERE server_id=?
-    """
-    sql_values = (server_id,)
+        FROM ServerPeerChannels 
+        """
+    sql_values = []
+    where_clause = False
+    if server_id is not None:
+        sql += "WHERE server_id=? "
+        sql_values.append(server_id)
+        where_clause = True
+
+    if peer_channel_id is not None:
+        if where_clause:
+            sql += "AND peer_channel_id=?"
+            sql_values.append(peer_channel_id)
+        else:
+            sql += "WHERE peer_channel_id=? "
+            sql_values.append(peer_channel_id)
+            where_clause = True
+
     cursor = db.execute(sql, sql_values)
     return [ ServerPeerChannelRow(row[0], row[1], row[2], row[3], ServerPeerChannelFlag(row[4]),
         row[5], row[6]) for row in cursor.fetchall() ]
@@ -1494,8 +1509,8 @@ def update_server_peer_channel_write(remote_channel_id: Optional[str],
             row[5], row[6])
 
     if len(addable_access_tokens) > 0:
-        sql = "INSERT INTO ServerPeerChannelAccessTokens (peer_channel_id, remote_token_id, " \
-            "token_flags, permission_flags, access_token) VALUES (?,?,?,?,?)"
+        sql = "INSERT INTO ServerPeerChannelAccessTokens (peer_channel_id, " \
+            "token_flags, permission_flags, access_token) VALUES (?,?,?,?)"
         cursor = db.executemany(sql, addable_access_tokens)
         assert cursor.rowcount == len(addable_access_tokens)
 
@@ -1514,7 +1529,7 @@ def update_server_peer_channel_message_flags_write(processed_message_ids: list[i
 def read_server_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_id: int,
         mask: Optional[PeerChannelAccessTokenFlag], flags: Optional[PeerChannelAccessTokenFlag]) \
             -> list[ServerPeerChannelAccessTokenRow]:
-    sql = "SELECT peer_channel_id, remote_token_id, token_flags, permission_flags, access_token " \
+    sql = "SELECT peer_channel_id, token_flags, permission_flags, access_token " \
         "FROM ServerPeerChannelAccessTokens WHERE peer_channel_id=?"
     sql_values: list[Any] = [peer_channel_id]
     clause, extra_values = flag_clause("token_flags", flags, mask)

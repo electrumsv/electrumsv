@@ -124,14 +124,17 @@ def validate_mapi_broadcast_response(response_data: MAPIBroadcastResponse) -> No
     return_result = response_data["returnResult"]
     if return_result == "success":
         pass
+
+    # TODO(1.4.0) MAPI - failure states do not include a `conflictedWith` field so this errors
     elif return_result == "failure":
-        if "conflictedWith" not in response_data:
-            raise ValueError("Missing 'conflictedWith' field")
-        if not isinstance(response_data["conflictedWith"], list):
-            raise ValueError("Invalid 'conflictedWith' type, expected list, "
-                f"got {type(response_data['conflictedWith'])}")
-        for conflict_entry in response_data["conflictedWith"]:
-            _validate_mapi_broadcast_conflicted_with(conflict_entry)
+        pass
+    #     if "conflictedWith" not in response_data:
+    #         raise ValueError(f"Missing 'conflictedWith' field. response_data: '{response_data}'")
+    #     if not isinstance(response_data["conflictedWith"], list):
+    #         raise ValueError("Invalid 'conflictedWith' type, expected list, "
+    #             f"got {type(response_data['conflictedWith'])}")
+    #     for conflict_entry in response_data["conflictedWith"]:
+    #         _validate_mapi_broadcast_conflicted_with(conflict_entry)
     else:
         raise ValueError(f"Invalid 'returnResult' '{return_result}'")
 
