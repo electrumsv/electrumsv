@@ -32,7 +32,7 @@ except ModuleNotFoundError:
     import sqlite3 # type: ignore[no-redef]
 import time
 from types import TracebackType
-from typing import Any, cast, Iterable, Optional, Sequence, Type, NamedTuple
+from typing import Any, cast, Iterable, Optional, Sequence, Type
 
 from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, execute_sql_by_id, \
     read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
@@ -55,14 +55,15 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, MAPIBroadcastRow,
     NetworkServerRow, PasswordUpdateResult, PaymentRequestReadRow, PaymentRequestRow,
-    PaymentRequestUpdateRow, MerkleProofUpdateRow, PushDataMatchMetadataRow, PushDataMatchRow,
-    PushDataHashRegistrationRow, ServerPeerChannelAccessTokenRow, ServerPeerChannelRow,
-    ServerPeerChannelMessageRow, SpendConflictType, SpentOutputRow, TransactionDeltaSumRow,
-    TransactionExistsRow, TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
+    PaymentRequestTxHashRow, PaymentRequestUpdateRow, MerkleProofUpdateRow,
+    PushDataMatchMetadataRow, PushDataMatchRow, PushDataHashRegistrationRow,
+    ServerPeerChannelAccessTokenRow, ServerPeerChannelRow, ServerPeerChannelMessageRow,
+    SpendConflictType, SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
+    TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
     TransactionOutputSpendableRow, TransactionValueRow, TransactionMetadata,
-    TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow, TxProofData,
-    TransactionProofUpdateRow, TransactionRow, MerkleProofRow, WalletBalance, WalletDataRow,
-    WalletEventInsertRow, WalletEventRow, DPPMessageRow)
+    TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow,
+    TxProofData, TransactionProofUpdateRow, TransactionRow, MerkleProofRow, WalletBalance,
+    WalletDataRow, WalletEventInsertRow, WalletEventRow, DPPMessageRow)
 from .util import flag_clause
 
 logger = logs.get_logger("db-functions")
@@ -849,13 +850,9 @@ def read_payment_request_transactions_hashes(paymentrequest_ids: list[int],
     WHERE PR.paymentrequest_id IN ({}) AND TXO.tx_hash IS NOT NULL
     """
 
-    class PaymentRequestTxHashResult(NamedTuple):
-        paymentrequest_id: int
-        transaction_hash: bytes
-
     transaction_hashes_by_paymentrequest_id: dict[int, list[bytes]] = {}
     # NOTE(typing) Type application has too many types (1 expected)
-    for row in read_rows_by_id(PaymentRequestTxHashResult, db, sql, (), paymentrequest_ids):
+    for row in read_rows_by_id(PaymentRequestTxHashRow, db, sql, (), paymentrequest_ids):
         if row[0] not in transaction_hashes_by_paymentrequest_id:
             transaction_hashes_by_paymentrequest_id[row[0]] = []
         transaction_hashes_by_paymentrequest_id[row[0]].append(row[1])

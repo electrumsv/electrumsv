@@ -663,3 +663,8 @@ class PushDataMatchMetadataRow(NamedTuple):
     pushdata_hash: bytes
     transaction_hash: bytes
     block_hash: Optional[bytes]
+
+
+class PaymentRequestTxHashRow(NamedTuple):
+    paymentrequest_id: int
+    transaction_hash: bytes
