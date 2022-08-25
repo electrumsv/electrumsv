@@ -1152,7 +1152,7 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
             await create_peer_channel_locally_and_remotely_async(
                 peer_channel_server_state, ServerPeerChannelFlag.TIP_FILTER_DELIVERY,
                 PeerChannelAccessTokenFlag.FOR_TIP_FILTER_SERVER,
-                indexing_server_id)
+                indexing_server_id=indexing_server_id)
         assert peer_channel_row.peer_channel_id is not None
         indexing_server_state.server.set_tip_filter_peer_channel_id(
             indexing_server_state.petty_cash_account_id, peer_channel_row.peer_channel_id)

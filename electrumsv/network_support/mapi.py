@@ -206,16 +206,18 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
     peer_channel_id: int | None = None
     peer_channel_callback: PeerChannelCallback | None = None
     if peer_channel_server_state is not None:
-        peer_channel_row, mapi_callback_access_token, read_only_token = \
+        peer_channel_row, mapi_write_token, read_only_token = \
             await create_peer_channel_locally_and_remotely_async(
                 peer_channel_server_state, ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
-                PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE)
+                PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE,
+                ServerPeerChannelFlag.EXTERNALLY_OWNED,
+                PeerChannelAccessTokenFlag.FOR_EXTERNAL_USAGE)
         assert peer_channel_row.remote_channel_id is not None
         assert peer_channel_row.remote_url is not None
 
         peer_channel_id = peer_channel_row.peer_channel_id
         peer_channel_callback = PeerChannelCallback(peer_channel_row.remote_url,
-            mapi_callback_access_token, merkle_proof=merkle_proof,
+            mapi_write_token, merkle_proof=merkle_proof,
             double_spend_check=double_spend_check)
 
     tx_hash = tx.hash()

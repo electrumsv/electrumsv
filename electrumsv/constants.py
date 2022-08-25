@@ -570,7 +570,7 @@ class ServerPeerChannelFlag(IntFlag):
     # These channels will not be returned by `list_peer_channels_async`
     # as these channels were not created by us. Relevant in `peer_channel_preconnection_async`
     # where it performs sanity checks of database state vs remote server state
-    ADDED_AS_LISTENER                           = 0b001 << 18
+    EXTERNALLY_OWNED                           = 0b001 << 18
 
     MASK_PURPOSE                                = 0b111 << 16
 
@@ -585,9 +585,9 @@ class PeerChannelAccessTokenFlag(IntFlag):
     NONE                                        = 0
 
     FOR_TIP_FILTER_SERVER                       = 1 << 0
-    FOR_LOCAL_USAGE                             = 1 << 1
+    FOR_LOCAL_USAGE                             = 1 << 1  # i.e. we created and "own" the channel
     FOR_MAPI_CALLBACK_USAGE                     = 1 << 2
-    FOR_PAYER_USAGE                             = 1 << 3  # i.e. a read-only token
+    FOR_EXTERNAL_USAGE                          = 1 << 3  # i.e. we do not "own" the peer channel
 
 
 class PushDataHashRegistrationFlag(IntFlag):

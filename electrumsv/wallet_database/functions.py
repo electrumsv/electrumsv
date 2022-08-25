@@ -839,9 +839,8 @@ def read_parent_transaction_outputs_with_key_data(db: sqlite3.Connection, tx_has
     return rows
 
 
-@replace_db_context_with_connection
-def read_payment_request_transactions_hashes(db: sqlite3.Connection,
-        paymentrequest_ids: list[int]) -> dict[int, list[bytes]]:
+def read_payment_request_transactions_hashes(paymentrequest_ids: list[int],
+        db: Optional[sqlite3.Connection]=None) -> dict[int, list[bytes]]:
     sql = """
     SELECT DISTINCT PR.paymentrequest_id, TXO.tx_hash
     FROM KeyInstances KI

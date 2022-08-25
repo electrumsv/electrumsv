@@ -91,7 +91,7 @@ from .network_support.general_api import create_reference_server_account_async, 
     request_transaction_data_async, upgrade_server_connection_async
 from .network_support.headers import get_longest_valid_chain
 from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_fee_quotes_async
-from .network_support.peer_channel import add_peer_channel_from_dpp_payment_ack
+from .network_support.peer_channel import add_external_peer_channel
 from .network_support.types import GenericPeerChannelMessage, ServerConnectionProblems, \
     ServerConnectionState, TipFilterPushDataMatchesData
 from .networks import Net
@@ -1974,10 +1974,10 @@ class WalletDataAccess:
         return db_functions.read_payment_requests(self._db_context, account_id, flags,
             mask, server_id)
 
-    def read_payment_request_transactions_hashes_async(self, paymentrequest_ids: list[int]) \
+    async def read_payment_request_transactions_hashes_async(self, paymentrequest_ids: list[int]) \
             -> dict[int, list[bytes]]:
-        return db_functions.read_payment_request_transactions_hashes(self._db_context,
-            paymentrequest_ids)
+        return await self._db_context.run_in_thread_async(
+            db_functions.read_payment_request_transactions_hashes, paymentrequest_ids)
 
     def read_registered_tip_filter_pushdata_for_request(self, request_id: int) \
             -> Optional[PushDataHashRegistrationRow]:
@@ -3988,7 +3988,7 @@ class Wallet:
         peer_channel_server_state = self.get_connection_state_for_usage(
             NetworkServerFlag.USE_MESSAGE_BOX)
         assert peer_channel_server_state is not None
-        await add_peer_channel_from_dpp_payment_ack(peer_channel_server_state,
+        await add_external_peer_channel(peer_channel_server_state,
             payment_ack.peer_channel_info)
 
         await self.data.update_invoice_flags_async(
@@ -4015,7 +4015,7 @@ class Wallet:
 
     async def _event_payment_requests_paid_async(self, paymentrequest_ids: list[int]) -> None:
         transaction_ids_by_request_id = \
-            self.data.read_payment_request_transactions_hashes_async(paymentrequest_ids)
+            await self.data.read_payment_request_transactions_hashes_async(paymentrequest_ids)
         await self.notify_external_listeners_async("incoming-payment-received",
             request_payment_hashes=list(transaction_ids_by_request_id.items()))
 
@@ -4759,7 +4759,7 @@ class Wallet:
 
         assert mapi_row.peer_channel_id is not None
         peer_channel_token_rows = self.data.read_server_peer_channel_access_tokens(
-            mapi_row.peer_channel_id, flags=PeerChannelAccessTokenFlag.FOR_PAYER_USAGE)
+            mapi_row.peer_channel_id, flags=PeerChannelAccessTokenFlag.FOR_EXTERNAL_USAGE)
         assert len(peer_channel_token_rows) == 1
         peer_channel_token_row = peer_channel_token_rows[0]
 
