@@ -122,7 +122,7 @@ async def peer_channel_server_connected_async(state: ServerConnectionState) -> l
     return [ future ]
 
 
-async def add_external_peer_channel(
+async def add_external_peer_channel_async(
         peer_channel_server_state: ServerConnectionState,
         peer_channel_info: PeerChannelDict,
         indexing_server_id: int | None=None) \
@@ -156,27 +156,27 @@ async def add_external_peer_channel(
 
     # Record peer channel token in the database if it doesn't exist there already
     assert peer_channel_row.peer_channel_id is not None
-    readonly_access_token_flag = PeerChannelAccessTokenFlag.FOR_EXTERNAL_USAGE
-    readonly_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
-        readonly_access_token_flag, TokenPermissions.READ_ACCESS, peer_channel_info['token'])
+    read_only_access_token_flag = PeerChannelAccessTokenFlag.FOR_EXTERNAL_USAGE
+    read_only_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
+        read_only_access_token_flag, TokenPermissions.READ_ACCESS, peer_channel_info['token'])
 
     # Local database: Update for the server-side peer channel. Drop the `ALLOCATING` flag and
     #     add the access token.
-    readonly_peer_channel_flag = ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK
+    read_only_peer_channel_flag = ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK
     peer_channel_row = await wallet_data.update_server_peer_channel_async(remote_peer_channel_id,
-        remote_url, readonly_peer_channel_flag, peer_channel_id,
-        addable_access_tokens=[readonly_access_token])
+        remote_url, read_only_peer_channel_flag, peer_channel_id,
+        addable_access_tokens=[read_only_access_token])
 
-    return peer_channel_row, readonly_access_token
+    return peer_channel_row, read_only_access_token
 
 
 
 async def create_peer_channel_locally_and_remotely_async(
         peer_channel_server_state: ServerConnectionState,
-        writeonly_peer_channel_flag: ServerPeerChannelFlag,
-        writeonly_access_token_flag: PeerChannelAccessTokenFlag,
-        readonly_peer_channel_flag: ServerPeerChannelFlag | None=None,
-        readonly_access_token_flag: PeerChannelAccessTokenFlag | None=None,
+        write_only_peer_channel_flag: ServerPeerChannelFlag,
+        write_only_access_token_flag: PeerChannelAccessTokenFlag,
+        read_only_peer_channel_flag: ServerPeerChannelFlag | None=None,
+        read_only_access_token_flag: PeerChannelAccessTokenFlag | None=None,
         indexing_server_id: int | None=None) \
             -> tuple[ServerPeerChannelRow, ServerPeerChannelAccessTokenRow,
                      ServerPeerChannelAccessTokenRow | None]:
@@ -193,7 +193,7 @@ async def create_peer_channel_locally_and_remotely_async(
 
     date_created = get_posix_timestamp()
     peer_channel_row = ServerPeerChannelRow(None, peer_channel_server_id, None, None,
-        ServerPeerChannelFlag.ALLOCATING | writeonly_peer_channel_flag,
+        ServerPeerChannelFlag.ALLOCATING | write_only_peer_channel_flag,
         date_created, date_created)
     peer_channel_id = await wallet_data.create_server_peer_channel_async(peer_channel_row,
         indexing_server_id)
@@ -204,7 +204,7 @@ async def create_peer_channel_locally_and_remotely_async(
     remote_peer_channel_id = peer_channel_json["id"]
     peer_channel_url = peer_channel_json["href"]
     logger.debug("Created peer channel %s for %s", remote_peer_channel_id,
-        writeonly_peer_channel_flag)
+        write_only_peer_channel_flag)
     assert peer_channel_server_state.cached_peer_channel_rows is not None
     peer_channel_server_state.cached_peer_channel_rows[remote_peer_channel_id] = \
         peer_channel_row
@@ -216,18 +216,18 @@ async def create_peer_channel_locally_and_remotely_async(
     assert peer_channel_row.peer_channel_id is not None
     assert len(peer_channel_json["access_tokens"]) == 1
     writeonly_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
-        writeonly_access_token_flag,
+        write_only_access_token_flag,
         get_permissions_from_peer_channel_token(writeonly_token_json),
         writeonly_token_json["token"])
 
     read_only_access_token = None
-    if readonly_peer_channel_flag is not None and readonly_access_token_flag is not None:
+    if read_only_peer_channel_flag is not None and read_only_access_token_flag is not None:
         read_only_token_json = await create_peer_channel_api_token_async(peer_channel_server_state,
             remote_peer_channel_id, can_read=True, can_write=False, description="readonly token")
         assert peer_channel_row.peer_channel_id is not None
         assert len(peer_channel_json["access_tokens"]) == 1
         read_only_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
-            readonly_access_token_flag,
+            read_only_access_token_flag,
             get_permissions_from_peer_channel_token(read_only_token_json),
             read_only_token_json["token"])
 
@@ -243,7 +243,7 @@ async def create_peer_channel_locally_and_remotely_async(
     if read_only_access_token is not None:
         addable_access_tokens.append(read_only_access_token)
     peer_channel_row = await wallet_data.update_server_peer_channel_async(remote_peer_channel_id,
-        peer_channel_url, writeonly_peer_channel_flag, peer_channel_id,
+        peer_channel_url, write_only_peer_channel_flag, peer_channel_id,
         addable_access_tokens=addable_access_tokens)
 
     return peer_channel_row, writeonly_access_token, read_only_access_token

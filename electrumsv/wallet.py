@@ -41,7 +41,6 @@ import random
 import threading
 from typing import Any, AsyncIterable, Awaitable, Callable, cast, Coroutine, Iterable, Optional, \
     Sequence, TypedDict, TypeVar, TYPE_CHECKING, Union
-import uuid
 import weakref
 
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
@@ -67,10 +66,11 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
-from .dpp_messages import HYBRID_PAYMENT_MODE_BRFCID, Payment, PaymentACK, PeerChannelDict
-from .exceptions import (BroadcastError, ExcessiveFee, InvalidPassword, NotEnoughFunds,
-    PreviousTransactionsMissingException, ServerConnectionError, UnsupportedAccountTypeError,
-    UnsupportedScriptTypeError, UserCancelled, WalletLoadError, Bip270Exception)
+from .dpp_messages import Payment, PaymentACK
+from .exceptions import (BadServerError, Bip270Exception, BroadcastError, ExcessiveFee,
+    InvalidPassword, NotEnoughFunds, PreviousTransactionsMissingException, ServerConnectionError,
+    ServerError, UnsupportedAccountTypeError, UnsupportedScriptTypeError, UserCancelled,
+    WalletLoadError)
 from .i18n import _
 from .keys import get_multi_signer_script_template, get_single_signer_script_template
 from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore, \
@@ -78,12 +78,13 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
-from .network_support.direct_payments import send_outgoing_direct_payment_async
+from .network_support.direct_payments import send_outgoing_direct_payment_async, \
+    dpp_make_peer_channel_info, dpp_make_ack, dpp_make_payment_error, \
+    dpp_make_payment_request_response
 from .network_support.dpp_proxy import _is_later_dpp_message_sequence, \
     close_dpp_server_connection_async, create_dpp_server_connection_async, \
     create_dpp_server_connections_async, dpp_websocket_send, find_connectable_dpp_server, \
-    MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_ACK, \
-    MSG_TYPE_PAYMENT_REQUEST_RESPONSE
+    MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
@@ -92,14 +93,14 @@ from .network_support.general_api import create_reference_server_account_async, 
     request_transaction_data_async, upgrade_server_connection_async
 from .network_support.headers import get_longest_valid_chain
 from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_fee_quotes_async
-from .network_support.peer_channel import add_external_peer_channel
+from .network_support.peer_channel import add_external_peer_channel_async
 from .network_support.types import GenericPeerChannelMessage, ServerConnectionProblems, \
     ServerConnectionState, TipFilterPushDataMatchesData, TipFilterRegistrationJobOutput
 from .networks import Net
 from .restapi_websocket import broadcast_restapi_event_async, BroadcastEventNames, \
     BroadcastEventPayloadNames, close_restapi_connection_async
 from .standards.electrum_transaction_extended import transaction_from_electrumsv_dict
-from .standards.json_envelope import JSONEnvelope, pack_json_envelope, validate_json_envelope
+from .standards.json_envelope import JSONEnvelope, validate_json_envelope
 from .standards.mapi import MAPICallbackResponse, validate_mapi_callback_response, \
     MAPIBroadcastResponse
 from .standards.tsc_merkle_proof import separate_proof_and_embedded_transaction, TSCMerkleProof, \
@@ -4035,7 +4036,7 @@ class Wallet:
         peer_channel_server_state = self.get_connection_state_for_usage(
             NetworkServerFlag.USE_MESSAGE_BOX)
         assert peer_channel_server_state is not None
-        await add_external_peer_channel(peer_channel_server_state,
+        await add_external_peer_channel_async(peer_channel_server_state,
             payment_ack.peer_channel_info)
 
         await self.data.update_invoice_flags_async(
@@ -4697,140 +4698,6 @@ class Wallet:
         assert server_url is not None
         return server_url
 
-    # ----- DPP Message Creators ----- #
-    def dpp_make_payment_request_response(self, pr_row: PaymentRequestReadRow,
-            message_row_received: DPPMessageRow) -> DPPMessageRow:
-        key_data = self.data.read_keyinstance(keyinstance_id=pr_row.keyinstance_id)
-        assert key_data is not None
-        script_template = self._accounts[key_data.account_id].get_script_template_for_derivation(
-            pr_row.script_type, key_data.derivation_type, key_data.derivation_data2)
-        outputs_object = [
-            {
-                "description": "",
-                "amount": pr_row.requested_value,
-                "script": script_template.to_script().to_hex()
-            }
-        ]
-
-        assert pr_row.date_created != -1
-        assert pr_row.server_id is not None
-        assert pr_row.dpp_invoice_id is not None
-        server_url = self.get_dpp_server_url(pr_row.server_id)
-        # This the actual payment URL for the payer to send the `Payment`, not the `PaymentTerms`
-        # secure url.
-        payment_url = f"{server_url}api/v1/payment/{pr_row.dpp_invoice_id}"
-
-        payment_terms_data = {
-            "network": "regtest",
-            "version": "1.0",
-            "creationTimestamp": pr_row.date_created,
-            "paymentUrl": payment_url,
-            "beneficiary": {"name": "GoldenSocks.com", "paymentReference": "Order-325214",
-                "email": "merchant@m.com"},
-            "memo": pr_row.merchant_reference,
-
-            # Hybrid Payment Mode
-            'modes': {'ef63d9775da5':
-                {
-                    "choiceID0": {
-                        "transactions": [
-                            {
-                                'outputs': {
-                                        'native': outputs_object
-                                    }
-                                ,
-                                'policies': {
-                                    "fees": {
-                                        "standard": {"satoshis": 100, "bytes": 200},
-                                        "data": {"satoshis": 100, "bytes": 200},
-                                    },
-                                },
-                            },
-                        ],
-                    },
-                }}
-        }
-        if pr_row.date_expires is not None:
-            payment_terms_data['expirationTimestamp'] = pr_row.date_expires
-        payment_terms_json = json.dumps(payment_terms_data)
-
-        credential_id, _secure_public_key = self._dpp_invoice_credentials[pr_row.dpp_invoice_id]
-        secure_private_key = PrivateKey.from_hex(
-            app_state.credentials.get_indefinite_credential(credential_id))
-        response_json = pack_json_envelope(payment_terms_json, secure_private_key)
-
-        message_row_response = DPPMessageRow(
-            message_id=str(uuid.uuid4()),
-            paymentrequest_id=message_row_received.paymentrequest_id,
-            dpp_invoice_id=message_row_received.dpp_invoice_id,
-            correlation_id=message_row_received.correlation_id,
-            app_id=message_row_received.app_id,
-            client_id=message_row_received.client_id,
-            user_id=message_row_received.user_id,
-            expiration=message_row_received.expiration,
-            body=json.dumps(response_json).encode('utf-8'),
-            timestamp=datetime.now(tz=timezone.utc).isoformat(),
-            type=MSG_TYPE_PAYMENT_REQUEST_RESPONSE
-        )
-        return message_row_response
-
-    def dpp_make_ack(self, tx: Transaction, peer_channel: PeerChannelDict,
-            message_row_received: DPPMessageRow) -> DPPMessageRow:
-
-        payment_ack_data = {
-            "modeId": HYBRID_PAYMENT_MODE_BRFCID,
-            "mode": {
-                "transactionIds": [tx.hex_hash()]
-            },
-            "peerChannel": peer_channel
-        }
-
-        message_row_response = DPPMessageRow(
-            message_id=str(uuid.uuid4()),
-            paymentrequest_id=message_row_received.paymentrequest_id,
-            dpp_invoice_id=message_row_received.dpp_invoice_id,
-            correlation_id=message_row_received.correlation_id,
-            app_id=message_row_received.app_id,
-            client_id=message_row_received.client_id,
-            user_id=message_row_received.user_id,
-            expiration=message_row_received.expiration,
-            body=json.dumps(payment_ack_data).encode('utf-8'),
-            timestamp=datetime.now(tz=timezone.utc).isoformat(),
-            type=MSG_TYPE_PAYMENT_ACK)
-        return message_row_response
-
-    def dpp_make_pr_error(self, pr_row: PaymentRequestReadRow, message_row: DPPMessageRow) \
-            -> DPPMessageRow:
-        # TODO(1.4.0) DPP. This should not return `None` and should return a valid row.
-        return message_row
-
-    def dpp_make_payment_error(self, pr_row: PaymentRequestRow, message_row: DPPMessageRow) \
-            -> DPPMessageRow:
-        # TODO(1.4.0) DPP. This is not current called, use a correct return value.
-        return message_row
-
-    def dpp_make_peer_channel_info(self, tx_hash: bytes,
-            peer_channel_server_state: ServerConnectionState) -> PeerChannelDict:
-        mapi_rows = self.data.read_mapi_broadcasts([tx_hash])
-        assert len(mapi_rows) == 1
-        mapi_row = mapi_rows[0]
-
-        peer_channel_rows = self.data.read_server_peer_channels(
-            peer_channel_id=mapi_row.peer_channel_id)
-        assert len(peer_channel_rows) == 1, f"number of peer_channel_rows: {len(peer_channel_rows)}"
-        peer_channel = peer_channel_rows[0]
-        assert peer_channel.remote_channel_id is not None
-
-        assert mapi_row.peer_channel_id is not None
-        peer_channel_token_rows = self.data.read_server_peer_channel_access_tokens(
-            mapi_row.peer_channel_id, flags=PeerChannelAccessTokenFlag.FOR_EXTERNAL_USAGE)
-        assert len(peer_channel_token_rows) == 1
-        peer_channel_token_row = peer_channel_token_rows[0]
-
-        peer_channel_info = PeerChannelDict(host=peer_channel_server_state.server.url,
-            token=peer_channel_token_row.access_token, channel_id=peer_channel.remote_channel_id)
-        return peer_channel_info
-
     async def _consume_dpp_messages_async(self, state: ServerConnectionState) -> None:
         """Consumes and processes all invoice messages for a single DPP Proxy server
 
@@ -4896,7 +4763,7 @@ class Wallet:
             # ----- States for when we are the Payee ----- #
             if pr_row.state & PaymentFlag.PAYMENT_REQUEST_REQUESTED == \
                     PaymentFlag.PAYMENT_REQUEST_REQUESTED:
-                dpp_response_message = self.dpp_make_payment_request_response(pr_row,
+                dpp_response_message = dpp_make_payment_request_response(self, pr_row,
                     message_row)
                 asyncio.create_task(dpp_websocket_send(state, dpp_response_message))
 
@@ -4924,7 +4791,8 @@ class Wallet:
                     broadcast_response, peer_channel_server_state = \
                         await self.broadcast_transaction_async(tx, tx_context)
                     successful = broadcast_response["returnResult"] == "success"
-                except Exception:
+                except (GeneralAPIError, ServerConnectionError, ServerError, ServerConnectionError,
+                        BadServerError):
                     # TODO(1.4.0) mAPI. Work out how best to propagate the failure reason
                     #  back to the user in the GUI without crashing the task or event loop.
                     self._logger.exception("Unexpected exception broadcasting to mAPI")
@@ -4945,9 +4813,9 @@ class Wallet:
 
                     # Send PaymentACK to payer
                     assert peer_channel_server_state is not None
-                    peer_channel_info = self.dpp_make_peer_channel_info(tx.hash(),
+                    peer_channel_info = dpp_make_peer_channel_info(self, tx.hash(),
                         peer_channel_server_state)
-                    dpp_ack_message = self.dpp_make_ack(tx, peer_channel_info, message_row)
+                    dpp_ack_message = dpp_make_ack(tx, peer_channel_info, message_row)
                     asyncio.create_task(dpp_websocket_send(state, dpp_ack_message))
                 else:
                     # TODO(1.4.0) mAPI. Work out how best to propagate the failure reason
@@ -4956,7 +4824,8 @@ class Wallet:
                         tx.txid(), broadcast_response['resultDescription'])
 
                     # Inform the *Payee* of the reason we rejected their `Payment`
-                    dpp_err_message = self.dpp_make_pr_error(pr_row, message_row)
+                    error_reason = broadcast_response['resultDescription']
+                    dpp_err_message = dpp_make_payment_error(message_row, error_reason)
                     asyncio.create_task(dpp_websocket_send(state, dpp_err_message))
 
             # ----- States for when we are the Payer ----- #

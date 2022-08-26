@@ -55,7 +55,7 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyInstanceScriptHashRow, KeyListRow, MasterKeyRow, MAPIBroadcastRow,
     NetworkServerRow, PasswordUpdateResult, PaymentRequestReadRow, PaymentRequestRow,
-    PaymentRequestTxHashRow, PaymentRequestUpdateRow, MerkleProofUpdateRow,
+    PaymentRequestTransactionHashRow, PaymentRequestUpdateRow, MerkleProofUpdateRow,
     PushDataMatchMetadataRow, PushDataMatchRow, PushDataHashRegistrationRow,
     ServerPeerChannelAccessTokenRow, ServerPeerChannelRow, ServerPeerChannelMessageRow,
     SpendConflictType, SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
@@ -841,7 +841,7 @@ def read_parent_transaction_outputs_with_key_data(db: sqlite3.Connection, tx_has
 
 
 def read_payment_request_transactions_hashes(paymentrequest_ids: list[int],
-        db: Optional[sqlite3.Connection]=None) -> dict[int, list[bytes]]:
+        db: sqlite3.Connection | None=None) -> dict[int, list[bytes]]:
     sql = """
     SELECT DISTINCT PR.paymentrequest_id, TXO.tx_hash
     FROM KeyInstances KI
@@ -852,7 +852,7 @@ def read_payment_request_transactions_hashes(paymentrequest_ids: list[int],
 
     transaction_hashes_by_paymentrequest_id: dict[int, list[bytes]] = {}
     # NOTE(typing) Type application has too many types (1 expected)
-    for row in read_rows_by_id(PaymentRequestTxHashRow, db, sql, (), paymentrequest_ids):
+    for row in read_rows_by_id(PaymentRequestTransactionHashRow, db, sql, (), paymentrequest_ids):
         if row[0] not in transaction_hashes_by_paymentrequest_id:
             transaction_hashes_by_paymentrequest_id[row[0]] = []
         transaction_hashes_by_paymentrequest_id[row[0]].append(row[1])

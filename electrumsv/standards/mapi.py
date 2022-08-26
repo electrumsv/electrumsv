@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Any, Literal, TYPE_CHECKING, TypedDict
 
+
 if TYPE_CHECKING:
     from ..types import FeeQuoteTypeEntry
 
@@ -31,7 +32,7 @@ class MAPIBroadcastResponse(TypedDict):
     apiVersion: str
     timestamp: str
     txid: str                       # Canonical hex transaction id.
-    returnResult: str               # "success" or "failure"
+    returnResult: Literal["success", "failure"]
     resultDescription: str          # "" or "<error message>"
     minerId: str
     currentHighestBlockHash: str
@@ -125,16 +126,13 @@ def validate_mapi_broadcast_response(response_data: MAPIBroadcastResponse) -> No
     if return_result == "success":
         pass
 
-    # TODO(1.4.0) MAPI - failure states do not include a `conflictedWith` field so this errors
     elif return_result == "failure":
-        pass
-    #     if "conflictedWith" not in response_data:
-    #         raise ValueError(f"Missing 'conflictedWith' field. response_data: '{response_data}'")
-    #     if not isinstance(response_data["conflictedWith"], list):
-    #         raise ValueError("Invalid 'conflictedWith' type, expected list, "
-    #             f"got {type(response_data['conflictedWith'])}")
-    #     for conflict_entry in response_data["conflictedWith"]:
-    #         _validate_mapi_broadcast_conflicted_with(conflict_entry)
+        if "conflictedWith" in response_data:
+            if not isinstance(response_data["conflictedWith"], list):
+                raise ValueError("Invalid 'conflictedWith' type, expected list, "
+                    f"got {type(response_data['conflictedWith'])}")
+            for conflict_entry in response_data["conflictedWith"]:
+                _validate_mapi_broadcast_conflicted_with(conflict_entry)
     else:
         raise ValueError(f"Invalid 'returnResult' '{return_result}'")
 
