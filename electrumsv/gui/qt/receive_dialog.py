@@ -1,7 +1,9 @@
 from __future__ import annotations
 from concurrent.futures import Future
+import dataclasses
+import logging
 import time
-from typing import Any, cast, Optional, TYPE_CHECKING
+from typing import Any, Callable, cast, TYPE_CHECKING
 import weakref
 
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
@@ -16,9 +18,8 @@ from ...constants import NetworkServerFlag, PaymentFlag, PushDataHashRegistratio
     ServerConnectionFlag, TxFlags
 from ...i18n import _
 from ...logs import logs
-from ...network_support.types import ServerConnectionState, TipFilterRegistrationJob, \
-    TipFilterRegistrationJobEntry
 from ...networks import Net, TEST_NETWORK_NAMES
+from ...network_support.types import TipFilterRegistrationJobOutput
 from ...transaction import Transaction, TransactionContext
 from ...types import ErrorCodes
 from ...util import age, get_posix_timestamp
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
     from ...wallet_database.types import KeyInstanceRow, PaymentRequestReadRow
 
 
-EXPIRATION_VALUES: list[tuple[str, Optional[int]]] = [
+EXPIRATION_VALUES: list[tuple[str, int | None]] = [
     (_('1 hour'), 60*60),
     (_('1 day'), 24*60*60),
     (_('1 week'), 7*24*60*60),
@@ -71,8 +72,23 @@ MONITORING_EXPIRED_STATUS_TEXT = "<b>"+ _("Expired") +"</b><br/>"+ \
     _("This is no longer being monitored.")
 
 
-async def monitor_tip_filter_job(indexing_server_state: ServerConnectionState,
-        job: TipFilterRegistrationJob) -> None:
+@dataclasses.dataclass
+class GUITipFilterRegistrationJob:
+    output: TipFilterRegistrationJobOutput
+
+    # Input: If there is a contextual logger associated with this job it should be set here.
+    logger: logging.Logger | None = None
+    # Input: If there is a payment request associated with this job this will be the id.
+    paymentrequest_id: int | None = None
+    # Input: If there is a refresh callback associated with this job. This is not called the
+    #    registration process, but if necessary by user logic that has a reference to the job.
+    refresh_callback: Callable[[], None] | None = None
+    # Input: If there is a completion callback associated with this job. This is not called the
+    #    registration process, but if necessary by user logic that has a reference to the job.
+    completion_callback: Callable[[], None] | None = None
+
+
+async def monitor_tip_filter_job(job: GUITipFilterRegistrationJob) -> None:
     """
     This method is intentionally decoupled from the `ReceiveDialog` instance.
     """
@@ -81,12 +97,10 @@ async def monitor_tip_filter_job(indexing_server_state: ServerConnectionState,
     assert job.completion_callback is not None
     assert job.refresh_callback is not None
 
-    job.logger.debug("Queuing tip filter registration job %d", job.paymentrequest_id)
-    await indexing_server_state.tip_filter_new_registration_queue.put(job)
     job.logger.debug("Waiting for tip filter registration completion %d", job.paymentrequest_id)
-    await job.start_event.wait()
+    await job.output.start_event.wait()
     job.refresh_callback()
-    await job.completed_event.wait()
+    await job.output.completed_event.wait()
     job.logger.debug("Tip filter registration completion detected %d", job.paymentrequest_id)
 
     job.completion_callback()
@@ -100,14 +114,14 @@ class ReceiveDialog(QDialog):
     refresh_form_signal = pyqtSignal()
     tip_filter_registration_completed_signal = pyqtSignal()
 
-    _qr_window: Optional[QR_Window] = None
+    _qr_window: QR_Window | None = None
     _fiat_receive_e: AmountEdit
     _receive_amount_e: BTCAmountEdit
-    _timer: Optional[QTimer] = None
-    _tip_filter_registration_job: Optional[TipFilterRegistrationJob] = None
+    _timer: QTimer | None = None
+    _tip_filter_registration_job: GUITipFilterRegistrationJob | None = None
 
     def __init__(self, main_window: ElectrumWindow, view: ReceiveView, account_id: int,
-            request_id: Optional[int], request_type: PaymentFlag) -> None:
+            request_id: int | None, request_type: PaymentFlag) -> None:
         super().__init__(main_window)
         self.setWindowTitle(_("Expected payment"))
 
@@ -120,7 +134,7 @@ class ReceiveDialog(QDialog):
 
         self._logger = logs.get_logger(f"receive-dialog[{account_id},{request_id}]")
 
-        self._view: Optional[ReceiveView] = view
+        self._view: ReceiveView | None = view
         self._main_window_proxy: ElectrumWindow = weakref.proxy(main_window)
         self._account_id = account_id
         self._account = cast("AbstractAccount", main_window._wallet.get_account(account_id))
@@ -130,7 +144,6 @@ class ReceiveDialog(QDialog):
 
         self._request_row: PaymentRequestReadRow | None = None
         self._key_data: KeyInstanceRow | None = None
-        self._dpp_server_state: ServerConnectionState | None = None
 
         if request_id is not None:
             self._read_request_data_from_database()
@@ -201,7 +214,7 @@ class ReceiveDialog(QDialog):
             keyinstance_id=self._request_row.keyinstance_id)
         self._request_type = self._request_row.state & PaymentFlag.MASK_TYPE
 
-    def get_paymentrequest_id(self) -> Optional[int]:
+    def get_paymentrequest_id(self) -> int | None:
         return self._request_id
 
     def _on_payment_requests_paid(self, paymentrequest_ids: list[int]) -> None:
@@ -216,7 +229,7 @@ class ReceiveDialog(QDialog):
         self._update_form()
         self._tip_filter_registration_job = None
 
-    def _start_expiry_timer(self, expiry_timestamp: Optional[int]) -> None:
+    def _start_expiry_timer(self, expiry_timestamp: int | None) -> None:
         """
         When the payment expires the dialog should update to reflect it in order to provide a
         polished user experience.
@@ -260,6 +273,7 @@ class ReceiveDialog(QDialog):
             raise NotImplementedError(f"Invalid request type {request_type}")
 
         self._status_label = QLabel()
+        self._status_label.setWordWrap(True)
 
         form.add_row(_("Type"), QLabel(type_text))
         form.add_row(_("Status"), self._status_label)
@@ -443,8 +457,7 @@ class ReceiveDialog(QDialog):
         message = self._their_description_edit.text()
         self._save_button.setEnabled((amount is not None) or (message != ""))
 
-        if self._request_type & PaymentFlag.INVOICE == PaymentFlag.INVOICE \
-                and self._request_row is not None:
+        if self._request_type == PaymentFlag.INVOICE and self._request_row is not None:
             assert self._request_row.server_id is not None
             assert self._request_row.dpp_invoice_id is not None
             wallet = self._account.get_wallet()
@@ -492,7 +505,7 @@ class ReceiveDialog(QDialog):
 
     def _update_form(self) -> None:
         status_text = ""
-        expiry_timestamp: Optional[int] = None
+        expiry_timestamp: int | None = None
         enable_register_button = False
         enable_import_button = False
 
@@ -514,18 +527,18 @@ class ReceiveDialog(QDialog):
                         else:
                             status_text = MONITORING_NOT_STARTED_STATUS_TEXT
                             enable_register_button = True
-                    elif self._tip_filter_registration_job.failure_reason is not None:
+                    elif self._tip_filter_registration_job.output.failure_reason is not None:
                         status_text = "<b>"+ _("Not ready") +"</b><br/>"+ \
-                            self._tip_filter_registration_job.failure_reason
+                            self._tip_filter_registration_job.output.failure_reason
                         enable_register_button = True
                     else:
                         status_text = MONITORING_REGISTERING_STATUS_TEXT
                 elif self._tip_filter_registration_job is not None and \
-                        self._tip_filter_registration_job.failure_reason is not None:
+                        self._tip_filter_registration_job.output.failure_reason is not None:
                     assert monitored_row.pushdata_flags & PushDataHashRegistrationFlag.REGISTERING \
                         == 0
                     status_text = "<b>"+ _("Not ready") +"</b><br/>"+ \
-                        self._tip_filter_registration_job.failure_reason
+                        self._tip_filter_registration_job.output.failure_reason
                     enable_register_button = True
                 elif monitored_row.pushdata_flags & PushDataHashRegistrationFlag.REGISTERING:
                     status_text = MONITORING_REGISTERING_STATUS_TEXT
@@ -651,29 +664,55 @@ class ReceiveDialog(QDialog):
 
                 assert result.payment_request_row.paymentrequest_id is not None
                 self._request_id = result.payment_request_row.paymentrequest_id
-                # While we get the 'PaymentRequestRow' type (used for creation) back, we currently
-                # use the `PaymentRequestReadRow` type (used for reads) row type for local storage
-                # (which includes related data like value received).
-                self._read_request_data_from_database()
-                assert self._request_row is not None
 
-                assert self._view is not None
-                # Notify the view that the dialog now refers to an actual payment request.
-                self._view.upgrade_draft_payment_request(self._request_id)
-                # Notify the request list that it's contents have changed and it should update.
-                self._view._request_list.update_signal.emit()
-                # Refresh the contents of this window to reflect it is now an actual payment
-                # request. This is safe to do here because we are in the UI thread.
-                self.update_destination()
-                self._update_receive_qr()
-                self._update_form()
+                self._refresh_after_create()
 
             assert date_expires is not None
             app_state.app.run_coro(self._account.create_hosted_invoice_async(amount,
                 date_expires, your_text, their_text), on_done=ui_callback)
-        else:
-            def database_callback(future: Future[tuple[list[PaymentRequestRow], KeyDataProtocol]]) \
-                     -> None:
+        elif self._request_type == PaymentFlag.MONITORED:
+            def ui_thread_payment_request_created(future:
+                    Future[tuple[list[PaymentRequestRow], KeyDataProtocol]]) -> None:
+                # Skip if the operation was cancelled.
+                if future.cancelled():
+                    return
+
+                # Raise any exception if it errored or get the result if completed successfully.
+                rows, _key_data = future.result()
+                assert len(rows) == 1
+                assert rows[0].paymentrequest_id is not None
+                self._request_id = rows[0].paymentrequest_id
+
+                app_state.app.run_coro(
+                    self._account.monitor_blockchain_payment_async(self._request_id),
+                    on_done=ui_thread_monitor_blockchain_payment_call_done)
+
+            def ui_thread_monitor_blockchain_payment_call_done(
+                    future: Future[TipFilterRegistrationJobOutput | None]) -> None:
+                # Skip if the operation was cancelled.
+                if future.cancelled():
+                    return
+
+                # Raise any exception if it errored or get the result if completed successfully.
+                result = future.result()
+                if result is not None:
+                    job = self._tip_filter_registration_job = GUITipFilterRegistrationJob(
+                        output=result,
+                        logger=self._logger, paymentrequest_id=self._request_id,
+                        refresh_callback=self.refresh_form_signal.emit,
+                        completion_callback=self.tip_filter_registration_completed_signal.emit)
+                    self._logger.debug("Creating TipFilterRegistrationJob task %r", job)
+                    app_state.async_.spawn(monitor_tip_filter_job(job))
+
+                self._refresh_after_create()
+
+            assert self._tip_filter_registration_job is None
+            app_state.app.run_coro(self._account.create_payment_request_async(amount, your_text,
+                merchant_reference=their_text, date_expires=date_expires,
+                flags=self._request_type), on_done=ui_thread_payment_request_created)
+        elif self._request_type == PaymentFlag.IMPORTED:
+            def ui_thread_payment_request_created(future:
+                    Future[tuple[list[PaymentRequestRow], KeyDataProtocol]]) -> None:
                 """
                 This callback happens in the database thread. No UI calls can be made in it and any
                 UI calls should happen through emitting a signal.
@@ -690,52 +729,34 @@ class ReceiveDialog(QDialog):
                 assert len(rows) == 1
                 assert rows[0].paymentrequest_id is not None
                 self._request_id = rows[0].paymentrequest_id
-                # While we get the 'PaymentRequestRow' type (used for creation) back, we currently
-                # use the `PaymentRequestReadRow` type (used for reads) row type for local storage
-                # (which includes related data like value received).
-                self._read_request_data_from_database()
-                assert self._request_row is not None
 
-                if self._request_type == PaymentFlag.MONITORED:
-                    # Attempt to start the process of registering with any server.
-                    wallet = self._main_window_proxy._wallet
-                    indexing_server_state = wallet.get_connection_state_for_usage(
-                        NetworkServerFlag.USE_BLOCKCHAIN)
-                    if indexing_server_state is not None and \
-                            indexing_server_state.connection_flags & \
-                                ServerConnectionFlag.TIP_FILTER_READY != 0:
-                        assert self._request_row is not None
-                        assert self._request_row.date_expires is not None
-                        assert self._tip_filter_registration_job is None
-                        job = self._tip_filter_registration_job = TipFilterRegistrationJob([
-                            TipFilterRegistrationJobEntry(self._request_row.pushdata_hash,
-                            self._request_row.date_expires, self._request_row.keyinstance_id) ],
-                            logger=self._logger, paymentrequest_id=self._request_id,
-                            refresh_callback=self.refresh_form_signal.emit,
-                            completion_callback=self.tip_filter_registration_completed_signal.emit)
-                        self._logger.debug("Creating TipFilterRegistrationJob task %r", job)
-                        app_state.app.run_coro(monitor_tip_filter_job(indexing_server_state, job))
+                self._refresh_after_create()
 
-                assert self._view is not None
-                # Notify the view that the dialog now refers to an actual payment request.
-                self._view.upgrade_draft_payment_request(self._request_id)
-                # Notify the request list that it's contents have changed and it should update.
-                self._view._request_list.update_signal.emit()
-                # Refresh the contents of this window to reflect it as an actual payment request.
-                def ui_callback(args: tuple[Any, ...]) -> None:
-                    self.update_destination()
-                    self._update_receive_qr()
-                    self._update_form()
-                self._main_window_proxy.ui_callback_signal.emit(ui_callback, ())
-
-            future = app_state.async_.spawn(
-                self._account.create_payment_request_async(amount, your_text,
-                    merchant_reference=their_text, date_expires=date_expires,
-                    flags=self._request_type))
-            future.add_done_callback(database_callback)
+            app_state.app.run_coro(self._account.create_payment_request_async(amount, your_text,
+                merchant_reference=their_text, date_expires=date_expires,
+                flags=self._request_type), on_done=ui_thread_payment_request_created)
 
         # Prevent double-clicking.
         self._save_button.setEnabled(False)
+
+    def _refresh_after_create(self) -> None:
+        # While we get the 'PaymentRequestRow' type (used for creation) back, we currently
+        # use the `PaymentRequestReadRow` type (used for reads) row type for local storage
+        # (which includes related data like value received).
+        self._read_request_data_from_database()
+        assert self._request_row is not None
+        assert self._request_id is not None
+
+        assert self._view is not None
+        # Notify the view that the dialog now refers to an actual payment request.
+        self._view.upgrade_draft_payment_request(self._request_id)
+        # Notify the request list that it's contents have changed and it should update.
+        self._view._request_list.update_signal.emit()
+        # Refresh the contents of this window to reflect it is now an actual payment
+        # request. This is safe to do here because we are in the UI thread.
+        self.update_destination()
+        self._update_receive_qr()
+        self._update_form()
 
     def _on_update_button_clicked(self, amount: int, your_text: str,
             their_text: str | None) -> None:
@@ -772,7 +793,7 @@ class ReceiveDialog(QDialog):
         self._update_form()
 
     def _attempt_import_transaction(self, tx: Transaction,
-            tx_context: Optional[TransactionContext]) -> None:
+            tx_context: TransactionContext | None) -> None:
         assert self._request_row is not None
         if not tx.is_complete():
             MessageBox.show_error(_("This transaction has not been finalised"), self)

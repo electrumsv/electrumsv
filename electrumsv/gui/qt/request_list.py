@@ -283,8 +283,21 @@ class RequestList(MyTreeWidget):
         if not MessageBox.question(_("Are you sure you want to delete this payment request?")):
             return
 
-        future = wallet.delete_payment_request(self._account_id, request_id, row.keyinstance_id)
-        future.result()
+        request_type = row.state & PaymentFlag.MASK_TYPE
+        if request_type == PaymentFlag.INVOICE:
+            app_state.async_.spawn_and_wait(self._account.delete_hosted_invoice_async(request_id))
+        elif request_type == PaymentFlag.MONITORED:
+            app_state.async_.spawn_and_wait(
+                self._account.stop_monitoring_blockchain_payment_async(request_id))
+            future = wallet.delete_payment_request(self._account.get_id(), request_id,
+                row.keyinstance_id)
+            future.result()
+        elif request_type == PaymentFlag.IMPORTED:
+            future = wallet.delete_payment_request(self._account.get_id(), request_id,
+                row.keyinstance_id)
+            future.result()
+        else:
+            raise NotImplementedError()
 
         self.update_signal.emit()
         self._receive_view.update_contents()

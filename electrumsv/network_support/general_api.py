@@ -56,7 +56,8 @@ from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, \
 from ..exceptions import BadServerError, ServerConnectionError
 from ..logs import logs
 from ..types import IndefiniteCredentialId, Outpoint, outpoint_struct, output_spend_struct, \
-    OutputSpend, tip_filter_list_struct, tip_filter_registration_struct, TipFilterListEntry
+    OutputSpend, tip_filter_list_struct, tip_filter_registration_struct, \
+    tip_filter_unregistration_struct, TipFilterListEntry
 from ..util import get_posix_timestamp
 from ..wallet_database.types import PushDataHashRegistrationRow, ServerPeerChannelRow
 
@@ -67,8 +68,9 @@ from .exceptions import AuthenticationError, FilterResponseInvalidError, \
 from .peer_channel import create_peer_channel_locally_and_remotely_async, \
     peer_channel_preconnection_async, peer_channel_server_connected_async
 from .types import AccountMessageKind, ChannelNotification, IndexerServerSettings, \
-    ServerConnectionState, ServerConnectionProblems, TipFilterRegistrationResponse, \
-    VerifiableKeyData
+    ServerConnectionState, ServerConnectionProblems, \
+    TipFilterRegistrationJob, TipFilterRegistrationJobEntry, TipFilterRegistrationJobOutput, \
+    TipFilterRegistrationResponse, VerifiableKeyData
 
 
 logger = logs.get_logger("general-api")
@@ -838,11 +840,11 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
         assert len(job.entries) > 0
 
         logger.debug("Processing %d tip filter registrations", len(job.entries))
-        job.start_event.set()
+        job.output.start_event.set()
 
         date_created = int(get_posix_timestamp())
-        db_insert_rows = list[PushDataHashRegistrationRow]()
-        server_rows = list[tuple[bytes, int]]()
+        db_insert_rows: list[PushDataHashRegistrationRow] = []
+        server_rows: list[tuple[bytes, int]] = []
         no_date_registered = None
         for pushdata_hash, duration_seconds, keyinstance_id in job.entries:
             logger.debug("Preparing pre-registration entry for pushdata hash %s",
@@ -855,10 +857,10 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
             upsert=True)
 
         try:
-            job.date_registered = await create_tip_filter_registrations_async(state,
+            job.output.date_registered = await create_tip_filter_registrations_async(state,
                 server_rows)
         except (GeneralAPIError, ServerConnectionError) as exception:
-            job.failure_reason = str(exception)
+            job.output.failure_reason = str(exception)
             date_updated = int(get_posix_timestamp())
             await state.wallet_data.update_registered_tip_filter_pushdatas_flags_async([
                 (PushDataHashRegistrationFlag.REGISTRATION_FAILED, date_updated,
@@ -871,13 +873,25 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
             # `REGISTERING` flag.
             date_updated = int(get_posix_timestamp())
             await state.wallet_data.update_registered_tip_filter_pushdatas_async([
-                (job.date_registered, date_updated, ~PushDataHashRegistrationFlag.REGISTERING,
-                    PushDataHashRegistrationFlag.NONE, state.server.server_id, keyinstance_id)
+                (job.output.date_registered, date_updated,
+                    ~PushDataHashRegistrationFlag.REGISTERING, PushDataHashRegistrationFlag.NONE,
+                    state.server.server_id, keyinstance_id)
                 for (pushdata_hash_, duration_seconds_, keyinstance_id) in job.entries
             ])
 
             logger.debug("Processed %d tip filter registrations", len(job.entries))
-        job.completed_event.set()
+        job.output.completed_event.set()
+
+
+async def create_tip_filter_registration_async(state: ServerConnectionState,
+        pushdata_hash: bytes, date_expires: int, keyinstance_id: int) -> TipFilterRegistrationJob:
+    # The reference server needs to be updated to take a UTC expiry date.
+    expiry_seconds = date_expires - int(time.time())
+    job = TipFilterRegistrationJob([
+        TipFilterRegistrationJobEntry(pushdata_hash, expiry_seconds, keyinstance_id) ],
+        TipFilterRegistrationJobOutput())
+    state.tip_filter_new_registration_queue.put_nowait(job)
+    return job
 
 
 def _on_server_connection_worker_task_done(state: ServerConnectionState, future: Future[None]) \
@@ -942,7 +956,8 @@ async def blockchain_services_preconnection_async(state: ServerConnectionState) 
     # server should have purged these itself, giving us current registrations on both sides.
     current_timestamp = int(time.time())
     existing_tip_filter_rows = state.wallet_data.read_tip_filter_pushdata_registrations(
-        state.server.server_id, current_timestamp)
+        state.server.server_id, current_timestamp, flags=PushDataHashRegistrationFlag.NONE,
+        mask=PushDataHashRegistrationFlag.DELETED)
     server_tip_filters = await list_tip_filter_registrations_async(state)
 
     server_tip_filter_by_pushdata_hash = { server_tip_filter.pushdata_hash: server_tip_filter
@@ -1268,6 +1283,50 @@ async def create_tip_filter_registrations_async(state: ServerConnectionState,
     # For now we unpack the object and return the elements as a tuple.
     date_created = datetime.fromisoformat(json_object["dateCreated"]).replace(tzinfo=timezone.utc)
     return int(date_created.timestamp())
+
+
+async def delete_tip_filter_registration_async(state: ServerConnectionState,
+        registration_datas: list[tuple[bytes, int]]) -> None:
+    """
+    Use the reference server indexer API for listing tip filter registration.
+
+    Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
+    Raises `ServerConnectionError` if the remote computer does not accept the connection.
+    """
+    assert state.wallet_data is not None
+    assert state.credential_id is not None
+
+    server_url = f"{state.server.url}api/v1/transaction/filter:delete"
+    master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
+    headers = {
+        "Content-Type":     "application/octet-stream",
+        "Authorization":    f"Bearer {master_token}"
+    }
+    # This is a binary array of the pushdata hashes.
+    byte_buffer = bytearray(len(registration_datas) * 32)
+    for data_index, registration_data in enumerate(registration_datas):
+        tip_filter_unregistration_struct.pack_into(byte_buffer, data_index * 32,
+            registration_data[0])
+    try:
+        async with state.session.post(server_url, data=byte_buffer, headers=headers) as response:
+            if response.status != HTTPStatus.OK:
+                raise GeneralAPIError(
+                    f"Bad response status code: {response.status}, reason: {response.reason}")
+            # The standard response expected from the server is 200 with no body.
+    except aiohttp.ClientError:
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
+        logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
+        raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
+
+    date_updated = int(time.time())
+    await state.wallet_data.update_registered_tip_filter_pushdatas_flags_async([
+        (PushDataHashRegistrationFlag.DELETED, date_updated,
+            state.server.server_id, keyinstance_id)
+        for (pushdata_hash, keyinstance_id) in registration_datas
+    ])
+
 
 
 async def list_tip_filter_registrations_async(state: ServerConnectionState) \

@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Any, TYPE_CHECKING, TypedDict
+from typing import Any, Literal, TYPE_CHECKING, TypedDict
 
 if TYPE_CHECKING:
     from ..types import FeeQuoteTypeEntry
@@ -138,6 +138,10 @@ def validate_mapi_broadcast_response(response_data: MAPIBroadcastResponse) -> No
     else:
         raise ValueError(f"Invalid 'returnResult' '{return_result}'")
 
+MapiCallbackReasonNames = Literal["doubleSpend", "doubleSpendAttempt", "merkleProof"]
+MAPI_CALLBACK_REASONS: set[MapiCallbackReasonNames] = {"doubleSpend", "doubleSpendAttempt",
+    "merkleProof"}
+
 
 class MAPICallbackResponse(TypedDict):
     callbackPayload: dict[str, Any]
@@ -147,10 +151,13 @@ class MAPICallbackResponse(TypedDict):
     blockHash: str
     blockHeight: int
     callbackTxId: str
-    callbackReason: str
+    callbackReason: MapiCallbackReasonNames
 
 
-MAPI_CALLBACK_REASONS = {"doubleSpend", "doubleSpendAttempt", "merkleProof"}
+class MAPICallbackDoubleSpendPayload(TypedDict):
+    doubleSpendTxId: str
+    payload: str
+
 
 def validate_mapi_callback_response(response_data: MAPICallbackResponse) -> None:
     """

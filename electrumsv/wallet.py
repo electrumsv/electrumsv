@@ -60,8 +60,8 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     NetworkEventNames, NetworkServerFlag, NetworkServerType, PaymentFlag,
     PeerChannelAccessTokenFlag,
     PeerChannelMessageFlag, PushDataHashRegistrationFlag, PushDataMatchFlag, RECEIVING_SUBPATH,
-    SERVER_USES, ServerCapability, ServerPeerChannelFlag, ServerProgress, ScriptType,
-    TransactionImportFlag,
+    SERVER_USES, ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ServerProgress,
+    ScriptType, TransactionImportFlag,
     TransactionInputFlag, TransactionOutputFlag, TxFlags, unpack_derivation_path,
     WALLET_ACCOUNT_PATH_TEXT, WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag,
     WalletEventType, WalletSettings)
@@ -80,23 +80,24 @@ from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.direct_payments import send_outgoing_direct_payment_async
 from .network_support.dpp_proxy import _is_later_dpp_message_sequence, \
-    create_dpp_server_connection_async, create_dpp_server_connections_async, \
-    dpp_websocket_send, find_connectable_dpp_server, \
+    close_dpp_server_connection_async, create_dpp_server_connection_async, \
+    create_dpp_server_connections_async, dpp_websocket_send, find_connectable_dpp_server, \
     MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_ACK, \
     MSG_TYPE_PAYMENT_REQUEST_RESPONSE
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
+    create_tip_filter_registration_async, delete_tip_filter_registration_async, \
     maintain_server_connection_async, request_binary_merkle_proof_async, \
     request_transaction_data_async, upgrade_server_connection_async
 from .network_support.headers import get_longest_valid_chain
 from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_fee_quotes_async
 from .network_support.peer_channel import add_external_peer_channel
 from .network_support.types import GenericPeerChannelMessage, ServerConnectionProblems, \
-    ServerConnectionState, TipFilterPushDataMatchesData
+    ServerConnectionState, TipFilterPushDataMatchesData, TipFilterRegistrationJobOutput
 from .networks import Net
 from .restapi_websocket import broadcast_restapi_event_async, BroadcastEventNames, \
-    close_restapi_connection_async
+    BroadcastEventPayloadNames, close_restapi_connection_async
 from .standards.electrum_transaction_extended import transaction_from_electrumsv_dict
 from .standards.json_envelope import JSONEnvelope, pack_json_envelope, validate_json_envelope
 from .standards.mapi import MAPICallbackResponse, validate_mapi_callback_response, \
@@ -1154,10 +1155,8 @@ class AbstractAccount:
         row = rows[0]
         # We need to convert it to a "read row" to pass to the web socket.
         assert row.paymentrequest_id is not None
-        read_row = PaymentRequestReadRow(row.paymentrequest_id, row.keyinstance_id, row.state,
-            row.requested_value, 0, row.date_expires, row.description, row.script_type,
-            row.pushdata_hash, row.server_id, row.dpp_invoice_id, row.merchant_reference,
-            row.encrypted_key_text, row.date_created)
+        read_row = self._wallet.data.read_payment_request(request_id=row.paymentrequest_id)
+        assert read_row is not None
         self._wallet.register_outstanding_invoice(read_row, password)
         # TODO(1.4.0) DPP. We want to unregister the invoice when it is paid.
         try:
@@ -1175,8 +1174,56 @@ class AbstractAccount:
             payment_url=payment_url, secure_public_key=secure_public_key)
         return result, 0
 
-    async def delete_hosted_invoice_async(self, invoice_id: int) -> None:
-        pass
+    async def delete_hosted_invoice_async(self, request_id: int) -> None:
+        request_read_row = self._wallet.data.read_payment_request(request_id=request_id)
+        assert request_read_row is not None
+        await close_dpp_server_connection_async(self._wallet.dpp_proxy_server_states,
+            request_read_row)
+
+        future = self._wallet.delete_payment_request(self._id, request_id,
+            request_read_row.keyinstance_id)
+        future.result()
+
+    async def monitor_blockchain_payment_async(self, request_id: int) \
+            -> TipFilterRegistrationJobOutput | None:
+        read_row = self._wallet.data.read_payment_request(request_id=request_id)
+        assert read_row is not None
+        assert read_row.date_expires is not None
+
+        server_state = self._wallet.get_connection_state_for_usage(
+            NetworkServerFlag.USE_BLOCKCHAIN)
+        if server_state is None or \
+                server_state.connection_flags & ServerConnectionFlag.TIP_FILTER_READY == 0:
+            return None
+
+        job = await create_tip_filter_registration_async(server_state, read_row.pushdata_hash,
+            read_row.date_expires,
+            read_row.keyinstance_id)
+        return job.output
+
+    async def stop_monitoring_blockchain_payment_async(self, request_id: int) -> bool:
+        """
+        Returns `True` if the registrations for this payment request were deleted.
+        Returns `False` if there is no server or if the tip filter is not ready for that server.
+
+        From `general_api.py:delete_tip_filter_registrations_async`:
+        - Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
+        - Raises `ServerConnectionError` if the remote computer does not accept the connection.
+        """
+        read_row = self._wallet.data.read_payment_request(request_id=request_id)
+        assert read_row is not None
+        assert read_row.date_expires is not None
+
+        # TODO(pre-commit) Ensure that this will.
+        server_state = self._wallet.get_connection_state_for_usage(
+            NetworkServerFlag.USE_BLOCKCHAIN)
+        if server_state is None or \
+                server_state.connection_flags & ServerConnectionFlag.TIP_FILTER_READY == 0:
+            return False
+
+        await delete_tip_filter_registration_async(server_state, [ (read_row.pushdata_hash,
+            read_row.keyinstance_id) ])
+        return True
 
     async def pay_hosted_invoice_async(self, pay_url: str) -> None:
         # TODO Fetch the payment terms.
@@ -2076,9 +2123,9 @@ class WalletDataAccess:
             db_functions.delete_registered_tip_filter_pushdatas_write, rows)
 
     def read_tip_filter_pushdata_registrations(self, server_id: int,
-            expiry_timestamp: Optional[int]=None,
-            flags: Optional[PushDataHashRegistrationFlag]=None,
-            mask: Optional[PushDataHashRegistrationFlag]=None) -> list[PushDataHashRegistrationRow]:
+            expiry_timestamp: int | None=None,
+            flags: PushDataHashRegistrationFlag | None=None,
+            mask: PushDataHashRegistrationFlag | None=None) -> list[PushDataHashRegistrationRow]:
         return db_functions.read_tip_filter_pushdata_registrations(self._db_context, server_id,
             expiry_timestamp, flags, mask)
 
@@ -4022,21 +4069,27 @@ class Wallet:
     async def notify_external_listeners_async(self, event_name: BroadcastEventNames, *,
             request_payment_hashes: list[tuple[int, list[bytes]]] | None = None,
             invoice_id: int | None = None, transaction_hash: bytes | None = None,
-            header: Header | None = None, tsc_proof: TSCMerkleProof | None = None) -> None:
+            header: Header | None = None, tsc_proof: TSCMerkleProof | None = None,
+            mapi_callback_response: MAPICallbackResponse | None = None,
+            event_source: BroadcastEventPayloadNames | None = None,
+            event_payload: str | None = None) -> None:
         """
         This is used for broadcasts to any external connections for this wallet. The responsibility
         is on the external connection type to transform the raw wallet data into the outgoing data
         structures it sends to connected parties.
         """
         for websocket_state in list(self._restapi_connections.values()):
-            await broadcast_restapi_event_async(websocket_state, event_name, request_payment_hashes,
-                invoice_id, transaction_hash, header, tsc_proof)
+            await broadcast_restapi_event_async(websocket_state, event_name,
+                paid_request_hashes=request_payment_hashes,
+                invoice_id=invoice_id, transaction_hash=transaction_hash, header=header,
+                tsc_proof=tsc_proof, mapi_callback_response=mapi_callback_response,
+                event_source=event_source, event_payload=event_payload)
 
     def _process_outstanding_invoices(self, password: str) -> None:
         self._dpp_invoice_credentials: dict[str, tuple[IndefiniteCredentialId, PublicKey]] = {}
         payment_request_rows = self.data.read_payment_requests(None,
             flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID,
-            mask= PaymentFlag.INVOICE | PaymentFlag.UNPAID)
+            mask= PaymentFlag.MASK_STATE | PaymentFlag.UNPAID)
         for payment_request_row in payment_request_rows:
             self.register_outstanding_invoice(payment_request_row, password)
 
@@ -4530,70 +4583,79 @@ class Wallet:
                         e.args[0], message)
                     continue
 
-                if response["callbackReason"] != "merkleProof":
+                if response["callbackReason"] == "merkleProof":
+                    proof_json = cast(TSCMerkleProofJson, response["callbackPayload"])
+                    # TODO(1.4.0) Unreliable server, issue#841. Validate the response 'targetType'.
+                    #     We should verify it in `validate_mapi_callback_response` or we should
+                    #     handle all target types.
+                    assert proof_json["targetType"] == "header"
+                    proof = TSCMerkleProof.from_json(proof_json)
+
+                    # TODO(mapi) The MAPI server may send updates if the transaction is reorged,
+                    #      this means the lifetime of the channel has to be long enough to catch
+                    #      these.
+
+                    if not verify_proof(proof):
+                        # TODO(1.4.0) Unreliable server, issue#841. The MAPI proof is standalone
+                        #     with embedded header, no failure! If we do get a dud proof then we
+                        #     throw it away.
+                        self._logger.error("Peer channel MAPI proof invalid: '%s'", message)
+                        continue
+
+                    assert proof.block_header_bytes is not None
+                    assert proof.transaction_hash is not None
+
+                    block_hash = double_sha256(proof.block_header_bytes)
+                    header_match = self.lookup_header_for_hash(block_hash)
+                    if header_match is None:
+                        # Reasons why we are here:
+                        # - This header is on the wallet's current chain but it is on the
+                        #   unprocessed tip. This falls to the headerless proof worker to resolve
+                        #   when the tip is connected.
+                        # - This header is for a different chain/fork which the MAPI server is
+                        #   apparently following and we are not (yet?). It will be present if we
+                        #   reorg to the MAPI server's fork.
+
+                        # Connecting out of band headers (or trying to) does not necessarily help
+                        # this wallet as the wallet follows a specific header source and not
+                        # necessarily the longest chain.
+                        header, _chain = app_state.connect_out_of_band_header(
+                            proof.block_header_bytes)
+
+                        block_height: int = BlockHeight.MEMPOOL
+                        if header is not None:
+                            block_height = cast(int, header.height)
+
+                        tx_update_rows.append(TransactionProofUpdateRow(block_hash,
+                            BlockHeight.MEMPOOL, proof.transaction_index, TxFlags.STATE_CLEARED,
+                            date_updated, proof.transaction_hash))
+                        proof_row = MerkleProofRow(block_hash, proof.transaction_index,
+                            block_height, proof.to_bytes(), proof.transaction_hash)
+                        proof_rows.append(proof_row)
+                        headerless_proofs.append((proof, proof_row))
+                    else:
+                        header, _common_chain = header_match
+                        block_height = cast(int, header.height)
+                        tx_update_rows.append(TransactionProofUpdateRow(block_hash, block_height,
+                            proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
+                            proof.transaction_hash))
+                        proof_rows.append(MerkleProofRow(block_hash, proof.transaction_index,
+                            block_height, proof.to_bytes(), proof.transaction_hash))
+
+                        verified_entries.append((proof.transaction_hash, header, proof))
+                        logger.debug("MCB Storing verified merkle proof for transaction %s",
+                            hash_to_hex_str(proof.transaction_hash))
+                elif response["callbackReason"] in ("doubleSpend", "doubleSpendAttempt"):
+                    event_name: BroadcastEventNames = "transaction-double-spend"
+                    # Double spend detected in a new block or an attempt arrived in the mempool.
+                    app_state.async_.spawn(
+                        self.notify_external_listeners_async(event_name,
+                            mapi_callback_response=response, event_source="MAPI",
+                            event_payload=envelope["payload"]))
+                else:
                     self._logger.error("Peer channel MAPI message not yet supported %s '%s'",
                         response["callbackReason"], message)
                     continue
-
-                proof_json = cast(TSCMerkleProofJson, response["callbackPayload"])
-                # TODO(1.4.0) Unreliable server, issue#841. Validate the response 'targetType'. We
-                #     should verify it in `validate_mapi_callback_response` or we should handle all
-                #     target types.
-                assert proof_json["targetType"] == "header"
-                proof = TSCMerkleProof.from_json(proof_json)
-
-                # TODO(mapi) The MAPI server may send updates if the transaction is reorged,
-                #     this means the lifetime of the channel has to be long enough to catch these.
-
-                if not verify_proof(proof):
-                    # TODO(1.4.0) Unreliable server, issue#841. The MAPI proof is standalone with
-                    #     embedded header, no failure! If we do get a dud proof then we throw it
-                    #     away.
-                    self._logger.error("Peer channel MAPI proof invalid: '%s'", message)
-                    continue
-
-                assert proof.block_header_bytes is not None
-                assert proof.transaction_hash is not None
-
-                block_hash = double_sha256(proof.block_header_bytes)
-                header_match = self.lookup_header_for_hash(block_hash)
-                if header_match is None:
-                    # Reasons why we are here:
-                    # - This header is on the wallet's current chain but it is on the unprocessed
-                    #   tip. This falls to the headerless proof worker to resolve when the tip is
-                    #   connected.
-                    # - This header is for a different chain/fork which the MAPI server is
-                    #   apparently following and we are not (yet?). It will be present if we
-                    #   reorg to the MAPI server's fork.
-
-                    # Connecting out of band headers (or trying to) does not necessarily help this
-                    # wallet as the wallet follows a specific header source and not necessarily
-                    # the longest chain.
-                    header, _chain = app_state.connect_out_of_band_header(proof.block_header_bytes)
-
-                    block_height: int = BlockHeight.MEMPOOL
-                    if header is not None:
-                        block_height = cast(int, header.height)
-
-                    tx_update_rows.append(TransactionProofUpdateRow(block_hash, BlockHeight.MEMPOOL,
-                        proof.transaction_index, TxFlags.STATE_CLEARED, date_updated,
-                        proof.transaction_hash))
-                    proof_row = MerkleProofRow(block_hash, proof.transaction_index,
-                        block_height, proof.to_bytes(), proof.transaction_hash)
-                    proof_rows.append(proof_row)
-                    headerless_proofs.append((proof, proof_row))
-                else:
-                    header, _common_chain = header_match
-                    block_height = cast(int, header.height)
-                    tx_update_rows.append(TransactionProofUpdateRow(block_hash, block_height,
-                        proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
-                        proof.transaction_hash))
-                    proof_rows.append(MerkleProofRow(block_hash, proof.transaction_index,
-                        block_height, proof.to_bytes(), proof.transaction_hash))
-
-                    verified_entries.append((proof.transaction_hash, header, proof))
-                    logger.debug("MCB Storing verified merkle proof for transaction %s",
-                        hash_to_hex_str(proof.transaction_hash))
 
             # Set the given merkle proof as the one for the active chain on the given transaction
             # also creating it in the merkle proof table if it is not already there.
@@ -4605,6 +4667,8 @@ class Wallet:
             # Them so that when the header comes in, they can be considered for use.
             for headerless_proof in headerless_proofs:
                 self._connect_headerless_proof_worker_state.proof_queue.put_nowait(headerless_proof)
+            # TODO(1.4.0) Code sanity check. Should we set this even if we do not put proofs? If
+            #     so, add a comment why.
             self._connect_headerless_proof_worker_state.proof_event.set()
 
             # We set these proofs on transactions which makes the transactions verified.

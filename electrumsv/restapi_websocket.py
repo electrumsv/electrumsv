@@ -1,6 +1,6 @@
 from __future__ import annotations
 import dataclasses
-from typing import Literal, TYPE_CHECKING
+from typing import cast, Literal, TYPE_CHECKING
 from typing_extensions import NotRequired, TypedDict
 import uuid
 
@@ -10,6 +10,8 @@ from bitcoinx import hash_to_hex_str, Header
 
 from .logs import logs
 from .restapi import get_wallet_from_request
+from .standards.mapi import MAPICallbackResponse, MAPICallbackDoubleSpendPayload
+
 
 if TYPE_CHECKING:
     from .standards.tsc_merkle_proof import TSCMerkleProof
@@ -18,7 +20,8 @@ logger = logs.get_logger("restapi-endpoints")
 
 
 BroadcastEventNames = Literal["incoming-payment-expired", "incoming-payment-received",
-    "outgoing-payment-delivered", "transaction-mined", "transaction-double-spent" ]
+    "outgoing-payment-delivered", "transaction-mined", "transaction-double-spend" ]
+BroadcastEventPayloadNames = Literal["MAPI"]
 IncomingPaymentJSONStates = Literal["unpaid", "paid", "expired", "archived"]
 OutgoingPaymentJSONStates = Literal["delivered", "expired"]
 
@@ -40,17 +43,18 @@ class TransactionMinedEventDict(TypedDict):
     transactionId: str
     blockHeight: int
     blockId: str
-    eventSource: Literal["MAPI"]
+    eventSource: BroadcastEventPayloadNames
     eventPayload: str
 
-class TransactionDoubleSpentEventDict(TypedDict):
+class TransactionDoubleSpendEventDict(TypedDict):
     transactionId: str
-    otherTransactionId: int
-    eventSource: Literal["MAPI"]
-    eventPayload: str
+    blockId: NotRequired[str]
+    blockHeight: NotRequired[int]
+    eventSource: BroadcastEventPayloadNames
+    eventPayload: MAPICallbackDoubleSpendPayload
 
 OutgoingEventTypes = IncomingPaymentEventDict | OutgoingPaymentEventDict | \
-    TransactionMinedEventDict | TransactionDoubleSpentEventDict
+    TransactionMinedEventDict | TransactionDoubleSpendEventDict
 
 
 # See @RESTAPIStyle note elsewhere.
@@ -145,14 +149,20 @@ async def close_restapi_connection_async(websocket_state: LocalWebsocketState) -
     try:
         await websocket_state.websocket.close()
     except Exception:
+        # NOTE(exceptions) We have no idea what exceptions this can raise or why! This is the state
+        #     of Python as a language across most of the code used with it and it is not good.
+        #     Generally it is not recommended to catch `Exception` if you can identify which raise.
         logger.exception("Unexpected exception closing REST API websocket")
 
 
 async def broadcast_restapi_event_async(websocket_state: LocalWebsocketState,
-        event_type: BroadcastEventNames,
+        event_type: BroadcastEventNames, *,
             paid_request_hashes: list[tuple[int, list[bytes]]] | None,
             invoice_id: int | None, transaction_hash: bytes | None,
-            header: Header | None, tsc_proof: TSCMerkleProof | None) -> None:
+            header: Header | None, tsc_proof: TSCMerkleProof | None,
+            mapi_callback_response: MAPICallbackResponse | None = None,
+            event_source: BroadcastEventPayloadNames | None = None,
+            event_payload: str | None = None) -> None:
     payloads: list[OutgoingEventTypes] = []
     if event_type == "incoming-payment-received":
         assert paid_request_hashes is not None
@@ -176,22 +186,42 @@ async def broadcast_restapi_event_async(websocket_state: LocalWebsocketState,
         assert transaction_hash is not None
         assert header is not None
         assert tsc_proof is not None
+        assert event_source is not None
+        assert event_payload is not None
 
         payload3: TransactionMinedEventDict = {
             "transactionId": hash_to_hex_str(transaction_hash),
             "blockHeight": 1,
             "blockId": hash_to_hex_str(header.hash),
-            "eventSource": "MAPI",
+            "eventSource": event_source,
             "eventPayload": tsc_proof.to_bytes().hex(),
         }
         payloads = [ payload3 ]
+    elif event_type == "transaction-double-spend":
+        assert transaction_hash is None
+        assert mapi_callback_response is not None
+        assert event_source is not None
+        assert event_payload is not None
+        double_spend_payload = cast(MAPICallbackDoubleSpendPayload,
+            mapi_callback_response["callbackPayload"])
+        payload4: TransactionDoubleSpendEventDict = {
+            "transactionId": mapi_callback_response["callbackTxId"],
+            "eventSource": event_source,
+            "eventPayload": double_spend_payload,
+        }
+        # NOTE(MAPI) The MAPI documentation is unclear on what these fields mean for the two
+        #     different types of double spend event.
+        if mapi_callback_response["blockHash"]:
+            payload4["blockId"] = mapi_callback_response["blockHash"]
+            payload4["blockHeight"] = mapi_callback_response["blockHeight"]
+        payloads = [ payload4 ]
     else:
         raise NotImplementedError(f"Support for event type {event_type} not implemented")
 
-    for event_payload in payloads:
+    for broadcast_event_payload in payloads:
         event_data: WebsocketEventDict = {
             "messageType": event_type,
-            "payload": event_payload,
+            "payload": broadcast_event_payload,
         }
         try:
             await websocket_state.websocket.send_json(event_data)

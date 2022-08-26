@@ -1,9 +1,10 @@
+import concurrent.futures
 import json
 import os
 import shutil
 import sys
 import tempfile
-from typing import Any, cast, Dict, Optional, List, Set
+from typing import Any, Callable, cast, Coroutine, TypeVar
 import unittest
 import unittest.mock
 
@@ -23,6 +24,7 @@ from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
 from electrumsv.networks import Net, SVMainnet, SVRegTestnet, SVTestnet
 from electrumsv.storage import get_categorised_files, WalletStorage, WalletStorageInfo
 from electrumsv.standards.electrum_transaction_extended import transaction_from_electrumsv_dict
+from electrumsv.standards.mapi import MAPICallbackResponse
 from electrumsv.transaction import Transaction, TransactionContext
 from electrumsv.types import DatabaseKeyDerivationData, MasterKeyDataBIP32, Outpoint
 from electrumsv.wallet import (DeterministicAccount, ImportedPrivkeyAccount,
@@ -34,6 +36,9 @@ from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, Transac
 
 from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, setup_async, \
     tear_down_async, TEST_WALLET_PATH
+
+
+T1 = TypeVar("T1")
 
 
 class _TestableWallet(Wallet):
@@ -49,7 +54,7 @@ def tearDownModule():
     tear_down_async()
 
 
-def get_categorised_files2(wallet_path: str, exclude_suffix: str="") -> List[WalletStorageInfo]:
+def get_categorised_files2(wallet_path: str, exclude_suffix: str="") -> list[WalletStorageInfo]:
     matches = get_categorised_files(wallet_path, exclude_suffix)
     # In order to ensure ordering consistency, we sort the files.
     return sorted(matches, key=lambda v: v.filename)
@@ -108,8 +113,8 @@ tx_hex_spend = \
 
 
 def check_legacy_parent_of_standard_wallet(wallet: Wallet,
-        seed_words: Optional[str]=None, is_bip39: bool=False, is_imported_electrum: bool=False,
-        password: Optional[str]=None, add_indefinite_credential_mock: Any=None) -> None:
+        seed_words: str | None=None, is_bip39: bool=False, is_imported_electrum: bool=False,
+        password: str | None=None, add_indefinite_credential_mock: Any=None) -> None:
     # The automatically created petty cash account will be there from migration 29.
     assert len(wallet.get_accounts()) == 2
     account = cast(StandardAccount,
@@ -117,7 +122,7 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
 
     # There will be three keystores. The one from the automatically created global wallet seed,
     # the one from the automatically created petty cash keystore, and the one from this test.
-    wallet_keystores = cast(List[BIP32_KeyStore], wallet.get_keystores())
+    wallet_keystores = cast(list[BIP32_KeyStore], wallet.get_keystores())
     assert len(wallet_keystores) == 3
 
     # Validate the global wallet keystore and the petty cash keystore were created correctly.
@@ -133,7 +138,7 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
         add_indefinite_credential_mock.assert_called_once_with(xprv)
 
     # Validate that the test account keystore was created correctly.
-    account_keystores = cast(List[BIP32_KeyStore], account.get_keystores())
+    account_keystores = cast(list[BIP32_KeyStore], account.get_keystores())
     assert len(account_keystores) == 1
     account_keystore = account_keystores[0]
     assert account_keystore in wallet_keystores
@@ -171,7 +176,7 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
         assert keystore_data['seed'] == seed_words
 
 def check_legacy_parent_of_imported_privkey_wallet(wallet: Wallet, password: str,
-        keypairs: Optional[Dict[str, str]]=None) -> None:
+        keypairs: dict[str, str] | None=None) -> None:
     assert len(wallet.get_accounts()) == 2
     account = cast(ImportedPrivkeyAccount,
         [ account for account in wallet.get_accounts()
@@ -179,7 +184,7 @@ def check_legacy_parent_of_imported_privkey_wallet(wallet: Wallet, password: str
 
     parent_keystores = wallet.get_keystores()
     assert len(parent_keystores) == 2 # Wallet and petty cash.
-    child_keystores = cast(List[Imported_KeyStore], account.get_keystores())
+    child_keystores = cast(list[Imported_KeyStore], account.get_keystores())
     assert len(child_keystores) == 1
     assert child_keystores[0] is not None
 
@@ -207,7 +212,7 @@ def check_legacy_parent_of_imported_address_wallet(wallet: Wallet) -> None:
 
 
 def check_legacy_parent_of_multisig_wallet(wallet: Wallet, password: str,
-        seed_phrase: Optional[str]=None) -> None:
+        seed_phrase: str | None=None) -> None:
     assert len(wallet.get_accounts()) == 2
 
     account1 = cast(MultisigAccount,
@@ -249,10 +254,10 @@ def check_legacy_parent_of_hardware_wallet(wallet: Wallet) -> None:
     child_account = cast(StandardAccount,
         [ entry for entry in wallet.get_accounts() if not entry.is_petty_cash() ][0])
 
-    parent_keystores = cast(List[Hardware_KeyStore], wallet.get_keystores())
+    parent_keystores = cast(list[Hardware_KeyStore], wallet.get_keystores())
     # Wallet, petty cash and the hardware wallet.
     assert len(parent_keystores) == 3
-    child_keystores = cast(List[Hardware_KeyStore], child_account.get_keystores())
+    child_keystores = cast(list[Hardware_KeyStore], child_account.get_keystores())
     assert len(child_keystores) == 1
     assert child_keystores[0] in parent_keystores
 
@@ -269,7 +274,7 @@ def check_legacy_parent_of_hardware_wallet(wallet: Wallet) -> None:
 
 
 def check_create_keys(wallet: Wallet, account: DeterministicAccount) -> None:
-    def check_rows(rows: List[KeyInstanceRow], script_type: ScriptType) -> None:
+    def check_rows(rows: list[KeyInstanceRow], script_type: ScriptType) -> None:
         for row in rows:
             assert isinstance(row.keyinstance_id, int)
             assert account.get_id() == row.account_id
@@ -284,8 +289,8 @@ def check_create_keys(wallet: Wallet, account: DeterministicAccount) -> None:
     assert [] == account.get_existing_fresh_keys(CHANGE_SUBPATH, 1000)
     assert account._row.default_script_type == account.get_default_script_type()
 
-    keyinstances: List[KeyInstanceRow] = []
-    keyinstance_ids: Set[int] = set()
+    keyinstances: list[KeyInstanceRow] = []
+    keyinstance_ids: set[int] = set()
 
     for count in (0, 1, 5):
         future1, future2, new_keyinstances, new_scripthashes = \
@@ -332,7 +337,7 @@ def check_create_keys(wallet: Wallet, account: DeterministicAccount) -> None:
         assert len(keyinstance_ids) == len(keyinstances)
         assert keyinstances == account.get_existing_fresh_keys(RECEIVING_SUBPATH, 1000)
 
-    keyinstance_batches: List[List[KeyInstanceRow]] = []
+    keyinstance_batches: list[list[KeyInstanceRow]] = []
     for count in (0, 1, 5):
         new_keyinstances = account.get_fresh_keys(RECEIVING_SUBPATH, count)
         assert count == len(new_keyinstances)
@@ -558,7 +563,7 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
             raise e
 
     # Store any pre-password update related data to compare against post-password update data.
-    prv_keypairs: Dict[str, str] = {}
+    prv_keypairs: dict[str, str] = {}
     if "imported" == expected_type and "privkey" in wallet_filename:
         assert len(wallet.get_accounts()) == 2
         private_key_account = cast(ImportedPrivkeyAccount,
@@ -625,13 +630,13 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
     with open(testdata_filename, "r") as f:
         testdata = json.load(f)
 
-    expected_labels: Dict[bytes, str] = {
+    expected_labels: dict[bytes, str] = {
         hex_str_to_hash(k): v for (k, v) in testdata["expected_labels"].items()
     }
-    settled_tx_hashes: Set[bytes] = {
+    settled_tx_hashes: set[bytes] = {
         hex_str_to_hash(k) for k in testdata["settled_tx_hashes"]
     }
-    expected_derivation_datas: Optional[List[Dict[str, Any]]] = testdata["derivation_datas"]
+    expected_derivation_datas: list[dict[str, Any]] | None = testdata["derivation_datas"]
 
     if len(expected_labels):
         rows1 = wallet.data.read_transaction_descriptions(tx_hashes=list(expected_labels.keys()))
@@ -647,7 +652,7 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
     if account.is_petty_cash():
         assert not expected_derivation_datas
     elif expected_derivation_datas is not None:
-        actual_derivation_datas: List[Dict[str, Any]] = []
+        actual_derivation_datas: list[dict[str, Any]] = []
         for keystore in account.get_keystores():
             data1 = keystore.to_derivation_data()
             if "seed" in data1:
@@ -656,7 +661,7 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
                     data1_typed["seed"] = pw_decode(data1_typed["seed"], password)
                 if data1_typed["xprv"] is not None:
                     data1_typed["xprv"] = pw_decode(data1_typed["xprv"], password)
-                data1 = cast(Dict[str, Any], data1_typed)
+                data1 = cast(dict[str, Any], data1_typed)
             actual_derivation_datas.append(data1)
         assert expected_derivation_datas == actual_derivation_datas
     else:
@@ -669,7 +674,7 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
                 #         data1_typed["seed"] = pw_decode(data1_typed["seed"], password)
                 #     if data1_typed["xprv"] is not None:
                 #         data1_typed["xprv"] = pw_decode(data1_typed["xprv"], password)
-                #     data1 = cast(Dict[str, Any], data1_typed)
+                #     data1 = cast(dict[str, Any], data1_typed)
                 # print("expected_derivation_data", data1)
 
 
@@ -1436,10 +1441,10 @@ def test_lookup_header_for_hash(app_state) -> None:
         assert lookup_block_hash == block_hash
         return cast(Header, fake_header2), cast(Chain, fake_chain2)
 
-    def common_chain_and_height_fail(chain_arg: Chain) -> tuple[Optional[Chain], int]:
+    def common_chain_and_height_fail(chain_arg: Chain) -> tuple[Chain | None, int]:
         return None, -1
 
-    def common_chain_and_height_is_1(chain_arg: Chain) -> tuple[Optional[Chain], int]:
+    def common_chain_and_height_is_1(chain_arg: Chain) -> tuple[Chain | None, int]:
         return fake_chain1, 3
 
     app_state.credentials.get_wallet_password = lambda wallet_path: "password"
@@ -1486,7 +1491,6 @@ def test_lookup_header_for_hash(app_state) -> None:
 @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 async def test_close_paid_payment_requests_async_notifies(app_state: AppStateProxy) -> None:
     app_state.credentials.get_wallet_password = lambda wallet_path: "password"
-
     mock_storage = cast(WalletStorage, MockStorage("password"))
     wallet = Wallet(mock_storage)
     wallet.data = unittest.mock.Mock()
@@ -1498,3 +1502,69 @@ async def test_close_paid_payment_requests_async_notifies(app_state: AppStatePro
     wallet._event_payment_requests_paid_async = unittest.mock.AsyncMock()
     await wallet._close_paid_payment_requests_async()
     wallet._event_payment_requests_paid_async.assert_called_once_with([ 1 ])
+
+
+def _create_mock_async_function() -> unittest.mock.AsyncMock:
+    return unittest.mock.AsyncMock()
+
+
+@pytest.mark.parametrize("callback_reason,broadcast_name", (("doubleSpend",
+    "transaction-double-spend"), ("doubleSpendAttempt", "transaction-double-spend")))
+@unittest.mock.patch('electrumsv.wallet.broadcast_restapi_event_async',
+    new_callable=_create_mock_async_function)
+@unittest.mock.patch('electrumsv.wallet.validate_mapi_callback_response')
+@unittest.mock.patch('electrumsv.wallet.validate_json_envelope')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
+async def test_transaction_double_spent_async(app_state: AppStateProxy, mock_validate_json_envelope,
+        mock_validate_mapi_callback_response, mock_broadcast_restapi_event_async,
+        callback_reason: str, broadcast_name: str) -> None:
+    app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+    mock_storage = cast(WalletStorage, MockStorage("password"))
+    wallet = Wallet(mock_storage)
+    wallet.data = unittest.mock.Mock()
+    wallet.data.read_server_peer_channel_messages_async = unittest.mock.AsyncMock()
+    server_state = unittest.mock.Mock()
+    server_state.mapi_callback_response_event = unittest.mock.Mock()
+    server_state.mapi_callback_response_queue = unittest.mock.Mock()
+    fake_message_row = unittest.mock.Mock()
+    fake_message_row.message_id = 12121
+    mapi_callback_response: MAPICallbackResponse = {
+        "callbackReason": callback_reason,
+        "callbackPayload": {
+        }
+    }
+    def get_nowait() -> list:
+        # Make sure we exit the consumer loop after this set of events is processed.
+        wallet._stopping = True
+        return [ (fake_message_row, {
+                "sequence": 10010,
+                "received": "not a real date",
+                "content_type": "not a real content type",
+                "payload": {
+                    "payload": json.dumps(mapi_callback_response),
+                }, }) ]
+    server_state.mapi_callback_response_queue.get_nowait.side_effect = get_nowait
+    wallet._wait_for_chain_related_work_async = unittest.mock.AsyncMock()
+    # Ensure `broadcast_restapi_event_async` thinks it has a connection to broadcast to.
+    wallet._restapi_connections["xxx"] = "not really a websocket state"
+
+    # Normally unit testing logic kills spawned coroutines, but in this case we want this to
+    # run and have to interfere to get it to do so.
+    pending_coroutines: list[Coroutine[Any, Any, Any]] = []
+    def _spawn(coroutine: Coroutine[Any, Any, T1],
+            on_done: Callable[[concurrent.futures.Future[T1]], None] | None=None) \
+                -> Any:
+        nonlocal pending_coroutines
+        pending_coroutines.append(coroutine)
+    app_state.async_.spawn = _spawn
+    await wallet._consume_mapi_callback_messages_async(server_state)
+
+    # Dispatch the `broadcast_restapi_event_async` call.
+    for pending_coroutine in pending_coroutines:
+        await pending_coroutine
+
+    mock_broadcast_restapi_event_async.assert_called_once_with(
+        wallet._restapi_connections["xxx"], broadcast_name, paid_request_hashes=None,
+        invoice_id=None, transaction_hash=None, header=None, tsc_proof=None,
+        mapi_callback_response=mapi_callback_response,
+        event_source="MAPI", event_payload=json.dumps(mapi_callback_response))

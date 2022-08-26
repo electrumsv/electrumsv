@@ -595,6 +595,7 @@ class PushDataHashRegistrationFlag(IntFlag):
     # This gets set immediately before we register the filter remotely.
     REGISTERING                                 = 1 << 0
     REGISTRATION_FAILED                         = 1 << 1
+    DELETED                                     = 1 << 2
 
 
 class ServerConnectionFlag(IntFlag):

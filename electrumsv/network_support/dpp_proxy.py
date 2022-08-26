@@ -178,6 +178,30 @@ async def create_dpp_server_connection_async(state: ServerConnectionState,
     return future, event
 
 
+async def close_dpp_server_connection_async(all_server_states: list[ServerConnectionState],
+        payment_request_row: PaymentRequestReadRow) -> None:
+    assert payment_request_row.dpp_invoice_id is not None
+
+    for server_state in all_server_states:
+        websocket = server_state.dpp_websockets.pop(payment_request_row.dpp_invoice_id, None)
+        if websocket is None:
+            continue
+        break
+    else:
+        return
+
+    try:
+        await websocket.close()
+    except Exception:
+        # NOTE(exceptions) We have no idea what exceptions this can raise or why! This is the state
+        #     of Python as a language across most of the code used with it and it is not good.
+        #     Generally it is not recommended to catch `Exception` if you can identify which raise.
+        logger.exception("Unexpected exception closing REST API websocket")
+
+    if payment_request_row.dpp_invoice_id in server_state.dpp_websocket_connection_events:
+        del server_state.dpp_websocket_connection_events[payment_request_row.dpp_invoice_id]
+
+
 async def create_dpp_server_connections_async(state: ServerConnectionState,
         payment_request_rows: list[PaymentRequestReadRow]) -> None:
     """Block until all the requested connections are made and report the results."""

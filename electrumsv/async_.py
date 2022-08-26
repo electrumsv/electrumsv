@@ -90,7 +90,7 @@ class ASync(object):
         self.loop.run_until_complete(self._wait_until_stopped())
         self.loop.close()
 
-    def _collect(self, on_done: Optional[Callable[[concurrent.futures.Future[Any]], None]],
+    def _collect(self, on_done: Callable[[concurrent.futures.Future[Any]], None] | None,
             future: concurrent.futures.Future[Any]) -> None:
         self.futures.remove(future)
         if on_done:
@@ -114,7 +114,7 @@ class ASync(object):
         future.add_done_callback(partial(self._collect, on_done))
         return future
 
-    def spawn_and_wait(self, coroutine: Coroutine[Any, Any, T1], timeout: Optional[int]=None) -> T1:
+    def spawn_and_wait(self, coroutine: Coroutine[Any, Any, T1], timeout: int | None=None) -> T1:
         future = run_coroutine_threadsafe(coroutine, self.loop)
         return future.result(timeout)
 

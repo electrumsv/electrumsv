@@ -1466,7 +1466,7 @@ def read_server_peer_channels(db: sqlite3.Connection, server_id: int | None=None
     sql = """
         SELECT peer_channel_id, server_id, remote_channel_id, remote_url, peer_channel_flags,
             date_created, date_updated
-        FROM ServerPeerChannels 
+        FROM ServerPeerChannels
         """
     sql_values = []
     where_clause = False

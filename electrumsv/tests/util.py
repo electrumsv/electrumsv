@@ -1,5 +1,7 @@
+
+from __future__ import annotations
 import os
-from typing import Any, Coroutine, NoReturn
+from typing import Any, Coroutine, NoReturn, TypeVar
 import unittest.mock
 
 import bitcoinx
@@ -9,6 +11,9 @@ from electrumsv.credentials import PasswordTokenProtocol
 from electrumsv_database.sqlite import DatabaseContext
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.wallet_database import functions as db_functions
+
+
+T1 = TypeVar("T1")
 
 
 class AppStateProxyTest(AppStateProxy):
@@ -112,8 +117,8 @@ def _create_mock_app_state() -> unittest.mock.MagicMock:
     # The primary goal of this is to avoid the warnings about never awaited coroutines.
     def _spawn(coro: Coroutine[Any, Any, Any], on_done=None) -> Any:
         coro.close()
-    def _spawn_and_wait(coro: Coroutine[Any, Any, Any], on_done=None) -> Any:
-        coro.close()
+    def _spawn_and_wait(coroutine: Coroutine[Any, Any, T1], timeout: int | None=None) -> T1:
+        coroutine.close()
     mock = unittest.mock.MagicMock()
     mock.async_.spawn = _spawn
     mock.async_.spawn_and_wait = _spawn_and_wait

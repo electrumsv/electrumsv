@@ -9,9 +9,8 @@ import asyncio
 import concurrent.futures
 import dataclasses
 import enum
-import logging
 from enum import IntFlag
-from typing import Any, Callable, NamedTuple, Optional, Sequence, TYPE_CHECKING, TypedDict
+from typing import Any, NamedTuple, Optional, Sequence, TYPE_CHECKING, TypedDict
 
 import aiohttp
 from aiohttp import ClientWebSocketResponse
@@ -150,28 +149,21 @@ class TipFilterRegistrationJobEntry(NamedTuple):
 
 
 @dataclasses.dataclass
-class TipFilterRegistrationJob:
-    entries: list[TipFilterRegistrationJobEntry]
-
-    # Input: If there is a contextual logger associated with this job it should be set here.
-    logger: Optional[logging.Logger] = None
-    # Input: If there is a payment request associated with this job this will be the id.
-    paymentrequest_id: Optional[int] = None
-    # Input: If there is a refresh callback associated with this job. This is not called the
-    #    registration process, but if necessary by user logic that has a reference to the job.
-    refresh_callback: Optional[Callable[[], None]] = None
-    # Input: If there is a completion callback associated with this job. This is not called the
-    #    registration process, but if necessary by user logic that has a reference to the job.
-    completion_callback: Optional[Callable[[], None]] = None
-
+class TipFilterRegistrationJobOutput:
     # Output: This will be set when the processing of this job starts.
     start_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
     # Output: This will be set when the processing of this job ends successfully or by error.
     completed_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
     # Output: If the registration succeeds this will be the UTC date the request expires.
-    date_registered: Optional[int] = None
+    date_registered: int | None = None
     # Output: If the registration errors this will be a description to explain why to the user.
-    failure_reason: Optional[str] = None
+    failure_reason: str | None = None
+    pass
+
+@dataclasses.dataclass
+class TipFilterRegistrationJob:
+    entries: list[TipFilterRegistrationJobEntry]
+    output: TipFilterRegistrationJobOutput
 
 
 class TipFilterRegistrationResponse(TypedDict):

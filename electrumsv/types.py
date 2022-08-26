@@ -120,6 +120,7 @@ class TipFilterListEntry(NamedTuple):
 outpoint_struct = struct.Struct(">32sI")
 output_spend_struct = struct.Struct(">32sI32sI32s")
 tip_filter_registration_struct = struct.Struct(">32sI")
+tip_filter_unregistration_struct = struct.Struct(">32s")
 tip_filter_list_struct = struct.Struct(">32sII")
 
 
