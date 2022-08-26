@@ -4782,7 +4782,7 @@ class Wallet:
                 tx = Transaction.from_hex(payment_obj.transaction_hex)
                 if not self.have_transaction(tx.hash()):
                     await self.import_transaction_async(tx.hash(), tx, TxFlags.STATE_RECEIVED,
-                        BlockHeight.MEMPOOL)
+                        BlockHeight.LOCAL)
                 mapi_server_hint = \
                     self.get_mapi_broadcast_context(state.petty_cash_account_id, tx)
                 assert mapi_server_hint is not None
