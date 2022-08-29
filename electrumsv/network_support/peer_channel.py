@@ -160,11 +160,9 @@ async def add_external_peer_channel_async(
     read_only_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
         read_only_access_token_flag, TokenPermissions.READ_ACCESS, peer_channel_info['token'])
 
-    # Local database: Update for the server-side peer channel. Drop the `ALLOCATING` flag and
-    #     add the access token.
-    read_only_peer_channel_flag = ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK
+    # Add the read_only token
     peer_channel_row = await wallet_data.update_server_peer_channel_async(remote_peer_channel_id,
-        remote_url, read_only_peer_channel_flag, peer_channel_id,
+        remote_url, peer_channel_flags, peer_channel_id,
         addable_access_tokens=[read_only_access_token])
 
     return peer_channel_row, read_only_access_token
