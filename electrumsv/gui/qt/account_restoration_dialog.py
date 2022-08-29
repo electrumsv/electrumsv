@@ -361,7 +361,6 @@ class AccountRestorationDialog(WindowModalDialog):
         vbox.addLayout(button_box)
         vbox.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
 
-        self._scan_button.setFocus()
         self.rejected.connect(self._on_dialog_rejected)
         self.finished.connect(self._on_dialog_finished)
 
@@ -403,6 +402,8 @@ class AccountRestorationDialog(WindowModalDialog):
             else:
                 self._scan_button.setEnabled(False)
                 self._about_label.setText(TEXT_SERVER_CONNECTION_ERROR)
+
+            self._scan_button.setFocus()
             return
 
         self._scan_button.setEnabled(False)
