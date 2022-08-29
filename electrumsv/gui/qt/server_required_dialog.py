@@ -114,7 +114,9 @@ class ServerRequiredDialog(WindowModalDialog):
             self._on_checkbox_state_changed)
         # Ensure the display rules associated with checkbox selection are enforced to start with.
         # NOTE(typing) PyQt nonsense: `CheckState` is an `Enum` not and `IntEnum`.
-        self._on_checkbox_state_changed(0) # Qt.CheckState.Unchecked
+        self._on_checkbox_state_changed(2 # Qt.CheckState.Checked
+            if self._introduction_widget.automatic_checkbox.isChecked()
+            else 0) # Qt.CheckState.Unchecked
 
         self._registration_widget = RegistrationWidget(self._wallet_proxy.reference(),
             required_usage_flags)
@@ -277,7 +279,7 @@ class IntroductionWidget(QWidget):
         self.reset_widget()
 
     def reset_widget(self) -> None:
-        self.automatic_checkbox.setCheckState(Qt.CheckState.Unchecked)
+        self.automatic_checkbox.setCheckState(Qt.CheckState.Checked)
 
 
 class RegistrationWidget(QWidget):
