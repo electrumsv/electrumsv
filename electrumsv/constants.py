@@ -584,10 +584,18 @@ class PeerChannelMessageFlag(IntFlag):
 class PeerChannelAccessTokenFlag(IntFlag):
     NONE                                        = 0
 
-    FOR_TIP_FILTER_SERVER                       = 1 << 0
-    FOR_LOCAL_USAGE                             = 1 << 1  # i.e. we created and "own" the channel
-    FOR_MAPI_CALLBACK_USAGE                     = 1 << 2
-    FOR_EXTERNAL_USAGE                          = 1 << 3  # i.e. we do not "own" the peer channel
+    # Local vs third party are opposites.
+    # Third party tokens should not be used for marking
+    # messages as read because this will cause the third party to miss these messages.
+    # Only tokens that are `FOR_LOCAL_USAGE` should be used for reading / marking messages read
+    FOR_LOCAL_USAGE                             = 1 << 0
+    FOR_THIRD_PARTY_USAGE                       = 1 << 1
+
+    # Use cases
+    FOR_TIP_FILTER_SERVER                       = 1 << 2
+    FOR_MAPI_CALLBACK_USAGE                     = 1 << 3
+
+    USAGE_MASK = FOR_TIP_FILTER_SERVER | FOR_LOCAL_USAGE | FOR_MAPI_CALLBACK_USAGE
 
 
 class PushDataHashRegistrationFlag(IntFlag):

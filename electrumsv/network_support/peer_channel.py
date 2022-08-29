@@ -86,7 +86,9 @@ async def peer_channel_preconnection_async(state: ServerConnectionState) -> None
     peer_channel_jsons = await list_peer_channels_async(state)
 
     peer_channel_ids = { channel_json["id"] for channel_json in peer_channel_jsons }
-    peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
+    all_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
+        for row in existing_channel_rows}
+    owned_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
         for row in existing_channel_rows
         if row.peer_channel_flags & ServerPeerChannelFlag.EXTERNALLY_OWNED == 0}
     # TODO(1.4.0) Unreliable server, issue#841. Our peer channels differ from the server's.
@@ -96,10 +98,10 @@ async def peer_channel_preconnection_async(state: ServerConnectionState) -> None
     # - Expired peer channels may need to be excluded.
     # - We should mark peer channels as `CLOSING` and we can pick those up here and close
     #   any we couldn't close when they were marked as such because of connection issues.
-    if set(peer_channel_ids) != set(peer_channel_rows_by_id):
+    if set(peer_channel_ids) != set(owned_peer_channel_rows_by_id):
         raise InvalidStateError("Mismatched peer channels, local and server")
 
-    state.cached_peer_channel_rows = peer_channel_rows_by_id
+    state.cached_peer_channel_rows = all_peer_channel_rows_by_id
 
     for peer_channel_row in existing_channel_rows:
         assert peer_channel_row.remote_channel_id is not None
@@ -156,7 +158,8 @@ async def add_external_peer_channel_async(
 
     # Record peer channel token in the database if it doesn't exist there already
     assert peer_channel_row.peer_channel_id is not None
-    read_only_access_token_flag = PeerChannelAccessTokenFlag.FOR_EXTERNAL_USAGE
+    read_only_access_token_flag = PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE | \
+                                  PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE
     read_only_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
         read_only_access_token_flag, TokenPermissions.READ_ACCESS, peer_channel_info['token'])
 
@@ -279,11 +282,14 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
             logger.error("Wallet: '%s' received peer channel notification for unknown channel '%s'",
                 state.wallet_proxy.name(), remote_channel_id)
             continue
+        else:
+            logger.debug("Processing message for remote_channel_id=%s", remote_channel_id)
 
         assert peer_channel_row.peer_channel_id is not None
+        relevant_token_flags = PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE
         db_access_tokens = state.wallet_data.read_server_peer_channel_access_tokens(
-            peer_channel_row.peer_channel_id, PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE,
-            PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE)
+            peer_channel_row.peer_channel_id, None, relevant_token_flags)
+
         assert len(db_access_tokens) == 1
 
         messages = await list_peer_channel_messages_async(state, remote_channel_id,
@@ -319,8 +325,15 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
 
         # Now that we have all these messages stored locally we can delete the remote copies.
         for sequence in message_map:
-            await delete_peer_channel_message_async(state, remote_channel_id,
-                db_access_tokens[0].access_token, sequence)
+            # We must not delete messages from a shared mAPI channel because the other peer
+            # (payer or payee SPV wallet) will then be unable to read the merkle proof
+            if peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE == \
+                    ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
+                await mark_peer_channel_read_or_unread_async(state, remote_channel_id,
+                    db_access_tokens[0].access_token, sequence, older=False, is_read=True)
+            else:
+                await delete_peer_channel_message_async(state, remote_channel_id,
+                    db_access_tokens[0].access_token, sequence)
 
         peer_channel_purpose = \
             peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE

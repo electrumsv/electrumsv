@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 from .dpp_proxy import MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT_ACK, \
     MSG_TYPE_PAYMENT_ERROR, MSG_TYPE_PAYMENT_REQUEST_ERROR
-from .types import ServerConnectionState
+from .types import ServerConnectionState, TokenPermissions
 from ..app_state import app_state
 from ..constants import PeerChannelAccessTokenFlag
 from ..dpp_messages import Payment, PaymentACK, PeerChannelDict, HYBRID_PAYMENT_MODE_BRFCID
@@ -82,12 +82,19 @@ def dpp_make_peer_channel_info(wallet: Wallet, tx_hash: bytes,
 
     assert mapi_row.peer_channel_id is not None
     peer_channel_token_rows = wallet.data.read_server_peer_channel_access_tokens(
-        mapi_row.peer_channel_id, flags=PeerChannelAccessTokenFlag.FOR_EXTERNAL_USAGE)
-    assert len(peer_channel_token_rows) == 1
-    peer_channel_token_row = peer_channel_token_rows[0]
+        mapi_row.peer_channel_id, flags=PeerChannelAccessTokenFlag.FOR_THIRD_PARTY_USAGE |
+            PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE)
 
+    # There will be two third party tokens (a write token for mAPI and a read token for the peer
+    # wallet that is paying us)
+    read_token_row = None
+    for token in peer_channel_token_rows:
+        if token.permission_flags & TokenPermissions.READ_ACCESS != 0:
+            read_token_row = token
+
+    assert read_token_row is not None
     peer_channel_info = PeerChannelDict(host=peer_channel_server_state.server.url,
-        token=peer_channel_token_row.access_token, channel_id=peer_channel.remote_channel_id)
+        token=read_token_row.access_token, channel_id=peer_channel.remote_channel_id)
     return peer_channel_info
 
 
