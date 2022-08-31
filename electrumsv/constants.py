@@ -277,6 +277,8 @@ class TransactionImportFlag(IntFlag):
     EXPLICIT_BROADCAST = 1 << 2
     # The user is importing this manually from somewhere external.
     MANUAL_IMPORT = 1 << 3
+    # Do not set this payment request to paid yet (it is yet to be accepted by mAPI)
+    SKIP_CLOSE_PAYMENT_REQUEST = 1 << 4
 
     BROADCAST_P2P               = 0b00 << 10
     BROADCAST_MAPI              = 0b01 << 10

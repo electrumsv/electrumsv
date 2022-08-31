@@ -189,6 +189,8 @@ class ServerConnectionState:
     server: NewServer
 
     credential_id: Optional[IndefiniteCredentialId] = None
+    # Externally added channels don't have admin access
+    have_peer_channel_admin_access: bool = dataclasses.field(default_factory=bool, init=True)
     cached_peer_channel_rows: Optional[dict[str, ServerPeerChannelRow]] = None
 
     # This should only be used to send problems that occur that should result in the connection
@@ -214,6 +216,8 @@ class ServerConnectionState:
             dataclasses.field(default_factory=asyncio.Queue[list[tuple[ServerPeerChannelMessageRow,
                 GenericPeerChannelMessage]]])
     mapi_callback_response_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+    # This timestamp is used to implement a 30 min wait time for potential double spends etc.
+    mapi_callback_response_timestamp: int | None = None
     # Wallet consuming: Incoming spend notifications from the server.
     output_spend_result_queue: asyncio.Queue[Sequence[OutputSpend]] = dataclasses.field(
         default_factory=asyncio.Queue[Sequence[OutputSpend]])
