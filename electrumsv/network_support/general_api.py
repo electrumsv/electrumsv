@@ -535,15 +535,27 @@ async def _manage_server_connection_async(state: ServerConnectionState) -> None:
     state.stage_change_event.clear()
 
     access_token = app_state.credentials.get_indefinite_credential(state.credential_id)
-    websocket_url_template = state.server.url + "api/v1/web-socket?token={access_token}"
-    websocket_url = websocket_url_template.format(access_token=access_token)
+    remote_channel_id: str | None = None
+    if state.has_reference_server_master_token:
+        # Use the account-level general purpose websocket because this is a master account token
+        websocket_url_template = state.server.url + "api/v1/web-socket?token={access_token}"
+        websocket_url = websocket_url_template.format(access_token=access_token)
+    else:
+        # Use the peer-channel-specific websocket as this is likely a humble, peer-channel read
+        # token with reduced scope of security access
+        assert len(state.cached_peer_channel_rows) == 1
+        remote_channel_id, peer_channel_row = state.cached_peer_channel_rows.popitem()
+        websocket_url_template = state.server.url + \
+                                 f"api/v1/channel/{remote_channel_id}/notify?token={access_token}"
+        websocket_url = websocket_url_template.format(access_token=access_token)
     headers = {
         "Accept": "application/octet-stream"
     }
     try:
         async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
                 as server_websocket:
-            logger.info('Connected to server websocket, url=%s', websocket_url_template)
+            logger.info('Connected to server websocket, url=%s (Wallet="%s")',
+                websocket_url_template, state.wallet_proxy.name())
 
             # Snapshot the usage flags before changing the state.
             existing_usage_flags = state.usage_flags
@@ -561,7 +573,21 @@ async def _manage_server_connection_async(state: ServerConnectionState) -> None:
             try:
                 websocket_message: aiohttp.WSMessage
                 async for websocket_message in server_websocket:
-                    if websocket_message.type == aiohttp.WSMsgType.TEXT:
+                    general_purpose_websocket = state.has_reference_server_master_token
+                    peer_channel_specific_websocket = not state.has_reference_server_master_token
+
+                    # ---------- Peer Channel Specific Websocket Handling ---------- #
+                    if peer_channel_specific_websocket and \
+                            websocket_message.type == aiohttp.WSMsgType.TEXT:
+                        assert state.used_with_reference_server_api is True
+                        assert remote_channel_id is not None
+                        # Expected message contents = 'New message arrived' (or something similar)
+                        logger.debug("Queued incoming peer channel message %s", websocket_message)
+                        state.peer_channel_message_queue.put_nowait(remote_channel_id)
+
+                    # ---------- General Purpose Websocket Handling ---------- #
+                    elif general_purpose_websocket and \
+                            websocket_message.type == aiohttp.WSMsgType.TEXT:
                         if state.used_with_reference_server_api:
                             # This will be headers.
                             logger.debug("Ignoring websocket text: %s", websocket_message.data)
@@ -569,7 +595,8 @@ async def _manage_server_connection_async(state: ServerConnectionState) -> None:
                             #     "not expected from this server (text message)")
                         else:
                             raise NotImplementedError("")
-                    elif websocket_message.type == aiohttp.WSMsgType.BINARY:
+                    elif general_purpose_websocket and \
+                            websocket_message.type == aiohttp.WSMsgType.BINARY:
                         if state.used_with_reference_server_api:
                             # In processing the message `BadServerError` will be raised if this
                             # server cannot handle the incoming message, or it is malformed.
@@ -591,6 +618,7 @@ async def _manage_server_connection_async(state: ServerConnectionState) -> None:
                         else:
                             logger.error("Unhandled binary server websocket message %r",
                                 websocket_message)
+
                     elif websocket_message.type in (aiohttp.WSMsgType.CLOSE,
                             aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED,
                             aiohttp.WSMsgType.CLOSING):

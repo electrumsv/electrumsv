@@ -4083,7 +4083,7 @@ class Wallet:
             wallet_proxy=weakref.proxy(self), wallet_data=self.data,
             session=self._network.aiohttp_session, server=server,
             credential_id=credential_id,
-            have_peer_channel_admin_access=False
+            has_reference_server_master_token=False
         )
 
         # Add Peer Channel information to the database if it has not already been added

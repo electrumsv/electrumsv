@@ -189,8 +189,9 @@ class ServerConnectionState:
     server: NewServer
 
     credential_id: Optional[IndefiniteCredentialId] = None
-    # Externally added channels don't have admin access
-    have_peer_channel_admin_access: bool = dataclasses.field(default_factory=bool, init=True)
+    # Externally added channels don't have admin access and must use the peer-channel-only
+    # websocket rather than the general purpose, account-level websocket for notifications
+    has_reference_server_master_token: bool = dataclasses.field(default=True, kw_only=True)
     cached_peer_channel_rows: Optional[dict[str, ServerPeerChannelRow]] = None
 
     # This should only be used to send problems that occur that should result in the connection

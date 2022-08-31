@@ -106,7 +106,7 @@ async def peer_channel_preconnection_async(state: ServerConnectionState) -> None
     existing_channel_rows = state.wallet_data.read_server_peer_channels(state.server.server_id)
     all_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
         for row in existing_channel_rows}
-    if state.have_peer_channel_admin_access:
+    if state.has_reference_server_master_token:
         await check_local_vs_remote_state_ok(state, existing_channel_rows)
     state.cached_peer_channel_rows = all_peer_channel_rows_by_id
 
