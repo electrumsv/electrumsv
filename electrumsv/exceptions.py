@@ -136,6 +136,12 @@ class ServerError(Exception):
     """
     pass
 
+class NoViableServersError(Exception):
+    """
+    We looked for a server and could not find one.
+    """
+    pass
+
 class BadServerError(ServerError):
     """
     This server has sent a blatantly incorrect response. This is not to be confused with an

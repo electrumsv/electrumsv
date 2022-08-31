@@ -13,7 +13,7 @@ from bitcoinx import PublicKey
 from .logs import logs
 from .app_state import app_state
 from .constants import CredentialPolicyFlag
-from .exceptions import InvalidPassword
+from .exceptions import InvalidPassword, NoViableServersError, ServerConnectionError, UserCancelled
 from .restapi import check_network_for_request, get_account_from_request, get_network_type, \
     get_wallet_from_request
 from .restapi_websocket import LocalWebSocket
@@ -319,10 +319,15 @@ class LocalEndpoints:
             expiry_iso8601_text = expiry_date_text.replace("Z", "+00:00")
             date_expires = int(datetime.fromisoformat(expiry_iso8601_text).timestamp())
 
-        result, error_code = await account.create_hosted_invoice_async(payment_amount,
-            date_expires, description, merchant_reference)
-        if result is None:
-            raise web.HTTPBadRequest(reason=f"Failed with error code {error_code}")
+        try:
+            result = await account.create_hosted_invoice_async(payment_amount,
+                date_expires, description, merchant_reference)
+        except ServerConnectionError:
+            raise web.HTTPBadRequest(reason="Unable to connect to server")
+        except NoViableServersError:
+            raise web.HTTPBadRequest(reason="No viable hosting servers")
+        except UserCancelled:
+            raise web.HTTPBadRequest(reason="No access to wallet password")
 
         assert result.payment_request_row.paymentrequest_id is not None
         create_data: CreateInvoiceResponseDict = {

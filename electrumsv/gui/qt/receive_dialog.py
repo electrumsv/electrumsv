@@ -16,12 +16,12 @@ from ...app_state import app_state, get_app_state_qt
 from ...bitcoin import script_template_to_string
 from ...constants import NetworkServerFlag, PaymentFlag, PushDataHashRegistrationFlag, ScriptType, \
     ServerConnectionFlag, TxFlags
+from ...exceptions import NoViableServersError, ServerConnectionError, UserCancelled
 from ...i18n import _
 from ...logs import logs
 from ...networks import Net, TEST_NETWORK_NAMES
 from ...network_support.types import TipFilterRegistrationJobOutput
 from ...transaction import Transaction, TransactionContext
-from ...types import ErrorCodes
 from ...util import age, get_posix_timestamp
 from ...wallet_database.types import KeyDataProtocol, PaymentRequestRow, PaymentRequestUpdateRow
 
@@ -597,9 +597,24 @@ class ReceiveDialog(QDialog):
         self._start_expiry_timer(expiry_timestamp)
 
     def _on_button_clicked_register(self) -> None:
-        # TODO(1.4.0) Payment requests, issue#911. Need to register the tip filter with the given
-        #     server.
-        pass
+        if self._request_type == PaymentFlag.INVOICE:
+            assert self._request_id is not None
+            def callback(future: Future[None]) -> None:
+                self._refresh_after_create()
+            app_state.app.run_coro(
+                self._account.connect_to_hosted_invoice_proxy_server_async(
+                    self._request_id),
+                on_done=callback)
+
+        elif self._request_type == PaymentFlag.MONITORED:
+            assert self._request_id is not None
+            app_state.app.run_coro(
+                self._account.monitor_blockchain_payment_async(self._request_id),
+                on_done=self._register_tip_filter)
+        else:
+            raise NotImplementedError(f"Request type {self._request_type} does not support "
+                "registration. Either this is a new type and the developer did not do this work "
+                "or this button should not be enabled.")
 
     def _on_button_clicked_import(self) -> None:
         # This does nothing. We use a drop down menu on the QPushButton and this is never called.
@@ -640,32 +655,30 @@ class ReceiveDialog(QDialog):
             date_expires = int(time.time()) + duration_seconds
 
         if self._request_type == PaymentFlag.INVOICE:
-            def ui_callback(future: Future[tuple[HostedInvoiceCreationResult | None, int]]) \
-                    -> None:
+            def ui_callback(future: Future[HostedInvoiceCreationResult]) -> None:
                 """ `run_coro` ensures that our `on_done` callback happens in the UI thread. """
                 if future.cancelled():
                     return
 
-                result, error_code = future.result()
-                if result is None:
-                    assert error_code < 0
+                try:
+                    result = future.result()
+                except UserCancelled:
+                    # AbstractAccount.
+                    pass
+                except ServerConnectionError:
                     # TODO(1.4.0) DPP. The connection time out is something like 5 seconds. If we
                     #     cannot connect then there is a lag when the UI sits there before the
                     #     error appears. We need a progress dialog.
-                    if error_code == ErrorCodes.NO_SERVERS:
-                        MessageBox.show_error(_("None of the known invoice servers are "
-                            "currently accessible."), self)
-                    elif error_code == ErrorCodes.CONNECTION_FAILURE:
-                        MessageBox.show_error(_("There was a problem hosting this invoice with "
-                            "the selected invoice server."), self)
-                    elif error_code != ErrorCodes.USER_CANCELLED:
-                        MessageBox.show_error(_("Unknown error"), self)
-                    return
+                    MessageBox.show_error(_("There was a problem hosting this invoice with "
+                        "the selected invoice server."), self)
+                except NoViableServersError:
+                    MessageBox.show_error(_("None of the known invoice servers are "
+                        "currently accessible."), self)
+                else:
+                    assert result.payment_request_row.paymentrequest_id is not None
+                    self._request_id = result.payment_request_row.paymentrequest_id
 
-                assert result.payment_request_row.paymentrequest_id is not None
-                self._request_id = result.payment_request_row.paymentrequest_id
-
-                self._refresh_after_create()
+                    self._refresh_after_create()
 
             assert date_expires is not None
             app_state.app.run_coro(self._account.create_hosted_invoice_async(amount,
@@ -685,26 +698,7 @@ class ReceiveDialog(QDialog):
 
                 app_state.app.run_coro(
                     self._account.monitor_blockchain_payment_async(self._request_id),
-                    on_done=ui_thread_monitor_blockchain_payment_call_done)
-
-            def ui_thread_monitor_blockchain_payment_call_done(
-                    future: Future[TipFilterRegistrationJobOutput | None]) -> None:
-                # Skip if the operation was cancelled.
-                if future.cancelled():
-                    return
-
-                # Raise any exception if it errored or get the result if completed successfully.
-                result = future.result()
-                if result is not None:
-                    job = self._tip_filter_registration_job = GUITipFilterRegistrationJob(
-                        output=result,
-                        logger=self._logger, paymentrequest_id=self._request_id,
-                        refresh_callback=self.refresh_form_signal.emit,
-                        completion_callback=self.tip_filter_registration_completed_signal.emit)
-                    self._logger.debug("Creating TipFilterRegistrationJob task %r", job)
-                    app_state.async_.spawn(monitor_tip_filter_job(job))
-
-                self._refresh_after_create()
+                    on_done=self._register_tip_filter)
 
             assert self._tip_filter_registration_job is None
             app_state.app.run_coro(self._account.create_payment_request_async(amount, your_text,
@@ -738,6 +732,24 @@ class ReceiveDialog(QDialog):
 
         # Prevent double-clicking.
         self._save_button.setEnabled(False)
+
+    def _register_tip_filter(self, future: Future[TipFilterRegistrationJobOutput | None]) -> None:
+        # Skip if the operation was cancelled.
+        if future.cancelled():
+            return
+
+        # Raise any exception if it errored or get the result if completed successfully.
+        result = future.result()
+        if result is not None:
+            job = self._tip_filter_registration_job = GUITipFilterRegistrationJob(
+                output=result,
+                logger=self._logger, paymentrequest_id=self._request_id,
+                refresh_callback=self.refresh_form_signal.emit,
+                completion_callback=self.tip_filter_registration_completed_signal.emit)
+            self._logger.debug("Creating TipFilterRegistrationJob task %r", job)
+            app_state.async_.spawn(monitor_tip_filter_job(job))
+
+        self._refresh_after_create()
 
     def _refresh_after_create(self) -> None:
         # While we get the 'PaymentRequestRow' type (used for creation) back, we currently

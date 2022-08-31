@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import QFrame, QGridLayout, QLabel, QHBoxLayout, QVBoxLayou
 from ...app_state import app_state
 from ...bitcoin import ScriptTemplate
 from ...constants import AccountType, CHANGE_SUBPATH, RECEIVING_SUBPATH, ScriptType, WalletEvent
-from ...exceptions import NotEnoughFunds
+from ...exceptions import NotEnoughFunds, NoViableServersError, UserCancelled
 from ...i18n import _
 from ...logs import logs
 from ...networks import Net
@@ -243,11 +243,12 @@ class CoinSplittingTab(TabWidget):
 
         # TODO(1.4.0) DPP. Faucets used to send what they sent. We have no way of requesting this.
         date_expires = int(time.time()) + 5 * 60
-        result, error_code = app_state.async_.spawn_and_wait(
-            self._account.create_hosted_invoice_async(1000000000, date_expires,
-            _("Receive faucet dust for coin-splitting."),
-            _("Please give me faucet coins")))
-        if result is None:
+        try:
+            result = app_state.async_.spawn_and_wait(
+                self._account.create_hosted_invoice_async(1000000000, date_expires,
+                _("Receive faucet dust for coin-splitting."),
+                _("Please give me faucet coins")))
+        except (NoViableServersError, UserCancelled):
             # TODO(1.4.0) DPP. Clean up correctly.
             return
 

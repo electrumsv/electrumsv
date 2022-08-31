@@ -280,10 +280,17 @@ class RequestList(MyTreeWidget):
         if row is None:
             return
 
+        request_type = row.state & PaymentFlag.MASK_TYPE
+        if app_state.daemon.network is None and request_type == PaymentFlag.MONITORED:
+            MessageBox.show_error(_("Blockchain monitored payments cannot be deleted while the "
+                "wallet is in offline mode. You can either open your wallet in online mode and "
+                "delete this expected payment, otherwise it will eventually expire and no longer "
+                "be monitored."))
+            return None
+
         if not MessageBox.question(_("Are you sure you want to delete this payment request?")):
             return
 
-        request_type = row.state & PaymentFlag.MASK_TYPE
         if request_type == PaymentFlag.INVOICE:
             app_state.async_.spawn_and_wait(self._account.delete_hosted_invoice_async(request_id))
         elif request_type == PaymentFlag.MONITORED:

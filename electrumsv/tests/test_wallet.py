@@ -1,4 +1,5 @@
 import concurrent.futures
+import base64
 import json
 import os
 import shutil
@@ -13,8 +14,8 @@ import pytest
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import (AccountFlags, BlockHeight, CHANGE_SUBPATH, DATABASE_EXT,
-    DerivationType, DatabaseKeyDerivationType, KeystoreTextType,
-    MasterKeyFlags, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
+    DerivationType, DatabaseKeyDerivationType, KeystoreTextType, MasterKeyFlags, PaymentFlag,
+    RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
     TxFlags, unpack_derivation_path)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
@@ -1494,6 +1495,9 @@ async def test_close_paid_payment_requests_async_notifies(app_state: AppStatePro
     mock_storage = cast(WalletStorage, MockStorage("password"))
     wallet = Wallet(mock_storage)
     wallet.data = unittest.mock.Mock()
+    read_row = unittest.mock.Mock()
+    read_row.state = PaymentFlag.INVOICE
+    wallet.data.read_payment_request = unittest.mock.Mock(return_value=read_row)
     async def fake_close_paid_payment_requests_async() -> tuple[set[int], list[Any], list[Any]]:
         return { 1 }, [], []
     wallet.data.close_paid_payment_requests_async.side_effect = \
@@ -1540,9 +1544,9 @@ async def test_transaction_double_spent_async(app_state: AppStateProxy, mock_val
                 "sequence": 10010,
                 "received": "not a real date",
                 "content_type": "not a real content type",
-                "payload": {
+                "payload": base64.b64encode(json.dumps({
                     "payload": json.dumps(mapi_callback_response),
-                }, }) ]
+                }).encode()).decode(), }) ]
     server_state.mapi_callback_response_queue.get_nowait.side_effect = get_nowait
     wallet._wait_for_chain_related_work_async = unittest.mock.AsyncMock()
     # Ensure `broadcast_restapi_event_async` thinks it has a connection to broadcast to.

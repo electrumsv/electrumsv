@@ -477,8 +477,10 @@ async def test_create_hosted_invoice_async_success(app_state_restapi: AppStatePr
     with unittest.mock.patch("electrumsv.wallet.find_connectable_dpp_server") as \
             find_connectable_dpp_server:
         find_connectable_dpp_server.side_effect = lambda *args: mock_server_state
-        with unittest.mock.patch("electrumsv.wallet.create_dpp_server_connection_async") as \
-                create_dpp_server_connection_async:
+        local_wallet.dpp_proxy_server_states.append(mock_server_state)
+        with unittest.mock.patch(
+                "electrumsv.wallet.create_dpp_server_connection_async") as \
+                    mock_create_dpp_server_connection_async:
             response = await local_endpoints.create_hosted_invoice_async(
                 cast(web.Request, invoice_request))
 
@@ -541,7 +543,7 @@ async def test_create_hosted_invoice_async_fail_no_servers(app_state_restapi: Ap
         find_connectable_dpp_server.side_effect = lambda *args: None
         with pytest.raises(web.HTTPBadRequest) as exception_value:
             await local_endpoints.create_hosted_invoice_async(cast(web.Request, invoice_request))
-        assert "Failed with error code -1" == exception_value.value.args[0]
+        assert "No viable hosting servers" == exception_value.value.args[0]
 
 @unittest.mock.patch('electrumsv.keystore.app_state')
 @unittest.mock.patch(
@@ -602,10 +604,11 @@ async def test_create_hosted_invoice_async_fail_connect_timeout(app_state_restap
         find_connectable_dpp_server.side_effect = lambda *args: mock_server_state
         with unittest.mock.patch("electrumsv.wallet.create_dpp_server_connection_async") as \
                 create_dpp_server_connection_async:
+            local_wallet.dpp_proxy_server_states.append(mock_server_state)
             def side_effect(*args, **kwargs) -> None:
                 raise asyncio.TimeoutError()
             create_dpp_server_connection_async.side_effect = side_effect
             with pytest.raises(web.HTTPBadRequest) as exception_value:
                 await local_endpoints.create_hosted_invoice_async(
                     cast(web.Request, invoice_request))
-            assert "Failed with error code -2" == exception_value.value.args[0]
+            assert "Unable to connect to server" == exception_value.value.args[0]

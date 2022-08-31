@@ -1,7 +1,6 @@
 from __future__ import annotations
 import asyncio
 import dataclasses
-import enum
 import struct
 from types import TracebackType
 from typing import Callable, List, NamedTuple, Optional, Protocol, Tuple, Type, TYPE_CHECKING, \
@@ -300,13 +299,4 @@ class TransactionFeeContext:
 
     fee_quote: FeeQuoteCommon
     server_and_credential: ServerAndCredential
-
-
-class ErrorCodes(enum.IntEnum):
-    # There are no known servers that can be used for the given purpose.
-    NO_SERVERS                  = -1
-    # We tried connecting to a given server and the connection attempt failed.
-    CONNECTION_FAILURE          = -2
-    # The user was given a choice and they chose to cancel the action in progress.
-    USER_CANCELLED              = -3
 

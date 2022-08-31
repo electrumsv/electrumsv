@@ -30,6 +30,7 @@
 from __future__ import annotations
 import asyncio
 import base64
+import binascii
 import concurrent.futures
 import dataclasses
 from datetime import datetime, timezone
@@ -68,9 +69,9 @@ from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
 from .dpp_messages import Payment, PaymentACK
 from .exceptions import (BadServerError, Bip270Exception, BroadcastError, ExcessiveFee,
-    InvalidPassword, NotEnoughFunds, PreviousTransactionsMissingException, ServerConnectionError,
-    ServerError, UnsupportedAccountTypeError, UnsupportedScriptTypeError, UserCancelled,
-    WalletLoadError)
+    InvalidPassword, NotEnoughFunds, NoViableServersError, PreviousTransactionsMissingException,
+    ServerConnectionError, ServerError, UnsupportedAccountTypeError, UnsupportedScriptTypeError,
+    UserCancelled, WalletLoadError)
 from .i18n import _
 from .keys import get_multi_signer_script_template, get_single_signer_script_template
 from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore, \
@@ -110,7 +111,7 @@ from .transaction import (HardwareSigningMetadata, Transaction, TransactionConte
     TransactionFeeEstimator, tx_dict_from_text, TxSerialisationFormat, XPublicKey, XTxInput,
     XTxOutput)
 from .types import (ConnectHeaderlessProofWorkerState, DatabaseKeyDerivationData,
-    FeeEstimatorProtocol, FeeQuoteCommon, IndefiniteCredentialId, ErrorCodes,
+    FeeEstimatorProtocol, FeeQuoteCommon, IndefiniteCredentialId,
     KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult,
     MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
     Outpoint, OutputSpend, ServerAccountKey, ServerAndCredential, TransactionFeeContext, \
@@ -1133,16 +1134,21 @@ class AbstractAccount:
 
     async def create_hosted_invoice_async(self, amount_satoshis: int, date_expires: int,
             description: str | None, merchant_reference: str | None) \
-                -> tuple[HostedInvoiceCreationResult | None, int]:
+                -> HostedInvoiceCreationResult:
+        """
+        Raises `UserCancelled` if the user cancels some dialog they need to use correctly in order
+            to complete this process.
+        Raises `NoViableServersError` if there are no servers available to use.
+        """
         server_state = await find_connectable_dpp_server(self._wallet.dpp_proxy_server_states)
         if server_state is None:
-            return None, ErrorCodes.NO_SERVERS
+            raise NoViableServersError()
 
         password = await app_state.credentials.get_or_request_wallet_password_async(
             self._wallet.get_storage_path(), _("We need your password to encrypt the key that "
                 "will be used to ensure the payer knows they are paying you."))
         if password is None:
-            return None, ErrorCodes.USER_CANCELLED
+            raise UserCancelled()
 
         secure_private_key = PrivateKey.from_random()
         secure_public_key = cast(PublicKey, secure_private_key.public_key)
@@ -1159,21 +1165,30 @@ class AbstractAccount:
         read_row = self._wallet.data.read_payment_request(request_id=row.paymentrequest_id)
         assert read_row is not None
         self._wallet.register_outstanding_invoice(read_row, password)
-        # TODO(1.4.0) DPP. We want to unregister the invoice when it is paid.
+        await self.connect_to_hosted_invoice_proxy_server_async(row.paymentrequest_id)
+
+        payment_url = f"{server_state.server.url}api/v1/payment/sec/{row.dpp_invoice_id}"
+        return HostedInvoiceCreationResult(payment_request_row=rows[0], key_data=key_data,
+            payment_url=payment_url, secure_public_key=secure_public_key)
+
+    async def connect_to_hosted_invoice_proxy_server_async(self, request_id: int) -> None:
+        """
+        Raises `ValueError` if the wallet has lost this server!
+        Raises `ServerConnectionError` if the connection to the server cannot be established.
+        """
+        read_row = self._wallet.data.read_payment_request(request_id=request_id)
+        assert read_row is not None
+        assert read_row.server_id is not None
+        for server_state in self._wallet.dpp_proxy_server_states:
+            if server_state.server.server_id == read_row.server_id:
+                break
+        else:
+            raise ValueError("The server for this payment request is unknown")
+
         try:
             await create_dpp_server_connection_async(server_state, read_row, timeout_seconds=5.5)
         except asyncio.TimeoutError:
-            # TODO(1.4.0) DPP. We need to do error handling here. We should consider deleting the
-            #     invoice and all other data related to it. However this is complicated in that
-            #     the `AbstractAccount.create_payment_request_async` function has side effects we
-            #     need to remove from it and delay. Alternatively, we could move this before
-            #     the row creation, which would be cleaner.
-            return None, ErrorCodes.CONNECTION_FAILURE
-
-        payment_url = f"{server_state.server.url}api/v1/payment/sec/{row.dpp_invoice_id}"
-        result = HostedInvoiceCreationResult(payment_request_row=rows[0], key_data=key_data,
-            payment_url=payment_url, secure_public_key=secure_public_key)
-        return result, 0
+            raise ServerConnectionError("Timed out connecting to server")
 
     async def delete_hosted_invoice_async(self, request_id: int) -> None:
         request_read_row = self._wallet.data.read_payment_request(request_id=request_id)
@@ -2011,8 +2026,8 @@ class WalletDataAccess:
         return await self._db_context.run_in_thread_async(
             db_functions.create_payment_requests_write, entries)
 
-    def read_payment_request(self, *, request_id: Optional[int]=None,
-            keyinstance_id: Optional[int]=None) -> Optional[PaymentRequestReadRow]:
+    def read_payment_request(self, *, request_id: int | None=None,
+            keyinstance_id: int | None=None) -> PaymentRequestReadRow | None:
         return db_functions.read_payment_request(self._db_context, request_id=request_id,
             keyinstance_id=keyinstance_id)
 
@@ -2884,15 +2899,6 @@ class Wallet:
         def callback(callback_future: concurrent.futures.Future[KeyInstanceFlag]) -> None:
             if callback_future.cancelled():
                 return
-            cleared_flags = callback_future.result()
-            if self._network is not None and cleared_flags & KeyInstanceFlag.ACTIVE:
-                pass
-                # This payment request was the only reason the key was active and being monitored
-                # on the blockchain server for new transactions. We can now delete the subscription.
-                # TODO(1.4.0) Payment requests, issue#911. When the user closes/deletes a payment
-                #     request we need to clean up all resources allocated when the request was
-                #     created. This would include the tip filter.
-                pass
 
             self.events.trigger_callback(WalletEvent.KEYS_UPDATE, account_id, [ keyinstance_id ])
 
@@ -3495,8 +3501,15 @@ class Wallet:
             else:
                 account_keyinstance_ids[account_id] = { keyinstance_id }
 
-        # TODO(1.4.0) Tip filters, issue#911. Remove this registration, save money.
-        #     This is also linked to the delete payment requests function.
+        if app_state.daemon.network is not None:
+            for paymentrequest_id in paymentrequest_ids_set:
+                read_row = self.data.read_payment_request(request_id=paymentrequest_id)
+                assert read_row is not None
+                payment_flag = read_row.state & PaymentFlag.MASK_TYPE
+                if payment_flag == PaymentFlag.INVOICE:
+                    pass
+                elif payment_flag == PaymentFlag.MONITORED:
+                    pass
 
         if len(transaction_description_update_rows):
             self.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE,
@@ -4561,12 +4574,27 @@ class Wallet:
                 assert message_row.message_id is not None
                 processed_message_ids.append(message_row.message_id)
 
-                if not isinstance(message["payload"], dict):
+                if not isinstance(message["payload"], str):
                     # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
-                    self._logger.error("Peer channel MAPI callback payload invalid: '%s'", message)
+                    self._logger.error("Peer channel message (MAPI) payload invalid: '%s'",
+                        message)
                     continue
 
-                envelope = cast(JSONEnvelope, message["payload"])
+                try:
+                    payload_bytes = base64.b64decode(message["payload"])
+                except binascii.Error:
+                    self._logger.error("Peer channel message (MAPI) payload invalid base64: '%s'",
+                        message)
+                    continue
+
+                try:
+                    payload_object = json.loads(payload_bytes)
+                except json.JSONDecodeError:
+                    self._logger.error("Peer channel message (MAPI) payload invalid JSON: '%s'",
+                        message)
+                    continue
+
+                envelope = cast(JSONEnvelope, payload_object)
                 try:
                     validate_json_envelope(envelope)
                 except ValueError as e:
@@ -4865,12 +4893,28 @@ class Wallet:
                 assert message_row.message_id is not None
                 processed_message_ids.append(message_row.message_id)
 
-                if not isinstance(message["payload"], dict):
+                # We are getting JSON peer channel notifications. These are encoded as base64.
+                if not isinstance(message["payload"], str):
                     # TODO(1.4.0) Unreliable server, issue#841. WRT tip filter match, show user.
-                    self._logger.error("Peer channel message payload invalid: '%s'", message)
+                    self._logger.error("Peer channel message (filter) payload invalid: '%s'",
+                        message)
                     continue
 
-                pushdata_matches = cast(TipFilterPushDataMatchesData, message["payload"])
+                try:
+                    payload_bytes = base64.b64decode(message["payload"])
+                except binascii.Error:
+                    self._logger.error("Peer channel message (filter) payload invalid base64: '%s'",
+                        message)
+                    continue
+
+                try:
+                    payload_object = json.loads(payload_bytes)
+                except json.JSONDecodeError:
+                    self._logger.error("Peer channel message (filter) payload invalid JSON: '%s'",
+                        message)
+                    continue
+
+                pushdata_matches = cast(TipFilterPushDataMatchesData, payload_object)
                 if "blockId" not in pushdata_matches or "matches" not in pushdata_matches:
                     # TODO(1.4.0) Unreliable server, issue#841. WRT tip filter match, show user.
                     self._logger.error("Peer channel message payload invalid: '%s'", message)

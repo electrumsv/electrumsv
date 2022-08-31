@@ -4,7 +4,7 @@ import weakref
 
 from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMessageBox, QToolBar, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QToolBar, QVBoxLayout, QWidget
 
 from ...constants import NetworkServerFlag, PaymentFlag, ScriptType
 from ...i18n import _
@@ -216,28 +216,6 @@ class ReceiveView(QWidget):
         for dialog in self._dialogs.values():
             edits.extend(dialog.get_bsv_edits())
         return edits
-
-    # TODO(1.4.0) Incomplete, issue#911. Decide if we are implementing this or if it is
-    #     deletable code.
-    def _on_create_handoff_button_clicked(self) -> None:
-        if not self._main_window_proxy.question(_("If you choose to receive a payment this way, "
-                "you are responsible for getting the transaction yourself and importing it into "
-                "ElectrumSV. Any payments to the payment destination will not be detected "
-                "on the blockchain automatically.\n\nAre you sure you wish to do this?"),
-                title=_("Create hand-off payment"),
-                parent=self._main_window_proxy.reference(), icon=QMessageBox.Icon.Warning):
-            return
-
-        self._common_create_button_clicked_handling(PaymentFlag.NONE)
-
-    # TODO(1.4.0) Incomplete, issue#911. Decide if we are implementing this or if it is
-    #     deletable code.
-    def _on_create_monitored_button_clicked(self) -> None:
-        self._common_create_button_clicked_handling(PaymentFlag.MONITORED)
-
-    # TODO(1.4.0) Incomplete, issue#911. See the callers.
-    def _common_create_button_clicked_handling(self, payment_flag: PaymentFlag) -> None:
-        pass
 
     def show_dialog(self, request_id: Optional[int], request_type: PaymentFlag) -> None:
         """
