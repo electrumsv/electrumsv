@@ -1584,7 +1584,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         if parsed_url.scheme == "pay":
             try:
-                payment_url, secure_public_key = web.parse_pay_url(URI)
+                payment_url, receiver_address = web.parse_pay_url(URI)
             except ValueError as value_error:
                 self.show_error(str(value_error))
                 return
@@ -1593,11 +1593,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 from ... import dpp_messages
                 from ...exceptions import Bip270Exception
                 try:
-                    request = dpp_messages.get_payment_terms(payment_url, secure_public_key)
+                    request = dpp_messages.get_payment_terms(payment_url, receiver_address)
                 except Bip270Exception as e:
                     send_view.payment_request_import_error(e.args[0])
                     return
-                send_view.on_payment_request(request, secure_public_key)
+                send_view.on_payment_request(request, receiver_address)
             t = threading.Thread(target=get_payment_terms_thread)
             t.setDaemon(True)
             t.start()

@@ -29,7 +29,7 @@ from typing import Any, Dict, Iterable, List, Optional, TYPE_CHECKING
 import urllib
 import urllib.parse
 
-from bitcoinx import Address, PublicKey
+from bitcoinx import Address
 
 from .bip276 import PREFIX_BIP276_SCRIPT, bip276_decode, NetworkMismatchError, ChecksumMismatchError
 from .bitcoin import COIN, is_address_valid
@@ -39,7 +39,6 @@ from .networks import Net
 from .util import format_satoshis_plain
 
 if TYPE_CHECKING:
-    from .dpp_messages import PaymentTerms
     from .simple_config import SimpleConfig
 
 
@@ -116,7 +115,7 @@ class URIError(Exception):
 
 
 
-def parse_pay_url(url: str) -> tuple[str, PublicKey]:
+def parse_pay_url(url: str) -> tuple[str, Address]:
     parsed_url = urllib.parse.urlparse(url)
     if parsed_url.scheme != "pay":
         raise ValueError("The URL does not have the 'pay' scheme")
@@ -126,19 +125,12 @@ def parse_pay_url(url: str) -> tuple[str, PublicKey]:
     if "r" not in parsed_query:
         raise ValueError("The URL does not have a payment URL")
     payment_url = parsed_query["r"][0]
+    url_parts = payment_url.rsplit("/", 1)
+    if len(url_parts) != 2:
+        raise ValueError("The URL has no usable credentials")
 
-    if "pk" not in parsed_query:
-        raise ValueError("The URL does not have credentials")
-    public_key_hex = parsed_query["pk"][0]
-
-    try:
-        public_key = PublicKey.from_hex(public_key_hex)
-    except (ValueError, TypeError):
-        # ValueError <- PublicKey.from_hex()
-        # TypeError <- PublicKey()
-        raise ValueError("The URL has unusable credentials")
-
-    return payment_url, public_key
+    address = Address.from_string(url_parts[1], Net.COIN)
+    return payment_url, address
 
 
 def parse_URI(uri: str) -> dict[str, Any]:

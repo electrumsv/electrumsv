@@ -1153,7 +1153,7 @@ class AbstractAccount:
         secure_private_key = PrivateKey.from_random()
         secure_public_key = cast(PublicKey, secure_private_key.public_key)
         encrypted_key_text = pw_encode(secure_private_key.to_hex(), password)
-        dpp_invoice_id = base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("=")
+        dpp_invoice_id = secure_public_key.to_address(compressed=True, network=Net.COIN).to_string()
         rows, key_data = await self.create_payment_request_async(amount_satoshis, description,
             merchant_reference, server_id=server_state.server.server_id, date_expires=date_expires,
             dpp_invoice_id=dpp_invoice_id, encrypted_key_text=encrypted_key_text,

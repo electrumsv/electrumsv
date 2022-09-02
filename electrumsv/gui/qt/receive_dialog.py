@@ -418,10 +418,8 @@ class ReceiveDialog(QDialog):
             assert self._request_row.dpp_invoice_id is not None
             wallet = self._account.get_wallet()
             server_url = wallet.get_dpp_server_url(self._request_row.server_id)
-            _credential_id, secure_public_key = wallet.get_outstanding_invoice_data(
-                self._request_row.dpp_invoice_id)
             payment_url = f"pay:?r={server_url}api/v1/payment/sec/" \
-                f"{self._request_row.dpp_invoice_id}&pk={secure_public_key.to_hex(compressed=True)}"
+                f"{self._request_row.dpp_invoice_id}"
             self._receive_destination_edit.setText(payment_url)
         else:
             if self._request_row is None:
@@ -462,10 +460,8 @@ class ReceiveDialog(QDialog):
             assert self._request_row.dpp_invoice_id is not None
             wallet = self._account.get_wallet()
             server_url = wallet.get_dpp_server_url(self._request_row.server_id)
-            _credential_id, secure_public_key = wallet.get_outstanding_invoice_data(
-                self._request_row.dpp_invoice_id)
             payment_url = f"pay:?r={server_url}api/v1/payment/sec/" \
-                f"{self._request_row.dpp_invoice_id}&pk={secure_public_key.to_hex(compressed=True)}"
+                f"{self._request_row.dpp_invoice_id}"
             self._receive_qr.setData(payment_url)
             if self._qr_window and self._qr_window.isVisible():
                 self._qr_window.set_content(self._receive_destination_edit.text(), amount,

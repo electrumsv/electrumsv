@@ -30,7 +30,7 @@ from typing import Any, cast, List, Optional, Dict, TYPE_CHECKING, Union, TypedD
 import types
 import urllib.parse
 
-from bitcoinx import PublicKey, Script
+from bitcoinx import Address, PublicKey, Script
 import requests
 
 from .bip276 import bip276_encode, BIP276Network, PREFIX_BIP276_SCRIPT
@@ -532,7 +532,7 @@ class PaymentACK:
         return cls.from_dict(data)
 
 
-def get_payment_terms(url: str, public_key: PublicKey) -> PaymentTerms:
+def get_payment_terms(url: str, declared_receiver_address: Address) -> PaymentTerms:
     u = urllib.parse.urlparse(url)
     if u.scheme not in ['http', 'https']:
         raise Bip270Exception(f"unknown scheme {url}")
@@ -568,7 +568,7 @@ def get_payment_terms(url: str, public_key: PublicKey) -> PaymentTerms:
         raise Bip270Exception("The payment terms are unsigned")
 
     received_public_key = PublicKey.from_hex(received_public_key_hex)
-    if public_key != received_public_key:
+    if declared_receiver_address != received_public_key.to_address(compressed=True):
         raise Bip270Exception("The payment terms were signed by an unknown party")
 
     # Because we have checked that the data has a signature and public key, we know that the

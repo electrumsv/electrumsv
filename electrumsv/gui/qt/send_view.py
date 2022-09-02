@@ -41,7 +41,7 @@ import time
 from typing import Any, cast, Dict, Iterable, List, Tuple, Optional, TYPE_CHECKING
 import weakref
 
-from bitcoinx import hash_to_hex_str, PublicKey
+from bitcoinx import Address, hash_to_hex_str
 
 from PyQt6.QtCore import pyqtSignal, QPoint, QStringListModel, Qt
 from PyQt6.QtWidgets import (QCompleter, QGridLayout, QGroupBox, QHBoxLayout, QMenu,
@@ -105,7 +105,7 @@ class SendView(QWidget):
         self._not_enough_funds = False
         self._require_fee_update: Optional[float] = None
         self._payment_request: PaymentTerms | None = None
-        self._secure_public_key: PublicKey | None = None
+        self._receiver_address: Address | None = None
         self._completions = QStringListModel()
         self._transaction_creation_context = TransactionCreationContext()
         self._transaction_creation_context.set_account(self._account)
@@ -663,11 +663,11 @@ class SendView(QWidget):
         self._max_button.setDisabled(True)
         self._payto_e.setText(_("please wait..."))
 
-    def on_payment_request(self, request: PaymentTerms, secure_public_key: PublicKey) -> None:
+    def on_payment_request(self, request: PaymentTerms, declared_receiver_address: Address) -> None:
         """
         Calling context: Not guaranteed to be the UI thread.
         """
-        self._secure_public_key = secure_public_key
+        self._receiver_address = declared_receiver_address
         self._payment_request = request
         # Proceed to process the payment request on the GUI thread.
         self.payment_request_ok_signal.emit()
