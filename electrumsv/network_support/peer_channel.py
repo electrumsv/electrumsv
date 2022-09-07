@@ -159,12 +159,6 @@ async def add_external_peer_channel_async(
 
     logger.debug("Added peer channel %s with flags: %s", remote_peer_channel_id,
         peer_channel_row.peer_channel_flags)
-    if peer_channel_server_state.cached_peer_channel_rows is None:
-        peer_channel_server_state.cached_peer_channel_rows = \
-            {remote_peer_channel_id: peer_channel_row}
-    else:
-        peer_channel_server_state.cached_peer_channel_rows[remote_peer_channel_id] = \
-            peer_channel_row
 
     # Record peer channel token in the database if it doesn't exist there already
     assert peer_channel_row.peer_channel_id is not None
@@ -293,7 +287,8 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
                 state.wallet_proxy.name(), remote_channel_id)
             continue
         else:
-            logger.debug("Processing message for remote_channel_id=%s", remote_channel_id)
+            logger.debug("Processing message for remote_channel_id=%s, (Wallet='%s')",
+                remote_channel_id, state.wallet_proxy.name())
 
         assert peer_channel_row.peer_channel_id is not None
         relevant_token_flags = PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE
@@ -340,14 +335,18 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
 
         peer_channel_purpose = \
             peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE
-        if peer_channel_purpose == ServerPeerChannelFlag.TIP_FILTER_DELIVERY:
+        if peer_channel_purpose & ServerPeerChannelFlag.MASK_PURPOSE == \
+                ServerPeerChannelFlag.TIP_FILTER_DELIVERY:
             await state.tip_filter_matches_queue.put(message_entries)
-        elif peer_channel_purpose == ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
+        elif peer_channel_purpose & ServerPeerChannelFlag.MASK_PURPOSE == \
+                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
+            logger.debug("Wallet: '%s' received %s mAPI callback messages",
+                state.wallet_proxy.name(), len(message_entries))
             state.mapi_callback_response_queue.put_nowait(message_entries)
             state.mapi_callback_response_event.set()
         else:
             # TODO(1.4.0) Unreliable server, issue#841. Peer channel message is not expected.
-            logger.error("Wallet: '%s' received peer channel %d messages of unhandled purpose '%s'",
+            logger.error("Wallet: '%s' received %d peer channel messages of unhandled purpose '%s'",
                 state.wallet_proxy.name(), peer_channel_row.peer_channel_id, peer_channel_purpose)
 
     logger.debug("Exiting process_incoming_peer_channel_messages_async, server_id=%d",

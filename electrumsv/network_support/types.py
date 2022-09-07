@@ -259,6 +259,9 @@ class ServerConnectionState:
     websocket_futures: list[concurrent.futures.Future[None]] = dataclasses.field(
         default_factory=list[concurrent.futures.Future[None]])
 
+    open_peer_channel_websocket_connections: set[str] = \
+        dataclasses.field(default_factory=set[str], kw_only=True)
+
     @property
     def used_with_reference_server_api(self) -> bool:
         return self.usage_flags & NetworkServerFlag.MASK_UTILISATION != 0

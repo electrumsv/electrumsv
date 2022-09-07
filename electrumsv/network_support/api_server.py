@@ -264,7 +264,7 @@ class NewServer:
 
     def get_tip_filter_peer_channel_id(self, account_id: int) -> int | None:
         row = self.database_rows.get(account_id)
-        if row is None:
+        if row is None or row.tip_filter_peer_channel_id is None:
             row = self.database_rows[None]
         return row.tip_filter_peer_channel_id
 

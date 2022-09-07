@@ -44,7 +44,7 @@ from http import HTTPStatus
 import json
 import struct
 import time
-from typing import AsyncIterable, cast, NamedTuple, TypedDict
+from typing import AsyncIterable, cast, NamedTuple, TypedDict, Any
 
 import aiohttp
 from aiohttp import WSServerHandshakeError
@@ -500,60 +500,18 @@ async def create_reference_server_account_async(server_url: str, session: aiohtt
     return api_key, payment_key_bytes
 
 
-async def _manage_server_connection_async(state: ServerConnectionState) -> None:
+async def manage_single_websocket_connection(state: ServerConnectionState, websocket_url: str,
+        headers: dict[Any, Any], websocket_url_template: str,
+        remote_channel_id: str | None=None) -> None:
     """
-    Manage an open websocket to any server type.
-
-    - This might be a reference server compatible.
-    - This might be a peer channel we do not own but have the API key for and access to.
-
     Raises `BadServerError` if the server sends us data that we know it should not be sending.
     Raises `NotImplementedError` if we encounter cases that more than likely are caused by
-        partially implemented features.
+    partially implemented features.
     """
-    assert state.wallet_data is not None
-    assert len(state.websocket_futures) == 0
-
-    if not state.used_with_reference_server_api:
-        # NOTE(rt12) This will be other people's peer channels we have access to, as one yet to
-        #     be implemented use case we will need to support at some point.
-        raise NotImplementedError("A programmer added support for another type of server "
-            "connection but did not flesh out the web socket connection logic")
-    assert state.credential_id is not None
-
-    # Snapshot the usage flags before changing the state.
-    existing_usage_flags = state.usage_flags
-
-    state.connection_flags |= ServerConnectionFlag.VERIFYING
-    state.stage_change_event.set()
-    state.stage_change_event.clear()
-
-    await _upgrade_server_preconnection_async(state, existing_usage_flags)
-
-    state.connection_flags |= ServerConnectionFlag.ESTABLISHING_WEB_SOCKET
-    state.stage_change_event.set()
-    state.stage_change_event.clear()
-
-    access_token = app_state.credentials.get_indefinite_credential(state.credential_id)
-    remote_channel_id: str | None = None
-    if state.has_reference_server_master_token:
-        # Use the account-level general purpose websocket because this is a master account token
-        websocket_url_template = state.server.url + "api/v1/web-socket?token={access_token}"
-        websocket_url = websocket_url_template.format(access_token=access_token)
-    else:
-        # Use the peer-channel-specific websocket as this is likely a humble, peer-channel read
-        # token with reduced scope of security access
-        assert len(state.cached_peer_channel_rows) == 1
-        remote_channel_id, peer_channel_row = state.cached_peer_channel_rows.popitem()
-        websocket_url_template = state.server.url + \
-                                 f"api/v1/channel/{remote_channel_id}/notify?token={access_token}"
-        websocket_url = websocket_url_template.format(access_token=access_token)
-    headers = {
-        "Accept": "application/octet-stream"
-    }
     try:
         async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
                 as server_websocket:
+            assert state.wallet_proxy is not None
             logger.info('Connected to server websocket, url=%s (Wallet="%s")',
                 websocket_url_template, state.wallet_proxy.name())
 
@@ -570,6 +528,9 @@ async def _manage_server_connection_async(state: ServerConnectionState) -> None:
             state.stage_change_event.set()
             state.stage_change_event.clear()
 
+            if remote_channel_id is not None:
+                state.open_peer_channel_websocket_connections.add(remote_channel_id)
+
             try:
                 websocket_message: aiohttp.WSMessage
                 async for websocket_message in server_websocket:
@@ -582,7 +543,8 @@ async def _manage_server_connection_async(state: ServerConnectionState) -> None:
                         assert state.used_with_reference_server_api is True
                         assert remote_channel_id is not None
                         # Expected message contents = 'New message arrived' (or something similar)
-                        logger.debug("Queued incoming peer channel message %s", websocket_message)
+                        logger.debug("Queued incoming peer channel message (non-general websocket) "
+                                     "%s", websocket_message)
                         state.peer_channel_message_queue.put_nowait(remote_channel_id)
 
                     # ---------- General Purpose Websocket Handling ---------- #
@@ -648,6 +610,78 @@ async def _manage_server_connection_async(state: ServerConnectionState) -> None:
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError("Unable to establish server connection")
+
+
+async def _manage_server_connection_async(state: ServerConnectionState) -> None:
+    """
+    Manage an open websocket to any server type.
+
+    - This might be a reference server compatible.
+    - This might be a peer channel we do not own but have the API key for and access to.
+
+    Raises `BadServerError` if the server sends us data that we know it should not be sending.
+    Raises `NotImplementedError` if we encounter cases that more than likely are caused by
+        partially implemented features.
+    """
+    assert state.wallet_data is not None
+    assert len(state.websocket_futures) == 0
+
+    if not state.used_with_reference_server_api:
+        # NOTE(rt12) This will be other people's peer channels we have access to, as one yet to
+        #     be implemented use case we will need to support at some point.
+        raise NotImplementedError("A programmer added support for another type of server "
+            "connection but did not flesh out the web socket connection logic")
+    assert state.credential_id is not None
+
+    # Snapshot the usage flags before changing the state.
+    existing_usage_flags = state.usage_flags
+
+    state.connection_flags |= ServerConnectionFlag.VERIFYING
+    state.stage_change_event.set()
+    state.stage_change_event.clear()
+
+    await _upgrade_server_preconnection_async(state, existing_usage_flags)
+
+    state.connection_flags |= ServerConnectionFlag.ESTABLISHING_WEB_SOCKET
+    state.stage_change_event.set()
+    state.stage_change_event.clear()
+
+    if state.has_reference_server_master_token:
+        access_token = app_state.credentials.get_indefinite_credential(state.credential_id)
+        # Use the account-level general purpose websocket because this is a master account token
+        websocket_url_template = state.server.url + "api/v1/web-socket?token={access_token}"
+        websocket_url = websocket_url_template.format(access_token=access_token)
+        headers = {"Accept": "application/octet-stream"}
+        await manage_single_websocket_connection(state, websocket_url, headers,
+            websocket_url_template)
+    else:
+        # Use the peer-channel-specific websocket as this is likely a humble, peer-channel read
+        # token with reduced scope of security access
+        assert state.cached_peer_channel_rows is not None
+        logger.debug("Server: %s has %s cached peer channel rows", state.server.url,
+            len(state.cached_peer_channel_rows))
+        for peer_channel_row in state.cached_peer_channel_rows.values():
+            remote_channel_id = peer_channel_row.remote_channel_id
+            if remote_channel_id in state.open_peer_channel_websocket_connections:
+                continue  # already connected
+
+            assert peer_channel_row.peer_channel_id is not None
+            access_tokens = state.wallet_data.read_server_peer_channel_access_tokens(
+                peer_channel_id=peer_channel_row.peer_channel_id,
+                mask=PeerChannelAccessTokenFlag.USAGE_MASK,
+                flags=(PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE |
+                       PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE))
+            assert len(access_tokens) == 1
+            token = access_tokens[0]
+            websocket_url_template = state.server.url + \
+                "api/v1/channel/{remote_channel_id}/notify?token={access_token}"
+            websocket_url = websocket_url_template.format(remote_channel_id=remote_channel_id,
+                access_token=token.access_token)
+            headers = {
+                "Accept": "application/octet-stream"
+            }
+            await manage_single_websocket_connection(state, websocket_url, headers,
+                websocket_url_template, remote_channel_id)
 
 
 async def upgrade_server_connection_async(state: ServerConnectionState,

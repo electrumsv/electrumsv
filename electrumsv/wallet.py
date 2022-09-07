@@ -2038,6 +2038,9 @@ class WalletDataAccess:
         return db_functions.read_payment_requests(self._db_context, account_id, flags,
             mask, server_id)
 
+    def read_payment_requests_pending_mapi_callbacks(self) -> list[PaymentRequestReadRow]:
+        return db_functions.read_payment_requests_pending_mapi_callbacks(self._db_context)
+
     async def read_payment_request_transactions_hashes_async(self, paymentrequest_ids: list[int]) \
             -> dict[int, list[bytes]]:
         return await self._db_context.run_in_thread_async(
@@ -4048,6 +4051,7 @@ class Wallet:
         server_base_key = ServerAccountKey(server_url, server_type, None)
         account_id = self._petty_cash_account.get_id()
         server = self._servers.get(server_base_key)
+
         row_in_database = False
         if server is not None and account_id in server.database_rows:
             row_in_database = True
@@ -4076,6 +4080,7 @@ class Wallet:
                 row=server_row, credential_id=None)
 
         assert server is not None
+        assert self._network is not None
         credential_id = app_state.credentials.add_indefinite_credential(peer_channel_info['token'])
         peer_channel_server_state = ServerConnectionState(
             petty_cash_account_id=self._petty_cash_account.get_id(),
@@ -4089,10 +4094,26 @@ class Wallet:
         # Add Peer Channel information to the database if it has not already been added
         channel_rows = self.data.read_server_peer_channels(
             remote_channel_id=peer_channel_info['channel_id'])
+
         peer_channel_not_found_in_database = (len(channel_rows) == 0)
         if peer_channel_not_found_in_database:
             assert peer_channel_server_state is not None
-            await add_external_peer_channel_async(peer_channel_server_state, peer_channel_info)
+            peer_channel_row, read_only_access_token =\
+                await add_external_peer_channel_async(peer_channel_server_state, peer_channel_info)
+        else:
+            assert len(channel_rows) == 1
+            peer_channel_row = channel_rows[0]
+
+        assert peer_channel_row.remote_channel_id is not None
+        if peer_channel_server_state.cached_peer_channel_rows is None:
+            peer_channel_server_state.cached_peer_channel_rows = {
+                peer_channel_row.remote_channel_id: peer_channel_row}
+        else:
+            peer_channel_server_state.cached_peer_channel_rows[peer_channel_row.remote_channel_id] \
+                = peer_channel_row
+
+        channel_id = peer_channel_info['channel_id']
+        assert peer_channel_server_state.cached_peer_channel_rows[channel_id] is not None
 
         # Connect to the peer channel and actively listen on the websocket for messages
         app_state.async_.spawn(_manage_server_connection_async(peer_channel_server_state))
@@ -4240,6 +4261,7 @@ class Wallet:
         # automatic choice.
         for server, usage_flags in self.get_wallet_servers():
             await self.start_server_connection_async(server, usage_flags)
+
 
         # self._update_server_progress(account_id, ServerProgress.CONNECTION_PROCESS_STARTED)
 
@@ -4629,6 +4651,7 @@ class Wallet:
 
             # We can now process the next batch of messages.
             message_entries = state.mapi_callback_response_queue.get_nowait()
+            self._logger.debug(f"Got mAPI callback messages: {message_entries}")
             if state.mapi_callback_response_queue.qsize() == 0:
                 state.mapi_callback_response_event.clear()
 
@@ -4640,6 +4663,7 @@ class Wallet:
             date_updated = get_posix_timestamp()
 
             for message_row, message in message_entries:
+                self._logger.debug("Got mAPI callback message: %s", message)
                 assert message_row.message_id is not None
                 processed_message_ids.append(message_row.message_id)
 
