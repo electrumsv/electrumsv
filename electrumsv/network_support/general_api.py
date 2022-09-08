@@ -668,10 +668,8 @@ async def _manage_server_connection_async(state: ServerConnectionState) -> None:
             assert peer_channel_row.peer_channel_id is not None
             access_tokens = state.wallet_data.read_server_peer_channel_access_tokens(
                 peer_channel_id=peer_channel_row.peer_channel_id,
-                mask=PeerChannelAccessTokenFlag.USAGE_MASK,
-                flags=(PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE |
-                       PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE))
-            assert len(access_tokens) == 1
+                flags=PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE)
+            assert len(access_tokens) == 1, "Only one 'local usage' token should ever be required"
             token = access_tokens[0]
             websocket_url_template = state.server.url + \
                 "api/v1/channel/{remote_channel_id}/notify?token={access_token}"

@@ -83,7 +83,7 @@ from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.direct_payments import send_outgoing_direct_payment_async, \
     dpp_make_peer_channel_info, dpp_make_ack, dpp_make_payment_error, \
     dpp_make_payment_request_response
-from .network_support.dpp_proxy import _is_later_dpp_message_sequence, \
+from .network_support.dpp_proxy import is_later_dpp_message_sequence, \
     close_dpp_server_connection_async, create_dpp_server_connection_async, \
     create_dpp_server_connections_async, dpp_websocket_send, find_connectable_dpp_server, \
     MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS
@@ -92,7 +92,7 @@ from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidEr
 from .network_support.general_api import create_reference_server_account_async, \
     create_tip_filter_registration_async, delete_tip_filter_registration_async, \
     maintain_server_connection_async, request_binary_merkle_proof_async, \
-    request_transaction_data_async, upgrade_server_connection_async, _manage_server_connection_async
+    request_transaction_data_async, upgrade_server_connection_async
 from .network_support.headers import get_longest_valid_chain
 from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_fee_quotes_async
 from .network_support.peer_channel import add_external_peer_channel_async
@@ -2037,9 +2037,6 @@ class WalletDataAccess:
                 -> list[PaymentRequestReadRow]:
         return db_functions.read_payment_requests(self._db_context, account_id, flags,
             mask, server_id)
-
-    def read_payment_requests_pending_mapi_callbacks(self) -> list[PaymentRequestReadRow]:
-        return db_functions.read_payment_requests_pending_mapi_callbacks(self._db_context)
 
     async def read_payment_request_transactions_hashes_async(self, paymentrequest_ids: list[int]) \
             -> dict[int, list[bytes]]:
@@ -4040,8 +4037,10 @@ class Wallet:
             if websocket_state2 is not None:
                 await close_restapi_connection_async(websocket_state1)
 
-    async def subscribe_to_external_peer_channel(self, peer_channel_info: PeerChannelDict) \
-            -> ServerConnectionState:
+    async def subscribe_to_external_peer_channel(self, peer_channel_info: PeerChannelDict) -> None:
+        """Calling this must be idempotent - i.e. it will only perform database writes if
+        there is not already an entry, otherwise it only updates in-memory caches and re-establishes
+        websocket connectivity"""
         server_url = peer_channel_info['host']
         server_type = NetworkServerType.GENERAL
 
@@ -4056,9 +4055,6 @@ class Wallet:
         if server is not None and account_id in server.database_rows:
             row_in_database = True
 
-        # TODO(1.4.0) PeerChannels. The `USE_MESSAGE_BOX` flag might make it so that
-        #  `_start_existing_server_connections` will pick up the server and start it (which may or
-        #  may not be desirable.
         server_flags = NetworkServerFlag.CAPABILITY_PEER_CHANNELS | \
                        NetworkServerFlag.USE_MESSAGE_BOX
         if not row_in_database:
@@ -4116,9 +4112,18 @@ class Wallet:
         assert peer_channel_server_state.cached_peer_channel_rows[channel_id] is not None
 
         # Connect to the peer channel and actively listen on the websocket for messages
-        app_state.async_.spawn(_manage_server_connection_async(peer_channel_server_state))
+        peer_channel_server_state.connection_future = app_state.async_.spawn(
+            maintain_server_connection_async(peer_channel_server_state))
+        peer_channel_server_state.connection_future.add_done_callback(
+            partial(self._maintain_server_connection_done, peer_channel_server_state))
 
-        return peer_channel_server_state
+        account_id = self._petty_cash_account.get_id()
+        if self._worker_tasks_maintain_server_connection[account_id] is not None:
+            self._worker_tasks_maintain_server_connection[self._petty_cash_account.get_id()]\
+                .append(peer_channel_server_state)
+        else:
+            self._worker_tasks_maintain_server_connection[self._petty_cash_account.get_id()] = \
+                [(peer_channel_server_state)]
 
     async def send_outgoing_direct_payment_async(self, invoice_id: int,
             transaction: Transaction) -> PaymentACK:
@@ -4139,8 +4144,7 @@ class Wallet:
         await self.set_transaction_state_async(transaction_hash, TxFlags.STATE_DISPATCHED,
             TxFlags.MASK_STATE_BROADCAST)
 
-        peer_channel_server_state = await self.subscribe_to_external_peer_channel(
-            payment_ack.peer_channel_info)
+        await self.subscribe_to_external_peer_channel(payment_ack.peer_channel_info)
 
         await self.data.update_invoice_flags_async(
             [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
@@ -4261,7 +4265,6 @@ class Wallet:
         # automatic choice.
         for server, usage_flags in self.get_wallet_servers():
             await self.start_server_connection_async(server, usage_flags)
-
 
         # self._update_server_progress(account_id, ServerProgress.CONNECTION_PROCESS_STARTED)
 
@@ -4806,7 +4809,7 @@ class Wallet:
             else:
                 msg_prior = latest_dpp_messages[dpp_message.dpp_invoice_id]
                 msg_later = dpp_message
-                if _is_later_dpp_message_sequence(msg_prior, msg_later):
+                if is_later_dpp_message_sequence(msg_prior, msg_later):
                     latest_dpp_messages[dpp_message.dpp_invoice_id] = msg_later
         return [msg for msg in latest_dpp_messages.values()]
 
@@ -4966,7 +4969,6 @@ class Wallet:
             # ----- States for when we are the Payer ----- #
             # NOTE: Not included because when we are the ** Payer **, we use the simplified
             # http request/response REST API endpoints of the DPP server (i.e. BIP272 URI)
-
 
     async def _consume_tip_filter_matches_async(self, state: ServerConnectionState) -> None:
         """
