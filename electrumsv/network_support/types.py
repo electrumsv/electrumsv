@@ -189,6 +189,9 @@ class ServerConnectionState:
     server: NewServer
 
     credential_id: Optional[IndefiniteCredentialId] = None
+    # Externally added channels don't have admin access and must use the peer-channel-only
+    # websocket rather than the general purpose, account-level websocket for notifications
+    has_reference_server_master_token: bool = dataclasses.field(default=True, kw_only=True)
     cached_peer_channel_rows: Optional[dict[str, ServerPeerChannelRow]] = None
 
     # This should only be used to send problems that occur that should result in the connection
@@ -214,6 +217,8 @@ class ServerConnectionState:
             dataclasses.field(default_factory=asyncio.Queue[list[tuple[ServerPeerChannelMessageRow,
                 GenericPeerChannelMessage]]])
     mapi_callback_response_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+    # This timestamp is used to implement a 30 min wait time for potential double spends etc.
+    mapi_callback_response_timestamp: int | None = None
     # Wallet consuming: Incoming spend notifications from the server.
     output_spend_result_queue: asyncio.Queue[Sequence[OutputSpend]] = dataclasses.field(
         default_factory=asyncio.Queue[Sequence[OutputSpend]])
@@ -253,6 +258,9 @@ class ServerConnectionState:
     # Server websocket-related futures.
     websocket_futures: list[concurrent.futures.Future[None]] = dataclasses.field(
         default_factory=list[concurrent.futures.Future[None]])
+
+    open_peer_channel_websocket_connections: set[str] = \
+        dataclasses.field(default_factory=set[str], kw_only=True)
 
     @property
     def used_with_reference_server_api(self) -> bool:
