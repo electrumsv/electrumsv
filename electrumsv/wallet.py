@@ -4113,7 +4113,7 @@ class Wallet:
 
         # Connect to the peer channel and actively listen on the websocket for messages
         peer_channel_server_state.connection_future = app_state.async_.spawn(
-            maintain_server_connection_async(peer_channel_server_state))
+            maintain_server_connection_async(peer_channel_server_state, channel_id))
         peer_channel_server_state.connection_future.add_done_callback(
             partial(self._maintain_server_connection_done, peer_channel_server_state))
 

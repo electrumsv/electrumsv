@@ -335,11 +335,9 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
 
         peer_channel_purpose = \
             peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE
-        if peer_channel_purpose & ServerPeerChannelFlag.MASK_PURPOSE == \
-                ServerPeerChannelFlag.TIP_FILTER_DELIVERY:
+        if peer_channel_purpose & ServerPeerChannelFlag.TIP_FILTER_DELIVERY != 0:
             await state.tip_filter_matches_queue.put(message_entries)
-        elif peer_channel_purpose & ServerPeerChannelFlag.MASK_PURPOSE == \
-                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
+        elif peer_channel_purpose & ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK != 0:
             logger.debug("Wallet: '%s' received %s mAPI callback messages",
                 state.wallet_proxy.name(), len(message_entries))
             state.mapi_callback_response_queue.put_nowait(message_entries)

@@ -356,8 +356,8 @@ def process_reference_server_message_bytes(state: ServerConnectionState, message
         raise NotImplementedError(f"Packing message kind {message_kind} is unsupported")
 
 
-async def maintain_server_connection_async(state: ServerConnectionState) \
-        -> ServerConnectionProblems:
+async def maintain_server_connection_async(state: ServerConnectionState,
+        remote_channel_id: str | None=None) -> ServerConnectionProblems:
     """
     Keep a persistent connection to this ElectrumSV reference server alive.
     """
@@ -371,7 +371,8 @@ async def maintain_server_connection_async(state: ServerConnectionState) \
             state.connection_flags &= ServerConnectionFlag.MASK_COMMON_INITIAL
 
             # Both the connection management task and worker tasks.
-            future = app_state.async_.spawn(_manage_server_connection_async(state))
+            future = app_state.async_.spawn(_manage_server_connection_async(state,
+                remote_channel_id))
             future.add_done_callback(partial(_on_server_connection_worker_task_done, state))
 
             # This will block until this task is cancelled, or there is a problem establishing
@@ -547,6 +548,10 @@ async def manage_single_websocket_connection(state: ServerConnectionState, webso
                                      "%s", websocket_message)
                         state.peer_channel_message_queue.put_nowait(remote_channel_id)
 
+                    elif peer_channel_specific_websocket and \
+                            websocket_message.type == aiohttp.WSMsgType.BINARY:
+                        logger.debug("Ignoring websocket binary: %s", websocket_message.data)
+
                     # ---------- General Purpose Websocket Handling ---------- #
                     elif general_purpose_websocket and \
                             websocket_message.type == aiohttp.WSMsgType.TEXT:
@@ -612,7 +617,8 @@ async def manage_single_websocket_connection(state: ServerConnectionState, webso
         raise ServerConnectionError("Unable to establish server connection")
 
 
-async def _manage_server_connection_async(state: ServerConnectionState) -> None:
+async def _manage_server_connection_async(state: ServerConnectionState,
+        remote_channel_id: str| None=None) -> None:
     """
     Manage an open websocket to any server type.
 
@@ -655,31 +661,39 @@ async def _manage_server_connection_async(state: ServerConnectionState) -> None:
         await manage_single_websocket_connection(state, websocket_url, headers,
             websocket_url_template)
     else:
+        assert remote_channel_id is not None, "remote_channel_id must be specified for " \
+            "peer-channel-specific websocket connections"
         # Use the peer-channel-specific websocket as this is likely a humble, peer-channel read
         # token with reduced scope of security access
         assert state.cached_peer_channel_rows is not None
         logger.debug("Server: %s has %s cached peer channel rows", state.server.url,
             len(state.cached_peer_channel_rows))
-        for peer_channel_row in state.cached_peer_channel_rows.values():
-            remote_channel_id = peer_channel_row.remote_channel_id
-            if remote_channel_id in state.open_peer_channel_websocket_connections:
-                continue  # already connected
 
-            assert peer_channel_row.peer_channel_id is not None
-            access_tokens = state.wallet_data.read_server_peer_channel_access_tokens(
-                peer_channel_id=peer_channel_row.peer_channel_id,
-                flags=PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE)
-            assert len(access_tokens) == 1, "Only one 'local usage' token should ever be required"
-            token = access_tokens[0]
-            websocket_url_template = state.server.url + \
-                "api/v1/channel/{remote_channel_id}/notify?token={access_token}"
-            websocket_url = websocket_url_template.format(remote_channel_id=remote_channel_id,
-                access_token=token.access_token)
-            headers = {
-                "Accept": "application/octet-stream"
-            }
-            await manage_single_websocket_connection(state, websocket_url, headers,
-                websocket_url_template, remote_channel_id)
+        peer_channel_row = None
+        for row in state.cached_peer_channel_rows.values():
+            if remote_channel_id == row.remote_channel_id:
+                peer_channel_row = row
+                break
+
+        if remote_channel_id in state.open_peer_channel_websocket_connections:
+            return
+
+        assert peer_channel_row is not None
+        assert peer_channel_row.peer_channel_id is not None
+        access_tokens = state.wallet_data.read_server_peer_channel_access_tokens(
+            peer_channel_id=peer_channel_row.peer_channel_id,
+            flags=PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE)
+        assert len(access_tokens) == 1, "Only one 'local usage' token should ever be required"
+        token = access_tokens[0]
+        websocket_url_template = state.server.url + \
+            "api/v1/channel/{remote_channel_id}/notify?token={access_token}"
+        websocket_url = websocket_url_template.format(remote_channel_id=remote_channel_id,
+            access_token=token.access_token)
+        headers = {
+            "Accept": "application/octet-stream"
+        }
+        await manage_single_websocket_connection(state, websocket_url, headers,
+            websocket_url_template, remote_channel_id)
 
 
 async def upgrade_server_connection_async(state: ServerConnectionState,
