@@ -3883,9 +3883,6 @@ class Wallet:
         This will include both the servers known in the wallet database, and it will also import
         the servers that are not known in the wallet database but are hardcoded into ElectrumSV.
         """
-        # TODO(1.4.0) Peer Channels - ensure that `subscribe_to_external_peer_channel` is called
-        #  on startup here too if need be
-
         self._registered_api_keys: dict[ServerAccountKey, IndefiniteCredentialId] = {}
         credential_id: Optional[IndefiniteCredentialId] = None
         base_row_by_server_key = dict[ServerAccountKey, NetworkServerRow]()
@@ -4047,9 +4044,9 @@ class Wallet:
         date_now_utc = get_posix_timestamp()
         added_servers = list[NetworkServerRow]()
 
-        server_base_key = ServerAccountKey(server_url, server_type, None)
-        account_id = self._petty_cash_account.get_id()
-        server = self._servers.get(server_base_key)
+        account_id = None  # default server account - no payment for usage required
+        server_key = ServerAccountKey(server_url, server_type, account_id)
+        server = self._servers.get(server_key)
 
         row_in_database = False
         if server is not None and account_id in server.database_rows:
@@ -4074,6 +4071,19 @@ class Wallet:
             server_row = server_rows[0]
             server = NewServer(url=server_row.url, server_type=server_row.server_type,
                 row=server_row, credential_id=None)
+        else:
+            # Ensure that existing entry's server_flags include what is required
+            assert server is not None
+            database_row: NetworkServerRow = server.database_rows[account_id]
+            if database_row.server_flags & server_flags != server_flags:
+                database_row._replace(server_flags=database_row.server_flags | server_flags)
+                updated_server_rows = [database_row]
+                future = self.update_network_servers([], updated_server_rows, [], {})
+                # best to block on this db write so the asyncio event loop doesn't run other
+                # concurrent tasks until the remaining peer channel db writes below have completed
+                server_rows = future.result()
+                server = NewServer(url=database_row.url, server_type=database_row.server_type,
+                    row=database_row, credential_id=None)
 
         assert server is not None
         assert self._network is not None
@@ -4112,10 +4122,8 @@ class Wallet:
         assert peer_channel_server_state.cached_peer_channel_rows[channel_id] is not None
 
         # Connect to the peer channel and actively listen on the websocket for messages
-        peer_channel_server_state.connection_future = app_state.async_.spawn(
-            maintain_server_connection_async(peer_channel_server_state, channel_id))
-        peer_channel_server_state.connection_future.add_done_callback(
-            partial(self._maintain_server_connection_done, peer_channel_server_state))
+        await self.start_server_connection_async(peer_channel_server_state.server, server_flags,
+            peer_channel_server_state, channel_id)
 
         account_id = self._petty_cash_account.get_id()
         if self._worker_tasks_maintain_server_connection[account_id] is not None:
@@ -4490,7 +4498,9 @@ class Wallet:
             new_peer_channel_server_id)
 
     async def start_server_connection_async(self, server: NewServer,
-            usage_flags: NetworkServerFlag) -> ServerConnectionState:
+            usage_flags: NetworkServerFlag,
+            custom_server_state: ServerConnectionState | None = None,
+            remote_channel_id: str | None = None) -> ServerConnectionState:
         assert self._network is not None, "use of network in offline mode"
 
         if usage_flags & NetworkServerFlag.USE_BLOCKCHAIN != 0:
@@ -4523,9 +4533,13 @@ class Wallet:
 
         def start_use_case_specific_worker_tasks(server_state: ServerConnectionState,
                 usage_flags: NetworkServerFlag) -> None:
-            if usage_flags & NetworkServerFlag.USE_BLOCKCHAIN:
+
+            if usage_flags & (NetworkServerFlag.USE_BLOCKCHAIN |
+                    NetworkServerFlag.USE_MESSAGE_BOX) != 0:
                 server_state.mapi_callback_consumer_future = app_state.async_.spawn(
                     self._consume_mapi_callback_messages_async(server_state))
+
+            elif usage_flags & NetworkServerFlag.USE_BLOCKCHAIN:
                 server_state.output_spends_consumer_future = app_state.async_.spawn(
                     self._consume_output_spend_notifications_async(
                         server_state.output_spend_result_queue))
@@ -4538,23 +4552,27 @@ class Wallet:
         assert server_row.encrypted_api_key is not None, \
             "attempting to connect to a server that unexpectedly has no authentication key"
 
-        new_server_state: ServerConnectionState | None = None
-        if existing_server_state is None:
-            new_server_state = ServerConnectionState(
-                petty_cash_account_id=account_id,
-                usage_flags=usage_flags,
-                wallet_proxy=weakref.proxy(self),
-                wallet_data=self.data,
-                session=self._network.aiohttp_session,
-                server=server,
-                credential_id=server.client_api_keys[None])
+        need_externally_owned_peer_channel_connection = (custom_server_state is not None and
+            not custom_server_state.has_reference_server_master_token)
+        if existing_server_state is None or need_externally_owned_peer_channel_connection:
+            if custom_server_state:
+                new_server_state = custom_server_state
+            else:
+                new_server_state = ServerConnectionState(
+                    petty_cash_account_id=account_id,
+                    usage_flags=usage_flags,
+                    wallet_proxy=weakref.proxy(self),
+                    wallet_data=self.data,
+                    session=self._network.aiohttp_session,
+                    server=server,
+                    credential_id=server.client_api_keys[None])
 
             new_server_state.stage_change_pipeline_future = app_state.async_.spawn(
                 self._monitor_connection_stage_changes_async(new_server_state))
 
             # This is the task that establishes the connection and manages it.
             new_server_state.connection_future = app_state.async_.spawn(
-                maintain_server_connection_async(new_server_state))
+                maintain_server_connection_async(new_server_state, remote_channel_id))
             new_server_state.connection_future.add_done_callback(
                 partial(self._maintain_server_connection_done, new_server_state))
             start_use_case_specific_worker_tasks(new_server_state, usage_flags)
@@ -4642,19 +4660,20 @@ class Wallet:
             message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
             message_entries.append((message_row, message))
         state.mapi_callback_response_queue.put_nowait(message_entries)
-        state.mapi_callback_response_event.set()
+        if len(message_entries) != 0:
+            state.mapi_callback_response_event.set()
 
         while not (self._stopping or self._stopped):
             # This blocks until there is pending work and it is safe to perform it.
             self._logger.debug("Waiting for more MAPI callback messages")
             await self._wait_for_chain_related_work_async(
                 ChainWorkerToken.MAPI_MESSAGE_CONSUMER, [ state.mapi_callback_response_event.wait ])
+
             if self._stopping or self._stopped:
                 return
 
             # We can now process the next batch of messages.
             message_entries = state.mapi_callback_response_queue.get_nowait()
-            self._logger.debug(f"Got mAPI callback messages: {message_entries}")
             if state.mapi_callback_response_queue.qsize() == 0:
                 state.mapi_callback_response_event.clear()
 
@@ -4666,7 +4685,6 @@ class Wallet:
             date_updated = get_posix_timestamp()
 
             for message_row, message in message_entries:
-                self._logger.debug("Got mAPI callback message: %s", message)
                 assert message_row.message_id is not None
                 processed_message_ids.append(message_row.message_id)
 
@@ -4822,6 +4840,13 @@ class Wallet:
         assert server_url is not None
         return server_url
 
+    async def update_payment_request_flags(self, pr_row: PaymentRequestReadRow,
+            new_state: PaymentFlag) -> None:
+        pr_row = pr_row._replace(state=new_state)
+        update_row = PaymentRequestUpdateRow(new_state, pr_row.requested_value, pr_row.date_expires,
+            pr_row.description, pr_row.merchant_reference, pr_row.paymentrequest_id)
+        await self.data.update_payment_requests_async([update_row])
+
     async def _consume_dpp_messages_async(self, state: ServerConnectionState) -> None:
         """Consumes and processes all invoice messages for a single DPP Proxy server
 
@@ -4901,7 +4926,6 @@ class Wallet:
                 try:
                     payment_obj = Payment.from_json(message_row.body.decode('utf-8'))
                 except Bip270Exception:
-                    # TODO(1.4.0) DPP. Add event log for failed payment attempts
                     self._logger.exception("Received direct-payment-protocol `Payment` was invalid")
                     continue
 
@@ -4930,25 +4954,16 @@ class Wallet:
                     broadcast_response, peer_channel_server_state = \
                         await self.broadcast_transaction_async(tx, tx_context)
                     successful = broadcast_response["returnResult"] == "success"
-                except (GeneralAPIError, ServerConnectionError, ServerError, ServerConnectionError,
-                        BadServerError):
-                    # TODO(1.4.0) DPP. Add event log for failed payment attempts
+                except (GeneralAPIError, ServerError, ServerConnectionError, BadServerError):
                     self._logger.exception("Unexpected exception broadcasting to mAPI")
                     continue
 
                 assert successful is not None
                 if successful:
-                    # TODO(1.4.0) DPP. Refactor this with an `update_payment_request_flags` function
-                    # Update the payment request to `PaymentFlag.PAID` status
                     new_state_flag = PaymentFlag.PAID
-                    new_state = pr_row.state & \
-                                ~(PaymentFlag.MASK_DPP_STATE_MACHINE | PaymentFlag.MASK_STATE) \
-                                | new_state_flag
-                    pr_row = pr_row._replace(state=new_state)
-                    update_row = PaymentRequestUpdateRow(new_state, pr_row.requested_value,
-                        pr_row.date_expires, pr_row.description, pr_row.merchant_reference,
-                        pr_row.paymentrequest_id)
-                    await self.data.update_payment_requests_async([update_row])
+                    new_state = pr_row.state & ~(PaymentFlag.MASK_DPP_STATE_MACHINE |
+                        PaymentFlag.MASK_STATE) | new_state_flag
+                    await self.update_payment_request_flags(pr_row, new_state)
 
                     # Send PaymentACK to payer
                     assert peer_channel_server_state is not None
@@ -4957,7 +4972,6 @@ class Wallet:
                     dpp_ack_message = dpp_make_ack(tx, peer_channel_info, message_row)
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
                 else:
-                    # TODO(1.4.0) DPP. Add event log for failed payment attempts
                     self._logger.error("mAPI broadcast for txid: %s failed with reason: %s",
                         tx.txid(), broadcast_response['resultDescription'])
 

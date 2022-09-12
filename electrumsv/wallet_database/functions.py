@@ -893,12 +893,6 @@ def read_payment_request(db: sqlite3.Connection, *, request_id: Optional[int]=No
 
 
 @replace_db_context_with_connection
-def read_payment_requests_pending_mapi_callbacks(db: sqlite3.Connection) \
-        -> list[PaymentRequestReadRow]:
-    raise NotImplementedError()
-
-
-@replace_db_context_with_connection
 def read_payment_requests(db: sqlite3.Connection, account_id: Optional[int]=None,
         flags: Optional[PaymentFlag]=None, mask: Optional[PaymentFlag]=None,
         server_id: int | None=None) -> list[PaymentRequestReadRow]:
