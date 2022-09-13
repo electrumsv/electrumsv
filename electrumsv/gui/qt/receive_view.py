@@ -126,7 +126,7 @@ class ReceiveView(QWidget):
             self.show_dialog(None, PaymentFlag.INVOICE)
             return
 
-        dialog_text = _("Receiving Direct Payment Protocol invoice payments requires signing up "
+        dialog_text = _("Receiving invoice payments requires signing up "
             "with a message box service for receipt of merkle proofs and sharing them with the "
             "payer (i.e. the other peer SPV wallet)"
             "<br/><br/>"
