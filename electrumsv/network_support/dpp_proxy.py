@@ -23,13 +23,11 @@ MSG_TYPE_PAYMENT_ERROR = "payment.error"
 MSG_TYPE_PAYMENT_REQUEST_CREATE = "paymentterms.create"
 MSG_TYPE_PAYMENT_REQUEST_RESPONSE = "paymentterms.response"
 MSG_TYPE_PAYMENT_REQUEST_ERROR = "paymentterms.error"
-MSG_TYPE_CHANNEL_EXPIRED = "channel.expired"
-
 
 ALL_MSG_TYPES = {MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK,
     MSG_TYPE_PAYMENT_ERROR,
     MSG_TYPE_PAYMENT_REQUEST_CREATE, MSG_TYPE_PAYMENT_REQUEST_RESPONSE,
-    MSG_TYPE_PAYMENT_REQUEST_ERROR, MSG_TYPE_CHANNEL_EXPIRED}
+    MSG_TYPE_PAYMENT_REQUEST_ERROR}
 DPP_MESSAGE_SEQUENCE = [MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_CREATE,
     MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK]
 
@@ -144,10 +142,6 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
                     type=message_json["type"]
                 )
                 await state.wallet_data.create_invoice_proxy_message_async([ dpp_message ])
-                if message_json["type"] == MSG_TYPE_CHANNEL_EXPIRED:
-                    logger.debug("DPP channel expired - closing websocket connection.")
-                    return
-
                 if message_json["type"] != MSG_TYPE_JOIN_SUCCESS:
                     state.dpp_messages_queue.put_nowait(dpp_message)
     except aiohttp.ClientConnectorError:

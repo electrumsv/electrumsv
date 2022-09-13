@@ -3791,6 +3791,9 @@ class Wallet:
         This will include both the servers known in the wallet database, and it will also import
         the servers that are not known in the wallet database but are hardcoded into ElectrumSV.
         """
+        # TODO(1.4.0) Peer Channels - ensure that `subscribe_to_external_peer_channel` is called
+        #  on startup here too if need be
+
         self._registered_api_keys: dict[ServerAccountKey, IndefiniteCredentialId] = {}
         credential_id: Optional[IndefiniteCredentialId] = None
         base_row_by_server_key = dict[ServerAccountKey, NetworkServerRow]()
@@ -4179,9 +4182,7 @@ class Wallet:
             new_peer_channel_server_id)
 
     async def start_server_connection_async(self, server: NewServer,
-            usage_flags: NetworkServerFlag,
-            custom_server_state: ServerConnectionState | None = None,
-            remote_channel_id: str | None = None) -> ServerConnectionState:
+            usage_flags: NetworkServerFlag) -> ServerConnectionState:
         assert self._network is not None, "use of network in offline mode"
 
         if usage_flags & NetworkServerFlag.USE_BLOCKCHAIN != 0:
@@ -4214,13 +4215,9 @@ class Wallet:
 
         def start_use_case_specific_worker_tasks(server_state: ServerConnectionState,
                 usage_flags: NetworkServerFlag) -> None:
-
-            if usage_flags & (NetworkServerFlag.USE_BLOCKCHAIN |
-                    NetworkServerFlag.USE_MESSAGE_BOX) != 0:
+            if usage_flags & NetworkServerFlag.USE_BLOCKCHAIN:
                 server_state.mapi_callback_consumer_future = app_state.async_.spawn(
                     self._consume_mapi_callback_messages_async(server_state))
-
-            elif usage_flags & NetworkServerFlag.USE_BLOCKCHAIN:
                 server_state.output_spends_consumer_future = app_state.async_.spawn(
                     self._consume_output_spend_notifications_async(
                         server_state.output_spend_result_queue))
@@ -4233,27 +4230,23 @@ class Wallet:
         assert server_row.encrypted_api_key is not None, \
             "attempting to connect to a server that unexpectedly has no authentication key"
 
-        need_externally_owned_peer_channel_connection = (custom_server_state is not None and
-            not custom_server_state.has_reference_server_master_token)
-        if existing_server_state is None or need_externally_owned_peer_channel_connection:
-            if custom_server_state:
-                new_server_state = custom_server_state
-            else:
-                new_server_state = ServerConnectionState(
-                    petty_cash_account_id=account_id,
-                    usage_flags=usage_flags,
-                    wallet_proxy=weakref.proxy(self),
-                    wallet_data=self.data,
-                    session=self._network.aiohttp_session,
-                    server=server,
-                    credential_id=server.client_api_keys[None])
+        new_server_state: ServerConnectionState | None = None
+        if existing_server_state is None:
+            new_server_state = ServerConnectionState(
+                petty_cash_account_id=account_id,
+                usage_flags=usage_flags,
+                wallet_proxy=weakref.proxy(self),
+                wallet_data=self.data,
+                session=self._network.aiohttp_session,
+                server=server,
+                credential_id=server.client_api_keys[None])
 
             new_server_state.stage_change_pipeline_future = app_state.async_.spawn(
                 self._monitor_connection_stage_changes_async(new_server_state))
 
             # This is the task that establishes the connection and manages it.
             new_server_state.connection_future = app_state.async_.spawn(
-                maintain_server_connection_async(new_server_state, remote_channel_id))
+                maintain_server_connection_async(new_server_state))
             new_server_state.connection_future.add_done_callback(
                 partial(self._maintain_server_connection_done, new_server_state))
             start_use_case_specific_worker_tasks(new_server_state, usage_flags)
@@ -4348,12 +4341,12 @@ class Wallet:
             self._logger.debug("Waiting for more MAPI callback messages")
             await self._wait_for_chain_related_work_async(
                 ChainWorkerToken.MAPI_MESSAGE_CONSUMER, [ state.mapi_callback_response_event.wait ])
-
             if self._stopping or self._stopped:
                 return
 
             # We can now process the next batch of messages.
             message_entries = state.mapi_callback_response_queue.get_nowait()
+            self._logger.debug(f"Got mAPI callback messages: {message_entries}")
             if state.mapi_callback_response_queue.qsize() == 0:
                 state.mapi_callback_response_event.clear()
 
@@ -4365,6 +4358,7 @@ class Wallet:
             date_updated = get_posix_timestamp()
 
             for message_row, message in message_entries:
+                self._logger.debug("Got mAPI callback message: %s", message)
                 assert message_row.message_id is not None
                 processed_message_ids.append(message_row.message_id)
 
