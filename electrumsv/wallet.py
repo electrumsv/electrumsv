@@ -4366,7 +4366,7 @@ class Wallet:
             assert usage_flags, "No new use cases to enable on the existing server connection"
             existing_server_state.usage_flags |= usage_flags
             start_use_case_specific_worker_tasks(existing_server_state, usage_flags)
-            app_state.app.run_coro(
+            app_state.async_.spawn(
                 upgrade_server_connection_async(existing_server_state, usage_flags))
             server_state = existing_server_state
 
@@ -4442,8 +4442,7 @@ class Wallet:
             message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
             message_entries.append((message_row, message))
         state.mapi_callback_response_queue.put_nowait(message_entries)
-        if len(message_entries) != 0:
-            state.mapi_callback_response_event.set()
+        state.mapi_callback_response_event.set()
 
         while not (self._stopping or self._stopped):
             # This blocks until there is pending work and it is safe to perform it.
