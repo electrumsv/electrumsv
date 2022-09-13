@@ -1444,14 +1444,13 @@ def create_server_peer_channel_write(row: ServerPeerChannelRow,
 
 @replace_db_context_with_connection
 def read_server_peer_channels(db: sqlite3.Connection, server_id: int | None=None,
-        peer_channel_id: int | None=None, remote_channel_id: str | None=None) \
-            -> list[ServerPeerChannelRow]:
+        peer_channel_id: int | None=None) -> list[ServerPeerChannelRow]:
     sql = """
         SELECT peer_channel_id, server_id, remote_channel_id, remote_url, peer_channel_flags,
             date_created, date_updated
         FROM ServerPeerChannels
         """
-    sql_values: list[int | str] = []
+    sql_values = []
     where_clause = False
     if server_id is not None:
         sql += "WHERE server_id=? "
@@ -1465,15 +1464,6 @@ def read_server_peer_channels(db: sqlite3.Connection, server_id: int | None=None
         else:
             sql += "WHERE peer_channel_id=? "
             sql_values.append(peer_channel_id)
-            where_clause = True
-
-    if remote_channel_id is not None:
-        if where_clause:
-            sql += "AND remote_channel_id=?"
-            sql_values.append(remote_channel_id)
-        else:
-            sql += "WHERE remote_channel_id=? "
-            sql_values.append(remote_channel_id)
             where_clause = True
 
     cursor = db.execute(sql, sql_values)

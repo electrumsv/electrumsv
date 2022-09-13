@@ -44,7 +44,7 @@ from http import HTTPStatus
 import json
 import struct
 import time
-from typing import AsyncIterable, cast, NamedTuple, TypedDict, Any
+from typing import AsyncIterable, cast, NamedTuple, TypedDict
 
 import aiohttp
 from aiohttp import WSServerHandshakeError
@@ -356,8 +356,8 @@ def process_reference_server_message_bytes(state: ServerConnectionState, message
         raise NotImplementedError(f"Packing message kind {message_kind} is unsupported")
 
 
-async def maintain_server_connection_async(state: ServerConnectionState,
-        remote_channel_id: str | None=None) -> ServerConnectionProblems:
+async def maintain_server_connection_async(state: ServerConnectionState) \
+        -> ServerConnectionProblems:
     """
     Keep a persistent connection to this ElectrumSV reference server alive.
     """
@@ -371,8 +371,7 @@ async def maintain_server_connection_async(state: ServerConnectionState,
             state.connection_flags &= ServerConnectionFlag.MASK_COMMON_INITIAL
 
             # Both the connection management task and worker tasks.
-            future = app_state.async_.spawn(_manage_server_connection_async(state,
-                remote_channel_id))
+            future = app_state.async_.spawn(_manage_server_connection_async(state))
             future.add_done_callback(partial(_on_server_connection_worker_task_done, state))
 
             # This will block until this task is cancelled, or there is a problem establishing
@@ -501,124 +500,7 @@ async def create_reference_server_account_async(server_url: str, session: aiohtt
     return api_key, payment_key_bytes
 
 
-async def manage_single_websocket_connection(state: ServerConnectionState, websocket_url: str,
-        headers: dict[Any, Any], websocket_url_template: str,
-        remote_channel_id: str | None=None) -> None:
-    """
-    Raises `BadServerError` if the server sends us data that we know it should not be sending.
-    Raises `NotImplementedError` if we encounter cases that more than likely are caused by
-    partially implemented features.
-    """
-    try:
-        async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
-                as server_websocket:
-            assert state.wallet_proxy is not None
-            logger.info('Connected to server websocket, url=%s (Wallet="%s")',
-                websocket_url_template, state.wallet_proxy.name())
-
-            # Snapshot the usage flags before changing the state.
-            existing_usage_flags = state.usage_flags
-
-            state.connection_flags |= ServerConnectionFlag.PREPARING_WEB_SOCKET
-            state.stage_change_event.set()
-            state.stage_change_event.clear()
-
-            await _upgrade_server_connection_async(state, existing_usage_flags)
-
-            state.connection_flags |= ServerConnectionFlag.WEB_SOCKET_READY
-            state.stage_change_event.set()
-            state.stage_change_event.clear()
-
-            if remote_channel_id is not None:
-                state.open_peer_channel_websocket_connections.add(remote_channel_id)
-
-            try:
-                websocket_message: aiohttp.WSMessage
-                async for websocket_message in server_websocket:
-                    general_purpose_websocket = state.has_reference_server_master_token
-                    peer_channel_specific_websocket = not state.has_reference_server_master_token
-
-                    # ---------- Peer Channel Specific Websocket Handling ---------- #
-                    if peer_channel_specific_websocket and \
-                            websocket_message.type == aiohttp.WSMsgType.TEXT:
-                        assert state.used_with_reference_server_api is True
-                        assert remote_channel_id is not None
-                        # Expected message contents = 'New message arrived' (or something similar)
-                        logger.debug("Queued incoming peer channel message (non-general websocket) "
-                                     "%s", websocket_message)
-                        state.peer_channel_message_queue.put_nowait(remote_channel_id)
-
-                    elif peer_channel_specific_websocket and \
-                            websocket_message.type == aiohttp.WSMsgType.BINARY:
-                        logger.debug("Ignoring websocket binary: %s", websocket_message.data)
-
-                    # ---------- General Purpose Websocket Handling ---------- #
-                    elif general_purpose_websocket and \
-                            websocket_message.type == aiohttp.WSMsgType.TEXT:
-                        if state.used_with_reference_server_api:
-                            # This will be headers.
-                            logger.debug("Ignoring websocket text: %s", websocket_message.data)
-                            # raise BadServerError("We received a message in format "
-                            #     "not expected from this server (text message)")
-                        else:
-                            raise NotImplementedError("")
-                    elif general_purpose_websocket and \
-                            websocket_message.type == aiohttp.WSMsgType.BINARY:
-                        if state.used_with_reference_server_api:
-                            # In processing the message `BadServerError` will be raised if this
-                            # server cannot handle the incoming message, or it is malformed.
-                            message_bytes = cast(bytes, websocket_message.data)
-                            message_kind, message = process_reference_server_message_bytes(state,
-                                message_bytes)
-                        else:
-                            raise BadServerError("We received a message in format "
-                                "not expected from this server (binary message)")
-
-                        if message_kind == AccountMessageKind.PEER_CHANNEL_MESSAGE:
-                            channel_message = cast(ChannelNotification, message)
-                            logger.debug("Queued incoming peer channel message %s", channel_message)
-                            state.peer_channel_message_queue.put_nowait(channel_message["id"])
-                        elif message_kind == AccountMessageKind.SPENT_OUTPUT_EVENT:
-                            spent_output_message = cast(OutputSpend, message)
-                            logger.debug("Queued incoming output spend message")
-                            state.output_spend_result_queue.put_nowait([ spent_output_message ])
-                        else:
-                            logger.error("Unhandled binary server websocket message %r",
-                                websocket_message)
-
-                    elif websocket_message.type in (aiohttp.WSMsgType.CLOSE,
-                            aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED,
-                            aiohttp.WSMsgType.CLOSING):
-                        logger.info("Server websocket closed")
-                        break
-                    else:
-                        logger.error("Unhandled server websocket message type %r",
-                            websocket_message)
-            finally:
-                for websocket_future in state.websocket_futures:
-                    websocket_future.cancel()
-                state.websocket_futures.clear()
-    except WSServerHandshakeError as e:
-        if e.status == HTTPStatus.UNAUTHORIZED:
-            # We have already checked the credentials. There is no reason why this should fail.
-            # So for now we classify this as an indicator of a bad server.
-            raise BadServerError("Connection credentials unexpectedly invalid")
-
-        # NOTE(exception-details) We log this because we are not sure yet that we do not need
-        #     this detail. At a later stage if we are confident that all the exceptions here
-        #     are reasonable and expected, we can remove this.
-        logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError("Unable to establish websocket connection")
-    except aiohttp.ClientError:
-        # NOTE(exception-details) We log this because we are not sure yet that we do not need
-        #     this detail. At a later stage if we are confident that all the exceptions here
-        #     are reasonable and expected, we can remove this.
-        logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError("Unable to establish server connection")
-
-
-async def _manage_server_connection_async(state: ServerConnectionState,
-        remote_channel_id: str| None=None) -> None:
+async def _manage_server_connection_async(state: ServerConnectionState) -> None:
     """
     Manage an open websocket to any server type.
 
@@ -652,48 +534,92 @@ async def _manage_server_connection_async(state: ServerConnectionState,
     state.stage_change_event.set()
     state.stage_change_event.clear()
 
-    if state.has_reference_server_master_token:
-        access_token = app_state.credentials.get_indefinite_credential(state.credential_id)
-        # Use the account-level general purpose websocket because this is a master account token
-        websocket_url_template = state.server.url + "api/v1/web-socket?token={access_token}"
-        websocket_url = websocket_url_template.format(access_token=access_token)
-        headers = {"Accept": "application/octet-stream"}
-        await manage_single_websocket_connection(state, websocket_url, headers,
-            websocket_url_template)
-    else:
-        assert remote_channel_id is not None, "remote_channel_id must be specified for " \
-            "peer-channel-specific websocket connections"
-        # Use the peer-channel-specific websocket as this is likely a humble, peer-channel read
-        # token with reduced scope of security access
-        assert state.cached_peer_channel_rows is not None
-        logger.debug("Server: %s has %s cached peer channel rows", state.server.url,
-            len(state.cached_peer_channel_rows))
+    access_token = app_state.credentials.get_indefinite_credential(state.credential_id)
+    websocket_url_template = state.server.url + "api/v1/web-socket?token={access_token}"
+    websocket_url = websocket_url_template.format(access_token=access_token)
+    headers = {
+        "Accept": "application/octet-stream"
+    }
+    try:
+        async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
+                as server_websocket:
+            logger.info('Connected to server websocket, url=%s', websocket_url_template)
 
-        peer_channel_row = None
-        for row in state.cached_peer_channel_rows.values():
-            if remote_channel_id == row.remote_channel_id:
-                peer_channel_row = row
-                break
+            # Snapshot the usage flags before changing the state.
+            existing_usage_flags = state.usage_flags
 
-        if remote_channel_id in state.open_peer_channel_websocket_connections:
-            return
+            state.connection_flags |= ServerConnectionFlag.PREPARING_WEB_SOCKET
+            state.stage_change_event.set()
+            state.stage_change_event.clear()
 
-        assert peer_channel_row is not None
-        assert peer_channel_row.peer_channel_id is not None
-        access_tokens = state.wallet_data.read_server_peer_channel_access_tokens(
-            peer_channel_id=peer_channel_row.peer_channel_id,
-            flags=PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE)
-        assert len(access_tokens) == 1, "Only one 'local usage' token should ever be required"
-        token = access_tokens[0]
-        websocket_url_template = state.server.url + \
-            "api/v1/channel/{remote_channel_id}/notify?token={access_token}"
-        websocket_url = websocket_url_template.format(remote_channel_id=remote_channel_id,
-            access_token=token.access_token)
-        headers = {
-            "Accept": "application/octet-stream"
-        }
-        await manage_single_websocket_connection(state, websocket_url, headers,
-            websocket_url_template, remote_channel_id)
+            await _upgrade_server_connection_async(state, existing_usage_flags)
+
+            state.connection_flags |= ServerConnectionFlag.WEB_SOCKET_READY
+            state.stage_change_event.set()
+            state.stage_change_event.clear()
+
+            try:
+                websocket_message: aiohttp.WSMessage
+                async for websocket_message in server_websocket:
+                    if websocket_message.type == aiohttp.WSMsgType.TEXT:
+                        if state.used_with_reference_server_api:
+                            # This will be headers.
+                            logger.debug("Ignoring websocket text: %s", websocket_message.data)
+                            # raise BadServerError("We received a message in format "
+                            #     "not expected from this server (text message)")
+                        else:
+                            raise NotImplementedError("")
+                    elif websocket_message.type == aiohttp.WSMsgType.BINARY:
+                        if state.used_with_reference_server_api:
+                            # In processing the message `BadServerError` will be raised if this
+                            # server cannot handle the incoming message, or it is malformed.
+                            message_bytes = cast(bytes, websocket_message.data)
+                            message_kind, message = process_reference_server_message_bytes(state,
+                                message_bytes)
+                        else:
+                            raise BadServerError("We received a message in format "
+                                "not expected from this server (binary message)")
+
+                        if message_kind == AccountMessageKind.PEER_CHANNEL_MESSAGE:
+                            channel_message = cast(ChannelNotification, message)
+                            logger.debug("Queued incoming peer channel message %s", channel_message)
+                            state.peer_channel_message_queue.put_nowait(channel_message["id"])
+                        elif message_kind == AccountMessageKind.SPENT_OUTPUT_EVENT:
+                            spent_output_message = cast(OutputSpend, message)
+                            logger.debug("Queued incoming output spend message")
+                            state.output_spend_result_queue.put_nowait([ spent_output_message ])
+                        else:
+                            logger.error("Unhandled binary server websocket message %r",
+                                websocket_message)
+                    elif websocket_message.type in (aiohttp.WSMsgType.CLOSE,
+                            aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED,
+                            aiohttp.WSMsgType.CLOSING):
+                        logger.info("Server websocket closed")
+                        break
+                    else:
+                        logger.error("Unhandled server websocket message type %r",
+                            websocket_message)
+            finally:
+                for websocket_future in state.websocket_futures:
+                    websocket_future.cancel()
+                state.websocket_futures.clear()
+    except WSServerHandshakeError as e:
+        if e.status == HTTPStatus.UNAUTHORIZED:
+            # We have already checked the credentials. There is no reason why this should fail.
+            # So for now we classify this as an indicator of a bad server.
+            raise BadServerError("Connection credentials unexpectedly invalid")
+
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
+        logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
+        raise ServerConnectionError("Unable to establish websocket connection")
+    except aiohttp.ClientError:
+        # NOTE(exception-details) We log this because we are not sure yet that we do not need
+        #     this detail. At a later stage if we are confident that all the exceptions here
+        #     are reasonable and expected, we can remove this.
+        logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
+        raise ServerConnectionError("Unable to establish server connection")
 
 
 async def upgrade_server_connection_async(state: ServerConnectionState,

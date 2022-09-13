@@ -75,10 +75,19 @@ def get_permissions_from_peer_channel_token(json_token: PeerChannelAPITokenViewM
     return permissions
 
 
-async def check_local_vs_remote_state_ok(state: ServerConnectionState,
-        existing_channel_rows: list[ServerPeerChannelRow]) -> None:
+async def peer_channel_preconnection_async(state: ServerConnectionState) -> None:
+    """
+    Do pre-connection checks and calls on the peer channel server, to prepare to connect and
+    also to validate that the server looks compatible.
+    """
+    assert state.wallet_data is not None
+
+    existing_channel_rows = state.wallet_data.read_server_peer_channels(state.server.server_id)
     peer_channel_jsons = await list_peer_channels_async(state)
+
     peer_channel_ids = { channel_json["id"] for channel_json in peer_channel_jsons }
+    all_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
+        for row in existing_channel_rows}
     owned_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
         for row in existing_channel_rows
         if row.peer_channel_flags & ServerPeerChannelFlag.EXTERNALLY_OWNED == 0}
@@ -91,23 +100,7 @@ async def check_local_vs_remote_state_ok(state: ServerConnectionState,
     #   any we couldn't close when they were marked as such because of connection issues.
     if set(peer_channel_ids) != set(owned_peer_channel_rows_by_id):
         raise InvalidStateError("Mismatched peer channels, local and server")
-    return
 
-
-async def peer_channel_preconnection_async(state: ServerConnectionState) -> None:
-    """
-    Do pre-connection checks and calls on the peer channel server, to prepare to connect and
-    also to validate that the server looks compatible.
-
-    raises `InvalidStateError` if local vs remote state check fails
-    """
-    assert state.wallet_data is not None
-
-    existing_channel_rows = state.wallet_data.read_server_peer_channels(state.server.server_id)
-    all_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
-        for row in existing_channel_rows}
-    if state.has_reference_server_master_token:
-        await check_local_vs_remote_state_ok(state, existing_channel_rows)
     state.cached_peer_channel_rows = all_peer_channel_rows_by_id
 
     for peer_channel_row in existing_channel_rows:
@@ -159,6 +152,9 @@ async def add_external_peer_channel_async(
 
     logger.debug("Added peer channel %s with flags: %s", remote_peer_channel_id,
         peer_channel_row.peer_channel_flags)
+    assert peer_channel_server_state.cached_peer_channel_rows is not None
+    peer_channel_server_state.cached_peer_channel_rows[remote_peer_channel_id] = \
+        peer_channel_row
 
     # Record peer channel token in the database if it doesn't exist there already
     assert peer_channel_row.peer_channel_id is not None
@@ -287,8 +283,7 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
                 state.wallet_proxy.name(), remote_channel_id)
             continue
         else:
-            logger.debug("Processing message for remote_channel_id=%s, (Wallet='%s')",
-                remote_channel_id, state.wallet_proxy.name())
+            logger.debug("Processing message for remote_channel_id=%s", remote_channel_id)
 
         assert peer_channel_row.peer_channel_id is not None
         relevant_token_flags = PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE
@@ -330,21 +325,26 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
 
         # Now that we have all these messages stored locally we can delete the remote copies.
         for sequence in message_map:
-            await delete_peer_channel_message_async(state, remote_channel_id,
+            # We must not delete messages from a shared mAPI channel because the other peer
+            # (payer or payee SPV wallet) will then be unable to read the merkle proof
+            if peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE == \
+                    ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
+                await mark_peer_channel_read_or_unread_async(state, remote_channel_id,
+                    db_access_tokens[0].access_token, sequence, older=False, is_read=True)
+            else:
+                await delete_peer_channel_message_async(state, remote_channel_id,
                     db_access_tokens[0].access_token, sequence)
 
         peer_channel_purpose = \
             peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE
-        if peer_channel_purpose & ServerPeerChannelFlag.TIP_FILTER_DELIVERY != 0:
+        if peer_channel_purpose == ServerPeerChannelFlag.TIP_FILTER_DELIVERY:
             await state.tip_filter_matches_queue.put(message_entries)
-        elif peer_channel_purpose & ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK != 0:
-            logger.debug("Wallet: '%s' received %s mAPI callback messages",
-                state.wallet_proxy.name(), len(message_entries))
+        elif peer_channel_purpose == ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
             state.mapi_callback_response_queue.put_nowait(message_entries)
             state.mapi_callback_response_event.set()
         else:
             # TODO(1.4.0) Unreliable server, issue#841. Peer channel message is not expected.
-            logger.error("Wallet: '%s' received %d peer channel messages of unhandled purpose '%s'",
+            logger.error("Wallet: '%s' received peer channel %d messages of unhandled purpose '%s'",
                 state.wallet_proxy.name(), peer_channel_row.peer_channel_id, peer_channel_purpose)
 
     logger.debug("Exiting process_incoming_peer_channel_messages_async, server_id=%d",

@@ -34,7 +34,7 @@ DPP_MESSAGE_SEQUENCE = [MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_CREATE,
     MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK]
 
 
-def is_later_dpp_message_sequence(prior: DPPMessageRow, later: DPPMessageRow) -> bool:
+def _is_later_dpp_message_sequence(prior: DPPMessageRow, later: DPPMessageRow) -> bool:
     """Depends upon ascending ordering of these state machine flags when compared as an
     integer"""
     index_prior = DPP_MESSAGE_SEQUENCE.index(prior.type)
