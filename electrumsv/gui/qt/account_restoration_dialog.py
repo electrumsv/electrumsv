@@ -467,6 +467,7 @@ class AccountRestorationDialog(WindowModalDialog):
             self._progress_bar.setVisible(True)
             self._advanced_button.setEnabled(False)
             self._scan_button.setEnabled(False)
+            self._exit_button.setText(_("Cancel"))
 
             # Gather the related import state for the scanned transactions.
             obtain_tx_keys: list[MissingTransactionMetadata] = []
