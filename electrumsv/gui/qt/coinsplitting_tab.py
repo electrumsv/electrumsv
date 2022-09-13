@@ -21,7 +21,7 @@ from ...exceptions import NotEnoughFunds, NoViableServersError, UserCancelled
 from ...i18n import _
 from ...logs import logs
 from ...networks import Net
-from ...transaction import Transaction, XTxOutput
+from ...transaction import classify_transaction_output_script, Transaction, XTxOutput
 from ...types import TransactionFeeContext
 from ...wallet import AbstractAccount, TransactionCreationContext
 
@@ -252,11 +252,14 @@ class CoinSplittingTab(TabWidget):
             # TODO(1.4.0) DPP. Clean up correctly.
             return
 
-        script_type = self._account.get_default_script_type()
-        script_template = self._account.get_script_template_for_derivation(script_type,
-            result.key_data.derivation_type, result.key_data.derivation_data2)
+        assert len(result.request_output_rows) == 1
+        request_output_row = result.request_output_rows[0]
+        output_script = Script(request_output_row.output_script_bytes)
+        script_type, threshold, script_template = classify_transaction_output_script(
+            output_script)
+        assert script_type is not None
         self._allocated_key_state = AllocatedKeyState(script_template,
-            result.key_data.keyinstance_id, script_type)
+            request_output_row.keyinstance_id, script_type)
 
         self.split_stage = STAGE_PREPARING
         self.new_transaction_cv = threading.Condition()

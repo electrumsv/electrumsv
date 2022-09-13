@@ -6,7 +6,7 @@ except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
     import sqlite3 # type: ignore[no-redef]
-from typing import Any, cast, Dict, List, NamedTuple, Optional, Tuple
+from typing import Any, cast, NamedTuple
 
 from bitcoinx import hash_to_hex_str, P2PKH_Address, P2SH_Address, PublicKey, sha256
 
@@ -16,7 +16,6 @@ from ...constants import AccountTxFlags, BlockHeight, CHANGE_SUBPATH, Derivation
     TransactionInputFlag, TransactionOutputFlag
 from ...exceptions import DatabaseMigrationError
 from ...i18n import _
-from ...keys import get_multi_signer_script_template, get_single_signer_script_template
 from ...keystore import (Imported_KeyStore, instantiate_keystore, KeyStore,
     Multisig_KeyStore, SinglesigKeyStoreTypes)
 from ...logs import logs
@@ -25,6 +24,8 @@ from ...transaction import Transaction
 from ...types import Outpoint
 from ...util import get_posix_timestamp
 from ...util.misc import ProgressCallbacks
+from ...wallet_support.keys import get_multi_signer_script_template, \
+    get_single_signer_script_template
 
 from ..storage_migration import (AccountRow1, convert_masterkey_derivation_data1,
     KeyInstanceDataBIP32SubPath1, KeyInstanceDataTypes1, KeyInstanceFlag_22,
@@ -49,7 +50,7 @@ logger = logs.get_logger("migration-0027")
 
 class PossibleScript(NamedTuple):
     account_id: int
-    masterkey_id: Optional[int]
+    masterkey_id: int | None
     keyinstance: KeyInstanceRow_27
     derivation_path: DerivationPath
     script_type: ScriptType
@@ -78,27 +79,27 @@ class TXOInsertRow(NamedTuple):
     tx_hash: bytes
     txo_index: int
     value: int
-    keyinstance_id: Optional[int]
+    keyinstance_id: int | None
     flags: TransactionOutputFlag
     script_hash: bytes
     script_type: ScriptType
     script_offset: int
     script_length: int
-    spending_tx_hash: Optional[bytes]
-    spending_txi_index: Optional[int]
+    spending_tx_hash: bytes | None
+    spending_txi_index: int | None
     date_created: int
     date_updated: int
 
 class TXOUpdateRow(NamedTuple):
     # These are ordered and aligned with the SQL statement.
-    keyinstance_id: Optional[int]
+    keyinstance_id: int | None
     flags: TransactionOutputFlag
     script_hash: bytes
     script_type: ScriptType
     script_offset: int
     script_length: int
-    spending_tx_hash: Optional[bytes]
-    spending_txi_index: Optional[int]
+    spending_tx_hash: bytes | None
+    spending_txi_index: int | None
     date_updated: int
     tx_hash: bytes
     txo_index: int
@@ -123,7 +124,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # this may have to be rewritten.
 
     # Cache wallet settings.
-    wallet_settings: Dict[str, Any] = {}
+    wallet_settings: dict[str, Any] = {}
     cursor = conn.execute("SELECT key, value FROM WalletData")
     rows = cursor.fetchall()
     cursor.close()
@@ -131,7 +132,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         wallet_settings[row[0]] = json.loads(row[1])
 
     # Cache account data.
-    accounts: Dict[int, AccountRow1] = {}
+    accounts: dict[int, AccountRow1] = {}
     cursor = conn.execute("SELECT account_id, default_masterkey_id, default_script_type, "
         "account_name FROM Accounts")
     rows = cursor.fetchall()
@@ -140,7 +141,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         accounts[row[0]] = AccountRow1(row[0], row[1], ScriptType(row[2]), row[3])
 
     # Cache masterkey data.
-    masterkeys: Dict[int, MasterKeyRow_22] = {}
+    masterkeys: dict[int, MasterKeyRow_22] = {}
     cursor = conn.execute("SELECT masterkey_id, parent_masterkey_id, derivation_type, "
         "derivation_data FROM MasterKeys")
     rows = cursor.fetchall()
@@ -194,7 +195,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # even then only if we have online and have received up to date network state at the point the
     # account was last unloaded.
     cursor = conn.execute("SELECT tx_hash, tx_index, flags, keyinstance_id from TransactionOutputs")
-    txo_existing_entries: Dict[Tuple[bytes, int], TXOExistingEntry] = {
+    txo_existing_entries: dict[tuple[bytes, int], TXOExistingEntry] = {
         (row[0], row[1]): TXOExistingEntry(row[2], row[3]) for row in cursor.fetchall() }
 
     cursor = conn.execute("SELECT COUNT(*) FROM Transactions")
@@ -210,11 +211,11 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
     # 2. We want to index all the transaction inputs so we can link spends for all transactions.
     # 3. We want to add all the outputs that we do not know link to key usage but should.
     # 4. We want to make sure all outputs have their scripthash field populated.
-    tx_updates: List[Tuple[int, int, int, bytes]] = []
-    txi_inserts: Dict[Outpoint, TXIInsertRow] = {}
-    txo_updates: Dict[Outpoint, TXOUpdateRow] = {}
-    txo_inserts: Dict[Outpoint, TXOInsertRow] = {}
-    txo_script_hashes: Dict[bytes, List[TXOData]] = {}
+    tx_updates: list[tuple[int, int, int, bytes]] = []
+    txi_inserts: dict[Outpoint, TXIInsertRow] = {}
+    txo_updates: dict[Outpoint, TXOUpdateRow] = {}
+    txo_inserts: dict[Outpoint, TXOInsertRow] = {}
+    txo_script_hashes: dict[bytes, list[TXOData]] = {}
     for tx_hash, tx_data, date_created in conn.execute("SELECT tx_hash, tx_data, date_created "
             "FROM Transactions"):
         tx_index += 1
@@ -268,15 +269,15 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
 
     # Cache all script hashes. This needs to be done for all keys based on the account type and the
     # masterkey used by it. All script types for the given account type should be looked for.
-    mk_keystores: Dict[int, KeyStore] = {}
-    mk_rows: Dict[int, MasterKeyRow_22] = {}
-    updated_masterkey_derivation_data: List[Tuple[bytes, int]] = []
-    account_keystores: Dict[int, KeyStore] = {}
+    mk_keystores: dict[int, KeyStore] = {}
+    mk_rows: dict[int, MasterKeyRow_22] = {}
+    updated_masterkey_derivation_data: list[tuple[bytes, int]] = []
+    account_keystores: dict[int, KeyStore] = {}
     for mkrow in sorted(masterkeys.values(), key=lambda t: 0 if t.masterkey_id is None
             else t.masterkey_id):
         assert mkrow is not None
         derivation_data_dict_old = cast(MasterKeyDataTypes1, json.loads(mkrow.derivation_data))
-        parent_keystore: Optional[KeyStore] = None
+        parent_keystore: KeyStore | None = None
         if mkrow.parent_masterkey_id is not None:
             parent_keystore = mk_keystores[mkrow.parent_masterkey_id]
         derivation_data_dict_new = convert_masterkey_derivation_data1(mkrow.derivation_type,
@@ -291,7 +292,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
 
     private_key_types = { DerivationType.PRIVATE_KEY }
     address_types = { DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH }
-    key_script_hashes: Dict[bytes, PossibleScript] = {}
+    key_script_hashes: dict[bytes, PossibleScript] = {}
     for account in accounts.values():
         account_id = account.account_id
         masterkey_id = account.default_masterkey_id
@@ -400,8 +401,8 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
             # All the inputs are inserts, so a single lookup here should prove existence of a spend.
             txi_spend = txi_inserts.get(txo_data.key)
             txo_update = txo_updates.get(txo_data.key)
-            spending_tx_hash: Optional[bytes] = None
-            spending_txi_index: Optional[int] = None
+            spending_tx_hash: bytes | None = None
+            spending_txi_index: int | None = None
             txo_flags = txo_data.flags
             if txo_update:
                 # The output already exists. So there should already be a positive tx delta also.
@@ -701,7 +702,7 @@ def execute(conn: sqlite3.Connection, callbacks: ProgressCallbacks) -> None:
         "idx_KeyInstanceScripts_unique ON KeyInstanceScripts(keyinstance_id, script_type)")
 
     # Add all the possible keyinstance script hashes.
-    key_scripts_rows: List[Tuple[int, int, bytes, int, int]] = []
+    key_scripts_rows: list[tuple[int, int, bytes, int, int]] = []
     for possible_script in key_script_hashes.values():
         key_scripts_rows.append((possible_script.keyinstance.keyinstance_id,
         possible_script.script_type, possible_script.script_hash, date_updated, date_updated))

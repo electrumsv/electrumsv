@@ -28,7 +28,7 @@ import enum
 from io import BytesIO
 import struct
 from struct import error as struct_error
-from typing import Any, Callable, cast, Generator, Protocol, Sequence, TYPE_CHECKING, TypeVar
+from typing import Any, Callable, cast, Generator, Protocol, Sequence, TypeVar
 
 import attr
 from bitcoinx import (
@@ -36,8 +36,8 @@ from bitcoinx import (
     der_signature_to_compact, double_sha256, hash160, hash_to_hex_str, InvalidSignature,
     Ops, P2MultiSig_Output, P2PK_Output, P2PKH_Address, P2SH_Address, pack_byte, pack_le_int32,
     pack_le_uint32, pack_list, pack_varbytes, PrivateKey, PublicKey, push_int, push_item,
-    read_le_int32, read_le_int64, read_le_uint32, read_varint, Script, SigHash, Tx, TxInput,
-    TxOutput, varint_len
+    read_le_int32, read_le_int64, read_le_uint32, read_varint, Script, SigHash, Tx,
+    TxInput, TxOutput, varint_len
 )
 
 from .bitcoin import ScriptTemplate
@@ -49,9 +49,6 @@ from .script import AccumulatorMultiSigOutput
 from .types import DatabaseKeyDerivationData, FeeQuoteCommon, FeeQuoteTypeFee, \
     ServerAndCredential, TransactionSize, Outpoint
 
-
-if TYPE_CHECKING:
-    from .wallet import AbstractAccount
 
 
 class SupportsToBytes(Protocol):

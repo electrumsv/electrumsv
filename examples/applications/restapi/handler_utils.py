@@ -22,11 +22,10 @@ from electrumsv.transaction import Transaction
 from electrumsv.wallet import AbstractAccount, Wallet
 from electrumsv.logs import logs
 from electrumsv.app_state import app_state
-from electrumsv.restapi import get_network_type
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.storage import WalletStorage
 from electrumsv.types import TransactionSize, Outpoint
-from electrumsv.wallet_database.types import TransactionMetadata, TransactionOutputSpendableRow
+from electrumsv.wallet_database.types import TransactionRow, TransactionOutputSpendableRow
 from examples.applications.restapi.constants import WalletEventNames
 
 from .errors import Errors
@@ -527,7 +526,7 @@ class ExtendedHandlerUtils:
             desired_utxo_count: int = 2000,
             max_utxo_margin: int = 200,
             require_confirmed: bool = True,
-            ) -> Tuple[List[TransactionOutputSpendableRow], List[TxOutput], bool]:
+            ) -> Tuple[list[TransactionOutputSpendableRow], list[TxOutput], bool]:
 
         INPUT_COST = config.estimate_fee(TransactionSize(INPUT_SIZE, 0))
         OUTPUT_COST = config.estimate_fee(TransactionSize(OUTPUT_SIZE, 0))
@@ -537,10 +536,10 @@ class ExtendedHandlerUtils:
         # Ignore coins that are too expensive to send, or not confirmed.
         # Todo - this is inefficient to iterate over all coins (need better handling of dust utxos)
         if require_confirmed:
-            get_metadata = account._wallet.data.get_transaction_metadata
+            read_transaction = account._wallet.data.read_transaction
             spendable_coins = [coin for coin in all_coins
                 if coin.value > (INPUT_COST + OUTPUT_COST)
-                and cast(TransactionMetadata, get_metadata(coin.tx_hash)).block_hash is not None]
+                and cast(TransactionRow, read_transaction(coin.tx_hash)).block_hash is not None]
         else:
             spendable_coins = [coin for coin in all_coins if
                                 coin.value > (INPUT_COST + OUTPUT_COST)]

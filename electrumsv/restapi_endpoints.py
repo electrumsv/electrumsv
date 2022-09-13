@@ -329,9 +329,9 @@ class LocalEndpoints:
         except UserCancelled:
             raise web.HTTPBadRequest(reason="No access to wallet password")
 
-        assert result.payment_request_row.paymentrequest_id is not None
+        assert result.request_row.paymentrequest_id is not None
         create_data: CreateInvoiceResponseDict = {
-            "incoming_payment_id": result.payment_request_row.paymentrequest_id,
+            "incoming_payment_id": result.request_row.paymentrequest_id,
             "payment_url": result.payment_url,
             "public_key_hex": result.secure_public_key.to_hex(),
         }

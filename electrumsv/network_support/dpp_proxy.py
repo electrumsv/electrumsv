@@ -12,7 +12,7 @@ from .types import ServerConnectionState
 from ..app_state import app_state
 from ..constants import PaymentFlag
 from ..logs import logs
-from ..wallet_database.types import DPPMessageRow, PaymentRequestReadRow
+from ..wallet_database.types import DPPMessageRow, PaymentRequestRow
 
 logger = logs.get_logger("dpp-proxy")
 
@@ -96,7 +96,7 @@ def _validate_dpp_message_json(dpp_message_json: dict[Any, Any]) -> None:
 
 
 async def manage_dpp_connection_async(state: ServerConnectionState,
-        payment_request_row: PaymentRequestReadRow) -> None:
+        payment_request_row: PaymentRequestRow) -> None:
     """One async task per ws:// connection - each invoice ID has its own ws:// connection.
 
     The Wallet in wallet.py can communicate with the open websocket as follows:
@@ -104,6 +104,7 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
     - ServerConnectionState.dpp_messages_queue is used for received messages
     """
     assert state.wallet_data is not None
+    assert payment_request_row.paymentrequest_id is not None
     assert payment_request_row.dpp_invoice_id is not None
     try:
         headers = {"Accept": "application/json"}
@@ -163,7 +164,7 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
 
 
 async def create_dpp_server_connection_async(state: ServerConnectionState,
-        row: PaymentRequestReadRow, timeout_seconds: float=0.0) \
+        row: PaymentRequestRow, timeout_seconds: float=0.0) \
             -> tuple[Future[None], asyncio.Event]:
     """
     Raises `asyncio.TimeoutError` if the connection is not made within the given timeout.
@@ -185,7 +186,7 @@ async def create_dpp_server_connection_async(state: ServerConnectionState,
 
 
 async def close_dpp_server_connection_async(all_server_states: list[ServerConnectionState],
-        payment_request_row: PaymentRequestReadRow) -> None:
+        payment_request_row: PaymentRequestRow) -> None:
     assert payment_request_row.dpp_invoice_id is not None
 
     for server_state in all_server_states:
@@ -209,12 +210,12 @@ async def close_dpp_server_connection_async(all_server_states: list[ServerConnec
 
 
 async def create_dpp_server_connections_async(state: ServerConnectionState,
-        payment_request_rows: list[PaymentRequestReadRow]) -> None:
+        payment_request_rows: list[PaymentRequestRow]) -> None:
     """Block until all the requested connections are made and report the results."""
     if len(payment_request_rows) == 0:
         return
 
-    active_tasks = list[tuple[PaymentRequestReadRow, Future[None], asyncio.Event]]()
+    active_tasks = list[tuple[PaymentRequestRow, Future[None], asyncio.Event]]()
     for row in payment_request_rows:
         assert row.dpp_invoice_id is not None
         future, event = await create_dpp_server_connection_async(state, row)

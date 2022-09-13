@@ -15,7 +15,7 @@ from typing import Any, NamedTuple, Optional, Sequence, TYPE_CHECKING, TypedDict
 import aiohttp
 from aiohttp import ClientWebSocketResponse
 
-from ..constants import NetworkServerFlag, ServerConnectionFlag
+from ..constants import NetworkServerFlag, ScriptType, ServerConnectionFlag
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
 from ..wallet_database.types import ServerPeerChannelMessageRow, DPPMessageRow
 
@@ -146,6 +146,7 @@ class TipFilterRegistrationJobEntry(NamedTuple):
     pushdata_hash: bytes
     duration_seconds: int
     keyinstance_id: int
+    script_type: ScriptType
 
 
 @dataclasses.dataclass
@@ -158,7 +159,7 @@ class TipFilterRegistrationJobOutput:
     date_registered: int | None = None
     # Output: If the registration errors this will be a description to explain why to the user.
     failure_reason: str | None = None
-    pass
+
 
 @dataclasses.dataclass
 class TipFilterRegistrationJob:

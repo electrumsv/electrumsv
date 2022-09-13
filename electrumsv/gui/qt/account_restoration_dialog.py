@@ -41,7 +41,7 @@ from enum import IntEnum
 from functools import partial
 import json
 import time
-from typing import Any, cast, Dict, Iterable, List, Optional, Set, Tuple, TYPE_CHECKING
+from typing import Any, cast, Iterable, TYPE_CHECKING
 import webbrowser
 
 from bitcoinx import hash_to_hex_str
@@ -51,16 +51,17 @@ from PyQt6.QtWidgets import (QFrame, QHBoxLayout, QHeaderView, QLabel, QLayout, 
     QProgressBar, QPushButton, QSizePolicy, QSpinBox, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
     QWidget)
 
-from ...app_state import app_state
-from ...constants import CHANGE_SUBPATH, DerivationPath, EMPTY_HASH, NetworkServerFlag, \
-    RECEIVING_SUBPATH, ServerConnectionFlag, TransactionImportFlag, TxFlags, \
-    WalletEvent
 from ...account_restorer import AdvancedSettings, DEFAULT_GAP_LIMITS, AccountRestorer, \
     PushDataHashHandler, PushDataSearchError, SearchKeyEnumerator
+from ...app_state import app_state
+from ...constants import CHANGE_SUBPATH, DerivationPath, DerivationType, EMPTY_HASH, \
+    NetworkServerFlag, RECEIVING_SUBPATH, ServerConnectionFlag, TransactionImportFlag, TxFlags, \
+    unpack_derivation_path, WalletEvent
 from ...exceptions import ServerConnectionError
 from ...i18n import _
-from ...network_support.exceptions import FilterResponseIncompleteError, FilterResponseInvalidError
 from ...logs import logs
+from ...network_support.exceptions import FilterResponseIncompleteError, FilterResponseInvalidError
+from ...types import MissingTransactionMetadata, TransactionKeyUsageMetadata
 from ...wallet import Wallet
 from ...wallet_database.types import TransactionLinkState, TransactionRow
 from ...web import BE_URL
@@ -70,7 +71,8 @@ from . import server_required_dialog
 from .util import FormSectionWidget, read_QIcon, WindowModalDialog
 
 if TYPE_CHECKING:
-    from .app import SVApplication
+    from ...wallet_database.types import KeyInstanceRow
+
     from .main_window import ElectrumWindow
 
 
@@ -179,16 +181,16 @@ class ScanErrorKind(IntEnum):
 @dataclass(repr=False)
 class TransactionScanState:
     tx_hash: bytes
-    item_hashes: Set[bytes]
+    match_metadatas: set[TransactionKeyUsageMetadata]
     is_missing = True
     already_imported = False
     already_conflicting = False
     found_spend_conflicts = False
-    linked_account_ids: Set[int] = field(default_factory=set)
+    linked_account_ids: set[int] = field(default_factory=set)
 
     def __repr__(self) -> str:
-        return f"TransactionScanState(tx_hash={hash_to_hex_str(self.tx_hash)}, item_hashes=["+ \
-            ", ".join([ value.hex() for value in self.item_hashes ]) +"] "+ \
+        return f"TransactionScanState(tx_hash={hash_to_hex_str(self.tx_hash)}, "+ \
+            f"match_metadata={self.match_metadatas}"+ \
             f"is_missing={self.is_missing}, already_imported={self.already_imported}, "+ \
             f"already_conflicting={self.already_conflicting}, "+ \
             f"found_spend_conflicts={self.found_spend_conflicts}, "+ \
@@ -218,7 +220,7 @@ class AccountRestorationDialog(WindowModalDialog):
 
     import_step_signal = pyqtSignal(TransactionRow, TransactionLinkState)
 
-    _pushdata_handler: Optional[PushDataHashHandler] = None
+    _pushdata_handler: PushDataHashHandler | None = None
 
     def __init__(self, main_window_proxy: ElectrumWindow, wallet: Wallet,
             account_id: int, role: RestorationDialogRole) -> None:
@@ -238,11 +240,11 @@ class AccountRestorationDialog(WindowModalDialog):
         self._advanced_settings = AdvancedSettings()
 
         self._import_fetch_steps = 0
-        self._import_fetch_hashes: Set[bytes] = set()
+        self._import_fetch_hashes: set[bytes] = set()
         self._import_link_steps = 0
-        self._import_link_hashes: Set[bytes] = set()
+        self._import_link_hashes: set[bytes] = set()
         self._import_tx_count = 0
-        self._import_state: Dict[bytes, TransactionScanState] = {}
+        self._import_state: dict[bytes, TransactionScanState] = {}
 
         self._advanced_button = QPushButton(_("Advanced"))
         self._help_button = QPushButton(_("Help"))
@@ -321,7 +323,7 @@ class AccountRestorationDialog(WindowModalDialog):
         tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         tree.setSelectionMode(tree.SelectionMode.ExtendedSelection)
         tree.customContextMenuRequested.connect(self._on_tree_scan_context_menu)
-        self._scan_tree_indexes: Dict[bytes, int] = {}
+        self._scan_tree_indexes: dict[bytes, int] = {}
 
         details_layout = self._details_layout = QVBoxLayout()
         details_layout.addLayout(details_header)
@@ -467,15 +469,16 @@ class AccountRestorationDialog(WindowModalDialog):
             self._scan_button.setEnabled(False)
 
             # Gather the related import state for the scanned transactions.
-            obtain_tx_keys = list[tuple[bytes, bool]]()
-            link_tx_hashes = set[bytes]()
+            obtain_tx_keys: list[MissingTransactionMetadata] = []
+            link_tx_hashes: set[bytes] = set()
             for tx_hash, import_entry in self._import_state.items():
                 if import_entry.already_imported or import_entry.already_conflicting:
                     continue
                 if import_entry.is_missing:
                     # We have no idea if this is in a block. We're going to try and get the proof
                     # because we have no idea if this is in a block. The wallet can sort it out.
-                    obtain_tx_keys.append((tx_hash, True))
+                    obtain_tx_keys.append(
+                        MissingTransactionMetadata(tx_hash, import_entry.match_metadatas, True))
                 else:
                     link_tx_hashes.add(tx_hash)
 
@@ -490,9 +493,8 @@ class AccountRestorationDialog(WindowModalDialog):
                 # is not tied to the lifetime of this process, so we cannot cancel it should the
                 # user use the cancel UI. We could extend the wallet to attempt this, but it is not
                 # within the scope of the intitial feature set.
-                future = cast("SVApplication", app_state.app).run_coro(
-                    self._wallet.obtain_transactions_async(self._account_id,
-                        obtain_tx_keys, TransactionImportFlag.PROMPTED))
+                future = app_state.app.run_coro(self._wallet.obtain_transactions_async(
+                    self._account_id, obtain_tx_keys, TransactionImportFlag.PROMPTED))
                 future.add_done_callback(self._on_import_obtain_transactions_started)
 
             if len(link_tx_hashes):
@@ -501,7 +503,7 @@ class AccountRestorationDialog(WindowModalDialog):
                 app_state.async_.spawn(self._import_immediately_linkable_transactions(
                     link_tx_hashes))
 
-    async def _import_immediately_linkable_transactions(self, link_tx_hashes: Set[bytes]) -> None:
+    async def _import_immediately_linkable_transactions(self, link_tx_hashes: set[bytes]) -> None:
         """
         Worker task to link each transaction that is already present in the wallet.
         """
@@ -509,11 +511,11 @@ class AccountRestorationDialog(WindowModalDialog):
         if link_tx_hashes != self._import_link_hashes:
             return
 
-        for tx_hash in list(link_tx_hashes):
-            link_state = TransactionLinkState()
-            tx_row = await self._wallet.link_transaction_async(tx_hash, link_state)
-            self._import_link_hashes.remove(tx_hash)
-            self.import_step_signal.emit(tx_row, link_state)
+        for transaction_hash in list(link_tx_hashes):
+            link_state = await self._wallet.data.link_transaction_async(transaction_hash)
+            transaction_row = self._wallet.data.read_transaction(transaction_hash)
+            self._import_link_hashes.remove(transaction_hash)
+            self.import_step_signal.emit(transaction_row, link_state)
 
     def _on_wallet_event(self, event: WalletEvent, *args: Iterable[Any]) -> None:
         """
@@ -573,13 +575,13 @@ class AccountRestorationDialog(WindowModalDialog):
 
         self._update_display()
 
-    def _get_import_work_units(self) -> Tuple[int, int]:
+    def _get_import_work_units(self) -> tuple[int, int]:
         total_work_units = self._import_fetch_steps + self._import_link_steps
         remaining_work_units = len(self._import_fetch_hashes) + len(self._import_link_hashes)
         return total_work_units, remaining_work_units
 
     def _on_import_obtain_transactions_started(self,
-            future: concurrent.futures.Future[Set[bytes]]) -> None:
+            future: concurrent.futures.Future[set[bytes]]) -> None:
         """
         The callback for the when the process of obtaining the missing transaction has started.
 
@@ -714,9 +716,10 @@ class AccountRestorationDialog(WindowModalDialog):
 
         self._scan_end_time = int(time.time())
 
-        all_tx_hashes: List[bytes] = []
-        subpath_indexes = dict[DerivationPath, int]()
-        self._import_state = {}
+        all_tx_hashes: list[bytes] = []
+        furthest_subpath_indexes: dict[DerivationPath, int] = {}
+
+        self._import_state.clear()
 
         assert self._pushdata_handler is not None
         for push_data_match in self._pushdata_handler.get_results():
@@ -724,7 +727,7 @@ class AccountRestorationDialog(WindowModalDialog):
             # or in the input `MatchFlags.IN_INPUT`. We are involved in the receipt (locking)
             # and the spend (unlocking) in both cases, and need to see what we received and
             # how it was spent.
-            tx_hashes: List[bytes] = []
+            tx_hashes: list[bytes] = []
 
             # We will always have a locking transaction match, whether the match was in the
             # input or output.
@@ -735,49 +738,75 @@ class AccountRestorationDialog(WindowModalDialog):
             if push_data_match.filter_result.unlocking_transaction_hash != EMPTY_HASH:
                 tx_hashes.append(push_data_match.filter_result.unlocking_transaction_hash)
 
-            # TODO We can get the input/output indexes on the matches recorded here for
-            #   later use to streamline the import. Given we know what pushdata we were looking
-            #   for an in what contexts there is some potential to propagate that right to the
-            #   actual import stage which might enable us to remove the scripthash matching.
+            key_derivation_path: DerivationPath | None = None
+            # These are only for the deterministic accounts of course.
+            if push_data_match.search_entry.parent_path is not None:
+                key_subpath = push_data_match.search_entry.parent_path.subpath
+                key_subpath_index = push_data_match.search_entry.parent_index
+                key_derivation_path = key_subpath + (key_subpath_index,)
+                if key_subpath in furthest_subpath_indexes:
+                    furthest_subpath_indexes[key_subpath] = \
+                        max(furthest_subpath_indexes[key_subpath], key_subpath_index)
+                else:
+                    assert key_subpath_index > -1
+                    furthest_subpath_indexes[key_subpath] = key_subpath_index
+
+            transaction_key_usage = TransactionKeyUsageMetadata(
+                push_data_match.filter_result.push_data_hash,
+                # This will be set for static keys but not for BIP32 key derivations.
+                push_data_match.search_entry.keyinstance_id,
+                push_data_match.search_entry.script_type,
+                key_derivation_path)
 
             for tx_hash in tx_hashes:
                 state = self._import_state.get(tx_hash)
+
                 if state is None:
                     state = self._import_state[tx_hash] = TransactionScanState(tx_hash,
-                        { push_data_match.filter_result.push_data_hash })
+                        { transaction_key_usage })
                     all_tx_hashes.append(tx_hash)
                 else:
-                    state.item_hashes.add(push_data_match.filter_result.push_data_hash)
+                    state.match_metadatas.add(transaction_key_usage)
 
-            # This will be deterministic accounts.
-            if push_data_match.search_entry.parent_path is not None:
-                key_subpath = push_data_match.search_entry.parent_path.subpath
-                if key_subpath in subpath_indexes:
-                    subpath_indexes[key_subpath] = max(subpath_indexes[key_subpath],
-                        push_data_match.search_entry.parent_index)
-                else:
-                    assert push_data_match.search_entry.parent_index > -1
-                    subpath_indexes[key_subpath] = push_data_match.search_entry.parent_index
-
-
-        # The linking of transaction to accounts cannot be done unless the keys exist with their
-        # script hashes (remember we link transactions to accounts based on script hashes).
+        # We need to map the transaction outputs to the keyinstances, and since we do a virtual
+        # search to get these matches we need to make sure any not-as-yet created keyinstances
+        # are created for this.
         account = self._wallet.get_account(self._account_id)
         assert account is not None
-        derivation_completion_future: Optional[concurrent.futures.Future[None]] = None
-        for subpath, subpath_index in subpath_indexes.items():
-            # TODO This derives script hashes which are used to map key usage to the imported
-            #   transactions. At some point in the future, this will not be sufficient to cover
-            #   mapping key usage to transaction importation, when we no longer have known script
-            #   hashes.
-            derivation_completion_future, keyinstance_rows = account.derive_new_keys_until(
+        last_keyinstance_future: concurrent.futures.Future[None] | None = None
+        for subpath, subpath_index in furthest_subpath_indexes.items():
+            keyinstance_future, keyinstance_rows = account.derive_new_keys_until(
                 tuple(subpath) + (subpath_index,))
-            if derivation_completion_future is not None:
-                derivation_completion_future = derivation_completion_future
-        # All the key creation writes get queued in the database dispatcher. We can wait on the
-        # last one if we want to be sure they are created and ready for use.
-        if derivation_completion_future is not None:
-            derivation_completion_future.result()
+            if keyinstance_future is not None:
+                last_keyinstance_future = keyinstance_future
+        # All the key creation writes get queued in order the database dispatcher. We can wait on
+        # the last one if we want to be sure they are created and ready for use.
+        if last_keyinstance_future is not None:
+            last_keyinstance_future.result()
+
+        # If we are dealing with a deterministic (BIP32) account fill in the `keyinstance_id`.
+        if len(furthest_subpath_indexes) > 0:
+            keyinstance_row_by_derivation_path: dict[DerivationPath, KeyInstanceRow] = {}
+            for keyinstance_row in self._wallet.data.read_keyinstances(account_id=self._account_id):
+                assert keyinstance_row.derivation_type == DerivationType.BIP32_SUBPATH
+                assert keyinstance_row.derivation_data2 is not None
+                derivation_path = unpack_derivation_path(keyinstance_row.derivation_data2)
+                keyinstance_row_by_derivation_path[derivation_path] = keyinstance_row
+
+            for state in self._import_state.values():
+                for match_metadata in list(state.match_metadatas):
+                    assert match_metadata.derivation_path is not None
+                    assert match_metadata.derivation_path in keyinstance_row_by_derivation_path
+                    keyinstance_row = keyinstance_row_by_derivation_path[
+                        match_metadata.derivation_path]
+                    state.match_metadatas.remove(match_metadata)
+                    state.match_metadatas.add(match_metadata._replace(
+                        keyinstance_id=keyinstance_row.keyinstance_id))
+
+        # Sanity check that every piece of metadata has a `keyinstance_id` value.
+        for state in self._import_state.values():
+            for match_metadata in state.match_metadatas:
+                assert match_metadata.keyinstance_id is not None
 
         all_are_imported = True
         conflicts_were_found = False
@@ -820,7 +849,7 @@ class AccountRestorationDialog(WindowModalDialog):
         self._progress_bar.setFormat("%p% imported")
 
         tx_state_items = list(self._import_state.items())
-        tree_items: List[QTreeWidgetItem] = []
+        tree_items: list[QTreeWidgetItem] = []
         for entry_index, (tx_hash, entry) in enumerate(tx_state_items):
             # NOTE(typing) It accepts `None` in an iterable of strings. Need to test if it can
             #   be replaced by an empty string.
@@ -873,19 +902,22 @@ class AccountRestorationDialog(WindowModalDialog):
             partial(self._on_menu_view_on_block_explorer, entries))
         menu.exec(tree.viewport().mapToGlobal(position))
 
-    def _on_menu_copy_entry_json_to_clipboard(self, entries: List[TransactionScanState]) -> None:
-        entries_text = json.dumps(list(
+    def _on_menu_copy_entry_json_to_clipboard(self, entries: list[TransactionScanState]) -> None:
+        entries_text = json.dumps([
             {
-                "tx_id": hash_to_hex_str(entry.tx_hash),
-                "item_hashes": list(hash_to_hex_str(hash) for hash in entry.item_hashes)
-            } for entry in entries))
+                "transaction_id": hash_to_hex_str(entry.tx_hash),
+                "matches": [ [ hash_to_hex_str(match_metadata.pushdata_hash),
+                        match_metadata.script_type.name ]
+                    for match_metadata in entry.match_metadatas ]
+            } for entry in entries
+        ])
         self._main_window_proxy.app.clipboard().setText(entries_text)
 
-    def _on_menu_copy_tx_ids_json_to_clipboard(self, entries: List[TransactionScanState]) -> None:
+    def _on_menu_copy_tx_ids_json_to_clipboard(self, entries: list[TransactionScanState]) -> None:
         tx_ids_text = json.dumps(list(hash_to_hex_str(entry.tx_hash) for entry in entries))
         self._main_window_proxy.app.clipboard().setText(tx_ids_text)
 
-    def _on_menu_view_on_block_explorer(self, entries: List[TransactionScanState]) -> None:
+    def _on_menu_view_on_block_explorer(self, entries: list[TransactionScanState]) -> None:
         for entry in entries:
             tx_URL = BE_URL(app_state.config, 'tx', hash_to_hex_str(entry.tx_hash))
             assert tx_URL is not None
@@ -904,7 +936,7 @@ class AdvancedScanOptionsDialog(WindowModalDialog):
         self.setMaximumWidth(400)
         self.setMinimumHeight(200)
 
-        deterministic_form: Optional[FormSectionWidget] = None
+        deterministic_form: FormSectionWidget | None = None
         if account.is_deterministic():
             def mw(s: str) -> int:
                 return QFontMetrics(self.font()).boundingRect(s).width() + 10

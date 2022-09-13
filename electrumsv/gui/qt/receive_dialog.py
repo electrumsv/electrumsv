@@ -6,6 +6,8 @@ import time
 from typing import Any, Callable, cast, TYPE_CHECKING
 import weakref
 
+from bitcoinx import Script
+
 from PyQt6.QtCore import pyqtSignal, Qt, QTimer
 from PyQt6.QtGui import QCloseEvent, QCursor, QFontMetrics, QKeyEvent
 from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLayout, QLineEdit, \
@@ -14,16 +16,16 @@ from PyQt6.QtWidgets import QComboBox, QDialog, QHBoxLayout, QLabel, QLayout, QL
 from ... import web
 from ...app_state import app_state, get_app_state_qt
 from ...bitcoin import script_template_to_string
-from ...constants import NetworkServerFlag, PaymentFlag, PushDataHashRegistrationFlag, ScriptType, \
-    ServerConnectionFlag, TxFlags
+from ...constants import NetworkServerFlag, PaymentFlag, PushDataHashRegistrationFlag, \
+    ServerConnectionFlag
 from ...exceptions import NoViableServersError, ServerConnectionError, UserCancelled
 from ...i18n import _
 from ...logs import logs
 from ...networks import Net, TEST_NETWORK_NAMES
 from ...network_support.types import TipFilterRegistrationJobOutput
-from ...transaction import Transaction, TransactionContext
+from ...transaction import classify_transaction_output_script, Transaction, TransactionContext
 from ...util import age, get_posix_timestamp
-from ...wallet_database.types import KeyDataProtocol, PaymentRequestRow, PaymentRequestUpdateRow
+from ...wallet_database.types import PaymentRequestUpdateRow
 
 from .amountedit import AmountEdit, BTCAmountEdit
 from .qrcodewidget import QRCodeWidget
@@ -35,7 +37,7 @@ if TYPE_CHECKING:
     from .main_window import ElectrumWindow
     from .receive_view import ReceiveView
     from ...wallet import AbstractAccount, HostedInvoiceCreationResult
-    from ...wallet_database.types import KeyInstanceRow, PaymentRequestReadRow
+    from ...wallet_database.types import PaymentRequestRow, PaymentRequestOutputRow
 
 
 EXPIRATION_VALUES: list[tuple[str, int | None]] = [
@@ -142,8 +144,8 @@ class ReceiveDialog(QDialog):
         self._request_id = request_id
         self._request_type = request_type
 
-        self._request_row: PaymentRequestReadRow | None = None
-        self._key_data: KeyInstanceRow | None = None
+        self._request_row: PaymentRequestRow | None = None
+        self._request_output_rows: list[PaymentRequestOutputRow] = []
 
         if request_id is not None:
             self._read_request_data_from_database()
@@ -154,7 +156,7 @@ class ReceiveDialog(QDialog):
         self._layout_pending = False
 
         self._on_fiat_ccy_changed()
-        self.update_destination()
+        self._update_destination()
         if self._request_row is not None:
             self._receive_amount_e.setAmount(self._request_row.requested_value)
 
@@ -192,7 +194,7 @@ class ReceiveDialog(QDialog):
         """
         key = event.key()
         if key == Qt.Key.Key_R and bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier):
-            self.update_destination()
+            self._update_destination()
             self._update_receive_qr()
             self._update_form()
         else:
@@ -208,10 +210,9 @@ class ReceiveDialog(QDialog):
     def _read_request_data_from_database(self) -> None:
         assert self._request_id is not None
         wallet = self._main_window_proxy._wallet
-        self._request_row = wallet.data.read_payment_request(request_id=self._request_id)
+        self._request_row, self._request_output_rows = wallet.data.read_payment_request(
+            request_id=self._request_id)
         assert self._request_row is not None
-        self._key_data = wallet.data.read_keyinstance(
-            keyinstance_id=self._request_row.keyinstance_id)
         self._request_type = self._request_row.state & PaymentFlag.MASK_TYPE
 
     def get_paymentrequest_id(self) -> int | None:
@@ -408,54 +409,53 @@ class ReceiveDialog(QDialog):
         # wallet window code.
         pass
 
-    def update_destination(self) -> None:
-        if self._key_data is None:
-            return
-
+    def _update_destination(self) -> None:
+        """
+        Visual update of the destination-related fields.
+        """
         if self._request_type == PaymentFlag.INVOICE:
+            if self._request_row is None:
+                # The user has not created this payment request yet.
+                self._receive_destination_edit.setText("")
+                return
+
             assert self._request_row is not None
             assert self._request_row.server_id is not None
             assert self._request_row.dpp_invoice_id is not None
+
             wallet = self._account.get_wallet()
             server_url = wallet.get_dpp_server_url(self._request_row.server_id)
             payment_url = f"pay:?r={server_url}api/v1/payment/sec/" \
                 f"{self._request_row.dpp_invoice_id}"
             self._receive_destination_edit.setText(payment_url)
-        else:
+        elif self._request_type in { PaymentFlag.MONITORED, PaymentFlag.IMPORTED }:
             if self._request_row is None:
-                script_type = self._account.get_default_script_type()
-            else:
-                script_type = self._request_row.script_type
-            self.update_script_type(script_type)
+                # The user has not created this payment request yet.
+                self._receive_destination_edit.setText("")
+                return
 
-    def update_script_type(self, script_type: ScriptType) -> None:
-        """
-        Update the payment destination field.
-        This is called both locally, and from the account information dialog when the script type
-        is changed.
-        """
-        if self._key_data is None:
-            return
-
-        text = ""
-        script_template = self._account.get_script_template_for_derivation(
-            script_type, self._key_data.derivation_type, self._key_data.derivation_data2)
-        if script_template is not None:
+            assert len(self._request_output_rows) == 1
+            output_script = Script(self._request_output_rows[0].output_script_bytes)
+            script_type, threshold, script_template = classify_transaction_output_script(
+                output_script)
             text = script_template_to_string(script_template)
-        self._receive_destination_edit.setText(text)
+            self._receive_destination_edit.setText(text)
+        else:
+            raise NotImplementedError(f"Unexpected request type {self._request_type}")
 
     # Bound to text fields in `_create_receive_form_layout`.
     def _update_receive_qr(self) -> None:
         if self._layout_pending or self._request_id is None:
             return
 
-        assert self._key_data is not None
-
         amount = self._receive_amount_e.get_amount()
         message = self._their_description_edit.text()
         self._save_button.setEnabled((amount is not None) or (message != ""))
 
-        if self._request_type == PaymentFlag.INVOICE and self._request_row is not None:
+        if self._request_row is None:
+            return
+
+        if self._request_type == PaymentFlag.INVOICE:
             assert self._request_row.server_id is not None
             assert self._request_row.dpp_invoice_id is not None
             wallet = self._account.get_wallet()
@@ -466,17 +466,19 @@ class ReceiveDialog(QDialog):
             if self._qr_window and self._qr_window.isVisible():
                 self._qr_window.set_content(self._receive_destination_edit.text(), amount,
                     message, payment_url)
-
-        else:
-            script_template = self._account.get_script_template_for_derivation(
-                self._account.get_default_script_type(),
-                self._key_data.derivation_type, self._key_data.derivation_data2)
+        elif self._request_type in { PaymentFlag.MONITORED, PaymentFlag.IMPORTED }:
+            assert len(self._request_output_rows) == 1
+            output_script = Script(self._request_output_rows[0].output_script_bytes)
+            script_type, threshold, script_template = classify_transaction_output_script(
+                output_script)
             address_text = script_template_to_string(script_template)
             uri = web.create_URI(address_text, amount, message)
             self._receive_qr.setData(uri)
             if self._qr_window and self._qr_window.isVisible():
                 self._qr_window.set_content(self._receive_destination_edit.text(), amount, message,
                     uri)
+        else:
+            raise NotImplementedError(f"Unexpected request type {self._request_type}")
 
     def _toggle_qr_window(self) -> None:
         if not self._qr_window:
@@ -595,12 +597,12 @@ class ReceiveDialog(QDialog):
     def _on_button_clicked_register(self) -> None:
         if self._request_type == PaymentFlag.INVOICE:
             assert self._request_id is not None
-            def callback(future: Future[None]) -> None:
-                self._refresh_after_create()
+            def ui_thread_callback(future: Future[None]) -> None:
+                self._refresh()
             app_state.app.run_coro(
                 self._account.connect_to_hosted_invoice_proxy_server_async(
                     self._request_id),
-                on_done=callback)
+                on_done=ui_thread_callback)
 
         elif self._request_type == PaymentFlag.MONITORED:
             assert self._request_id is not None
@@ -671,8 +673,10 @@ class ReceiveDialog(QDialog):
                     MessageBox.show_error(_("None of the known invoice servers are "
                         "currently accessible."), self)
                 else:
-                    assert result.payment_request_row.paymentrequest_id is not None
-                    self._request_id = result.payment_request_row.paymentrequest_id
+                    self._request_row = result.request_row
+                    self._request_output_rows = result.request_output_rows
+                    assert self._request_row.paymentrequest_id is not None
+                    self._request_id = self._request_row.paymentrequest_id
 
                     self._refresh_after_create()
 
@@ -681,16 +685,16 @@ class ReceiveDialog(QDialog):
                 date_expires, your_text, their_text), on_done=ui_callback)
         elif self._request_type == PaymentFlag.MONITORED:
             def ui_thread_payment_request_created(future:
-                    Future[tuple[list[PaymentRequestRow], KeyDataProtocol]]) -> None:
+                    Future[tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]]) -> None:
                 # Skip if the operation was cancelled.
                 if future.cancelled():
                     return
 
                 # Raise any exception if it errored or get the result if completed successfully.
-                rows, _key_data = future.result()
-                assert len(rows) == 1
-                assert rows[0].paymentrequest_id is not None
-                self._request_id = rows[0].paymentrequest_id
+                self._request_row, self._request_output_rows = future.result()
+                assert self._request_row.paymentrequest_id is not None
+                self._request_id = self._request_row.paymentrequest_id
+                self._refresh_after_create()
 
                 app_state.app.run_coro(
                     self._account.monitor_blockchain_payment_async(self._request_id),
@@ -702,7 +706,7 @@ class ReceiveDialog(QDialog):
                 flags=self._request_type), on_done=ui_thread_payment_request_created)
         elif self._request_type == PaymentFlag.IMPORTED:
             def ui_thread_payment_request_created(future:
-                    Future[tuple[list[PaymentRequestRow], KeyDataProtocol]]) -> None:
+                    Future[tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]]) -> None:
                 """
                 This callback happens in the database thread. No UI calls can be made in it and any
                 UI calls should happen through emitting a signal.
@@ -714,11 +718,11 @@ class ReceiveDialog(QDialog):
                 # Skip if the operation was cancelled.
                 if future.cancelled():
                     return
+
                 # Raise any exception if it errored or get the result if completed successfully.
-                rows, _key_data = future.result()
-                assert len(rows) == 1
-                assert rows[0].paymentrequest_id is not None
-                self._request_id = rows[0].paymentrequest_id
+                self._request_row, self._request_output_rows = future.result()
+                assert self._request_row.paymentrequest_id is not None
+                self._request_id = self._request_row.paymentrequest_id
 
                 self._refresh_after_create()
 
@@ -745,13 +749,9 @@ class ReceiveDialog(QDialog):
             self._logger.debug("Creating TipFilterRegistrationJob task %r", job)
             app_state.async_.spawn(monitor_tip_filter_job(job))
 
-        self._refresh_after_create()
+        self._refresh()
 
     def _refresh_after_create(self) -> None:
-        # While we get the 'PaymentRequestRow' type (used for creation) back, we currently
-        # use the `PaymentRequestReadRow` type (used for reads) row type for local storage
-        # (which includes related data like value received).
-        self._read_request_data_from_database()
         assert self._request_row is not None
         assert self._request_id is not None
 
@@ -762,13 +762,17 @@ class ReceiveDialog(QDialog):
         self._view._request_list.update_signal.emit()
         # Refresh the contents of this window to reflect it is now an actual payment
         # request. This is safe to do here because we are in the UI thread.
-        self.update_destination()
+        self._refresh()
+
+    def _refresh(self) -> None:
+        self._update_destination()
         self._update_receive_qr()
         self._update_form()
 
     def _on_update_button_clicked(self, amount: int, your_text: str,
             their_text: str | None) -> None:
         assert self._request_row is not None
+        assert self._request_row.paymentrequest_id is not None
 
         def callback(future: Future[None]) -> None:
             """
@@ -800,33 +804,20 @@ class ReceiveDialog(QDialog):
     def _on_request_expired(self) -> None:
         self._update_form()
 
-    def _attempt_import_transaction(self, tx: Transaction,
-            tx_context: TransactionContext | None) -> None:
-        assert self._request_row is not None
-        if not tx.is_complete():
-            MessageBox.show_error(_("This transaction has not been finalised"), self)
-            return
+    def _attempt_import_transactions(self, candidates: list[tuple[Transaction,
+            TransactionContext | None]]) -> None:
+        """
+        This is the manual import path. In theory it is the same as any direct P2P path.
+        """
+        assert self._request_id is not None
 
         wallet = self._main_window_proxy._wallet
-        if tx_context is None:
-            tx_context = TransactionContext()
-        wallet.populate_transaction_context_key_data_from_database_keys(tx, tx_context)
-
-        for key_data in tx_context.key_datas_by_txo_index.values():
-            if key_data.keyinstance_id == self._request_row.keyinstance_id:
-                break
-        else:
-            MessageBox.show_error(_("The given transaction does not make a payment for this "
-                "payment request."), self)
+        try:
+            app_state.async_.spawn_and_wait(wallet.close_payment_request_async(self._request_id,
+                candidates, self.show_error_signal.emit))
+        except ValueError as exception_value:
+            MessageBox.show_error(exception_value.args[0], self)
             return
-
-        # NOTE(output-spends) This will trigger registration for output spend events to monitor
-        #     if this transaction gets broadcast externally.
-        tx_state = TxFlags.STATE_RECEIVED
-        wallet.import_transaction_with_error_callback(tx, tx_state, self.show_error_signal.emit)
-        # Importing a transaction implicitly closes any payment requests that are reliant
-        # on the payment in that transaction to be satisfied. We also support multiple
-        # payments satisfying a payment request (address reuse..) so there's also that.
 
         # TODO(1.4.0) User experience, issue#909. WRT transaction import. We want to show this
         #     transaction has been imported visually. Just popping up the transaction dialog does
@@ -836,25 +827,26 @@ class ReceiveDialog(QDialog):
         #     UI code.
 
     def _on_menu_import_from_file(self) -> None:
-        tx, tx_context = self._main_window_proxy.prompt_obtain_transaction_from_file()
-        if tx is not None:
-            self._attempt_import_transaction(tx, tx_context)
+        matches = self._main_window_proxy.prompt_obtain_transactions_from_files(
+            multiple=True)
+        if len(matches) > 0:
+            self._attempt_import_transactions(matches)
 
     def _on_menu_import_from_blockchain(self) -> None:
         tx, tx_context = self._main_window_proxy.prompt_obtain_transaction_from_txid()
         if tx is not None:
-            self._attempt_import_transaction(tx, tx_context)
+            self._attempt_import_transactions([ (tx, tx_context) ])
 
     def _on_menu_import_from_text(self) -> None:
         tx, tx_context = self._main_window_proxy.prompt_obtain_transaction_from_text(
             ok_text=_("Import"))
         if tx is not None:
-            self._attempt_import_transaction(tx, tx_context)
+            self._attempt_import_transactions([ (tx, tx_context) ])
 
     def _on_menu_import_from_qrcode(self) -> None:
         def callback(raw: bytes | None) -> None:
             assert raw is not None
             tx, tx_context = self._main_window_proxy._wallet.load_transaction_from_bytes(raw)
             if tx is not None:
-                self._attempt_import_transaction(tx, tx_context)
+                self._attempt_import_transactions([ (tx, tx_context) ])
         self._main_window_proxy.read_qrcode_and_call_callback(callback, expect_transaction=True)

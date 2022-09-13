@@ -1,6 +1,7 @@
 import json
+import dataclasses
 from datetime import datetime, timezone
-from typing import Any, NamedTuple, Optional, Protocol, Union
+from typing import Any, NamedTuple, Protocol, Union
 
 from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
     MAPIBroadcastFlag, MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag,
@@ -12,25 +13,25 @@ from ..types import MasterKeyDataTypes
 
 class AccountRow(NamedTuple):
     account_id: int
-    default_masterkey_id: Optional[int]
+    default_masterkey_id: int | None
     default_script_type: ScriptType
     account_name: str
     flags: AccountFlags
-    blockchain_server_id: Optional[int]
-    peer_channel_server_id: Optional[int]
+    blockchain_server_id: int | None
+    peer_channel_server_id: int | None
 
 
 class AccountTransactionDescriptionRow(NamedTuple):
     account_id: int
     tx_hash: bytes
-    description: Optional[str]
+    description: str | None
 
 
 class AccountTransactionRow(NamedTuple):
     account_id: int
     tx_hash: bytes
     flags: AccountTxFlags
-    description: Optional[str]
+    description: str | None
     date_created: int
     date_updated: int
 
@@ -40,7 +41,7 @@ class SpentOutputRow(NamedTuple):
     spent_txo_index: int
     spending_tx_hash: bytes
     spending_txi_index: int
-    block_hash: Optional[bytes]
+    block_hash: bytes | None
     flags: TxFlags
     mapi_broadcast_flags: MAPIBroadcastFlag
 
@@ -48,10 +49,10 @@ class SpentOutputRow(NamedTuple):
 class HistoryListRow(NamedTuple):
     tx_hash: bytes
     tx_flags: TxFlags
-    block_hash: Optional[bytes]
+    block_hash: bytes | None
     block_height: int
-    block_position: Optional[int]
-    description: Optional[str]
+    block_position: int | None
+    description: str | None
     value_delta: int
     date_created: int
 
@@ -59,23 +60,23 @@ class HistoryListRow(NamedTuple):
 class InvoiceAccountRow(NamedTuple):
     invoice_id: int
     payment_uri: str
-    description: Optional[str]
+    description: str | None
     flags: PaymentFlag
     value: int
-    date_expires: Optional[int]
+    date_expires: int | None
     date_created: int
 
 
 class InvoiceRow(NamedTuple):
     invoice_id: int
     account_id: int
-    tx_hash: Optional[bytes]
+    tx_hash: bytes | None
     payment_uri: str
-    description: Optional[str]
+    description: str | None
     flags: PaymentFlag
     value: int
     invoice_data: bytes
-    date_expires: Optional[int]
+    date_expires: int | None
     date_created: int = -1
 
 
@@ -89,13 +90,13 @@ class KeyDataProtocol(Protocol):
     def account_id(self) -> int:
         ...
     @property
-    def masterkey_id(self) -> Optional[int]:
+    def masterkey_id(self) -> int | None:
         ...
     @property
     def derivation_type(self) -> DerivationType:
         ...
     @property
-    def derivation_data2(self) -> Optional[bytes]:
+    def derivation_data2(self) -> bytes | None   :
         ...
 
 
@@ -103,9 +104,9 @@ class KeyDataProtocol(Protocol):
 class KeyData(NamedTuple):
     keyinstance_id: int                 # Overlapping common output/spendable type field.
     account_id: int                     # Spendable type field.
-    masterkey_id: Optional[int]         # Spendable type field.
+    masterkey_id: int | None         # Spendable type field.
     derivation_type: DerivationType     # Spendable type field.
-    derivation_data2: Optional[bytes]   # Spendable type field.
+    derivation_data2: bytes | None      # Spendable type field.
 
 
 class KeyInstanceFlagRow(NamedTuple):
@@ -122,29 +123,23 @@ class KeyInstanceFlagChangeRow(NamedTuple):
 class KeyInstanceRow(NamedTuple):
     keyinstance_id: int                 # Overlapping common output/spendable type field.
     account_id: int                     # Spendable type field.
-    masterkey_id: Optional[int]         # Spendable type field.
+    masterkey_id: int | None            # Spendable type field.
     derivation_type: DerivationType     # Spendable type field.
     derivation_data: bytes
-    derivation_data2: Optional[bytes]   # Spendable type field.
+    derivation_data2: bytes | None      # Spendable type field.
     flags: KeyInstanceFlag
-    description: Optional[str]
-
-
-class KeyInstanceScriptHashRow(NamedTuple):
-    keyinstance_id: int
-    script_type: ScriptType
-    script_hash: bytes
+    description: str | None
 
 
 class KeyListRow(NamedTuple):
     account_id: int
     keyinstance_id: int                 # Overlapping common output/spendable type field.
-    masterkey_id: Optional[int]         # Spendable type field.
+    masterkey_id: int | None            # Spendable type field.
     derivation_type: DerivationType     # Spendable type field.
     derivation_data: bytes
-    derivation_data2: Optional[bytes]   # Spendable type field.
+    derivation_data2: bytes | None      # Spendable type field.
     flags: KeyInstanceFlag
-    description: Optional[str]
+    description: str | None
     date_updated: int
     txo_value: int
     txo_count: int
@@ -152,7 +147,7 @@ class KeyListRow(NamedTuple):
 
 class MasterKeyRow(NamedTuple):
     masterkey_id: int
-    parent_masterkey_id: Optional[int]
+    parent_masterkey_id: int | None
     derivation_type: DerivationType
     derivation_data: bytes
     flags: MasterKeyFlags
@@ -161,18 +156,18 @@ class MasterKeyRow(NamedTuple):
 # WARNING The order of the fields in this data structure are implicitly linked to the query.
 class NetworkServerRow(NamedTuple):
     # If this is `None` on an INSERT, SQLite will substitute it for a real primary key value.
-    server_id: Optional[int]
+    server_id: int | None
     server_type: NetworkServerType
     url: str
-    account_id: Optional[int]
+    account_id: int | None
     server_flags: NetworkServerFlag
-    api_key_template: Optional[str]
-    encrypted_api_key: Optional[str]
+    api_key_template: str | None
+    encrypted_api_key: str | None
     payment_key_bytes: bytes | None
     # MAPI specific: used for JSONEnvelope serialised transaction fee quotes.
-    mapi_fee_quote_json: Optional[str]
+    mapi_fee_quote_json: str | None
     # Indexer server specific: used for tip filter notifications.
-    tip_filter_peer_channel_id: Optional[int]
+    tip_filter_peer_channel_id: int | None
     date_last_try: int
     date_last_good: int
     date_created: int
@@ -191,33 +186,14 @@ class PushDataRegistrationRow(NamedTuple):
     duration_seconds: int
 
 
-class PaymentRequestReadRow(NamedTuple):
-    paymentrequest_id: int
-    keyinstance_id: int
-    state: PaymentFlag
-    requested_value: int | None
-    received_value: int | None
-    date_expires: int | None
-    description: str | None
-    script_type: ScriptType
-    pushdata_hash: bytes
-    server_id: int | None
-    dpp_invoice_id: str | None
-    merchant_reference: str | None
-    encrypted_key_text: str | None
-    date_created: int
-
-
 class PaymentRequestRow(NamedTuple):
+    # This is `None` for the `INSERT` as this makes SQLite allocate the primary key value for us.
     paymentrequest_id: int | None
-    keyinstance_id: int
     state: PaymentFlag
     requested_value: int | None
     date_expires: int | None
     # The local label we apply to transactions (seen in the history tab) received.
     description: str | None
-    script_type: ScriptType
-    pushdata_hash: bytes
     server_id: int | None
     dpp_invoice_id: str | None
     # What we put in any outgoing payment terms to describe what the payee is paying for.
@@ -234,6 +210,20 @@ class PaymentRequestUpdateRow(NamedTuple):
     description: str | None
     merchant_reference: str | None
     paymentrequest_id: int
+
+
+class PaymentRequestOutputRow(NamedTuple):
+    # This is `None` for the `INSERT` as this makes SQLite allocate the primary key value for us.
+    paymentrequest_id: int | None
+    transaction_index: int
+    output_index: int
+    output_script_type: ScriptType
+    output_script_bytes: bytes
+    pushdata_hash: bytes
+    output_value: int
+    keyinstance_id: int
+    date_created: int
+    date_updated: int
 
 
 SpendConflictType = tuple[bytes, int, bytes, int]
@@ -253,7 +243,7 @@ class TransactionDescriptionResult(NamedTuple):
 class TransactionExistsRow(NamedTuple):
     tx_hash: bytes
     flags: TxFlags
-    account_id: Optional[int]
+    account_id: int | None
 
 
 class TransactionInputAddRow(NamedTuple):
@@ -269,26 +259,20 @@ class TransactionInputAddRow(NamedTuple):
     date_updated: int
 
 
+@dataclasses.dataclass
 class TransactionLinkState:
     # Parameters.
     rollback_on_spend_conflict: bool = False
     # Results.
     has_spend_conflicts: bool = False
-    account_ids: Optional[set[int]] = None
-
-
-class TransactionMetadata(NamedTuple):
-    block_hash: Optional[bytes]
-    block_position: Optional[int]
-    fee_value: Optional[int]
-    date_created: int
+    account_ids: set[int] | None = None
 
 
 class TransactionOutputCommonProtocol(Protocol):
     tx_hash: bytes
     txo_index: int
     value: int
-    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
+    keyinstance_id: int | None               # Overlapping common output/spendable type field.
     flags: TransactionOutputFlag
     script_type: ScriptType
 
@@ -297,7 +281,7 @@ class TransactionOutputAddRow(NamedTuple):
     tx_hash: bytes
     txo_index: int
     value: int
-    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
+    keyinstance_id: int | None               # Overlapping common output/spendable type field.
     script_type: ScriptType
     flags: TransactionOutputFlag
     script_hash: bytes
@@ -312,7 +296,7 @@ class TransactionOutputShortRow(NamedTuple):
     tx_hash: bytes
     txo_index: int
     value: int
-    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
+    keyinstance_id: int | None               # Overlapping common output/spendable type field.
     flags: TransactionOutputFlag
     script_type: ScriptType
     # Extension fields for this type.
@@ -324,15 +308,15 @@ class TransactionOutputFullRow(NamedTuple):
     tx_hash: bytes
     txo_index: int
     value: int
-    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
+    keyinstance_id: int | None               # Overlapping common output/spendable type field.
     flags: TransactionOutputFlag
     script_type: ScriptType
     # Extension fields for this type.
     script_hash: bytes
     script_offset: int
     script_length: int
-    spending_tx_hash: Optional[bytes]
-    spending_txi_index: Optional[int]
+    spending_tx_hash: bytes | None
+    spending_txi_index: int | None
 
 
 class AccountTransactionOutputSpendableRow(NamedTuple):
@@ -343,14 +327,14 @@ class AccountTransactionOutputSpendableRow(NamedTuple):
     tx_hash: bytes
     txo_index: int
     value: int
-    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
+    keyinstance_id: int | None               # Overlapping common output/spendable type field.
     script_type: ScriptType
     flags: TransactionOutputFlag
     # KeyInstance fields.
     account_id: int                             # Spendable type field.
-    masterkey_id: Optional[int]                 # Spendable type field.
+    masterkey_id: int | None                 # Spendable type field.
     derivation_type: DerivationType             # Spendable type field.
-    derivation_data2: Optional[bytes]           # Spendable type field.
+    derivation_data2: bytes | None              # Spendable type field.
 
 
 class AccountTransactionOutputSpendableRowExtended(NamedTuple):
@@ -358,17 +342,17 @@ class AccountTransactionOutputSpendableRowExtended(NamedTuple):
     tx_hash: bytes
     txo_index: int
     value: int
-    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
+    keyinstance_id: int | None               # Overlapping common output/spendable type field.
     script_type: ScriptType
     flags: TransactionOutputFlag
     # KeyInstance fields.
     account_id: int                             # Spendable type field.
-    masterkey_id: Optional[int]                 # Spendable type field.
+    masterkey_id: int | None                    # Spendable type field.
     derivation_type: DerivationType             # Spendable type field.
-    derivation_data2: Optional[bytes]           # Spendable type field.
+    derivation_data2: bytes | None              # Spendable type field.
     # Extension fields for this type.
     tx_flags: TxFlags
-    block_hash: Optional[bytes]
+    block_hash: bytes | None
 
 
 class TransactionOutputSpendableRow(NamedTuple):
@@ -379,14 +363,14 @@ class TransactionOutputSpendableRow(NamedTuple):
     tx_hash: bytes
     txo_index: int
     value: int
-    keyinstance_id: Optional[int]               # Overlapping common output/spendable type field.
+    keyinstance_id: int | None               # Overlapping common output/spendable type field.
     script_type: ScriptType
     flags: TransactionOutputFlag
     # KeyInstance fields.
-    account_id: Optional[int]                   # Spendable type field.
-    masterkey_id: Optional[int]                 # Spendable type field.
-    derivation_type: Optional[DerivationType]   # Spendable type field.
-    derivation_data2: Optional[bytes]           # Spendable type field.
+    account_id: int | None                   # Spendable type field.
+    masterkey_id: int | None                 # Spendable type field.
+    derivation_type: DerivationType | None   # Spendable type field.
+    derivation_data2: bytes | None           # Spendable type field.
 
     # def to_account_row(self) -> AccountTransactionOutputSpendableRow:
     #     assert self.account_id is not None
@@ -429,33 +413,33 @@ class TransactionOutputSpendableProtocol(Protocol):
     def script_type(self) -> ScriptType:
         ...
     @property
-    def keyinstance_id(self) -> Optional[int]:
+    def keyinstance_id(self) -> int | None:
         ...
     @property
     def account_id(self) ->  int:
         ...
     @property
-    def masterkey_id(self) ->  Optional[int]:
+    def masterkey_id(self) ->  int | None:
         ...
     @property
     def derivation_type(self) ->  DerivationType:
         ...
     @property
-    def derivation_data2(self) -> Optional[bytes]:
+    def derivation_data2(self) -> bytes | None   :
         ...
 
 
 class TransactionRow(NamedTuple):
     tx_hash: bytes
-    tx_bytes: Optional[bytes]
+    tx_bytes: bytes | None
     flags: TxFlags
-    block_hash: Optional[bytes]
+    block_hash: bytes | None
     block_height: int
-    block_position: Optional[int]
-    fee_value: Optional[int]
-    description: Optional[str]
-    version: Optional[int]
-    locktime: Optional[int]
+    block_position: int | None
+    fee_value: int | None
+    description: str | None
+    version: int | None
+    locktime: int | None
     date_created: int               = -1
     date_updated: int               = -1
 
@@ -475,9 +459,9 @@ class MerkleProofUpdateRow(NamedTuple):
 
 
 class TransactionProofUpdateRow(NamedTuple):
-    block_hash: Optional[bytes]
+    block_hash: bytes | None
     block_height: int
-    block_position: Optional[int]
+    block_position: int | None
     tx_flags: TxFlags
     date_updated: int
     tx_hash: bytes
@@ -492,7 +476,7 @@ class TransactionValueRow(NamedTuple):
     tx_hash: bytes
     value: int
     flags: TxFlags
-    block_hash: Optional[bytes]
+    block_hash: bytes | None
     date_created: int
     date_updated: int
 
@@ -500,10 +484,10 @@ class TransactionValueRow(NamedTuple):
 class TxProofData(NamedTuple):
     tx_hash: bytes
     flags: TxFlags
-    block_hash: Optional[bytes]
-    proof_bytes: Optional[bytes]
+    block_hash: bytes | None
+    proof_bytes: bytes | None
     tx_block_height: int
-    tx_block_position: Optional[int]
+    tx_block_position: int | None
     proof_block_height: int
     proof_block_position: int
 
@@ -534,7 +518,7 @@ class WalletDataRow(NamedTuple):
 
 class WalletEventInsertRow(NamedTuple):
     event_type: WalletEventType
-    account_id: Optional[int]
+    account_id: int | None
     # NOTE(rt12): sqlite3 python module only allows custom typing if the column name is unique.
     event_flags: WalletEventFlag
     date_created: int
@@ -544,7 +528,7 @@ class WalletEventInsertRow(NamedTuple):
 class WalletEventRow(NamedTuple):
     event_id: int
     event_type: WalletEventType
-    account_id: Optional[int]
+    account_id: int | None
     # NOTE(rt12): sqlite3 python module only allows custom typing if the column name is unique.
     event_flags: WalletEventFlag
     date_created: int
@@ -556,16 +540,16 @@ class MAPIBroadcastRow(NamedTuple):
     tx_hash: bytes
     broadcast_server_id: int
     mapi_broadcast_flags: MAPIBroadcastFlag
-    peer_channel_id: Optional[int]
+    peer_channel_id: int | None
     date_created: int
     date_updated: int
 
 
 class ServerPeerChannelRow(NamedTuple):
-    peer_channel_id: Optional[int]
+    peer_channel_id: int | None
     server_id: int
-    remote_channel_id: Optional[str]
-    remote_url: Optional[str]
+    remote_channel_id: str | None
+    remote_url: str | None
     peer_channel_flags: ServerPeerChannelFlag
     date_created: int
     date_updated: int
@@ -579,7 +563,7 @@ class ServerPeerChannelAccessTokenRow(NamedTuple):
 
 
 class ServerPeerChannelMessageRow(NamedTuple):
-    message_id: Optional[int]
+    message_id: int | None
     peer_channel_id: int
     message_data: bytes
     message_flags: PeerChannelMessageFlag
@@ -590,7 +574,7 @@ class ServerPeerChannelMessageRow(NamedTuple):
 
 
 class InvoiceMessageRow(NamedTuple):
-    message_id: Optional[int]
+    message_id: int | None
     peer_channel_id: int
     message_data: bytes
     message_flags: PeerChannelMessageFlag
@@ -608,7 +592,7 @@ class DPPMessageRow(NamedTuple):
     app_id: int
     client_id: int
     user_id: int
-    expiration: Optional[int]
+    expiration: int | None
     body: bytes
     timestamp: str
     type: str
@@ -638,12 +622,13 @@ class PushDataHashRegistrationRow(NamedTuple):
     # 2. Where advanced users have gone to the keys tab and designated a key as forced active.
     #    this is not currently supported.
     keyinstance_id: int
+    script_type: ScriptType
     pushdata_hash: bytes
     pushdata_flags: PushDataHashRegistrationFlag
     # How many seconds from `date_created` the registration expires.
     duration_seconds: int
     # The date the server returned as the posix timestamp the registration counts from.
-    date_registered: Optional[int]
+    date_registered: int | None
     date_created: int
     date_updated: int
 
@@ -653,7 +638,7 @@ class PushDataMatchRow(NamedTuple):
     pushdata_hash: bytes
     transaction_hash: bytes
     transaction_index: int
-    block_hash: Optional[bytes]
+    block_hash: bytes | None
     match_flags: PushDataMatchFlag
     date_created: int
 
@@ -661,8 +646,10 @@ class PushDataMatchRow(NamedTuple):
 class PushDataMatchMetadataRow(NamedTuple):
     account_id: int
     pushdata_hash: bytes
+    keyinstance_id: int
+    script_type: ScriptType
     transaction_hash: bytes
-    block_hash: Optional[bytes]
+    block_hash: bytes | None
 
 
 class PaymentRequestTransactionHashRow(NamedTuple):

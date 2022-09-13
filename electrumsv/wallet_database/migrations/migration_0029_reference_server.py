@@ -40,7 +40,8 @@ import json
 from typing import Any, cast, List, Optional, Tuple
 
 import bitcoinx
-from bitcoinx import Chain, double_sha256, ElectrumMnemonic, MissingHeader, PublicKey, Wordlists
+from bitcoinx import Chain, double_sha256, ElectrumMnemonic, MissingHeader, P2PK_Output, \
+    P2PKH_Address, P2SH_Address, PublicKey, Wordlists
 try:
     # Linux expects the latest package version of 3.35.4 (as of pysqlite-binary 0.4.6)
     import pysqlite3 as sqlite3
@@ -50,18 +51,22 @@ except ModuleNotFoundError:
     import sqlite3  # type: ignore[no-redef]
 
 from ...app_state import app_state
-from ...constants import AccountFlags, ADDRESS_DERIVATION_TYPES, DerivationType, MasterKeyFlags, \
-    ScriptType, WALLET_ACCOUNT_PATH_TEXT
+from ...constants import AccountFlags, ADDRESS_DERIVATION_TYPES, DerivationType, KeystoreType, \
+    MasterKeyFlags, MULTI_SIGNER_SCRIPT_TYPES, ScriptType, unpack_derivation_path, \
+    WALLET_ACCOUNT_PATH_TEXT
 from ...credentials import PasswordTokenProtocol
 from ...i18n import _
 from ...logs import logs
-from ...keystore import bip32_master_key_data_from_seed, instantiate_keystore, KeyStore
+from ...keystore import bip32_master_key_data_from_seed, instantiate_keystore, KeyStore, \
+    Multisig_KeyStore, Xpub
+from ...networks import Net
 from ...standards.tsc_merkle_proof import ProofTargetFlags, TSCMerkleNode, TSCMerkleNodeKind, \
     TSCMerkleProof, verify_proof
 from ...util import get_posix_timestamp
 from ...util.misc import ProgressCallbacks
-from ...wallet_support.keys import get_pushdata_hash_for_derivation, \
-    get_pushdata_hash_for_keystore_key_data, get_pushdata_hash_for_public_keys
+from ...wallet_support.keys import get_output_script_template_for_public_keys, \
+    get_pushdata_hash_for_derivation, get_pushdata_hash_for_keystore_key_data, \
+    get_pushdata_hash_for_public_keys
 
 from ..storage_migration import KeyInstanceFlag_27, KeyInstanceRow_27, MasterKeyDataBIP32_27, \
     MasterKeyDataTypes_27, MasterKeyRow_27, TxFlags_22
@@ -226,20 +231,16 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     conn.execute("""
         CREATE TABLE PaymentRequests2 (
             paymentrequest_id           INTEGER     PRIMARY KEY,
-            keyinstance_id              INTEGER     NOT NULL,
             state                       INTEGER     NOT NULL,
             description                 TEXT        NULL,
             date_expires                INTEGER     NULL,
             value                       INTEGER     NULL,
-            script_type                 INTEGER     NOT NULL,
-            pushdata_hash               BLOB        NOT NULL,
             server_id                   INTEGER     NULL,
             dpp_invoice_id              TEXT        NULL,
             merchant_reference          TEXT        NULL,
             encrypted_key_text          TEXT        NULL,
             date_created                INTEGER     NOT NULL,
-            date_updated                INTEGER     NOT NULL,
-            FOREIGN KEY(keyinstance_id) REFERENCES KeyInstances (keyinstance_id)
+            date_updated                INTEGER     NOT NULL
         )
     """)
 
@@ -259,52 +260,123 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         keystores_by_masterkey_id[masterkey_row[0]] = instantiate_keystore(
             masterkey_row.derivation_type, derivation_data, parent_keystore, masterkey_row)
 
-    paymentrequest_keyinstance_rows: list[tuple[KeyInstanceRow_27, int, ScriptType]] = [
-        (KeyInstanceRow_27(t[0], t[1], t[2], DerivationType(t[3]), t[4], t[5],
-        KeyInstanceFlag_27(t[6]), t[7]), t[8], ScriptType(t[9])) for t in conn.execute("""
+    paymentrequest_keyinstance_rows: list[tuple[KeyInstanceRow_27, int, ScriptType, int, int, int]]\
+        = [ (KeyInstanceRow_27(t[0], t[1], t[2], DerivationType(t[3]), t[4], t[5],
+        KeyInstanceFlag_27(t[6]), t[7]), t[8], ScriptType(t[9]), t[10], t[11], t[12])
+        for t in conn.execute("""
             SELECT KI.keyinstance_id, KI.account_id, KI.masterkey_id, KI.derivation_type,
                 KI.derivation_data, KI.derivation_data2, KI.flags, KI.description,
-                PR.paymentrequest_id, A.default_script_type
+                PR.paymentrequest_id, A.default_script_type, PR.value, PR.date_created,
+                PR.date_updated
             FROM PaymentRequests PR
             INNER JOIN KeyInstances KI ON KI.keyinstance_id=PR.keyinstance_id
             INNER JOIN Accounts A ON A.account_id=KI.account_id
         """).fetchall() ]
 
     logger.debug("Copying the original PaymentRequests table contents to updated table")
-    for keyinstance_row, paymentrequest_id, script_type in paymentrequest_keyinstance_rows:
+    paymentrequest_output_rows: list[tuple[int, int, int, int, bytes, bytes, int, int, int, int]] \
+        = []
+    for keyinstance_row, paymentrequest_id, script_type, request_value, date_created, date_updated \
+            in paymentrequest_keyinstance_rows:
         assert keyinstance_row.derivation_data2 is not None
         if keyinstance_row.masterkey_id is not None:
             keystore = keystores_by_masterkey_id[keyinstance_row.masterkey_id]
             pushdata_hash = get_pushdata_hash_for_keystore_key_data(keystore, keyinstance_row,
                 script_type)
+            if keystore.type() == KeystoreType.MULTISIG:
+                assert script_type in MULTI_SIGNER_SCRIPT_TYPES
+                assert keyinstance_row.derivation_type == DerivationType.BIP32_SUBPATH
+                assert keyinstance_row.derivation_data2 is not None
+                derivation_path = unpack_derivation_path(keyinstance_row.derivation_data2)
+
+                ms_keystore = cast(Multisig_KeyStore, keystore)
+                child_ms_keystores = ms_keystore.get_cosigner_keystores()
+                public_keys = [ singlesig_keystore.derive_pubkey(derivation_path)
+                    for singlesig_keystore in child_ms_keystores ]
+                threshold = ms_keystore.m
+            elif keyinstance_row.derivation_type == DerivationType.BIP32_SUBPATH:
+                assert keyinstance_row.derivation_data2 is not None
+                derivation_path = unpack_derivation_path(keyinstance_row.derivation_data2)
+                xpub_keystore = cast(Xpub, keystore)
+                public_keys = [ xpub_keystore.derive_pubkey(derivation_path) ]
+                threshold = 1
+            else:
+                raise NotImplementedError(f"Unexpected deterministic key type {keyinstance_row}")
+            script_bytes = get_output_script_template_for_public_keys(script_type,
+                public_keys, threshold).to_script_bytes()
         elif keyinstance_row.derivation_type in ADDRESS_DERIVATION_TYPES:
-            # The account default script type is irrelevant. We use the script type inferred
-            # by the address type.
+            # We use the script type inferred by the address type instead of the account script
+            # type as it is the one known to be used at the time.
             script_type, pushdata_hash = get_pushdata_hash_for_derivation(
                 keyinstance_row.derivation_type, keyinstance_row.derivation_data2)
+            if script_type == ScriptType.P2PKH:
+                script_template = P2PKH_Address(keyinstance_row.derivation_data2, Net.COIN)
+                script_bytes = script_template.to_script_bytes()
+            elif script_type == ScriptType.MULTISIG_P2SH:
+                script_template = P2SH_Address(keyinstance_row.derivation_data2, Net.COIN)
+                script_bytes = script_template.to_script_bytes()
+            else:
+                raise NotImplementedError(f"Unexpected script type {script_type}")
         elif keyinstance_row.derivation_type == DerivationType.PRIVATE_KEY:
-            public_keys = [ PublicKey.from_bytes(keyinstance_row.derivation_data2) ]
-            pushdata_hash = get_pushdata_hash_for_public_keys(script_type, public_keys)
+            public_key = PublicKey.from_bytes(keyinstance_row.derivation_data2)
+            pushdata_hash = get_pushdata_hash_for_public_keys(script_type, [ public_key ])
+            if script_type == ScriptType.P2PKH:
+                script_bytes = public_key.to_address(network=Net.COIN).to_script_bytes()
+            elif script_type == ScriptType.P2PK:
+                script_bytes = P2PK_Output(public_key, Net.COIN).to_script_bytes()
+            else:
+                raise NotImplementedError("Unable to generate migration output script for "
+                    f"script type {script_type}")
         else:
             raise NotImplementedError(f"Unexpected key type {keyinstance_row}")
 
-        # Expiration dates went from a relative number of seconds from `date_created` to the
-        # absolute expiry date.
+        # - Expiration dates went from a relative number of seconds from `date_created` to the
+        #   absolute expiry date.
+        # - `keyinstance_id`, `script_type`, `pushdata_hash` went to the `PaymentRequestOutputs`
+        #   table.
         conn.execute("""
-            INSERT INTO PaymentRequests2 (paymentrequest_id, keyinstance_id,
-                state, description, date_expires, value, script_type, pushdata_hash,
-                server_id, dpp_invoice_id, merchant_reference, encrypted_key_text, date_created,
-                date_updated)
-            SELECT PR.paymentrequest_id, PR.keyinstance_id, PR.state, PR.description,
+            INSERT INTO PaymentRequests2 (paymentrequest_id, state, description, date_expires,
+                value, server_id, dpp_invoice_id, merchant_reference, encrypted_key_text,
+                date_created, date_updated)
+            SELECT PR.paymentrequest_id, PR.state, PR.description,
                 CASE WHEN PR.expiration IS NULL THEN NULL ELSE PR.date_created + PR.expiration END,
-                PR.value, ?1, ?2, NULL, NULL, NULL, NULL, PR.date_created,
+                PR.value, NULL, NULL, NULL, NULL, PR.date_created,
                 PR.date_updated
             FROM PaymentRequests AS PR
             WHERE paymentrequest_id=?
-        """, (script_type, pushdata_hash, paymentrequest_id))
+        """, (paymentrequest_id,))
+        paymentrequest_output_rows.append((paymentrequest_id, 0, 0, script_type, script_bytes,
+            pushdata_hash, request_value, keyinstance_row.keyinstance_id, date_created,
+            date_updated))
 
     conn.execute("DROP TABLE PaymentRequests")
     conn.execute("ALTER TABLE PaymentRequests2 RENAME TO PaymentRequests")
+
+    conn.execute("""
+        CREATE TABLE PaymentRequestOutputs (
+            paymentrequest_id           INTEGER     NOT NULL,
+            transaction_index           INTEGER     NOT NULL,
+            output_index                INTEGER     NOT NULL,
+            output_script_type          INTEGER     NOT NULL,
+            output_script               BLOB        NOT NULL,
+            pushdata_hash               BLOB        NOT NULL,
+            output_value                INTEGER     NOT NULL,
+            keyinstance_id              INTEGER     NOT NULL,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            PRIMARY KEY (paymentrequest_id, transaction_index, output_index),
+            FOREIGN KEY (keyinstance_id) REFERENCES KeyInstances (keyinstance_id),
+            FOREIGN KEY (paymentrequest_id) REFERENCES PaymentRequests (paymentrequest_id)
+        )
+    """)
+
+    conn.executemany("INSERT INTO PaymentRequestOutputs (paymentrequest_id, transaction_index, "
+        "output_index, output_script_type, output_script, pushdata_hash, output_value, "
+        "keyinstance_id, date_created, date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, "
+        "?10)", paymentrequest_output_rows)
+
+    # Not the greatest idea, goodbye legacy script hash matching!
+    conn.execute("DROP TABLE KeyInstanceScripts")
 
     conn.execute("""
         CREATE TABLE ServerPeerChannels (
@@ -347,6 +419,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         CREATE TABLE ServerPushDataRegistrations (
             server_id                   INTEGER     NOT NULL,
             keyinstance_id              INTEGER     NOT NULL,
+            script_type                 INTEGER     NOT NULL,
             pushdata_hash               BLOB        NOT NULL,
             pushdata_flags              INTEGER     NOT NULL,
             duration_seconds            INTEGER     NOT NULL,

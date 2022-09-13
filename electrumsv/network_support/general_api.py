@@ -52,7 +52,7 @@ from bitcoinx import hash_to_hex_str, PrivateKey, PublicKey
 
 from ..app_state import app_state
 from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, \
-    PushDataHashRegistrationFlag, ServerConnectionFlag, ServerPeerChannelFlag
+    PushDataHashRegistrationFlag, ScriptType, ServerConnectionFlag, ServerPeerChannelFlag
 from ..exceptions import BadServerError, ServerConnectionError
 from ..logs import logs
 from ..types import IndefiniteCredentialId, Outpoint, outpoint_struct, output_spend_struct, \
@@ -916,16 +916,17 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
         logger.debug("Processing %d tip filter registrations", len(job.entries))
         job.output.start_event.set()
 
-        date_created = int(get_posix_timestamp())
+        date_created = int(time.time())
         db_insert_rows: list[PushDataHashRegistrationRow] = []
         server_rows: list[tuple[bytes, int]] = []
         no_date_registered = None
-        for pushdata_hash, duration_seconds, keyinstance_id in job.entries:
+        for pushdata_hash, duration_seconds, keyinstance_id, script_type in job.entries:
             logger.debug("Preparing pre-registration entry for pushdata hash %s",
                 pushdata_hash.hex())
             db_insert_rows.append(PushDataHashRegistrationRow(state.server.server_id,
-                keyinstance_id, pushdata_hash, PushDataHashRegistrationFlag.REGISTERING,
-                duration_seconds, no_date_registered, date_created, date_created))
+                keyinstance_id, script_type, pushdata_hash,
+                PushDataHashRegistrationFlag.REGISTERING, duration_seconds, no_date_registered,
+                date_created, date_created))
             server_rows.append((pushdata_hash, duration_seconds))
         await state.wallet_data.create_tip_filter_pushdata_registrations_async(db_insert_rows,
             upsert=True)
@@ -939,7 +940,7 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
             await state.wallet_data.update_registered_tip_filter_pushdatas_flags_async([
                 (PushDataHashRegistrationFlag.REGISTRATION_FAILED, date_updated,
                     state.server.server_id, keyinstance_id)
-                for (pushdata_hash_, duration_seconds_, keyinstance_id) in job.entries
+                for (pushdata_hash_, duration_seconds_, keyinstance_id, script_type) in job.entries
             ])
         else:
             # At this point we have all the information we need to record the registrations
@@ -950,7 +951,7 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
                 (job.output.date_registered, date_updated,
                     ~PushDataHashRegistrationFlag.REGISTERING, PushDataHashRegistrationFlag.NONE,
                     state.server.server_id, keyinstance_id)
-                for (pushdata_hash_, duration_seconds_, keyinstance_id) in job.entries
+                for (pushdata_hash_, duration_seconds_, keyinstance_id, script_type) in job.entries
             ])
 
             logger.debug("Processed %d tip filter registrations", len(job.entries))
@@ -958,11 +959,13 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
 
 
 async def create_tip_filter_registration_async(state: ServerConnectionState,
-        pushdata_hash: bytes, date_expires: int, keyinstance_id: int) -> TipFilterRegistrationJob:
+        pushdata_hash: bytes, date_expires: int, keyinstance_id: int,
+        script_type: ScriptType) -> TipFilterRegistrationJob:
     # The reference server needs to be updated to take a UTC expiry date.
     expiry_seconds = date_expires - int(time.time())
     job = TipFilterRegistrationJob([
-        TipFilterRegistrationJobEntry(pushdata_hash, expiry_seconds, keyinstance_id) ],
+        TipFilterRegistrationJobEntry(pushdata_hash, expiry_seconds, keyinstance_id,
+            script_type) ],
         TipFilterRegistrationJobOutput())
     state.tip_filter_new_registration_queue.put_nowait(job)
     return job

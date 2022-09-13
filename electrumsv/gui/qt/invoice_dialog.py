@@ -1,7 +1,7 @@
 from typing import Callable, cast, TYPE_CHECKING
 import weakref
 
-from bitcoinx import classify_output_script
+from bitcoinx import classify_output_script, Script
 
 from PyQt6.QtCore import Qt, QAbstractItemModel, QPoint
 from PyQt6.QtWidgets import QAbstractItemView, QHeaderView, QLabel, QLineEdit, QMenu, QMessageBox, \
@@ -87,8 +87,9 @@ class InvoiceDialog(WindowModalDialog):
 
             table.setCellWidget(output_idx, 1, QLabel(output.description))
 
-            kind = classify_output_script(output.script, Net.COIN)
-            text = script_to_display_text(output.script, kind)
+            script = Script(output.script_bytes)
+            kind = classify_output_script(script, Net.COIN)
+            text = script_to_display_text(script, kind)
             table.setCellWidget(output_idx, 2, QLabel(text))
 
             vbox.addWidget(table, 1)

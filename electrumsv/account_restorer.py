@@ -42,7 +42,7 @@ from __future__ import annotations
 import concurrent.futures
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Callable, cast, Dict, List, NamedTuple, Optional, Sequence, TYPE_CHECKING
+from typing import Callable, cast, NamedTuple, Sequence, TYPE_CHECKING
 
 from bitcoinx import bip32_key_from_string, BIP32PublicKey, PublicKey
 
@@ -82,7 +82,7 @@ DEFAULT_GAP_LIMITS = {
 
 @dataclass
 class AdvancedSettings:
-    gap_limits: Dict[DerivationPath, int] = field(default_factory=dict)
+    gap_limits: dict[DerivationPath, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # Ensure that the default gap limits are in place if necessary.
@@ -96,12 +96,12 @@ class BIP32ParentPath:
     # The signing threshold.
     threshold: int
     # The pre-derived master public keys.
-    master_public_keys: List[BIP32PublicKey]
+    master_public_keys: list[BIP32PublicKey]
     # The possible script types that may be used by the children of the parent public keys.
     script_types: Sequence[ScriptType]
 
     # The pre-derived parent public keys.
-    parent_public_keys: List[BIP32PublicKey] = field(default_factory=list)
+    parent_public_keys: list[BIP32PublicKey] = field(default_factory=list)
     # Current index.
     last_index: int = -1
     # How many script hash histories we have obtained.
@@ -130,11 +130,11 @@ class SearchEntry(NamedTuple):
     We are concerned about optimal memory usage.
     """
     kind: SearchEntryKind = SearchEntryKind.NONE
-    keyinstance_id: Optional[int] = None
+    keyinstance_id: int | None = None
     script_type: ScriptType = ScriptType.NONE
     # We currently support only having one hash for looking up this item.
     item_hash: bytes = b''
-    parent_path: Optional[BIP32ParentPath] = None
+    parent_path: BIP32ParentPath | None = None
     parent_index: int = -1
 
 
@@ -148,7 +148,7 @@ class PushDataHashHandler:
     def __init__(self, network: Network, account: AbstractAccount) -> None:
         self._network = network
         self._account = account
-        self._results: List[PushDataMatchResult] = []
+        self._results: list[PushDataMatchResult] = []
 
     def setup(self, scanner: AccountRestorer) -> None:
         self._scanner = scanner
@@ -170,10 +170,10 @@ class PushDataHashHandler:
         # The searching is done within the `search_entries` call, there is no background activity.
         return False
 
-    def get_results(self) -> List[PushDataMatchResult]:
+    def get_results(self) -> list[PushDataMatchResult]:
         return self._results
 
-    async def search_entries(self, entries: List[SearchEntry]) -> None:
+    async def search_entries(self, entries: list[SearchEntry]) -> None:
         """
         This will block and get all the results for the given search entries. If there are any
         exceptions due to connection errors and perhaps incomplete results, these should raise
@@ -192,7 +192,7 @@ class PushDataHashHandler:
             raise PushDataSearchError(_("Not currently connected to a designated indexing server."))
 
         # These are the pushdata hashes that have been passed along.
-        entry_mapping: Dict[bytes, SearchEntry] = { entry.item_hash: entry for entry in entries }
+        entry_mapping: dict[bytes, SearchEntry] = { entry.item_hash: entry for entry in entries }
         request_data: RestorationFilterRequest = {
             "filterKeys": [
                 entry.item_hash.hex() for entry in entries
@@ -217,7 +217,7 @@ class AccountRestorer:
     def __init__(self,
             handler: PushDataHashHandler,
             enumerator: SearchKeyEnumerator,
-            extend_range_cb: Optional[ExtendRangeCallback]=None) -> None:
+            extend_range_cb: ExtendRangeCallback | None=None) -> None:
         self._handler = handler
         self._enumerator = enumerator
         self._started = False
@@ -240,7 +240,7 @@ class AccountRestorer:
         self._handler.shutdown()
 
     def start_scanning_for_usage(self,
-            on_done: Optional[Callable[[concurrent.futures.Future[None]], None]]=None) -> None:
+            on_done: Callable[[concurrent.futures.Future[None]], None] | None=None) -> None:
         logger.debug("Starting blockchain scan process")
         assert app_state.app is not None
         self._future = app_state.app.run_coro(self.scan_for_usage(), on_done=on_done)
@@ -256,7 +256,7 @@ class AccountRestorer:
                 break
 
             key_count = self._handler.get_required_count()
-            additional_entries: List[SearchEntry] = self._enumerator.create_new_entries(key_count)
+            additional_entries: list[SearchEntry] = self._enumerator.create_new_entries(key_count)
             if len(additional_entries) > 0:
                 # Search for the additional entries.
                 self._extend_range(len(additional_entries))
@@ -290,14 +290,13 @@ class SearchKeyEnumerator:
     This provides a way to iterate through the possible things we want to match on, or search keys
     to enumerate.
     """
-    def __init__(self, settings: Optional[AdvancedSettings]=None) \
-            -> None:
+    def __init__(self, settings: AdvancedSettings | None=None) -> None:
         if settings is None:
             settings = AdvancedSettings()
         self._settings = settings
 
-        self._pending_subscriptions: List[SearchEntry] = []
-        self._bip32_paths: List[BIP32ParentPath] = []
+        self._pending_subscriptions: list[SearchEntry] = []
+        self._bip32_paths: list[BIP32ParentPath] = []
 
     def use_account(self, account: AbstractAccount) -> None:
         """
@@ -311,7 +310,7 @@ class SearchKeyEnumerator:
         script_types = ACCOUNT_SCRIPT_TYPES[account_type]
         if account.is_deterministic():
             threshold = account.get_threshold()
-            master_public_keys = cast(List[BIP32PublicKey], [ # type: ignore
+            master_public_keys = cast(list[BIP32PublicKey], [ # type: ignore
                 bip32_key_from_string(mpk)
                 for mpk in account.get_master_public_keys() ])
             for subpath in (CHANGE_SUBPATH, RECEIVING_SUBPATH):
@@ -334,7 +333,7 @@ class SearchKeyEnumerator:
         else:
             raise UnsupportedAccountTypeError()
 
-    def add_bip32_subpath(self, subpath: DerivationPath, master_public_keys: List[BIP32PublicKey],
+    def add_bip32_subpath(self, subpath: DerivationPath, master_public_keys: list[BIP32PublicKey],
             threshold: int, script_types: Sequence[ScriptType]) -> BIP32ParentPath:
         data = BIP32ParentPath(subpath, threshold, master_public_keys, script_types)
         self._bip32_paths.append(data)
@@ -352,8 +351,8 @@ class SearchKeyEnumerator:
                 return True
         return False
 
-    def create_new_entries(self, required_entries: int) -> List[SearchEntry]:
-        new_entries: List[SearchEntry] = []
+    def create_new_entries(self, required_entries: int) -> list[SearchEntry]:
+        new_entries: list[SearchEntry] = []
         # Populate any required entries from the pending scripts first.
         if required_entries > 0 and len(self._pending_subscriptions):
             how_many = min(required_entries, len(self._pending_subscriptions))
@@ -368,11 +367,11 @@ class SearchKeyEnumerator:
             new_entries.extend(candidates)
         return new_entries
 
-    def _obtain_any_bip32_entries(self, maximum_candidates: int) -> List[SearchEntry]:
+    def _obtain_any_bip32_entries(self, maximum_candidates: int) -> list[SearchEntry]:
         """
         Examine each BIP32 path in turn looking for candidates.
         """
-        new_entries: List[SearchEntry] = []
+        new_entries: list[SearchEntry] = []
         parent_path_index = 0
         while maximum_candidates > 0 and parent_path_index < len(self._bip32_paths):
             candidates = self._obtain_entries_from_bip32_path(maximum_candidates,
@@ -383,12 +382,12 @@ class SearchKeyEnumerator:
         return new_entries
 
     def _obtain_entries_from_bip32_path(self, maximum_candidates: int,
-            parent_path: BIP32ParentPath) -> List[SearchEntry]:
-        new_entries: List[SearchEntry] = []
+            parent_path: BIP32ParentPath) -> list[SearchEntry]:
+        new_entries: list[SearchEntry] = []
         while maximum_candidates > 0 and self._get_bip32_path_count(parent_path) > 0:
             current_index = parent_path.last_index + 1
 
-            public_keys: List[PublicKey] = [ public_key.child_safe(current_index)
+            public_keys: list[PublicKey] = [ public_key.child_safe(current_index)
                 for public_key in parent_path.parent_public_keys ]
             for script_type in parent_path.script_types:
                 item_hash = get_pushdata_hash_for_public_keys(script_type, public_keys)

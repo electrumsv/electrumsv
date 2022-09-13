@@ -366,9 +366,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     # Map the wallet event to a Qt UI signal.
     def _on_transaction_added(self, event_name: str, tx_hash: bytes, tx: Transaction,
             link_result: TransactionLinkState, import_flags: TransactionImportFlag) -> None:
-        # Account ids is the accounts that have changed the balance.
-        self._logger.debug("_on_transaction_added %s %s %s", self._wallet.get_account_ids(),
-            link_result.account_ids, import_flags)
+        # Account ids are the accounts that have changed the balance.
         assert link_result.account_ids is not None
         if self._wallet.get_account_ids() & link_result.account_ids and \
                 import_flags & TransactionImportFlag.PROMPTED == 0:
@@ -1073,7 +1071,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.config.set_key('io_dir', os.path.dirname(fileName), True)
         return fileName
 
-    def getOpenFileNames(self, title: str, filter: str="") -> List[str]:
+    def getOpenFileNames(self, title: str, filter: str="") -> list[str]:
         directory = self.config.get_explicit_type(str, 'io_dir', os.path.expanduser('~'))
         fileNames, __ = QFileDialog.getOpenFileNames(self, title, directory, filter)
         if fileNames and directory != os.path.dirname(fileNames[0]):
@@ -2129,26 +2127,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
         return password
 
-    def read_tx_from_file(self) -> Tuple[Transaction | None, TransactionContext | None]:
-        file_name = self.getOpenFileName(_("Select your transaction file"),
-            "Transactions (*.json *.psbt *.raw *.txn *.txt);;*.*")
-        if not file_name:
-            return None, None
-
-        if any(file_name.endswith(suffix) for suffix in { ".psbt" }):
-            # Binary-encoded files.
-            with open(file_name, "rb") as f:
-                data = f.read()
-        else:
-            # Text-encoded files.
-            with open(file_name, "r") as f:
-                file_content = f.read()
-            text = file_content.strip()
-            if text == "":
-                return None, None
-            data = text.encode()
-        return self._wallet.load_transaction_from_bytes(data)
-
     def _show_transaction_from_qrcode(self) -> None:
         def callback(raw: bytes | None) -> None:
             assert raw is not None
@@ -2240,19 +2218,48 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         return None, None
 
     def _show_transaction_from_file(self) -> None:
-        tx, tx_context = self.prompt_obtain_transaction_from_file()
-        if tx is not None:
-            self.show_transaction(self._account, tx, tx_context)
+        matches = self.prompt_obtain_transactions_from_files(multiple=False)
+        if len(matches) == 1:
+            transaction, transaction_context = matches[0]
+            self.show_transaction(self._account, transaction, transaction_context)
 
-    def prompt_obtain_transaction_from_file(self) \
-            -> tuple[Transaction | None, TransactionContext | None]:
-        try:
-            return self.read_tx_from_file()
-        except Exception as reason:
-            self._logger.exception(reason)
-            self.show_critical(_("ElectrumSV was unable to read the transaction:") +
-                               "\n" + str(reason))
-            return None, None
+    def prompt_obtain_transactions_from_files(self, multiple: bool=False) \
+            -> list[tuple[Transaction, TransactionContext | None]]:
+        if multiple:
+            file_names = self.getOpenFileNames(_("Select your transaction files"),
+                "Transactions (*.json *.psbt *.raw *.txn *.txt);;*.*")
+            if len(file_names) == 0:
+                return []
+        else:
+            file_name = self.getOpenFileName(_("Select your transaction file"),
+                "Transactions (*.json *.psbt *.raw *.txn *.txt);;*.*")
+            if not file_name:
+                return []
+            file_names = [ file_name ]
+
+        results: list[tuple[Transaction, TransactionContext | None]] = []
+        for file_name in file_names:
+            if file_name.endswith(".psbt"):
+                # Binary-encoded files.
+                with open(file_name, "rb") as f:
+                    data = f.read()
+            else:
+                # Text-encoded files.
+                with open(file_name, "r") as f:
+                    file_content = f.read()
+                text = file_content.strip()
+                if text == "":
+                    return []
+                data = text.encode()
+            try:
+                transaction, transaction_context = self._wallet.load_transaction_from_bytes(data)
+            except ValueError as exception_value:
+                self.show_critical(
+                    _("Unable to import the transaction file '{}':").format(file_name) +" "+
+                    str(exception_value))
+                return []
+            results.append((transaction, transaction_context))
+        return results
 
     def _show_transaction_from_txid(self) -> None:
         tx, tx_context = self.prompt_obtain_transaction_from_txid()

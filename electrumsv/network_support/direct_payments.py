@@ -15,9 +15,11 @@ from ..constants import PeerChannelAccessTokenFlag
 from ..dpp_messages import Payment, PaymentACK, PeerChannelDict, HYBRID_PAYMENT_MODE_BRFCID
 from ..exceptions import Bip270Exception
 from ..logs import logs
+from ..networks import Net
 from ..standards.json_envelope import pack_json_envelope
+from ..types import IndefiniteCredentialId
 from ..transaction import Transaction
-from ..wallet_database.types import DPPMessageRow, PaymentRequestReadRow
+from ..wallet_database.types import DPPMessageRow, PaymentRequestRow, PaymentRequestOutputRow
 
 if typing.TYPE_CHECKING:
     from ..wallet import Wallet
@@ -98,47 +100,35 @@ def dpp_make_peer_channel_info(wallet: Wallet, tx_hash: bytes,
     return peer_channel_info
 
 
-def dpp_make_payment_request_response(wallet: 'Wallet', pr_row: PaymentRequestReadRow,
+def dpp_make_payment_request_response(server_url: str, credential_id: IndefiniteCredentialId,
+        request_row: PaymentRequestRow,
+        request_output_rows: list[PaymentRequestOutputRow],
         message_row_received: DPPMessageRow) -> DPPMessageRow:
-    key_data = wallet.data.read_keyinstance(keyinstance_id=pr_row.keyinstance_id)
-    assert key_data is not None
-    script_template = wallet._accounts[key_data.account_id].get_script_template_for_derivation(
-        pr_row.script_type, key_data.derivation_type, key_data.derivation_data2)
-    outputs_object = [
-        {
-            "description": "",
-            "amount": pr_row.requested_value,
-            "script": script_template.to_script().to_hex()
-        }
-    ]
-
-    assert pr_row.date_created != -1
-    assert pr_row.server_id is not None
-    assert pr_row.dpp_invoice_id is not None
-    server_url = wallet.get_dpp_server_url(pr_row.server_id)
-    # This the actual payment URL for the payer to send the `Payment`, not the `PaymentTerms`
-    # secure url.
-    payment_url = f"{server_url}api/v1/payment/{pr_row.dpp_invoice_id}"
+    assert request_row.dpp_invoice_id is not None
+    payment_url = f"{server_url}api/v1/payment/{request_row.dpp_invoice_id}"
 
     payment_terms_data = {
-        "network": "regtest",
+        "network": Net.COIN.name,
         "version": "1.0",
-        "creationTimestamp": pr_row.date_created,
+        "creationTimestamp": request_row.date_created,
         "paymentUrl": payment_url,
-        "beneficiary": {"name": "GoldenSocks.com", "paymentReference": "Order-325214",
-            "email": "merchant@m.com"},
-        "memo": pr_row.merchant_reference,
+        "memo": request_row.merchant_reference,
 
         # Hybrid Payment Mode
-        'modes': {'ef63d9775da5':
-            {
+        'modes': {
+            'ef63d9775da5': {
                 "choiceID0": {
                     "transactions": [
                         {
                             'outputs': {
-                                    'native': outputs_object
-                                }
-                            ,
+                                    'native': [
+                                        {
+                                            "description": "",
+                                            "amount": request_output_row.output_value,
+                                            "script": request_output_row.output_script_bytes.hex(),
+                                        } for request_output_row in request_output_rows
+                                    ]
+                            },
                             'policies': {
                                 "fees": {
                                     "standard": {"satoshis": 100, "bytes": 200},
@@ -148,13 +138,13 @@ def dpp_make_payment_request_response(wallet: 'Wallet', pr_row: PaymentRequestRe
                         },
                     ],
                 },
-            }}
+            }
+        }
     }
-    if pr_row.date_expires is not None:
-        payment_terms_data['expirationTimestamp'] = pr_row.date_expires
+    if request_row.date_expires is not None:
+        payment_terms_data['expirationTimestamp'] = request_row.date_expires
     payment_terms_json = json.dumps(payment_terms_data)
 
-    credential_id, _secure_public_key = wallet._dpp_invoice_credentials[pr_row.dpp_invoice_id]
     secure_private_key = PrivateKey.from_hex(
         app_state.credentials.get_indefinite_credential(credential_id))
     response_json = pack_json_envelope(payment_terms_json, secure_private_key)

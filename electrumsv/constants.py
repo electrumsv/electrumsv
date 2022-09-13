@@ -1,5 +1,5 @@
 from enum import Enum, IntEnum, IntFlag
-from typing import Optional, Sequence, Tuple
+from typing import Sequence
 
 from bitcoinx import pack_be_uint32, unpack_be_uint32_from
 from electrumsv_database.sqlite import DATABASE_EXT as SQLITE_DATABASE_EXT
@@ -7,7 +7,7 @@ from electrumsv_database.sqlite import DATABASE_EXT as SQLITE_DATABASE_EXT
 
 ## Local functions to avoid circular dependencies. This file should be independent
 
-DerivationPath = Tuple[int, ...]
+DerivationPath = tuple[int, ...]
 
 def pack_derivation_path(derivation_path: DerivationPath) -> bytes:
     return b''.join(pack_be_uint32(v) for v in derivation_path)
@@ -94,7 +94,7 @@ class TxFlags(IntFlag):
         return self.to_repr(self.value)
 
     @staticmethod
-    def to_repr(bitmask: Optional[int]) -> str:
+    def to_repr(bitmask: int | None) -> str:
         if bitmask is None:
             return repr(bitmask)
 
@@ -277,8 +277,6 @@ class TransactionImportFlag(IntFlag):
     EXPLICIT_BROADCAST = 1 << 2
     # The user is importing this manually from somewhere external.
     MANUAL_IMPORT = 1 << 3
-    # Do not set this payment request to paid yet (it is yet to be accepted by mAPI)
-    SKIP_CLOSE_PAYMENT_REQUEST = 1 << 4
 
     BROADCAST_P2P               = 0b00 << 10
     BROADCAST_MAPI              = 0b01 << 10
@@ -463,9 +461,6 @@ PREFIX_PSBT_BYTES = b"psbt\xff"
 
 ADDRESS_DERIVATION_TYPES = [ DerivationType.PUBLIC_KEY_HASH, DerivationType.SCRIPT_HASH ]
 
-# WARNING(script-types) We currently bake all the possible script hashes for a key into the
-#   `KeyInstanceScripts` database table. If you add a script type here, you need to write a
-#   database migration that includes that new script type OR resolve this in another way.
 # NOTE(script-type-ordering) The script types are ordered in terms of preferred script type that
 #   the user should be using for a given form of signer.
 MULTI_SIGNER_SCRIPT_TYPES: Sequence[ScriptType] = tuple([

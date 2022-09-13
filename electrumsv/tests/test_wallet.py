@@ -27,13 +27,15 @@ from electrumsv.storage import get_categorised_files, WalletStorage, WalletStora
 from electrumsv.standards.electrum_transaction_extended import transaction_from_electrumsv_dict
 from electrumsv.standards.mapi import MAPICallbackResponse
 from electrumsv.transaction import Transaction, TransactionContext
-from electrumsv.types import DatabaseKeyDerivationData, MasterKeyDataBIP32, Outpoint
+from electrumsv.types import DatabaseKeyDerivationData, MasterKeyDataBIP32, Outpoint, \
+    TransactionKeyUsageMetadata
 from electrumsv.wallet import (DeterministicAccount, ImportedPrivkeyAccount,
     ImportedAddressAccount, MissingTransactionEntry, MultisigAccount, Wallet, StandardAccount)
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.exceptions import TransactionRemovalError
-from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, TransactionLinkState, \
-    MerkleProofRow, WalletBalance
+from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, MerkleProofRow, \
+    WalletBalance
+from electrumsv.wallet_support.keys import get_pushdata_hash_for_keystore_key_data
 
 from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, setup_async, \
     tear_down_async, TEST_WALLET_PATH
@@ -294,19 +296,20 @@ def check_create_keys(wallet: Wallet, account: DeterministicAccount) -> None:
     keyinstance_ids: set[int] = set()
 
     for count in (0, 1, 5):
-        future1, future2, new_keyinstances, new_scripthashes = \
+        keyinstance_future, created_keyinstance_rows = \
             account.allocate_and_create_keys(count, RECEIVING_SUBPATH)
-        assert count == len(new_keyinstances)
-        check_rows(new_keyinstances, account._row.default_script_type)
-        keyinstance_ids |= set(keyinstance.keyinstance_id for keyinstance in new_keyinstances)
-        keyinstances.extend(new_keyinstances)
+        assert count == len(created_keyinstance_rows)
+        check_rows(created_keyinstance_rows, account._row.default_script_type)
+        keyinstance_ids |= set(keyinstance.keyinstance_id
+            for keyinstance in created_keyinstance_rows)
+        keyinstances.extend(created_keyinstance_rows)
         assert len(keyinstance_ids) == len(keyinstances)
         # Wait for the creation to complete before we look.
         if count > 0:
-            assert future2 is not None
-            future2.result()
+            assert keyinstance_future is not None
+            keyinstance_future.result()
         else:
-            assert future2 is None
+            assert keyinstance_future is None
         # Both the local list and the database result should be in the order they were created.
         assert keyinstances == \
             account.get_existing_fresh_keys(RECEIVING_SUBPATH, 1000), f"failed for {count}"
@@ -320,35 +323,35 @@ def check_create_keys(wallet: Wallet, account: DeterministicAccount) -> None:
 
         last_allocation_index = next_index + count - 1
         if count == 0:
-            future4, new_keyinstances = account.derive_new_keys_until(
+            future4, created_keyinstance_rows = account.derive_new_keys_until(
                 RECEIVING_SUBPATH + (last_allocation_index,))
             assert future4 is None
-            assert len(new_keyinstances) == 0
+            assert len(created_keyinstance_rows) == 0
             continue
 
-        future3, new_keyinstances = account.derive_new_keys_until(
+        future3, created_keyinstance_rows = account.derive_new_keys_until(
             RECEIVING_SUBPATH + (last_allocation_index,))
         assert future3 is not None
         future3.result()
-        assert count == len(new_keyinstances)
-        check_rows(new_keyinstances, account._row.default_script_type)
+        assert count == len(created_keyinstance_rows)
+        check_rows(created_keyinstance_rows, account._row.default_script_type)
 
-        keyinstance_ids |= set(keyinstance.keyinstance_id for keyinstance in new_keyinstances)
-        keyinstances.extend(new_keyinstances)
+        keyinstance_ids |= set(keyinstance.keyinstance_id for keyinstance in created_keyinstance_rows)
+        keyinstances.extend(created_keyinstance_rows)
         assert len(keyinstance_ids) == len(keyinstances)
         assert keyinstances == account.get_existing_fresh_keys(RECEIVING_SUBPATH, 1000)
 
     keyinstance_batches: list[list[KeyInstanceRow]] = []
     for count in (0, 1, 5):
-        new_keyinstances = account.get_fresh_keys(RECEIVING_SUBPATH, count)
-        assert count == len(new_keyinstances)
-        assert new_keyinstances == account.get_existing_fresh_keys(RECEIVING_SUBPATH, count)
-        check_rows(new_keyinstances, ScriptType.NONE)
+        created_keyinstance_rows = account.get_fresh_keys(RECEIVING_SUBPATH, count)
+        assert count == len(created_keyinstance_rows)
+        assert created_keyinstance_rows == account.get_existing_fresh_keys(RECEIVING_SUBPATH, count)
+        check_rows(created_keyinstance_rows, ScriptType.NONE)
         # Verify each batch includes the last batch and the extra created keys.
         if len(keyinstance_batches) > 0:
             last_keyinstances = keyinstance_batches[-1]
-            assert last_keyinstances == new_keyinstances[:len(last_keyinstances)]
-        keyinstance_batches.append(new_keyinstances)
+            assert last_keyinstances == created_keyinstance_rows[:len(last_keyinstances)]
+        keyinstance_batches.append(created_keyinstance_rows)
 
 
 
@@ -722,9 +725,8 @@ async def test_transaction_script_offsets_and_lengths(mock_app_state, tmp_storag
         tx_1 = Transaction.from_hex(tx_hex_funding)
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
-        link_state = TransactionLinkState()
         await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED,
-            BlockHeight.LOCAL, link_state=link_state)
+            BlockHeight.LOCAL)
 
         # Verify all the transaction outputs are present and are linked to spending inputs.
         txo_rows = db_functions.read_transaction_outputs_full(db_context)
@@ -795,9 +797,12 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         tx_1 = Transaction.from_hex(tx_hex_funding)
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
-        link_state = TransactionLinkState()
+        keyinstance_id = 1
+        transaction_output_key_usage: dict[int, tuple[int, ScriptType]] = {
+            0: (keyinstance_id, ScriptType.P2PKH),
+        }
         await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED,
-            BlockHeight.LOCAL, link_state=link_state)
+            BlockHeight.LOCAL, transaction_output_key_usage=transaction_output_key_usage)
 
         # Verify the received funds are present.
         tv_rows1 = db_functions.read_transaction_values(db_context, tx_hash_1)
@@ -814,9 +819,8 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         tx_2 = Transaction.from_hex(tx_hex_spend)
         tx_hash_2 = tx_2.hash()
         # Add the spending transaction to the database and link it to key usage.
-        link_state = TransactionLinkState()
         await wallet.import_transaction_async(tx_hash_2, tx_2, TxFlags.STATE_SIGNED,
-            BlockHeight.LOCAL, link_state=link_state)
+            BlockHeight.LOCAL)
 
         # Verify both the received funds are present.
         tv_rows2 = db_functions.read_transaction_values(db_context, tx_hash_2)
@@ -939,17 +943,16 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
         wallet._missing_transactions[tx_hash_1] = MissingTransactionEntry(
-            TransactionImportFlag.UNSET)
-        link_state = TransactionLinkState()
+            TransactionImportFlag.UNSET, set())
 
         BLOCK_HEIGHT = 232
         proof_row = MerkleProofRow(BLOCK_HASH_REORGED1, BLOCK_POSITION, BLOCK_HEIGHT,
             b'TSC_FAKE_PROOF_BYTES', tx_hash_1)
         await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SETTLED, BLOCK_HEIGHT,
-            link_state=link_state, block_hash=BLOCK_HASH_REORGED1, block_position=BLOCK_POSITION,
+            block_hash=BLOCK_HASH_REORGED1, block_position=BLOCK_POSITION,
             proof_row=proof_row)
 
-        tx_metadata_1 = wallet.data.get_transaction_metadata(tx_hash_1)
+        tx_metadata_1 = wallet.data.read_transaction(tx_hash_1)
         assert tx_metadata_1 is not None
         assert tx_metadata_1.block_hash == BLOCK_HASH_REORGED1
         assert tx_metadata_1.block_position == BLOCK_POSITION
@@ -967,7 +970,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_flags1 == TxFlags.STATE_SETTLED
 
         # Check the mined metadata is the same as we set.
-        tx_metadata_1 = wallet.data.get_transaction_metadata(tx_hash_1)
+        tx_metadata_1 = wallet.data.read_transaction(tx_hash_1)
         assert tx_metadata_1 is not None
         assert tx_metadata_1.block_hash == BLOCK_HASH_REORGED1
         assert tx_metadata_1.block_position == BLOCK_POSITION
@@ -982,7 +985,7 @@ async def test_reorg(mock_app_state, tmp_storage) -> None:
         assert tx_flags1 == TxFlags.STATE_CLEARED
 
         # Check that all the mined metadata is reset to mempool state.
-        tx_metadata_1 = wallet.data.get_transaction_metadata(tx_hash_1)
+        tx_metadata_1 = wallet.data.read_transaction(tx_hash_1)
         assert tx_metadata_1 is not None
         assert tx_metadata_1.block_hash is None
         assert tx_metadata_1.block_position is None
@@ -1025,24 +1028,36 @@ async def test_unverified_transactions(mock_app_state, tmp_storage) -> None:
     wallet.register_account(account.get_id(), account)
 
     # Ensure that the keys used by the transaction are present to be linked to.
-    account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+    keyinstance_future, keyinstance_rows = account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
+    assert keyinstance_future is not None
+    keyinstance_future.result()
+
+    key_usage_metadatas: set[TransactionKeyUsageMetadata] = set()
+    for keyinstance_row in keyinstance_rows:
+        pushdata_hash = get_pushdata_hash_for_keystore_key_data(child_keystore,
+            keyinstance_row, ScriptType.P2PKH)
+        metadata = TransactionKeyUsageMetadata(pushdata_hash, keyinstance_row.keyinstance_id,
+            ScriptType.P2PKH)
+        key_usage_metadatas.add(metadata)
 
     db_context = tmp_storage.get_db_context()
     db = db_context.acquire_connection()
     try:
         ## Add a transaction that is settled.
-        tx_1 = Transaction.from_hex(tx_hex_funding)
-        tx_hash_1 = tx_1.hash()
-        # Add the funding transaction to the database and link it to key usage.
-        wallet._missing_transactions[tx_hash_1] = MissingTransactionEntry(
-            TransactionImportFlag.UNSET)
-        link_state = TransactionLinkState()
-        await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_CLEARED,
-            BlockHeight.MEMPOOL, link_state=link_state)
-
-        pass
+        transaction_1 = Transaction.from_hex(tx_hex_funding)
+        transaction_1_hash = transaction_1.hash()
+        await wallet.import_transaction_async(transaction_1_hash, transaction_1,
+            TxFlags.STATE_CLEARED, BlockHeight.MEMPOOL, key_usage_metadatas=key_usage_metadatas)
     finally:
         db_context.release_connection(db)
+
+    # Test the first transaction output is mapped to the first keyinstance.
+    output_rows = wallet.data.read_transaction_outputs_with_key_data(txo_keys=[
+        Outpoint(transaction_1_hash, 0) ])
+    assert len(output_rows) == 1
+    assert output_rows[0].value == 1044113
+    assert output_rows[0].keyinstance_id == 1
+    assert output_rows[0].script_type == ScriptType.P2PKH
 
 
 @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
@@ -1250,10 +1265,12 @@ async def test_extend_transaction_sequence() -> None:
 
         tx_hash_1 = tx_1.hash()
         # Add the funding transaction to the database and link it to key usage.
-        link_state = TransactionLinkState()
         block_height = BlockHeight.LOCAL
+        transaction_output_key_usage: dict[int, tuple[int, ScriptType]] = {
+            0: (1, ScriptType.P2PKH),
+        }
         await wallet.import_transaction_async(tx_hash_1, tx_1, TxFlags.STATE_SIGNED, block_height,
-            link_state=link_state)
+            transaction_output_key_usage=transaction_output_key_usage)
 
         tx_1_context = TransactionContext()
         wallet.extend_transaction(tx_1, tx_1_context)
@@ -1332,26 +1349,45 @@ async def test_extend_transaction_sequence() -> None:
         assert txi_key_data.keyinstance_id == 1
         assert txi_key_data.source == DatabaseKeyDerivationType.EXTENSION_UNLINKED
 
-        assert len(tx_2_context_b.key_datas_by_txo_index) == 10
-        expected_derivation_paths = { (1, i) for i in range(10) }
-        for txo_index in range(10):
-            # We start at output 1 for change. Output 0 is external payment.
-            assert txo_index+1 in tx_2_context_b.key_datas_by_txo_index
-            txo_key_data = tx_2_context_b.key_datas_by_txo_index[txo_index+1]
-            assert txo_key_data.derivation_path in expected_derivation_paths
-            assert txo_key_data.account_id == account_row.account_id
-            assert txo_key_data.masterkey_id == masterkey_row.masterkey_id
-            assert txo_key_data.keyinstance_id is not None
-            assert txo_key_data.source == DatabaseKeyDerivationType.EXTENSION_UNLINKED
-            expected_derivation_paths.remove(txo_key_data.derivation_path)
-        assert len(expected_derivation_paths) == 0
+        # Extending no longer finds this since we removed the `KeyInstanceScripts` table and
+        # the key linking on transaction import.
+        # assert len(tx_2_context_b.key_datas_by_txo_index) == 10
+        # expected_derivation_paths = { (1, i) for i in range(10) }
+        # for txo_index in range(10):
+        #     # We start at output 1 for change. Output 0 is external payment.
+        #     assert txo_index+1 in tx_2_context_b.key_datas_by_txo_index
+        #     txo_key_data = tx_2_context_b.key_datas_by_txo_index[txo_index+1]
+        #     assert txo_key_data.derivation_path in expected_derivation_paths
+        #     assert txo_key_data.account_id == account_row.account_id
+        #     assert txo_key_data.masterkey_id == masterkey_row.masterkey_id
+        #     assert txo_key_data.keyinstance_id is not None
+        #     assert txo_key_data.source == DatabaseKeyDerivationType.EXTENSION_UNLINKED
+        #     expected_derivation_paths.remove(txo_key_data.derivation_path)
+        # assert len(expected_derivation_paths) == 0
 
         ## Try again with the transaction in the database.
         tx_hash_2 = tx_2.hash()
         # Add the funding transaction to the database and link it to key usage.
-        link_state = TransactionLinkState()
+        transaction_output_key_usage: dict[int, tuple[int, ScriptType]] = {
+            1: (4, ScriptType.P2PKH), 2: (2, ScriptType.P2PKH), 3: (9, ScriptType.P2PKH),
+            4: (3, ScriptType.P2PKH), 5: (10, ScriptType.P2PKH), 6: (5, ScriptType.P2PKH),
+            7: (7, ScriptType.P2PKH), 8: (8, ScriptType.P2PKH), 9: (6, ScriptType.P2PKH),
+            10: (11, ScriptType.P2PKH)
+        }
         await wallet.import_transaction_async(tx_hash_2, tx_2, TxFlags.STATE_SIGNED,
-            BlockHeight.LOCAL, link_state=link_state)
+            BlockHeight.LOCAL, transaction_output_key_usage=transaction_output_key_usage)
+
+        # sql = (
+        #     "SELECT TXO.txo_index, KIS.keyinstance_id, KIS.script_type "
+        #     "FROM KeyInstanceScripts KIS "
+        #     "INNER JOIN TransactionOutputs TXO ON TXO.script_hash=KIS.script_hash "
+        #     "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
+        #     "WHERE TXO.tx_hash=?1")
+        # db = list(wallet.data._db_context._active_connections)[0]
+        # debug_dict = {}
+        # for debug_row in db.execute(sql, (tx_hash_2,)).fetchall():
+        #     debug_dict[debug_row[0]] = (debug_row[1], ScriptType(debug_row[2]))
+        # print(debug_dict)
 
         tx_2_context_b = TransactionContext()
         wallet.extend_transaction(tx_2, tx_2_context_b)
@@ -1490,21 +1526,44 @@ def test_lookup_header_for_hash(app_state) -> None:
 
 
 @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
-async def test_close_paid_payment_requests_async_notifies(app_state: AppStateProxy) -> None:
+async def test_close_paid_payment_request_async_notifies(app_state: AppStateProxy) -> None:
     app_state.credentials.get_wallet_password = lambda wallet_path: "password"
     mock_storage = cast(WalletStorage, MockStorage("password"))
     wallet = Wallet(mock_storage)
     wallet.data = unittest.mock.Mock()
-    read_row = unittest.mock.Mock()
-    read_row.state = PaymentFlag.INVOICE
-    wallet.data.read_payment_request = unittest.mock.Mock(return_value=read_row)
-    async def fake_close_paid_payment_requests_async() -> tuple[set[int], list[Any], list[Any]]:
-        return { 1 }, [], []
-    wallet.data.close_paid_payment_requests_async.side_effect = \
-        fake_close_paid_payment_requests_async
+    mock_request_row = unittest.mock.Mock()
+    mock_request_row.paymentrequest_id = 1
+    mock_request_row.requested_value = 9999
+    mock_request_row.state = PaymentFlag.INVOICE
+    mock_request_output_row = unittest.mock.Mock()
+    mock_request_output_row.paymentrequest_id = 1
+    mock_request_output_row.transaction_index = 0
+    mock_request_output_row.output_index = 0
+    mock_request_output_row.output_script_bytes = b"abababab"
+    mock_request_output_row.output_value = 9999
+    wallet.data.read_payment_request = unittest.mock.Mock(return_value=(mock_request_row,
+        [ mock_request_output_row ]))
+    async def fake_close_paid_payment_request_async() -> list[tuple[str, int, bytes]]:
+        return []
+    wallet.data.close_paid_payment_request_async.side_effect = \
+        fake_close_paid_payment_request_async
 
     wallet._event_payment_requests_paid_async = unittest.mock.AsyncMock()
-    await wallet._close_paid_payment_requests_async()
+    with pytest.raises(ValueError) as exception_info:
+        await wallet.close_payment_request_async(1, [])
+    assert "The transactions do not provide the correct values." == exception_info.value.args[0]
+
+    wallet._event_payment_requests_paid_async = unittest.mock.AsyncMock()
+    wallet.add_local_transaction_async = unittest.mock.AsyncMock()
+    wallet.data.close_paid_payment_request_async = unittest.mock.AsyncMock()
+
+    mock_transaction = unittest.mock.Mock()
+    mock_transaction.hash = unittest.mock.Mock(return_value=b"transaction hash")
+    mock_transaction_output = unittest.mock.Mock()
+    mock_transaction_output.script_pubkey = Script(b"abababab")
+    mock_transaction_output.value = 9999
+    mock_transaction.outputs = [ mock_transaction_output ]
+    await wallet.close_payment_request_async(1, [ (mock_transaction, None) ])
     wallet._event_payment_requests_paid_async.assert_called_once_with([ 1 ])
 
 

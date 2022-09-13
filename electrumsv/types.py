@@ -11,7 +11,7 @@ from bitcoinx import Chain, hash_to_hex_str, Header
 from mypy_extensions import Arg, DefaultArg
 
 from .constants import AccountCreationType, DatabaseKeyDerivationType, DerivationPath, \
-    DerivationType, NetworkServerType, NO_BLOCK_HASH, unpack_derivation_path
+    DerivationType, NetworkServerType, NO_BLOCK_HASH, ScriptType, unpack_derivation_path
 
 
 if TYPE_CHECKING:
@@ -64,6 +64,19 @@ class DatabaseKeyDerivationData:
         return DatabaseKeyDerivationData(derivation_path=derivation_path,
             account_id=row.account_id, masterkey_id=row.masterkey_id,
             keyinstance_id=row.keyinstance_id, source=source)
+
+
+class TransactionKeyUsageMetadata(NamedTuple):
+    pushdata_hash: bytes
+    keyinstance_id: int | None
+    script_type: ScriptType
+    derivation_path: DerivationPath | None = None
+
+
+class MissingTransactionMetadata(NamedTuple):
+    transaction_hash: bytes
+    match_metadatas: set[TransactionKeyUsageMetadata]
+    with_proof: bool
 
 
 class Outpoint(NamedTuple):

@@ -59,8 +59,7 @@ class RequestColumn(IntEnum):
     DATE = 0
     DESCRIPTION = 1
     AMOUNT_REQUESTED = 2
-    AMOUNT_RECEIVED = 3
-    STATUS = 4
+    STATUS = 3
 
 
 # TODO(ScriptTypeAssumption) It is assumed that all active payment requests from the receive tab
@@ -73,7 +72,6 @@ class RequestList(MyTreeWidget):
         RequestColumn.DATE,
         RequestColumn.DESCRIPTION,
         RequestColumn.AMOUNT_REQUESTED,
-        RequestColumn.AMOUNT_RECEIVED,
         RequestColumn.STATUS,
     ]
 
@@ -163,8 +161,8 @@ class RequestList(MyTreeWidget):
         nearest_expiry_time = float('inf')
 
         wallet = self._account._wallet
-        rows = wallet.data.read_payment_requests(self._account_id, flags=PaymentFlag.NONE,
-            mask=PaymentFlag.ARCHIVED)
+        rows = wallet.data.read_payment_requests(account_id=self._account_id,
+            flags=PaymentFlag.NONE, mask=PaymentFlag.ARCHIVED)
 
         # clear the list and fill it again
         self.clear()
@@ -173,8 +171,6 @@ class RequestList(MyTreeWidget):
             date = format_posix_timestamp(row.date_created, _("Unknown"))
             requested_amount_str = app_state.format_amount(row.requested_value, whitespaces=True) \
                 if row.requested_value else ""
-            received_amount_str = app_state.format_amount(row.received_value, whitespaces=True) \
-                if row.received_value else ""
 
             if flags == PaymentFlag.UNPAID and row.date_expires is not None:
                 date_expires = row.date_expires
@@ -188,7 +184,6 @@ class RequestList(MyTreeWidget):
                 date,
                 row.description or "",
                 requested_amount_str,
-                received_amount_str,
                 pr_tooltips.get(state,'')
             ])
 
@@ -209,7 +204,6 @@ class RequestList(MyTreeWidget):
                 if icon_name is not None:
                     item.setIcon(RequestColumn.STATUS, read_QIcon(icon_name))
             item.setFont(RequestColumn.AMOUNT_REQUESTED, self._monospace_font)
-            item.setFont(RequestColumn.AMOUNT_RECEIVED, self._monospace_font)
             self.addTopLevelItem(item)
 
         if nearest_expiry_time != float("inf"):
@@ -241,29 +235,32 @@ class RequestList(MyTreeWidget):
     def _get_request_URI(self, pr_id: int) -> str:
         assert self._account is not None
         wallet = self._account.get_wallet()
-        req = wallet.data.read_payment_request(request_id=pr_id)
-        assert req is not None
-        message = self._account.get_keyinstance_label(req.keyinstance_id)
+        request_row, request_output_rows = wallet.data.read_payment_request(request_id=pr_id)
+        assert request_row is not None
+        assert len(request_output_rows) == 1
+        message = self._account.get_keyinstance_label(request_output_rows[0].keyinstance_id)
         # TODO(ScriptTypeAssumption) see above for context
-        keyinstance = wallet.data.read_keyinstance(keyinstance_id=req.keyinstance_id)
+        keyinstance = wallet.data.read_keyinstance(
+            keyinstance_id=request_output_rows[0].keyinstance_id)
         assert keyinstance is not None
         script_template = self._account.get_script_template_for_derivation(
             self._account.get_default_script_type(),
             keyinstance.derivation_type, keyinstance.derivation_data2)
         address_text = script_template_to_string(script_template)
 
-        URI = create_URI(address_text, req.requested_value, message)
-        URI += f"&time={req.date_created}"
-        if req.date_expires:
-            URI += f"&exp={req.date_expires}"
+        URI = create_URI(address_text, request_row.requested_value, message)
+        URI += f"&time={request_row.date_created}"
+        if request_row.date_expires:
+            URI += f"&exp={request_row.date_expires}"
         return str(URI)
 
-    def _export_payment_request(self, pr_id: int) -> None:
+    def _export_payment_request(self, paymentrequest_id: int) -> None:
         assert self._account is not None
-        pr = self._account._wallet.data.read_payment_request(request_id=pr_id)
-        assert pr is not None
-        pr_data = PaymentTerms.from_wallet_entry(self._account, pr).to_json()
-        name = f'{pr.paymentrequest_id}.bip270.json'
+        request_row, request_output_rows = self._account._wallet.data.read_payment_request(
+            request_id=paymentrequest_id)
+        assert request_row is not None
+        pr_data = PaymentTerms.from_wallet_entry(request_row, request_output_rows).to_json()
+        name = f'{paymentrequest_id}.bip270.json'
         fileName = self._main_window.getSaveFileName(
             _("Select where to save your payment request"), name, "*.bip270.json")
         if fileName:
@@ -276,11 +273,12 @@ class RequestList(MyTreeWidget):
 
         # Blocking deletion call.
         wallet = self._account.get_wallet()
-        row = wallet.data.read_payment_request(request_id=request_id)
-        if row is None:
+        request_row, request_output_rows = wallet.data.read_payment_request(request_id=request_id)
+        if request_row is None:
             return
+        assert len(request_output_rows) == 1
 
-        request_type = row.state & PaymentFlag.MASK_TYPE
+        request_type = request_row.state & PaymentFlag.MASK_TYPE
         if app_state.daemon.network is None and request_type == PaymentFlag.MONITORED:
             MessageBox.show_error(_("Blockchain monitored payments cannot be deleted while the "
                 "wallet is in offline mode. You can either open your wallet in online mode and "
@@ -294,15 +292,15 @@ class RequestList(MyTreeWidget):
         if request_type == PaymentFlag.INVOICE:
             app_state.async_.spawn_and_wait(self._account.delete_hosted_invoice_async(request_id))
         elif request_type == PaymentFlag.MONITORED:
-            app_state.async_.spawn_and_wait(
-                self._account.stop_monitoring_blockchain_payment_async(request_id))
-            future = wallet.delete_payment_request(self._account.get_id(), request_id,
-                row.keyinstance_id)
-            future.result()
+            async def task_code_async() -> None:
+                assert self._account is not None
+                await self._account.stop_monitoring_blockchain_payment_async(request_id)
+                await wallet.data.delete_payment_request_async(request_id)
+            app_state.async_.spawn_and_wait(task_code_async())
         elif request_type == PaymentFlag.IMPORTED:
-            future = wallet.delete_payment_request(self._account.get_id(), request_id,
-                row.keyinstance_id)
-            future.result()
+            async def task_code_async() -> None:
+                await wallet.data.delete_payment_request_async(request_id)
+            app_state.async_.spawn_and_wait(task_code_async())
         else:
             raise NotImplementedError()
 

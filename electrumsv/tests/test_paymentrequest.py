@@ -22,13 +22,13 @@ P2PKH_SCRIPT = PKH_ADDRESS.to_script()
 
 
 def test_output_dict_optional_fields_unused() -> None:
-    output = dpp_messages.Output(P2PKH_SCRIPT)
+    output = dpp_messages.Output(PKH_ADDRESS.to_script_bytes())
     data = output.to_dict()
     assert 'amount' not in data
     assert 'description' not in data
 
 def test_output_dict_optional_fields_used():
-    output = dpp_messages.Output(P2PKH_SCRIPT, 1, "description")
+    output = dpp_messages.Output(PKH_ADDRESS.to_script_bytes(), 1, "description")
     data = output.to_dict()
     assert 'script' in data
     assert P2PKH_SCRIPT.to_hex() == data['script']
@@ -36,18 +36,18 @@ def test_output_dict_optional_fields_used():
     assert 'description' in data
 
 def test_output_json_restoration_all():
-    original_output = dpp_messages.Output(P2PKH_SCRIPT, 1, "description")
+    original_output = dpp_messages.Output(PKH_ADDRESS.to_script_bytes(), 1, "description")
     output_json = original_output.to_json()
     restored_output = dpp_messages.Output.from_json(output_json)
-    assert original_output.script == restored_output.script
+    assert original_output.script_bytes == restored_output.script_bytes
     assert original_output.amount == restored_output.amount
     assert original_output.description == restored_output.description
 
 def test_output_json_restoration_required():
-    original_output = dpp_messages.Output(P2PKH_SCRIPT)
+    original_output = dpp_messages.Output(PKH_ADDRESS.to_script_bytes())
     output_json = original_output.to_json()
     restored_output = dpp_messages.Output.from_json(output_json)
-    assert original_output.script == restored_output.script
+    assert original_output.script_bytes == restored_output.script_bytes
     assert original_output.amount == restored_output.amount
     assert original_output.description == restored_output.description
 

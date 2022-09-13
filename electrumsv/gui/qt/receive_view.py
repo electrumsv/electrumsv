@@ -6,7 +6,7 @@ from PyQt6.QtCore import QSize, Qt
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QToolBar, QVBoxLayout, QWidget
 
-from ...constants import NetworkServerFlag, PaymentFlag, ScriptType
+from ...constants import NetworkServerFlag, PaymentFlag
 from ...i18n import _
 from ...logs import logs
 
@@ -250,10 +250,6 @@ class ReceiveView(QWidget):
         """
         assert self._dialogs[None].get_paymentrequest_id() == request_id
         self._dialogs[request_id] = self._dialogs.pop(None)
-
-    def update_script_type(self, script_type: ScriptType) -> None:
-        for dialog in self._dialogs.values():
-            dialog.update_script_type(script_type)
 
     def _on_dialog_closed(self, request_id: Optional[int]) -> None:
         if request_id in self._dialogs:

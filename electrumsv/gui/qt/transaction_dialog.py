@@ -911,22 +911,24 @@ class TxDialog(QDialog, MessageBoxMixin):
 
         wallet = self._wallet
         if tx.is_complete():
-            metadata = wallet.data.get_transaction_metadata(self._tx_hash)
-            if metadata is None:
+            # NOTE(rt12) This reads a lot more than we need, but the transaction dialog is not
+            #     something regular people should have to see (too complicated!).
+            transaction_row = wallet.data.read_transaction(self._tx_hash)
+            if transaction_row is None:
                 # The transaction is not known to the wallet.
                 status = _("External signed transaction")
                 state = TxFlags.STATE_RECEIVED
                 can_broadcast = wallet._network is not None
                 is_external = True
             else:
-                date_created = metadata.date_created
+                date_created = transaction_row.date_created
 
                 # It is possible the wallet has the transaction but it is not associated with
                 # any accounts. We still need to factor that in.
-                fee = metadata.fee_value
+                fee = transaction_row.fee_value
 
-                if metadata.block_hash is not None:
-                    header_and_chain = wallet.lookup_header_for_hash(metadata.block_hash)
+                if transaction_row.block_hash is not None:
+                    header_and_chain = wallet.lookup_header_for_hash(transaction_row.block_hash)
                     if header_and_chain is not None:
                         date_mined = header_and_chain[0].timestamp
 
@@ -941,7 +943,7 @@ class TxDialog(QDialog, MessageBoxMixin):
                 if state & TxFlags.STATE_SETTLED:
                     status = _("Verified")
                 elif state & TxFlags.STATE_CLEARED:
-                    if metadata.block_hash is not None:
+                    if transaction_row.block_hash is not None:
                         status = _('Not verified')
                     else:
                         status = _('Unconfirmed')

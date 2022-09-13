@@ -41,7 +41,7 @@ from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
 from .standards.json_envelope import JSONEnvelope, validate_json_envelope
 from .transaction import XTxOutput
 from .util import get_posix_timestamp
-from .wallet_database.types import PaymentRequestReadRow
+from .wallet_database.types import PaymentRequestRow, PaymentRequestOutputRow
 
 if TYPE_CHECKING:
     from electrumsv.wallet import AbstractAccount
@@ -127,9 +127,9 @@ class PaymentACKDict(TypedDict):
 
 
 class Output:
-    def __init__(self, script: Script, amount: Optional[int]=None,
-                 description: Optional[str]=None):
-        self.script = script
+    def __init__(self, script_bytes: bytes, amount: int|None=None,
+            description: str|None=None) -> None:
+        self.script_bytes = script_bytes
         if description is not None:
             description_json = json.dumps(description)
             if len(description_json) > 100:
@@ -138,12 +138,13 @@ class Output:
         self.amount = amount
 
     def to_tx_output(self) -> XTxOutput:
+        script = Script(self.script_bytes)
         # NOTE(rt12) This seems to be some attrs/mypy clash, the base class attrs should come before
         # the XTxOutput attrs, but typing expects these to be the XTxOutput attrs.
-        return XTxOutput(self.amount, self.script) # type: ignore
+        return XTxOutput(self.amount, script) # type: ignore
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Output':
+    def from_dict(cls, data: dict[str, Any]) -> 'Output':
         if 'script' not in data:
             raise Bip270Exception("Missing required 'script' field")
         script_hex = data['script']
@@ -156,11 +157,11 @@ class Output:
         if description is not None and type(description) is not str:
             raise Bip270Exception("Invalid 'description' field")
 
-        return cls(Script.from_hex(script_hex), amount, description)
+        return cls(bytes.fromhex(script_hex), amount, description)
 
-    def to_dict(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {
-            'script': self.script.to_hex(),
+    def to_dict(self) -> dict[str, Any]:
+        data: dict[str, Any] = {
+            'script': self.script_bytes.hex(),
         }
         if self.amount and type(self.amount) is int:
             data['amount'] = self.amount
@@ -222,20 +223,12 @@ class PaymentTerms:
         return self.to_json()
 
     @classmethod
-    def from_wallet_entry(cls, account: 'AbstractAccount',
-            pr: PaymentRequestReadRow) -> PaymentTerms:
-        wallet = account.get_wallet()
-        keyinstance = wallet.data.read_keyinstance(keyinstance_id=pr.keyinstance_id)
-        assert keyinstance is not None
-        script_type = account.get_default_script_type()
-        script = account.get_script_for_derivation(script_type, keyinstance.derivation_type,
-            keyinstance.derivation_data2)
-        date_expires = None
-        if pr.date_expires is not None:
-            date_expires = pr.date_expires
-        outputs = [ Output(script, pr.requested_value) ]
-        return cls(outputs, "1.0", creation_timestamp=pr.date_created,
-            expiration_timestamp=date_expires, memo=pr.description)
+    def from_wallet_entry(cls, request_row: PaymentRequestRow,
+            request_output_rows: list[PaymentRequestOutputRow]) -> PaymentTerms:
+        outputs = [ Output(request_output_row.output_script_bytes,
+            request_output_row.output_value) for request_output_row in request_output_rows ]
+        return cls(outputs, "1.0", creation_timestamp=request_row.date_created,
+            expiration_timestamp=request_row.date_expires, memo=request_row.merchant_reference)
 
     @classmethod
     def from_json(cls, s: Union[bytes, str]) -> PaymentTerms:
@@ -335,7 +328,7 @@ class PaymentTerms:
 
     def to_json(self) -> str:
         # TODO: This should be a TypedDict.
-        d: Dict[str, Any] = {}
+        d: dict[str, Any] = {}
         d['network'] = self.network
         d['version'] = self.version
         d['creationTimestamp'] = self.creation_timestamp
@@ -375,7 +368,7 @@ class PaymentTerms:
             network = BIP276Network.NETWORK_REGTEST
         else:
             raise Exception("unhandled network", Net._net)
-        return bip276_encode(PREFIX_BIP276_SCRIPT, bytes(self.outputs[0].script), network)
+        return bip276_encode(PREFIX_BIP276_SCRIPT, self.outputs[0].script_bytes, network)
 
     def get_payment_uri(self) -> str:
         assert self.payment_url is not None

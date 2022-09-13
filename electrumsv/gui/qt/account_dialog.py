@@ -16,7 +16,6 @@ from ...wallet import Wallet
 from .cosigners_view import CosignerState, CosignerList
 from .main_window import ElectrumWindow
 from .qrtextedit import ShowQRTextEdit
-from .receive_view import ReceiveView
 from .util import Buttons, CloseButton, FormSectionWidget
 
 
@@ -75,15 +74,18 @@ class AccountDialog(QDialog):
             script_type_combo.setCurrentIndex(script_type_combo.findText(default_script_type.name))
 
         def on_script_type_change(_index: int) -> None:
+            """
+            This is not a live update to existing user interfaces like the receive dialog.
+            That's just complicating things. The user can use their brain to work out that
+            a new payment request will factor in the script type changes, it's an advanced thing
+            to do anyway.
+            """
             assert account is not None
             script_type_name = script_type_combo.currentText()
             new_script_type = getattr(ScriptType, script_type_name)
             current_script_type = account.get_default_script_type()
             if current_script_type != new_script_type:
                 account.set_default_script_type(new_script_type)
-
-                view = cast(ReceiveView, self._main_window_proxy.get_receive_view(account.get_id()))
-                view.update_script_type(new_script_type)
 
         update_script_types()
         script_type_combo.currentIndexChanged.connect(on_script_type_change)
