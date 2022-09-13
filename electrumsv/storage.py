@@ -36,8 +36,7 @@ import re
 import shutil
 import stat
 import threading
-from typing import (Any, cast, Dict, Iterable, List, NamedTuple, Optional, Set, Sequence, Tuple,
-    Type, TYPE_CHECKING, TypeVar)
+from typing import Any, cast, Iterable, NamedTuple, Sequence, Type, TYPE_CHECKING, TypeVar
 import zlib
 
 from bitcoinx import DecryptionError, hash_to_hex_str, hex_str_to_hash, PrivateKey, PublicKey
@@ -81,14 +80,14 @@ logger = logs.get_logger("storage")
 
 
 
-def multisig_type(wallet_type: str) -> Optional[Tuple[int, int]]:
+def multisig_type(wallet_type: str) -> tuple[int, int] | None:
     '''If wallet_type is mofn multi-sig, return [m, n],
     otherwise return None.'''
     if wallet_type:
         match = re.match(r'(\d+)of(\d+)', wallet_type)
         if match:
             result = tuple(int(x) for x in match.group(1, 2))
-            return cast(Tuple[int, int], result)
+            return cast(tuple[int, int], result)
     return None
 
 FINAL_SEED_VERSION = 22
@@ -107,7 +106,7 @@ class WalletStorageInfo(NamedTuple):
         raise ValueError(f"Kind {self.kind} should not reach here")
 
 
-def get_categorised_files(wallet_path: str, exclude_suffix: str='') -> List[WalletStorageInfo]:
+def get_categorised_files(wallet_path: str, exclude_suffix: str='') -> list[WalletStorageInfo]:
     """
     This categorises files based on the three different ways in which we have stored wallets.
 
@@ -161,7 +160,7 @@ def categorise_file(wallet_filepath: str) -> WalletStorageInfo:
     return WalletStorageInfo(kind, filename, wallet_filepath)
 
 
-def backup_wallet_file(wallet_filepath: str) -> Optional[Tuple[str, str]]:
+def backup_wallet_file(wallet_filepath: str) -> tuple[str, str] | None:
     info = categorise_file(wallet_filepath)
     if info.kind not in (StorageKind.FILE, StorageKind.DATABASE):
         return None
@@ -198,7 +197,7 @@ def backup_wallet_file(wallet_filepath: str) -> Optional[Tuple[str, str]]:
 StoreType = TypeVar('StoreType', bound='AbstractStore')
 
 class AbstractStore:
-    def __init__(self, path: str, data: Optional[Dict[str, Any]]=None) -> None:
+    def __init__(self, path: str, data: dict[str, Any] | None=None) -> None:
         assert not path.endswith(DATABASE_EXT)
         self._path = path
 
@@ -221,7 +220,7 @@ class AbstractStore:
     def attempt_load_data(self) -> bool:
         raise NotImplementedError
 
-    def get(self, key: str, default: Optional[Any]=None) -> Any:
+    def get(self, key: str, default: Any=None) -> Any:
         with self._lock:
             v = self._data.get(key)
             if v is None:
@@ -281,14 +280,14 @@ class AbstractStore:
         raise NotImplementedError
 
     def split_accounts(self, has_password: bool,
-            new_password_token: PasswordTokenProtocol) -> Optional[List[str]]:
+            new_password_token: PasswordTokenProtocol) -> list[str] | None:
         raise NotImplementedError
 
     def requires_upgrade(self) -> bool:
         raise NotImplementedError
 
     def upgrade(self, has_password: bool, new_password_token: PasswordTokenProtocol,
-            callbacks: Optional[ProgressCallbacks]=None) -> Optional[AbstractStore]:
+            callbacks: ProgressCallbacks | None=None) -> AbstractStore | None:
         raise NotImplementedError
 
     def _get_version(self) -> int:
@@ -298,7 +297,7 @@ class AbstractStore:
 class DatabaseStore(AbstractStore):
     _db_context: DatabaseContext
 
-    def __init__(self, path: str, password_token: Optional[PasswordTokenProtocol]=None) -> None:
+    def __init__(self, path: str, password_token: PasswordTokenProtocol | None=None) -> None:
         super().__init__(path)
 
         database_already_exists = os.path.exists(self.get_path())
@@ -342,7 +341,7 @@ class DatabaseStore(AbstractStore):
         return self._path + DATABASE_EXT
 
     def check_password(self, password: str) -> None:
-        password_token: Optional[str] = self.get("password-token")
+        password_token: str | None = self.get("password-token")
         assert password_token is not None
         pw_decode(password_token, password)
 
@@ -373,7 +372,7 @@ class DatabaseStore(AbstractStore):
 
     def upgrade(self: DatabaseStore, has_password: bool,
             new_password_token: PasswordTokenProtocol,
-            callbacks: Optional[ProgressCallbacks]=None) -> Optional[DatabaseStore]:
+            callbacks: ProgressCallbacks | None=None) -> DatabaseStore | None:
         from .wallet_database.migration import update_database
         connection = self._db_context.acquire_connection()
         try:
@@ -387,7 +386,7 @@ class DatabaseStore(AbstractStore):
 
 
 class TextStore(AbstractStore):
-    _raw: Optional[bytes] = None
+    _raw: bytes | None = None
 
     # seed_version is used for the version of the wallet file
     OLD_SEED_VERSION = 4        # electrum versions < 2.0
@@ -395,7 +394,7 @@ class TextStore(AbstractStore):
     FINAL_SEED_VERSION = 17     # electrum >= 2.7 will set this to prevent
                                 # old versions from overwriting new format
 
-    def __init__(self, path: str, data: Optional[Dict[str, Any]]=None) -> None:
+    def __init__(self, path: str, data: dict[str, Any] | None=None) -> None:
         super().__init__(path, data)
         self._modified = bool(data)
 
@@ -446,7 +445,7 @@ class TextStore(AbstractStore):
             return True
         return False
 
-    def _set_data(self, data: Dict[str, Any]) -> None:
+    def _set_data(self, data: dict[str, Any]) -> None:
         self._data = data
 
     def load_data(self, data: Any) -> None:
@@ -498,8 +497,8 @@ class TextStore(AbstractStore):
         return len(d) > 1
 
     def split_accounts(self, has_password: bool,
-            new_password_token: PasswordTokenProtocol) -> Optional[List[str]]:
-        result: List[str] = []
+            new_password_token: PasswordTokenProtocol) -> list[str] | None:
+        result: list[str] = []
         # backward compatibility with old wallets
         d = self.get('accounts', {})
         if len(d) < 2:
@@ -568,7 +567,7 @@ class TextStore(AbstractStore):
         return False
 
     def upgrade(self, has_password: bool, new_password_token: PasswordTokenProtocol,
-            callbacks: Optional[ProgressCallbacks]=None) -> Optional[AbstractStore]:
+            callbacks: ProgressCallbacks | None=None) -> AbstractStore | None:
         self._convert_imported()
         self._convert_wallet_type()
         self._convert_account()
@@ -731,7 +730,7 @@ class TextStore(AbstractStore):
         if self.get('wallet_type') == 'standard':
             if self.get('keystore').get('type') == 'imported':
                 pubkeys = self.get('keystore').get('keypairs').keys()
-                d: Dict[str, List[str]] = {'change': []}
+                d: dict[str, list[str]] = {'change': []}
                 receiving_addresses = []
                 for pubkey in pubkeys:
                     addr = PublicKey.from_hex(pubkey).to_address(network=Net.COIN).to_string()
@@ -804,9 +803,9 @@ class TextStore(AbstractStore):
             remove_from_list('frozen_addresses')
 
         if self.get('wallet_type') == 'imported':
-            addresses: Dict[str, Any] = self.get('addresses')
+            addresses: dict[str, Any] = self.get('addresses')
             assert isinstance(addresses, dict)
-            addresses_new: Dict[str, Any] = {}
+            addresses_new: dict[str, Any] = {}
             for address, details in addresses.items():
                 if not is_address_valid(address):
                     remove_address(address)
@@ -860,13 +859,13 @@ class TextStore(AbstractStore):
             account_id = next_account_id
             next_account_id += 1
 
-            masterkey_rows: List[MasterKeyRow_22] = []
-            account_rows: List[AccountRow1] = []
-            keyinstance_rows: List[KeyInstanceRow_22] = []
-            txdelta_rows: List[TransactionDeltaRow_22] = []
-            transaction_rows: List[TransactionRow1] = []
-            txoutput_rows: List[TransactionOutputRow_22] = []
-            paymentrequest_rows: List[PaymentRequestRow_22] = []
+            masterkey_rows: list[MasterKeyRow_22] = []
+            account_rows: list[AccountRow1] = []
+            keyinstance_rows: list[KeyInstanceRow_22] = []
+            txdelta_rows: list[TransactionDeltaRow_22] = []
+            transaction_rows: list[TransactionRow1] = []
+            txoutput_rows: list[TransactionOutputRow_22] = []
+            paymentrequest_rows: list[PaymentRequestRow_22] = []
 
             class _TxState(NamedTuple):
                 tx: Transaction
@@ -874,8 +873,8 @@ class TextStore(AbstractStore):
                 bytedata: bytes
                 verified: bool
                 height: int
-                known_addresses: Set[str]
-                encountered_addresses: Set[str]
+                known_addresses: set[str]
+                encountered_addresses: set[str]
 
             class _TxOutputState(NamedTuple):
                 value: int
@@ -886,13 +885,13 @@ class TextStore(AbstractStore):
                 row_index: int
                 script_type: ScriptType
 
-            address_usage: Dict[str, Iterable[Tuple[str, int]]] = self.get('addr_history', {})
-            frozen_addresses: Set[str] = set(self.get('frozen_addresses', []))
-            frozen_coins: List[str] = self.get('frozen_coins', [])
-            tx_map_in: Dict[str, str] = self.get('transactions', {})
-            tx_fees: Dict[str, int] = self.get('tx_fees', {})
-            tx_verified: Dict[str, Any] = self.get('verified_tx3', {})
-            labels: Dict[str, str] = self.get('labels', {})
+            address_usage: dict[str, Iterable[tuple[str, int]]] = self.get('addr_history', {})
+            frozen_addresses: set[str] = set(self.get('frozen_addresses', []))
+            frozen_coins: list[str] = self.get('frozen_coins', [])
+            tx_map_in: dict[str, str] = self.get('transactions', {})
+            tx_fees: dict[str, int] = self.get('tx_fees', {})
+            tx_verified: dict[str, Any] = self.get('verified_tx3', {})
+            labels: dict[str, str] = self.get('labels', {})
 
             # height > 0: confirmed
             # height = 0: unconfirmed
@@ -907,8 +906,8 @@ class TextStore(AbstractStore):
                 tx_id, n = txo_id.split(":")
                 txouts_frozen.add((tx_id, int(n)))
 
-            address_states: Dict[str, _AddressState] = {}
-            tx_states: Dict[str, _TxState] = {}
+            address_states: dict[str, _AddressState] = {}
+            tx_states: dict[str, _TxState] = {}
 
             date_added = get_posix_timestamp()
             for tx_id, tx_hex in tx_map_in.items():
@@ -969,7 +968,7 @@ class TextStore(AbstractStore):
                     return data
                 return pw_encode(data, new_password)
 
-            def get_keystore_data(data: Dict[str, Any]) -> Tuple[DerivationType, Dict[str, Any]]:
+            def get_keystore_data(data: dict[str, Any]) -> tuple[DerivationType, dict[str, Any]]:
                 derivation_type: DerivationType
                 keystore_type: str = data.pop("type")
                 if keystore_type == "hardware":
@@ -990,8 +989,8 @@ class TextStore(AbstractStore):
                     raise IncompatibleWalletError("unknown keystore type", keystore_type)
                 return derivation_type, data
 
-            def convert_keystore(data: Dict[str, Any],
-                    subpaths: Optional[Sequence[Tuple[DerivationPath, int]]]=None) -> Tuple[
+            def convert_keystore(data: dict[str, Any],
+                    subpaths: Sequence[tuple[DerivationPath, int]] | None=None) -> tuple[
                         DerivationType, bytes]:
                 derivation_type, data = get_keystore_data(data)
                 if subpaths is not None:
@@ -1025,9 +1024,9 @@ class TextStore(AbstractStore):
                 nonlocal keyinstance_rows, txoutput_rows, txdelta_rows
                 nonlocal address_states, tx_states
 
-                key_deltas: Dict[int, int] = {}
-                tx_deltas: Dict[Tuple[bytes, int], int] = {}
-                txout_states: Dict[Tuple[bytes, int], _TxOutputState] = {}
+                key_deltas: dict[int, int] = {}
+                tx_deltas: dict[tuple[bytes, int], int] = {}
+                txout_states: dict[tuple[bytes, int], _TxOutputState] = {}
 
                 # Locate all the outputs.
                 for tx_id, tx_state in tx_states.items():
@@ -1105,7 +1104,7 @@ class TextStore(AbstractStore):
             multsig_mn = multisig_type(wallet_type)
             if multsig_mn is not None:
                 multsig_m, multsig_n = multsig_mn
-                cosigner_keys: List[Tuple[DerivationType, Dict[str, Any]]] = []
+                cosigner_keys: list[tuple[DerivationType, dict[str, Any]]] = []
                 # We bake the cosigner key data into the multi-signature masterkey.
                 for i in range(multsig_n):
                     keystore_name = f'x{i+1:d}/'
@@ -1217,7 +1216,7 @@ class TextStore(AbstractStore):
             else:
                 raise IncompatibleWalletError("unknown wallet type", wallet_type)
 
-            payment_requests: Dict[str, Dict[str, Any]] = self.get("payment_requests", {})
+            payment_requests: dict[str, dict[str, Any]] = self.get("payment_requests", {})
             for address_string, request_data in payment_requests.items():
                 if address_string not in address_states:
                     continue
@@ -1246,7 +1245,7 @@ class TextStore(AbstractStore):
             # Commit all the changes to the database. This is ordered to respect FK constraints.
             # Note that database write calls are done sequentially. By waiting for the final one
             # to complete we know the others have already completed.
-            futures: List[concurrent.futures.Future[None]] = []
+            futures: list[concurrent.futures.Future[None]] = []
             if len(transaction_rows):
                 futures.append(create_transactions1(db_context, transaction_rows))
             if len(masterkey_rows):
@@ -1356,10 +1355,10 @@ class TextStore(AbstractStore):
 class WalletStorage:
     _store: AbstractStore
     _is_closed: bool = False
-    _backup_filepaths: Optional[Tuple[str, str]] = None
+    _backup_filepaths: tuple[str, str] | None = None
 
     def __init__(self, path: str, storage_kind: StorageKind=StorageKind.UNKNOWN,
-            password_token: Optional[PasswordTokenProtocol]=None) -> None:
+            password_token: PasswordTokenProtocol | None=None) -> None:
         logger.debug("wallet path '%s'", path)
         dirname = os.path.dirname(path)
         if not os.path.exists(dirname):
@@ -1377,7 +1376,7 @@ class WalletStorage:
 
         self._path = path
 
-        store: Optional[AbstractStore] = None
+        store: AbstractStore | None = None
         if storage_kind == StorageKind.UNKNOWN:
             self._set_store(DatabaseStore(path, password_token))
         else:
@@ -1397,7 +1396,7 @@ class WalletStorage:
         return storage
 
     @classmethod
-    def from_file_data(cls, path: str, data: Dict[str, Any]) -> WalletStorage:
+    def from_file_data(cls, path: str, data: dict[str, Any]) -> WalletStorage:
         storage = cls(path=path, storage_kind=StorageKind.FILE)
         text_store = storage.get_text_store()
         text_store._set_data(data)
@@ -1494,11 +1493,11 @@ class WalletStorage:
     def get_storage_path(self) -> str:
         return self._path
 
-    def get_backup_filepaths(self) -> Optional[Tuple[str, str]]:
+    def get_backup_filepaths(self) -> tuple[str, str] | None:
         return self._backup_filepaths
 
     def upgrade(self, has_password: bool, new_password_token: PasswordTokenProtocol,
-            callbacks: Optional[ProgressCallbacks]=None) -> None:
+            callbacks: ProgressCallbacks | None=None) -> None:
         logger.debug('upgrading wallet format')
         self._backup_filepaths = backup_wallet_file(self._path)
 
@@ -1512,13 +1511,13 @@ class WalletStorage:
                     continue
             break
 
-    def get_db_context(self) -> Optional[DatabaseContext]:
+    def get_db_context(self) -> DatabaseContext | None:
         if isinstance(self._store, DatabaseStore):
             return self._store._db_context
         return None
 
     @classmethod
-    def files_are_matched_by_path(cls, path: Optional[str]) -> bool:
+    def files_are_matched_by_path(cls, path: str | None) -> bool:
         if path is None:
             return False
         return categorise_file(path).kind != StorageKind.UNKNOWN

@@ -24,7 +24,7 @@
 from __future__ import annotations
 import hashlib
 import json
-from typing import Any, cast, Dict, List, Optional, Sequence, Set, TYPE_CHECKING, Union
+from typing import Any, cast, Sequence, TYPE_CHECKING
 
 from bitcoinx import (
     PrivateKey, PublicKey, BIP32PrivateKey,
@@ -57,27 +57,27 @@ logger = logs.get_logger("keystore")
 
 class KeyStore:
     derivation_type = DerivationType.NONE
-    label: Optional[str] = None
+    label: str | None = None
 
-    def __init__(self, row: Optional[MasterKeyRow]=None) -> None:
+    def __init__(self, row: MasterKeyRow | None=None) -> None:
         self.set_row(row)
 
     def clean_up(self) -> None:
         pass
 
-    def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
+    def set_row(self, row: MasterKeyRow | None=None) -> None:
         self._row = row
 
     def type(self) -> KeystoreType:
         return KeystoreType.UNSPECIFIED
 
-    def subtype(self) -> Optional[str]:
+    def subtype(self) -> str | None:
         return None
 
-    def get_label(self) -> Optional[str]:
+    def get_label(self) -> str | None:
         return self.label
 
-    def set_label(self, label: Optional[str]) -> None:
+    def set_label(self, label: str | None) -> None:
         self.label = label
 
     def debug_name(self) -> str:
@@ -129,7 +129,7 @@ class KeyStore:
     def can_export(self) -> bool:
         return False
 
-    def get_master_public_key(self) -> Optional[str]:
+    def get_master_public_key(self) -> str | None:
         raise NotImplementedError
 
     def get_private_key(self, key_data: Any, password: str) -> PrivateKey:
@@ -156,7 +156,7 @@ class KeyStore:
 
 
 class Software_KeyStore(KeyStore):
-    def __init__(self, row: Optional[MasterKeyRow]=None) -> None:
+    def __init__(self, row: MasterKeyRow | None=None) -> None:
         KeyStore.__init__(self, row)
 
     def type(self) -> KeystoreType:
@@ -170,7 +170,7 @@ class Software_KeyStore(KeyStore):
         private_key = self.get_private_key(sequence, password)
         return cast(bytes, private_key.decrypt_message(message))
 
-    def check_password(self, password: Optional[str]) -> None:
+    def check_password(self, password: str | None) -> None:
         raise NotImplementedError
 
     def sign_transaction(self, tx: Transaction, password: str,
@@ -180,7 +180,7 @@ class Software_KeyStore(KeyStore):
         # Raise if password is not correct.
         self.check_password(password)
         # Add private keys
-        keypairs: Dict[XPublicKey, PrivateKey] = {}
+        keypairs: dict[XPublicKey, PrivateKey] = {}
         for txin in tx.inputs:
             for x_pubkey in txin.unused_x_pubkeys():
                 if self.is_signature_candidate(x_pubkey):
@@ -196,16 +196,16 @@ class Imported_KeyStore(Software_KeyStore):
     # keystore for imported private keys
     # private keys are encrypted versions of the WIF encoding
 
-    def __init__(self, row: Optional[MasterKeyRow]=None) -> None:
-        self._public_keys: Dict[int, PublicKey] = {}
-        self._keypairs: Dict[PublicKey, str] = {}
+    def __init__(self, row: MasterKeyRow | None=None) -> None:
+        self._public_keys: dict[int, PublicKey] = {}
+        self._keypairs: dict[PublicKey, str] = {}
 
         Software_KeyStore.__init__(self, row)
 
     def type(self) -> KeystoreType:
         return KeystoreType.IMPORTED_PRIVATE_KEY
 
-    def set_state(self, keyinstance_rows: List[KeyInstanceRow]) -> None:
+    def set_state(self, keyinstance_rows: list[KeyInstanceRow]) -> None:
         self._keypairs.clear()
         self._public_keys.clear()
 
@@ -227,7 +227,7 @@ class Imported_KeyStore(Software_KeyStore):
     def can_change_password(self) -> bool:
         return True
 
-    def get_master_public_key(self) -> Optional[str]:
+    def get_master_public_key(self) -> str | None:
         return None
 
     def to_derivation_data(self) -> MasterKeyDataTypes:
@@ -251,7 +251,7 @@ class Imported_KeyStore(Software_KeyStore):
         pubkey = self._public_keys.pop(keyinstance_id)
         self._keypairs.pop(pubkey)
 
-    def check_password(self, password: Optional[str]) -> None:
+    def check_password(self, password: str | None) -> None:
         assert password is not None
         pubkey = list(self._keypairs.keys())[0]
         self.export_private_key(pubkey, password)
@@ -289,11 +289,11 @@ class Imported_KeyStore(Software_KeyStore):
 
 
 class Deterministic_KeyStore(Software_KeyStore):
-    seed: Optional[str] = None
-    passphrase: Optional[str] = None
-    label: Optional[str] = None
+    seed: str | None = None
+    passphrase: str | None = None
+    label: str | None = None
 
-    def __init__(self, row: Optional[MasterKeyRow]=None) -> None:
+    def __init__(self, row: MasterKeyRow | None=None) -> None:
         Software_KeyStore.__init__(self, row)
 
     def is_deterministic(self) -> bool:
@@ -326,10 +326,10 @@ class Deterministic_KeyStore(Software_KeyStore):
 
 class Xpub:
     def __init__(self) -> None:
-        self.xpub: Optional[str] = None
-        self._child_xpubs: Dict[DerivationPath, str] = {}
+        self.xpub: str | None = None
+        self._child_xpubs: dict[DerivationPath, str] = {}
 
-    def get_master_public_key(self) -> Optional[str]:
+    def get_master_public_key(self) -> str | None:
         return self.xpub
 
     def get_fingerprint(self) -> bytes:
@@ -367,7 +367,7 @@ class Xpub:
 class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
     derivation_type = DerivationType.BIP32
 
-    _xprv_credential_id: Optional[IndefiniteCredentialId] = None
+    _xprv_credential_id: IndefiniteCredentialId | None = None
 
     def __init__(self, data: MasterKeyDataBIP32, row: MasterKeyRow | None=None,
             parent_keystore: KeyStore | None=None,
@@ -384,7 +384,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
             self._masterkey_flags = MasterKeyFlags.NONE
 
         # Either BIP39 or Electrum seed words.
-        self.seed: Optional[str] = data.get('seed')
+        self.seed: str | None = data.get('seed')
         # The full textual derivation path of the xpub and xprv from whatever.
         self.derivation: str | None = data.get('derivation')
         self.passphrase: str | None = data.get('passphrase')
@@ -405,10 +405,10 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
     def type(self) -> KeystoreType:
         return KeystoreType.BIP32
 
-    def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
+    def set_row(self, row: MasterKeyRow | None=None) -> None:
         Deterministic_KeyStore.set_row(self, row)
 
-    def get_parent_keystore(self) -> Optional[KeyStore]:
+    def get_parent_keystore(self) -> KeyStore | None:
         return self._parent_keystore
 
     def get_masterkey_flags(self) -> MasterKeyFlags:
@@ -435,14 +435,14 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         return MasterKeyRow(-1, parent_masterkey_id, DerivationType.BIP32, derivation_data,
             self._masterkey_flags)
 
-    def get_master_public_key(self) -> Optional[str]:
+    def get_master_public_key(self) -> str | None:
         return Xpub.get_master_public_key(self)
 
-    def get_master_private_key(self, password: Optional[str]) -> str:
+    def get_master_private_key(self, password: str | None) -> str:
         assert self.xprv is not None
         return pw_decode(self.xprv, password)
 
-    def check_password(self, password: Optional[str]) -> None:
+    def check_password(self, password: str | None) -> None:
         """
         Check if the password is valid for one of the pieces of encrypted data.
 
@@ -489,7 +489,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
         """
         assert self._xprv_credential_id is not None
         # Add private keys
-        keypairs: Dict[XPublicKey, PrivateKey] = {}
+        keypairs: dict[XPublicKey, PrivateKey] = {}
         for txin in tx.inputs:
             for x_pubkey in txin.unused_x_pubkeys():
                 if self.is_signature_candidate(x_pubkey):
@@ -516,7 +516,7 @@ class BIP32_KeyStore(Deterministic_KeyStore, Xpub):
 class Old_KeyStore(Deterministic_KeyStore):
     derivation_type = DerivationType.ELECTRUM_OLD
 
-    def __init__(self, data: MasterKeyDataElectrumOld, row: Optional[MasterKeyRow]=None) -> None:
+    def __init__(self, data: MasterKeyDataElectrumOld, row: MasterKeyRow | None=None) -> None:
         super().__init__(row)
 
         self.seed = data['seed']
@@ -527,7 +527,7 @@ class Old_KeyStore(Deterministic_KeyStore):
     def type(self) -> KeystoreType:
         return KeystoreType.OLD
 
-    def _get_hex_seed_bytes(self, password: Optional[str]) -> bytes:
+    def _get_hex_seed_bytes(self, password: str | None) -> bytes:
         assert self.seed is not None
         return pw_decode(self.seed, password).encode('utf8')
 
@@ -556,7 +556,7 @@ class Old_KeyStore(Deterministic_KeyStore):
         return MasterKeyRow(-1, None, DerivationType.ELECTRUM_OLD, derivation_lump,
             MasterKeyFlags.NONE)
 
-    def get_seed(self, password: Optional[str]) -> str:
+    def get_seed(self, password: str | None) -> str:
         """
         Get the old Electrum type mnemonic words for this keystore's master key.
 
@@ -620,7 +620,7 @@ class Old_KeyStore(Deterministic_KeyStore):
             logger.error('invalid password (mpk) %s %s', self.mpk, master_public_key.hex())
             raise InvalidPassword()
 
-    def check_password(self, password: Optional[str]) -> None:
+    def check_password(self, password: str | None) -> None:
         assert password is not None
         seed = self._get_hex_seed_bytes(password)
         self.check_seed(seed)
@@ -628,7 +628,7 @@ class Old_KeyStore(Deterministic_KeyStore):
     def get_fingerprint(self) -> bytes:
         return self._keystore_fingerprint
 
-    def get_master_public_key(self) -> Optional[str]:
+    def get_master_public_key(self) -> str | None:
         return self.mpk
 
     def get_xpubkey(self, data: DatabaseKeyDerivationData) -> XPublicKey:
@@ -658,10 +658,10 @@ class Hardware_KeyStore(Xpub, KeyStore):
     #   - wallet_type
     hw_type: str
     device: str
-    plugin: Optional["HW_PluginBase"] = None
-    handler_qt: Optional["QtHandlerBase"] = None
+    plugin: "HW_PluginBase" | None = None
+    handler_qt: "QtHandlerBase" | None = None
 
-    def __init__(self, data: MasterKeyDataHardware, row: Optional[MasterKeyRow]=None) -> None:
+    def __init__(self, data: MasterKeyDataHardware, row: MasterKeyRow | None=None) -> None:
         Xpub.__init__(self)
         KeyStore.__init__(self, row)
 
@@ -686,7 +686,7 @@ class Hardware_KeyStore(Xpub, KeyStore):
     def type(self) -> KeystoreType:
         return KeystoreType.HARDWARE
 
-    def subtype(self) -> Optional[str]:
+    def subtype(self) -> str | None:
         return self.hw_type
 
     @property
@@ -694,7 +694,7 @@ class Hardware_KeyStore(Xpub, KeyStore):
         assert self.plugin is not None
         return cast("QtPluginBase", self.plugin)
 
-    def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
+    def set_row(self, row: MasterKeyRow | None=None) -> None:
         KeyStore.set_row(self, row)
 
     def is_deterministic(self) -> bool:
@@ -744,15 +744,15 @@ class Hardware_KeyStore(Xpub, KeyStore):
         raise NotImplementedError
 
 
-SinglesigKeyStoreTypes = Union[BIP32_KeyStore, Hardware_KeyStore, Old_KeyStore]
+SinglesigKeyStoreTypes = BIP32_KeyStore | Hardware_KeyStore | Old_KeyStore
 
 class Multisig_KeyStore(KeyStore):
     # This isn't used, it's mostly included for consistency. Generally this attribute is used
     # only by this class, to classify derivation data of cosigner information.
     derivation_type = DerivationType.ELECTRUM_MULTISIG
-    _cosigner_keystores: List[SinglesigKeyStoreTypes]
+    _cosigner_keystores: list[SinglesigKeyStoreTypes]
 
-    def __init__(self, data: MasterKeyDataMultiSignature, row: Optional[MasterKeyRow]=None) -> None:
+    def __init__(self, data: MasterKeyDataMultiSignature, row: MasterKeyRow | None=None) -> None:
         self.set_row(row)
 
         self.m = data["m"]
@@ -772,7 +772,7 @@ class Multisig_KeyStore(KeyStore):
     def is_deterministic(self) -> bool:
         return True
 
-    def set_row(self, row: Optional[MasterKeyRow]=None) -> None:
+    def set_row(self, row: MasterKeyRow | None=None) -> None:
         self._row = row
 
     def to_derivation_data(self) -> MasterKeyDataMultiSignature:
@@ -797,7 +797,7 @@ class Multisig_KeyStore(KeyStore):
     def can_change_password(self) -> bool:
         return not all(k.is_watching_only() for k in self.get_cosigner_keystores())
 
-    def check_password(self, password: Optional[str]) -> None:
+    def check_password(self, password: str | None) -> None:
         if self.is_watching_only():
             return
         for keystore in self.get_cosigner_keystores():
@@ -831,8 +831,8 @@ def private_key_from_bip32_seed(bip32_seed: bytes, derivation_text: str) -> BIP3
 
 # NOTE(migration) If this is changed any migration steps that use it should be changed to use
 #     a historically correct version (e.g. `migration_0029_reference_server.py`).
-def bip32_master_key_data_from_seed(seed_phrase: Optional[str], passphrase: str, bip32_seed: bytes,
-        derivation_text: str, password: Optional[str]) -> MasterKeyDataBIP32:
+def bip32_master_key_data_from_seed(seed_phrase: str | None, passphrase: str, bip32_seed: bytes,
+        derivation_text: str, password: str | None) -> MasterKeyDataBIP32:
     private_key = private_key_from_bip32_seed(bip32_seed, derivation_text)
     optional_encrypted_seed = None
     optional_encrypted_passphrase = None
@@ -859,8 +859,8 @@ def _public_key_from_private_key_text(text: str) -> PublicKey:
 
 
 def instantiate_keystore(derivation_type: DerivationType, data: MasterKeyDataTypes,
-        parent_keystore: Optional[KeyStore]=None, row: Optional[MasterKeyRow]=None,
-        masterkey_flags: Optional[MasterKeyFlags]=None) -> KeyStore:
+        parent_keystore: KeyStore | None=None, row: MasterKeyRow | None=None,
+        masterkey_flags: MasterKeyFlags | None=None) -> KeyStore:
     keystore: KeyStore
     if derivation_type == DerivationType.BIP32:
         keystore = BIP32_KeyStore(cast(MasterKeyDataBIP32, data),
@@ -879,10 +879,10 @@ def instantiate_keystore(derivation_type: DerivationType, data: MasterKeyDataTyp
             row.masterkey_id if row is not None else None, derivation_type))
     return keystore
 
-KeystoreMatchType = Union[str, Set[str]]
+KeystoreMatchType = str | set[str]
 
 def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: KeystoreMatchType,
-        password: Optional[str]=None, derivation_text: Optional[str]=None,
+        password: str | None=None, derivation_text: str | None=None,
         passphrase: str="", watch_only: bool=False) -> KeyStore:
     assert isinstance(passphrase, str)
     bip32_data: MasterKeyDataBIP32
@@ -983,5 +983,5 @@ def instantiate_keystore_from_text(text_type: KeystoreTextType, text_match: Keys
     raise NotImplementedError("Unsupported text match type", text_type)
 
 
-SignableKeystoreTypes = Union[Software_KeyStore, Hardware_KeyStore]
-StandardKeystoreTypes = Union[Old_KeyStore, BIP32_KeyStore]
+SignableKeystoreTypes = Software_KeyStore | Hardware_KeyStore
+StandardKeystoreTypes = Old_KeyStore | BIP32_KeyStore

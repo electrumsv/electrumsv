@@ -43,7 +43,7 @@ import random
 import threading
 import time
 from typing import Any, AsyncIterable, Awaitable, Callable, cast, Coroutine, Iterable, Optional, \
-    Sequence, TypedDict, TypeVar, TYPE_CHECKING, Union
+    Sequence, TypedDict, TypeVar, TYPE_CHECKING
 import weakref
 
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
@@ -5207,7 +5207,7 @@ class Wallet:
 
         self._network = network
         self._chain_management_queue = asyncio.Queue[tuple[ChainManagementKind,
-            Union[tuple[Chain, list[bytes], list[Header]], tuple[Chain, list[Header]]]]]()
+            tuple[Chain, list[bytes], list[Header]] | tuple[Chain, list[Header]]]]()
         self._chain_management_interrupt_event = asyncio.Event()
         self._chain_worker_queue = asyncio.Queue[ChainWorkerToken]()
         self._is_chain_management_pending = False
