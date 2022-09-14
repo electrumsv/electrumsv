@@ -51,7 +51,7 @@ from aiohttp import WSServerHandshakeError
 from bitcoinx import hash_to_hex_str, PrivateKey, PublicKey
 
 from ..app_state import app_state
-from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, \
+from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag, \
     PushDataHashRegistrationFlag, ScriptType, ServerConnectionFlag, ServerPeerChannelFlag
 from ..exceptions import BadServerError, ServerConnectionError
 from ..logs import logs
@@ -59,16 +59,19 @@ from ..types import IndefiniteCredentialId, Outpoint, outpoint_struct, output_sp
     OutputSpend, tip_filter_list_struct, tip_filter_registration_struct, \
     tip_filter_unregistration_struct, TipFilterListEntry
 from ..util import get_posix_timestamp
-from ..wallet_database.types import PushDataHashRegistrationRow, ServerPeerChannelRow
+from ..wallet_database.types import PushDataHashRegistrationRow, ServerPeerChannelAccessTokenRow, \
+    ServerPeerChannelMessageRow, ServerPeerChannelRow
 
 from .constants import ServerProblemKind
 from .exceptions import AuthenticationError, FilterResponseInvalidError, \
     FilterResponseIncompleteError, GeneralAPIError, IndexerResponseMissingError, \
     InvalidStateError, TransactionNotFoundError
-from .peer_channel import create_peer_channel_locally_and_remotely_async, \
-    peer_channel_preconnection_async, peer_channel_server_connected_async
-from .types import AccountMessageKind, ChannelNotification, IndexerServerSettings, \
-    ServerConnectionState, ServerConnectionProblems, \
+from .peer_channel import create_peer_channel_api_token_async, create_peer_channel_async, \
+    delete_peer_channel_message_async, get_permissions_from_peer_channel_token, \
+    list_peer_channels_async, list_peer_channel_messages_async, \
+    mark_peer_channel_read_or_unread_async
+from .types import AccountMessageKind, ChannelNotification, GenericPeerChannelMessage, \
+    IndexerServerSettings, ServerConnectionState, ServerConnectionProblems, \
     TipFilterRegistrationJob, TipFilterRegistrationJobEntry, TipFilterRegistrationJobOutput, \
     TipFilterRegistrationResponse, VerifiableKeyData
 
@@ -662,6 +665,156 @@ async def _upgrade_server_connection_async(state: ServerConnectionState,
                     future.add_done_callback(partial(_on_server_connection_worker_task_done, state))
 
 
+async def peer_channel_preconnection_async(state: ServerConnectionState) -> None:
+    """
+    Do pre-connection checks and calls on the peer channel server, to prepare to connect and
+    also to validate that the server looks compatible.
+    """
+    assert state.wallet_data is not None
+
+    existing_channel_rows = state.wallet_data.read_server_peer_channels(state.server.server_id)
+    peer_channel_jsons = await list_peer_channels_async(state)
+
+    peer_channel_ids = { channel_json["id"] for channel_json in peer_channel_jsons }
+    all_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
+        for row in existing_channel_rows}
+    owned_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
+        for row in existing_channel_rows
+        if row.peer_channel_flags & ServerPeerChannelFlag.EXTERNALLY_OWNED == 0}
+    # TODO(1.4.0) Unreliable server, issue#841. Our peer channels differ from the server's.
+    # - Could be caused by a shared API key with another wallet.
+    # - This is likely to be caused by bad user choice and the wallet should only be
+    #   responsible for fixing anything related to it's mistakes.
+    # - Expired peer channels may need to be excluded.
+    # - We should mark peer channels as `CLOSING` and we can pick those up here and close
+    #   any we couldn't close when they were marked as such because of connection issues.
+    if set(peer_channel_ids) != set(owned_peer_channel_rows_by_id):
+        raise InvalidStateError("Mismatched peer channels, local and server")
+
+    state.cached_peer_channel_rows = all_peer_channel_rows_by_id
+
+    for peer_channel_row in existing_channel_rows:
+        assert peer_channel_row.remote_channel_id is not None
+        await state.peer_channel_message_queue.put(peer_channel_row.remote_channel_id)
+
+
+async def peer_channel_server_connected_async(state: ServerConnectionState) -> list[Future[None]]:
+    """
+    Start up peer channel processing logic for a server we have just connected to.
+
+    Raises nothing.
+    """
+    # All websocket futures are cancelled on server disconnection. This will interrupt the
+    # underlying task. These functions have been written so that they are either stateless or
+    # have other recovery logic elsewhere.
+
+    future = app_state.async_.spawn(process_incoming_peer_channel_messages_async(state))
+    state.websocket_futures.append(future)
+
+    return [ future ]
+
+
+async def process_incoming_peer_channel_messages_async(state: ServerConnectionState) -> None:
+    """
+    We raise server-related exceptions up and expect the connection management to deal with them.
+    All exceptions raised by this in the context of a connect are processed by
+    `_on_server_connection_worker_task_done`.
+
+    Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
+    Raises `ServerConnectionError` if the remote computer does not accept the connection.
+    """
+    assert state.usage_flags & NetworkServerFlag.USE_MESSAGE_BOX
+
+    # Typing related assertions.
+    assert state.wallet_data is not None
+    assert state.cached_peer_channel_rows is not None
+
+    assert state.wallet_proxy is not None
+    logger.debug("Entering process_incoming_peer_channel_messages_async, server_id=%d "
+                 "(Wallet='%s')", state.server.server_id, state.wallet_proxy.name())
+
+    while state.connection_flags & ServerConnectionFlag.EXITING == 0:
+        remote_channel_id = await state.peer_channel_message_queue.get()
+
+        peer_channel_row = state.cached_peer_channel_rows.get(remote_channel_id)
+        if peer_channel_row is None:
+            # TODO(1.4.0) Unreliable server, issue#841. Unexpected server peer channel activity.
+            #     a) The server is buggy and has sent us a message intended for someone else.
+            #     b) We are buggy and we have not correctly tracked peer channels.
+            #     We should flag this to the user in some user-friendly way as a reliability
+            #       indicator.
+            logger.error("Wallet: '%s' received peer channel notification for unknown channel '%s'",
+                state.wallet_proxy.name(), remote_channel_id)
+            continue
+        else:
+            logger.debug("Processing message for remote_channel_id=%s", remote_channel_id)
+
+        assert peer_channel_row.peer_channel_id is not None
+        relevant_token_flags = PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE
+        db_access_tokens = state.wallet_data.read_server_peer_channel_access_tokens(
+            peer_channel_row.peer_channel_id, None, relevant_token_flags)
+
+        assert len(db_access_tokens) == 1
+
+        messages = await list_peer_channel_messages_async(state, remote_channel_id,
+            db_access_tokens[0].access_token, unread_only=True)
+        if len(messages) == 0:
+            # This may happen legitimately if we had several new message notifications backlogged
+            # for the same channel, but processing a leading notification picks up the messages
+            # for the trailing notification.
+            logger.debug("Asked peer channel %d for new messages and received none",
+                peer_channel_row.peer_channel_id)
+            continue
+
+        date_created = get_posix_timestamp()
+        creation_message_rows = list[ServerPeerChannelMessageRow]()
+        message_map = dict[int, GenericPeerChannelMessage]()
+        for message in messages:
+            message_json_bytes = json.dumps(message).encode()
+            received_iso8601_text = message["received"].replace("Z", "+00:00")
+            received_datetime = datetime.fromisoformat(received_iso8601_text)
+            creation_message_rows.append(ServerPeerChannelMessageRow(None,
+                peer_channel_row.peer_channel_id, message_json_bytes,
+                PeerChannelMessageFlag.UNPROCESSED, message["sequence"],
+                int(received_datetime.timestamp()),
+                date_created, date_created))
+            message_map[message["sequence"]] = message
+
+        # These cached values are passed on to whatever other system processes these types of
+        # messages.
+        message_entries = list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]()
+        for message_row in await state.wallet_data.create_server_peer_channel_messages_async(
+                creation_message_rows):
+            message_entries.append((message_row, message_map[message_row.sequence]))
+
+        # Now that we have all these messages stored locally we can delete the remote copies.
+        for sequence in message_map:
+            # We must not delete messages from a shared mAPI channel because the other peer
+            # (payer or payee SPV wallet) will then be unable to read the merkle proof
+            if peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE == \
+                    ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
+                await mark_peer_channel_read_or_unread_async(state, remote_channel_id,
+                    db_access_tokens[0].access_token, sequence, older=False, is_read=True)
+            else:
+                await delete_peer_channel_message_async(state, remote_channel_id,
+                    db_access_tokens[0].access_token, sequence)
+
+        peer_channel_purpose = \
+            peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE
+        if peer_channel_purpose == ServerPeerChannelFlag.TIP_FILTER_DELIVERY:
+            await state.tip_filter_matches_queue.put(message_entries)
+        elif peer_channel_purpose == ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
+            state.mapi_callback_response_queue.put_nowait(message_entries)
+            state.mapi_callback_response_event.set()
+        else:
+            # TODO(1.4.0) Unreliable server, issue#841. Peer channel message is not expected.
+            logger.error("Wallet: '%s' received peer channel %d messages of unhandled purpose '%s'",
+                state.wallet_proxy.name(), peer_channel_row.peer_channel_id, peer_channel_purpose)
+
+    logger.debug("Exiting process_incoming_peer_channel_messages_async, server_id=%d",
+        state.server.server_id)
+
+
 def register_output_spends_async(state: ServerConnectionState) -> None:
     """
     Feed the initial state into the registration worker task.
@@ -1194,6 +1347,131 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
         #     servers with the same account.
         raise InvalidStateError("Unreliability. Local/remote indexer settings mismatch "+
             f"{settings_object} != {indexing_server_state.indexer_settings}")
+
+
+async def create_peer_channel_locally_and_remotely_async(
+        peer_channel_server_state: ServerConnectionState,
+        write_only_peer_channel_flag: ServerPeerChannelFlag,
+        write_only_access_token_flag: PeerChannelAccessTokenFlag,
+        read_only_peer_channel_flag: ServerPeerChannelFlag | None=None,
+        read_only_access_token_flag: PeerChannelAccessTokenFlag | None=None,
+        indexing_server_id: int | None=None) \
+            -> tuple[ServerPeerChannelRow, ServerPeerChannelAccessTokenRow,
+                     ServerPeerChannelAccessTokenRow | None]:
+    """
+    Via both `create_peer_channel_async` and `create_peer_channel_api_token_async`:
+        Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
+        Raises `ServerConnectionError` if the remote computer does not accept the connection.
+    """
+    assert peer_channel_server_state.wallet_proxy is not None
+    assert peer_channel_server_state.wallet_data is not None
+
+    wallet_data = peer_channel_server_state.wallet_data
+    peer_channel_server_id = peer_channel_server_state.server.server_id
+
+    date_created = get_posix_timestamp()
+    peer_channel_row = ServerPeerChannelRow(None, peer_channel_server_id, None, None,
+        ServerPeerChannelFlag.ALLOCATING | write_only_peer_channel_flag,
+        date_created, date_created)
+    peer_channel_id = await wallet_data.create_server_peer_channel_async(peer_channel_row,
+        indexing_server_id)
+    peer_channel_row = peer_channel_row._replace(peer_channel_id=peer_channel_id)
+
+    # Peer channel server: create the remotely hosted peer channel.
+    peer_channel_json = await create_peer_channel_async(peer_channel_server_state)
+    remote_peer_channel_id = peer_channel_json["id"]
+    peer_channel_url = peer_channel_json["href"]
+    logger.debug("Created peer channel %s for %s", remote_peer_channel_id,
+        write_only_peer_channel_flag)
+    assert peer_channel_server_state.cached_peer_channel_rows is not None
+    peer_channel_server_state.cached_peer_channel_rows[remote_peer_channel_id] = \
+        peer_channel_row
+
+    # Peer channel server: create a custom write-only access token for the channel, for
+    #    the use of the indexing server.
+    writeonly_token_json = await create_peer_channel_api_token_async(peer_channel_server_state,
+        remote_peer_channel_id, can_read=False, can_write=True, description="private")
+    assert peer_channel_row.peer_channel_id is not None
+    assert len(peer_channel_json["access_tokens"]) == 1
+    writeonly_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
+        write_only_access_token_flag,
+        get_permissions_from_peer_channel_token(writeonly_token_json),
+        writeonly_token_json["token"])
+
+    read_only_access_token = None
+    if read_only_peer_channel_flag is not None and read_only_access_token_flag is not None:
+        read_only_token_json = await create_peer_channel_api_token_async(peer_channel_server_state,
+            remote_peer_channel_id, can_read=True, can_write=False, description="readonly token")
+        assert peer_channel_row.peer_channel_id is not None
+        assert len(peer_channel_json["access_tokens"]) == 1
+        read_only_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
+            read_only_access_token_flag,
+            get_permissions_from_peer_channel_token(read_only_token_json),
+            read_only_token_json["token"])
+
+    default_channel_token = peer_channel_json["access_tokens"][0]
+    default_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
+        PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE,
+        get_permissions_from_peer_channel_token(default_channel_token),
+        default_channel_token["token"])
+
+    # Local database: Update for the server-side peer channel. Drop the `ALLOCATING` flag and
+    #     add the access token.
+    addable_access_tokens = [writeonly_access_token, default_access_token]
+    if read_only_access_token is not None:
+        addable_access_tokens.append(read_only_access_token)
+    peer_channel_row = await wallet_data.update_server_peer_channel_async(remote_peer_channel_id,
+        peer_channel_url, write_only_peer_channel_flag, peer_channel_id,
+        addable_access_tokens=addable_access_tokens)
+
+    return peer_channel_row, writeonly_access_token, read_only_access_token
+
+
+# async def add_external_peer_channel_async(
+#         peer_channel_server_state: ServerConnectionState,
+#         peer_channel_info: PeerChannelDict,
+#         indexing_server_id: int | None=None) \
+#             -> tuple[ServerPeerChannelRow, ServerPeerChannelAccessTokenRow]:
+#     """
+#     This is similar in function to the `create_peer_channel_locally_and_remotely_async` except
+#     that we are not the creator of the remote peer channel (the payee already created it)
+#     """
+#     assert peer_channel_server_state.wallet_proxy is not None
+#     assert peer_channel_server_state.wallet_data is not None
+
+#     wallet_data = peer_channel_server_state.wallet_data
+#     peer_channel_server_id = peer_channel_server_state.server.server_id
+
+#     date_created = get_posix_timestamp()
+#     remote_peer_channel_id = peer_channel_info['channel_id']
+#     remote_url = peer_channel_info['host']
+#     peer_channel_flags = ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK | \
+#                          ServerPeerChannelFlag.EXTERNALLY_OWNED
+#     peer_channel_row = ServerPeerChannelRow(None, peer_channel_server_id, remote_peer_channel_id,
+#         remote_url, peer_channel_flags, date_created, date_created)
+#     peer_channel_id = await wallet_data.create_server_peer_channel_async(peer_channel_row,
+#         indexing_server_id)
+#     peer_channel_row = peer_channel_row._replace(peer_channel_id=peer_channel_id)
+
+#     logger.debug("Added peer channel %s with flags: %s", remote_peer_channel_id,
+#         peer_channel_row.peer_channel_flags)
+#     assert peer_channel_server_state.cached_peer_channel_rows is not None
+#     peer_channel_server_state.cached_peer_channel_rows[remote_peer_channel_id] = \
+#         peer_channel_row
+
+#     # Record peer channel token in the database if it doesn't exist there already
+#     assert peer_channel_row.peer_channel_id is not None
+#     read_only_access_token_flag = PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE | \
+#                                   PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE
+#     read_only_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
+#         read_only_access_token_flag, TokenPermissions.READ_ACCESS, peer_channel_info['token'])
+
+#     # Add the read_only token
+#     peer_channel_row = await wallet_data.update_server_peer_channel_async(remote_peer_channel_id,
+#         remote_url, peer_channel_flags, peer_channel_id,
+#         addable_access_tokens=[read_only_access_token])
+
+#     return peer_channel_row, read_only_access_token
 
 
 async def get_server_indexer_settings(state: ServerConnectionState) -> IndexerServerSettings:

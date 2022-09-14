@@ -190,6 +190,16 @@ class ServerStateProtocol(Protocol):
         ...
 
 
+class PeerChannelServerState(ServerStateProtocol):
+    wallet_proxy: Wallet | None
+    wallet_data: WalletDataAccess | None
+    session: aiohttp.ClientSession
+    credential_id: IndefiniteCredentialId | None = None
+
+    def server_url(self) -> str:
+        return "self._external_channel_row.server_url_or_something"
+
+
 @dataclasses.dataclass
 class ServerConnectionState(ServerStateProtocol):
     petty_cash_account_id: int
@@ -199,8 +209,8 @@ class ServerConnectionState(ServerStateProtocol):
     session: aiohttp.ClientSession
     server: NewServer
 
-    credential_id: Optional[IndefiniteCredentialId] = None
-    cached_peer_channel_rows: Optional[dict[str, ServerPeerChannelRow]] = None
+    credential_id: IndefiniteCredentialId | None = None
+    cached_peer_channel_rows: dict[str, ServerPeerChannelRow] | None = None
 
     # This should only be used to send problems that occur that should result in the connection
     # being closed and the user informed.
@@ -208,7 +218,7 @@ class ServerConnectionState(ServerStateProtocol):
         default_factory=asyncio.Queue[tuple[ServerProblemKind, str]])
 
     # Incoming peer channel message notifications from the server.
-    indexer_settings: Optional[IndexerServerSettings] = None
+    indexer_settings: IndexerServerSettings | None = None
     # Server consuming: Post outpoints here to get them registered with the server.
     output_spend_registration_queue: asyncio.Queue[Sequence[Outpoint]] = dataclasses.field(
         default_factory=asyncio.Queue[Sequence[Outpoint]])

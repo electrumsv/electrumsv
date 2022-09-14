@@ -94,7 +94,6 @@ from .network_support.general_api import create_reference_server_account_async, 
     request_transaction_data_async, upgrade_server_connection_async
 from .network_support.headers import get_longest_valid_chain
 from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_fee_quotes_async
-from .network_support.peer_channel import add_external_peer_channel_async
 from .network_support.types import GenericPeerChannelMessage, ServerConnectionProblems, \
     ServerConnectionState, TipFilterPushDataMatchesData, TipFilterRegistrationJobOutput
 from .networks import Net
@@ -3961,11 +3960,13 @@ class Wallet:
         payment_ack = await send_outgoing_direct_payment_async(
             invoice_row.payment_uri, transaction.to_hex())
 
-        peer_channel_server_state = self.get_connection_state_for_usage(
-            NetworkServerFlag.USE_MESSAGE_BOX)
-        assert peer_channel_server_state is not None
-        await add_external_peer_channel_async(peer_channel_server_state,
-            payment_ack.peer_channel_info)
+        # This was wrong. We need to start up a custom connection for the payment ack using the
+        # new model.
+        # peer_channel_server_state = self.get_connection_state_for_usage(
+        #     NetworkServerFlag.USE_MESSAGE_BOX)
+        # assert peer_channel_server_state is not None
+        # await add_external_peer_channel_async(peer_channel_server_state,
+        #     payment_ack.peer_channel_info)
 
         await self.data.update_invoice_flags_async(
             [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
