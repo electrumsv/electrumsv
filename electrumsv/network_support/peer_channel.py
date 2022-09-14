@@ -53,7 +53,7 @@ from ..wallet_database.types import ServerPeerChannelRow, ServerPeerChannelAcces
     ServerPeerChannelMessageRow
 
 from .exceptions import GeneralAPIError, InvalidStateError
-from .types import GenericPeerChannelMessage, MessageViewModelGetBinary, \
+from .types import ServerStateProtocol, GenericPeerChannelMessage, MessageViewModelGetBinary, \
     PeerChannelAPITokenViewModelGet, PeerChannelViewModelGet,  RetentionViewModel, \
     ServerConnectionState, TokenPermissions
 
@@ -351,14 +351,14 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
         state.server.server_id)
 
 
-async def create_peer_channel_async(state: ServerConnectionState,
+async def create_peer_channel_async(state: ServerStateProtocol,
         public_read: bool=False, public_write: bool=True, sequenced: bool=True,
         retention: RetentionViewModel | None=None) -> PeerChannelViewModelGet:
     """
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
-    url = f"{state.server.url}api/v1/channel/manage"
+    url = f"{state.server_url}api/v1/channel/manage"
     body = {
         "public_read": public_read,
         "public_write": public_write,
@@ -390,17 +390,14 @@ async def create_peer_channel_async(state: ServerConnectionState,
         raise ServerConnectionError(f"Unable to establish server connection: {url}")
 
 
-async def mark_peer_channel_read_or_unread_async(state: ServerConnectionState,
+async def mark_peer_channel_read_or_unread_async(state: ServerStateProtocol,
         remote_channel_id: str, access_token: str, sequence: int, older: bool, is_read: bool) \
             -> None:
     """
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
-    assert state.wallet_proxy is not None
-    assert state.wallet_data is not None
-
-    url = f"{state.server.url}api/v1/channel/{remote_channel_id}/{sequence}"
+    url = f"{state.server_url}api/v1/channel/{remote_channel_id}/{sequence}"
     headers = {
         "Authorization": f"Bearer {access_token}"
     }
@@ -422,7 +419,7 @@ async def mark_peer_channel_read_or_unread_async(state: ServerConnectionState,
         raise ServerConnectionError(f"Unable to establish server connection: {url}")
 
 
-async def get_peer_channel_async(state: ServerConnectionState, remote_channel_id: str) \
+async def get_peer_channel_async(state: ServerStateProtocol, remote_channel_id: str) \
         -> PeerChannelViewModelGet:
     """
     Use the reference peer channel implementation API for getting a specific peer channel.
@@ -430,7 +427,7 @@ async def get_peer_channel_async(state: ServerConnectionState, remote_channel_id
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
-    server_url = f"{state.server.url}api/v1/channel/manage/{remote_channel_id}"
+    server_url = f"{state.server_url}api/v1/channel/manage/{remote_channel_id}"
     assert state.credential_id is not None
     master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     headers = {"Authorization": f"Bearer {master_token}"}
@@ -448,14 +445,14 @@ async def get_peer_channel_async(state: ServerConnectionState, remote_channel_id
         raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
-async def list_peer_channels_async(state: ServerConnectionState) -> list[PeerChannelViewModelGet]:
+async def list_peer_channels_async(state: ServerStateProtocol) -> list[PeerChannelViewModelGet]:
     """
     Use the reference peer channel implementation API for listing peer channels.
 
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
-    server_url = f"{state.server.url}api/v1/channel/manage/list"
+    server_url = f"{state.server_url}api/v1/channel/manage/list"
     assert state.credential_id is not None
     master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     headers = {"Authorization": f"Bearer {master_token}"}
@@ -474,7 +471,7 @@ async def list_peer_channels_async(state: ServerConnectionState) -> list[PeerCha
         raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
-async def delete_peer_channel_async(state: ServerConnectionState, remote_channel_id: str) \
+async def delete_peer_channel_async(state: ServerStateProtocol, remote_channel_id: str) \
         -> None:
     """
     Use the reference peer channel implementation API for deleting peer channels.
@@ -482,7 +479,7 @@ async def delete_peer_channel_async(state: ServerConnectionState, remote_channel
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
-    server_url = f"{state.server.url}api/v1/channel/manage/{remote_channel_id}"
+    server_url = f"{state.server_url}api/v1/channel/manage/{remote_channel_id}"
     assert state.credential_id is not None
     master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     headers = {"Authorization": f"Bearer {master_token}"}
@@ -499,11 +496,11 @@ async def delete_peer_channel_async(state: ServerConnectionState, remote_channel
         raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
-async def create_peer_channel_message_json_async(state: ServerConnectionState,
+async def create_peer_channel_message_json_async(state: ServerStateProtocol,
         remote_channel_id: str, access_token: str, message: dict[str, Any]) \
             -> GenericPeerChannelMessage | None:
     """returns sequence number"""
-    server_url = f"{state.server.url}api/v1/channel/{remote_channel_id}"
+    server_url = f"{state.server_url}api/v1/channel/{remote_channel_id}"
     headers = {
         "Content-Type": "application/json",
         "Authorization": f"Bearer {access_token}"
@@ -525,10 +522,10 @@ async def create_peer_channel_message_json_async(state: ServerConnectionState,
         raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
-async def create_peer_channel_message_binary_async(state: ServerConnectionState,
+async def create_peer_channel_message_binary_async(state: ServerStateProtocol,
         remote_channel_id: str, access_token: str, message: bytes) -> MessageViewModelGetBinary:
     """returns sequence number"""
-    server_url = f"{state.server.url}api/v1/channel/{remote_channel_id}"
+    server_url = f"{state.server_url}api/v1/channel/{remote_channel_id}"
     headers = {
         "Content-Type": "application/octet-stream",
         "Authorization": f"Bearer {access_token}"
@@ -548,7 +545,7 @@ async def create_peer_channel_message_binary_async(state: ServerConnectionState,
         raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
-async def list_peer_channel_messages_async(state: ServerConnectionState, remote_channel_id: str,
+async def list_peer_channel_messages_async(state: ServerStateProtocol, remote_channel_id: str,
         access_token: str, unread_only: bool=False) -> list[GenericPeerChannelMessage]:
     """
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
@@ -557,7 +554,7 @@ async def list_peer_channel_messages_async(state: ServerConnectionState, remote_
     WARNING: This does not set the messages to read when it reads them.. that needs to be done
         manually after this call with another to `mark_peer_channel_read_or_unread`.
     """
-    url = f"{state.server.url}api/v1/channel/{remote_channel_id}"
+    url = f"{state.server_url}api/v1/channel/{remote_channel_id}"
     headers = {
         "Authorization": f"Bearer {access_token}"
     }
@@ -579,7 +576,7 @@ async def list_peer_channel_messages_async(state: ServerConnectionState, remote_
         raise ServerConnectionError(f"Unable to establish server connection: {url}")
 
 
-async def delete_peer_channel_message_async(state: ServerConnectionState, remote_channel_id: str,
+async def delete_peer_channel_message_async(state: ServerStateProtocol, remote_channel_id: str,
         access_token: str, sequence: int) -> None:
     """
     Use the reference peer channel implementation API for deleting a message in a peer channel.
@@ -587,7 +584,7 @@ async def delete_peer_channel_message_async(state: ServerConnectionState, remote
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
-    server_url = f"{state.server.url}api/v1/channel/{remote_channel_id}/{sequence}"
+    server_url = f"{state.server_url}api/v1/channel/{remote_channel_id}/{sequence}"
     headers = {"Authorization": f"Bearer {access_token}"}
     try:
         async with state.session.delete(server_url, headers=headers) as response:
@@ -602,14 +599,14 @@ async def delete_peer_channel_message_async(state: ServerConnectionState, remote
         raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
-async def create_peer_channel_api_token_async(state: ServerConnectionState, channel_id: str,
+async def create_peer_channel_api_token_async(state: ServerStateProtocol, channel_id: str,
         can_read: bool=True, can_write: bool=True, description: str="standard token") \
             -> PeerChannelAPITokenViewModelGet:
     """
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
-    url = f"{state.server.url}api/v1/channel/manage/{channel_id}/api-token"
+    url = f"{state.server_url}api/v1/channel/manage/{channel_id}/api-token"
     assert state.credential_id is not None
     master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     headers = {"Authorization": f"Bearer {master_token}"}
@@ -633,7 +630,7 @@ async def create_peer_channel_api_token_async(state: ServerConnectionState, chan
         raise ServerConnectionError(f"Unable to establish server connection: {url}")
 
 
-async def list_peer_channel_api_tokens_async(state: ServerConnectionState, remote_channel_id: str) \
+async def list_peer_channel_api_tokens_async(state: ServerStateProtocol, remote_channel_id: str) \
         -> list[PeerChannelAPITokenViewModelGet]:
     """
     Use the reference peer channel implementation API for listing peer channel access tokens.
@@ -641,7 +638,7 @@ async def list_peer_channel_api_tokens_async(state: ServerConnectionState, remot
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
-    server_url = f"{state.server.url}api/v1/channel/manage/{remote_channel_id}/api-token"
+    server_url = f"{state.server_url}api/v1/channel/manage/{remote_channel_id}/api-token"
     assert state.credential_id is not None
     master_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     headers = {"Authorization": f"Bearer {master_token}"}
@@ -660,9 +657,9 @@ async def list_peer_channel_api_tokens_async(state: ServerConnectionState, remot
         raise ServerConnectionError(f"Unable to establish server connection: {server_url}")
 
 
-async def get_peer_channel_max_sequence_number_async(state: ServerConnectionState,
+async def get_peer_channel_max_sequence_number_async(state: ServerStateProtocol,
         remote_channel_id: str, access_token: str) -> int | None:
-    server_url = f"{state.server.url}api/v1/channel/{remote_channel_id}"
+    server_url = f"{state.server_url}api/v1/channel/{remote_channel_id}"
     headers = {"Authorization": f"Bearer {access_token}"}
 
     try:

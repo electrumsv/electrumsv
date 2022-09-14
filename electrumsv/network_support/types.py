@@ -10,7 +10,7 @@ import concurrent.futures
 import dataclasses
 import enum
 from enum import IntFlag
-from typing import Any, NamedTuple, Optional, Sequence, TYPE_CHECKING, TypedDict
+from typing import Any, NamedTuple, Optional, Protocol, Sequence, TYPE_CHECKING, TypedDict
 
 import aiohttp
 from aiohttp import ClientWebSocketResponse
@@ -180,12 +180,22 @@ ServerConnectionProblem = tuple[ServerProblemKind, str]
 ServerConnectionProblems = dict[ServerProblemKind, list[str]]
 
 
+class ServerStateProtocol(Protocol):
+    session: aiohttp.ClientSession
+
+    credential_id: IndefiniteCredentialId | None
+
+    @property
+    def server_url(self) -> str:
+        ...
+
+
 @dataclasses.dataclass
-class ServerConnectionState:
+class ServerConnectionState(ServerStateProtocol):
     petty_cash_account_id: int
     usage_flags: NetworkServerFlag
-    wallet_proxy: Optional[Wallet]
-    wallet_data: Optional[WalletDataAccess]
+    wallet_proxy: Wallet | None
+    wallet_data: WalletDataAccess | None
     session: aiohttp.ClientSession
     server: NewServer
 
@@ -254,6 +264,10 @@ class ServerConnectionState:
     # Server websocket-related futures.
     websocket_futures: list[concurrent.futures.Future[None]] = dataclasses.field(
         default_factory=list[concurrent.futures.Future[None]])
+
+    @property
+    def server_url(self) -> str:
+        return self.server.url
 
     @property
     def used_with_reference_server_api(self) -> bool:
