@@ -811,21 +811,12 @@ async def _upgrade_server_connection_async(state: ServerConnectionState,
                     future.add_done_callback(partial(_on_server_connection_worker_task_done, state))
 
 
-async def peer_channel_preconnection_async(state: ServerConnectionState) -> None:
-    """
-    Do pre-connection checks and calls on the peer channel server, to prepare to connect and
-    also to validate that the server looks compatible.
-    """
-    assert state.wallet_data is not None
-
-    existing_channel_rows = state.wallet_data.read_server_peer_channels(state.server.server_id)
+async def check_local_vs_remote_state_ok(state: ServerConnectionState,
+        existing_channel_rows: list[ServerPeerChannelRow]) -> None:
     peer_channel_jsons = await list_peer_channels_async(state)
-
     peer_channel_ids = { channel_json["id"] for channel_json in peer_channel_jsons }
-    all_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
-        for row in existing_channel_rows}
     owned_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
-        for row in existing_channel_rows}
+        for row in existing_channel_rows }
     # TODO(1.4.0) Unreliable server, issue#841. Our peer channels differ from the server's.
     # - Could be caused by a shared API key with another wallet.
     # - This is likely to be caused by bad user choice and the wallet should only be
@@ -835,9 +826,22 @@ async def peer_channel_preconnection_async(state: ServerConnectionState) -> None
     #   any we couldn't close when they were marked as such because of connection issues.
     if set(peer_channel_ids) != set(owned_peer_channel_rows_by_id):
         raise InvalidStateError("Mismatched peer channels, local and server")
+    return
 
+
+async def peer_channel_preconnection_async(state: ServerConnectionState) -> None:
+    """
+    Do pre-connection checks and calls on the peer channel server, to prepare to connect and
+    also to validate that the server looks compatible.
+    raises `InvalidStateError` if local vs remote state check fails
+    """
+    assert state.wallet_data is not None
+    existing_channel_rows = state.wallet_data.read_server_peer_channels(state.server.server_id)
+    all_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
+        for row in existing_channel_rows}
+    if state.used_with_reference_server_api:
+        await check_local_vs_remote_state_ok(state, existing_channel_rows)
     state.cached_peer_channel_rows = all_peer_channel_rows_by_id
-
     for peer_channel_row in existing_channel_rows:
         assert peer_channel_row.remote_channel_id is not None
         await state.peer_channel_message_queue.put(peer_channel_row.remote_channel_id)
@@ -1491,6 +1495,7 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
         assert len(db_access_tokens) == 1
         tip_filter_access_token = db_access_tokens[0]
     else:
+        assert peer_channel_server_state.cached_peer_channel_rows is not None
         peer_channel_row, tip_filter_access_token, read_only_access_token = \
             await create_peer_channel_locally_and_remotely_async(
                 peer_channel_server_state, ServerPeerChannelFlag.TIP_FILTER_DELIVERY,
@@ -1552,6 +1557,7 @@ async def create_peer_channel_locally_and_remotely_async(
     # Peer channel server: create the remotely hosted peer channel.
     peer_channel_json = await create_peer_channel_async(peer_channel_server_state)
     remote_peer_channel_id = peer_channel_json["id"]
+    peer_channel_row = peer_channel_row._replace(remote_channel_id=remote_peer_channel_id)
     peer_channel_url = peer_channel_json["href"]
     logger.debug("Created peer channel %s for %r", remote_peer_channel_id,
         peer_channel_row.peer_channel_flags)

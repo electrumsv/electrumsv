@@ -4521,11 +4521,6 @@ class Wallet:
                     block_hash = double_sha256(proof.block_header_bytes)
                     header_match = self.lookup_header_for_hash(block_hash)
                     if header_match is None:
-                        # yield event loop in the hopes that we get the chain tip notification soon
-                        await asyncio.sleep(0.5)
-
-                    header_match = self.lookup_header_for_hash(block_hash)
-                    if header_match is None:
                         self._logger.debug("Missing header for merkle proof with block hash: '%s'."
                                            "Using ",
                             hash_to_hex_str(proof.block_header_bytes))
