@@ -52,17 +52,17 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
-    KeyInstanceRow, KeyListRow, MasterKeyRow, MAPIBroadcastRow,
-    NetworkServerRow, PasswordUpdateResult, PaymentRequestRow, PaymentRequestOutputRow,
+    KeyInstanceRow, KeyListRow, MasterKeyRow, MAPIBroadcastRow, NetworkServerRow,
+    PasswordUpdateResult, PaymentRequestRow, PaymentRequestOutputRow,
     PaymentRequestTransactionHashRow, PaymentRequestUpdateRow, MerkleProofUpdateRow,
     PushDataMatchMetadataRow, PushDataMatchRow, PushDataHashRegistrationRow,
     ServerPeerChannelAccessTokenRow, ServerPeerChannelRow, ServerPeerChannelMessageRow,
     SpendConflictType, SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
     TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
-    TransactionOutputSpendableRow, TransactionValueRow,
-    TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow,
-    TxProofData, TransactionProofUpdateRow, TransactionRow, MerkleProofRow, WalletBalance,
-    WalletDataRow, WalletEventInsertRow, WalletEventRow, DPPMessageRow)
+    TransactionOutputSpendableRow, TransactionValueRow, TransactionOutputFullRow,
+    TransactionOutputShortRow, TransactionProoflessRow, TxProofData, TransactionProofUpdateRow,
+    TransactionRow, MerkleProofRow, WalletBalance, WalletDataRow, WalletEventInsertRow,
+    WalletEventRow, DPPMessageRow, ExternalPeerChannelRow)
 from .util import flag_clause
 
 logger = logs.get_logger("db-functions")
@@ -1442,6 +1442,30 @@ def create_server_peer_channel_write(row: ServerPeerChannelRow,
     return peer_channel_id
 
 
+def create_external_peer_channel_write(row: ExternalPeerChannelRow,
+        db: Optional[sqlite3.Connection]=None) -> int:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    flags = row.peer_channel_flags
+    # Ensure the inserted record gets an automatically allocated primary key.
+    assert row.peer_channel_id is None
+    # Ensure the remote id is only non-`None` outside of allocation operations.
+    assert row.remote_channel_id is None or flags & ServerPeerChannelFlag.ALLOCATING == 0
+    # Ensure the remote id is only `None` in an allocation operation.
+    assert row.remote_channel_id is not None or flags & ServerPeerChannelFlag.ALLOCATING != 0
+
+    sql = """
+        INSERT INTO ExternalPeerChannels (peer_channel_id, invoice_id, remote_channel_id,
+            remote_url, peer_channel_flags, date_created, date_updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        RETURNING peer_channel_id
+    """
+    insert_result_1 = db.execute(sql, row).fetchone()
+    if insert_result_1 is None:
+        raise DatabaseUpdateError(f"Failed creating new server peer channel {row}")
+    peer_channel_id = cast(int, insert_result_1[0])
+    return peer_channel_id
+
+
 @replace_db_context_with_connection
 def read_server_peer_channels(db: sqlite3.Connection, server_id: int | None=None,
         peer_channel_id: int | None=None) -> list[ServerPeerChannelRow]:
@@ -1468,6 +1492,36 @@ def read_server_peer_channels(db: sqlite3.Connection, server_id: int | None=None
 
     cursor = db.execute(sql, sql_values)
     return [ ServerPeerChannelRow(row[0], row[1], row[2], row[3], ServerPeerChannelFlag(row[4]),
+        row[5], row[6]) for row in cursor.fetchall() ]
+
+
+@replace_db_context_with_connection
+def read_external_peer_channels(db: sqlite3.Connection, remote_channel_id: str | None=None,
+        peer_channel_flags: ServerPeerChannelFlag | None = None,
+        mask: ServerPeerChannelFlag | None = None) -> list[ExternalPeerChannelRow]:
+    sql = """
+        SELECT peer_channel_id, invoice_id, remote_channel_id, remote_url, peer_channel_flags,
+            date_created, date_updated
+        FROM ExternalPeerChannels
+        """
+    sql_values: list[Any] = []
+    where_clause = False
+    if remote_channel_id is not None:
+        sql += "WHERE remote_channel_id=? "
+        sql_values.append(remote_channel_id)
+        where_clause = True
+
+    clause, extra_values = flag_clause("peer_channel_flags", peer_channel_flags, mask)
+    if clause:
+        if where_clause:
+            sql += f"AND {clause}"
+        else:
+            sql += f"WHERE {clause} "
+            where_clause = True
+        sql_values.extend(extra_values)
+
+    cursor = db.execute(sql, sql_values)
+    return [ ExternalPeerChannelRow(row[0], row[1], row[2], row[3], ServerPeerChannelFlag(row[4]),
         row[5], row[6]) for row in cursor.fetchall() ]
 
 
@@ -1498,6 +1552,37 @@ def update_server_peer_channel_write(remote_channel_id: Optional[str],
 
     return result_row
 
+
+
+def update_external_peer_channel_write(remote_channel_id: Optional[str],
+        remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
+        peer_channel_id: int, addable_access_tokens: list[ServerPeerChannelAccessTokenRow],
+        db: Optional[sqlite3.Connection]=None) -> ExternalPeerChannelRow:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql = """
+        UPDATE ExternalPeerChannels
+        SET remote_channel_id=?, remote_url=?, peer_channel_flags=?
+        WHERE peer_channel_id=?
+        RETURNING peer_channel_id, invoice_id, remote_channel_id, remote_url, peer_channel_flags,
+            date_created, date_updated
+    """
+    cursor = db.execute(sql, (remote_channel_id, remote_url, peer_channel_flags,
+        peer_channel_id))
+    assert cursor.rowcount == 1
+    row = cursor.fetchone()
+    result_row = ExternalPeerChannelRow(row[0], row[1], row[2], row[3],
+        ServerPeerChannelFlag(row[4]), row[5], row[6])
+
+    if len(addable_access_tokens) > 0:
+        sql = "INSERT INTO ExternalPeerChannelAccessTokens (peer_channel_id, " \
+            "token_flags, permission_flags, access_token) VALUES (?,?,?,?)"
+        cursor = db.executemany(sql, addable_access_tokens)
+        assert cursor.rowcount == len(addable_access_tokens)
+
+    return result_row
+
+
+
 def update_server_peer_channel_message_flags_write(processed_message_ids: list[int],
         db: Optional[sqlite3.Connection]=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
@@ -1523,12 +1608,47 @@ def read_server_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_
         for row in db.execute(sql, sql_values).fetchall() ]
 
 
+@replace_db_context_with_connection
+def read_external_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_id: int,
+        mask: Optional[PeerChannelAccessTokenFlag], flags: Optional[PeerChannelAccessTokenFlag]) \
+            -> list[ServerPeerChannelAccessTokenRow]:
+    sql = "SELECT peer_channel_id, token_flags, permission_flags, access_token " \
+        "FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
+    sql_values: list[Any] = [peer_channel_id]
+    clause, extra_values = flag_clause("token_flags", flags, mask)
+    if clause:
+        sql += " AND "+ clause
+        sql_values.extend(extra_values)
+
+    return [ ServerPeerChannelAccessTokenRow(*row)
+        for row in db.execute(sql, sql_values).fetchall() ]
+
+
 def create_server_peer_channel_messages_write(create_rows: list[ServerPeerChannelMessageRow],
         db: Optional[sqlite3.Connection]=None) -> list[ServerPeerChannelMessageRow]:
     assert db is not None
 
     insert_prefix_sql = """
         INSERT INTO ServerPeerChannelMessages (message_id, peer_channel_id, message_data,
+            message_flags, sequence, date_received, date_created, date_updated)
+        VALUES
+    """
+    insert_suffix_sql = """
+        RETURNING message_id, peer_channel_id, message_data, message_flags, sequence,
+            date_received, date_created, date_updated
+    """
+    # Remember we cannot just return the `message_id` and substitute it into the source row
+    # because SQLite cannot guarantee the row order matches the returned assigned id order.
+    return bulk_insert_returning(ServerPeerChannelMessageRow, db, insert_prefix_sql,
+        insert_suffix_sql, create_rows)
+
+
+def create_external_peer_channel_messages_write(create_rows: list[ServerPeerChannelMessageRow],
+        db: Optional[sqlite3.Connection]=None) -> list[ServerPeerChannelMessageRow]:
+    assert db is not None
+
+    insert_prefix_sql = """
+        INSERT INTO ExternalPeerChannelMessages (message_id, peer_channel_id, message_data,
             message_flags, sequence, date_received, date_created, date_updated)
         VALUES
     """

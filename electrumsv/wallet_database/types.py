@@ -555,6 +555,17 @@ class ServerPeerChannelRow(NamedTuple):
     date_updated: int
 
 
+class ExternalPeerChannelRow(NamedTuple):
+    peer_channel_id: int | None
+    invoice_id: int
+    remote_channel_id: str | None
+    remote_url: str | None
+    peer_channel_flags: ServerPeerChannelFlag
+    date_created: int
+    date_updated: int
+
+
+# Used for both owned and externally owned peer channel tables
 class ServerPeerChannelAccessTokenRow(NamedTuple):
     peer_channel_id: int
     token_flags: PeerChannelAccessTokenFlag
@@ -562,6 +573,7 @@ class ServerPeerChannelAccessTokenRow(NamedTuple):
     access_token: str
 
 
+# Used for both owned and externally owned peer channel tables
 class ServerPeerChannelMessageRow(NamedTuple):
     message_id: int | None
     peer_channel_id: int

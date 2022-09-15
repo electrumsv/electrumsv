@@ -564,10 +564,8 @@ class ServerPeerChannelFlag(IntFlag):
     TIP_FILTER_DELIVERY                         = 0b001 << 16
     MAPI_BROADCAST_CALLBACK                     = 0b010 << 16
 
-    # These channels will not be returned by `list_peer_channels_async`
-    # as these channels were not created by us. Relevant in `peer_channel_preconnection_async`
-    # where it performs sanity checks of database state vs remote server state
-    EXTERNALLY_OWNED                           = 0b001 << 18
+    # NOTE: This flag for marking a channel "deactivated" is not yet in use - AustEcon
+    DEACTIVATED                                = 0b010 << 18
 
     MASK_PURPOSE                                = 0b111 << 16
 
