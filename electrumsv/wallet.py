@@ -88,16 +88,17 @@ from .network_support.dpp_proxy import _is_later_dpp_message_sequence, \
     MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
-from .network_support.general_api import add_external_peer_channel_async, \
-    create_reference_server_account_async, create_tip_filter_registration_async, \
-    delete_tip_filter_registration_async, maintain_server_connection_async, \
-    request_binary_merkle_proof_async, request_transaction_data_async, \
-    upgrade_server_connection_async, maintain_external_peer_channel_connection_async
+from .network_support.general_api import create_reference_server_account_async, \
+    create_tip_filter_registration_async, delete_tip_filter_registration_async, \
+    maintain_server_connection_async, request_binary_merkle_proof_async, \
+    request_transaction_data_async, upgrade_server_connection_async
+from .network_support.peer_channel import add_external_peer_channel_async, \
+    maintain_external_peer_channel_connection_async, delete_peer_channel_async
 from .network_support.headers import get_longest_valid_chain
 from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_fee_quotes_async
 from .network_support.types import GenericPeerChannelMessage, ServerConnectionProblems, \
     ServerConnectionState, TipFilterPushDataMatchesData, TipFilterRegistrationJobOutput, \
-    PeerChannelServerState
+    PeerChannelServerState, ServerStateProtocol
 from .networks import Net
 from .restapi_websocket import broadcast_restapi_event_async, BroadcastEventNames, \
     BroadcastEventPayloadNames, close_restapi_connection_async
@@ -1874,6 +1875,11 @@ class WalletDataAccess:
     def delete_invoices(self, entries: Iterable[tuple[int]]) -> concurrent.futures.Future[None]:
         return db_functions.delete_invoices(self._db_context, entries)
 
+    def delete_peer_channels_for_peer_channel_ids(self, peer_channel_ids: list[int]) \
+            -> concurrent.futures.Future[None]:
+        return db_functions.delete_peer_channels_for_peer_channel_ids(self._db_context,
+            peer_channel_ids)
+
     async def create_invoice_proxy_message_async(self, dpp_messages: list[DPPMessageRow]) -> None:
         await self._db_context.run_in_thread_async(db_functions.create_dpp_messages, dpp_messages)
 
@@ -2404,8 +2410,9 @@ class Wallet:
         self._worker_task_initialise_headers: concurrent.futures.Future[None] | None = None
         self._worker_task_manage_server_connections: concurrent.futures.Future[None] | None = None
         self._worker_task_manage_dpp_connections: Optional[concurrent.futures.Future[None]] = None
-        self._worker_tasks_maintain_server_connection = dict[int, list[ServerConnectionState |
-            PeerChannelServerState]]()
+        self._worker_tasks_maintain_server_connection = dict[int, list[ServerConnectionState]]()
+        self._worker_tasks_external_peer_channel_connections = \
+            dict[int, list[PeerChannelServerState]]()
         self._worker_task_chain_management: concurrent.futures.Future[None] | None = None
         self._worker_task_obtain_transactions: concurrent.futures.Future[None] | None = None
         self._worker_task_obtain_merkle_proofs: concurrent.futures.Future[None] | None = None
@@ -4018,11 +4025,11 @@ class Wallet:
 
         # Should this have its own dedicated connection cache for cancellation on shutdown?
         account_id = self._petty_cash_account.get_id()
-        if self._worker_tasks_maintain_server_connection[account_id] is not None:
-            self._worker_tasks_maintain_server_connection[self._petty_cash_account.get_id()]\
+        if self._worker_tasks_external_peer_channel_connections.get(account_id) is not None:
+            self._worker_tasks_external_peer_channel_connections[account_id]\
                 .append(peer_channel_server_state)
         else:
-            self._worker_tasks_maintain_server_connection[self._petty_cash_account.get_id()] = \
+            self._worker_tasks_external_peer_channel_connections[account_id] = \
                 [(peer_channel_server_state)]
 
 
@@ -4042,6 +4049,7 @@ class Wallet:
         payment_ack = await send_outgoing_direct_payment_async(
             invoice_row.payment_uri, transaction.to_hex())
 
+        assert payment_ack.peer_channel_info is not None
         await self.subscribe_to_external_peer_channel(payment_ack.peer_channel_info, invoice_id)
         await self.data.update_invoice_flags_async(
             [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
@@ -4177,7 +4185,7 @@ class Wallet:
             await self.subscribe_to_external_peer_channel(peer_channel_info,
                 external_peer_channel_row.invoice_id)
 
-    def _maintain_server_connection_done(self, state: ServerConnectionState,
+    def _maintain_server_connection_done(self, state: ServerStateProtocol,
             future: concurrent.futures.Future[ServerConnectionProblems]) -> None:
         """
         The task that establishes the connection and manages it has exited.
@@ -4386,10 +4394,6 @@ class Wallet:
         petty_cash_account_id = self._petty_cash_account.get_id()
         if petty_cash_account_id in self._worker_tasks_maintain_server_connection:
             for state in self._worker_tasks_maintain_server_connection[petty_cash_account_id]:
-                if isinstance(state, PeerChannelServerState):
-                    continue
-
-                assert isinstance(state, ServerConnectionState)
                 if state.usage_flags & usage_flags != 0:
                     return state
         return None
@@ -4408,8 +4412,7 @@ class Wallet:
             server_state = self.get_connection_state_for_usage(usage_flags)
         return server_state
 
-    async def _consume_mapi_callback_messages_async(self,
-            state: ServerConnectionState | PeerChannelServerState) -> None:
+    async def _consume_mapi_callback_messages_async(self, state: ServerStateProtocol) -> None:
         """
         Process MAPI callback messages received from a server.
 
@@ -4521,9 +4524,8 @@ class Wallet:
                     block_hash = double_sha256(proof.block_header_bytes)
                     header_match = self.lookup_header_for_hash(block_hash)
                     if header_match is None:
-                        self._logger.debug("Missing header for merkle proof with block hash: '%s'."
-                                           "Using ",
-                            hash_to_hex_str(proof.block_header_bytes))
+                        self._logger.debug("Missing header for merkle proof with block hash: '%s'.",
+                            hash_to_hex_str(proof.block_hash))
                         # Reasons why we are here:
                         # - This header is on the wallet's current chain but it is on the
                         #   unprocessed tip. This falls to the headerless proof worker to resolve
@@ -4758,6 +4760,19 @@ class Wallet:
                     error_reason = broadcast_response['resultDescription']
                     dpp_err_message = dpp_make_payment_error(message_row, error_reason)
                     asyncio.create_task(dpp_websocket_send(state, dpp_err_message))
+
+                    # Delete the now unused peer channel
+                    remote_peer_channel_id_for_deletion = \
+                        broadcast_response.get('remote_channel_id')
+                    if remote_peer_channel_id_for_deletion is not None:
+                        assert peer_channel_server_state is not None
+                        await delete_peer_channel_async(peer_channel_server_state,
+                            remote_peer_channel_id_for_deletion)
+
+                    peer_channel_id_for_deletion = broadcast_response.get('peer_channel_id')
+                    if peer_channel_id_for_deletion is not None:
+                        self.data.delete_peer_channels_for_peer_channel_ids(
+                            [peer_channel_id_for_deletion])
 
             # ----- States for when we are the Payer ----- #
             # NOTE: Not included because when we are the ** Payer **, we use the simplified
@@ -5340,16 +5355,26 @@ class Wallet:
                 if state.connection_future is not None:
                     state.connection_future.cancel()
                     pending_futures.add(state.connection_future)
-
-                if state.used_with_reference_server_api:
-                    assert isinstance(state, ServerConnectionState)
-                    if state.output_spends_consumer_future is not None:
-                        state.output_spends_consumer_future.cancel()
-                        pending_futures.add(state.output_spends_consumer_future)
-                    if state.tip_filter_consumer_future is not None:
-                        state.tip_filter_consumer_future.cancel()
-                        pending_futures.add(state.tip_filter_consumer_future)
+                if state.output_spends_consumer_future is not None:
+                    state.output_spends_consumer_future.cancel()
+                    pending_futures.add(state.output_spends_consumer_future)
+                if state.tip_filter_consumer_future is not None:
+                    state.tip_filter_consumer_future.cancel()
+                    pending_futures.add(state.tip_filter_consumer_future)
         del self._worker_tasks_maintain_server_connection
+
+        for account_id in \
+                list(self._worker_tasks_external_peer_channel_connections):
+            for externally_owned_state in \
+                    self._worker_tasks_external_peer_channel_connections.pop(account_id):
+                # This was signalled to exit by the chain management interrupt event.
+                if externally_owned_state.mapi_callback_consumer_future is not None:
+                    pending_futures.add(externally_owned_state.mapi_callback_consumer_future)
+                # These are manually cancelled and it should be safe to do so.
+                if externally_owned_state.connection_future is not None:
+                    externally_owned_state.connection_future.cancel()
+                    pending_futures.add(externally_owned_state.connection_future)
+        del self._worker_tasks_external_peer_channel_connections
 
         total_wait = 0.0
         while len(pending_futures) > 0 and total_wait < 5.0:

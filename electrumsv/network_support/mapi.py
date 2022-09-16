@@ -54,7 +54,8 @@ from ..standards.mapi import MAPIBroadcastResponse, validate_mapi_broadcast_resp
 from ..standards.json_envelope import JSONEnvelope, validate_json_envelope
 from ..transaction import Transaction
 from ..types import ServerAndCredential
-from ..wallet_database.types import MAPIBroadcastRow, ServerPeerChannelAccessTokenRow
+from ..wallet_database.types import MAPIBroadcastRow, ServerPeerChannelAccessTokenRow, \
+    ServerPeerChannelRow
 
 from .api_server import RequestFeeQuoteResult
 from .general_api import create_peer_channel_locally_and_remotely_async
@@ -205,6 +206,7 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
     """
     peer_channel_id: int | None = None
     peer_channel_callback: PeerChannelCallback | None = None
+    peer_channel_row: ServerPeerChannelRow | None = None
     if peer_channel_server_state is not None:
         third_party_token_flags = PeerChannelAccessTokenFlag.FOR_THIRD_PARTY_USAGE
         peer_channel_row, mapi_write_token, read_only_token = \
@@ -243,6 +245,10 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
             mapi_broadcast_result['resultDescription'] != 'Transaction already known':
         logger.debug("Transaction broadcast via MAPI server failed : %s (%s)",
             server_and_credential.server.url, mapi_broadcast_result)
+        if peer_channel_id is not None and peer_channel_row is not None:
+            mapi_broadcast_result['peer_channel_id'] = peer_channel_id
+            assert peer_channel_row.remote_channel_id is not None
+            mapi_broadcast_result['remote_channel_id'] = peer_channel_row.remote_channel_id
         return mapi_broadcast_result
 
     if mapi_broadcast_result['resultDescription'] == 'Transaction already known':

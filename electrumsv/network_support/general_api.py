@@ -51,9 +51,8 @@ from aiohttp import WSServerHandshakeError
 from bitcoinx import hash_to_hex_str, PrivateKey, PublicKey
 
 from ..app_state import app_state
-from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag, \
+from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, \
     PushDataHashRegistrationFlag, ScriptType, ServerConnectionFlag, ServerPeerChannelFlag
-from ..dpp_messages import PeerChannelDict
 from ..exceptions import BadServerError, ServerConnectionError
 from ..logs import logs
 from ..types import IndefiniteCredentialId, Outpoint, outpoint_struct, output_spend_struct, \
@@ -61,7 +60,7 @@ from ..types import IndefiniteCredentialId, Outpoint, outpoint_struct, output_sp
     tip_filter_unregistration_struct, TipFilterListEntry
 from ..util import get_posix_timestamp
 from ..wallet_database.types import PushDataHashRegistrationRow, ServerPeerChannelAccessTokenRow, \
-    ServerPeerChannelMessageRow, ServerPeerChannelRow, ExternalPeerChannelRow
+    ServerPeerChannelMessageRow, ServerPeerChannelRow
 
 from .constants import ServerProblemKind
 from .exceptions import AuthenticationError, FilterResponseInvalidError, \
@@ -69,12 +68,12 @@ from .exceptions import AuthenticationError, FilterResponseInvalidError, \
     InvalidStateError, TransactionNotFoundError
 from .peer_channel import create_peer_channel_api_token_async, create_peer_channel_async, \
     delete_peer_channel_message_async, get_permissions_from_peer_channel_token, \
-    list_peer_channels_async, list_peer_channel_messages_async
+    list_peer_channels_async, list_peer_channel_messages_async, \
+    convert_peer_channel_messages_to_rows
 from .types import AccountMessageKind, ChannelNotification, GenericPeerChannelMessage, \
-    IndexerServerSettings, PeerChannelServerState, ServerConnectionState,\
-    ServerConnectionProblems, TipFilterRegistrationJob, TipFilterRegistrationJobEntry, \
-    TipFilterRegistrationJobOutput, TipFilterRegistrationResponse, TokenPermissions, \
-    VerifiableKeyData
+    IndexerServerSettings, ServerConnectionState, ServerConnectionProblems, \
+    TipFilterRegistrationJob, TipFilterRegistrationJobEntry, TipFilterRegistrationJobOutput, \
+    TipFilterRegistrationResponse, VerifiableKeyData, _on_server_connection_worker_task_done
 
 logger = logs.get_logger("general-api")
 
@@ -359,60 +358,6 @@ def process_reference_server_message_bytes(state: ServerConnectionState, message
         raise NotImplementedError(f"Packing message kind {message_kind} is unsupported")
 
 
-
-async def maintain_external_peer_channel_connection_async(state: PeerChannelServerState) \
-        -> ServerConnectionProblems:
-    """
-    Keep a persistent connection to this ElectrumSV reference server alive.
-    """
-    assert state.connection_flags == ServerConnectionFlag.INITIALISED
-
-    # We do not set `stage_change_event` for this flag.
-    state.connection_flags |= ServerConnectionFlag.STARTING
-
-    try:
-        while state.connection_flags & ServerConnectionFlag.EXITING == 0:
-            state.connection_flags &= ServerConnectionFlag.MASK_COMMON_INITIAL
-
-            # Both the connection management task and worker tasks.
-            future = app_state.async_.spawn(_manage_external_peer_channel_connection_async(state))
-            future.add_done_callback(partial(_on_server_connection_worker_task_done, state))
-
-            # This will block until this task is cancelled, or there is a problem establishing
-            # a connection with the server not necessarily in the web socket connection itself,
-            # but also secondary calls.
-
-            problem_kind, problem_text = await state.disconnection_event_queue.get()
-            future.cancel()
-
-            # We yield to so that the cancellation error can get raised on the manage task.
-            await asyncio.sleep(0)
-
-            server_problems = { problem_kind: [ problem_text ] }
-            # Drain the queue of disconnection problems.
-            while not state.disconnection_event_queue.empty():
-                problem_kind, problem_text = state.disconnection_event_queue.get_nowait()
-                server_problems[problem_kind].append(problem_text)
-
-            if ServerProblemKind.BAD_SERVER in server_problems:
-                # We do not try and recover from this problem. It goes up to the user.
-                return server_problems
-
-            logger.debug("Server disconnected, clearing state, waiting to retry")
-            state.clear_for_reconnection(ServerConnectionFlag.DISCONNECTED)
-
-            # TODO(1.4.0) Unreliable server, issue#841. Disconnected or cannot connect to server.
-            #     This is an arbitrary timeout, we should factor when this happens into the UI and
-            #     how we manage server usage.
-            await asyncio.sleep(10)
-    finally:
-        logger.error("maintain_external_peer_channel_connection_async encountered connection issue")
-        state.connection_flags = ServerConnectionFlag.EXITED
-
-    return {}
-
-
-
 async def maintain_server_connection_async(state: ServerConnectionState) \
         -> ServerConnectionProblems:
     """
@@ -555,98 +500,6 @@ async def create_reference_server_account_async(server_url: str, session: aiohtt
         raise AuthenticationError("No api key received for server")
 
     return api_key, payment_key_bytes
-
-
-async def _manage_external_peer_channel_connection_async(state: PeerChannelServerState) -> None:
-    """
-    Manage an open websocket to any server type.
-
-    - This might be a reference server compatible.
-    - This might be a peer channel we do not own but have the API key for and access to.
-
-    Raises `BadServerError` if the server sends us data that we know it should not be sending.
-    Raises `NotImplementedError` if we encounter cases that more than likely are caused by
-        partially implemented features.
-    """
-    assert state.wallet_data is not None
-    assert len(state.websocket_futures) == 0
-    assert not state.used_with_reference_server_api
-    assert state.credential_id is not None
-
-    state.connection_flags |= ServerConnectionFlag.VERIFYING
-    state.stage_change_event.set()
-    state.stage_change_event.clear()
-
-    state.connection_flags |= ServerConnectionFlag.ESTABLISHING_WEB_SOCKET
-    state.stage_change_event.set()
-    state.stage_change_event.clear()
-
-    access_token = app_state.credentials.get_indefinite_credential(state.credential_id)
-    assert state.external_channel_row is not None
-    assert state.external_channel_row.remote_url is not None
-    websocket_url_template = state.external_channel_row.remote_url.rstrip("/") + \
-        "/api/v1/channel/{remote_channel_id}/notify?token={access_token}"
-    websocket_url = websocket_url_template.format(remote_channel_id=state.remote_channel_id,
-        access_token=access_token)
-    headers = {"Accept": "application/octet-stream"}
-    try:
-        async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
-                as server_websocket:
-            logger.info('Connected to server websocket, url=%s', websocket_url_template)
-
-            state.connection_flags |= ServerConnectionFlag.PREPARING_WEB_SOCKET
-            state.stage_change_event.set()
-            state.stage_change_event.clear()
-
-            state.connection_flags |= ServerConnectionFlag.WEB_SOCKET_READY
-            state.stage_change_event.set()
-            state.stage_change_event.clear()
-
-            for future in await peer_channel_server_connected_async(state):
-                future.add_done_callback(partial(_on_server_connection_worker_task_done, state))
-
-            try:
-                websocket_message: aiohttp.WSMessage
-                async for websocket_message in server_websocket:
-                    # ---------- Peer Channel Specific Websocket Handling ---------- #
-                    if websocket_message.type == aiohttp.WSMsgType.TEXT:
-                        assert state.remote_channel_id is not None
-                        # Expected message contents = 'New message arrived' (or something similar)
-                        logger.debug(
-                            "Queued incoming peer channel message (non-general websocket) "
-                            "%s", websocket_message)
-                        state.peer_channel_message_queue.put_nowait(state.remote_channel_id)
-                    elif websocket_message.type == aiohttp.WSMsgType.BINARY:
-                        logger.debug("Ignoring websocket binary: %s", websocket_message.data)
-                    elif websocket_message.type in (aiohttp.WSMsgType.CLOSE,
-                            aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED,
-                            aiohttp.WSMsgType.CLOSING):
-                        logger.info("Server websocket closed")
-                        break
-                    else:
-                        logger.error("Unhandled server websocket message type %r",
-                            websocket_message)
-            finally:
-                for websocket_future in state.websocket_futures:
-                    websocket_future.cancel()
-                state.websocket_futures.clear()
-    except WSServerHandshakeError as e:
-        if e.status == HTTPStatus.UNAUTHORIZED:
-            # We have already checked the credentials. There is no reason why this should fail.
-            # So for now we classify this as an indicator of a bad server.
-            raise BadServerError("Connection credentials unexpectedly invalid")
-
-        # NOTE(exception-details) We log this because we are not sure yet that we do not need
-        #     this detail. At a later stage if we are confident that all the exceptions here
-        #     are reasonable and expected, we can remove this.
-        logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError("Unable to establish websocket connection")
-    except aiohttp.ClientError:
-        # NOTE(exception-details) We log this because we are not sure yet that we do not need
-        #     this detail. At a later stage if we are confident that all the exceptions here
-        #     are reasonable and expected, we can remove this.
-        logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
-        raise ServerConnectionError("Unable to establish server connection")
 
 
 async def _manage_server_connection_async(state: ServerConnectionState) -> None:
@@ -847,12 +700,13 @@ async def peer_channel_preconnection_async(state: ServerConnectionState) -> None
         await state.peer_channel_message_queue.put(peer_channel_row.remote_channel_id)
 
 
-async def peer_channel_server_connected_async(
-        state: ServerConnectionState | PeerChannelServerState) -> list[Future[None]]:
+async def peer_channel_server_connected_async(state: ServerConnectionState) -> list[Future[None]]:
     """
     Start up peer channel processing logic for a server we have just connected to.
 
     Raises nothing.
+
+    NOTE: Analogue to `peer_channel.py:externally_owned_peer_channel_server_connected_async`
     """
     # All websocket futures are cancelled on server disconnection. This will interrupt the
     # underlying task. These functions have been written so that they are either stateless or
@@ -864,23 +718,7 @@ async def peer_channel_server_connected_async(
     return [ future ]
 
 
-def convert_peer_channel_messages_to_rows(messages: list[GenericPeerChannelMessage],
-        peer_channel_id: int) -> list[ServerPeerChannelMessageRow]:
-    date_created = get_posix_timestamp()
-    creation_message_rows = list[ServerPeerChannelMessageRow]()
-    for message in messages:
-        message_json_bytes = json.dumps(message).encode()
-        received_iso8601_text = message["received"].replace("Z", "+00:00")
-        received_datetime = datetime.fromisoformat(received_iso8601_text)
-        creation_message_rows.append(
-            ServerPeerChannelMessageRow(None, peer_channel_id, message_json_bytes,
-                PeerChannelMessageFlag.UNPROCESSED, message["sequence"],
-                int(received_datetime.timestamp()), date_created, date_created))
-    return creation_message_rows
-
-
-async def process_incoming_peer_channel_messages_async(
-        state: ServerConnectionState | PeerChannelServerState) -> None:
+async def process_incoming_peer_channel_messages_async(state: ServerConnectionState) -> None:
     """
     We raise server-related exceptions up and expect the connection management to deal with them.
     All exceptions raised by this in the context of a connect are processed by
@@ -888,6 +726,9 @@ async def process_incoming_peer_channel_messages_async(
 
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
+
+    NOTE: This is analagous to `process_externally_owned_peer_channel_messages_async` but for
+    "owned" peer channels for which we have administrator priviledges on the server
     """
 
     # Typing related assertions.
@@ -913,17 +754,10 @@ async def process_incoming_peer_channel_messages_async(
             logger.debug("Processing message for remote_channel_id=%s", remote_channel_id)
         assert peer_channel_id is not None
 
-        if isinstance(state, ServerConnectionState):
-            db_access_tokens = state.wallet_data.read_server_peer_channel_access_tokens(
-                peer_channel_id, None,
-                PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE)
-            assert len(db_access_tokens) == 1
-        elif isinstance(state, PeerChannelServerState):
-            db_access_tokens = state.wallet_data.read_external_peer_channel_access_tokens(
-                peer_channel_id, None, PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE)
-            assert len(db_access_tokens) == 1
-        else:
-            raise NotImplementedError("Unsupported server state type")
+        db_access_tokens = state.wallet_data.read_server_peer_channel_access_tokens(
+            peer_channel_id, None,
+            PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE)
+        assert len(db_access_tokens) == 1
 
         messages = await list_peer_channel_messages_async(state, remote_channel_id,
             db_access_tokens[0].access_token, unread_only=True)
@@ -944,16 +778,8 @@ async def process_incoming_peer_channel_messages_async(
         # These cached values are passed on to whatever other system processes these types of
         # messages.
         message_entries = list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]()
-
-        created_message_rows: list[ServerPeerChannelMessageRow] | None = None
-        if isinstance(state, ServerConnectionState):
-            created_message_rows = await \
-                state.wallet_data.create_server_peer_channel_messages_async(creation_message_rows)
-        elif isinstance(state, PeerChannelServerState):
-            created_message_rows = await \
-                state.wallet_data.create_external_peer_channel_messages_async(creation_message_rows)
-        else:
-            raise NotImplementedError("Unsupported server state type")
+        created_message_rows = await \
+            state.wallet_data.create_server_peer_channel_messages_async(creation_message_rows)
 
         assert created_message_rows is not None
         for message_row in created_message_rows:
@@ -968,7 +794,6 @@ async def process_incoming_peer_channel_messages_async(
         peer_channel_purpose = \
             peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE
         if peer_channel_purpose == ServerPeerChannelFlag.TIP_FILTER_DELIVERY:
-            assert isinstance(state, ServerConnectionState)
             await state.tip_filter_matches_queue.put(message_entries)
         elif peer_channel_purpose == ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
             state.mapi_callback_response_queue.put_nowait(message_entries)
@@ -1217,63 +1042,6 @@ async def create_tip_filter_registration_async(state: ServerConnectionState,
         TipFilterRegistrationJobOutput())
     state.tip_filter_new_registration_queue.put_nowait(job)
     return job
-
-
-def _on_server_connection_worker_task_done(state: ServerConnectionState | PeerChannelServerState,
-        future: Future[None]) -> None:
-    """
-    This acts as a central point through which execution of worker tasks created by
-    `` exit. None of these worker tasks return results, we are solely interested in acting
-    on any exceptions that happen within them.
-
-    Worker tasks whose results are passed to this callback:
-
-    - `manage_output_spends_async`
-    - `manage_tip_filter_registrations_async`
-    - `process_incoming_peer_channel_messages_async`
-
-    WARNING: All these worker tasks run on the asynchronous thread. Because of this we can
-        assume that the queue `put_nowait` operation does not have to be thread-safe.
-
-    Raises nothing.
-    """
-    if future.cancelled():
-        return
-
-    disconnection_problem: ServerProblemKind
-    disconnection_text: str
-    try:
-        future.result()
-    except BadServerError as bad_server_error:
-        # Raised by `manage_output_spends_async`.
-        disconnection_problem = ServerProblemKind.BAD_SERVER
-        disconnection_text = cast(str, bad_server_error.args[0])
-    except ServerConnectionError as server_error:
-        # Raised by `manage_output_spends_async`
-        # Raised by `process_incoming_peer_channel_messages_async`
-        disconnection_problem = ServerProblemKind.CONNECTION_ERROR
-        disconnection_text = cast(str, server_error.args[0])
-    except GeneralAPIError as general_api_error:
-        # Raised by `process_incoming_peer_channel_messages_async`
-        disconnection_problem = ServerProblemKind.UNEXPECTED_API_RESPONSE
-        disconnection_text = cast(str, general_api_error.args[0])
-    else:
-        return
-
-    if isinstance(state, ServerConnectionState):
-        logger.warning("Recorded problem with server %s, %s (%s)", state.server.key,
-            disconnection_problem, disconnection_text)
-    elif isinstance(state, PeerChannelServerState):
-        logger.warning("Recorded problem with external peer channel websocket connection at "
-            "%s, %s (%s)", state.server_url, disconnection_problem,
-            disconnection_text)
-    else:
-        raise NotImplementedError("Unexpected server state type")
-
-    # WARNING: All these worker tasks run on the asynchronous thread. Because of this we can
-    #     assume that the queue `put_nowait` operation does not have to be thread-safe.
-    state.disconnection_event_queue.put_nowait((disconnection_problem,
-        disconnection_text))
 
 
 async def blockchain_services_preconnection_async(state: ServerConnectionState) -> None:
@@ -1603,45 +1371,6 @@ async def create_peer_channel_locally_and_remotely_async(
         addable_access_tokens=addable_access_tokens)
 
     return peer_channel_row, writeonly_access_token, read_only_access_token
-
-
-async def add_external_peer_channel_async(
-        peer_channel_server_state: PeerChannelServerState,
-        peer_channel_info: PeerChannelDict,
-        invoice_id: int) -> tuple[ExternalPeerChannelRow, ServerPeerChannelAccessTokenRow]:
-    """
-    This is similar in function to the `create_peer_channel_locally_and_remotely_async` except
-    that we are not the creator of the remote peer channel (the payee already created it)
-    """
-    assert peer_channel_server_state.wallet_proxy is not None
-    assert peer_channel_server_state.wallet_data is not None
-
-    wallet_data = peer_channel_server_state.wallet_data
-
-    date_created = get_posix_timestamp()
-    remote_peer_channel_id = peer_channel_info['channel_id']
-    remote_url = peer_channel_info['host']
-    peer_channel_flags = ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK
-    peer_channel_row = ExternalPeerChannelRow(None, invoice_id, remote_peer_channel_id,
-        remote_url, peer_channel_flags, date_created, date_created)
-    peer_channel_id = await wallet_data.create_external_peer_channel_async(peer_channel_row)
-    peer_channel_row = peer_channel_row._replace(peer_channel_id=peer_channel_id)
-    logger.debug("Added peer channel %s with flags: %s", remote_peer_channel_id,
-        peer_channel_row.peer_channel_flags)
-
-    # Record peer channel token in the database if it doesn't exist there already
-    assert peer_channel_row.peer_channel_id is not None
-    read_only_access_token_flag = PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE | \
-                                  PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE
-    read_only_access_token = ServerPeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
-        read_only_access_token_flag, TokenPermissions.READ_ACCESS, peer_channel_info['token'])
-
-    # Add the read_only token
-    peer_channel_row = await wallet_data.update_external_peer_channel_async(remote_peer_channel_id,
-        remote_url, peer_channel_flags, peer_channel_id,
-        addable_access_tokens=[read_only_access_token])
-
-    return peer_channel_row, read_only_access_token
 
 
 async def get_server_indexer_settings(state: ServerConnectionState) -> IndexerServerSettings:

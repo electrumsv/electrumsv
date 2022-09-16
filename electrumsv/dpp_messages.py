@@ -123,7 +123,8 @@ class PaymentACKDict(TypedDict):
     mode: HybridPaymentModeDict
     peerChannel: PeerChannelDict
     redirectUrl: str | None
-
+    memo: str | None
+    error: int | None
 
 
 class Output:
@@ -466,41 +467,43 @@ class Payment:
 class PaymentACK:
     MAXIMUM_JSON_LENGTH = 11 * 1000 * 1000
 
-    def __init__(self, mode_id: str, mode: HybridPaymentModeDict,
-            peer_channel_info: PeerChannelDict, redirect_url: Optional[str]) -> None:
+    def __init__(self, mode_id: str | None = None, mode: HybridPaymentModeDict | None = None,
+            peer_channel_info: PeerChannelDict | None = None, redirect_url: str | None = None,
+            memo: str | None = None, error: int | None = None) -> None:
         self.mode_id = mode_id
         self.mode = mode
         self.peer_channel_info = peer_channel_info
         self.redirect_url = redirect_url
+        self.memo = memo
+        self.error = error
 
     def to_dict(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {
-            'modeId': self.mode_id,
-            'mode': self.mode,
-            'peerChannel': self.peer_channel_info,
-            'redirectUrl': self.redirect_url
-        }
+        data: Dict[str, Any] = {}
+        if self.mode_id:
+            data.update({"modeId": self.mode_id})
+        if self.mode:
+            data.update({"mode": self.mode})
+        if self.peer_channel_info:
+            data.update({"peerChannel": self.peer_channel_info})
+        if self.redirect_url:
+            data.update({"redirectUrl": self.redirect_url})
+        if self.memo:
+            data.update({"memo": self.memo})
+        if self.error:
+            data.update({"error": self.error})
         return data
 
     @classmethod
     def from_dict(cls, data: PaymentACKDict) -> PaymentACK:
         mode_id = data.get('modeId')
-        if mode_id is None:
-            raise Bip270Exception("'modeId' field is required")
-
         if mode_id is not None and mode_id != HYBRID_PAYMENT_MODE_BRFCID:
             raise Bip270Exception(f"Invalid json 'modeId' field: {mode_id}")
 
         mode = data.get('mode')
-        if mode is None:
-            raise Bip270Exception("'mode' field is required")
-
         if mode is not None and type(mode) is not dict:
             raise Bip270Exception("Invalid json 'mode' field")
 
         peer_channel_info = data.get('peerChannel')
-        if peer_channel_info is None:
-            raise Bip270Exception("'peerChannel' field is required")
         if mode_id is not None and type(peer_channel_info) is not dict:
             raise Bip270Exception("Invalid json 'peerChannel' field")
 
@@ -508,10 +511,19 @@ class PaymentACK:
         if redirect_url is not None and type(redirect_url) is not str:
             raise Bip270Exception("Invalid json 'redirectUrl' field")
 
+        memo = data.get('memo')
+        if memo is not None and type(memo) is not str:
+            raise Bip270Exception("Invalid json 'memo' field")
+
+        error = data.get('error')
+        if error is not None and type(error) is not int:
+            raise Bip270Exception("Invalid json 'error' field")
+
         assert mode_id is not None
         assert mode is not None
         assert peer_channel_info is not None
-        return cls(mode_id, mode, peer_channel_info, redirect_url=redirect_url)
+        return cls(mode_id, mode, peer_channel_info, redirect_url=redirect_url, memo=memo,
+            error=error)
 
     def to_json(self) -> str:
         data = self.to_dict()

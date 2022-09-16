@@ -40,6 +40,10 @@ class MAPIBroadcastResponse(TypedDict):
     txSecondMempoolExpiry: int
     conflictedWith: list[MAPIBroadcastConflict]
 
+    # if returnResult is "failure" this allows for deleting the peer channel database entry
+    peer_channel_id: int
+    remote_channel_id: str
+
 
 def _validate_mapi_broadcast_conflicted_with(data: MAPIBroadcastConflict) -> None:
     if "txid" not in data:

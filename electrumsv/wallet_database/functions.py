@@ -54,7 +54,7 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
     KeyInstanceRow, KeyListRow, MasterKeyRow, MAPIBroadcastRow, NetworkServerRow,
     PasswordUpdateResult, PaymentRequestRow, PaymentRequestOutputRow,
-    PaymentRequestTransactionHashRow, PaymentRequestUpdateRow, MerkleProofUpdateRow,
+    PaymentRequestTransactionHashRow, PaymentRequestUpdateRow, PeerChannelIds, MerkleProofUpdateRow,
     PushDataMatchMetadataRow, PushDataMatchRow, PushDataHashRegistrationRow,
     ServerPeerChannelAccessTokenRow, ServerPeerChannelRow, ServerPeerChannelMessageRow,
     SpendConflictType, SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
@@ -258,10 +258,45 @@ def create_wallet_events(db_context: DatabaseContext, entries: list[WalletEventI
 
 def delete_invoices(db_context: DatabaseContext, entries: Iterable[tuple[int]]) \
         -> concurrent.futures.Future[None]:
-    sql = "DELETE FROM Invoices WHERE invoice_id=?"
+    invoice_ids: list[int] = [row[0] for row in entries]
+    sql1 = "DELETE FROM ExternalPeerChannels WHERE invoice_id=?"
+    sql2 = "DELETE FROM Invoices WHERE invoice_id=?"
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
-        db.executemany(sql, entries)
+        delete_external_peer_channels_for_invoice_ids(db, invoice_ids)
+        db.executemany(sql1, entries)
+        db.executemany(sql2, entries)
+    return db_context.post_to_thread(_write)
+
+
+def delete_external_peer_channels_for_invoice_ids(db: sqlite3.Connection,
+        invoice_ids: list[int]) -> None:
+    read_sql = "SELECT peer_channel_id FROM ExternalPeerChannels WHERE invoice_id IN ({})"
+
+    row_matches = read_rows_by_id(PeerChannelIds, db, read_sql, [], invoice_ids)
+    peer_channel_ids = [(row.peer_channel_id,) for row in row_matches]
+
+    sql1 = "DELETE FROM ExternalPeerChannelMessages WHERE peer_channel_id=?"
+    sql2 = "DELETE FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
+    sql3 = "DELETE FROM ExternalPeerChannels WHERE invoice_id=?"
+
+    db.executemany(sql1, peer_channel_ids)
+    db.executemany(sql2, peer_channel_ids)
+    db.executemany(sql3, peer_channel_ids)
+
+
+def delete_peer_channels_for_peer_channel_ids(db_context: DatabaseContext,
+        peer_channel_ids: list[int]) -> concurrent.futures.Future[None]:
+    sql_values = [(peer_channel_id,) for peer_channel_id in peer_channel_ids]
+    sql1 = "DELETE FROM ServerPeerChannelMessages WHERE peer_channel_id=?"
+    sql2 = "DELETE FROM ServerPeerChannelAccessTokens WHERE peer_channel_id=?"
+    sql3 = "DELETE FROM ServerPeerChannels WHERE peer_channel_id=?"
+
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
+        db.executemany(sql1, sql_values)
+        db.executemany(sql2, sql_values)
+        db.executemany(sql3, sql_values)
     return db_context.post_to_thread(_write)
 
 

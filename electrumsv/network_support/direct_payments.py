@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import typing
+from http import HTTPStatus
 
 from bitcoinx import PrivateKey
 import uuid
@@ -8,7 +9,7 @@ import json
 from datetime import datetime, timezone
 
 from .dpp_proxy import MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT_ACK, \
-    MSG_TYPE_PAYMENT_ERROR, MSG_TYPE_PAYMENT_REQUEST_ERROR
+    MSG_TYPE_PAYMENT_REQUEST_ERROR
 from .types import ServerConnectionState, TokenPermissions
 from ..app_state import app_state
 from ..constants import PeerChannelAccessTokenFlag
@@ -53,7 +54,7 @@ async def send_outgoing_direct_payment_async(payment_url: str,
         if response.status not in (200, 201, 202):
             # Propagate 'Bad request' (HTTP 400) messages to the user since they
             # contain valuable information.
-            if response.status == 400:
+            if response.status in {HTTPStatus.BAD_REQUEST, HTTPStatus.UNPROCESSABLE_ENTITY}:
                 content_text = await response.text(encoding="UTF-8")
                 message = f"{response.reason}: {content_text}"
             else:
@@ -209,8 +210,12 @@ def dpp_make_pr_error(message_row_received: DPPMessageRow, error_reason: str) ->
 
 def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: str) \
         -> DPPMessageRow:
+    message_id = str(uuid.uuid4())
+    # The DPP Proxy requires a PaymentACK json object with error set to "1" in order to trigger
+    # an http response with status: 422 (StatusUnprocessableEntity)
+    error_payment_ack = PaymentACK(memo=error_reason, error=1).to_dict()
     message_row_response = DPPMessageRow(
-        message_id=str(uuid.uuid4()),
+        message_id=message_id,
         paymentrequest_id=message_row_received.paymentrequest_id,
         dpp_invoice_id=message_row_received.dpp_invoice_id,
         correlation_id=message_row_received.correlation_id,
@@ -218,8 +223,8 @@ def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: st
         client_id=message_row_received.client_id,
         user_id=message_row_received.user_id,
         expiration=message_row_received.expiration,
-        body=error_reason.encode('utf-8'),
+        body=json.dumps(error_payment_ack).encode('utf-8'),
         timestamp=datetime.now(tz=timezone.utc).isoformat(),
-        type=MSG_TYPE_PAYMENT_ERROR)
+        type=MSG_TYPE_PAYMENT_ACK)
     return message_row_response
 

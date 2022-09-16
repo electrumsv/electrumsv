@@ -472,13 +472,6 @@ class SendView(QWidget):
     def _do_send(self, preview: bool=False) -> None:
         assert self._account is not None
         dialogs.show_named('think-before-sending')
-
-        if not (preview or
-                self._account._wallet.have_wallet_servers(NetworkServerFlag.USE_MESSAGE_BOX)):
-            if dialogs.show_named('mapi-broadcast-servers'):
-                self._display_server_selection_dialog()
-                return
-
         if self._payment_request is not None:
             tx = self.get_transaction_for_invoice()
             if tx is not None:

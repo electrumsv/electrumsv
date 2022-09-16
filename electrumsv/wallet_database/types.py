@@ -667,3 +667,7 @@ class PushDataMatchMetadataRow(NamedTuple):
 class PaymentRequestTransactionHashRow(NamedTuple):
     paymentrequest_id: int
     transaction_hash: bytes
+
+
+class PeerChannelIds(NamedTuple):
+    peer_channel_id: int
