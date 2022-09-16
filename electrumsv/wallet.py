@@ -4048,7 +4048,8 @@ class Wallet:
 
         payment_ack = await send_outgoing_direct_payment_async(
             invoice_row.payment_uri, transaction.to_hex())
-
+        await self.set_transaction_state_async(transaction_hash, TxFlags.STATE_DISPATCHED,
+            TxFlags.MASK_STATE_BROADCAST)
         assert payment_ack.peer_channel_info is not None
         await self.subscribe_to_external_peer_channel(payment_ack.peer_channel_info, invoice_id)
         await self.data.update_invoice_flags_async(
@@ -4615,6 +4616,13 @@ class Wallet:
         assert server_url is not None
         return server_url
 
+    async def update_payment_request_flags(self, pr_row: PaymentRequestRow,
+            new_state: PaymentFlag) -> None:
+        assert pr_row.paymentrequest_id is not None
+        update_row = PaymentRequestUpdateRow(new_state, pr_row.requested_value, pr_row.date_expires,
+            pr_row.description, pr_row.merchant_reference, pr_row.paymentrequest_id)
+        await self.data.update_payment_requests_async([update_row])
+
     async def _consume_dpp_messages_async(self, state: ServerConnectionState) -> None:
         """Consumes and processes all invoice messages for a single DPP Proxy server
 
@@ -4698,14 +4706,11 @@ class Wallet:
                 try:
                     payment_obj = Payment.from_json(message_row.body.decode('utf-8'))
                 except Bip270Exception:
-                    # TODO(1.4.0) mAPI. Work out how best to propagate the failure reason
-                    #  back to the user in the GUI.
                     self._logger.exception("Received direct-payment-protocol `Payment` was invalid")
                     continue
 
                 # As the *Payee*, we broadcast the transaction
                 tx = Transaction.from_hex(payment_obj.transaction_hex)
-
                 assert request_row.paymentrequest_id is not None
                 try:
                     await self.close_payment_request_async(request_row.paymentrequest_id,
@@ -4722,44 +4727,34 @@ class Wallet:
                     broadcast_response, peer_channel_server_state = \
                         await self.broadcast_transaction_async(tx, tx_context)
                     successful = broadcast_response["returnResult"] == "success"
-                except (GeneralAPIError, ServerConnectionError, ServerError, ServerConnectionError,
-                        BadServerError):
-                    # TODO(1.4.0) mAPI. Work out how best to propagate the failure reason
-                    #  back to the user in the GUI without crashing the task or event loop.
+                except (GeneralAPIError, ServerConnectionError, ServerError, BadServerError):
                     self._logger.exception("Unexpected exception broadcasting to mAPI")
                     continue
 
                 assert successful is not None
                 if successful:
-                    # TODO(1.4.0) DPP. Refactor this with an `update_payment_request_flags` function
                     # Update the payment request to `PaymentFlag.PAID` status
                     new_state_flag = PaymentFlag.PAID
                     new_state = request_row.state & \
                                 ~(PaymentFlag.MASK_DPP_STATE_MACHINE | PaymentFlag.MASK_STATE) \
                                 | new_state_flag
-                    request_row = request_row._replace(state=new_state)
                     assert request_row.paymentrequest_id is not None
-                    update_row = PaymentRequestUpdateRow(new_state, request_row.requested_value,
-                        request_row.date_expires, request_row.description,
-                        request_row.merchant_reference, request_row.paymentrequest_id)
-                    await self.data.update_payment_requests_async([update_row])
+                    await self.update_payment_request_flags(request_row, new_state)
 
                     # Send PaymentACK to payer
                     assert peer_channel_server_state is not None
                     peer_channel_info = dpp_make_peer_channel_info(self, tx.hash(),
                         peer_channel_server_state)
                     dpp_ack_message = dpp_make_ack(tx, peer_channel_info, message_row)
-                    asyncio.create_task(dpp_websocket_send(state, dpp_ack_message))
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
                 else:
-                    # TODO(1.4.0) mAPI. Work out how best to propagate the failure reason
-                    #  back to the user in the GUI without crashing the task or event loop.
                     self._logger.error("mAPI broadcast for txid: %s failed with reason: %s",
                         tx.txid(), broadcast_response['resultDescription'])
 
                     # Inform the *Payee* of the reason we rejected their `Payment`
                     error_reason = broadcast_response['resultDescription']
                     dpp_err_message = dpp_make_payment_error(message_row, error_reason)
-                    asyncio.create_task(dpp_websocket_send(state, dpp_err_message))
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
 
                     # Delete the now unused peer channel
                     remote_peer_channel_id_for_deletion = \
