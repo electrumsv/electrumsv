@@ -4064,10 +4064,6 @@ class Wallet:
         current_tip_header = cast(Header, current_chain.tip)
         await self._reconcile_wallet_with_header_source(None, current_chain, current_tip_header)
 
-        if self._network is not None:
-            self._worker_task_manage_server_connections = app_state.async_.spawn(
-                self._start_existing_server_connections())
-
     async def _start_existing_server_connections(self) -> None:
         """
         Start managed connections to all the servers that the wallet makes use of.
