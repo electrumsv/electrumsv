@@ -4019,7 +4019,7 @@ class Wallet:
         self._dpp_invoice_credentials: dict[str, tuple[IndefiniteCredentialId, PublicKey]] = {}
         payment_request_rows = self.data.read_payment_requests(
             flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID,
-            mask= PaymentFlag.MASK_STATE | PaymentFlag.UNPAID)
+            mask= PaymentFlag.INVOICE | PaymentFlag.MASK_STATE)
         for payment_request_row in payment_request_rows:
             self.register_outstanding_invoice(payment_request_row, password)
 
