@@ -125,7 +125,6 @@ class ReceiveDialog(QDialog):
     def __init__(self, main_window: ElectrumWindow, view: ReceiveView, account_id: int,
             request_id: int | None, request_type: PaymentFlag) -> None:
         super().__init__(main_window)
-        self.setWindowTitle(_("Expected payment"))
 
         # NOTE(PyQt6) @ModalDialogLeakage
         # If we do not set this, this dialog does not get garbage collected and `main_window`
@@ -148,7 +147,24 @@ class ReceiveDialog(QDialog):
         self._request_output_rows: list[PaymentRequestOutputRow] = []
 
         if request_id is not None:
+            assert request_type == PaymentFlag.NONE
             self._read_request_data_from_database()
+            assert self._request_row is not None
+            request_type = self._request_row.state & PaymentFlag.MASK_TYPE
+        else:
+            assert request_type in { PaymentFlag.LEGACY, PaymentFlag.IMPORTED,
+                PaymentFlag.MONITORED, PaymentFlag.INVOICE }
+
+        title_text = _("Expected payment")
+        if request_type == PaymentFlag.MONITORED:
+            title_text += " - "+ _("Blockchain monitoring")
+        elif request_type == PaymentFlag.IMPORTED:
+            title_text += " - "+ _("Transaction import")
+        elif request_type == PaymentFlag.INVOICE:
+            title_text += " - "+ _("Invoice hosted online")
+        elif request_type == PaymentFlag.LEGACY:
+            title_text += " - "+ _("Legacy payment request")
+        self.setWindowTitle(title_text)
 
         self._layout_pending = True
         self.setLayout(self._create_form_layout())
@@ -276,7 +292,7 @@ class ReceiveDialog(QDialog):
         self._status_label = QLabel()
         self._status_label.setWordWrap(True)
 
-        form.add_row(_("Type"), QLabel(type_text))
+        form.add_row(_("Payment type"), QLabel(type_text))
         form.add_row(_("Status"), self._status_label)
 
         form.add_row(_("Account"), QLabel(self._account.get_name()))
@@ -425,7 +441,7 @@ class ReceiveDialog(QDialog):
 
             wallet = self._account.get_wallet()
             server_url = wallet.get_dpp_server_url(self._request_row.server_id)
-            payment_url = f"pay:?r={server_url}api/v1/payment/sec/" \
+            payment_url = f"pay:?r={server_url}api/v1/payment/" \
                 f"{self._request_row.dpp_invoice_id}"
             self._receive_destination_edit.setText(payment_url)
         elif self._request_type in { PaymentFlag.MONITORED, PaymentFlag.IMPORTED }:
@@ -460,7 +476,7 @@ class ReceiveDialog(QDialog):
             assert self._request_row.dpp_invoice_id is not None
             wallet = self._account.get_wallet()
             server_url = wallet.get_dpp_server_url(self._request_row.server_id)
-            payment_url = f"pay:?r={server_url}api/v1/payment/sec/" \
+            payment_url = f"pay:?r={server_url}api/v1/payment/" \
                 f"{self._request_row.dpp_invoice_id}"
             self._receive_qr.setData(payment_url)
             if self._qr_window and self._qr_window.isVisible():

@@ -198,7 +198,9 @@ class NewServer:
         # account with the service, and it makes sense to keep the statistics/metadata for the
         # service separated by API key for this reason. We intentionally leave these in place
         # at least for now as they are kind of relative to the given key value.
-        self.api_key_state = dict[IndefiniteCredentialId | None, NewServerAccessState]()
+        self.api_key_state: dict[IndefiniteCredentialId | None, NewServerAccessState] = {
+            None: NewServerAccessState()
+        }
 
         self.set_server_account_usage(row, credential_id)
 

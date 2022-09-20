@@ -313,6 +313,7 @@ class PaymentFlag(IntFlag):
     INVOICE                     = 0b01 << 10
     IMPORTED                    = 0b10 << 10
     MONITORED                   = 0b11 << 10
+    MASK_TYPE                   = 0b11 << 10
 
     # States of State Machine in `Wallet._consume_dpp_messages_async`
     # must be in ascending order of progress for comparison as integer values
@@ -327,7 +328,6 @@ class PaymentFlag(IntFlag):
     PAYMENT_REQUEST_REQUESTING  = 0b0011 << 12  # paymentrequest.create send (attempting)
     PAYMENT_REQUEST_RECEIVED    = 0b0100 << 12  # paymentrequest.response received
 
-    MASK_TYPE               = LEGACY | INVOICE | IMPORTED | MONITORED
     MASK_STATE              = UNPAID | EXPIRED | PAID | ARCHIVED
     MASK_DPP_STATE_MACHINE  = PAYMENT_PENDING | PAYMENT_REQUEST_REQUESTED | \
                               PAYMENT_RECEIVED
@@ -431,7 +431,7 @@ class NetworkEventNames(Enum):
 
 class NetworkServerType(IntEnum):
     MERCHANT_API = 1
-    GENERAL = 2
+    GENERAL = 2                     # ElectrumSV
     DPP_PROXY = 3
 
 

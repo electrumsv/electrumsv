@@ -1150,7 +1150,7 @@ class AbstractAccount:
         self._wallet.register_outstanding_invoice(request_row, password)
         await self.connect_to_hosted_invoice_proxy_server_async(request_row.paymentrequest_id)
 
-        payment_url = f"{server_state.server.url}api/v1/payment/sec/{request_row.dpp_invoice_id}"
+        payment_url = f"{server_state.server.url}api/v1/payment/{request_row.dpp_invoice_id}"
         return HostedInvoiceCreationResult(request_row=request_row,
             request_output_rows=request_output_rows, payment_url=payment_url,
             secure_public_key=secure_public_key)
@@ -3790,11 +3790,7 @@ class Wallet:
         This will include both the servers known in the wallet database, and it will also import
         the servers that are not known in the wallet database but are hardcoded into ElectrumSV.
         """
-        # TODO(1.4.0) Peer Channels - ensure that `subscribe_to_external_peer_channel` is called
-        #  on startup here too if need be
-
         self._registered_api_keys: dict[ServerAccountKey, IndefiniteCredentialId] = {}
-        credential_id: Optional[IndefiniteCredentialId] = None
         base_row_by_server_key = dict[ServerAccountKey, NetworkServerRow]()
         account_rows_by_server_key = dict[ServerAccountKey, list[NetworkServerRow]]()
         for row in self.data.read_network_servers():
@@ -3821,6 +3817,7 @@ class Wallet:
         for server_base_key in account_rows_by_server_key:
             assert server_base_key in base_row_by_server_key
 
+        credential_id: IndefiniteCredentialId | None
         for server_base_key, row in base_row_by_server_key.items():
             credential_id = self._registered_api_keys.get(server_base_key)
             server = self._servers[server_base_key] = NewServer(server_base_key.url,
@@ -3833,7 +3830,7 @@ class Wallet:
 
         # Add any of the hard-coded servers that do not exist in this wallet's database.
         for hardcoded_server_config in cast(list[APIServerDefinition], Net.DEFAULT_SERVERS_API):
-            server_type: Optional[NetworkServerType] = getattr(NetworkServerType,
+            server_type: NetworkServerType | None = getattr(NetworkServerType,
                 hardcoded_server_config['type'], None)
             if server_type is None:
                 self._logger.error("Misconfigured hard-coded server with url '%s' and type '%s'",
