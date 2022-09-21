@@ -28,7 +28,7 @@ from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
     MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestOutputRow,
-    PaymentRequestRow, PaymentRequestUpdateRow, ServerPeerChannelRow, ServerPeerChannelMessageRow,
+    PaymentRequestRow, PaymentRequestUpdateRow, ServerPeerChannelRow, PeerChannelMessageRow,
     TransactionOutputShortRow, TransactionProofUpdateRow, TransactionRow, WalletBalance,
     WalletEventInsertRow)
 
@@ -1549,7 +1549,7 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
 
     # MESSAGE: Create an arbitrary test message.
     sequence = 111
-    create_message_row = ServerPeerChannelMessageRow(None, peer_channel_id1, b'abc',
+    create_message_row = PeerChannelMessageRow(None, peer_channel_id1, b'abc',
         PeerChannelMessageFlag.NONE, sequence, date_created, date_created, date_created)
     future2 = db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write,
         [ create_message_row ])
@@ -1572,9 +1572,9 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
 
     # MESSAGE: Create an arbitrary test message.
     future2 = db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write, [
-        ServerPeerChannelMessageRow(None, peer_channel_id2, b'abc',
+        PeerChannelMessageRow(None, peer_channel_id2, b'abc',
             PeerChannelMessageFlag.NONE, sequence+1, date_created, date_created, date_created),
-        ServerPeerChannelMessageRow(None, peer_channel_id2, b'abc',
+        PeerChannelMessageRow(None, peer_channel_id2, b'abc',
             PeerChannelMessageFlag.UNPROCESSED, sequence+2, date_created, date_created,
                 date_created),
     ])

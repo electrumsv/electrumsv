@@ -56,7 +56,7 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     PasswordUpdateResult, PaymentRequestRow, PaymentRequestOutputRow,
     PaymentRequestTransactionHashRow, PaymentRequestUpdateRow, PeerChannelIds, MerkleProofUpdateRow,
     PushDataMatchMetadataRow, PushDataMatchRow, PushDataHashRegistrationRow,
-    ServerPeerChannelAccessTokenRow, ServerPeerChannelRow, ServerPeerChannelMessageRow,
+    PeerChannelAccessTokenRow, ServerPeerChannelRow, PeerChannelMessageRow,
     SpendConflictType, SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
     TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
     TransactionOutputSpendableRow, TransactionValueRow, TransactionOutputFullRow,
@@ -256,33 +256,28 @@ def create_wallet_events(db_context: DatabaseContext, entries: list[WalletEventI
     return db_context.post_to_thread(_write)
 
 
-def delete_invoices(db_context: DatabaseContext, entries: Iterable[tuple[int]]) \
+def delete_invoices(db_context: DatabaseContext, invoice_ids: list[int]) \
         -> concurrent.futures.Future[None]:
-    invoice_ids: list[int] = [row[0] for row in entries]
-    sql1 = "DELETE FROM ExternalPeerChannels WHERE invoice_id=?"
-    sql2 = "DELETE FROM Invoices WHERE invoice_id=?"
+    read_sql = "SELECT peer_channel_id FROM ExternalPeerChannels WHERE invoice_id IN ({})"
+    sql_write1 = "DELETE FROM ExternalPeerChannelMessages WHERE peer_channel_id=?"
+    sql_write2 = "DELETE FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
+    sql_write3 = "DELETE FROM ExternalPeerChannels WHERE invoice_id=?"
+    sql_write4 = "DELETE FROM ExternalPeerChannels WHERE invoice_id=?"
+    sql_write5 = "DELETE FROM Invoices WHERE invoice_id=?"
+
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
-        delete_external_peer_channels_for_invoice_ids(db, invoice_ids)
-        db.executemany(sql1, entries)
-        db.executemany(sql2, entries)
+        # Delete External Peer Channel Data
+        row_matches = read_rows_by_id(PeerChannelIds, db, read_sql, [], invoice_ids)
+        peer_channel_ids = [(row.peer_channel_id,) for row in row_matches]
+        invoice_id_sql_values = [(invoice_id,) for invoice_id in invoice_ids]
+
+        db.executemany(sql_write1, peer_channel_ids)
+        db.executemany(sql_write2, peer_channel_ids)
+        db.executemany(sql_write3, peer_channel_ids)
+        db.executemany(sql_write4, invoice_id_sql_values)
+        db.executemany(sql_write5, invoice_id_sql_values)
     return db_context.post_to_thread(_write)
-
-
-def delete_external_peer_channels_for_invoice_ids(db: sqlite3.Connection,
-        invoice_ids: list[int]) -> None:
-    read_sql = "SELECT peer_channel_id FROM ExternalPeerChannels WHERE invoice_id IN ({})"
-
-    row_matches = read_rows_by_id(PeerChannelIds, db, read_sql, [], invoice_ids)
-    peer_channel_ids = [(row.peer_channel_id,) for row in row_matches]
-
-    sql1 = "DELETE FROM ExternalPeerChannelMessages WHERE peer_channel_id=?"
-    sql2 = "DELETE FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
-    sql3 = "DELETE FROM ExternalPeerChannels WHERE invoice_id=?"
-
-    db.executemany(sql1, peer_channel_ids)
-    db.executemany(sql2, peer_channel_ids)
-    db.executemany(sql3, peer_channel_ids)
 
 
 def delete_peer_channels_for_peer_channel_ids(db_context: DatabaseContext,
@@ -1491,7 +1486,7 @@ def create_external_peer_channel_write(row: ExternalPeerChannelRow,
     sql = """
         INSERT INTO ExternalPeerChannels (peer_channel_id, invoice_id, remote_channel_id,
             remote_url, peer_channel_flags, date_created, date_updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
         RETURNING peer_channel_id
     """
     insert_result_1 = db.execute(sql, row).fetchone()
@@ -1562,7 +1557,7 @@ def read_external_peer_channels(db: sqlite3.Connection, remote_channel_id: str |
 
 def update_server_peer_channel_write(remote_channel_id: Optional[str],
         remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
-        peer_channel_id: int, addable_access_tokens: list[ServerPeerChannelAccessTokenRow],
+        peer_channel_id: int, addable_access_tokens: list[PeerChannelAccessTokenRow],
         db: Optional[sqlite3.Connection]=None) -> ServerPeerChannelRow:
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = """
@@ -1589,15 +1584,15 @@ def update_server_peer_channel_write(remote_channel_id: Optional[str],
 
 
 
-def update_external_peer_channel_write(remote_channel_id: Optional[str],
+def update_external_peer_channel_write(remote_channel_id: str | None,
         remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
-        peer_channel_id: int, addable_access_tokens: list[ServerPeerChannelAccessTokenRow],
+        peer_channel_id: int, addable_access_tokens: list[PeerChannelAccessTokenRow],
         db: Optional[sqlite3.Connection]=None) -> ExternalPeerChannelRow:
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = """
         UPDATE ExternalPeerChannels
-        SET remote_channel_id=?, remote_url=?, peer_channel_flags=?
-        WHERE peer_channel_id=?
+        SET remote_channel_id=?1, remote_url=?2, peer_channel_flags=?3
+        WHERE peer_channel_id=?4
         RETURNING peer_channel_id, invoice_id, remote_channel_id, remote_url, peer_channel_flags,
             date_created, date_updated
     """
@@ -1630,7 +1625,7 @@ def update_server_peer_channel_message_flags_write(processed_message_ids: list[i
 @replace_db_context_with_connection
 def read_server_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_id: int,
         mask: Optional[PeerChannelAccessTokenFlag], flags: Optional[PeerChannelAccessTokenFlag]) \
-            -> list[ServerPeerChannelAccessTokenRow]:
+            -> list[PeerChannelAccessTokenRow]:
     sql = "SELECT peer_channel_id, token_flags, permission_flags, access_token " \
         "FROM ServerPeerChannelAccessTokens WHERE peer_channel_id=?"
     sql_values: list[Any] = [peer_channel_id]
@@ -1639,14 +1634,14 @@ def read_server_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_
         sql += " AND "+ clause
         sql_values.extend(extra_values)
 
-    return [ ServerPeerChannelAccessTokenRow(*row)
+    return [ PeerChannelAccessTokenRow(*row)
         for row in db.execute(sql, sql_values).fetchall() ]
 
 
 @replace_db_context_with_connection
 def read_external_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_id: int,
         mask: Optional[PeerChannelAccessTokenFlag], flags: Optional[PeerChannelAccessTokenFlag]) \
-            -> list[ServerPeerChannelAccessTokenRow]:
+            -> list[PeerChannelAccessTokenRow]:
     sql = "SELECT peer_channel_id, token_flags, permission_flags, access_token " \
         "FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
     sql_values: list[Any] = [peer_channel_id]
@@ -1655,12 +1650,12 @@ def read_external_peer_channel_access_tokens(db: sqlite3.Connection, peer_channe
         sql += " AND "+ clause
         sql_values.extend(extra_values)
 
-    return [ ServerPeerChannelAccessTokenRow(*row)
+    return [ PeerChannelAccessTokenRow(*row)
         for row in db.execute(sql, sql_values).fetchall() ]
 
 
-def create_server_peer_channel_messages_write(create_rows: list[ServerPeerChannelMessageRow],
-        db: Optional[sqlite3.Connection]=None) -> list[ServerPeerChannelMessageRow]:
+def create_server_peer_channel_messages_write(create_rows: list[PeerChannelMessageRow],
+        db: Optional[sqlite3.Connection]=None) -> list[PeerChannelMessageRow]:
     assert db is not None
 
     insert_prefix_sql = """
@@ -1674,12 +1669,12 @@ def create_server_peer_channel_messages_write(create_rows: list[ServerPeerChanne
     """
     # Remember we cannot just return the `message_id` and substitute it into the source row
     # because SQLite cannot guarantee the row order matches the returned assigned id order.
-    return bulk_insert_returning(ServerPeerChannelMessageRow, db, insert_prefix_sql,
+    return bulk_insert_returning(PeerChannelMessageRow, db, insert_prefix_sql,
         insert_suffix_sql, create_rows)
 
 
-def create_external_peer_channel_messages_write(create_rows: list[ServerPeerChannelMessageRow],
-        db: Optional[sqlite3.Connection]=None) -> list[ServerPeerChannelMessageRow]:
+def create_external_peer_channel_messages_write(create_rows: list[PeerChannelMessageRow],
+        db: Optional[sqlite3.Connection]=None) -> list[PeerChannelMessageRow]:
     assert db is not None
 
     insert_prefix_sql = """
@@ -1693,7 +1688,7 @@ def create_external_peer_channel_messages_write(create_rows: list[ServerPeerChan
     """
     # Remember we cannot just return the `message_id` and substitute it into the source row
     # because SQLite cannot guarantee the row order matches the returned assigned id order.
-    return bulk_insert_returning(ServerPeerChannelMessageRow, db, insert_prefix_sql,
+    return bulk_insert_returning(PeerChannelMessageRow, db, insert_prefix_sql,
         insert_suffix_sql, create_rows)
 
 
@@ -1702,7 +1697,7 @@ def read_server_peer_channel_messages(db: sqlite3.Connection,
         message_flags: Optional[PeerChannelMessageFlag],
         message_mask: Optional[PeerChannelMessageFlag],
         channel_flags: Optional[ServerPeerChannelFlag],
-        channel_mask: Optional[ServerPeerChannelFlag]) -> list[ServerPeerChannelMessageRow]:
+        channel_mask: Optional[ServerPeerChannelFlag]) -> list[PeerChannelMessageRow]:
     sql = """
         SELECT SPCM.message_id, SPCM.peer_channel_id, SPCM.message_data, SPCM.message_flags,
             SPCM.sequence, SPCM.date_received, SPCM.date_created, SPCM.date_updated
@@ -1718,7 +1713,7 @@ def read_server_peer_channel_messages(db: sqlite3.Connection,
     if clause:
         sql += f" AND ({clause})"
         sql_values.extend(extra_values2)
-    return [ ServerPeerChannelMessageRow(*row) for row in db.execute(sql, sql_values).fetchall() ]
+    return [ PeerChannelMessageRow(*row) for row in db.execute(sql, sql_values).fetchall()]
 
 
 @replace_db_context_with_connection

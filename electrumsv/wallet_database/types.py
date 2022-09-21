@@ -566,7 +566,7 @@ class ExternalPeerChannelRow(NamedTuple):
 
 
 # Used for both owned and externally owned peer channel tables
-class ServerPeerChannelAccessTokenRow(NamedTuple):
+class PeerChannelAccessTokenRow(NamedTuple):
     peer_channel_id: int
     token_flags: PeerChannelAccessTokenFlag
     permission_flags: int
@@ -574,7 +574,7 @@ class ServerPeerChannelAccessTokenRow(NamedTuple):
 
 
 # Used for both owned and externally owned peer channel tables
-class ServerPeerChannelMessageRow(NamedTuple):
+class PeerChannelMessageRow(NamedTuple):
     message_id: int | None
     peer_channel_id: int
     message_data: bytes

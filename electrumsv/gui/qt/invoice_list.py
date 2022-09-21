@@ -263,5 +263,5 @@ class InvoiceList(MyTreeWidget):
             #   be made, unless we emit a signal to do it.
             self._send_view.payment_request_deleted_signal.emit(invoice_id)
 
-        future = self._send_view._account._wallet.data.delete_invoices([ (invoice_id,) ])
+        future = self._send_view._account._wallet.data.delete_invoices([ invoice_id ])
         future.add_done_callback(callback)

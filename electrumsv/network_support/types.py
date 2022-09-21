@@ -18,13 +18,12 @@ import aiohttp
 from aiohttp import ClientWebSocketResponse
 
 from .exceptions import GeneralAPIError
-from ..constants import NetworkServerFlag, ScriptType, ServerConnectionFlag, ServerPeerChannelFlag
+from ..constants import NetworkServerFlag, ScriptType, ServerConnectionFlag
 from ..exceptions import BadServerError, ServerConnectionError
 from ..logs import logs
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
-from ..wallet_database.types import ServerPeerChannelMessageRow, DPPMessageRow, \
+from ..wallet_database.types import PeerChannelMessageRow, DPPMessageRow, \
     ExternalPeerChannelRow
-
 from .constants import ServerProblemKind
 
 if TYPE_CHECKING:
@@ -197,7 +196,7 @@ class ServerStateProtocol(Protocol):
     disconnection_event_queue: asyncio.Queue[tuple[ServerProblemKind, str]]
 
     # Wallet consuming: Post MAPI callback responses here to get them registered with the server.
-    mapi_callback_response_queue: asyncio.Queue[list[tuple[ServerPeerChannelMessageRow,
+    mapi_callback_response_queue: asyncio.Queue[list[tuple[PeerChannelMessageRow,
         GenericPeerChannelMessage]]]
     mapi_callback_response_event: asyncio.Event
     mapi_callback_consumer_future: Optional[concurrent.futures.Future[None]]
@@ -205,10 +204,8 @@ class ServerStateProtocol(Protocol):
     # The stage of the connection process it has last reached.
     connection_flags: ServerConnectionFlag
     stage_change_event: asyncio.Event
-    upgrade_lock: asyncio.Lock
 
     # Wallet individual futures (all servers).
-    stage_change_pipeline_future: Optional[concurrent.futures.Future[None]]
     connection_future: Optional[concurrent.futures.Future[ServerConnectionProblems]]
 
     # Server consuming: Incoming peer channel message notifications from the server.
@@ -216,11 +213,6 @@ class ServerStateProtocol(Protocol):
 
     # Server websocket-related futures.
     websocket_futures: list[concurrent.futures.Future[None]]
-
-
-    @property
-    def used_with_reference_server_api(self) -> bool:
-        ...
 
     def clear_for_reconnection(self, clear_flags: ServerConnectionFlag=ServerConnectionFlag.NONE) \
             -> None:
@@ -230,15 +222,9 @@ class ServerStateProtocol(Protocol):
     def server_url(self) -> str:
         ...
 
-    def peer_channel_id(self, remote_channel_id: str) -> int | None:
-        ...
-
-    def peer_channel_flags(self, remote_channel_id: str) -> ServerPeerChannelFlag | None:
-        ...
-
 
 @dataclasses.dataclass
-class PeerChannelServerState:
+class PeerChannelServerState(ServerStateProtocol):
     """Implements ServerStateProtocol"""
     wallet_proxy: Wallet | None
     wallet_data: WalletDataAccess | None
@@ -246,7 +232,7 @@ class PeerChannelServerState:
     credential_id: IndefiniteCredentialId | None
     remote_channel_id: str
 
-    external_channel_row: ExternalPeerChannelRow | None = None
+    external_channel_row: ExternalPeerChannelRow
 
     # This should only be used to send problems that occur that should result in the connection
     # being closed and the user informed.
@@ -255,8 +241,8 @@ class PeerChannelServerState:
 
     # Wallet consuming: Post MAPI callback responses here to get them registered with the server.
     mapi_callback_response_queue: \
-        asyncio.Queue[list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]] = \
-            dataclasses.field(default_factory=asyncio.Queue[list[tuple[ServerPeerChannelMessageRow,
+        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+            dataclasses.field(default_factory=asyncio.Queue[list[tuple[PeerChannelMessageRow,
                 GenericPeerChannelMessage]]])
     mapi_callback_response_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
     mapi_callback_consumer_future: Optional[concurrent.futures.Future[None]] = None
@@ -264,10 +250,8 @@ class PeerChannelServerState:
     # The stage of the connection process it has last reached.
     connection_flags: ServerConnectionFlag = ServerConnectionFlag.INITIALISED
     stage_change_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
-    upgrade_lock: asyncio.Lock = dataclasses.field(default_factory=asyncio.Lock)
 
     # Wallet individual futures (all servers).
-    stage_change_pipeline_future: Optional[concurrent.futures.Future[None]] = None
     connection_future: Optional[concurrent.futures.Future[ServerConnectionProblems]] = None
 
     # Server consuming: Incoming peer channel message notifications from the server.
@@ -277,10 +261,6 @@ class PeerChannelServerState:
     # Server websocket-related futures.
     websocket_futures: list[concurrent.futures.Future[None]] = dataclasses.field(
         default_factory=list[concurrent.futures.Future[None]])
-
-    @property
-    def used_with_reference_server_api(self) -> bool:
-        return False
 
     def clear_for_reconnection(self, clear_flags: ServerConnectionFlag=ServerConnectionFlag.NONE) \
             -> None:
@@ -295,25 +275,12 @@ class PeerChannelServerState:
 
     @property
     def server_url(self) -> str:
-        assert self.external_channel_row is not None
         assert self.external_channel_row.remote_url is not None
         return self.external_channel_row.remote_url
 
-    def peer_channel_id(self, remote_channel_id: str) -> int | None:
-        # remote_channel_id is redundant for this type of server but is kept as an argument
-        # to maintain the same API as ServerConnectionState
-        assert self.external_channel_row is not None
-        return self.external_channel_row.peer_channel_id
-
-    def peer_channel_flags(self, remote_channel_id: str) -> ServerPeerChannelFlag | None:
-        # _remote_channel_id is redundant for this type of server but is kept as an argument
-        # to maintain the same API as ServerConnectionState
-        assert self.external_channel_row is not None
-        return self.external_channel_row.peer_channel_flags
-
 
 @dataclasses.dataclass
-class ServerConnectionState:
+class ServerConnectionState(ServerStateProtocol):
     """Implements ServerStateProtocol"""
     petty_cash_account_id: int
     usage_flags: NetworkServerFlag
@@ -344,8 +311,8 @@ class ServerConnectionState:
 
     # Wallet consuming: Post MAPI callback responses here to get them registered with the server.
     mapi_callback_response_queue: \
-        asyncio.Queue[list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]] = \
-            dataclasses.field(default_factory=asyncio.Queue[list[tuple[ServerPeerChannelMessageRow,
+        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+            dataclasses.field(default_factory=asyncio.Queue[list[tuple[PeerChannelMessageRow,
                 GenericPeerChannelMessage]]])
     mapi_callback_response_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
     # Wallet consuming: Incoming spend notifications from the server.
@@ -353,8 +320,8 @@ class ServerConnectionState:
         default_factory=asyncio.Queue[Sequence[OutputSpend]])
     # Wallet consuming: Post tip filter matches here to get them registered with the server.
     tip_filter_matches_queue: \
-        asyncio.Queue[list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]] = \
-            dataclasses.field(default_factory=asyncio.Queue[list[tuple[ServerPeerChannelMessageRow,
+        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+            dataclasses.field(default_factory=asyncio.Queue[list[tuple[PeerChannelMessageRow,
                 GenericPeerChannelMessage]]])
     # Wallet consuming: Direct payment protocol-related messages from the DPP server
     dpp_messages_queue: asyncio.Queue[DPPMessageRow] = dataclasses.field(
@@ -392,20 +359,6 @@ class ServerConnectionState:
     def server_url(self) -> str:
         return self.server.url
 
-    def peer_channel_id(self, remote_channel_id: str) -> int | None:
-        assert self.cached_peer_channel_rows is not None
-        peer_channel_row = self.cached_peer_channel_rows.get(remote_channel_id)
-        if peer_channel_row:
-            return peer_channel_row.peer_channel_id
-        return None
-
-    def peer_channel_flags(self, remote_channel_id: str) -> ServerPeerChannelFlag | None:
-        assert self.cached_peer_channel_rows is not None
-        peer_channel_row = self.cached_peer_channel_rows.get(remote_channel_id)
-        if peer_channel_row:
-            return peer_channel_row.peer_channel_flags
-        return None
-
     @property
     def used_with_reference_server_api(self) -> bool:
         return self.usage_flags & NetworkServerFlag.MASK_UTILISATION != 0
@@ -433,60 +386,3 @@ class VerifiableKeyData(TypedDict):
     public_key_hex: str
     signature_hex: str
     message_hex: str
-
-
-
-logger = logs.get_logger("server-state-methods")
-
-
-# Placed here because this is imported by both general_api.py and peer_channel.py and
-# avoids circular import
-def _on_server_connection_worker_task_done(state: ServerStateProtocol,
-        future: Future[None]) -> None:
-    """
-    This acts as a central point through which execution of worker tasks created by
-    `` exit. None of these worker tasks return results, we are solely interested in acting
-    on any exceptions that happen within them.
-
-    Worker tasks whose results are passed to this callback:
-
-    - `manage_output_spends_async`
-    - `manage_tip_filter_registrations_async`
-    - `process_incoming_peer_channel_messages_async`
-
-    WARNING: All these worker tasks run on the asynchronous thread. Because of this we can
-        assume that the queue `put_nowait` operation does not have to be thread-safe.
-
-    Raises nothing.
-    """
-    if future.cancelled():
-        return
-
-    disconnection_problem: ServerProblemKind
-    disconnection_text: str
-    try:
-        future.result()
-    except BadServerError as bad_server_error:
-        # Raised by `manage_output_spends_async`.
-        disconnection_problem = ServerProblemKind.BAD_SERVER
-        disconnection_text = cast(str, bad_server_error.args[0])
-    except ServerConnectionError as server_error:
-        # Raised by `manage_output_spends_async`
-        # Raised by `process_incoming_peer_channel_messages_async`
-        disconnection_problem = ServerProblemKind.CONNECTION_ERROR
-        disconnection_text = cast(str, server_error.args[0])
-    except GeneralAPIError as general_api_error:
-        # Raised by `process_incoming_peer_channel_messages_async`
-        disconnection_problem = ServerProblemKind.UNEXPECTED_API_RESPONSE
-        disconnection_text = cast(str, general_api_error.args[0])
-    else:
-        return
-
-    logger.warning("Recorded problem with server %s, %s (%s)", state.server_url,
-        disconnection_problem, disconnection_text)
-
-    # WARNING: All these worker tasks run on the asynchronous thread. Because of this we can
-    #     assume that the queue `put_nowait` operation does not have to be thread-safe.
-    state.disconnection_event_queue.put_nowait((disconnection_problem,
-        disconnection_text))
-

@@ -504,7 +504,7 @@ class RegistrationWidget(QWidget):
             server_flags: NetworkServerFlag) -> None:
         # Starting the connection continues in an async task and does not block this call
         # (at least not for the actual connecting part).
-        server_state = await self._wallet_proxy.start_server_connection_async(server,
+        server_state = await self._wallet_proxy.start_reference_server_connection_async(server,
             server_flags)
         while server_state.connection_flags & ServerConnectionFlag.MASK_EXIT == 0:
             if server_state.connection_flags & ServerConnectionFlag.WEB_SOCKET_READY != 0:

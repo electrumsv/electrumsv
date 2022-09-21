@@ -480,17 +480,17 @@ class PaymentACK:
     def to_dict(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {}
         if self.mode_id:
-            data.update({"modeId": self.mode_id})
+            data["modeId"] = self.mode_id
         if self.mode:
-            data.update({"mode": self.mode})
+            data["mode"] = self.mode
         if self.peer_channel_info:
-            data.update({"peerChannel": self.peer_channel_info})
+            data["peerChannel"] = self.peer_channel_info
         if self.redirect_url:
-            data.update({"redirectUrl": self.redirect_url})
+            data["redirectUrl"] = self.redirect_url
         if self.memo:
-            data.update({"memo": self.memo})
+            data["memo"] = self.memo
         if self.error:
-            data.update({"error": self.error})
+            data["error"] = self.error
         return data
 
     @classmethod
