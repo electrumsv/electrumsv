@@ -51,17 +51,16 @@ from aiohttp import WSServerHandshakeError
 from bitcoinx import hash_to_hex_str, PrivateKey, PublicKey
 
 from ..app_state import app_state
-from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, \
-    PushDataHashRegistrationFlag, ScriptType, ServerConnectionFlag, ServerPeerChannelFlag, \
-    PeerChannelMessageFlag
+from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag, \
+    PushDataHashRegistrationFlag, ScriptType, ServerConnectionFlag, ServerPeerChannelFlag
 from ..exceptions import BadServerError, ServerConnectionError
 from ..logs import logs
 from ..types import IndefiniteCredentialId, Outpoint, outpoint_struct, output_spend_struct, \
     OutputSpend, tip_filter_list_struct, tip_filter_registration_struct, \
     tip_filter_unregistration_struct, TipFilterListEntry
 from ..util import get_posix_timestamp
-from ..wallet_database.types import PushDataHashRegistrationRow, PeerChannelAccessTokenRow, \
-    PeerChannelMessageRow, ServerPeerChannelRow
+from ..wallet_database.types import PeerChannelAccessTokenRow, PeerChannelMessageRow, \
+    PushDataHashRegistrationRow, ServerPeerChannelRow
 
 from .constants import ServerProblemKind
 from .disconnection import _on_server_connection_worker_task_done
@@ -726,16 +725,19 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
     Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
     Raises `ServerConnectionError` if the remote computer does not accept the connection.
     """
+    assert state.usage_flags & NetworkServerFlag.USE_MESSAGE_BOX
 
     # Typing related assertions.
     assert state.wallet_data is not None
+    assert state.cached_peer_channel_rows is not None
+
     assert state.wallet_proxy is not None
     logger.debug("Entering process_incoming_peer_channel_messages_async, server_url=%s "
                  "(Wallet='%s')", state.server_url, state.wallet_proxy.name())
 
     while state.connection_flags & ServerConnectionFlag.EXITING == 0:
         remote_channel_id = await state.peer_channel_message_queue.get()
-        assert state.cached_peer_channel_rows is not None
+
         peer_channel_row = state.cached_peer_channel_rows.get(remote_channel_id)
         if peer_channel_row is None:
             # TODO(1.4.0) Unreliable server, issue#841. Unexpected server peer channel activity.

@@ -47,7 +47,7 @@ import aiohttp
 from aiohttp import WSServerHandshakeError
 
 from ..app_state import app_state
-from ..constants import ServerConnectionFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag, \
+from ..constants import PeerChannelAccessTokenFlag, PeerChannelMessageFlag, ServerConnectionFlag, \
     ServerPeerChannelFlag
 from ..exceptions import ServerConnectionError, BadServerError
 from ..logs import logs
@@ -57,9 +57,9 @@ from ..wallet_database.types import PeerChannelMessageRow
 from .constants import ServerProblemKind
 from .disconnection import _on_server_connection_worker_task_done
 from .exceptions import GeneralAPIError
-from .types import ServerStateProtocol, GenericPeerChannelMessage, MessageViewModelGetBinary, \
-    PeerChannelAPITokenViewModelGet, PeerChannelViewModelGet, RetentionViewModel, \
-    TokenPermissions, PeerChannelServerState, ServerConnectionProblems
+from .types import GenericPeerChannelMessage, MessageViewModelGetBinary, \
+    PeerChannelAPITokenViewModelGet, PeerChannelViewModelGet, PeerChannelServerState, \
+    RetentionViewModel, ServerStateProtocol, ServerConnectionProblems, TokenPermissions
 
 
 logger = logs.get_logger("peer-channels")

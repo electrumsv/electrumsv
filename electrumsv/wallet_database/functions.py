@@ -51,18 +51,18 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     IncompleteProofDataSubmittedError, TransactionAlreadyExistsError, TransactionRemovalError)
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
-    HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
-    KeyInstanceRow, KeyListRow, MasterKeyRow, MAPIBroadcastRow, NetworkServerRow,
-    PasswordUpdateResult, PaymentRequestRow, PaymentRequestOutputRow,
-    PaymentRequestTransactionHashRow, PaymentRequestUpdateRow, PeerChannelIds, MerkleProofUpdateRow,
-    PushDataMatchMetadataRow, PushDataMatchRow, PushDataHashRegistrationRow,
-    PeerChannelAccessTokenRow, ServerPeerChannelRow, PeerChannelMessageRow,
-    SpendConflictType, SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
-    TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
+    DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceAccountRow, InvoiceRow,
+    KeyInstanceFlagRow, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, MasterKeyRow,
+    MAPIBroadcastRow, NetworkServerRow, PasswordUpdateResult, PaymentRequestRow,
+    PaymentRequestOutputRow, PaymentRequestTransactionHashRow, PaymentRequestUpdateRow,
+    PeerChannelIds, MerkleProofUpdateRow, PeerChannelAccessTokenRow, PushDataMatchMetadataRow,
+    PushDataMatchRow, PushDataHashRegistrationRow, ServerPeerChannelRow,
+    PeerChannelMessageRow, SpendConflictType, SpentOutputRow, TransactionDeltaSumRow,
+    TransactionExistsRow, TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
     TransactionOutputSpendableRow, TransactionValueRow, TransactionOutputFullRow,
     TransactionOutputShortRow, TransactionProoflessRow, TxProofData, TransactionProofUpdateRow,
     TransactionRow, MerkleProofRow, WalletBalance, WalletDataRow, WalletEventInsertRow,
-    WalletEventRow, DPPMessageRow, ExternalPeerChannelRow)
+    WalletEventRow)
 from .util import flag_clause
 
 logger = logs.get_logger("db-functions")

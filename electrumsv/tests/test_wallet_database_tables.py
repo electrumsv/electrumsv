@@ -1479,7 +1479,7 @@ async def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: Database
     duplicate_row2 = db_functions.read_invoice_duplicate(db_context, row.value, row.payment_uri)
     assert duplicate_row2 == row
 
-    future = db_functions.delete_invoices(db_context, [ (line2_1.invoice_id,) ])
+    future = db_functions.delete_invoices(db_context, [ line2_1.invoice_id ])
     future.result()
 
     db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1)

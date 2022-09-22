@@ -5,25 +5,18 @@ for an ESVReferenceClient and/or use a github submodule in ElectrumSV
 (or something along those lines).
 """
 from __future__ import annotations
-
+import aiohttp
+from aiohttp import ClientWebSocketResponse
 import asyncio
 import concurrent.futures
 import dataclasses
 import enum
-from concurrent.futures import Future
 from enum import IntFlag
-from typing import Any, NamedTuple, Optional, Protocol, Sequence, TYPE_CHECKING, TypedDict, cast
+from typing import Any, NamedTuple, Optional, Protocol, Sequence, TYPE_CHECKING, TypedDict
 
-import aiohttp
-from aiohttp import ClientWebSocketResponse
-
-from .exceptions import GeneralAPIError
 from ..constants import NetworkServerFlag, ScriptType, ServerConnectionFlag
-from ..exceptions import BadServerError, ServerConnectionError
-from ..logs import logs
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
-from ..wallet_database.types import PeerChannelMessageRow, DPPMessageRow, \
-    ExternalPeerChannelRow
+from ..wallet_database.types import DPPMessageRow, ExternalPeerChannelRow, PeerChannelMessageRow
 from .constants import ServerProblemKind
 
 if TYPE_CHECKING:

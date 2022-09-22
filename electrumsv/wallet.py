@@ -79,9 +79,8 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
-from .network_support.direct_payments import send_outgoing_direct_payment_async, \
-    dpp_make_ack, dpp_make_payment_error, \
-    dpp_make_payment_request_response
+from .network_support.direct_payments import dpp_make_ack, dpp_make_payment_error, \
+    dpp_make_payment_request_response, send_outgoing_direct_payment_async
 from .network_support.dpp_proxy import _is_later_dpp_message_sequence, \
     close_dpp_server_connection_async, create_dpp_server_connection_async, \
     create_dpp_server_connections_async, dpp_websocket_send, find_connectable_dpp_server, \
@@ -92,8 +91,8 @@ from .network_support.general_api import create_reference_server_account_async, 
     create_tip_filter_registration_async, delete_tip_filter_registration_async, \
     maintain_server_connection_async, request_binary_merkle_proof_async, \
     request_transaction_data_async, upgrade_server_connection_async
-from .network_support.peer_channel import maintain_external_peer_channel_connection_async, \
-    delete_peer_channel_async
+from .network_support.peer_channel import delete_peer_channel_async, \
+    maintain_external_peer_channel_connection_async
 from .network_support.headers import get_longest_valid_chain
 from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_fee_quotes_async
 from .network_support.types import GenericPeerChannelMessage, PeerChannelServerState, \
@@ -2427,7 +2426,9 @@ class Wallet:
         self._fee_quote_lock = asyncio.Lock()
 
         ## State related to the wallet processing headers from it's header source.
-        self._header_source_synchronised_event = asyncio.Event()
+        self._header_source_chain_reconciled_event = asyncio.Event()
+        self._blockchain_server_chain_reconciled_event = asyncio.Event()
+
         self._start_chain_management_event = asyncio.Event()
 
         # It is possible that the wallet receives merkle proofs that it cannot process because
@@ -5348,19 +5349,23 @@ class Wallet:
         app_state.async_.spawn_and_wait(trigger_chain_management_interrupt_event())
 
         # Only kill if not signalled to exit by the chain management interrupt event.
-        kill_worker_tasks = not self._header_source_synchronised_event.is_set()
+
+        kill_blockchain_server_dependent_workers = \
+            not self._blockchain_server_chain_reconciled_event.is_set()
         if self._worker_task_obtain_transactions is not None:
-            if kill_worker_tasks:
+            if kill_blockchain_server_dependent_workers:
                 self._worker_task_obtain_transactions.cancel()
             pending_futures.add(self._worker_task_obtain_transactions)
             self._worker_task_obtain_transactions = None
         if self._worker_task_obtain_merkle_proofs is not None:
-            if kill_worker_tasks:
+            if kill_blockchain_server_dependent_workers:
                 self._worker_task_obtain_merkle_proofs.cancel()
             pending_futures.add(self._worker_task_obtain_merkle_proofs)
             self._worker_task_obtain_merkle_proofs = None
+
+        kill_headerless_proofs_worker = not self._header_source_chain_reconciled_event.is_set()
         if self._worker_task_connect_headerless_proofs is not None:
-            if kill_worker_tasks:
+            if kill_headerless_proofs_worker:
                 self._worker_task_connect_headerless_proofs.cancel()
             pending_futures.add(self._worker_task_connect_headerless_proofs)
             self._worker_task_connect_headerless_proofs = None
@@ -5685,7 +5690,8 @@ class Wallet:
         self._blockchain_server_state_ready = True
         self._start_chain_management_event.set()
         if server_state is not None:
-            self._header_source_synchronised_event.set()
+            self._blockchain_server_chain_reconciled_event.set()
+        self._header_source_chain_reconciled_event.set()
 
     def _update_current_chain(self, chain: Chain, header: Header) -> None:
         """
@@ -5869,7 +5875,7 @@ class Wallet:
         self._logger.debug("_obtain_transactions_worker_async entered")
 
         # We need the header source to be fully synchronised before we start.
-        await self._header_source_synchronised_event.wait()
+        await self._blockchain_server_chain_reconciled_event.wait()
         self._logger.debug("_obtain_transactions_worker_async started")
 
         # To get here there must not have been any further missing transactions.
@@ -6024,7 +6030,7 @@ class Wallet:
         assert app_state.headers is not None
 
         # We need the header source to be fully synchronised before we start.
-        await self._header_source_synchronised_event.wait()
+        await self._blockchain_server_chain_reconciled_event.wait()
 
         # TODO(1.4.0) Networking, issue#916. If the user does not have their internet connection
         #     enabled when the wallet is first opened, then this will maybe error and exit or block.
@@ -6135,7 +6141,7 @@ class Wallet:
 
     async def _connect_headerless_proofs_worker_async(self) -> None:
         # We need the header source to be fully synchronised before we start.
-        await self._header_source_synchronised_event.wait()
+        await self._header_source_chain_reconciled_event.wait()
         assert self._connect_headerless_proof_worker_state is not None
 
         state = self._connect_headerless_proof_worker_state
