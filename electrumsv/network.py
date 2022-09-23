@@ -22,6 +22,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import annotations
 import asyncio
 from aiohttp import ClientSession
 import bitcoinx
@@ -30,7 +31,7 @@ import dataclasses
 import concurrent.futures
 import time
 from io import BytesIO
-from typing import Any, cast, Iterable, Optional, TYPE_CHECKING
+from typing import Any, cast, Iterable, TYPE_CHECKING
 
 from .app_state import app_state
 from .constants import NetworkEventNames, NetworkServerType, ServerCapability
@@ -39,11 +40,10 @@ from .logs import logs
 from .network_support.api_server import APIServerDefinition
 from .network_support.types import TipResponse
 from .network_support.headers import get_batched_headers_by_height_async, get_chain_tips_async, \
-    HeaderServerState, ServerConnectivityMetadata, \
-    subscribe_to_headers_async
+    HeaderServerState, ServerConnectivityMetadata, subscribe_to_headers_async
 from .networks import Net
 from .types import ServerAccountKey
-from .util import future_callback, TriggeredCallbacks
+from .util import TriggeredCallbacks
 
 if TYPE_CHECKING:
     from .wallet import Wallet
@@ -76,26 +76,25 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         # Events
         self.new_server_ready_event = app_state.async_.event()
         self.new_server_connection_event = app_state.async_.event()
+        self.lost_server_connection_event = app_state.async_.event()
         self._shutdown_complete_event = app_state.async_.event()
 
         # Add an wallet, remove an wallet, or redo all wallet verifications
         self._wallets: set[Wallet] = set()
 
         self.aiohttp_session = ClientSession(loop=app_state.async_.loop)
-        self.connected_header_server_states = dict[ServerAccountKey, HeaderServerState]()
+        self.connected_header_server_states: dict[ServerAccountKey, HeaderServerState] = {}
 
         self._new_server_queue: asyncio.Queue[ServerAccountKey] = asyncio.Queue()
         # The usable set of API servers both globally known by the application and also
         # per-wallet/account servers from each wallet database.
         self._known_header_server_keys = set[ServerAccountKey]()
         self._chosen_servers: set[ServerAccountKey] = set()
-        self._server_connectivity_metadata = dict[ServerAccountKey, ServerConnectivityMetadata]()
+        self._server_connectivity_metadata: dict[ServerAccountKey, ServerConnectivityMetadata] = {}
 
-        self._main_loop_context: Optional[MainLoopContext] = MainLoopContext()
+        self._main_loop_context: MainLoopContext | None = MainLoopContext()
         self._main_loop_future = app_state.async_.spawn(
             self._main_loop_async(self._main_loop_context))
-        # Futures swallow exceptions if there are no callbacks to collect the exception.
-        self._main_loop_future.add_done_callback(future_callback)
 
     def get_local_height(self) -> int:
         assert app_state.headers is not None
@@ -180,11 +179,11 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             # We don't know that we connected a new header, but the "longest chain" task can
             # work out if it is getting redundant notifications.
             app_state.headers_update_event.set()
+            app_state.headers_update_event.clear()
 
         return None
 
-    async def _monitor_chain_tip_task_async(self, server_key: ServerAccountKey) \
-            -> None:
+    async def _monitor_chain_tip_task_async(self, server_key: ServerAccountKey) -> None:
         """
         All chosen servers (up to a limit of 10) will run an independent instance this task.
         Only the main server results in mutated wallet state (e.g. only reorgs on the main server
@@ -241,6 +240,8 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             server_state.tip_header = current_tip_header
             server_state.chain = current_chain
 
+            server_metadata.last_good = time.time()
+
             for wallet in self._wallets:
                 wallet.process_header_source_update(server_state, previous_chain,
                     previous_tip_header, current_chain, current_tip_header)
@@ -257,7 +258,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
     #             available_server_keys.append(server_key)
     #     return available_server_keys
 
-    # def _random_server_nowait(self) -> Optional[ServerAccountKey]:
+    # def _random_server_nowait(self) -> ServerAccountKey | None:
     #     available_server_keys = self._available_servers()
     #     return random.choice(available_server_keys) if len(available_server_keys) > 0 else None
 
@@ -284,7 +285,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         try:
             # Make sure this has been created.
             for hardcoded_server_config in cast(list[APIServerDefinition], Net.DEFAULT_SERVERS_API):
-                server_type: Optional[NetworkServerType] = getattr(NetworkServerType,
+                server_type: NetworkServerType | None = getattr(NetworkServerType,
                     hardcoded_server_config['type'], None)
                 if server_type is None:
                     logger.error("Misconfigured hard-coded server with url '%s' and type '%s'",
@@ -314,6 +315,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 if server_key in self._known_header_server_keys:
                     continue
 
+                logger.debug("Connecting to new server %s", server_key)
                 self._known_header_server_keys.add(server_key)
                 self._server_connectivity_metadata[server_key] = ServerConnectivityMetadata()
 
@@ -323,6 +325,15 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             for future in context.futures:
                 future.cancel()
             self._shutdown_complete_event.set()
+
+    def get_known_header_servers(self) -> set[ServerAccountKey]:
+        # These are servers we have been made aware of. We will at the least have metadata related
+        # to them, if not an active connection.
+        return self._known_header_server_keys
+
+    def get_header_server_metadata(self, server_key: ServerAccountKey) \
+            -> ServerConnectivityMetadata:
+        return self._server_connectivity_metadata[server_key]
 
     def get_header_server_state(self, server_key: ServerAccountKey) -> HeaderServerState:
         return self.connected_header_server_states[server_key]
@@ -352,8 +363,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         """
         if server_key not in self.connected_header_server_states:
             future = app_state.async_.spawn(self._maintain_connection(context, server_key))
-            # Futures swallow exceptions if there are no callbacks to collect the exception.
-            future.add_done_callback(future_callback)
             self.connected_header_server_states[server_key] = HeaderServerState(server_key,
                 future)
             self.new_server_connection_event.set()
@@ -376,6 +385,8 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                            logger.error("Server unavailable: %s", server_key)
                 await asyncio.sleep(20)
         finally:
+            self.lost_server_connection_event.set()
+            self.lost_server_connection_event.clear()
             del self.connected_header_server_states[server_key]
 
     #
@@ -396,11 +407,11 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
     #     return self._known_header_server_keys[ServerAccountKey(url, server_type, None)]\
     #           .is_unusable()
 
-    def add_wallet(self, wallet: "Wallet") -> None:
+    def add_wallet(self, wallet: Wallet) -> None:
         """ This wallet has been loaded and is now using this network. """
         self._wallets.add(wallet)
 
-    def remove_wallet(self, wallet: "Wallet") -> None:
+    def remove_wallet(self, wallet: Wallet) -> None:
         """ This wallet has been unloaded and is no longer using this network. """
         self._wallets.remove(wallet)
 
@@ -437,6 +448,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 app_state.connect_header(raw_header)
 
             app_state.headers_update_event.set()
+            app_state.headers_update_event.clear()
 
         server_state.synchronisation_data = None
         server_state.synchronisation_update_event.set()

@@ -145,7 +145,7 @@ class ServerAccountKey(NamedTuple):
     """ For now the each client may have different access to a MAPI server. """
     url: str
     server_type: NetworkServerType
-    account_id: Optional[int]
+    account_id: int | None
 
     @staticmethod
     def groupby(key: "ServerAccountKey") -> "ServerAccountKey":

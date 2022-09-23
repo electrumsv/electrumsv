@@ -65,12 +65,6 @@ def version_string(ptuple: Tuple[int, ...]) -> str:
     return '.'.join(str(p) for p in ptuple)
 
 
-def future_callback(future: concurrent.futures.Future[None]) -> None:
-    if future.cancelled():
-        return
-    future.result()
-
-
 class MyEncoder(json.JSONEncoder):
     # https://github.com/PyCQA/pylint/issues/414
     def default(self, o: Any) -> Any: # pylint: disable=method-hidden

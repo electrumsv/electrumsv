@@ -63,7 +63,7 @@ from ... import bitcoin, commands, dpp_messages, util
 from ...app_state import app_state
 from ...bitcoin import address_from_string, COIN, script_template_to_string
 from ...constants import (AccountType, CredentialPolicyFlag, DATABASE_EXT, NetworkEventNames,
-    NetworkServerFlag, ScriptType, ServerConnectionFlag, ServerProgress, TransactionImportFlag,
+    NetworkServerFlag, ScriptType, ServerConnectionFlag, TransactionImportFlag,
     TransactionOutputFlag, TxFlags, WalletEvent)
 from ...exceptions import UserCancelled
 from ...i18n import _
@@ -226,11 +226,8 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.ui_callback_signal.connect(self._on_ui_callback_to_dispatch)
 
         self._last_network_status_change = 0.0
-        self._network_status_event = app_state.async_.event()
         self._network_status_loop_task = app_state.async_.spawn(
             self._update_network_status_loop())
-        self._monitor_wallet_network_status_task = app_state.async_.spawn(
-            self._monitor_wallet_network_status())
 
         # network callbacks
         if self.network:
@@ -1139,21 +1136,32 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         btc_edit.in_event = False
         btc_edit.textChanged.connect(partial(edit_changed, btc_edit))
 
-    async def _monitor_wallet_network_status(self) -> None:
-        # This effectively converts all async events to Qt UI thread events.
-        while True:
-            await self._wallet.progress_event.wait()
-            self._network_status_event.set()
-
     async def _update_network_status_loop(self) -> None:
         while True:
+            # Only update the network status once a second (arbitrary amount of time).
             seconds_passed = time.time() - self._last_network_status_change
             if seconds_passed < 1.0:
                 await asyncio.sleep(1.0 - seconds_passed)
 
             self._last_network_status_change = time.time()
             self.network_status_signal.emit()
-            await self._network_status_event.wait()
+
+            # Wait for all the events that can change something that should result in a change
+            # in network status.
+            awaitables = [
+                # The wallet is updating it's local chain.
+                self._wallet.local_chain_update_event.wait(),
+                # If there is a blockchain server and its connection state changes.
+                self._wallet.progress_event.wait(),
+            ]
+            if self.network is not None:
+                # A new server has connected (might be the blockchain one reconnecting).
+                awaitables.append(self.network.new_server_ready_event.wait())
+                # A server has lost connection (might be the blockchain one disconnecting).
+                awaitables.append(self.network.lost_server_connection_event.wait())
+            # We have a timeout so that we can indicate that we might be lagging if we have
+            # not had any events, but no headers have been received recently.
+            await asyncio.wait(awaitables, timeout=4*60, return_when=asyncio.FIRST_COMPLETED)
 
     def _on_keys_updated(self, account_id: int, keyinstance_ids: List[int]) -> None:
         self.update_status_bar()
@@ -1194,76 +1202,76 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         """
         Update the network status portion of the status bar.
         """
-        # TODO(1.4.0) User experience, issue#909. Have some form of deferred update where each
-        #     pending update is blocked until the next second (or something like that).
-        text: Optional[str] = None
-        tooltip_text: Optional[str] = None
         if self.network is None:
-            text = _("Offline")
-            tooltip_text = _("You have started ElectrumSV in offline mode.")
-        else:
-            server_progress = self._wallet.get_server_progress()
-            if server_progress == ServerProgress.NONE:
-                text = _("Not connected")
-                tooltip_text = _("No active process is attempting to connect yet.")
-            elif server_progress == ServerProgress.CONNECTION_PROCESS_STARTED:
-                text = _("Selecting a server..")
-                tooltip_text = _("Started actively trying to select a server.")
-            elif server_progress == ServerProgress.WAITING_FOR_VALID_CANDIDATES:
-                text = _("Waiting for any valid server..")
-                tooltip_text = _("No known servers are ready for use.")
-            elif server_progress == ServerProgress.WAITING_UNTIL_CANDIDATE_IS_READY:
-                text = _("Waiting for server synchronization..")
-                tooltip_text = _("Synchronizing headers from the selected server.")
-            elif server_progress == ServerProgress.CONNECTION_PROCESS_ACTIVE:
+            self.status_bar.set_network_status(_("Offline"),
+                _("You have started ElectrumSV in offline mode."))
+            return
+
+        if self._wallet.is_blockchain_server_active():
+            # This is the header connection state for our designated blockchain server.
+            wallet_blockchain_server_state = self._wallet.get_blockchain_server_state()
+            if wallet_blockchain_server_state is None:
+                self.status_bar.set_network_status(_("Blockchain server not connected yet.."),
+                    _("No connection has been established to the selected blockchain server yet."))
+            else:
+                # This is the reference server connection for our designated blockchain server.
                 server_state = self._wallet.get_connection_state_for_usage(
                     NetworkServerFlag.USE_BLOCKCHAIN)
                 if server_state is None:
-                    text = _("Connecting to selected server..")
-                    tooltip_text = _("Attempting to connect to the selected server.")
+                    self.status_bar.set_network_status(
+                        _("Waiting to connect to blockchain server.."),
+                        _("Attempting to connect to the selected server."))
                 elif server_state.connection_flags & ServerConnectionFlag.WEB_SOCKET_READY:
-                    text = _("Connected to server")
-                    tooltip_text = _("Successfully connected to the selected server.")
-                elif server_state.connection_flags & ServerConnectionFlag.VERIFYING:
-                    text = _("Evaluating server..")
-                    tooltip_text = _("Verifying the remote server state against the wallet..")
+                    # The wallet is following the chain of the fully connected blockchain server.
+                    server_chain_tip = wallet_blockchain_server_state.tip_header
+                    server_height = 0 if server_chain_tip is None else server_chain_tip.height
+                    server_lag = self.network.get_local_height() - server_height
+                    if server_height == 0:
+                        self.status_bar.set_network_status(
+                            _("Blockchain server not synchronised yet.."),
+                            _("The blockchain server is still providing information."))
+                    elif server_lag > 1:
+                        self.status_bar.set_network_status(
+                            _("Blockchain server {} blocks behind").format(server_lag),
+                            _("The blockchain server is lagging and not on the longest chain."))
+                    else:
+                        self.status_bar.set_network_status(
+                            _("Blockchain server connected"),
+                            _("The blockchain server connection looks good and it is up to date."))
                 elif server_state.connection_flags & ServerConnectionFlag.ESTABLISHING_WEB_SOCKET:
-                    text = _("Establishing web socket..")
-                    tooltip_text = _("Making a web socket connection to the selected server.")
-                elif server_state.connection_flags & ServerConnectionFlag.PREPARING_WEB_SOCKET:
-                    text = _("Preparing connected web socket..")
-                    tooltip_text = _("Preparing connected web socket to the selected server.")
+                    self.status_bar.set_network_status(_("Connecting to blockchain server.."),
+                        _("Making a web socket connection to the selected server."))
+                elif server_state.connection_flags & ServerConnectionFlag.VERIFYING:
+                    self.status_bar.set_network_status(_("Evaluating blockchain server.."),
+                        _("Verifying the remote server state against the wallet.."))
                 elif server_state.connection_flags & ServerConnectionFlag.DISCONNECTED:
-                    text = _("Disconnected")
-                    tooltip_text = _("The selected server is not current connectable.")
+                    self.status_bar.set_network_status(_("Disconnected"),
+                        _("The blockchain server is not current connectable."))
                 elif server_state.connection_flags & ServerConnectionFlag.INITIALISED:
-                    text = _("Server connection pending..")
-                    tooltip_text = _("The process of connecting has not quite started yet.")
-
-            if text is None or tooltip_text is None:
-                text = _("UNKNOWN CONNECTION STATE")
-                tooltip_text = _("..")
-
-            # TODO(1.4.0) User experience, issue#909. WRT blockchains state. Show header
-            #     synchronisation updates.
-            # if self._wallet._blockchain_server_state is not None:
-            #     server_chain_tip = self._wallet._blockchain_server_state.tip_header
-            #     server_height = server_chain_tip.height if server_chain_tip else 0
-            #     server_lag = self.network.get_local_height() - server_height
-            #     if server_height == 0:
-            #         text = _("Not connected yet..")
-            #     elif server_lag > 1:
-            #         text = _("Server {} blocks behind").format(server_lag)
-            #     else:
-            #         text = _("Connected")
-            # else:
-            #     # This is shown when for instance, there is a forced main server setting and
-            #     # the main server is offline. It might also be used on first start up before
-            #     # the headers are synced (?).
-            #     text = _("Not connected yet..")
-            #     tooltip_text = _("You are not currently connected to an indexing server.")
-
-        self.status_bar.set_network_status(text, tooltip_text)
+                    self.status_bar.set_network_status(_("Blockchain server connection pending.."),
+                        _("The process of connecting has not quite started yet."))
+                else:
+                    assert False, f"Connection flags not handled {server_state.connection_flags}"
+        else:
+            # The wallet is in theory following the longest chain.
+            lagging_server = False
+            for server_key in self.network.get_known_header_servers():
+                if self.network.is_header_server_ready(server_key):
+                    server_metadata = self.network.get_header_server_metadata(server_key)
+                    if server_metadata.last_good >= server_metadata.last_try:
+                        if server_metadata.last_good + 10*60 > time.time():
+                            self.status_bar.set_network_status(_("Monitoring headers"),
+                                _("The header server connections look okay."))
+                            break
+                        else:
+                            lagging_server = True
+            else:
+                if lagging_server:
+                    self.status_bar.set_network_status(_("Monitoring headers (possibly lagging)"),
+                        _("The header server connections have not provided a recent header."))
+                else:
+                    self.status_bar.set_network_status(_("No connected header sources yet.."),
+                        _("There are no header server connections currently."))
 
     def update_tabs(self, *args: Any) -> None:
         if self.is_receive_view_active():
@@ -2492,8 +2500,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # from being garbage collected.
         self._network_status_loop_task.cancel()
         del self._network_status_loop_task
-        self._monitor_wallet_network_status_task.cancel()
-        del self._monitor_wallet_network_status_task
 
         # We catch these errors with the understanding that there is no recovery at
         # this point, given user has likely performed an action we cannot recover

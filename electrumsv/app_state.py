@@ -41,7 +41,7 @@ import shutil
 import time
 import threading
 from types import TracebackType
-from typing import Any, Callable, cast, Coroutine, Optional, Tuple, Type, TYPE_CHECKING, TypeVar
+from typing import Any, Callable, cast, Coroutine, Type, TYPE_CHECKING, TypeVar
 
 from bitcoinx import Chain, Header, MissingHeader
 
@@ -52,7 +52,7 @@ from .logs import logs
 from .networks import Net
 from .simple_config import SimpleConfig
 from .startup import package_dir
-from .util import format_satoshis, future_callback
+from .util import format_satoshis
 
 if TYPE_CHECKING:
     from bitcoinx import Headers
@@ -88,11 +88,11 @@ class DefaultApp(object):
         # Initialise things dependent upon app_state.daemon here."""
         return
 
-    def new_window(self, path: Optional[str], uri: Optional[str]=None) -> None:
+    def new_window(self, path: str | None, uri: str | None=None) -> None:
         raise NotImplementedError
 
     def run_coro(self, coro: Coroutine[Any, Any, T1],
-            on_done: Optional[Callable[[concurrent.futures.Future[T1]], None]]=None) \
+            on_done: Callable[[concurrent.futures.Future[T1]], None] | None=None) \
                 -> concurrent.futures.Future[T1]:
         global app_state
         return app_state.async_.spawn(coro, on_done=on_done)
@@ -104,8 +104,8 @@ class AppStateProxy(object):
     decimal_points = [8, 5, 2, 0]
 
     daemon: Daemon
-    fx: Optional[FxTask] = None
-    _longest_chain_future: Optional[concurrent.futures.Future[None]] = None
+    fx: FxTask | None = None
+    _longest_chain_future: concurrent.futures.Future[None] | None = None
 
     # Avoid wider dependencies by not using a reference to the config type.
     def __init__(self, config: SimpleConfig, gui_kind: str) -> None:
@@ -116,7 +116,7 @@ class AppStateProxy(object):
         AppState.set_proxy(self)
         self.device_manager = DeviceMgr()
         self.credentials = CredentialCache()
-        self.headers: Optional[Headers] = None
+        self.headers: Headers | None = None
         self.headers_lock = threading.RLock()
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get_explicit_type(int, 'decimal_point', 8)
@@ -181,7 +181,7 @@ class AppStateProxy(object):
         self.headers = read_cached_headers(Net.COIN, self.headers_filename(),
             Net.CHECKPOINT)
         for n, chain in enumerate(self.headers.chains(), start=1):
-            logger.info(f'chain #{n}: {chain.desc()}')
+            logger.info("chain #%d: %s", n, chain.desc())
 
         # The daemon is only running if the application has been started up in either online or
         # offline mode. In these cases we want to support header import, whether from the network
@@ -191,8 +191,6 @@ class AppStateProxy(object):
             return
 
         self._longest_chain_future = self.async_.spawn(self._follow_longest_valid_chain())
-        # Futures swallow exceptions if there are no callbacks to collect the exception.
-        self._longest_chain_future.add_done_callback(future_callback)
 
     def lookup_header(self, block_hash: bytes) -> tuple[Header, Chain]:
         """
@@ -263,9 +261,7 @@ class AppStateProxy(object):
         current_chain = get_longest_valid_chain()
         current_tip_header = cast(Header, current_chain.tip)
         while True:
-            # We are the only listener to this event so we can safely clear it.
             await self.headers_update_event.wait()
-            self.headers_update_event.clear()
 
             previous_chain = current_chain
             previous_tip_header = current_tip_header
@@ -280,8 +276,7 @@ class AppStateProxy(object):
                 wallet.process_header_source_update(None, previous_chain,
                     previous_tip_header, current_chain, current_tip_header)
 
-    def connect_out_of_band_header(self, header_bytes: bytes) \
-            -> tuple[Optional[Header], Optional[Chain]]:
+    def connect_out_of_band_header(self, header_bytes: bytes) -> tuple[Header | None, Chain | None]:
         """
         There is nothing wrong with connecting out of band headers. Wallets do not
         follow the updates to the header store, they follow specific notifications
@@ -289,9 +284,10 @@ class AppStateProxy(object):
 
         Raises no exceptions.
 
-        Caveats:
-        1. If this is called from outside of our async thread/loop, the `headers_lock` must be
-           acquired so that `self.headers_update_event.set` is thread-safe.
+        WARNING: This must be called from the application main async thread/loop. The
+            `headers_update_event` is bound to this loop, and this event must be set from within
+            that context. That might mean that the caller has to spawn a task when calling this
+            function in that main async thread/loop.
         """
         try:
             header, chain = self.connect_header(header_bytes)
@@ -300,8 +296,8 @@ class AppStateProxy(object):
             #      there is any benefit to this I do not know (rt12).
             return None, None
         else:
-            # TODO(fixnow) not thread safe.
             self.headers_update_event.set()
+            self.headers_update_event.clear()
             return header, chain
 
     def on_stop(self) -> None:
@@ -324,11 +320,11 @@ class AppStateProxy(object):
             self.config.set_key('decimal_point', self.decimal_point, True)
         return self.decimal_point != prior
 
-    def format_amount(self, x: Optional[int], is_diff: bool=False, whitespaces: bool=False) -> str:
+    def format_amount(self, x: int | None, is_diff: bool=False, whitespaces: bool=False) -> str:
         return format_satoshis(x, self.num_zeros, self.decimal_point, is_diff=is_diff,
             whitespaces=whitespaces)
 
-    def format_amount_and_units(self, amount: Optional[int]) -> str:
+    def format_amount_and_units(self, amount: int | None) -> str:
         text = self.format_amount(amount) + ' ' + self.base_unit()
         if self.fx and self.fx.is_enabled():
             x = self.fx.format_amount_and_units(amount)
@@ -336,7 +332,7 @@ class AppStateProxy(object):
                 text += ' (%s)'%x
         return text
 
-    def get_amount_and_units(self, amount: int) -> Tuple[str, str]:
+    def get_amount_and_units(self, amount: int) -> tuple[str, str]:
         bitcoin_text = self.format_amount(amount) + ' ' + self.base_unit()
         if self.fx and self.fx.is_enabled():
             fiat_text = self.fx.format_amount_and_units(amount)
@@ -358,7 +354,7 @@ class _AppStateMeta(type):
 
 
 class AppState(metaclass=_AppStateMeta):
-    _proxy: Optional[AppStateProxy] = None
+    _proxy: AppStateProxy | None = None
 
     @classmethod
     def set_proxy(cls, proxy: AppStateProxy) -> None:

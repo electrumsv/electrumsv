@@ -28,10 +28,13 @@ import dataclasses
 import datetime
 import enum
 from functools import partial
-from typing import Any, Callable, cast, List, NamedTuple, Optional, TYPE_CHECKING, Tuple
+from typing import Any, Callable, cast, NamedTuple, TYPE_CHECKING
+import urllib.parse
 import weakref
 
-from PyQt6.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, Qt, QTimer
+from bitcoinx import Chain, hash_to_hex_str
+
+from PyQt6.QtCore import pyqtSignal, QAbstractItemModel, QModelIndex, QObject, QPoint, Qt, QTimer
 from PyQt6.QtGui import QBrush, QColor, QContextMenuEvent, QIcon, QKeyEvent, \
     QPixmap, QValidator
 from PyQt6.QtWidgets import QAbstractItemView, QCheckBox, QComboBox, QDialog, \
@@ -46,10 +49,10 @@ from ...constants import API_SERVER_TYPES, NetworkEventNames, NetworkServerFlag,
 from ...crypto import pw_encode
 from ...i18n import _
 from ...logs import logs
-from ...wallet import Wallet
 from ...network import Network
 from ...network_support.api_server import CapabilitySupport, NewServer, \
     SERVER_CAPABILITIES
+from ...network_support.headers import HeaderServerState, ServerConnectivityMetadata
 from ...types import ServerAccountKey
 from ...util import get_posix_timestamp
 from ...util.network import DEFAULT_SCHEMES, UrlValidationError, validate_url
@@ -61,6 +64,7 @@ from .util import Buttons, CloseButton, ExpandableSection, FormSectionWidget,  \
 
 
 if TYPE_CHECKING:
+    from ...wallet import Wallet
     from .main_window import ElectrumWindow
 
 
@@ -104,7 +108,7 @@ class ServerListEntry(NamedTuple):
     can_configure_account_access: bool = False
     api_key_supported: bool = False
     api_key_required: bool = False
-    data_api: Optional[NewServer] = None
+    data_api: NewServer | None = None
 
 
 # The location of the help document.
@@ -119,265 +123,322 @@ PASSWORD_REQUEST_TEXT = _("You have associated a new API key with the wallet '{}
     "encrypt the API key for storage in this wallet, you will need to provide it's password.")
 
 
-# TODO(1.4.0) Network dialog, issue#905. WRT HeaderSV chain tips and needing to be updated for it.
-#  and which chain this wallet is on which at least in the near term will be
-#  coupled to the indexer which always gives a materialized view of the longest chain.
-# class NodesListColumn(enum.IntEnum):
-#     SERVER = 0
-#     HEIGHT = 1
+class NodesListColumn(enum.IntEnum):
+    SERVER = 0
+    HEIGHT = 1
 
 
-# class NodesListWidget(QTreeWidget):
+class NodesListWidget(QTreeWidget):
+    def __init__(self, parent: 'BlockchainTab', wallet_proxy: Wallet, network: Network | None) \
+            -> None:
+        super().__init__()
 
-#     def __init__(self, parent: 'BlockchainTab', network: Optional[Network]) -> None:
-#         super().__init__()
-#         self._network = network
-#         self._parent_tab = parent
-#         self.setHeaderLabels([ _('Connected server'), _('Height') ])
-#         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-#         self.customContextMenuRequested.connect(self.create_menu)
+        self._wallet_proxy = wallet_proxy
+        self._network = network
 
-#         self._connected_pixmap = QPixmap(icon_path("icons8-data-transfer-80-blue.png")
-#             ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
-#         self._warning_pixmap = QPixmap(icon_path("icons8-error-48-ui.png")
-#             ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
-#         self._connected_icon = QIcon(self._connected_pixmap)
-#         self._lock_pixmap = QPixmap(icon_path("icons8-lock-windows.svg")
-#             ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
+        self._parent_tab = parent
+        self.setHeaderLabels([ _('Connected server'), _('Height') ])
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.create_menu)
 
-#     def create_menu(self, position: QPoint) -> None:
-#         item = self.currentItem()
-#         if not item:
-#             return
-#         server = item.data(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole)
-#         if not server:
-#             return
+        self._connected_pixmap = QPixmap(icon_path("icons8-data-transfer-80-blue.png")
+            ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
+        self._warning_pixmap = QPixmap(icon_path("icons8-error-48-ui.png")
+            ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
+        self._connected_icon = QIcon(self._connected_pixmap)
+        self._lock_pixmap = QPixmap(icon_path("icons8-lock-windows.svg")
+            ).scaledToWidth(16, Qt.TransformationMode.SmoothTransformation)
 
-#         def use_as_server(auto_connect: bool) -> None:
-#             try:
-#                 self._parent_tab._parent.follow_server(server, auto_connect)
-#             except Exception as e:
-#                 MessageBox.show_error(str(e))
+    def create_menu(self, position: QPoint) -> None:
+        item = self.currentItem()
+        if not item:
+            return
 
-#         menu = QMenu()
-#         if self._network is not None:
-#             action = menu.addAction(_("Use as main server"), partial(use_as_server, True))
-#             action.setEnabled(server != self._network.main_server)
-#             if self._network.auto_connect() or server != self._network.main_server:
-#                 action = menu.addAction(_("Lock as main server"), partial(use_as_server, False))
-#                 action.setEnabled(app_state.config.is_modifiable('auto_connect'))
-#             else:
-#                 action = menu.addAction(_("Unlock as main server"), partial(use_as_server, True))
-#                 action.setEnabled(app_state.config.is_modifiable('auto_connect') and \
-#                     server == self._network.main_server)
-#         menu.exec(self.viewport().mapToGlobal(position))
+        server_key = item.data(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole)
+        if server_key is None:
+            return
 
-#     def keyPressEvent(self, event: QKeyEvent) -> None:
-#         if event.key() in [ Qt.Key.Key_F2, Qt.Key.Key_Return ]:
-#             self.on_activated(self.currentItem(), self.currentColumn())
-#         else:
-#             QTreeWidget.keyPressEvent(self, event)
+        menu = QMenu()
+        menu.exec(self.viewport().mapToGlobal(position))
 
-#     def on_activated(self, item: QTreeWidgetItem, _column: int) -> None:
-#         # on 'enter' we show the menu
-#         pt = self.visualItemRect(item).bottomLeft()
-#         pt.setX(50)
-#         self.customContextMenuRequested.emit(pt)
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in [ Qt.Key.Key_F2, Qt.Key.Key_Return ]:
+            self.on_activated(self.currentItem(), self.currentColumn())
+        else:
+            QTreeWidget.keyPressEvent(self, event)
 
-#     def chain_name(self, chain: Chain, our_chain: Chain) -> str:
-#         if chain is our_chain:
-#             return 'our_chain'
+    def on_activated(self, item: QTreeWidgetItem, _column: int) -> None:
+        # on 'enter' we show the menu
+        pt = self.visualItemRect(item).bottomLeft()
+        pt.setX(50)
+        self.customContextMenuRequested.emit(pt)
 
-#         _chain, common_height = our_chain.common_chain_and_height(chain)
-#         fork_height = common_height + 1
-#         assert app_state.headers is not None
-#         header = app_state.header_at_height(chain, fork_height)
-#         prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
-#         return f'{prefix}@{fork_height}'
+    def chain_name(self, chain: Chain | None, our_chain: Chain) -> str:
+        if chain is None:
+            return "none"
+        if chain is our_chain:
+            return "our_chain"
 
-#     def update(self) -> None: # type: ignore[override]
-#         self.clear()
-#         if self._network is None:
-#             return
+        _chain, common_height = our_chain.common_chain_and_height(chain)
+        fork_height = common_height + 1
+        assert app_state.headers is not None
+        header = app_state.header_at_height(chain, fork_height)
+        prefix = hash_to_hex_str(header.hash).lstrip('00')[0:10]
+        return f'{prefix}@{fork_height}'
 
-#         assert self._network.main_server is not None
+    def update(self) -> None: # type: ignore[override]
+        self.clear()
+        if self._network is None:
+            return
 
-#         chains = self._network.sessions_by_chain()
-#         chain_items = list(chains.items())
-#         host_counts: Dict[str, int] = {}
-#         for chain, sessions in chain_items:
-#             # If someone is connected to two nodes on the same server, indicate the difference.
-#             for i, session in enumerate(sessions):
-#                 host_counts[session.server.host] = host_counts.get(session.server.host, 0) + 1
+        wallet_blockchain_server_state = self._wallet_proxy.get_blockchain_server_state()
 
-#         tree_item: Union[NodesListWidget, QTreeWidgetItem]
-#         our_chain = self._network.chain()
-#         for chain, sessions in chain_items:
-#             if len(chains) > 1:
-#                 assert our_chain is not None
-#                 name = self.chain_name(chain, our_chain)
-#                 tree_item = QTreeWidgetItem([name, '%d' % chain.height])
-#                 tree_item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, None)
-#             else:
-#                 tree_item = self
-#             for session in sessions:
-#                 assert session.tip is not None
-#                 extra_name = ""
-#                 if host_counts[session.server.host] > 1:
-#                     extra_name = f" (port: {session.server.port})"
-#                 extra_name += ' (main server)' if session.server is self._network.main_server \
-#                     else ''
-#                 item = QTreeWidgetItem([session.server.host + extra_name,
-#                     str(session.tip.height)])
-#                 item.setIcon(NodesListColumn.SERVER, self._connected_icon)
-#                 if session.server.protocol == "t":
-#                     item.setToolTip(NodesListColumn.SERVER, _("Unencrypted"))
-#                 else:
-#                     item.setToolTip(NodesListColumn.SERVER, _("Encrypted / SSL"))
-#                 item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, session.server)
-#                 if isinstance(tree_item, NodesListWidget):
-#                     tree_item.addTopLevelItem(item)
-#                 else:
-#                     tree_item.addChild(item)
-#             if len(chains) > 1:
-#                 assert isinstance(tree_item, QTreeWidgetItem)
-#                 self.addTopLevelItem(tree_item)
-#                 tree_item.setExpanded(True)
+        servers_by_chain: dict[Chain | None, list[tuple[ServerAccountKey,
+            ServerConnectivityMetadata, HeaderServerState | None]]] = {}
+        host_counts: dict[str, int] = {}
+        chains: set[Chain] = set()
+        active_connection_count: int = 0
+        for server_key in self._network.get_known_header_servers():
+            parsed_url = urllib.parse.urlparse(server_key.url)
+            assert parsed_url.hostname is not None
+            host_counts[parsed_url.hostname] = host_counts.get(parsed_url.hostname, 0) + 1
 
-#             height_str = "%d "%(self._network.get_local_height()) + _('blocks')
-#             self._parent_tab.height_label.setText(height_str)
-#             n = len(self._network.sessions)
-#             if n == 0:
-#                 status = _("Not connected")
-#             elif n == 1:
-#                 status = _("Connected to {:d} server.").format(n)
-#             else:
-#                 status = _("Connected to {:d} servers.").format(n)
-#             self._parent_tab.status_label.setText(status)
+            server_metadata = self._network.get_header_server_metadata(server_key)
+            server_state: HeaderServerState | None = None
+            chain: Chain | None = None
+            if self._network.is_header_server_ready(server_key):
+                server_state = self._network.get_header_server_state(server_key)
+                chain = server_state.chain
+                if chain is not None:
+                    chains.add(chain)
+                    active_connection_count += 1
+            if chain not in servers_by_chain:
+                servers_by_chain[chain] = []
+            servers_by_chain[chain].append((server_key, server_metadata, server_state))
 
-#             chains2 = self._network.sessions_by_chain().keys()
-#             if len(chains2) > 1:
-#                 our_chain = self._network.chain()
-#                 assert our_chain is not None
-#                 heights = set()
-#                 for chain in chains2:
-#                     if chain != our_chain:
-#                         _chain, common_height = our_chain.common_chain_and_height(chain)
-#                         heights.add(common_height + 1)
-#                 msg = _('Chain split detected at height(s) {}\n').format(
-#                     ','.join(f'{height:,d}' for height in sorted(heights)))
-#             else:
-#                 msg = ''
-#             self._parent_tab.split_label.setText(msg)
-#             self._parent_tab.server_label.setText(self._network.main_server.host)
+        tree_item: NodesListWidget | QTreeWidgetItem
+        wallet_chain = self._wallet_proxy.get_current_chain()
+        wallet_height = self._wallet_proxy.get_local_height()
+        for chain, chain_servers in servers_by_chain.items():
+            if len(chains) > 1:
+                assert wallet_chain is not None
+                name = self.chain_name(chain, wallet_chain)
+                tree_item = QTreeWidgetItem([name, '%s' % chain.height if chain is not None
+                    else "?"])
+                tree_item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, None)
+            else:
+                tree_item = self
 
-#             # Ordered pixmaps, show only as many as applicable. Probably a better way to do this.
-#             pixmaps: List[Tuple[Optional[QPixmap], str]] = []
-#             if not self._network.auto_connect():
-#                 pixmaps.append((self._lock_pixmap,
-#                     _("This server is locked into place as the permanent main server.")))
-#             if self._network.main_server.state.last_good <
-#                   self._network.main_server.state.last_try:
-#                 pixmaps.append((self._warning_pixmap,
-#                     _("This server is not known to be up to date.")))
+            for server_key, server_metadata, server_state in chain_servers:
+                parsed_url = urllib.parse.urlparse(server_key.url)
+                assert parsed_url.hostname is not None
+                extra_name = ""
+                if host_counts[parsed_url.hostname] > 1:
+                    extra_name = f" (port: {parsed_url.port})"
+                extra_name += ' (blockchain server)' \
+                    if server_state is wallet_blockchain_server_state else ''
+                server_height = str(server_state.tip_header.height) \
+                    if server_state is not None and server_state.tip_header is not None else "?"
+                item = QTreeWidgetItem([parsed_url.hostname + extra_name,
+                    server_height])
+                item.setIcon(NodesListColumn.SERVER, self._connected_icon)
+                if parsed_url.scheme == "http":
+                    item.setToolTip(NodesListColumn.SERVER, _("Unencrypted"))
+                else:
+                    item.setToolTip(NodesListColumn.SERVER, _("Encrypted / SSL"))
+                item.setData(NodesListColumn.SERVER, Qt.ItemDataRole.UserRole, server_key)
+                if isinstance(tree_item, NodesListWidget):
+                    tree_item.addTopLevelItem(item)
+                else:
+                    tree_item.addChild(item)
+            if len(chains) > 1:
+                assert isinstance(tree_item, QTreeWidgetItem)
+                self.addTopLevelItem(tree_item)
+                tree_item.setExpanded(True)
 
-#             while len(pixmaps) < 2:
-#                 pixmaps.append((None, ''))
+            if len(chains) > 1:
+                assert wallet_chain is not None
+                heights = set()
+                for chain in chains:
+                    if chain != wallet_chain:
+                        _chain, common_height = wallet_chain.common_chain_and_height(chain)
+                        heights.add(common_height + 1)
+                msg = _('Chain split detected at height(s) {}\n').format(
+                    ','.join(f'{height:,d}' for height in sorted(heights)))
+            else:
+                msg = ''
+                self._parent_tab.split_label.setText(msg)
 
-#             if pixmaps[0][0] is None:
-#                 self._parent_tab.server_label_icon1.clear()
-#             else:
-#                 self._parent_tab.server_label_icon1.setPixmap(pixmaps[0][0])
-#                 self._parent_tab.server_label_icon1.setToolTip(pixmaps[0][1])
-#             if pixmaps[1][0] is None:
-#                 self._parent_tab.server_label_icon2.clear()
-#             else:
-#                 self._parent_tab.server_label_icon2.setPixmap(pixmaps[1][0])
-#                 self._parent_tab.server_label_icon2.setToolTip(pixmaps[1][1])
+            # Ordered pixmaps, show only as many as applicable. Probably a better way to do this.
+            pixmaps: list[tuple[QPixmap | None, str]] = []
 
-#         h = self.header()
-#         h.setStretchLastSection(False)
-#         h.setSectionResizeMode(NodesListColumn.SERVER, QHeaderView.ResizeMode.Stretch)
-#         h.setSectionResizeMode(NodesListColumn.HEIGHT, QHeaderView.ResizeMode.ResizeToContents)
+            if wallet_blockchain_server_state is None:
+                self._parent_tab.server_label.setText("None")
+            else:
+                wallet_blockchain_server_key = wallet_blockchain_server_state.server_key
+
+                parsed_url = urllib.parse.urlparse(wallet_blockchain_server_key.url)
+                self._parent_tab.server_label.setText(parsed_url.netloc)
+
+                wallet_blockchain_server_metadata = self._network.get_header_server_metadata(
+                    wallet_blockchain_server_key)
+                if wallet_blockchain_server_metadata.last_good < \
+                        wallet_blockchain_server_metadata.last_try:
+                    pixmaps.append((self._warning_pixmap,
+                        _("This server is not known to be up to date.")))
+
+            while len(pixmaps) < 2:
+                pixmaps.append((None, ''))
+
+            if pixmaps[0][0] is None:
+                self._parent_tab.server_label_icon1.clear()
+            else:
+                self._parent_tab.server_label_icon1.setPixmap(pixmaps[0][0])
+                self._parent_tab.server_label_icon1.setToolTip(pixmaps[0][1])
+            if pixmaps[1][0] is None:
+                self._parent_tab.server_label_icon2.clear()
+            else:
+                self._parent_tab.server_label_icon2.setPixmap(pixmaps[1][0])
+                self._parent_tab.server_label_icon2.setToolTip(pixmaps[1][1])
+
+        active_tip_text = "%d " % wallet_height + _('blocks')
+        if wallet_height > 0:
+            wallet_tip_header = self._wallet_proxy.get_local_tip_header()
+            assert wallet_tip_header is not None
+            prefix = hash_to_hex_str(wallet_tip_header.hash).lstrip('00')[0:10]
+            active_tip_text += " ("+ _("tip") +": "+ prefix +")"
+        self._parent_tab.wallet_blockchain_label.setText(active_tip_text)
+
+        if active_connection_count == 0:
+            status = _("Not connected")
+        elif active_connection_count == 1:
+            status = _("Connected to {:d} server.").format(active_connection_count)
+        else:
+            status = _("Connected to {:d} servers.").format(active_connection_count)
+        self._parent_tab.status_label.setText(status)
+
+        h = self.header()
+        h.setStretchLastSection(False)
+        h.setSectionResizeMode(NodesListColumn.SERVER, QHeaderView.ResizeMode.Stretch)
+        h.setSectionResizeMode(NodesListColumn.HEIGHT, QHeaderView.ResizeMode.ResizeToContents)
 
 
-# class BlockchainTab(QWidget):
-#     def __init__(self, parent: NetworkTabsLayout, network: Optional[Network]) -> None:
-#         super().__init__()
-#         self._parent = parent
-#         self._network = network
+class BlockchainTab(QWidget):
+    header_update_signal = pyqtSignal()
+    header_server_addition_signal = pyqtSignal()
+    header_server_removal_signal = pyqtSignal()
+    wallet_chain_update_signal = pyqtSignal()
 
-#         blockchain_layout = QVBoxLayout(self)
+    def __init__(self, parent: NetworkTabsLayout, wallet_proxy: Wallet, network: Network | None) \
+            -> None:
+        super().__init__()
 
-#         form = FormSectionWidget()
-#         self.status_label = QLabel(_("No connections yet."))
-#         form.add_row(_('Status'), self.status_label)
-#         self.server_label = QLabel()
-#         self.server_label_icon1 = QLabel()
-#         self.server_label_icon2 = QLabel()
-#         server_label_layout = QHBoxLayout()
-#         server_label_layout.addWidget(self.server_label)
-#         server_label_layout.addSpacing(4)
-#         server_label_layout.addWidget(self.server_label_icon1)
-#         server_label_layout.addSpacing(4)
-#         server_label_layout.addWidget(self.server_label_icon2)
-#         server_label_layout.addStretch(1)
-#         form.add_row(_('Main server'), server_label_layout)
-#         self.height_label = QLabel('')
-#         form.add_row(_('Blockchain'), self.height_label)
+        self._parent = parent
+        self._wallet_proxy = wallet_proxy
+        self._network = network
 
-#         blockchain_layout.addWidget(form)
+        blockchain_layout = QVBoxLayout(self)
 
-#         self.split_label = QLabel('')
-#         form.add_row(QLabel(""), self.split_label)
-#
+        form = FormSectionWidget()
 
-# TODO(1.4.0) Network dialog, issue#905. WRT HeaderSV chain tips and needing to be updated for it.
-#  and which chain this wallet is on which at least in the near term will be
-#  coupled to the indexer which always gives a materialized view of the longest chain.
-# class BlockchainTab(QWidget):
-#
-#     def __init__(self, parent: "NetworkTabsLayout", network: Network) -> None:
-#         super().__init__()
-#         self._parent = parent
-#         self._network = network
-#
-#         blockchain_layout = QVBoxLayout(self)
-#
-#         form = FormSectionWidget()
-#         self.status_label = QLabel(_("No connections yet."))
-#         form.add_row(_('Status'), self.status_label)
-#         self.server_label = QLabel()
-#         self.server_label_icon1 = QLabel()
-#         self.server_label_icon2 = QLabel()
-#         server_label_layout = QHBoxLayout()
-#         server_label_layout.addWidget(self.server_label)
-#         server_label_layout.addSpacing(4)
-#         server_label_layout.addWidget(self.server_label_icon1)
-#         server_label_layout.addSpacing(4)
-#         server_label_layout.addWidget(self.server_label_icon2)
-#         server_label_layout.addStretch(1)
-#         form.add_row(_('Main server'), server_label_layout)
-#         self.height_label = QLabel('')
-#         form.add_row(_('Blockchain'), self.height_label)
-#
-#         blockchain_layout.addWidget(form)
-#
-#         self.split_label = QLabel('')
-#         form.add_row(QLabel(""), self.split_label)
-#
-#         self.nodes_list_widget = NodesListWidget(self, self._network)
-#         blockchain_layout.addWidget(self.nodes_list_widget)
-#         blockchain_layout.addStretch(1)
-#         self.nodes_list_widget.update()
+        self.status_label = QLabel(_("No connections yet."))
+        form.add_row(_('Status'), self.status_label)
+
+        self.wallet_blockchain_label = QLabel('')
+        form.add_row(_('Followed chain'), self.wallet_blockchain_label)
+
+        self.server_label = QLabel()
+        self.server_label_icon1 = QLabel()
+        self.server_label_icon2 = QLabel()
+        server_label_layout = QHBoxLayout()
+        server_label_layout.addWidget(self.server_label)
+        server_label_layout.addSpacing(4)
+        server_label_layout.addWidget(self.server_label_icon1)
+        server_label_layout.addSpacing(4)
+        server_label_layout.addWidget(self.server_label_icon2)
+        server_label_layout.addStretch(1)
+        form.add_row(_('Indexing server'), server_label_layout)
+
+        blockchain_layout.addWidget(form)
+
+        self.split_label = QLabel('')
+        form.add_row(QLabel(""), self.split_label)
+
+        self.nodes_list_widget = NodesListWidget(self, wallet_proxy, network)
+        blockchain_layout.addWidget(self.nodes_list_widget)
+        blockchain_layout.addStretch(1)
+        self.nodes_list_widget.update()
+
+        self.header_update_signal.connect(self._event_header_update)
+        self.header_server_addition_signal.connect(self._event_header_server_addition)
+        self.header_server_removal_signal.connect(self._event_header_server_removal)
+        self.wallet_chain_update_signal.connect(self._event_wallet_chain_update)
+
+        self._header_update_task = app_state.async_.spawn(self._wait_for_header_updates_async())
+        self._gain_header_server_task = app_state.async_.spawn(
+            self._wait_for_header_server_addition_async())
+        self._lose_header_server_task = app_state.async_.spawn(
+            self._wait_for_header_server_removal_async())
+        self._wallet_chain_update_task = app_state.async_.spawn(
+            self._wait_for_wallet_chain_update_async())
+
+    def clean_up(self) -> None:
+        self._wallet_chain_update_task.cancel()
+        self._lose_header_server_task.cancel()
+        self._gain_header_server_task.cancel()
+        self._header_update_task.cancel()
+
+    # UI thread events that get called by the worker tasks below.
+    def _event_header_update(self) -> None:
+        # This is an update of any server.
+        self.nodes_list_widget.update()
+
+    def _event_header_server_addition(self) -> None:
+        # This is a new server known to the network layer.
+        self.nodes_list_widget.update()
+
+    def _event_header_server_removal(self) -> None:
+        # This is an existing server no longer connected to by the network layer.
+        self.nodes_list_widget.update()
+
+    def _event_wallet_chain_update(self) -> None:
+        # This is the wallet processing a header and updating it's local/followed chain.
+        self.nodes_list_widget.update()
+
+    # Worker tasks to link Qt UI thread notifications to the main async loop/thread.
+    async def _wait_for_wallet_chain_update_async(self) -> None:
+        # Map the asynchronous event to the Qt UI signal.
+        while True:
+            await self._wallet_proxy.local_chain_update_event.wait()
+            self.wallet_chain_update_signal.emit()
+
+    async def _wait_for_header_updates_async(self) -> None:
+        # Map the asynchronous event to the Qt UI signal.
+        while True:
+            await app_state.headers_update_event.wait()
+            self.header_update_signal.emit()
+
+    async def _wait_for_header_server_addition_async(self) -> None:
+        # Map the asynchronous event to the Qt UI signal.
+        assert self._network is not None
+        while True:
+            await self._network.new_server_ready_event.wait()
+            self.header_server_addition_signal.emit()
+
+    async def _wait_for_header_server_removal_async(self) -> None:
+        # Map the asynchronous event to the Qt UI signal.
+        assert self._network is not None
+        while True:
+            await self._network.lost_server_connection_event.wait()
+            self.header_server_removal_signal.emit()
 
 
 @dataclasses.dataclass
 class InitialServerState:
     enabled: bool = False
-    encrypted_api_key: Optional[str] = None
-    decrypted_api_key: Optional[str] = None
-    row: Optional[NetworkServerRow] = None
+    encrypted_api_key: str | None = None
+    decrypted_api_key: str | None = None
+    row: NetworkServerRow | None = None
 
     @classmethod
     def create_from(cls, other: InitialServerState) -> InitialServerState:
@@ -386,7 +447,7 @@ class InitialServerState:
 
 @dataclasses.dataclass
 class EditServerState(InitialServerState):
-    initial_state: Optional[InitialServerState] = None
+    initial_state: InitialServerState | None = None
 
 
 class EditServerDialog(WindowModalDialog):
@@ -394,8 +455,8 @@ class EditServerDialog(WindowModalDialog):
     validation_change = pyqtSignal(bool)
 
     def __init__(self, parent: ServersTab, main_window_weakref: ElectrumWindow,
-            wallet_weakref: Wallet, network: Optional[Network], title: str,
-            edit_mode: bool=False, entry: Optional[ServerListEntry]=None) -> None:
+            wallet_weakref: Wallet, network: Network | None, title: str,
+            edit_mode: bool=False, entry: ServerListEntry | None=None) -> None:
         super().__init__(parent, title=title)
 
         self.setWindowTitle(title)
@@ -406,7 +467,7 @@ class EditServerDialog(WindowModalDialog):
         self._network = network
         self._is_edit_mode = edit_mode
 
-        self._server_url: Optional[str] = None
+        self._server_url: str | None = None
         if self._is_edit_mode:
             assert entry is not None
             self._server_url = entry.url
@@ -469,7 +530,7 @@ class EditServerDialog(WindowModalDialog):
         self._server_url_edit.setText(entry.url)
         default_edit_palette = self._server_url_edit.palette()
         default_base_brush = default_edit_palette.brush(default_edit_palette.ColorRole.Base)
-        server_type_schemes: Optional[set[str]] = None
+        server_type_schemes: set[str] | None = None
         self._url_validator = URLValidator(schemes=server_type_schemes)
         self._server_url_edit.setValidator(self._url_validator)
         self._server_url_edit.textChanged.connect(
@@ -489,13 +550,13 @@ class EditServerDialog(WindowModalDialog):
 
         ## The wallet and account access expandable section.
         class AccessTreeItemDelegate(QItemDelegate):
-            def __init__(self, dialog: EditServerDialog, editable_columns: List[int]) -> None:
+            def __init__(self, dialog: EditServerDialog, editable_columns: list[int]) -> None:
                 super().__init__(None)
                 self._dialog = dialog
                 self._editable_columns = editable_columns
 
             def createEditor(self, parent: QWidget, # type: ignore[override]
-                    style_option: QStyleOptionViewItem, index: QModelIndex) -> Optional[QWidget]:
+                    style_option: QStyleOptionViewItem, index: QModelIndex) -> QWidget | None:
                 """
                 Overriden method that creates the widget used for editing.
 
@@ -616,7 +677,7 @@ class EditServerDialog(WindowModalDialog):
     def get_access_tree(self) -> QTreeWidget:
         return self._access_tree
 
-    def get_server_entry(self) -> Optional[ServerListEntry]:
+    def get_server_entry(self) -> ServerListEntry | None:
         return self._entry
 
     def _get_item_for_index(self, index: QModelIndex) -> QTreeWidgetItem:
@@ -738,7 +799,7 @@ class EditServerDialog(WindowModalDialog):
 
         return True
 
-    def _check_server_url_invalid(self) -> Optional[str]:
+    def _check_server_url_invalid(self) -> str | None:
         """
         Determine if the current url is invalid.
 
@@ -820,7 +881,7 @@ class EditServerDialog(WindowModalDialog):
     def _save_api_server(self, server_type: NetworkServerType, server_url: str) -> None:
         wallet = self._wallet_weakref
 
-        def encrypt_api_key(api_key_text: str) -> Optional[str]:
+        def encrypt_api_key(api_key_text: str) -> str | None:
             nonlocal wallet
             msg = PASSWORD_REQUEST_TEXT.format(wallet.name())
             password = self._main_window_weakref.password_dialog(parent=self, msg=msg)
@@ -835,12 +896,12 @@ class EditServerDialog(WindowModalDialog):
         date_now_utc = get_posix_timestamp()
         edit_state = self._wallet_state
         server_base_key = ServerAccountKey(server_url, server_type, None)
-        added_servers = list[NetworkServerRow]()
-        updated_servers = list[NetworkServerRow]()
-        updated_api_keys = dict[ServerAccountKey, tuple[Optional[str], Optional[tuple[str, str]]]]()
-        update_api_key_pair: Optional[Tuple[str, str]]
+        added_servers: list[NetworkServerRow] = []
+        updated_servers: list[NetworkServerRow] = []
+        updated_api_keys: dict[ServerAccountKey, tuple[str | None, tuple[str, str] | None]] = {}
+        update_api_key_pair: tuple[str, str] | None
 
-        account_id: Optional[int]
+        account_id: int | None
         for account_id in sorted(edit_state, reverse=True):
             assert account_id is not None
             state = edit_state[account_id]
@@ -939,7 +1000,7 @@ class EditServerDialog(WindowModalDialog):
         Update the form contents for the current server type value.
         """
         server_type = self._get_server_type()
-        server_capabilities: List[CapabilitySupport] = SERVER_CAPABILITIES[server_type]
+        server_capabilities: list[CapabilitySupport] = SERVER_CAPABILITIES[server_type]
         assert len(server_capabilities)
         if server_type in API_SERVER_TYPES:
             self._url_validator.set_criteria(allow_path=True)
@@ -1018,7 +1079,7 @@ class ServersListWidget(QTableWidget):
     server_disconnected_signal = pyqtSignal()
 
     def __init__(self, parent: ServersTab, main_window_weakref: ElectrumWindow,
-            wallet_weakref: Wallet, network: Optional[Network]) -> None:
+            wallet_weakref: Wallet, network: Network | None) -> None:
         super().__init__()
         self._parent_tab = parent
 
@@ -1047,7 +1108,7 @@ class ServersListWidget(QTableWidget):
         # should be able to use cursor keys to move selected lines.
         self.setTabKeyNavigation(False)
 
-    def update_list(self, items: List[ServerListEntry]) -> None:
+    def update_list(self, items: list[ServerListEntry]) -> None:
         # Clear the existing table contents.
         self.setRowCount(0)
 
@@ -1241,7 +1302,7 @@ class ServersListWidget(QTableWidget):
 class ServersTab(QWidget):
 
     def __init__(self, parent: QVBoxLayout, main_window_weakref: ElectrumWindow,
-            wallet_weakref: Wallet, network: Optional[Network]) -> None:
+            wallet_weakref: Wallet, network: Network | None) -> None:
         super().__init__()
 
         self._parent = parent
@@ -1306,31 +1367,30 @@ class ServersTab(QWidget):
 
 
 class NetworkTabsLayout(QVBoxLayout):
-    def __init__(self, main_window_weakref: ElectrumWindow, wallet_weakref: Wallet,
-            network: Optional[Network]) -> None:
+    def __init__(self, main_window_proxy: ElectrumWindow, wallet_proxy: Wallet,
+            network: Network | None) -> None:
         super().__init__()
         self._filling_in = False
 
-        self._main_window_weakref = main_window_weakref
-        self._wallet_weakref = wallet_weakref
+        self._main_window_weakref = main_window_proxy
+        self._wallet_weakref = wallet_proxy
         self._network = network
 
-        # TODO(1.4.0) Network dialog, issue#905. WRT HeaderSV chain tips and needing to be updated
-        #     for it.
-        # self._blockchain_tab = BlockchainTab(self, network)
-        self._servers_tab = ServersTab(self, main_window_weakref, wallet_weakref, network)
+        self._blockchain_tab = BlockchainTab(self, wallet_proxy, network)
+        self._servers_tab = ServersTab(self, main_window_proxy, wallet_proxy, network)
 
         self._tabs = QTabWidget()
         self._tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
-        # TODO(1.4.0) Network dialog, issue#905. WRT HeaderSV chain tips and needing to be
-        #     updated for it.
-        # self._tabs.addTab(self._blockchain_tab, _('Blockchain Status'))
+        self._tabs.addTab(self._blockchain_tab, _('Blockchain status'))
         self._tabs.addTab(self._servers_tab, _('Servers'))
 
         self.addWidget(self._tabs)
         self.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
         self.last_values = None
+
+    def clean_up(self) -> None:
+        self._blockchain_tab.clean_up()
 
 
 class NetworkDialog(QDialog):
@@ -1339,15 +1399,15 @@ class NetworkDialog(QDialog):
     def __init__(self, main_window: ElectrumWindow, wallet: Wallet) -> None:
         super().__init__(flags=Qt.WindowType(Qt.WindowType.WindowSystemMenuHint |
             Qt.WindowType.WindowTitleHint | Qt.WindowType.WindowCloseButtonHint))
-        self.setWindowTitle(_('Network for wallet {}').format(wallet.name()))
+        self.setWindowTitle(_("Network - {wallet_name}").format(wallet_name=wallet.name()))
         self.setMinimumSize(500, 350)
         self.resize(560, 400)
 
-        self._main_window_weakref: ElectrumWindow = weakref.proxy(main_window)
-        self._wallet_weakref: Wallet = weakref.proxy(wallet)
+        self._main_window_proxy: ElectrumWindow = weakref.proxy(main_window)
+        self._wallet_proxy: Wallet = weakref.proxy(wallet)
         self._network = wallet._network
 
-        self._tabs_layout = NetworkTabsLayout(self._main_window_weakref, self._wallet_weakref,
+        self._tabs_layout = NetworkTabsLayout(self._main_window_proxy, self._wallet_proxy,
             self._network)
         self._buttons_layout = Buttons(CloseButton(self))
         self._buttons_layout.add_left_button(HelpDialogButton(self, "misc", "network-dialog"))
@@ -1374,11 +1434,12 @@ class NetworkDialog(QDialog):
                 [ NetworkEventNames.GENERIC_UPDATE, NetworkEventNames.SESSIONS ])
 
     def clean_up(self) -> None:
+        self._tabs_layout.clean_up()
         if self._network is not None:
             self._network.unregister_callback(self._event_network_callbacks)
         del self._network
 
-    def _event_network_callbacks(self, _event: List[NetworkEventNames], *args: Any) -> None:
+    def _event_network_callbacks(self, _event: list[NetworkEventNames], *args: Any) -> None:
         # This may run in network thread??
         self.network_updated_signal.emit()
 
@@ -1394,7 +1455,7 @@ class URLValidator(QValidator):
 
     _last_message: str = ""
 
-    def __init__(self, parent: Optional[QObject]=None, schemes: Optional[set[str]]=None) -> None:
+    def __init__(self, parent: QObject | None=None, schemes: set[str] | None=None) -> None:
         super().__init__(parent)
 
         self._schemes = schemes
@@ -1403,7 +1464,7 @@ class URLValidator(QValidator):
     def set_criteria(self, allow_path: bool=False) -> None:
         self._allow_path = allow_path
 
-    def set_schemes(self, schemes: Optional[set[str]]=None) -> None:
+    def set_schemes(self, schemes: set[str] | None=None) -> None:
         """
         Custom method to update the schemes to validate against.
         """

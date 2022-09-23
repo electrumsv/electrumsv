@@ -634,15 +634,6 @@ class PushDataMatchFlag(IntFlag):
     UNPROCESSED                                 = 1 << 31
 
 
-class ServerProgress(IntEnum):
-    NONE                                        = 0
-
-    CONNECTION_PROCESS_STARTED                  = 1
-    WAITING_FOR_VALID_CANDIDATES                = 2
-    WAITING_UNTIL_CANDIDATE_IS_READY            = 3
-    CONNECTION_PROCESS_ACTIVE                   = 4
-
-
 class ChainWorkerToken(IntEnum):
     MAPI_MESSAGE_CONSUMER                       = 1
     CONNECT_PROOF_CONSUMER                      = 2

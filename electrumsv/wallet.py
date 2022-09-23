@@ -61,7 +61,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     NetworkEventNames, NetworkServerFlag, NetworkServerType, PaymentFlag,
     PeerChannelAccessTokenFlag,
     PeerChannelMessageFlag, PushDataHashRegistrationFlag, PushDataMatchFlag, RECEIVING_SUBPATH,
-    SERVER_USES, ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ServerProgress,
+    SERVER_USES, ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag,
     ScriptType, TransactionImportFlag,
     TransactionInputFlag, TransactionOutputFlag, TxFlags, unpack_derivation_path,
     WALLET_ACCOUNT_PATH_TEXT, WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag,
@@ -2195,6 +2195,9 @@ class WalletDataAccess:
     def read_transaction(self, transaction_hash: bytes) -> TransactionRow | None:
         return db_functions.read_transaction(self._db_context, transaction_hash)
 
+    def read_transaction_block_hashes(self) -> list[bytes]:
+        return db_functions.read_transaction_block_hashes(self._db_context)
+
     def read_unconnected_merkle_proofs(self) -> list[MerkleProofRow]:
         return db_functions.read_unconnected_merkle_proofs(self._db_context)
 
@@ -2339,7 +2342,6 @@ class Wallet:
         self.events = TriggeredCallbacks[WalletEvent]()
         self.data = WalletDataAccess(self._db_context, self.events)
         self._servers = dict[ServerAccountKey, NewServer]()
-        self._server_progress = dict[int, ServerProgress]()
 
         txdata_cache_size = self.get_cache_size_for_tx_bytedata() * (1024 * 1024)
         self._transaction_cache2 = LRUCache(max_size=txdata_cache_size)
@@ -2401,6 +2403,7 @@ class Wallet:
         # have the proof.
         self._check_missing_proofs_event = asyncio.Event()
         self._new_server_connection_event = asyncio.Event()
+        self.local_chain_update_event = asyncio.Event()
         self.progress_event = asyncio.Event()
 
         # When ElectrumSV is asked to open a wallet it first requests the password and verifies
@@ -4074,8 +4077,6 @@ class Wallet:
         # TODO(1.4.0) Networking, issue#841. These worker tasks should be restarted if they
         #     prematurely exit?
 
-        self._server_progress.clear()
-
         # These are the servers the user has opted to use primarily whether through manual or
         # automatic choice.
         for server, usage_flags in self.get_wallet_servers():
@@ -4271,23 +4272,8 @@ class Wallet:
             self.progress_event.set()
             self.progress_event.clear()
 
-    def _update_server_progress(self, petty_cash_account_id: int, value: ServerProgress) -> None:
-        """
-        Process server pre-connection progress and trigger the wallet event the UI listens to.
-        """
-        self._server_progress[petty_cash_account_id] = value
-        self.progress_event.set()
-        self.progress_event.clear()
-
-    def get_server_progress(self, petty_cash_account_id: Optional[int]=None) -> ServerProgress:
-        if petty_cash_account_id is None:
-            # TODO(petty-cash) In theory later on we may have multiple petty cash accounts
-            #     but for now that is just too complicated.
-            petty_cash_account_id = self._petty_cash_account.get_id()
-        return self._server_progress.get(petty_cash_account_id, ServerProgress.NONE)
-
     def get_connection_state_for_usage(self, usage_flags: NetworkServerFlag) \
-            -> Optional[ServerConnectionState]:
+            -> ServerConnectionState | None:
         # TODO(future) In the longer term a wallet will be able to have multiple petty cash
         #     accounts and whatever calls this should provide the relevant `petty_cash_account_id`.
         assert usage_flags & NetworkServerFlag.MASK_UTILISATION != 0
@@ -5044,6 +5030,9 @@ class Wallet:
     def is_connected_to_blockchain_server(self) -> bool:
         return self._blockchain_server_state is not None
 
+    def get_blockchain_server_state(self) -> HeaderServerState | None:
+        return self._blockchain_server_state
+
     def is_synchronized(self) -> bool:
         "If all the accounts are synchronized"
         return not (self._network and self._missing_transactions)
@@ -5361,6 +5350,9 @@ class Wallet:
                 self._storage.put("current_tip_hash",
                     hash_to_hex_str(self._current_tip_header.hash))
 
+                self.local_chain_update_event.set()
+                self.local_chain_update_event.clear()
+
                 for header in new_headers:
                     logger.info("New tip hash: %s, height: %s", hash_to_hex_str(header.hash),
                         header.height)
@@ -5473,7 +5465,7 @@ class Wallet:
                 # record. We have to do a full table scan to rectify this situation, but none of
                 # these wallets should have that many transactions.
                 orphaned_block_hashes = list[bytes]()
-                for block_hash in db_functions.read_transaction_block_hashes(self._db_context):
+                for block_hash in self.data.read_transaction_block_hashes():
                     try:
                         transaction_header, transaction_chain = app_state.lookup_header(block_hash)
                     except MissingHeader:
@@ -5545,6 +5537,9 @@ class Wallet:
         self._current_tip_header = header
 
         self._storage.put("current_tip_hash", hash_to_hex_str(self._current_tip_header.hash))
+
+        self.local_chain_update_event.set()
+        self.local_chain_update_event.clear()
 
     def process_header_source_update(self, server_state: Optional[HeaderServerState],
             previous_chain: Chain, previous_tip_header: Header, current_chain: Chain,
@@ -6094,6 +6089,9 @@ class Wallet:
 
     # Helper methods to access blockchain data that can be seen through the wallet's view of the it.
 
+    def get_current_chain(self) -> Chain | None:
+        return self._current_chain
+
     def get_header_source_state(self, server_state: Optional[HeaderServerState]) \
             -> tuple[Chain, Header]:
         if server_state is None:
@@ -6104,6 +6102,9 @@ class Wallet:
         assert server_state.chain is not None
         assert server_state.tip_header is not None
         return server_state.chain, server_state.tip_header
+
+    def get_local_tip_header(self) -> Header | None:
+        return self._current_tip_header
 
     def get_local_height(self) -> int:
         """

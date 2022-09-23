@@ -38,9 +38,9 @@ class HeaderServerState:
     server_key: ServerAccountKey
     future: concurrent.futures.Future[None]
 
-    chain: Optional[Chain] = None
-    tip_header: Optional[Header] = None
-    synchronisation_data: Optional[tuple[int, int]] = None
+    chain: Chain | None = None
+    tip_header: Header | None = None
+    synchronisation_data: tuple[int, int] | None = None
 
     connection_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
     synchronisation_update_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
