@@ -564,8 +564,7 @@ class ServerPeerChannelFlag(IntFlag):
     TIP_FILTER_DELIVERY                         = 0b001 << 16
     MAPI_BROADCAST_CALLBACK                     = 0b010 << 16
 
-    # NOTE: This flag for marking a channel "deactivated" is not yet in use - AustEcon
-    DEACTIVATED                                = 0b010 << 18
+    DEACTIVATED                                 = 0b010 << 18
 
     MASK_PURPOSE                                = 0b111 << 16
 

@@ -4468,11 +4468,12 @@ class Wallet:
             if self._stopping or self._stopped:
                 return
 
-            # We can now process the next batch of messages.
-            message_entries = state.mapi_callback_response_queue.get_nowait()
-
             if state.mapi_callback_response_queue.qsize() == 0:
                 state.mapi_callback_response_event.clear()
+                continue
+
+            # We can now process the next batch of messages.
+            message_entries = state.mapi_callback_response_queue.get_nowait()
 
             tx_update_rows :list[TransactionProofUpdateRow] = []
             proof_rows: list[MerkleProofRow] = []
@@ -4549,7 +4550,6 @@ class Wallet:
                     block_hash = double_sha256(proof.block_header_bytes)
                     header_match = self.lookup_header_for_hash(block_hash)
                     if header_match is None:
-                        block_hash = double_sha256(proof.block_header_bytes)
                         self._logger.debug("Missing header for merkle proof with block hash: '%s'.",
                             hash_to_hex_str(block_hash))
                         # Reasons why we are here:
