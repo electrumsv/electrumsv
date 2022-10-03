@@ -47,8 +47,8 @@ import aiohttp
 from aiohttp import WSServerHandshakeError
 
 from ..app_state import app_state
-from ..constants import PeerChannelAccessTokenFlag, PeerChannelMessageFlag, ServerConnectionFlag, \
-    ServerPeerChannelFlag
+from ..constants import PeerChannelAccessTokenFlag, PeerChannelMessageFlag, PeerChannelOwnership, \
+    ServerConnectionFlag, ServerPeerChannelFlag
 from ..exceptions import ServerConnectionError, BadServerError
 from ..logs import logs
 from ..util import get_posix_timestamp
@@ -453,11 +453,13 @@ async def process_externally_owned_peer_channel_messages_async(state: PeerChanne
 
         # These cached values are passed on to whatever other system processes these types of
         # messages.
-        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]()
+        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage,
+            PeerChannelOwnership]]()
         created_message_rows = await \
             state.wallet_data.create_external_peer_channel_messages_async(creation_message_rows)
         for message_row in created_message_rows:
-            message_entries.append((message_row, message_map[message_row.sequence]))
+            message_entries.append((message_row, message_map[message_row.sequence],
+                PeerChannelOwnership.EXTERNALLY_OWNED))
 
         # Now that we have all these messages stored locally we can delete the remote copies.
         for sequence in message_map:
@@ -530,6 +532,7 @@ async def maintain_external_peer_channel_connection_async(state: PeerChannelServ
 
     return {}
 
+
 async def _manage_external_peer_channel_connection_async(state: PeerChannelServerState) -> None:
     """
     Manage an open websocket to any server type.
@@ -547,6 +550,9 @@ async def _manage_external_peer_channel_connection_async(state: PeerChannelServe
 
     state.connection_flags |= ServerConnectionFlag.VERIFYING
     state.connection_flags |= ServerConnectionFlag.ESTABLISHING_WEB_SOCKET
+
+    # Initialize the queue so that it does an initial check for any missed messages whilst offline
+    state.peer_channel_message_queue.put_nowait(state.remote_channel_id)
 
     access_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     assert state.external_channel_row.remote_url is not None
@@ -570,7 +576,6 @@ async def _manage_external_peer_channel_connection_async(state: PeerChannelServe
             try:
                 websocket_message: aiohttp.WSMessage
                 async for websocket_message in server_websocket:
-                    # ---------- Peer Channel Specific Websocket Handling ---------- #
                     if websocket_message.type == aiohttp.WSMsgType.TEXT:
                         assert state.remote_channel_id is not None
                         # Expected message contents = 'New message arrived' (or something similar)

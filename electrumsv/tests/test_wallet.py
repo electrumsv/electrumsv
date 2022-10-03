@@ -15,7 +15,7 @@ import pytest
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import (AccountFlags, BlockHeight, CHANGE_SUBPATH, DATABASE_EXT,
     DerivationType, DatabaseKeyDerivationType, KeystoreTextType, MasterKeyFlags, PaymentFlag,
-    RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
+    PeerChannelOwnership, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
     TxFlags, unpack_derivation_path)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
@@ -1586,6 +1586,7 @@ async def test_transaction_double_spent_async(app_state: AppStateProxy, mock_val
     wallet = Wallet(mock_storage)
     wallet.data = unittest.mock.Mock()
     wallet.data.read_server_peer_channel_messages_async = unittest.mock.AsyncMock()
+    wallet.data.read_external_peer_channel_messages_async = unittest.mock.AsyncMock()
     server_state = unittest.mock.Mock()
     server_state.mapi_callback_response_event = unittest.mock.Mock()
     server_state.mapi_callback_response_queue = unittest.mock.Mock()
@@ -1605,7 +1606,7 @@ async def test_transaction_double_spent_async(app_state: AppStateProxy, mock_val
                 "content_type": "not a real content type",
                 "payload": base64.b64encode(json.dumps({
                     "payload": json.dumps(mapi_callback_response),
-                }).encode()).decode(), }) ]
+                }).encode()).decode(), }, PeerChannelOwnership.OWNED) ]
     server_state.mapi_callback_response_queue.get_nowait.side_effect = get_nowait
     wallet._wait_for_chain_related_work_async = unittest.mock.AsyncMock()
     # Ensure `broadcast_restapi_event_async` thinks it has a connection to broadcast to.

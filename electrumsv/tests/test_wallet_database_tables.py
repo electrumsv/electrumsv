@@ -621,7 +621,7 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         # This updates the block_height on merkle proof 1 (for transaction 1) to BLOCK_HEIGHT_1b.
         proof_update_row = MerkleProofUpdateRow(BLOCK_HEIGHT_1b, BLOCK_HASH_1, tx_hash_1)
         db_functions.update_transaction_proof_write([ tx_proof_update_row ], [ merkle_proof_row_3,
-            merkle_proof_row_4 ], [ proof_update_row ], [], db_connection)
+            merkle_proof_row_4 ], [ proof_update_row ], [], [], db_connection)
 
         # Confirm the block_height on merkle proof 1 (for transaction 1) is BLOCK_HEIGHT_1b.
         proofs = db_functions.read_merkle_proofs(db_context, [ tx_hash_1 ])

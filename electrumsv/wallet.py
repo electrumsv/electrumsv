@@ -55,17 +55,16 @@ from .app_state import app_state
 from .bitcoin import  scripthash_bytes, ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
     API_SERVER_TYPES, BlockHeight, ChainManagementKind, ChainWorkerToken, CHANGE_SUBPATH,
-    DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
-    DerivationPath, KeyInstanceFlag, KeystoreTextType, KeystoreType, MAPIBroadcastFlag,
-    MasterKeyFlags, MAX_VALUE, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
-    NetworkEventNames, NetworkServerFlag, NetworkServerType, PaymentFlag,
-    PeerChannelAccessTokenFlag,
-    PeerChannelMessageFlag, PushDataHashRegistrationFlag, PushDataMatchFlag, RECEIVING_SUBPATH,
-    SERVER_USES, ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag,
-    ScriptType, TransactionImportFlag,
-    TransactionInputFlag, TransactionOutputFlag, TxFlags, unpack_derivation_path,
-    WALLET_ACCOUNT_PATH_TEXT, WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag,
-    WalletEventType, WalletSettings)
+    DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath,
+    KeyInstanceFlag, KeystoreTextType, KeystoreType, MAPIBroadcastFlag, MasterKeyFlags, MAX_VALUE,
+    MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkEventNames,
+    NetworkServerFlag, NetworkServerType, PaymentFlag, PeerChannelAccessTokenFlag,
+    PeerChannelMessageFlag, PushDataHashRegistrationFlag, PushDataMatchFlag,
+    PEER_CHANNEL_EXPIRY_SECONDS, PeerChannelOwnership, RECEIVING_SUBPATH, SERVER_USES,
+    ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ScriptType,
+    TransactionImportFlag, TransactionInputFlag, TransactionOutputFlag, TxFlags,
+    unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT, WALLET_IDENTITY_PATH_TEXT, WalletEvent,
+    WalletEventFlag, WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
 from .dpp_messages import Payment, PaymentACK, PeerChannelDict
@@ -91,8 +90,7 @@ from .network_support.general_api import create_reference_server_account_async, 
     create_tip_filter_registration_async, delete_tip_filter_registration_async, \
     maintain_server_connection_async, request_binary_merkle_proof_async, \
     request_transaction_data_async, upgrade_server_connection_async
-from .network_support.peer_channel import delete_peer_channel_async, \
-    maintain_external_peer_channel_connection_async
+from .network_support.peer_channel import maintain_external_peer_channel_connection_async
 from .network_support.headers import get_longest_valid_chain
 from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_fee_quotes_async
 from .network_support.types import GenericPeerChannelMessage, PeerChannelServerState, \
@@ -1874,10 +1872,9 @@ class WalletDataAccess:
     def delete_invoices(self, invoice_ids: list[int]) -> concurrent.futures.Future[None]:
         return db_functions.delete_invoices(self._db_context, invoice_ids)
 
-    def delete_peer_channels_for_peer_channel_ids(self, peer_channel_ids: list[int]) \
+    def delete_peer_channels(self, peer_channel_ids: list[int]) \
             -> concurrent.futures.Future[None]:
-        return db_functions.delete_peer_channels_for_peer_channel_ids(self._db_context,
-            peer_channel_ids)
+        return db_functions.delete_peer_channels(self._db_context, peer_channel_ids)
 
     async def create_invoice_proxy_message_async(self, dpp_messages: list[DPPMessageRow]) -> None:
         await self._db_context.run_in_thread_async(db_functions.create_dpp_messages, dpp_messages)
@@ -2071,19 +2068,19 @@ class WalletDataAccess:
     # Peer channels.
 
     async def create_external_peer_channel_async(self,
-            peer_channel_info: PeerChannelDict, invoice_id: int) \
+            remote_channel_id: str, remote_url: str, token: str, invoice_id: int) \
                 -> tuple[ExternalPeerChannelRow, PeerChannelAccessTokenRow]:
         """
         This is similar in function to the `create_peer_channel_locally_and_remotely_async` except
         that we are not the creator of the remote peer channel (the payee already created it)
         """
         date_created = get_posix_timestamp()
-        remote_peer_channel_id = peer_channel_info['channel_id']
-        remote_url = peer_channel_info['host']
+        remote_peer_channel_id = remote_channel_id
         peer_channel_flags = ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK
         peer_channel_row = ExternalPeerChannelRow(None, invoice_id, remote_peer_channel_id,
             remote_url, peer_channel_flags, date_created, date_created)
-        peer_channel_id = await self._create_external_peer_channel_async(peer_channel_row)
+        peer_channel_id = await self._db_context.run_in_thread_async(
+            db_functions.create_external_peer_channel_write, peer_channel_row)
         peer_channel_row = peer_channel_row._replace(peer_channel_id=peer_channel_id)
         logger.debug("Added peer channel %s with flags: %s", remote_peer_channel_id,
             peer_channel_row.peer_channel_flags)
@@ -2093,7 +2090,7 @@ class WalletDataAccess:
         read_only_access_token_flag = PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE | \
                                       PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE
         read_only_access_token = PeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
-            read_only_access_token_flag, TokenPermissions.READ_ACCESS, peer_channel_info['token'])
+            read_only_access_token_flag, TokenPermissions.READ_ACCESS, token)
 
         # Add the read_only token
         peer_channel_row = await self.update_external_peer_channel_async(
@@ -2101,10 +2098,6 @@ class WalletDataAccess:
             addable_access_tokens=[read_only_access_token])
 
         return peer_channel_row, read_only_access_token
-
-    async def _create_external_peer_channel_async(self, row: ExternalPeerChannelRow) -> int:
-        return await self._db_context.run_in_thread_async(
-            db_functions.create_external_peer_channel_write, row)
 
     async def create_server_peer_channel_async(self, row: ServerPeerChannelRow,
             tip_filter_server_id: Optional[int]=None) -> int:
@@ -2121,6 +2114,11 @@ class WalletDataAccess:
         return db_functions.read_external_peer_channels(self._db_context, remote_channel_id, flags,
             mask)
 
+    def read_external_peer_channel_messages_by_id(self, peer_channel_id: int,
+            most_recent_only: bool=False) -> list[PeerChannelMessageRow]:
+        return db_functions.read_external_peer_channel_messages_by_id(self._db_context,
+            peer_channel_id, most_recent_only)
+
     def read_server_peer_channel_access_tokens(self, peer_channel_id: int,
             mask: Optional[PeerChannelAccessTokenFlag]=None,
             flags: Optional[PeerChannelAccessTokenFlag]=None) \
@@ -2135,9 +2133,9 @@ class WalletDataAccess:
         return db_functions.read_external_peer_channel_access_tokens(self._db_context,
             peer_channel_id, mask, flags)
 
-    async def update_server_peer_channel_async(self, remote_channel_id: Optional[str],
-            remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
-            peer_channel_id: int,
+    async def update_server_peer_channel_async(self, remote_channel_id: str | None,
+                remote_url: str | None, peer_channel_flags: ServerPeerChannelFlag,
+                peer_channel_id: int,
             addable_access_tokens: list[PeerChannelAccessTokenRow]) -> ServerPeerChannelRow:
         return await self._db_context.run_in_thread_async(
             db_functions.update_server_peer_channel_write, remote_channel_id, remote_url,
@@ -2168,6 +2166,15 @@ class WalletDataAccess:
             channel_mask: Optional[ServerPeerChannelFlag]=None) \
                 -> list[PeerChannelMessageRow]:
         return db_functions.read_server_peer_channel_messages(self._db_context, message_flags,
+            message_mask, channel_flags, channel_mask)
+
+    async def read_external_peer_channel_messages_async(self,
+            message_flags: Optional[PeerChannelMessageFlag]=None,
+            message_mask: Optional[PeerChannelMessageFlag]=None,
+            channel_flags: Optional[ServerPeerChannelFlag]=None,
+            channel_mask: Optional[ServerPeerChannelFlag]=None) \
+                -> list[PeerChannelMessageRow]:
+        return db_functions.read_external_peer_channel_messages(self._db_context, message_flags,
             message_mask, channel_flags, channel_mask)
 
     # Pushdata hashes.
@@ -2296,10 +2303,11 @@ class WalletDataAccess:
 
     async def update_transaction_proof_async(self, tx_update_rows: list[TransactionProofUpdateRow],
             proof_rows: list[MerkleProofRow], proof_update_rows: list[MerkleProofUpdateRow],
-            processed_message_ids: list[int]) -> None:
+            processed_message_ids: list[int], processed_message_ids_externally_owned: list[int]) \
+                -> None:
         return await self._db_context.run_in_thread_async(
             db_functions.update_transaction_proof_write, tx_update_rows, proof_rows,
-                proof_update_rows, processed_message_ids)
+                proof_update_rows, processed_message_ids, processed_message_ids_externally_owned)
 
     async def update_transaction_proofs_and_flags(self,
             tx_update_rows: list[TransactionProofUpdateRow],
@@ -2446,6 +2454,8 @@ class Wallet:
         self._worker_tasks_maintain_server_connection = dict[int, list[ServerConnectionState]]()
         self._worker_tasks_external_peer_channel_connections = \
             dict[int, list[PeerChannelServerState]]()
+        self._worker_task_peer_channel_garbage_collection: \
+            concurrent.futures.Future[None] | None = None
         self._worker_task_chain_management: concurrent.futures.Future[None] | None = None
         self._worker_task_obtain_transactions: concurrent.futures.Future[None] | None = None
         self._worker_task_obtain_merkle_proofs: concurrent.futures.Future[None] | None = None
@@ -4017,21 +4027,22 @@ class Wallet:
             if websocket_state2 is not None:
                 await close_restapi_connection_async(websocket_state1)
 
-    async def subscribe_to_external_peer_channel(self, peer_channel_info: PeerChannelDict,
-            invoice_id: int, pre_existing_channel: bool=False) -> None:
+    async def subscribe_to_external_peer_channel(self, remote_url: str,
+            remote_channel_id: str, token: str, invoice_id: int,
+            pre_existing_channel: bool=False) -> None:
         """Calling this must be idempotent - i.e. it will only perform database writes if
         there is not already an entry, otherwise it only updates in-memory caches and re-establishes
         websocket connectivity"""
         credential_id = app_state.credentials.add_indefinite_credential(
-            peer_channel_info['token'])
+            token)
         assert self._network is not None
         # Add Peer Channel information to the database if it has not already been added
         if not pre_existing_channel:
             peer_channel_row, read_token = await self.data.create_external_peer_channel_async(
-                peer_channel_info, invoice_id=invoice_id)
+                remote_channel_id, remote_url, token, invoice_id=invoice_id)
         else:
             channel_rows = self.data.read_external_peer_channels(
-                remote_channel_id=peer_channel_info['channel_id'])
+                remote_channel_id=remote_channel_id)
             assert len(channel_rows) == 1
             peer_channel_row = channel_rows[0]
 
@@ -4040,7 +4051,7 @@ class Wallet:
             wallet_data=self.data,
             session=self._network.aiohttp_session,
             credential_id=credential_id,
-            remote_channel_id=peer_channel_info['channel_id'],
+            remote_channel_id=remote_channel_id,
             external_channel_row=peer_channel_row
         )
 
@@ -4081,7 +4092,11 @@ class Wallet:
         await self.set_transaction_state_async(transaction_hash, TxFlags.STATE_DISPATCHED,
             TxFlags.MASK_STATE_BROADCAST)
         assert payment_ack.peer_channel_info is not None
-        await self.subscribe_to_external_peer_channel(payment_ack.peer_channel_info, invoice_id,
+        remote_url = payment_ack.peer_channel_info['host']
+        remote_channel_id = payment_ack.peer_channel_info['channel_id']
+        token = payment_ack.peer_channel_info['token']
+        await self.subscribe_to_external_peer_channel(remote_url=remote_url,
+            remote_channel_id=remote_channel_id, token=token, invoice_id=invoice_id,
             pre_existing_channel=False)
         await self.data.update_invoice_flags_async(
             [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
@@ -4209,13 +4224,12 @@ class Wallet:
 
             assert external_peer_channel_row.remote_url is not None
             assert external_peer_channel_row.remote_channel_id is not None
-            peer_channel_info = PeerChannelDict(
-                host=external_peer_channel_row.remote_url,
-                token=access_tokens[0].access_token,
-                channel_id=external_peer_channel_row.remote_channel_id
-            )
-            await self.subscribe_to_external_peer_channel(peer_channel_info,
-                external_peer_channel_row.invoice_id, pre_existing_channel=True)
+            remote_url = external_peer_channel_row.remote_url
+            remote_channel_id = external_peer_channel_row.remote_channel_id
+            token = access_tokens[0].access_token
+            await self.subscribe_to_external_peer_channel(remote_url=remote_url,
+                remote_channel_id=remote_channel_id, token=token,
+                invoice_id=external_peer_channel_row.invoice_id, pre_existing_channel=True)
 
     def _maintain_server_connection_done(self, state: ServerStateProtocol,
             future: concurrent.futures.Future[ServerConnectionProblems]) -> None:
@@ -4449,12 +4463,20 @@ class Wallet:
         This will either receive messages directly from the server message loop, or it will
         process backlogged unprocessed messages on startup.
         """
-        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]()
+        # Owned peer channels
+        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage,
+            PeerChannelOwnership]]()
         for message_row in await self.data.read_server_peer_channel_messages_async(
                 PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
                 ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, ServerPeerChannelFlag.MASK_PURPOSE):
             message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
-            message_entries.append((message_row, message))
+            message_entries.append((message_row, message, PeerChannelOwnership.OWNED))
+
+        for message_row in await self.data.read_external_peer_channel_messages_async(
+                PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
+                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, ServerPeerChannelFlag.MASK_PURPOSE):
+            message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
+            message_entries.append((message_row, message, PeerChannelOwnership.EXTERNALLY_OWNED))
 
         # Iterate loop and get from queue
         state.mapi_callback_response_queue.put_nowait(message_entries)
@@ -4478,14 +4500,19 @@ class Wallet:
             tx_update_rows :list[TransactionProofUpdateRow] = []
             proof_rows: list[MerkleProofRow] = []
             processed_message_ids: list[int] = []
+            processed_message_ids_externally_owned: list[int] = []
             headerless_proofs = list[tuple[TSCMerkleProof, MerkleProofRow]]()
             verified_entries = list[tuple[bytes, Header, TSCMerkleProof]]()
             date_updated = get_posix_timestamp()
 
-            for message_row, message in message_entries:
+            for message_row, message, ownership in message_entries:
                 self._logger.debug("Got mAPI callback message: %s", message)
                 assert message_row.message_id is not None
-                processed_message_ids.append(message_row.message_id)
+                if ownership.OWNED:
+                    processed_message_ids.append(message_row.message_id)
+                elif ownership.EXTERNALLY_OWNED:
+                    processed_message_ids_externally_owned.append(message_row.message_id)
+
 
                 if not isinstance(message["payload"], str):
                     # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
@@ -4585,7 +4612,6 @@ class Wallet:
                             proof.transaction_hash))
                         proof_rows.append(MerkleProofRow(block_hash, proof.transaction_index,
                             block_height, proof.to_bytes(), proof.transaction_hash))
-
                         verified_entries.append((proof.transaction_hash, header, proof))
                         logger.debug("MCB Storing verified merkle proof for transaction %s",
                             hash_to_hex_str(proof.transaction_hash))
@@ -4605,7 +4631,7 @@ class Wallet:
             # also creating it in the merkle proof table if it is not already there.
             if len(tx_update_rows) > 0 or len(proof_rows) > 0:
                 await self.data.update_transaction_proof_async(tx_update_rows, proof_rows, [],
-                    processed_message_ids)
+                    processed_message_ids, processed_message_ids_externally_owned)
 
             # These are detached proofs, which we do not have a header or chain for. We register
             # Them so that when the header comes in, they can be considered for use.
@@ -4779,26 +4805,74 @@ class Wallet:
                     dpp_err_message = dpp_make_payment_error(message_row, error_reason)
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
 
-                    # Delete the now unused peer channel
+                    # Mark the now unused peer channel with deactivated state
+                    # NOTE: This is an "Owned" peer channel type (not externally owned)
                     if peer_channel_server_state is not None:
-                        # Delete from remote server
                         assert peer_channel_info is not None
                         assert peer_channel_server_state.cached_peer_channel_rows is not None
-                        await delete_peer_channel_async(peer_channel_server_state,
-                            peer_channel_info['channel_id'])
-
-                        # Delete from local database
                         remote_channel_id = peer_channel_info['channel_id']
                         peer_channel_row = peer_channel_server_state.\
                             cached_peer_channel_rows[remote_channel_id]
+                        new_channel_flags = peer_channel_row.peer_channel_flags | \
+                            ServerPeerChannelFlag.DEACTIVATED
                         assert peer_channel_row.peer_channel_id is not None
-                        self.data.delete_peer_channels_for_peer_channel_ids(
-                            [peer_channel_row.peer_channel_id])
+                        await self.data.update_server_peer_channel_async(
+                            peer_channel_row.remote_channel_id,
+                            peer_channel_row.remote_url, new_channel_flags,
+                            peer_channel_row.peer_channel_id,
+                            addable_access_tokens=[])
 
             # ----- States for when we are the Payer ----- #
             # NOTE: Not included because when we are the ** Payer **, we use the simplified
             # http request/response REST API endpoints of the DPP server (i.e. BIP272 URI)
 
+    async def garbage_collect_externally_owned_peer_channels(self) -> None:
+        """Cleanup peer channels that have mAPI callback messages with timestamp past the
+        expiry window and set the peer channel to the DEACTIVATED state."""
+        def have_active_connection(remote_channel_id: str) -> bool:
+            for account_id in list(self._worker_tasks_external_peer_channel_connections):
+                for externally_owned_state in \
+                        self._worker_tasks_external_peer_channel_connections[account_id]:
+
+                    # The peer_channel_message_queue.qsize() check is to ensure that the initial
+                    # check for missed messages has completed after websocket connection
+                    if externally_owned_state.remote_channel_id == remote_channel_id\
+                            and externally_owned_state.peer_channel_message_queue.qsize() == 0:
+                        return True
+            return False
+
+        async def deactivate_channel_if_appropriate(
+                external_peer_channel_row: ExternalPeerChannelRow) -> None:
+            assert external_peer_channel_row.peer_channel_id is not None
+            messages = self.data.read_external_peer_channel_messages_by_id(
+                external_peer_channel_row.peer_channel_id, most_recent_only=True)
+            if len(messages) == 1:
+                peer_channel_past_expiry = \
+                    int(time.time()) - messages[0].date_received > PEER_CHANNEL_EXPIRY_SECONDS
+                if messages[0].message_flags & PeerChannelMessageFlag.UNPROCESSED == 0 and \
+                        peer_channel_past_expiry:
+                    new_flags = external_peer_channel_row.peer_channel_flags | \
+                        ServerPeerChannelFlag.DEACTIVATED
+                    await self.data.update_external_peer_channel_async(
+                        external_peer_channel_row.remote_channel_id,
+                        external_peer_channel_row.remote_url, new_flags,
+                        external_peer_channel_row.peer_channel_id, []
+                    )
+
+        while not (self._stopping or self._stopped):
+            await asyncio.sleep(60)
+            # Get all externally owned peer channels that are NOT in the deactivated state
+            for external_peer_channel_row in self.data.read_external_peer_channels(
+                    flags=ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
+                    mask=ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK |
+                         ServerPeerChannelFlag.DEACTIVATED):
+                self._logger.debug("Garbage collecting external peer channel row: %s "
+                    "(if applicable)", external_peer_channel_row)
+                # If we do not yet have an established connection, there might still be more
+                # messages to come
+                assert external_peer_channel_row.remote_channel_id is not None
+                if have_active_connection(external_peer_channel_row.remote_channel_id):
+                    await deactivate_channel_if_appropriate(external_peer_channel_row)
 
     async def _consume_tip_filter_matches_async(self, state: ServerConnectionState) -> None:
         """
@@ -4816,19 +4890,20 @@ class Wallet:
             * If the batch is processed (task cancelled) then it will be picked up next restart.
         """
         # TODO(1.4.0) Should this db read be filtering for state.server.server_id? - AustEcon
-        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]()
+        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage,
+            PeerChannelOwnership]]()
         for message_row in await self.data.read_server_peer_channel_messages_async(
                 PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
                 ServerPeerChannelFlag.TIP_FILTER_DELIVERY, ServerPeerChannelFlag.MASK_PURPOSE):
             message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
-            message_entries.append((message_row, message))
+            message_entries.append((message_row, message, PeerChannelOwnership.OWNED))
         state.tip_filter_matches_queue.put_nowait(message_entries)
 
         while not (self._stopping or self._stopped):
             rows_by_account_id = dict[int, list[PushDataMatchMetadataRow]]()
             creation_pushdata_match_rows = list[PushDataMatchRow]()
             processed_message_ids = list[int]()
-            for message_row, message in await state.tip_filter_matches_queue.get():
+            for message_row, message, _ownership in await state.tip_filter_matches_queue.get():
                 assert message_row.message_id is not None
                 processed_message_ids.append(message_row.message_id)
 
@@ -5260,6 +5335,9 @@ class Wallet:
             self._worker_task_manage_dpp_connections = app_state.async_.spawn(
                 self._manage_dpp_connections_async())
 
+            self._worker_task_peer_channel_garbage_collection = app_state.async_.spawn(
+                self.garbage_collect_externally_owned_peer_channels())
+
         else:
             # Offline mode.
             pass
@@ -5338,6 +5416,9 @@ class Wallet:
             self._worker_task_manage_dpp_connections.cancel()
             pending_futures.add(self._worker_task_manage_dpp_connections)
             self._worker_task_manage_dpp_connections = None
+        if self._worker_task_peer_channel_garbage_collection is not None:
+            self._worker_task_peer_channel_garbage_collection.cancel()
+            pending_futures.add(self._worker_task_peer_channel_garbage_collection)
 
         async def trigger_chain_management_interrupt_event() -> None:
             # `Event.set` is not thread-safe, needs to be executed in the async thread.
@@ -5349,7 +5430,6 @@ class Wallet:
         app_state.async_.spawn_and_wait(trigger_chain_management_interrupt_event())
 
         # Only kill if not signalled to exit by the chain management interrupt event.
-
         kill_blockchain_server_dependent_workers = \
             not self._blockchain_server_chain_reconciled_event.is_set()
         if self._worker_task_obtain_transactions is not None:
@@ -5391,14 +5471,14 @@ class Wallet:
                 list(self._worker_tasks_external_peer_channel_connections):
             for externally_owned_state in \
                     self._worker_tasks_external_peer_channel_connections.pop(account_id):
-                # This was signalled to exit by the chain management interrupt event.
                 if externally_owned_state.mapi_callback_consumer_future is not None:
                     pending_futures.add(externally_owned_state.mapi_callback_consumer_future)
-                # These are manually cancelled and it should be safe to do so.
                 if externally_owned_state.connection_future is not None:
                     externally_owned_state.connection_future.cancel()
                     pending_futures.add(externally_owned_state.connection_future)
-        del self._worker_tasks_external_peer_channel_connections
+
+        if self._worker_task_peer_channel_garbage_collection is not None:
+            pending_futures.add(self._worker_task_peer_channel_garbage_collection)
 
         total_wait = 0.0
         while len(pending_futures) > 0 and total_wait < 5.0:
@@ -6126,7 +6206,7 @@ class Wallet:
                         tsc_proof.transaction_index, header.height, tsc_proof.to_bytes(),
                         row.tx_hash)
                     await self.data.update_transaction_proof_async([ tx_update_row ],
-                        [ proof_row ], [], [])
+                        [ proof_row ], [], [], [])
 
                     self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, tx_hash, header,
                         tsc_proof)
@@ -6254,7 +6334,7 @@ class Wallet:
             self._logger.debug("Updating %s headerless proofs after receipt of new block header(s)",
                 len(transaction_proof_updates))
             await self.data.update_transaction_proof_async(transaction_proof_updates, [],
-                proof_updates, [])
+                proof_updates, [], [])
 
             for header, (proof, _proof_row) in verified_proof_entries:
                 self.data.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED,

@@ -456,6 +456,9 @@ class ServerCapability(IntEnum):
     DIRECT_PAYMENT_PROTOCOL = 12
 
 
+PEER_CHANNEL_EXPIRY_SECONDS = 60 * 60
+
+
 PREFIX_ASM_SCRIPT = "asm:"
 PREFIX_PSBT_BYTES = b"psbt\xff"
 
@@ -553,6 +556,13 @@ MAX_VALUE = -1
 
 
 NO_BLOCK_HASH = bytes(32)
+
+
+# Used for the mAPI callback consumer task to distinguish which peer channel message table
+# to update and remove the UNPROCESSED flag for each message after the merkle proof is received.
+class PeerChannelOwnership(IntFlag):
+    OWNED = 0
+    EXTERNALLY_OWNED = 1
 
 
 class ServerPeerChannelFlag(IntFlag):

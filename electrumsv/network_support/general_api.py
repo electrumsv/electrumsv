@@ -52,7 +52,8 @@ from bitcoinx import hash_to_hex_str, PrivateKey, PublicKey
 
 from ..app_state import app_state
 from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag, \
-    PushDataHashRegistrationFlag, ScriptType, ServerConnectionFlag, ServerPeerChannelFlag
+    PushDataHashRegistrationFlag, PeerChannelOwnership, ScriptType, ServerConnectionFlag, \
+    ServerPeerChannelFlag
 from ..exceptions import BadServerError, ServerConnectionError
 from ..logs import logs
 from ..types import IndefiniteCredentialId, Outpoint, outpoint_struct, output_spend_struct, \
@@ -781,10 +782,12 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
 
         # These cached values are passed on to whatever other system processes these types of
         # messages.
-        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]()
+        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage,
+            PeerChannelOwnership]]()
         for message_row in await state.wallet_data.create_server_peer_channel_messages_async(
                 creation_message_rows):
-            message_entries.append((message_row, message_map[message_row.sequence]))
+            message_entries.append((message_row, message_map[message_row.sequence],
+                PeerChannelOwnership.OWNED))
 
         # Now that we have all these messages stored locally we can delete the remote copies.
         for sequence in message_map:

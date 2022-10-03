@@ -14,7 +14,7 @@ import enum
 from enum import IntFlag
 from typing import Any, NamedTuple, Optional, Protocol, Sequence, TYPE_CHECKING, TypedDict
 
-from ..constants import NetworkServerFlag, ScriptType, ServerConnectionFlag
+from ..constants import NetworkServerFlag, PeerChannelOwnership, ScriptType, ServerConnectionFlag
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
 from ..wallet_database.types import DPPMessageRow, ExternalPeerChannelRow, PeerChannelMessageRow
 from .constants import ServerProblemKind
@@ -189,8 +189,8 @@ class ServerStateProtocol(Protocol):
     disconnection_event_queue: asyncio.Queue[tuple[ServerProblemKind, str]]
 
     # Wallet consuming: Post MAPI callback responses here to get them registered with the server.
-    mapi_callback_response_queue: asyncio.Queue[list[tuple[PeerChannelMessageRow,
-        GenericPeerChannelMessage]]]
+    mapi_callback_response_queue: asyncio.Queue[list[
+        tuple[PeerChannelMessageRow, GenericPeerChannelMessage, PeerChannelOwnership]]]
     mapi_callback_response_event: asyncio.Event
     mapi_callback_consumer_future: Optional[concurrent.futures.Future[None]]
 
@@ -218,7 +218,6 @@ class ServerStateProtocol(Protocol):
 
 @dataclasses.dataclass
 class PeerChannelServerState(ServerStateProtocol):
-    """Implements ServerStateProtocol"""
     wallet_proxy: Wallet | None
     wallet_data: WalletDataAccess | None
     session: aiohttp.ClientSession
@@ -234,9 +233,10 @@ class PeerChannelServerState(ServerStateProtocol):
 
     # Wallet consuming: Post MAPI callback responses here to get them registered with the server.
     mapi_callback_response_queue: \
-        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
-            dataclasses.field(default_factory=asyncio.Queue[list[tuple[PeerChannelMessageRow,
-                GenericPeerChannelMessage]]])
+        asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage, PeerChannelOwnership]]] = \
+                dataclasses.field(default_factory=asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage, PeerChannelOwnership]]])
     mapi_callback_response_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
     mapi_callback_consumer_future: Optional[concurrent.futures.Future[None]] = None
 
@@ -274,7 +274,6 @@ class PeerChannelServerState(ServerStateProtocol):
 
 @dataclasses.dataclass
 class ServerConnectionState(ServerStateProtocol):
-    """Implements ServerStateProtocol"""
     petty_cash_account_id: int
     usage_flags: NetworkServerFlag
     wallet_proxy: Wallet | None
@@ -304,18 +303,20 @@ class ServerConnectionState(ServerStateProtocol):
 
     # Wallet consuming: Post MAPI callback responses here to get them registered with the server.
     mapi_callback_response_queue: \
-        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
-            dataclasses.field(default_factory=asyncio.Queue[list[tuple[PeerChannelMessageRow,
-                GenericPeerChannelMessage]]])
+        asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage, PeerChannelOwnership]]] = \
+        dataclasses.field(default_factory=asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage, PeerChannelOwnership]]])
     mapi_callback_response_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
     # Wallet consuming: Incoming spend notifications from the server.
     output_spend_result_queue: asyncio.Queue[Sequence[OutputSpend]] = dataclasses.field(
         default_factory=asyncio.Queue[Sequence[OutputSpend]])
     # Wallet consuming: Post tip filter matches here to get them registered with the server.
     tip_filter_matches_queue: \
-        asyncio.Queue[list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
-            dataclasses.field(default_factory=asyncio.Queue[list[tuple[PeerChannelMessageRow,
-                GenericPeerChannelMessage]]])
+        asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage, PeerChannelOwnership]]] = \
+        dataclasses.field(default_factory=asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage, PeerChannelOwnership]]])
     # Wallet consuming: Direct payment protocol-related messages from the DPP server
     dpp_messages_queue: asyncio.Queue[DPPMessageRow] = dataclasses.field(
         default_factory=asyncio.Queue[DPPMessageRow])
