@@ -107,8 +107,9 @@ def get_rpc_credentials(config: SimpleConfig, is_restapi: bool=False) -> Tuple[s
         nbytes = (nbits + 7) // 8
         return cast(int, be_bytes_to_int(os.urandom(nbytes)) % (1 << nbits))
 
-    rpc_user = cast(Optional[str], config.get('rpcuser', None))
-    rpc_password = cast(Optional[str], config.get('rpcpassword', None))
+    # TODO(deprecation) @DeprecateRESTBasicAuth
+    rpc_user = cast(str | None, config.get('rpcuser', None))
+    rpc_password = cast(str | None, config.get('rpcpassword', None))
     if rpc_user is None or rpc_password is None:
         rpc_user = 'user'
         nbits = 128

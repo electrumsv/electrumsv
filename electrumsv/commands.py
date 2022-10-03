@@ -353,6 +353,7 @@ def add_global_options(parser: argparse.ArgumentParser) -> None:
                        help="Run the built-in restapi")
     group.add_argument("--restapi-port", dest="restapi_port",
                        help="Set restapi port")
+    # TODO(deprecation) @DeprecateRESTBasicAuth
     group.add_argument("--restapi-username", dest="restapi_username",
                        help="Set restapi username (Basic Auth)")
     group.add_argument("--restapi-password", dest="restapi_password",

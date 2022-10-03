@@ -353,6 +353,7 @@ def get_config_options() -> Dict[str, Any]:
 
 
 def set_restapi_credentials(config: SimpleConfig, config_options: Dict[str, Any]) -> None:
+    # TODO(deprecation) @DeprecateRESTBasicAuth.
     if config_options.get('restapi_username'):
         config._set_key_in_user_config(
             "rpcuser", config_options.get('restapi_username'), save=True)

@@ -1,8 +1,9 @@
 from __future__ import annotations
 import asyncio
+from base64 import b64decode
+import binascii
 from typing import Awaitable, cast, Callable, TYPE_CHECKING
 
-from base64 import b64decode
 from aiohttp import web
 # NOTE(typing) `cors_middleware` is not explicitly exported, so mypy strict fails. No idea.
 from aiohttp_middlewares import cors_middleware # type: ignore
@@ -167,17 +168,27 @@ class AiohttpServer(BaseAiohttpServer):
         if auth_string is None:
             raise web.HTTPUnauthorized(reason="Missing credentials")
 
-        (basic, _, encoded_text) = auth_string.partition(' ')
-        if basic != 'Basic':
-            raise web.HTTPUnauthorized(reason="Only 'Basic' authentication supported")
+        (authorization_type, _, authorization_key) = auth_string.partition(' ')
+        # TODO(deprecation) @DeprecateRESTBasicAuth We should switch anything that uses this
+        #     over to the simpler `Bearer` authorization. Once that is done we can remove `Basic`.
+        if authorization_type == 'Basic':
+            encoded = authorization_key.encode('utf8')
+            try:
+                credentials = b64decode(encoded).decode('utf8')
+            except binascii.Error:
+                raise web.HTTPBadRequest(reason="Invalid 'Basic' credentials (base64)")
 
-        encoded = encoded_text.encode('utf8')
-        credentials = b64decode(encoded).decode('utf8')
-        (username, _, password) = credentials.partition(':')
-        assert self.username is not None and self.password is not None
-        if not (constant_time_compare(username, self.username)
-                and constant_time_compare(password, self.password)):
-            raise web.HTTPForbidden(reason="Invalid 'Basic' credentials (username or password)")
+            (username, _, password) = credentials.partition(':')
+            assert self.username is not None and self.password is not None
+            if not (constant_time_compare(username, self.username)
+                    and constant_time_compare(password, self.password)):
+                raise web.HTTPForbidden(reason="Invalid 'Basic' credentials (username/password)")
+        elif authorization_type == 'Bearer':
+            assert self.password is not None
+            if not constant_time_compare(authorization_key, self.password):
+                raise web.HTTPForbidden(reason="Invalid 'Bearer' access token")
+        else:
+            raise web.HTTPUnauthorized(reason="Only basic or bearer authentication supported")
 
         # passed authentication
         response = await handler(request)
