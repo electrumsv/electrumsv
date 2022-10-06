@@ -262,7 +262,7 @@ def delete_invoices(db_context: DatabaseContext, invoice_ids: list[int]) \
     sql_write1 = "DELETE FROM ExternalPeerChannelMessages WHERE peer_channel_id=?"
     sql_write2 = "DELETE FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
     sql_write3 = "DELETE FROM ExternalPeerChannels WHERE peer_channel_id=?"
-    sql_write5 = "DELETE FROM Invoices WHERE invoice_id=?"
+    sql_write4 = "DELETE FROM Invoices WHERE invoice_id=?"
 
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
@@ -274,7 +274,7 @@ def delete_invoices(db_context: DatabaseContext, invoice_ids: list[int]) \
         db.executemany(sql_write1, peer_channel_ids)
         db.executemany(sql_write2, peer_channel_ids)
         db.executemany(sql_write3, peer_channel_ids)
-        db.executemany(sql_write5, invoice_id_sql_values)
+        db.executemany(sql_write4, invoice_id_sql_values)
     return db_context.post_to_thread(_write)
 
 
@@ -284,21 +284,6 @@ def delete_external_peer_channels(db_context: DatabaseContext,
     sql1 = "DELETE FROM ExternalPeerChannelMessages WHERE peer_channel_id=?"
     sql2 = "DELETE FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
     sql3 = "DELETE FROM ExternalPeerChannels WHERE peer_channel_id=?"
-
-    def _write(db: Optional[sqlite3.Connection]=None) -> None:
-        assert db is not None and isinstance(db, sqlite3.Connection)
-        db.executemany(sql1, sql_values)
-        db.executemany(sql2, sql_values)
-        db.executemany(sql3, sql_values)
-    return db_context.post_to_thread(_write)
-
-
-def delete_peer_channels(db_context: DatabaseContext,
-        peer_channel_ids: list[int]) -> concurrent.futures.Future[None]:
-    sql_values = [(peer_channel_id,) for peer_channel_id in peer_channel_ids]
-    sql1 = "DELETE FROM ServerPeerChannelMessages WHERE peer_channel_id=?"
-    sql2 = "DELETE FROM ServerPeerChannelAccessTokens WHERE peer_channel_id=?"
-    sql3 = "DELETE FROM ServerPeerChannels WHERE peer_channel_id=?"
 
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)

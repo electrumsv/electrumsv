@@ -15,7 +15,7 @@ import pytest
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import (AccountFlags, BlockHeight, CHANGE_SUBPATH, DATABASE_EXT,
     DerivationType, DatabaseKeyDerivationType, KeystoreTextType, MasterKeyFlags, PaymentFlag,
-    PeerChannelOwnership, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
+    RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
     TxFlags, unpack_derivation_path)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
@@ -1606,7 +1606,7 @@ async def test_transaction_double_spent_async(app_state: AppStateProxy, mock_val
                 "content_type": "not a real content type",
                 "payload": base64.b64encode(json.dumps({
                     "payload": json.dumps(mapi_callback_response),
-                }).encode()).decode(), }, PeerChannelOwnership.OWNED) ]
+                }).encode()).decode(), }) ]
     server_state.mapi_callback_response_queue.get_nowait.side_effect = get_nowait
     wallet._wait_for_chain_related_work_async = unittest.mock.AsyncMock()
     # Ensure `broadcast_restapi_event_async` thinks it has a connection to broadcast to.

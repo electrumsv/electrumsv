@@ -23,11 +23,12 @@ from ..wallet_database.types import DPPMessageRow, PaymentRequestRow, PaymentReq
 logger = logs.get_logger("direct-payments")
 
 
+# This is required to match the expected ClientError structure within the dpp_proxy server
 class ClientError(TypedDict):
-    ID: str
-    Code: str
-    Title: str
-    Message: str
+    id: str
+    code: str
+    title: str
+    message: str
 
 
 async def send_outgoing_direct_payment_async(payment_url: str,
@@ -186,7 +187,7 @@ def dpp_make_pr_error(message_row_received: DPPMessageRow, error_reason: str) ->
 def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: str) \
         -> DPPMessageRow:
     message_id = str(uuid.uuid4())
-    client_error = ClientError(ID=message_id, Code="400", Title="Bad Request", Message=error_reason)
+    client_error = ClientError(id=message_id, code="400", title="Bad Request", message=error_reason)
     message_row_response = DPPMessageRow(
         message_id=message_id,
         paymentrequest_id=message_row_received.paymentrequest_id,

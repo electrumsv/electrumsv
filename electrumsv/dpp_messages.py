@@ -26,7 +26,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, cast, List, Optional, Dict, Union, TypedDict, Literal
+from typing import Any, cast, Dict, List, Literal, Optional, TypedDict, Union
 import types
 import urllib.parse
 
@@ -525,14 +525,22 @@ class PaymentACK:
     @classmethod
     def from_dict(cls, data: PaymentACKDict) -> PaymentACK:
         mode_id = data.get('modeId')
+        if mode_id is None:
+            raise Bip270Exception("'modeId' field is required")
+
         if mode_id is not None and mode_id != HYBRID_PAYMENT_MODE_BRFCID:
             raise Bip270Exception(f"Invalid json 'modeId' field: {mode_id}")
 
         mode = data.get('mode')
+        if mode is None:
+            raise Bip270Exception("'mode' field is required")
+
         if mode is not None and type(mode) is not dict:
             raise Bip270Exception("Invalid json 'mode' field")
 
         peer_channel_info = data.get('peerChannel')
+        if peer_channel_info is None:
+            raise Bip270Exception("'peerChannel' field is required")
         if mode_id is not None and type(peer_channel_info) is not dict:
             raise Bip270Exception("Invalid json 'peerChannel' field")
 

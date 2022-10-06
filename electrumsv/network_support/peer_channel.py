@@ -47,7 +47,7 @@ import aiohttp
 from aiohttp import WSServerHandshakeError
 
 from ..app_state import app_state
-from ..constants import PeerChannelAccessTokenFlag, PeerChannelMessageFlag, PeerChannelOwnership, \
+from ..constants import PeerChannelAccessTokenFlag, PeerChannelMessageFlag, \
     ServerConnectionFlag, ServerPeerChannelFlag
 from ..exceptions import ServerConnectionError, BadServerError
 from ..logs import logs
@@ -418,7 +418,9 @@ async def process_externally_owned_peer_channel_messages_async(state: PeerChanne
                  "(Wallet='%s')", state.server_url, state.wallet_proxy.name())
 
     while state.connection_flags & ServerConnectionFlag.EXITING == 0:
+        state.processing_message_event.clear()
         remote_channel_id = await state.peer_channel_message_queue.get()
+        state.processing_message_event.set()
         external_channel_row = state.external_channel_row
         logger.debug("Processing message for remote_channel_id=%s", remote_channel_id)
 
@@ -453,13 +455,11 @@ async def process_externally_owned_peer_channel_messages_async(state: PeerChanne
 
         # These cached values are passed on to whatever other system processes these types of
         # messages.
-        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage,
-            PeerChannelOwnership]]()
+        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]()
         created_message_rows = await \
             state.wallet_data.create_external_peer_channel_messages_async(creation_message_rows)
         for message_row in created_message_rows:
-            message_entries.append((message_row, message_map[message_row.sequence],
-                PeerChannelOwnership.EXTERNALLY_OWNED))
+            message_entries.append((message_row, message_map[message_row.sequence]))
 
         # Now that we have all these messages stored locally we can delete the remote copies.
         for sequence in message_map:

@@ -28,7 +28,7 @@ from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
     MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestOutputRow,
-    PaymentRequestRow, PaymentRequestUpdateRow, ServerPeerChannelRow, PeerChannelMessageRow,
+    PaymentRequestRow, PaymentRequestUpdateRow, PeerChannelMessageRow, ServerPeerChannelRow,
     TransactionOutputShortRow, TransactionProofUpdateRow, TransactionRow, WalletBalance,
     WalletEventInsertRow)
 

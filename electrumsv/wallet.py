@@ -60,7 +60,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkEventNames,
     NetworkServerFlag, NetworkServerType, PaymentFlag, PeerChannelAccessTokenFlag,
     PeerChannelMessageFlag, PushDataHashRegistrationFlag, PushDataMatchFlag,
-    PEER_CHANNEL_EXPIRY_SECONDS, PeerChannelOwnership, RECEIVING_SUBPATH, SERVER_USES,
+    PEER_CHANNEL_EXPIRY_SECONDS, RECEIVING_SUBPATH, SERVER_USES,
     ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ScriptType,
     TransactionImportFlag, TransactionInputFlag, TransactionOutputFlag, TxFlags,
     unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT, WALLET_IDENTITY_PATH_TEXT, WalletEvent,
@@ -1871,10 +1871,6 @@ class WalletDataAccess:
 
     def delete_invoices(self, invoice_ids: list[int]) -> concurrent.futures.Future[None]:
         return db_functions.delete_invoices(self._db_context, invoice_ids)
-
-    def delete_peer_channels(self, peer_channel_ids: list[int]) \
-            -> concurrent.futures.Future[None]:
-        return db_functions.delete_peer_channels(self._db_context, peer_channel_ids)
 
     async def create_invoice_proxy_message_async(self, dpp_messages: list[DPPMessageRow]) -> None:
         await self._db_context.run_in_thread_async(db_functions.create_dpp_messages, dpp_messages)
@@ -4463,20 +4459,21 @@ class Wallet:
         This will either receive messages directly from the server message loop, or it will
         process backlogged unprocessed messages on startup.
         """
-        # Owned peer channels
-        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage,
-            PeerChannelOwnership]]()
-        for message_row in await self.data.read_server_peer_channel_messages_async(
-                PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
-                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, ServerPeerChannelFlag.MASK_PURPOSE):
-            message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
-            message_entries.append((message_row, message, PeerChannelOwnership.OWNED))
-
-        for message_row in await self.data.read_external_peer_channel_messages_async(
-                PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
-                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, ServerPeerChannelFlag.MASK_PURPOSE):
-            message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
-            message_entries.append((message_row, message, PeerChannelOwnership.EXTERNALLY_OWNED))
+        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]()
+        if isinstance(state, ServerConnectionState):
+            for message_row in await self.data.read_server_peer_channel_messages_async(
+                    PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
+                    ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
+                    ServerPeerChannelFlag.MASK_PURPOSE):
+                message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
+                message_entries.append((message_row, message))
+        elif isinstance(state, PeerChannelServerState):
+            for message_row in await self.data.read_external_peer_channel_messages_async(
+                    PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
+                    ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
+                    ServerPeerChannelFlag.MASK_PURPOSE):
+                message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
+                message_entries.append((message_row, message))
 
         # Iterate loop and get from queue
         state.mapi_callback_response_queue.put_nowait(message_entries)
@@ -4505,14 +4502,13 @@ class Wallet:
             verified_entries = list[tuple[bytes, Header, TSCMerkleProof]]()
             date_updated = get_posix_timestamp()
 
-            for message_row, message, ownership in message_entries:
+            for message_row, message in message_entries:
                 self._logger.debug("Got mAPI callback message: %s", message)
                 assert message_row.message_id is not None
-                if ownership.OWNED:
+                if isinstance(state, ServerConnectionState):
                     processed_message_ids.append(message_row.message_id)
-                elif ownership.EXTERNALLY_OWNED:
+                elif isinstance(state, PeerChannelServerState):
                     processed_message_ids_externally_owned.append(message_row.message_id)
-
 
                 if not isinstance(message["payload"], str):
                     # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
@@ -4835,9 +4831,13 @@ class Wallet:
                         self._worker_tasks_external_peer_channel_connections[account_id]:
 
                     # The peer_channel_message_queue.qsize() check is to ensure that the initial
-                    # check for missed messages has completed after websocket connection
+                    # check for missed messages has completed after websocket connection.
+                    # The `processing_message_event` is an additional precaution to ensure that
+                    # processing of the last message in the queue actually completes before
+                    # deactivation.
                     if externally_owned_state.remote_channel_id == remote_channel_id\
-                            and externally_owned_state.peer_channel_message_queue.qsize() == 0:
+                            and externally_owned_state.peer_channel_message_queue.qsize() == 0 \
+                            and not externally_owned_state.processing_message_event.is_set():
                         return True
             return False
 
@@ -4851,6 +4851,8 @@ class Wallet:
                     int(time.time()) - messages[0].date_received > PEER_CHANNEL_EXPIRY_SECONDS
                 if messages[0].message_flags & PeerChannelMessageFlag.UNPROCESSED == 0 and \
                         peer_channel_past_expiry:
+                    self._logger.info("Deactivating external peer channel row: %s ",
+                        external_peer_channel_row)
                     new_flags = external_peer_channel_row.peer_channel_flags | \
                         ServerPeerChannelFlag.DEACTIVATED
                     await self.data.update_external_peer_channel_async(
@@ -4866,8 +4868,6 @@ class Wallet:
                     flags=ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
                     mask=ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK |
                          ServerPeerChannelFlag.DEACTIVATED):
-                self._logger.debug("Garbage collecting external peer channel row: %s "
-                    "(if applicable)", external_peer_channel_row)
                 # If we do not yet have an established connection, there might still be more
                 # messages to come
                 assert external_peer_channel_row.remote_channel_id is not None
@@ -4890,20 +4890,19 @@ class Wallet:
             * If the batch is processed (task cancelled) then it will be picked up next restart.
         """
         # TODO(1.4.0) Should this db read be filtering for state.server.server_id? - AustEcon
-        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage,
-            PeerChannelOwnership]]()
+        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]()
         for message_row in await self.data.read_server_peer_channel_messages_async(
                 PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
                 ServerPeerChannelFlag.TIP_FILTER_DELIVERY, ServerPeerChannelFlag.MASK_PURPOSE):
             message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
-            message_entries.append((message_row, message, PeerChannelOwnership.OWNED))
+            message_entries.append((message_row, message))
         state.tip_filter_matches_queue.put_nowait(message_entries)
 
         while not (self._stopping or self._stopped):
             rows_by_account_id = dict[int, list[PushDataMatchMetadataRow]]()
             creation_pushdata_match_rows = list[PushDataMatchRow]()
             processed_message_ids = list[int]()
-            for message_row, message, _ownership in await state.tip_filter_matches_queue.get():
+            for message_row, message in await state.tip_filter_matches_queue.get():
                 assert message_row.message_id is not None
                 processed_message_ids.append(message_row.message_id)
 

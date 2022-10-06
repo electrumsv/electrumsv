@@ -558,13 +558,6 @@ MAX_VALUE = -1
 NO_BLOCK_HASH = bytes(32)
 
 
-# Used for the mAPI callback consumer task to distinguish which peer channel message table
-# to update and remove the UNPROCESSED flag for each message after the merkle proof is received.
-class PeerChannelOwnership(IntFlag):
-    OWNED = 0
-    EXTERNALLY_OWNED = 1
-
-
 class ServerPeerChannelFlag(IntFlag):
     NONE                                        = 0
     # This gets set immediately before we create the actual peer channel remotely.
