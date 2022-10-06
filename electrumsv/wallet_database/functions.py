@@ -1641,8 +1641,9 @@ def update_external_peer_channel_write(remote_channel_id: str | None,
             date_created, date_updated
     """
     cursor = db.execute(sql, (remote_channel_id, remote_url, peer_channel_flags, peer_channel_id))
-    row = cursor.fetchone()
-    assert cursor.rowcount == 1
+    rows = cursor.fetchall()
+    assert len(rows) == 1
+    row = rows[0]
     result_row = ExternalPeerChannelRow(row[0], row[1], row[2], row[3],
         ServerPeerChannelFlag(row[4]), row[5], row[6])
 

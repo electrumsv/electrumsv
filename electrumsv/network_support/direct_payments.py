@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import typing
+from typing import TypedDict
 from http import HTTPStatus
 
 from bitcoinx import PrivateKey
@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timezone
 
 from .dpp_proxy import MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT_ACK, \
-    MSG_TYPE_PAYMENT_REQUEST_ERROR
+    MSG_TYPE_PAYMENT_REQUEST_ERROR, MSG_TYPE_PAYMENT_ERROR
 from ..app_state import app_state
 from ..dpp_messages import Payment, PaymentACK, PeerChannelDict, HYBRID_PAYMENT_MODE_BRFCID
 from ..exceptions import Bip270Exception
@@ -20,10 +20,14 @@ from ..types import IndefiniteCredentialId
 from ..transaction import Transaction
 from ..wallet_database.types import DPPMessageRow, PaymentRequestRow, PaymentRequestOutputRow
 
-if typing.TYPE_CHECKING:
-    from ..wallet import Wallet
-
 logger = logs.get_logger("direct-payments")
+
+
+class ClientError(TypedDict):
+    ID: str
+    Code: str
+    Title: str
+    Message: str
 
 
 async def send_outgoing_direct_payment_async(payment_url: str,
@@ -52,7 +56,10 @@ async def send_outgoing_direct_payment_async(payment_url: str,
         if response.status not in (200, 201, 202):
             # Propagate 'Bad request' (HTTP 400) messages to the user since they
             # contain valuable information.
-            if response.status in {HTTPStatus.BAD_REQUEST, HTTPStatus.UNPROCESSABLE_ENTITY}:
+            if response.status == HTTPStatus.BAD_REQUEST:
+                content_text = await response.text(encoding="UTF-8")
+                message = f"{content_text}"  # dpp proxy error message includes response.reason
+            elif response.status == HTTPStatus.UNPROCESSABLE_ENTITY:
                 content_text = await response.text(encoding="UTF-8")
                 message = f"{response.reason}: {content_text}"
             else:
@@ -179,9 +186,7 @@ def dpp_make_pr_error(message_row_received: DPPMessageRow, error_reason: str) ->
 def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: str) \
         -> DPPMessageRow:
     message_id = str(uuid.uuid4())
-    # The DPP Proxy requires a PaymentACK json object with error set to "1" in order to trigger
-    # an http response with status: 422 (StatusUnprocessableEntity)
-    error_payment_ack = PaymentACK(memo=error_reason, error=1).to_dict()
+    client_error = ClientError(ID=message_id, Code="400", Title="Bad Request", Message=error_reason)
     message_row_response = DPPMessageRow(
         message_id=message_id,
         paymentrequest_id=message_row_received.paymentrequest_id,
@@ -191,8 +196,8 @@ def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: st
         client_id=message_row_received.client_id,
         user_id=message_row_received.user_id,
         expiration=message_row_received.expiration,
-        body=json.dumps(error_payment_ack).encode('utf-8'),
+        body=json.dumps(client_error).encode('utf-8'),
         timestamp=datetime.now(tz=timezone.utc).isoformat(),
-        type=MSG_TYPE_PAYMENT_ACK)
+        type=MSG_TYPE_PAYMENT_ERROR)
     return message_row_response
 

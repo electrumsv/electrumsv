@@ -4710,10 +4710,15 @@ class Wallet:
                     "DPPMessageRow data: %s", message_row.paymentrequest_id, message_row)
                 continue
 
+            if request_row.state & PaymentFlag.MASK_STATE == PaymentFlag.PAID:
+                # NOTE: The database tables currently do not allow any way of re-sending the
+                # PaymentACK to the peer because we don't know which dpp_invoice_id relates to
+                # which peer channel.
+                self._logger.error("Peer attempted to pay for an invoice that is already paid")
+                continue
+
             assert request_row.paymentrequest_id is not None
             assert request_row.state & PaymentFlag.MASK_TYPE == PaymentFlag.INVOICE, \
-                request_row.state
-            assert request_row.state & PaymentFlag.MASK_STATE == PaymentFlag.UNPAID, \
                 request_row.state
             if request_row.state & PaymentFlag.UNPAID != 0:
                 assert request_row.state & PaymentFlag.PAID == 0, request_row.state
@@ -4760,7 +4765,7 @@ class Wallet:
                 tx = Transaction.from_hex(payment_obj.transaction_hex)
                 assert request_row.paymentrequest_id is not None
                 try:
-                    await self.close_payment_request_async(request_row.paymentrequest_id,
+                    await self.validate_payment_request_async(request_row.paymentrequest_id,
                         [ (tx, None) ])
                 except ValueError:
                     self._logger.exception("Unexpected exception processing the transaction")
@@ -4780,17 +4785,12 @@ class Wallet:
 
                 assert successful is not None
                 if successful:
-                    # Update the payment request to `PaymentFlag.PAID` status
-                    new_state_flag = PaymentFlag.PAID
-                    new_state = request_row.state & \
-                                ~(PaymentFlag.MASK_DPP_STATE_MACHINE | PaymentFlag.MASK_STATE) \
-                                | new_state_flag
-                    assert request_row.paymentrequest_id is not None
-                    assert request_row.paymentrequest_id is not None
-                    update_row = PaymentRequestUpdateRow(new_state, request_row.requested_value,
-                        request_row.date_expires, request_row.description,
-                        request_row.merchant_reference, request_row.paymentrequest_id)
-                    await self.data.update_payment_requests_async([update_row])
+                    try:
+                        await self.close_payment_request_async(request_row.paymentrequest_id,
+                            [(tx, None)])
+                    except ValueError:
+                        self._logger.exception("Unexpected exception processing the transaction")
+                        continue
 
                     # Send PaymentACK to payer
                     assert peer_channel_info is not None
@@ -5147,7 +5147,7 @@ class Wallet:
                 self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, -1,
                     tx_hash, (tx_flags & TxFlags.MASK_STATE) | TxFlags.STATE_CLEARED)
 
-    async def close_payment_request_async(self, request_id: int,
+    async def validate_payment_request_async(self, request_id: int,
             candidates: list[tuple[Transaction, TransactionContext | None]],
             error_callback: Callable[[str], None] | None=None) -> None:
         """
@@ -5210,6 +5210,15 @@ class Wallet:
             except TransactionAlreadyExistsError:
                 # TODO Check if the keys are mapped correctly.
                 pass
+
+    async def close_payment_request_async(self, request_id: int,
+            candidates: list[tuple[Transaction, TransactionContext | None]],
+            error_callback: Callable[[str], None] | None=None) -> None:
+        """
+        Raises `ValueError` if the candidate transactions do not fully and correctly pay for
+            the payment request.
+        """
+        await self.validate_payment_request_async(request_id, candidates, error_callback)
 
         transaction_description_update_rows = await self.data.close_paid_payment_request_async(
             request_id)
