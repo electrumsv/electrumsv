@@ -673,13 +673,13 @@ async def peer_channel_preconnection_async(state: ServerConnectionState) -> None
     """
     assert state.wallet_data is not None
     existing_channel_rows = state.wallet_data.read_server_peer_channels(state.server.server_id)
-    all_peer_channel_rows_by_id = { cast(str, row.remote_channel_id): row
-        for row in existing_channel_rows}
+    all_peer_channel_rows_by_id = cast(set[str], { row.remote_channel_id: row
+        for row in existing_channel_rows})
     if state.used_with_reference_server_api:
         peer_channel_jsons = await list_peer_channels_async(state)
         peer_channel_ids = {channel_json["id"] for channel_json in peer_channel_jsons}
-        owned_peer_channel_rows_by_id = {cast(str, row.remote_channel_id): row for row in
-            existing_channel_rows}
+        owned_peer_channel_rows_by_id = cast(set[str], {row.remote_channel_id: row for row in
+            existing_channel_rows})
 
         # TODO(1.4.0) Unreliable server, issue#841. Our peer channels differ from the server's.
         # - Could be caused by a shared API key with another wallet.
@@ -689,8 +689,8 @@ async def peer_channel_preconnection_async(state: ServerConnectionState) -> None
         # - We should mark peer channels as `CLOSING` and we can pick those up here and close
         #   any we couldn't close when they were marked as such because of connection issues.
         if set(peer_channel_ids) != set(owned_peer_channel_rows_by_id):
-            logger.error(f"Mismatched peer channels, local and server: {peer_channel_ids} vs "
-                         f"{owned_peer_channel_rows_by_id}")
+            logger.error("Mismatched peer channels, local and server: %s vs %s",
+                peer_channel_ids, owned_peer_channel_rows_by_id)
             raise InvalidStateError("Mismatched peer channels, local and server")
 
     state.cached_peer_channel_rows = all_peer_channel_rows_by_id
@@ -1265,12 +1265,11 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
         assert len(db_access_tokens) == 1
         tip_filter_access_token = db_access_tokens[0]
     else:
-        async with peer_channel_server_state.upgrade_lock:
-            peer_channel_row, tip_filter_access_token, read_only_access_token = \
-                await create_peer_channel_locally_and_remotely_async(
-                    peer_channel_server_state, ServerPeerChannelFlag.TIP_FILTER_DELIVERY,
-                    PeerChannelAccessTokenFlag.FOR_TIP_FILTER_SERVER,
-                    indexing_server_id=indexing_server_id)
+        peer_channel_row, tip_filter_access_token, read_only_access_token = \
+            await create_peer_channel_locally_and_remotely_async(
+                peer_channel_server_state, ServerPeerChannelFlag.TIP_FILTER_DELIVERY,
+                PeerChannelAccessTokenFlag.FOR_TIP_FILTER_SERVER,
+                indexing_server_id=indexing_server_id)
         assert peer_channel_row.peer_channel_id is not None
         indexing_server_state.server.set_tip_filter_peer_channel_id(
             indexing_server_state.petty_cash_account_id, peer_channel_row.peer_channel_id)

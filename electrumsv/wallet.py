@@ -4354,15 +4354,18 @@ class Wallet:
                     existing_server_state = account_server_state
 
         def start_use_case_specific_worker_tasks(server_state: ServerConnectionState,
-                usage_flags: NetworkServerFlag) -> None:
+                added_usage_flags: NetworkServerFlag) -> None:
 
-            # If the server was created only for "message box" usage, then we still need to
-            # start the mapi callback consumer task
-            if usage_flags & (NetworkServerFlag.USE_MESSAGE_BOX | NetworkServerFlag.USE_BLOCKCHAIN):
+            # In theory this consumer could be started only for servers that actually will
+            # be receiving mapi callbacks but this is a future problem. We should aim to only
+            # run code where it is relevant.
+            if added_usage_flags & NetworkServerFlag.USE_MESSAGE_BOX:
                 server_state.mapi_callback_consumer_future = app_state.async_.spawn(
                     self._consume_mapi_callback_messages_async(server_state))
 
-            if usage_flags & NetworkServerFlag.USE_BLOCKCHAIN:
+            # If the server was created only for "message box" usage, then we still need to
+            # start the mapi callback consumer task
+            if added_usage_flags & NetworkServerFlag.USE_BLOCKCHAIN:
                 server_state.output_spends_consumer_future = app_state.async_.spawn(
                     self._consume_output_spend_notifications_async(
                         server_state.output_spend_result_queue))
@@ -4474,6 +4477,8 @@ class Wallet:
                     ServerPeerChannelFlag.MASK_PURPOSE):
                 message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
                 message_entries.append((message_row, message))
+        else:
+            raise NotImplementedError("Server connection state type not recognized")
 
         # Iterate loop and get from queue
         state.mapi_callback_response_queue.put_nowait(message_entries)
@@ -4764,6 +4769,8 @@ class Wallet:
                     await self.validate_payment_request_async(request_row.paymentrequest_id,
                         [ (tx, None) ])
                 except ValueError:
+                    # 1) Return payment.error over websocket in all relevant cases
+                    # 2) Log to file (all logging) + unexpected
                     self._logger.exception("Unexpected exception processing the transaction")
                     continue
 

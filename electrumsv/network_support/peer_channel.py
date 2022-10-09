@@ -556,8 +556,8 @@ async def _manage_external_peer_channel_connection_async(state: PeerChannelServe
 
     access_token = app_state.credentials.get_indefinite_credential(state.credential_id)
     assert state.external_channel_row.remote_url is not None
-    websocket_url_template = state.external_channel_row.remote_url.rstrip("/") + \
-        "/api/v1/channel/{remote_channel_id}/notify?token={access_token}"
+    websocket_url_template = state.external_channel_row.remote_url + \
+        "api/v1/channel/{remote_channel_id}/notify?token={access_token}"
     websocket_url = websocket_url_template.format(remote_channel_id=state.remote_channel_id,
         access_token=access_token)
     headers = {"Accept": "application/octet-stream"}

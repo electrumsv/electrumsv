@@ -210,12 +210,11 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
     if peer_channel_server_state is not None:
         third_party_token_flags = PeerChannelAccessTokenFlag.FOR_THIRD_PARTY_USAGE | \
             PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE
-        async with peer_channel_server_state.upgrade_lock:
-            peer_channel_row, mapi_write_token, read_only_token = \
-                await create_peer_channel_locally_and_remotely_async(
-                    peer_channel_server_state,
-                    ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, third_party_token_flags,
-                    ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, third_party_token_flags)
+        peer_channel_row, mapi_write_token, read_only_token = \
+            await create_peer_channel_locally_and_remotely_async(
+                peer_channel_server_state,
+                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, third_party_token_flags,
+                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, third_party_token_flags)
         assert peer_channel_row.remote_channel_id is not None
         assert peer_channel_row.remote_url is not None
 

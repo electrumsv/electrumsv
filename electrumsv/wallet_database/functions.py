@@ -998,7 +998,7 @@ def create_tip_filter_pushdata_registrations_write(rows: list[PushDataHashRegist
         upsert: bool, db: sqlite3.Connection | None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
     assert len(rows) > 0
-    assert len(rows[0]) == 8
+    assert len(rows[0]) == 9
     assert rows[0].date_created > 0
     assert rows[0].date_created == rows[0].date_updated
     assert rows[0].duration_seconds > 5 * 60
@@ -1086,10 +1086,10 @@ def read_registered_tip_filter_pushdata_for_request(db: sqlite3.Connection, requ
     sql = ("SELECT PDR.server_id, PDR.keyinstance_id, PDR.script_type, PDR.pushdata_hash, "
             "PDR.pushdata_flags, PDR.duration_seconds, PDR.date_registered, PDR.date_created, "
             "PDR.date_updated "
-        "FROM PaymentRequests PR "
-        "INNER JOIN KeyInstances KI ON KI.keyinstance_id=PR.keyinstance_id "
+        "FROM PaymentRequestOutputs PRO "
+        "INNER JOIN KeyInstances KI ON KI.keyinstance_id=PRO.keyinstance_id "
         "LEFT JOIN ServerPushDataRegistrations PDR ON KI.keyinstance_id=PDR.keyinstance_id "
-        "WHERE PR.paymentrequest_id=?")
+        "WHERE PRO.paymentrequest_id=?")
     row = db.execute(sql, (request_id,)).fetchone()
     assert row is not None
     if row[0] is None:

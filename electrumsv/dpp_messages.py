@@ -26,7 +26,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, cast, Dict, List, Literal, Optional, TypedDict, Union
+from typing import Any, cast, Dict, List, Literal, Optional, TypedDict, Union, Type
 import types
 import urllib.parse
 
@@ -174,7 +174,7 @@ class Output:
         return XTxOutput(self.amount, script) # type: ignore
 
     @classmethod
-    def from_dict(cls, data: DPPNativeOutput) -> 'Output':
+    def from_dict(cls, data: DPPNativeOutput) -> Output:
         if 'script' not in data:
             raise Bip270Exception("Missing required 'script' field")
         script_hex = data['script']
@@ -210,13 +210,15 @@ class Output:
 
 
 # See: https://tsc.bitcoinassociation.net/standards/direct_payment_protocol/#Specification
-DPP_NETWORK_MAINNET = "bitcoin-sv"  # this has changed from "mainnet" for backwards compatibility
-DPP_NETWORK_REGTEST = "regtest"
-DPP_NETWORK_TESTNET = "testnet"
-DPP_NETWORK_STN = "stn"
+# changed from "mainnet" to "bitcoin-sv" for backwards compatibility
+DPP_NETWORK_MAINNET: Literal["bitcoin-sv"] = "bitcoin-sv"
+DPP_NETWORK_REGTEST: Literal["regtest"] = "regtest"
+DPP_NETWORK_TESTNET: Literal["testnet"] = "testnet"
+DPP_NETWORK_STN: Literal["stn"] = "stn"
+NETWORK_NAMES = Literal["bitcoin-sv", "regtest", "testnet", "stn"]
 
 
-def get_dpp_network_string() -> str:
+def get_dpp_network_string() -> NETWORK_NAMES:
     if Net._net is SVMainnet:
         return DPP_NETWORK_MAINNET
     elif Net._net is SVTestnet:
@@ -229,9 +231,6 @@ def get_dpp_network_string() -> str:
 
 
 class PaymentTerms:
-    HANDCASH_NETWORK = "bitcoin"
-    BIP270_NETWORK = "bitcoin-sv"
-
     MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
     def __init__(self, outputs: List[Output], network: str, version: str,

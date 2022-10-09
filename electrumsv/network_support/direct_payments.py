@@ -23,7 +23,8 @@ from ..wallet_database.types import DPPMessageRow, PaymentRequestRow, PaymentReq
 logger = logs.get_logger("direct-payments")
 
 
-# This is required to match the expected ClientError structure within the dpp_proxy server
+# This structure is what the dpp-proxy server expects in the body of the `payment.error` websocket
+# message type in order to generate the appropriate http response for the payer SPV wallet
 class ClientError(TypedDict):
     id: str
     code: str
@@ -57,10 +58,7 @@ async def send_outgoing_direct_payment_async(payment_url: str,
         if response.status not in (200, 201, 202):
             # Propagate 'Bad request' (HTTP 400) messages to the user since they
             # contain valuable information.
-            if response.status == HTTPStatus.BAD_REQUEST:
-                content_text = await response.text(encoding="UTF-8")
-                message = f"{content_text}"  # dpp proxy error message includes response.reason
-            elif response.status == HTTPStatus.UNPROCESSABLE_ENTITY:
+            if response.status in {HTTPStatus.BAD_REQUEST, HTTPStatus.UNPROCESSABLE_ENTITY}:
                 content_text = await response.text(encoding="UTF-8")
                 message = f"{response.reason}: {content_text}"
             else:
@@ -187,7 +185,8 @@ def dpp_make_pr_error(message_row_received: DPPMessageRow, error_reason: str) ->
 def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: str) \
         -> DPPMessageRow:
     message_id = str(uuid.uuid4())
-    client_error = ClientError(id=message_id, code="400", title="Bad Request", message=error_reason)
+    client_error = ClientError(id=message_id, code="400", title="Bad Request",
+        message=error_reason)
     message_row_response = DPPMessageRow(
         message_id=message_id,
         paymentrequest_id=message_row_received.paymentrequest_id,
