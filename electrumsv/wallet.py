@@ -4253,8 +4253,11 @@ class Wallet:
             assert usage_flags, "No new use cases to enable on the existing server connection"
             existing_server_state.usage_flags |= usage_flags
             start_use_case_specific_worker_tasks(existing_server_state, usage_flags)
-            app_state.async_.spawn(
-                upgrade_server_connection_async(existing_server_state, usage_flags))
+            # Ensure that everything is fully upgraded and ready to use by doing this blocking
+            # logic here. The caller can then proceed to use the server without race conditions.
+            # An example of what blocks is creating a peer channel locally and remotely to
+            # receive tip filter notifications through.
+            await upgrade_server_connection_async(existing_server_state, usage_flags)
             server_state = existing_server_state
 
         self._new_server_connection_event.set()

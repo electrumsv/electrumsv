@@ -957,7 +957,9 @@ async def manage_tip_filter_registrations_async(state: ServerConnectionState) ->
 
     # Before an indexing server will accept tip filter registrations from us we need to
     # have registered a notifications peer channel with it, through which it will deliver
-    # any matches.
+    # any matches. This may block indefinitely until the user signs up with a message
+    # box server, we offer them that opportunity when they go to use something that needs one
+    # like subscribing to tip filter notifications.
     await prepare_server_tip_filter_peer_channel(state)
 
     # The main `maintain_server_connection_async` task will be waiting on this event and
