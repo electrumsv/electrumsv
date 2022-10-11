@@ -673,13 +673,11 @@ async def peer_channel_preconnection_async(state: ServerConnectionState) -> None
     """
     assert state.wallet_data is not None
     existing_channel_rows = state.wallet_data.read_server_peer_channels(state.server.server_id)
-    all_peer_channel_rows_by_id = cast(set[str], { row.remote_channel_id: row
+    all_peer_channel_rows_by_id = cast(dict[str, ServerPeerChannelRow], { row.remote_channel_id: row
         for row in existing_channel_rows})
     if state.used_with_reference_server_api:
         peer_channel_jsons = await list_peer_channels_async(state)
         peer_channel_ids = {channel_json["id"] for channel_json in peer_channel_jsons}
-        owned_peer_channel_rows_by_id = cast(set[str], {row.remote_channel_id: row for row in
-            existing_channel_rows})
 
         # TODO(1.4.0) Unreliable server, issue#841. Our peer channels differ from the server's.
         # - Could be caused by a shared API key with another wallet.
@@ -688,9 +686,9 @@ async def peer_channel_preconnection_async(state: ServerConnectionState) -> None
         # - Expired peer channels may need to be excluded.
         # - We should mark peer channels as `CLOSING` and we can pick those up here and close
         #   any we couldn't close when they were marked as such because of connection issues.
-        if set(peer_channel_ids) != set(owned_peer_channel_rows_by_id):
+        if set(peer_channel_ids) != set(all_peer_channel_rows_by_id):
             logger.error("Mismatched peer channels, local and server: %s vs %s",
-                peer_channel_ids, owned_peer_channel_rows_by_id)
+                peer_channel_ids, existing_channel_rows)
             raise InvalidStateError("Mismatched peer channels, local and server")
 
     state.cached_peer_channel_rows = all_peer_channel_rows_by_id

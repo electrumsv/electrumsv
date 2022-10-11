@@ -4144,7 +4144,7 @@ class Wallet:
         self._dpp_invoice_credentials: dict[str, tuple[IndefiniteCredentialId, PublicKey]] = {}
         payment_request_rows = self.data.read_payment_requests(
             flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID,
-            mask= PaymentFlag.INVOICE | PaymentFlag.MASK_STATE)
+            mask=PaymentFlag.MASK_TYPE | PaymentFlag.MASK_STATE)
         for payment_request_row in payment_request_rows:
             self.register_outstanding_invoice(payment_request_row, password)
 
@@ -4685,7 +4685,7 @@ class Wallet:
         """
         payment_request_rows = self.data.read_payment_requests(
             flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID,
-            mask=PaymentFlag.INVOICE | PaymentFlag.UNPAID, server_id=state.server.server_id)
+            mask=PaymentFlag.MASK_TYPE | PaymentFlag.MASK_STATE, server_id=state.server.server_id)
 
         # Initialize ws:// connections for pre-existing active invoice records from the database
         assert len(state.dpp_websockets) == 0

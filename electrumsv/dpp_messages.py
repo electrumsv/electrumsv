@@ -26,7 +26,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, cast, Dict, List, Literal, Optional, TypedDict, Union, Type
+from typing import Any, cast, Dict, List, Literal, Optional, TypedDict, Union
 import types
 import urllib.parse
 
