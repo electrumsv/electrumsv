@@ -4768,10 +4768,21 @@ class Wallet:
                 try:
                     await self.validate_payment_request_async(request_row.paymentrequest_id,
                         [ (tx, None) ])
-                except ValueError:
-                    # 1) Return payment.error over websocket in all relevant cases
-                    # 2) Log to file (all logging) + unexpected
-                    self._logger.exception("Unexpected exception processing the transaction")
+                except Bip270Exception as e:
+                    self._logger.exception("Bip270Exception validating payment request: %s, "
+                        "txid: %s", request_row.paymentrequest_id, tx.txid())
+                    error_reason = str(e)
+                    dpp_err_message = dpp_make_payment_error(message_row, error_reason)
+                    await dpp_websocket_send(state, dpp_err_message)
+                except Exception:
+                    self._logger.exception("Unexpected exception validating the payment request: "
+                        "%s, txid: %s", request_row.paymentrequest_id, tx.txid())
+                    error_reason = "The Payee wallet encountered an unexpected exception " \
+                        f"validating payment request: {request_row.paymentrequest_id}, " \
+                        f"txid: {tx.txid()}."
+                    dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
+                        "Internal Server Error")
+                    await dpp_websocket_send(state, dpp_err_message)
                     continue
 
                 mapi_server_hint = \
@@ -4791,8 +4802,18 @@ class Wallet:
                     try:
                         await self.close_payment_request_async(request_row.paymentrequest_id,
                             [(tx, None)])
-                    except ValueError:
+                    except Bip270Exception as e:
+                        error_reason = str(e)
+                        dpp_err_message = dpp_make_payment_error(message_row, error_reason)
+                        await dpp_websocket_send(state, dpp_err_message)
                         self._logger.exception("Unexpected exception processing the transaction")
+                    except Exception:
+                        self._logger.exception("Unexpected exception processing the transaction")
+                        error_reason = "The Payee wallet encountered an unexpected exception " \
+                            "processing this transaction."
+                        dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
+                            "Internal Server Error")
+                        await dpp_websocket_send(state, dpp_err_message)
                         continue
 
                     # Send PaymentACK to payer
@@ -4803,7 +4824,7 @@ class Wallet:
                     self._logger.error("mAPI broadcast for txid: %s failed with reason: %s",
                         tx.txid(), broadcast_response['resultDescription'])
 
-                    # Inform the *Payee* of the reason we rejected their `Payment`
+                    # Inform the *Payer* of the reason we rejected their `Payment`
                     error_reason = broadcast_response['resultDescription']
                     dpp_err_message = dpp_make_payment_error(message_row, error_reason)
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
@@ -4829,7 +4850,7 @@ class Wallet:
             # NOTE: Not included because when we are the ** Payer **, we use the simplified
             # http request/response REST API endpoints of the DPP server (i.e. BIP272 URI)
 
-    async def garbage_collect_externally_owned_peer_channels(self) -> None:
+    async def garbage_collect_externally_owned_peer_channels_async(self) -> None:
         """Cleanup peer channels that have mAPI callback messages with timestamp past the
         expiry window and set the peer channel to the DEACTIVATED state."""
         def have_active_connection(remote_channel_id: str) -> bool:
@@ -5157,7 +5178,7 @@ class Wallet:
             candidates: list[tuple[Transaction, TransactionContext | None]],
             error_callback: Callable[[str], None] | None=None) -> None:
         """
-        Raises `ValueError` if the candidate transactions do not fully and correctly pay for
+        Raises `Bip270Exception` if the candidate transactions do not fully and correctly pay for
             the payment request.
         """
         request_row, request_output_rows = self.data.read_payment_request(request_id)
@@ -5165,7 +5186,7 @@ class Wallet:
         assert len(request_output_rows) > 0
 
         if not all(transaction.is_complete() for transaction, transaction_context in candidates):
-            raise ValueError(_("One or more of the transactions provided are not final."))
+            raise Bip270Exception(_("One or more of the transactions provided are not final."))
 
         request_output_row_by_script_bytes = {
             request_output_row.output_script_bytes: request_output_row
@@ -5189,7 +5210,7 @@ class Wallet:
                     self._logger.debug("Transaction '%s' output %d has value %d, "
                         "expected value %d", hash_to_hex_str(transaction_hash), output_index,
                         transaction_output.value, request_output_row.output_value)
-                    raise ValueError(_("The transactions do not provide the correct values."))
+                    raise Bip270Exception(_("The transactions do not provide the correct values."))
                 transaction_output_key_usage[output_index] = (request_output_row.keyinstance_id,
                     request_output_row.output_script_type)
 
@@ -5198,7 +5219,7 @@ class Wallet:
         if received_value != request_row.requested_value:
             self._logger.debug("The transactions are incorrect and provided value %d but "
                 "expected value %d satoshis.", received_value, request_row.requested_value)
-            raise ValueError(_("The transactions do not provide the correct values."))
+            raise Bip270Exception(_("The transactions do not provide the correct values."))
 
         # NOTE(output-spends) This will trigger registration for output spend events to monitor
         #     if this transaction gets broadcast externally.
@@ -5351,7 +5372,7 @@ class Wallet:
                 self._manage_dpp_connections_async())
 
             self._worker_task_peer_channel_garbage_collection = app_state.async_.spawn(
-                self.garbage_collect_externally_owned_peer_channels())
+                self.garbage_collect_externally_owned_peer_channels_async())
 
         else:
             # Offline mode.

@@ -23,11 +23,12 @@ MSG_TYPE_PAYMENT_ERROR = "payment.error"
 MSG_TYPE_PAYMENT_REQUEST_CREATE = "paymentterms.create"
 MSG_TYPE_PAYMENT_REQUEST_RESPONSE = "paymentterms.response"
 MSG_TYPE_PAYMENT_REQUEST_ERROR = "paymentterms.error"
+MSG_TYPE_CHANNEL_EXPIRY = "channel.expired"
 
 ALL_MSG_TYPES = {MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK,
     MSG_TYPE_PAYMENT_ERROR,
     MSG_TYPE_PAYMENT_REQUEST_CREATE, MSG_TYPE_PAYMENT_REQUEST_RESPONSE,
-    MSG_TYPE_PAYMENT_REQUEST_ERROR}
+    MSG_TYPE_PAYMENT_REQUEST_ERROR, MSG_TYPE_CHANNEL_EXPIRY}
 DPP_MESSAGE_SEQUENCE = [MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_CREATE,
     MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK]
 
@@ -112,8 +113,8 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
         websocket_url = f"{server_url}ws/{payment_request_row.dpp_invoice_id}?internal=true"
 
         # TODO(1.4.0) DPP / AustEcon. Rationalise why five seconds timeout.
-        async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
-                as server_websocket:
+        async with state.session.ws_connect(websocket_url, headers=headers,
+                timeout=5.0) as server_websocket:
             state.dpp_websockets[payment_request_row.dpp_invoice_id] = server_websocket
             state.dpp_websocket_connection_events[payment_request_row.dpp_invoice_id].set()
 
@@ -141,9 +142,19 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
                     timestamp=message_json["timestamp"],
                     type=message_json["type"]
                 )
-                await state.wallet_data.create_invoice_proxy_message_async([ dpp_message ])
-                if message_json["type"] != MSG_TYPE_JOIN_SUCCESS:
+                if message_json["type"] == MSG_TYPE_JOIN_SUCCESS:
+                    continue
+                elif message_json["type"] == MSG_TYPE_CHANNEL_EXPIRY:
+                    # By default dpp-proxy channels expire after 2 hours
+                    # see: `EnvSocketChannelTimeoutSeconds` in the dpp-proxy server
+                    logger.warning("DPP channel expired for payment request id : %s",
+                        payment_request_row.paymentrequest_id)
+                    return
+                elif message_json["type"] != MSG_TYPE_JOIN_SUCCESS:
+                    await state.wallet_data.create_invoice_proxy_message_async([dpp_message])
                     state.dpp_messages_queue.put_nowait(dpp_message)
+                else:
+                    raise ValueError("Unrecognized dpp message type")
     except aiohttp.ClientConnectorError:
         logger.debug("Unable to connect to server websocket")
     except WSServerHandshakeError as e:

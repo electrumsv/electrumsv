@@ -182,10 +182,10 @@ def dpp_make_pr_error(message_row_received: DPPMessageRow, error_reason: str) ->
     return message_row_response
 
 
-def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: str) \
-        -> DPPMessageRow:
+def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: str,
+        code: int = 400, title: str = "Bad Request") -> DPPMessageRow:
     message_id = str(uuid.uuid4())
-    client_error = ClientError(id=message_id, code="400", title="Bad Request",
+    client_error = ClientError(id=message_id, code=str(code), title=title,
         message=error_reason)
     message_row_response = DPPMessageRow(
         message_id=message_id,
