@@ -4638,8 +4638,6 @@ class Wallet:
             # Them so that when the header comes in, they can be considered for use.
             for headerless_proof in headerless_proofs:
                 self._connect_headerless_proof_worker_state.proof_queue.put_nowait(headerless_proof)
-            # TODO(1.4.0) Code sanity check. Should we set this even if we do not put proofs? If
-            #     so, add a comment why.
             if headerless_proofs:
                 self._connect_headerless_proof_worker_state.proof_event.set()
 
