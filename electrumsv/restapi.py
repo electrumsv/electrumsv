@@ -8,8 +8,8 @@ from aiohttp import web
 # NOTE(typing) `cors_middleware` is not explicitly exported, so mypy strict fails. No idea.
 from aiohttp_middlewares import cors_middleware # type: ignore
 
-from .logs import logs
 from .app_state import app_state, AppStateProxy
+from .logs import logs
 from .networks import Net, NetworkNames
 from .util import constant_time_compare
 
@@ -93,30 +93,33 @@ def get_account_from_request(request: web.Request) -> tuple[Wallet, AbstractAcco
 
 
 class BaseAiohttpServer:
+    is_running: bool = False
+
     def __init__(self, host: str = "localhost", port: int = 9999) -> None:
         self.runner: web.AppRunner | None = None
-        self.is_alive = False
+        self.shutdown_event = asyncio.Event()
         self.app = web.Application(middlewares=[
             cors_middleware(
                 origins=["http://localhost"],
                 allow_methods=("GET","POST"),
                 allow_headers=["authorization"])
         ])
-        self.app.on_startup.append(self.on_startup)
-        self.app.on_shutdown.append(self.on_shutdown)
+        self.app.on_startup.append(self._on_startup_async)
+        self.app.on_shutdown.append(self._on_shutdown_async)
         self.host = host
         self.port = port
         self.logger = logs.get_logger("rest-server")
 
-    async def on_startup(self, app: web.Application) -> None:
+    async def _on_startup_async(self, app: web.Application) -> None:
         self.logger.debug("starting...")
 
-    async def on_shutdown(self, app: web.Application) -> None:
+    async def _on_shutdown_async(self, app: web.Application) -> None:
         self.logger.debug("cleaning up...")
-        self.is_alive = False
-        self.logger.debug("stopped.")
+        self.is_running = False
+        self.shutdown_event.set()
+        self.logger.debug("stopped")
 
-    async def start(self) -> None:
+    async def _start_async(self) -> None:
         self.runner = web.AppRunner(self.app, access_log=None)
         await self.runner.setup()
         site = web.TCPSite(self.runner, self.host, self.port, reuse_address=True)
@@ -131,7 +134,6 @@ HandlerType = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
 
 class AiohttpServer(BaseAiohttpServer):
-
     def __init__(self, host: str="localhost", port: int=9999, username: str|None=None,
             password: str|None=None) -> None:
         super().__init__(host=host, port=port)
@@ -161,8 +163,7 @@ class AiohttpServer(BaseAiohttpServer):
     async def authenticate(self, request: web.Request, handler: HandlerType) -> web.StreamResponse:
         if self.password == '':
             # authentication is disabled
-            response = await handler(request)
-            return response
+            return await handler(request)
 
         auth_string = request.headers.get('Authorization', None)
         if auth_string is None:
@@ -190,16 +191,13 @@ class AiohttpServer(BaseAiohttpServer):
         else:
             raise web.HTTPUnauthorized(reason="Only basic or bearer authentication supported")
 
-        # passed authentication
-        response = await handler(request)
-        return response
+        return await handler(request)
 
     def add_routes(self, routes: list[web.RouteDef]) -> None:
         self.app.router.add_routes(routes)
 
-    async def launcher(self) -> None:
-        await self.start()
-        self.is_alive = True
+    async def run_async(self) -> None:
+        await self._start_async()
+        self.is_running = True
         self.logger.debug("started on http://%s:%s", self.host, self.port)
-        while True:
-            await asyncio.sleep(0.5)
+        await self.shutdown_event.wait()

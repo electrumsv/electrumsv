@@ -38,7 +38,6 @@ from abc import ABC
 import concurrent.futures
 import os
 import shutil
-import time
 import threading
 from types import TracebackType
 from typing import Any, Callable, cast, Coroutine, Type, TYPE_CHECKING, TypeVar
@@ -80,8 +79,7 @@ class DefaultApp(object):
 
     def run_app(self) -> None:
         global app_state
-        while app_state.daemon.is_running():
-            time.sleep(0.5)
+        app_state.daemon.wait_for_shutdown()
 
     def setup_app(self) -> None:
         # app_state.daemon's __init__ is called after app_state.app's.
