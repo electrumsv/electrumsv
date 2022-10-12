@@ -813,7 +813,7 @@ class ReceiveDialog(QDialog):
         #     different form of update where it contacts the server and modifies it.
         entries = [ PaymentRequestUpdateRow(self._request_row.state, amount,
             self._request_row.date_expires, your_text, their_text,
-            self._request_row.paymentrequest_id) ]
+            None, self._request_row.paymentrequest_id) ]
         future = wallet.data.update_payment_requests(entries)
         future.add_done_callback(callback)
 

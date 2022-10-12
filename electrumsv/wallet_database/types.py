@@ -196,6 +196,7 @@ class PaymentRequestRow(NamedTuple):
     description: str | None
     server_id: int | None
     dpp_invoice_id: str | None
+    dpp_ack_json: str | None
     # What we put in any outgoing payment terms to describe what the payee is paying for.
     merchant_reference: str | None
     encrypted_key_text: str | None
@@ -209,6 +210,7 @@ class PaymentRequestUpdateRow(NamedTuple):
     date_expires: int | None
     description: str | None
     merchant_reference: str | None
+    dpp_ack_json: str | None
     paymentrequest_id: int
 
 

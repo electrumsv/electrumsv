@@ -118,7 +118,7 @@ class PaymentTermsModes(TypedDict):
 
 class HPMPaymentACK(TypedDict):
     transactionIds: list[str]
-    peerChannel: PeerChannelDict
+    peerChannel: PeerChannelDict | None
 
 
 class HPMPayment(TypedDict):

@@ -18,7 +18,7 @@ from electrumsv.constants import (AccountFlags, BlockHeight, CHANGE_SUBPATH, DAT
     RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
     TxFlags, unpack_derivation_path)
 from electrumsv.crypto import pw_decode
-from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError, Bip270Exception
+from electrumsv.exceptions import Bip270Exception, InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
     Imported_KeyStore, instantiate_keystore_from_text, Old_KeyStore,
     Multisig_KeyStore)

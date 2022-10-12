@@ -67,7 +67,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     WalletEventFlag, WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
-from .dpp_messages import Payment, PaymentACK, PeerChannelDict
+from .dpp_messages import Payment, PaymentACK, PeerChannelDict, PaymentACKDict
 from .exceptions import (BadServerError, Bip270Exception, BroadcastError, ExcessiveFee,
     InvalidPassword, NotEnoughFunds, NoViableServersError, PreviousTransactionsMissingException,
     ServerConnectionError, ServerError, UnsupportedAccountTypeError, UnsupportedScriptTypeError,
@@ -79,11 +79,12 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.direct_payments import dpp_make_ack, dpp_make_payment_error, \
-    dpp_make_payment_request_response, send_outgoing_direct_payment_async
+    dpp_make_payment_request_response, send_outgoing_direct_payment_async, \
+    dpp_make_payment_request_error
 from .network_support.dpp_proxy import _is_later_dpp_message_sequence, \
     close_dpp_server_connection_async, create_dpp_server_connection_async, \
     create_dpp_server_connections_async, dpp_websocket_send, find_connectable_dpp_server, \
-    MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS
+    MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_REQUEST_CREATE
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
@@ -1079,7 +1080,8 @@ class AbstractAccount:
     async def create_payment_request_async(self, amount: int, internal_description: str | None,
             merchant_reference: str | None, date_expires: int | None = None,
             server_id: int | None = None, dpp_invoice_id: str | None=None,
-            encrypted_key_text: str | None=None, flags: PaymentFlag=PaymentFlag.NONE) \
+            dpp_ack_json: str | None=None, encrypted_key_text: str | None=None,
+            flags: PaymentFlag=PaymentFlag.NONE) \
                 -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
         # The payment request flags that are allowed to be set are just the supplementary flags,
         # not the state flags.
@@ -1105,7 +1107,7 @@ class AbstractAccount:
         date_created = int(time.time())
         # This will get the payment request id assigned on insert.
         request_row = PaymentRequestRow(None, flags | PaymentFlag.UNPAID, amount, date_expires,
-            internal_description, server_id, dpp_invoice_id, merchant_reference,
+            internal_description, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
             encrypted_key_text, date_created, date_created)
         request_output_rows: list[PaymentRequestOutputRow] = [
             PaymentRequestOutputRow(None, 0, 0, script_type, script_template.to_script_bytes(),
@@ -4094,6 +4096,7 @@ class Wallet:
         await self.subscribe_to_external_peer_channel(remote_url=remote_url,
             remote_channel_id=remote_channel_id, token=token, invoice_id=invoice_id,
             pre_existing_channel=False)
+
         await self.data.update_invoice_flags_async(
             [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
         await self.notify_external_listeners_async("outgoing-payment-delivered",
@@ -4710,11 +4713,25 @@ class Wallet:
                 continue
 
             if request_row.state & PaymentFlag.MASK_STATE == PaymentFlag.PAID:
-                # NOTE: The database tables currently do not allow any way of re-sending the
-                # PaymentACK to the peer because we don't know which dpp_invoice_id relates to
-                # which peer channel.
-                self._logger.error("Peer attempted to pay for an invoice that is already paid")
-                continue
+                if message_row.type == MSG_TYPE_PAYMENT:
+                    # Defensive code in the case that the payer tries to pay an invoice that is
+                    # already paid.
+                    assert request_row.dpp_ack_json is not None
+                    self._logger.warning("Peer attempted to pay for an already paid invoice")
+                    dpp_ack_dict = cast(PaymentACKDict, json.loads(request_row.dpp_ack_json))
+                    dpp_ack_message = dpp_make_ack(txid=dpp_ack_dict["mode"]["transactionIds"][0],
+                        peer_channel=dpp_ack_dict["peerChannel"], message_row_received=message_row)
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
+                    continue
+                elif message_row.type == MSG_TYPE_PAYMENT_REQUEST_CREATE:
+                    error_reason = "Requested payment terms for an already paid invoice. " \
+                        f"Invoice id: {request_row.dpp_invoice_id}"
+                    self._logger.warning(error_reason)
+                    dpp_err_message = dpp_make_payment_request_error(message_row, error_reason)
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                    continue
+                else:
+                    raise NotImplementedError("Unexpected message type")
 
             assert request_row.paymentrequest_id is not None
             assert request_row.state & PaymentFlag.MASK_TYPE == PaymentFlag.INVOICE, \
@@ -4733,7 +4750,8 @@ class Wallet:
                 assert request_row.paymentrequest_id is not None
                 update_row = PaymentRequestUpdateRow(new_state, request_row.requested_value,
                     request_row.date_expires, request_row.description,
-                    request_row.merchant_reference, request_row.paymentrequest_id)
+                    request_row.merchant_reference, request_row.dpp_ack_json,
+                    request_row.paymentrequest_id)
                 await self.data.update_payment_requests_async([ update_row ])
 
             self._logger.debug("State machine processing DPPMessageRow: %s for state: %s",
@@ -4751,8 +4769,7 @@ class Wallet:
                     request_row, request_output_rows, message_row)
                 app_state.async_.spawn(dpp_websocket_send(state, dpp_response_message))
 
-            elif request_row.state & PaymentFlag.PAYMENT_RECEIVED == \
-                    PaymentFlag.PAYMENT_RECEIVED:
+            elif request_row.state & PaymentFlag.PAYMENT_RECEIVED == PaymentFlag.PAYMENT_RECEIVED:
                 # This parsing step also validates the received `Payment` message
                 try:
                     payment_obj = Payment.from_json(message_row.body.decode('utf-8'))
@@ -4771,7 +4788,8 @@ class Wallet:
                         "txid: %s", request_row.paymentrequest_id, tx.txid())
                     error_reason = str(e)
                     dpp_err_message = dpp_make_payment_error(message_row, error_reason)
-                    await dpp_websocket_send(state, dpp_err_message)
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                    continue
                 except Exception:
                     self._logger.exception("Unexpected exception validating the payment request: "
                         "%s, txid: %s", request_row.paymentrequest_id, tx.txid())
@@ -4780,7 +4798,7 @@ class Wallet:
                         f"txid: {tx.txid()}."
                     dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
                         "Internal Server Error")
-                    await dpp_websocket_send(state, dpp_err_message)
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
                     continue
 
                 mapi_server_hint = \
@@ -4798,25 +4816,42 @@ class Wallet:
                 assert successful is not None
                 if successful:
                     try:
+                        # NOTE: This will update the payment request with PaymentFlag.PAID
                         await self.close_payment_request_async(request_row.paymentrequest_id,
                             [(tx, None)])
                     except Bip270Exception as e:
                         error_reason = str(e)
                         dpp_err_message = dpp_make_payment_error(message_row, error_reason)
-                        await dpp_websocket_send(state, dpp_err_message)
+                        app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
                         self._logger.exception("Unexpected exception processing the transaction")
+                        continue
                     except Exception:
                         self._logger.exception("Unexpected exception processing the transaction")
                         error_reason = "The Payee wallet encountered an unexpected exception " \
                             "processing this transaction."
                         dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
                             "Internal Server Error")
-                        await dpp_websocket_send(state, dpp_err_message)
+                        app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
                         continue
 
-                    # Send PaymentACK to payer
+                    # Re-read from the db because `close_payment_request_async` applied updates
+                    request_row, request_output_rows = self.data.read_payment_request(
+                        request_id=message_row.paymentrequest_id)
+                    assert request_row is not None
+                    assert request_row.paymentrequest_id is not None
                     assert peer_channel_info is not None
-                    dpp_ack_message = dpp_make_ack(tx, peer_channel_info, message_row)
+
+                    # Add dpp_ack_json to payment_request_row in case the Payer tries to
+                    # re-attempt payment for the same invoice.
+                    dpp_ack_message = dpp_make_ack(tx.txid(), peer_channel_info, message_row)
+                    update_row = PaymentRequestUpdateRow(request_row.state,
+                        request_row.requested_value, request_row.date_expires,
+                        request_row.description, request_row.merchant_reference,
+                        dpp_ack_message.body.decode('utf-8'),
+                        request_row.paymentrequest_id)
+                    await self.data.update_payment_requests_async([update_row])
+
+                    # Send PaymentACK to payer
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
                 else:
                     self._logger.error("mAPI broadcast for txid: %s failed with reason: %s",

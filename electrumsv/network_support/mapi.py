@@ -244,17 +244,10 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
             hash_to_hex_str(tx_hash), str(server_error))
         raise
 
-    # TODO(1.4.0) MAPI. Need to consider downstream consequences of allowing
-    #  'Transaction already known' failure state to continue as if it succeeded.
-    if mapi_broadcast_result['returnResult'] == 'failure' and \
-            mapi_broadcast_result['resultDescription'] != 'Transaction already known':
-        logger.debug("Transaction broadcast via MAPI server failed : %s (%s)",
+    if mapi_broadcast_result['returnResult'] == 'failure':
+        logger.error("Transaction broadcast via MAPI server failed : %s (%s)",
             server_and_credential.server.url, mapi_broadcast_result)
         return mapi_broadcast_result, peer_channel_info
-
-    if mapi_broadcast_result['resultDescription'] == 'Transaction already known':
-        logger.debug("Transaction was already known to the network - treating this as a "
-                     "successful broadcast")
 
     logger.debug("Transaction broadcast via MAPI server succeeded: %s",
         server_and_credential.server.url)

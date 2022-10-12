@@ -742,6 +742,8 @@ class SendView(QWidget):
             row = account._wallet.data.read_invoice(invoice_id=pr.get_id())
             assert row is not None
 
+        pr.set_id(row.invoice_id)
+
         # The invoice is already present. Populate it unless it's paid.
         if row.flags & PaymentFlag.PAID:
             self._main_window.show_message("invoice already paid")

@@ -237,6 +237,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             value                       INTEGER     NULL,
             server_id                   INTEGER     NULL,
             dpp_invoice_id              TEXT        NULL,
+            dpp_ack_json           TEXT        NULL,
             merchant_reference          TEXT        NULL,
             encrypted_key_text          TEXT        NULL,
             date_created                INTEGER     NOT NULL,
@@ -336,11 +337,11 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         #   table.
         conn.execute("""
             INSERT INTO PaymentRequests2 (paymentrequest_id, state, description, date_expires,
-                value, server_id, dpp_invoice_id, merchant_reference, encrypted_key_text,
-                date_created, date_updated)
+                value, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference, 
+                encrypted_key_text, date_created, date_updated)
             SELECT PR.paymentrequest_id, PR.state, PR.description,
                 CASE WHEN PR.expiration IS NULL THEN NULL ELSE PR.date_created + PR.expiration END,
-                PR.value, NULL, NULL, NULL, NULL, PR.date_created,
+                PR.value, NULL, NULL, NULL, NULL, NULL, PR.date_created,
                 PR.date_updated
             FROM PaymentRequests AS PR
             WHERE paymentrequest_id=?

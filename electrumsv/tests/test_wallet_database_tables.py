@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 from typing import cast, Generator, List, Optional
@@ -7,6 +8,7 @@ import bitcoinx
 from electrumsv_database.sqlite import DatabaseContext, LeakedSQLiteConnectionError
 import pytest
 
+from ..dpp_messages import HYBRID_PAYMENT_MODE_BRFCID, PeerChannelDict
 from ..util import get_posix_timestamp
 
 try:
@@ -1072,19 +1074,28 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
 
     LINE_COUNT = 3
     dpp_invoice_id = "dpp_invoice_id"
+    dpp_ack_json = json.dumps({
+        "modeId": HYBRID_PAYMENT_MODE_BRFCID,
+        "mode": {
+            "transactionIds": ["txid1"]
+        },
+        "peerChannel":
+            json.dumps(PeerChannelDict(host="someurl",
+                token="sometoken", channel_id="somechannelid"))
+    })
     merchant_reference = "merchant_reference"
     dummy_encrypted_secure_key = "KEY"
     server_id = 1
     date_created = int(get_posix_timestamp())
     expiration = date_created + 60*60
     create_request1_row = PaymentRequestRow(1, PaymentFlag.PAID, None, expiration, TX_DESC1,
-        server_id, dpp_invoice_id, merchant_reference, dummy_encrypted_secure_key, date_created,
-        date_created)
+        server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
+        dummy_encrypted_secure_key, date_created, date_created)
     create_request1_output_row = PaymentRequestOutputRow(1, 0, 0, ScriptType.P2PKH, b"SCRIPT",
         b"PUSHDATAHASH", 111, KEYINSTANCE_ID, date_created, date_created)
     create_request2_row = PaymentRequestRow(2, PaymentFlag.UNPAID, 100, expiration, TX_DESC2,
-        server_id, dpp_invoice_id, merchant_reference, dummy_encrypted_secure_key, date_created,
-        date_created)
+        server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
+        dummy_encrypted_secure_key, date_created, date_created)
     create_request2_output_row = PaymentRequestOutputRow(2, 0, 0, ScriptType.P2PKH, b"SCRIPT",
         b"PUSHDATAHASH", 100, KEYINSTANCE_ID+1, date_created, date_created)
 
@@ -1229,7 +1240,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert create_request2_row.paymentrequest_id is not None
     future = db_context.post_to_thread(db_functions.update_payment_requests_write, [
         PaymentRequestUpdateRow(PaymentFlag.UNKNOWN, 20, 999, "newdesc", "newmerchantref",
-        create_request2_row.paymentrequest_id) ])
+        dpp_ack_json, create_request2_row.paymentrequest_id) ])
     future.result()
 
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)

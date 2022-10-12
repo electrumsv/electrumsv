@@ -1,23 +1,22 @@
 from __future__ import annotations
 
-from typing import TypedDict
-from http import HTTPStatus
-
 from bitcoinx import PrivateKey
-import uuid
-import json
 from datetime import datetime, timezone
+import uuid
+from http import HTTPStatus
+import json
+from typing import TypedDict
 
+from ..app_state import app_state
+from ..dpp_messages import HPMPaymentACK, HYBRID_PAYMENT_MODE_BRFCID, Payment, PaymentACK, \
+    PeerChannelDict, PaymentACKDict
 from .dpp_proxy import MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT_ACK, \
     MSG_TYPE_PAYMENT_REQUEST_ERROR, MSG_TYPE_PAYMENT_ERROR
-from ..app_state import app_state
-from ..dpp_messages import Payment, PaymentACK, PeerChannelDict, HYBRID_PAYMENT_MODE_BRFCID
 from ..exceptions import Bip270Exception
 from ..logs import logs
 from ..networks import Net
 from ..standards.json_envelope import pack_json_envelope
 from ..types import IndefiniteCredentialId
-from ..transaction import Transaction
 from ..wallet_database.types import DPPMessageRow, PaymentRequestRow, PaymentRequestOutputRow
 
 logger = logs.get_logger("direct-payments")
@@ -140,16 +139,11 @@ def dpp_make_payment_request_response(server_url: str, credential_id: Indefinite
     return message_row_response
 
 
-def dpp_make_ack(tx: Transaction, peer_channel: PeerChannelDict,
+def dpp_make_ack(txid: str, peer_channel: PeerChannelDict,
         message_row_received: DPPMessageRow) -> DPPMessageRow:
-
-    payment_ack_data = {
-        "modeId": HYBRID_PAYMENT_MODE_BRFCID,
-        "mode": {
-            "transactionIds": [tx.hex_hash()]
-        },
-        "peerChannel": peer_channel
-    }
+    mode = HPMPaymentACK(transactionIds=[txid], peerChannel=peer_channel)
+    payment_ack_data = PaymentACKDict(modeId=HYBRID_PAYMENT_MODE_BRFCID, mode=mode,
+        peerChannel=peer_channel, redirectUrl=None)
 
     message_row_response = DPPMessageRow(
         message_id=str(uuid.uuid4()),
@@ -166,9 +160,13 @@ def dpp_make_ack(tx: Transaction, peer_channel: PeerChannelDict,
     return message_row_response
 
 
-def dpp_make_pr_error(message_row_received: DPPMessageRow, error_reason: str) -> DPPMessageRow:
+def dpp_make_payment_request_error(message_row_received: DPPMessageRow, error_reason: str,
+        code: int = 400, title: str = "Bad Request") -> DPPMessageRow:
+    message_id = str(uuid.uuid4())
+    client_error = ClientError(id=message_id, code=str(code), title=title,
+        message=error_reason)
     message_row_response = DPPMessageRow(
-        message_id=str(uuid.uuid4()),
+        message_id=message_id,
         paymentrequest_id=message_row_received.paymentrequest_id,
         dpp_invoice_id=message_row_received.dpp_invoice_id,
         correlation_id=message_row_received.correlation_id,
@@ -176,7 +174,7 @@ def dpp_make_pr_error(message_row_received: DPPMessageRow, error_reason: str) ->
         client_id=message_row_received.client_id,
         user_id=message_row_received.user_id,
         expiration=message_row_received.expiration,
-        body=error_reason.encode('utf-8'),
+        body=json.dumps(client_error).encode('utf-8'),
         timestamp=datetime.now(tz=timezone.utc).isoformat(),
         type=MSG_TYPE_PAYMENT_REQUEST_ERROR)
     return message_row_response

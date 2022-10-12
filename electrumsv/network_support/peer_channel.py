@@ -37,14 +37,13 @@
 from __future__ import annotations
 
 import asyncio
+import aiohttp
+from aiohttp import WSServerHandshakeError
 from datetime import datetime
 from functools import partial
 from http import HTTPStatus
 import json
 from typing import Any, cast
-
-import aiohttp
-from aiohttp import WSServerHandshakeError
 
 from ..app_state import app_state
 from ..constants import PeerChannelAccessTokenFlag, PeerChannelMessageFlag, \

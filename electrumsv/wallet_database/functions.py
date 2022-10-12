@@ -130,8 +130,8 @@ def create_payment_request_write(request_row: PaymentRequestRow,
     request_sql = \
     """
     INSERT INTO PaymentRequests (paymentrequest_id, state, value, date_expires, description,
-    server_id, dpp_invoice_id, merchant_reference, encrypted_key_text, date_created,
-    date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+        server_id, dpp_invoice_id, dpp_ack_json, merchant_reference, encrypted_key_text,
+        date_created, date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
     """
     cursor = db.execute(request_sql, request_row)
     paymentrequest_id = cast(int | None, cursor.lastrowid)
@@ -893,8 +893,8 @@ def read_payment_request(db: sqlite3.Connection, request_id: int) \
         -> tuple[PaymentRequestRow | None, list[PaymentRequestOutputRow]]:
     request_sql = """
         SELECT PR.paymentrequest_id, PR.state, PR.value, PR.date_expires, PR.description,
-            PR.server_id, PR.dpp_invoice_id, PR.merchant_reference, PR.encrypted_key_text,
-            PR.date_created, PR.date_updated
+            PR.server_id, PR.dpp_invoice_id, PR.dpp_ack_json, PR.merchant_reference, 
+            PR.encrypted_key_text, PR.date_created, PR.date_updated
         FROM PaymentRequests PR
         WHERE PR.paymentrequest_id=?
     """
@@ -902,7 +902,7 @@ def read_payment_request(db: sqlite3.Connection, request_id: int) \
     if t is None:
         return None, []
     request_row = PaymentRequestRow(t[0], PaymentFlag(t[1]), t[2], t[3], t[4], t[5], t[6], t[7],
-        t[8], t[9], t[10])
+        t[8], t[9], t[10], t[11])
 
     request_outputs_sql = """
         SELECT paymentrequest_id, transaction_index, output_index, output_script_type,
@@ -918,9 +918,10 @@ def read_payment_request(db: sqlite3.Connection, request_id: int) \
 def read_payment_requests(db: sqlite3.Connection, *, account_id: int | None=None,
         flags: PaymentFlag | None=None, mask: PaymentFlag | None=None,
         server_id: int | None=None) -> list[PaymentRequestRow]:
-    sql = "SELECT PR.paymentrequest_id, PR.state, PR.value, PR.date_expires, PR.description, " \
-        "PR.server_id, PR.dpp_invoice_id, PR.merchant_reference, PR.encrypted_key_text, " \
-        "PR.date_created, PR.date_updated FROM PaymentRequests PR"
+    sql = """SELECT PR.paymentrequest_id, PR.state, PR.value, PR.date_expires, PR.description,
+        PR.server_id, PR.dpp_invoice_id, PR.dpp_ack_json, PR.merchant_reference,
+        PR.encrypted_key_text, PR.date_created, PR.date_updated
+        FROM PaymentRequests PR"""
     sql_values: list[Any] = []
     used_where = False
     if account_id is not None:
@@ -946,7 +947,7 @@ def read_payment_requests(db: sqlite3.Connection, *, account_id: int | None=None
             used_where = True
         sql_values.append(server_id)
     return [ PaymentRequestRow(t[0], PaymentFlag(t[1]), t[2], t[3], t[4], t[5], t[6], t[7],
-        t[8], t[9], t[10]) for t in db.execute(sql, sql_values).fetchall() ]
+        t[8], t[9], t[10], t[11]) for t in db.execute(sql, sql_values).fetchall() ]
 
 
 @replace_db_context_with_connection
@@ -2462,7 +2463,7 @@ def update_payment_requests_write(entries: Iterable[PaymentRequestUpdateRow],
         db: sqlite3.Connection | None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, date_expires=?, "
-        "description=?, merchant_reference=? WHERE paymentrequest_id=?")
+        "description=?, merchant_reference=?, dpp_ack_json=? WHERE paymentrequest_id=?")
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
     db.executemany(sql, rows)

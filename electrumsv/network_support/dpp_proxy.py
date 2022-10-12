@@ -52,7 +52,6 @@ class DPPPayerError(Exception):
     pass
 
 
-
 async def dpp_websocket_send(state: ServerConnectionState, message_row: DPPMessageRow) -> None:
     websocket = state.dpp_websockets[message_row.dpp_invoice_id]
     if websocket is not None:  # ws:// is still open
@@ -64,7 +63,6 @@ async def dpp_websocket_send(state: ServerConnectionState, message_row: DPPMessa
                      "Retrying in 10 seconds...", message_row.dpp_invoice_id, state.server.url)
         await asyncio.sleep(10)
         state.dpp_messages_queue.put_nowait(message_row)
-
 
 
 MESSAGE_STATE_BY_TYPE = {
@@ -105,7 +103,8 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
     - ServerConnectionState.dpp_websocket is used for sending messages
     - ServerConnectionState.dpp_messages_queue is used for received messages
     """
-    while True:
+    assert state.wallet_proxy is not None
+    while not (state.wallet_proxy._stopped or state.wallet_proxy._stopping):
         assert state.wallet_data is not None
         assert payment_request_row.paymentrequest_id is not None
         assert payment_request_row.dpp_invoice_id is not None
@@ -164,7 +163,6 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
         except WSServerHandshakeError as e:
             logger.exception("Websocket connection to %s failed the handshake", state.server.url)
         finally:
-            assert state.wallet_proxy is not None
             if not (state.wallet_proxy._stopped or state.wallet_proxy._stopping):
                 assert state.wallet_data is not None
                 assert payment_request_row.paymentrequest_id is not None
@@ -183,6 +181,7 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
                     await asyncio.sleep(RECONNECTION_INTERVAL)
             else:
                 logger.debug("Closing DPP websocket for payment request: %s", payment_request_row)
+                state.dpp_websockets.pop(payment_request_row.dpp_invoice_id, None)
 
 
 async def create_dpp_server_connection_async(state: ServerConnectionState,
