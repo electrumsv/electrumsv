@@ -2132,7 +2132,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         password = d.run()
         if password is not None:
             app_state.credentials.set_wallet_password(storage.get_path(), password,
-                CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
+                CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY)
         return password
 
     def _show_transaction_from_qrcode(self) -> None:

@@ -243,7 +243,7 @@ class LocalEndpoints:
             raise web.HTTPBadRequest(reason=f"Wallet file already exists '{file_name}'")
 
         password_token = app_state.credentials.set_wallet_password(wallet_path, wallet_password,
-            CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
+            CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY)
         assert password_token is not None
         storage = WalletStorage.create(wallet_path, password_token)
         wallet = Wallet(storage, wallet_password)

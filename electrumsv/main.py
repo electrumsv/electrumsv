@@ -101,7 +101,7 @@ def run_non_RPC(config: SimpleConfig) -> None:
         if cmdname == 'create_wallet':
             wallet_path = get_wallet_path()
             password_token = app_state.credentials.set_wallet_password(wallet_path, password,
-                CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
+                CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY)
             assert password_token is not None
             storage = WalletStorage.create(wallet_path, password_token)
             storage.close()
@@ -111,7 +111,7 @@ def run_non_RPC(config: SimpleConfig) -> None:
         elif cmdname == 'create_account':
             wallet_path = cast(str, config.get_cmdline_wallet_filepath())
             password_token = app_state.credentials.set_wallet_password(wallet_path, password,
-                CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1)
+                CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY)
             assert password_token is not None
             storage = WalletStorage.create(wallet_path, password_token)
             parent_wallet = Wallet(storage, password)

@@ -842,6 +842,24 @@ def read_parent_transaction_outputs_with_key_data(db: sqlite3.Connection, tx_has
     return rows
 
 
+@replace_db_context_with_connection
+def read_payment_request_ids_for_transaction(db: sqlite3.Connection,
+        transaction_hash: bytes) -> list[int]:
+    """
+    We know this transaction should be involved in payment of a payment request, so try and
+    find which one it is involved with.
+    """
+    assert db is not None
+    sql = \
+    "SELECT DISTINCT PRO.paymentrequest_id " \
+    "FROM PaymentRequestOutputs PRO " \
+    "INNER JOIN TransactionOutputs TXO ON PRO.keyinstance_id=TXO.keyinstance_id " \
+        "AND TXO.tx_hash=?1"
+    sql_values: tuple[Any, ...] = (transaction_hash,)
+    cursor = db.execute(sql, sql_values)
+    return [ cast(int, row[0]) for row in cursor.fetchall() ]
+
+
 def read_payment_request_transactions_hashes(paymentrequest_ids: list[int],
         db: sqlite3.Connection | None=None) -> dict[int, list[bytes]]:
     sql = """
@@ -949,19 +967,21 @@ def create_pushdata_matches_write(rows: list[PushDataMatchRow], processed_messag
 
 
 @replace_db_context_with_connection
-def read_pushdata_match_metadata(db: sqlite3.Connection, for_missing_transactions: bool) \
-        -> list[PushDataMatchMetadataRow]:
+def read_pushdata_match_metadata(db: sqlite3.Connection) -> list[PushDataMatchMetadataRow]:
+    """
+    WARNING: This only returns pushdata matches where we do not have the associated transaction.
+    """
     # TODO(1.4.0) Tip filters, issue#904. There should be some flag which filters out processed
     #     entries and the tx import should toggle that flag accordingly.
-    sql = ("SELECT KI.account_id, SPDR.pushdata_hash, SPDR.keyinstance_id, SPDR.script_type, "
-        "SPDM.transaction_hash, SPDM.block_hash FROM ServerPushDataRegistrations SPDR "
-        "INNER JOIN KeyInstances KI ON KI.keyinstance_id=SPDR.keyinstance_id "
-        "INNER JOIN ServerPushDataMatches SPDM ON SPDM.pushdata_hash = SPDR.pushdata_hash")
-    if for_missing_transactions:
-        sql += (" LEFT JOIN Transactions TX ON TX.tx_hash=SPDM.transaction_hash "
-            f"AND TX.flags!={TxFlags.REMOVED} "
-            "WHERE TX.tx_hash IS NULL")
-    sql_values: tuple[Any, ...] = ()
+    sql = \
+        "SELECT KI.account_id, SPDR.pushdata_hash, SPDR.keyinstance_id, SPDR.script_type, " \
+            "SPDM.transaction_hash, SPDM.block_hash " \
+        "FROM ServerPushDataRegistrations SPDR " \
+        "INNER JOIN KeyInstances KI ON KI.keyinstance_id=SPDR.keyinstance_id " \
+        "INNER JOIN ServerPushDataMatches SPDM ON SPDM.pushdata_hash = SPDR.pushdata_hash " \
+        "LEFT JOIN Transactions TX ON TX.tx_hash=SPDM.transaction_hash AND TX.flags!=?1 " \
+        "WHERE TX.tx_hash IS NULL"
+    sql_values: tuple[Any, ...] = (TxFlags.REMOVED,)
     return [ PushDataMatchMetadataRow(row[0], row[1], row[2], ScriptType(row[3]), row[4],
         row[5]) for row in db.execute(sql, sql_values) ]
 
@@ -970,7 +990,7 @@ def create_tip_filter_pushdata_registrations_write(rows: list[PushDataHashRegist
         upsert: bool, db: sqlite3.Connection | None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
     assert len(rows) > 0
-    assert len(rows[0]) == 8
+    assert len(rows[0]) == 9
     assert rows[0].date_created > 0
     assert rows[0].date_created == rows[0].date_updated
     assert rows[0].duration_seconds > 5 * 60
@@ -1058,10 +1078,9 @@ def read_registered_tip_filter_pushdata_for_request(db: sqlite3.Connection, requ
     sql = ("SELECT PDR.server_id, PDR.keyinstance_id, PDR.script_type, PDR.pushdata_hash, "
             "PDR.pushdata_flags, PDR.duration_seconds, PDR.date_registered, PDR.date_created, "
             "PDR.date_updated "
-        "FROM PaymentRequests PR "
-        "INNER JOIN KeyInstances KI ON KI.keyinstance_id=PR.keyinstance_id "
-        "LEFT JOIN ServerPushDataRegistrations PDR ON KI.keyinstance_id=PDR.keyinstance_id "
-        "WHERE PR.paymentrequest_id=?")
+        "FROM PaymentRequestOutputs PRO "
+        "LEFT JOIN ServerPushDataRegistrations PDR ON PRO.keyinstance_id=PDR.keyinstance_id "
+        "WHERE PRO.paymentrequest_id=?")
     row = db.execute(sql, (request_id,)).fetchone()
     assert row is not None
     if row[0] is None:
@@ -1543,7 +1562,7 @@ def create_server_peer_channel_messages_write(create_rows: list[ServerPeerChanne
 
 
 @replace_db_context_with_connection
-def read_server_peer_channel_messages(db: sqlite3.Connection,
+def read_server_peer_channel_messages(db: sqlite3.Connection, server_id: int,
         message_flags: Optional[PeerChannelMessageFlag],
         message_mask: Optional[PeerChannelMessageFlag],
         channel_flags: Optional[ServerPeerChannelFlag],
@@ -1553,8 +1572,9 @@ def read_server_peer_channel_messages(db: sqlite3.Connection,
             SPCM.sequence, SPCM.date_received, SPCM.date_created, SPCM.date_updated
         FROM ServerPeerChannelMessages AS SPCM
         INNER JOIN ServerPeerChannels AS SPC ON SPC.peer_channel_id=SPCM.peer_channel_id
+            AND SPC.server_id=?1
     """
-    sql_values = list[Any]()
+    sql_values: list[Any] = [ server_id ]
     clause, extra_values1 = flag_clause("SPCM.message_flags", message_flags, message_mask)
     if clause:
         sql += f" AND ({clause})"

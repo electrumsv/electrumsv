@@ -270,13 +270,15 @@ class TransactionImportFlag(IntFlag):
     UNSET = 0
     # The user drove the process that caused this transaction to be imported.
     # This is used to decide if we should notify the user about the arrival of this transaction.
-    PROMPTED = 1 << 0
+    PROMPTED                    = 1 << 0
     # The user has explicitly signed this transaction instead of implicitly signing/broadcasting.
-    EXPLICIT_SIGN = 1 << 1
+    EXPLICIT_SIGN               = 1 << 1
     # The user has explicitly signed and broadcast this transaction.
-    EXPLICIT_BROADCAST = 1 << 2
+    EXPLICIT_BROADCAST          = 1 << 2
     # The user is importing this manually from somewhere external.
-    MANUAL_IMPORT = 1 << 3
+    MANUAL_IMPORT               = 1 << 3
+    # These transactions are associated with a payment request so attempt closing it post import.
+    TIP_FILTER_MATCH            = 1 << 4
 
     BROADCAST_P2P               = 0b00 << 10
     BROADCAST_MAPI              = 0b01 << 10
@@ -535,14 +537,13 @@ class CredentialPolicyFlag(IntFlag):
     ERROR_IF_FLUSHED = 1 << 1
 
     # Some standard periods that expire in the short term.
-    FLUSH_ALMOST_IMMEDIATELY1 = 1 << 10
-    FLUSH_ALMOST_IMMEDIATELY2 = 1 << 11
-    FLUSH_ALMOST_IMMEDIATELY3 = 1 << 12
-    FLUSH_AFTER_WALLET_LOAD = FLUSH_ALMOST_IMMEDIATELY1
+    FLUSH_ALMOST_IMMEDIATELY = 1 << 10
+    FLUSH_AFTER_WALLET_LOAD = FLUSH_ALMOST_IMMEDIATELY
+    FLUSH_AFTER_CUSTOM_DURATION = 1 << 11
 
     # Do not cache.
     DISCARD_IMMEDIATELY = 1 << 20
-    DISCARD_ON_USE = (1 << 21) | FLUSH_ALMOST_IMMEDIATELY1 | ERROR_IF_FLUSHED
+    DISCARD_ON_USE = (1 << 21) | FLUSH_ALMOST_IMMEDIATELY | ERROR_IF_FLUSHED
 
     # Cache flags.
     IS_BEING_ADDED = 1 << 30

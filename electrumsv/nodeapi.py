@@ -53,6 +53,8 @@ from aiohttp import web
 from aiohttp_middlewares import cors_middleware # type: ignore
 
 from .app_state import app_state
+from .constants import CredentialPolicyFlag
+from .exceptions import InvalidPassword
 from .logs import logs
 from .util import constant_time_compare
 
@@ -75,7 +77,7 @@ class ErrorDict(TypedDict):
 #     `int | str | NoneType` and it cannot be assigned to `variable: int | str | None` according
 #     to at least the pylance type checker. However this composite union type works correctly.
 RequestIdType = int | str | None
-RequestParamsType = list | dict
+RequestParametersType = list | dict
 
 class ResponseDict(TypedDict):
     result: Any
@@ -83,12 +85,15 @@ class ResponseDict(TypedDict):
     id: RequestIdType
 
 
-INVALID_REQUEST = -32600            # Use the bad request () status code.
-METHOD_NOT_FOUND = -32601           # Use the not found (404) status code.
-PARSE_ERROR = -32700                # Internal server error (500) status code.
+INVALID_REQUEST   = -32600              # Use the bad request (400) status code.
+METHOD_NOT_FOUND  = -32601              # Use the not found (404) status code.
+INVALID_PARAMS    = -32602              # Internal server error (500) status code.
+PARSE_ERROR       = -32700              # Internal server error (500) status code.
 
-WALLET_NOT_FOUND = -18              # Internal server error (500) status code.
-
+INVALID_PARAMETER               = -8    # Internal server error (500) status code.
+WALLET_PASSPHRASE_INCORRECT     = -14   # Internal server error (500) status code.
+WALLET_NOT_FOUND                = -18   # Internal server error (500) status code.
+WALLET_NOT_SPECIFIED            = -19   # Internal server error (500) status code.
 
 class NodeAPIServer:
     is_running = False
@@ -284,7 +289,8 @@ async def execute_jsonrpc_call_async(request: web.Request, object_data: Any) \
                 error=ErrorDict(code=METHOD_NOT_FOUND, message="Method not found"))))
 
 
-def get_wallet_from_request(request: web.Request, request_id: RequestIdType) -> Wallet | None:
+def get_wallet_from_request(request: web.Request, request_id: RequestIdType,
+        ensure_available: bool=False) -> Wallet | None:
     """
     The node JSON-RPC API exposes the calls under both the non-wallet-specific `/` top-level
     and the wallet-specific `/wallet/<wallet-name>` paths. If there is only one wallet loaded
@@ -296,6 +302,21 @@ def get_wallet_from_request(request: web.Request, request_id: RequestIdType) -> 
         # wallet in this case, but only if there is one and only one loaded.
         if len(app_state.daemon.wallets) == 1:
             return list(app_state.daemon.wallets.values())[0]
+
+        if ensure_available:
+            if len(app_state.daemon.wallets) == 0:
+                raise web.HTTPNotFound(headers={ "Content-Type": "application/json" },
+                        text=json.dumps(ResponseDict(id=request_id, result=None,
+                            error=ErrorDict(code=METHOD_NOT_FOUND,
+                                message="Method not found (wallet method is disabled because "
+                                    "no wallet is loaded"))))
+
+            raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                    text=json.dumps(ResponseDict(id=request_id, result=None,
+                        error=ErrorDict(code=WALLET_NOT_SPECIFIED,
+                            message="Wallet file not specified (must request wallet RPC "
+                                "through /wallet/<filename> uri-path)."))))
+
         return None
 
     try:
@@ -303,7 +324,8 @@ def get_wallet_from_request(request: web.Request, request_id: RequestIdType) -> 
     except FileNotFoundError:
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
                 text=json.dumps(ResponseDict(id=request_id, result=None,
-                    error=ErrorDict(code=WALLET_NOT_FOUND, message="No preferred wallet path"))))
+                    error=ErrorDict(code=WALLET_NOT_FOUND,
+                        message="No preferred wallet path"))))
 
     # It does not matter if the user loads in all sorts of things like extra slashes and parent
     # directory symbols, because we just map this to the already loaded wallets and it won't
@@ -317,27 +339,94 @@ def get_wallet_from_request(request: web.Request, request_id: RequestIdType) -> 
                 text=json.dumps(ResponseDict(id=request_id, result=None,
                     error=ErrorDict(code=WALLET_NOT_FOUND,
                         message="Requested wallet does not exist or is not loaded"))))
-
     return wallet
+
+def transform_parameters(request_id: RequestIdType, parameters_names: list[str],
+        parameters: RequestParametersType) -> list[Any]:
+    """
+    Modelled after how the node accepts a "javascript" object or array, and transforms the object
+    into the given array of parameter names.
+    """
+    if isinstance(parameters, list):
+        # Node does not call this with arrays, just objects. Arrays are able to mismatch the
+        # expected parameters. The lengths and types will be checked in the given call method.
+        return parameters
+
+    parameter_values: list[Any] = []
+    for parameter_name in parameters_names:
+        if parameter_name not in parameters:
+            # Node returns an error when encountering a missing parameter in the object.
+            raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                    text=json.dumps(ResponseDict(id=request_id, result=None,
+                        error=ErrorDict(code=INVALID_PARAMETER,
+                            message=f"Unknown named parameter {parameter_name}"))))
+        parameter_values.append(parameters[parameter_name])
+    return parameter_values
 
 
 async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestIdType,
-        params: RequestParamsType) -> Any:
+        parameters: RequestParametersType) -> Any:
     # wallet = get_wallet_from_request(request, request_id)
     return "jsonrpc_getnewaddress_async"
 
 async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestIdType,
-        params: RequestParamsType) -> Any:
+        parameters: RequestParametersType) -> Any:
     # wallet = get_wallet_from_request(request, request_id)
     return "jsonrpc_sendtoaddress_async"
 
 async def jsonrpc_sendmany_async(request: web.Request, request_id: RequestIdType,
-        params: RequestParamsType) -> Any:
+        parameters: RequestParametersType) -> Any:
     # wallet = get_wallet_from_request(request, request_id)
     return "jsonrpc_sendmany_async"
 
 async def jsonrpc_walletpassphrase_async(request: web.Request, request_id: RequestIdType,
-        params: RequestParamsType) -> Any:
-    # wallet = get_wallet_from_request(request, request_id)
-    return "jsonrpc_walletpassphrase_async"
+        parameters: RequestParametersType) -> Any:
+    wallet = get_wallet_from_request(request, request_id, ensure_available=True)
+    assert wallet is not None
+
+    parameter_values = transform_parameters(request_id, [ "passphrase", "timeout" ], parameters)
+    if len(parameter_values) != 2:
+        # Node returns help. We do not. The user should see the documentation.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=INVALID_PARAMS,
+                        message="Invalid parameters, see documentation for this call"))))
+
+    wallet_password = parameter_values[0]
+    if not isinstance(wallet_password, str):
+        # The node maps the C++ exception on a non-string value to an RPC_PARSE_ERROR.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=PARSE_ERROR,
+                        message="JSON value is not a string as expected"))))
+
+    cache_duration = parameter_values[1]
+    if not isinstance(cache_duration, int):
+        # The node maps the C++ exception on a non-integer value to an RPC_PARSE_ERROR.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=PARSE_ERROR,
+                        message="JSON value is not an integer as expected"))))
+
+    if len(wallet_password) == 0:
+        # The node maps the C++ exception on a non-integer value to an RPC_PARSE_ERROR.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=PARSE_ERROR,
+                        message="Invalid parameters, see documentation for this call"))))
+
+    try:
+        wallet.check_password(wallet_password)
+    except InvalidPassword:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=WALLET_PASSPHRASE_INCORRECT,
+                        message="Error: The wallet passphrase entered was incorrect."))))
+
+    wallet_path = wallet.get_storage_path()
+    app_state.credentials.set_wallet_password(
+        wallet_path, wallet_password, CredentialPolicyFlag.FLUSH_AFTER_CUSTOM_DURATION,
+        cache_duration)
+
+    return None
 
