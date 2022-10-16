@@ -202,7 +202,7 @@ def build_for_platform(python_arch: str, python_version: str, python_abi: str) -
                 if not is_within_directory(path, member_path):
                     raise Exception("Attempted Path Traversal in Tar File")
         
-            tar.extractall(path, members, numeric_owner) 
+            tar.extractall(path, members, numeric_owner=numeric_owner) 
             
         
         safe_extract(z, output_path)
