@@ -91,9 +91,11 @@ INVALID_PARAMS    = -32602              # Internal server error (500) status cod
 PARSE_ERROR       = -32700              # Internal server error (500) status code.
 
 INVALID_PARAMETER               = -8    # Internal server error (500) status code.
+WALLET_KEYPOOL_RAN_OUT          = -12   # Internal server error (500) status code.
 WALLET_PASSPHRASE_INCORRECT     = -14   # Internal server error (500) status code.
 WALLET_NOT_FOUND                = -18   # Internal server error (500) status code.
 WALLET_NOT_SPECIFIED            = -19   # Internal server error (500) status code.
+
 
 class NodeAPIServer:
     is_running = False
@@ -315,7 +317,7 @@ def get_wallet_from_request(request: web.Request, request_id: RequestIdType,
                     text=json.dumps(ResponseDict(id=request_id, result=None,
                         error=ErrorDict(code=WALLET_NOT_SPECIFIED,
                             message="Wallet file not specified (must request wallet RPC "
-                                "through /wallet/<filename> uri-path)."))))
+                                "through /wallet/<filename> uri-path)"))))
 
         return None
 
@@ -421,7 +423,7 @@ async def jsonrpc_walletpassphrase_async(request: web.Request, request_id: Reque
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
                 text=json.dumps(ResponseDict(id=request_id, result=None,
                     error=ErrorDict(code=WALLET_PASSPHRASE_INCORRECT,
-                        message="Error: The wallet passphrase entered was incorrect."))))
+                        message="Error: The wallet passphrase entered was incorrect"))))
 
     wallet_path = wallet.get_storage_path()
     app_state.credentials.set_wallet_password(

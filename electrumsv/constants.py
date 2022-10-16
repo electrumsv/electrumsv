@@ -257,7 +257,10 @@ class KeyInstanceFlag(IntFlag):
     USER_SET_ACTIVE = 1 << 8
 
     ## These are the secondary reason flags that may be set in addition to `USED`.
+    # This key was reserved to be given out to external parties to pay in our invoice to them.
     IS_PAYMENT_REQUEST = 1 << 9
+    # This key was reserved to pay an invoice received from an external party.
+    # TODO(1.4.0) Technical debt. We do not set this flag.
     IS_INVOICE = 1 << 10
 
     FROZEN = 1 << 15
