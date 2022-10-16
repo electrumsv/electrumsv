@@ -83,11 +83,14 @@ class Listener(util.DaemonThread):
         self.received.remove(keyhash_hex)
 
     def run(self) -> None:
-        while self.running:
+        while True:
             relevant_items = [item for item in self.parent._items if not item.watching_only]
             if not relevant_items:
-                time.sleep(2)
+                # Retry in 2 seconds.
+                if self.shutdown_event.wait(2.0):
+                    break
                 continue
+
             for item in relevant_items:
                 if item.keyhash_hex in self.received:
                     continue
@@ -101,8 +104,9 @@ class Listener(util.DaemonThread):
                     self.received.add(item.keyhash_hex)
                     logger.debug("received message for %s", item.keyhash_hex)
                     app_state.app_qt.cosigner_received_signal.emit(item, message)
-            # poll every 30 seconds
-            time.sleep(30)
+            # Poll every 30 seconds.
+            if self.shutdown_event.wait(30.0):
+                break
 
 
 class CosignerPool:

@@ -52,7 +52,7 @@ import asyncio
 import dataclasses
 import threading
 import time
-from typing import Callable, cast, Dict, NamedTuple, Optional, Protocol, Tuple
+from typing import Callable, cast, NamedTuple, Protocol
 import uuid
 
 from bitcoinx import PrivateKey
@@ -80,6 +80,7 @@ class WalletCredential(NamedTuple):
     encrypted_value: bytes
     timestamp: float
     policy: CredentialPolicyFlag = CredentialPolicyFlag.DISCARD_IMMEDIATELY
+    discard_seconds: float|None = None
 
 
 MAXIMUM_EXPIRATION_SECONDS = 10.0
@@ -91,11 +92,11 @@ class CredentialCache:
     fatal_error = False
 
     def __init__(self) -> None:
-        self._indefinite_credentials: Dict[IndefiniteCredentialId, IndefiniteCredential] = {}
-        self._wallet_credentials: Dict[str, WalletCredential] = {}
-        self._request_callbacks: Dict[str, Callable[[Callable[[], None], str], None]] = {}
+        self._indefinite_credentials: dict[IndefiniteCredentialId, IndefiniteCredential] = {}
+        self._wallet_credentials: dict[str, WalletCredential] = {}
+        self._request_callbacks: dict[str, Callable[[Callable[[], None], str], None]] = {}
 
-        self._check_thread: Optional[threading.Thread] = None
+        self._check_thread: threading.Thread|None = None
         self._credential_lock = threading.RLock()
         self._close_event = threading.Event()
 
@@ -114,7 +115,7 @@ class CredentialCache:
             self._wallet_credentials = {}
 
     def set_request_callback(self, wallet_path: str,
-            callback: Optional[Callable[[Callable[[], None], str], None]]) -> None:
+            callback: Callable[[Callable[[], None], str], None]|None) -> None:
         """
         In contexts outside of the GUI it may be necessary to request the password if it is not
         cached and `get_or_request_wallet_password_async` is provided for this purpose. This
@@ -131,7 +132,8 @@ class CredentialCache:
             self._request_callbacks[wallet_path] = callback
 
     def set_wallet_password(self, wallet_path: str, password: str,
-            policy: Optional[CredentialPolicyFlag]=None) -> Optional[WalletPasswordToken]:
+            policy: CredentialPolicyFlag|None=None, discard_seconds: float|None=None) \
+                -> WalletPasswordToken|None:
         if self.fatal_error:
             logger.error("Ignoring request to store credential due to fatal error")
             return None
@@ -143,10 +145,18 @@ class CredentialCache:
             assert wallet_path not in self._wallet_credentials
             creation_time = time.time()
             encrypted_value = cast(bytes, self._public_key.encrypt_message(password))
-            if policy is None:
+            if policy is None or policy & CredentialPolicyFlag.DISCARD_IMMEDIATELY:
+                assert discard_seconds is None
                 credential = WalletCredential(encrypted_value, creation_time)
             else:
-                credential = WalletCredential(encrypted_value, creation_time, policy)
+                if policy & CredentialPolicyFlag.FLUSH_AFTER_CUSTOM_DURATION:
+                    assert discard_seconds is not None
+                elif policy & CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY:
+                    discard_seconds = 10.0
+                else:
+                    raise NotImplementedError(f"Unexpected credential policy {policy}")
+                credential = WalletCredential(encrypted_value, creation_time, policy,
+                    discard_seconds)
             if credential.policy & CredentialPolicyFlag.DISCARD_IMMEDIATELY:
                 return None
             assert not self.closed
@@ -160,7 +170,7 @@ class CredentialCache:
             return WalletPasswordToken(self, wallet_path)
 
     def get_wallet_password_and_policy(self, wallet_path: str) \
-            -> Tuple[Optional[str], CredentialPolicyFlag]:
+            -> tuple[str|None, CredentialPolicyFlag]:
         """
         If the wallet password is cached, return it. Otherwise return `None`.
 
@@ -180,12 +190,12 @@ class CredentialCache:
                 return password_bytes.decode('utf-8'), credential.policy
         return None, CredentialPolicyFlag.NONE
 
-    def get_wallet_password(self, wallet_path: str) -> Optional[str]:
+    def get_wallet_password(self, wallet_path: str) -> str|None:
         password, _policy = self.get_wallet_password_and_policy(wallet_path)
         return password
 
     async def get_or_request_wallet_password_async(self, wallet_path: str,
-            request_reason: str) -> Optional[str]:
+            request_reason: str) -> str|None:
         """
         If the wallet password is cached, return it. Otherwise try and request the password
         from an external source. This will likely be prompting the user for the password and
@@ -222,7 +232,7 @@ class CredentialCache:
         # The password should now be in the cache.
         return self.get_wallet_password(wallet_path)
 
-    def get_wallet_password_token(self, wallet_path: str) -> Optional[WalletPasswordToken]:
+    def get_wallet_password_token(self, wallet_path: str) -> WalletPasswordToken|None:
         # We ensure all the wallet paths have database extensions so that legacy wallets
         # passwords are applied to the migrated database paths.
         if not wallet_path.endswith(DATABASE_EXT):
@@ -290,12 +300,11 @@ class CredentialCache:
                 closest_expiration_time = current_time + MAXIMUM_EXPIRATION_SECONDS
                 for wallet_path, credential in list(self._wallet_credentials.items()):
                     expiration_time = credential.timestamp
-                    if credential.policy & CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1:
+                    if credential.policy & CredentialPolicyFlag.FLUSH_AFTER_CUSTOM_DURATION:
+                        assert credential.discard_seconds is not None
+                        expiration_time += credential.discard_seconds
+                    elif credential.policy & CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY:
                         expiration_time += 10.0
-                    elif credential.policy & CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY2:
-                        expiration_time += 20.0
-                    elif credential.policy & CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY3:
-                        expiration_time += 30.0
                     else:
                         self.fatal_error = True
                         self._check_thread = None

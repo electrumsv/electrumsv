@@ -1243,6 +1243,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         dpp_ack_json, create_request2_row.paymentrequest_id) ])
     future.result()
 
+    # Ensure we find both payment requests associated with this account including the new one.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)
     assert 2 == len(db_request_rows)
     db_line2 = [ db_line for db_line in db_request_rows
@@ -1252,23 +1253,29 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert db_line2.description == "newdesc"
     assert db_line2.date_expires == 999
 
-    # Account does not exist.
+    # Ensure we do not find any payment requests for a non-existent account.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=1000)
     assert 0 == len(db_request_rows)
 
-    # This account is matched.
-    db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)
-    assert 2 == len(db_request_rows)
-
+    # Delete the first payment request associated with the account.
     assert create_request1_row.paymentrequest_id is not None
     future3 = db_context.post_to_thread(db_functions.delete_payment_request_write,
         create_request1_row.paymentrequest_id)
     keyinstance_ids_by_account_id = future3.result()
     assert { ACCOUNT_ID: [ KEYINSTANCE_ID ] } == keyinstance_ids_by_account_id
 
+    # Ensure that we find the non-deleted payment request associated with the account now.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)
     assert 1 == len(db_request_rows)
     assert db_request_rows[0].paymentrequest_id == create_request2_row.paymentrequest_id
+
+    # Check that we get no matches for a transaction that does not exist.
+    payment_request_ids = db_functions.read_payment_request_ids_for_transaction(db_context, b'12')
+    assert payment_request_ids == [ ]
+
+    # Check that we get matches for a payment request-related transaction that does exist.
+    payment_request_ids = db_functions.read_payment_request_ids_for_transaction(db_context, TX_HASH)
+    assert payment_request_ids == [ create_request2_row.paymentrequest_id ]
 
 
 def test_table_walletevents_CRUD(db_context: DatabaseContext) -> None:
@@ -1593,14 +1600,15 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
     assert len(created_message_rows2) == 2
 
     # MESSAGES: No filtering.
-    read_rows = db_functions.read_server_peer_channel_messages(db_context, None, None, None, None)
+    read_rows = db_functions.read_server_peer_channel_messages(db_context, server_id, None, None,
+        None, None)
     assert len(read_rows) == 3
     assert { message_row.message_id for message_row in read_rows } == \
         { created_message_rows1[0].message_id, created_message_rows2[0].message_id,
             created_message_rows2[1].message_id }
 
     # MESSAGES: Filter by server peer channel flag.
-    read_rows = db_functions.read_server_peer_channel_messages(db_context,
+    read_rows = db_functions.read_server_peer_channel_messages(db_context, server_id,
         PeerChannelMessageFlag.NONE, PeerChannelMessageFlag.NONE,
         ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, ServerPeerChannelFlag.MASK_PURPOSE)
     assert len(read_rows) == 2
@@ -1608,7 +1616,7 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
         { created_message_rows2[0].message_id, created_message_rows2[1].message_id }
 
     # MESSAGES: Filter by server peer channel flag.
-    read_rows = db_functions.read_server_peer_channel_messages(db_context,
+    read_rows = db_functions.read_server_peer_channel_messages(db_context, server_id,
         PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
         ServerPeerChannelFlag.NONE, ServerPeerChannelFlag.NONE)
     assert len(read_rows) == 1

@@ -184,7 +184,7 @@ def create_file_state(wallet_path: str) -> Optional[FileState]:
 
 
 def request_password(parent: Optional[QWidget], storage: WalletStorage, entry: FileState,
-        credential_policy: CredentialPolicyFlag=CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY1) \
+        credential_policy: CredentialPolicyFlag=CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY) \
             -> Optional[str]:
     wallet_path = storage.get_path()
     password = app_state.credentials.get_wallet_password(wallet_path)

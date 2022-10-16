@@ -85,22 +85,24 @@ class DaemonThread(threading.Thread):
         threading.Thread.__init__(self)
         self.name = name
         self.parent_thread = threading.current_thread()
-        self.running = False
-        self.running_lock = threading.Lock()
+        self.shutdown_event = threading.Event()
         self.logger = logs.get_logger(f'{name} thread')
 
     def start(self) -> None:
-        with self.running_lock:
-            self.running = True
+        self.shutdown_event.clear()
         threading.Thread.start(self)
 
+    def wait_for_shutdown(self) -> None:
+        # Ideally we'd be able to detect either of the shutdown event and the parent thread exit
+        # and exit on either but threading doesn't offer a way to do this AFAIK.
+        while self.is_running():
+            time.sleep(0.5)
+
     def is_running(self) -> bool:
-        with self.running_lock:
-            return self.running and self.parent_thread.is_alive()
+        return not self.shutdown_event.is_set() and self.parent_thread.is_alive()
 
     def stop(self) -> None:
-        with self.running_lock:
-            self.running = False
+        self.shutdown_event.set()
 
     def on_stop(self) -> None:
         self.logger.debug("stopped")

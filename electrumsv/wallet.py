@@ -2020,6 +2020,10 @@ class WalletDataAccess:
         return db_functions.read_payment_requests(self._db_context, account_id=account_id,
             flags=flags, mask=mask, server_id=server_id)
 
+    def read_payment_request_ids_for_transaction(self, transaction_hash: bytes) -> list[int]:
+        return db_functions.read_payment_request_ids_for_transaction(self._db_context,
+            transaction_hash)
+
     async def read_payment_request_outputs_async(self, paymentrequest_ids: list[int]) \
             -> list[PaymentRequestOutputRow]:
         return await self._db_context.run_in_thread_async(
@@ -2049,6 +2053,8 @@ class WalletDataAccess:
         """
         Wrap the database operations required to link a transaction so the processing is
         offloaded to the SQLite writer thread while this task is blocked.
+
+        Raises `DatabaseUpdateError` if the attempt to close the payment request fails.
         """
         return await self._db_context.run_in_thread_async(db_functions.close_paid_payment_request,
             request_id)
@@ -2157,14 +2163,14 @@ class WalletDataAccess:
         return await self._db_context.run_in_thread_async(
             db_functions.create_external_peer_channel_messages_write, rows)
 
-    async def read_server_peer_channel_messages_async(self,
+    async def read_server_peer_channel_messages_async(self, server_id: int,
             message_flags: Optional[PeerChannelMessageFlag]=None,
             message_mask: Optional[PeerChannelMessageFlag]=None,
             channel_flags: Optional[ServerPeerChannelFlag]=None,
             channel_mask: Optional[ServerPeerChannelFlag]=None) \
                 -> list[PeerChannelMessageRow]:
-        return db_functions.read_server_peer_channel_messages(self._db_context, message_flags,
-            message_mask, channel_flags, channel_mask)
+        return db_functions.read_server_peer_channel_messages(self._db_context, server_id,
+            message_flags, message_mask, channel_flags, channel_mask)
 
     async def read_external_peer_channel_messages_async(self,
             message_flags: Optional[PeerChannelMessageFlag]=None,
@@ -2182,9 +2188,8 @@ class WalletDataAccess:
         await self._db_context.run_in_thread_async(
             db_functions.create_pushdata_matches_write, rows, processed_message_ids)
 
-    def read_pushdata_match_metadata(self, for_missing_transactions: bool=False) \
-            -> list[PushDataMatchMetadataRow]:
-        return db_functions.read_pushdata_match_metadata(self._db_context, for_missing_transactions)
+    def read_pushdata_match_metadata(self) -> list[PushDataMatchMetadataRow]:
+        return db_functions.read_pushdata_match_metadata(self._db_context)
 
     # Tip filters.
 
@@ -2415,7 +2420,7 @@ class Wallet:
 
         self.events = TriggeredCallbacks[WalletEvent]()
         self.data = WalletDataAccess(self._db_context, self.events)
-        self._servers = dict[ServerAccountKey, NewServer]()
+        self._servers: dict[ServerAccountKey, NewServer] = {}
 
         txdata_cache_size = self.get_cache_size_for_tx_bytedata() * (1024 * 1024)
         self._transaction_cache2 = LRUCache(max_size=txdata_cache_size)
@@ -2449,7 +2454,7 @@ class Wallet:
         self._worker_task_initialise_headers: concurrent.futures.Future[None] | None = None
         self._worker_task_manage_server_connections: concurrent.futures.Future[None] | None = None
         self._worker_task_manage_dpp_connections: Optional[concurrent.futures.Future[None]] = None
-        self._worker_tasks_maintain_server_connection = dict[int, list[ServerConnectionState]]()
+        self._worker_tasks_maintain_server_connection: dict[int, list[ServerConnectionState]] = {}
         self._worker_tasks_external_peer_channel_connections = \
             dict[int, list[PeerChannelServerState]]()
         self._worker_task_peer_channel_garbage_collection: \
@@ -2557,8 +2562,8 @@ class Wallet:
                 self._wallet_master_keystore = cast(BIP32_KeyStore, keystore)
         assert self._wallet_master_keystore is not None, "migration 29 master keystore missing"
 
-        account_flags = dict[int, AccountInstantiationFlags]()
-        keyinstances_by_account_id = dict[int, list[KeyInstanceRow]]()
+        account_flags: dict[int, AccountInstantiationFlags] = {}
+        keyinstances_by_account_id: dict[int, list[KeyInstanceRow]] = {}
         # TODO Avoid reading in all the keyinstances we are not interested in.
         for keyinstance_row in self.data.read_keyinstances():
             if keyinstance_row.derivation_type == DerivationType.PRIVATE_KEY:
@@ -2612,6 +2617,9 @@ class Wallet:
         return list(self._keystores.values())
 
     def check_password(self, password: str) -> None:
+        """
+        Raises `InvalidPassword` if the given password is not the wallet password.
+        """
         self._storage.check_password(password)
 
     def update_password(self, old_password: str, new_password: str) \
@@ -3875,8 +3883,8 @@ class Wallet:
         the servers that are not known in the wallet database but are hardcoded into ElectrumSV.
         """
         self._registered_api_keys: dict[ServerAccountKey, IndefiniteCredentialId] = {}
-        base_row_by_server_key = dict[ServerAccountKey, NetworkServerRow]()
-        account_rows_by_server_key = dict[ServerAccountKey, list[NetworkServerRow]]()
+        base_row_by_server_key: dict[ServerAccountKey, NetworkServerRow] = {}
+        account_rows_by_server_key: dict[ServerAccountKey, list[NetworkServerRow]] = {}
         for row in self.data.read_network_servers():
             assert row.server_id is not None
             assert row.server_type in API_SERVER_TYPES
@@ -4468,6 +4476,7 @@ class Wallet:
         message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]()
         if isinstance(state, ServerConnectionState):
             for message_row in await self.data.read_server_peer_channel_messages_async(
+                    state.server.server_id,
                     PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
                     ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
                     ServerPeerChannelFlag.MASK_PURPOSE):
@@ -4950,9 +4959,9 @@ class Wallet:
             * If the batch is processed then it is no longer valid.
             * If the batch is processed (task cancelled) then it will be picked up next restart.
         """
-        # TODO(1.4.0) Should this db read be filtering for state.server.server_id? - AustEcon
-        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]()
+        message_entries: list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]] = []
         for message_row in await self.data.read_server_peer_channel_messages_async(
+                state.server.server_id,
                 PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
                 ServerPeerChannelFlag.TIP_FILTER_DELIVERY, ServerPeerChannelFlag.MASK_PURPOSE):
             message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
@@ -4960,9 +4969,9 @@ class Wallet:
         state.tip_filter_matches_queue.put_nowait(message_entries)
 
         while not (self._stopping or self._stopped):
-            rows_by_account_id = dict[int, list[PushDataMatchMetadataRow]]()
-            creation_pushdata_match_rows = list[PushDataMatchRow]()
-            processed_message_ids = list[int]()
+            rows_by_account_id: dict[int, list[PushDataMatchMetadataRow]] = {}
+            creation_pushdata_match_rows: list[PushDataMatchRow] = []
+            processed_message_ids: list[int] = []
             for message_row, message in await state.tip_filter_matches_queue.get():
                 assert message_row.message_id is not None
                 processed_message_ids.append(message_row.message_id)
@@ -4994,7 +5003,7 @@ class Wallet:
                     self._logger.error("Peer channel message payload invalid: '%s'", message)
                     continue
 
-                date_created = get_posix_timestamp()
+                date_created = int(time.time())
                 block_hash: Optional[bytes] = None
                 if pushdata_matches["blockId"] is not None:
                     block_hash = hex_str_to_hash(pushdata_matches["blockId"])
@@ -5017,14 +5026,12 @@ class Wallet:
             await self.data.create_pushdata_matches_async(creation_pushdata_match_rows,
                 processed_message_ids)
 
-            # At the moment we read the matches out of the database to associate them with
-            # individual accounts. It should be possible to say we only create pushdata matches
-            # when we want to do this and return that there. Unless we have in-memory state that
-            # allows us to do that mapping, we have to go to the database for it in some way
-            # and this will do for now.
-            # TODO(technical-debt) Double-dipping in the database?
-            match_metadata_rows = self.data.read_pushdata_match_metadata(
-                for_missing_transactions=True)
+            # We have to go to the database to find out:
+            # - What account a push data match is associated with.
+            # - Which matches do not already have the associated transaction imported.
+            # We could do this in the `create_pushdata_matches_async` call and return it, but
+            # this double-dipping in the database is good enough for now.
+            match_metadata_rows = self.data.read_pushdata_match_metadata()
             for metadata_row in match_metadata_rows:
                 if metadata_row.account_id in rows_by_account_id:
                     rows_by_account_id[metadata_row.account_id].append(metadata_row)
@@ -5043,7 +5050,8 @@ class Wallet:
                         metadata_row.block_hash is not None))
                 self._logger.debug("Obtaining %d transactions for account %d, %s",
                     len(obtain_transaction_keys), account_id, obtain_transaction_keys)
-                await self.obtain_transactions_async(account_id, obtain_transaction_keys)
+                await self.obtain_transactions_async(account_id, obtain_transaction_keys,
+                    TransactionImportFlag.TIP_FILTER_MATCH)
 
     def _register_spent_outputs_to_monitor(self, spent_outpoints: list[Outpoint]) -> None:
         """
@@ -5086,8 +5094,8 @@ class Wallet:
                 rows_by_outpoint[spent_outpoint].append(spent_output_row)
 
             # Reconcile the received server state against the database state.
-            mined_transactions = set[tuple[bytes, bytes]]()
-            mempool_transactions = dict[bytes, TxFlags]()
+            mined_transactions: set[tuple[bytes, bytes]] = set()
+            mempool_transactions: dict[bytes, TxFlags] = {}
             for spent_output in spent_outputs:
                 spent_outpoint = Outpoint(spent_output.out_tx_hash, spent_output.out_index)
                 if spent_outpoint not in rows_by_outpoint:
@@ -5180,7 +5188,7 @@ class Wallet:
                         # probably came in during the registration as the initial state.
                         pass
 
-            tx_update_rows = list[TransactionProofUpdateRow]()
+            tx_update_rows: list[TransactionProofUpdateRow] = []
             for tx_hash, block_hash in mined_transactions:
                 # We indicate that we need to obtain the proof by setting the known block hash and
                 # the state to cleared.
@@ -5289,31 +5297,68 @@ class Wallet:
             self.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE,
                 transaction_description_update_rows)
 
-    def have_transaction(self, tx_hash: bytes) -> bool:
-        return self.data.get_transaction_flags(tx_hash) is not None
+    async def _close_payment_request_for_transaction_async(self, transaction_hash: bytes) -> None:
+        """
+        This transaction is expected to be related to an outstanding payment request and we need
+        to locate that payment request, and see if it closes out that payment request as paid.
 
-    def get_transaction(self, tx_hash: bytes) -> Optional[Transaction]:
-        lock = self._obtain_transaction_lock(tx_hash)
+        At the time of writing this is related to the tip filter and blockchain monitored ones.
+        """
+        payment_request_ids = self.data.read_payment_request_ids_for_transaction(transaction_hash)
+        # The caller should only call this in circumstances where they expect there to be a payment
+        # request associated with this transaction. Our policy is to error in problem situations.
+        assert len(payment_request_ids) > 0, "_close_payment_request_for_transaction_async given " \
+            "a transaction hash that is not linked to keys associated with outstanding payment " \
+            f"requests {hash_to_hex_str(transaction_hash)}"
+
+        # While we do not create payment requests
+        closed_payment_request_ids: list[int] = []
+        all_transaction_description_update_rows: list[tuple[str, int, bytes]] = []
+        for payment_request_id in payment_request_ids:
+            request_row, request_output_rows = self.data.read_payment_request(payment_request_id)
+            assert request_row is not None
+            assert len(request_output_rows) > 0
+
+            try:
+                transaction_description_update_rows = \
+                    await self.data.close_paid_payment_request_async(payment_request_id)
+            except DatabaseUpdateError:
+                self._logger.exception("Transaction did not close payment request %s",
+                    payment_request_id)
+            else:
+                all_transaction_description_update_rows.extend(transaction_description_update_rows)
+
+        # Notify dependent systems including the GUI that these payment requests have been updated.
+        self.events.trigger_callback(WalletEvent.PAYMENT_REQUEST_PAID, closed_payment_request_ids)
+        if len(all_transaction_description_update_rows):
+            self.events.trigger_callback(WalletEvent.TRANSACTION_LABELS_UPDATE,
+                all_transaction_description_update_rows)
+
+    def have_transaction(self, transaction_hash: bytes) -> bool:
+        return self.data.get_transaction_flags(transaction_hash) is not None
+
+    def get_transaction(self, transaction_hash: bytes) -> Transaction|None:
+        lock = self._obtain_transaction_lock(transaction_hash)
         with lock:
             try:
-                return self._get_cached_transaction(tx_hash)
+                return self._get_cached_transaction(transaction_hash)
             finally:
-                self._relinquish_transaction_lock(tx_hash)
+                self._relinquish_transaction_lock(transaction_hash)
 
-    def _get_cached_transaction(self, tx_hash: bytes) -> Optional[Transaction]:
-        tx = self._transaction_cache2.get(tx_hash)
+    def _get_cached_transaction(self, transaction_hash: bytes) -> Transaction|None:
+        tx = self._transaction_cache2.get(transaction_hash)
         if tx is None:
-            tx_bytes = db_functions.read_transaction_bytes(self.get_db_context(), tx_hash)
+            tx_bytes = db_functions.read_transaction_bytes(self.get_db_context(), transaction_hash)
             if tx_bytes is not None:
                 tx = Transaction.from_bytes(tx_bytes)
-                self._transaction_cache2.set(tx_hash, tx)
+                self._transaction_cache2.set(transaction_hash, tx)
         return tx
 
-    def get_transaction_bytes(self, tx_hash: bytes) -> Optional[bytes]:
+    def get_transaction_bytes(self, transaction_hash: bytes) -> bytes|None:
         """
         Get the byte data for the transaction directly from the database if it is present.
         """
-        return db_functions.read_transaction_bytes(self.get_db_context(), tx_hash)
+        return db_functions.read_transaction_bytes(self.get_db_context(), transaction_hash)
 
     def get_boolean_setting(self, setting_name: str, default_value: bool=False) -> bool:
         """
@@ -5784,7 +5829,7 @@ class Wallet:
                 # Either this is a new wallet or it is an old wallet that predates storage of this
                 # record. We have to do a full table scan to rectify this situation, but none of
                 # these wallets should have that many transactions.
-                orphaned_block_hashes = list[bytes]()
+                orphaned_block_hashes: list[bytes] = []
                 for block_hash in self.data.read_transaction_block_hashes():
                     try:
                         transaction_header, transaction_chain = app_state.lookup_header(block_hash)
@@ -6158,6 +6203,9 @@ class Wallet:
                         BlockHeight.MEMPOOL, key_usage_metadatas=entry.match_metadatas)
                     assert tx_hash not in self._missing_transactions
 
+                if entry.import_flags & TransactionImportFlag.TIP_FILTER_MATCH:
+                    await self._close_payment_request_for_transaction_async(tx_hash)
+
     async def _obtain_merkle_proofs_worker_async(self) -> None:
         """
         Obtain TSC merkle proofs for transactions we know are mined.
@@ -6320,11 +6368,11 @@ class Wallet:
             if self._stopping or self._stopped:
                 return
 
-            process_entries = list[tuple[Header, tuple[TSCMerkleProof, MerkleProofRow]]]()
+            process_entries: list[tuple[Header, tuple[TSCMerkleProof, MerkleProofRow]]] = []
 
             # This is non-blocking. We know it empties all the pending proofs.
             if state.proof_event.is_set():
-                pending_proof_entries = list[tuple[TSCMerkleProof, MerkleProofRow]]()
+                pending_proof_entries: list[tuple[TSCMerkleProof, MerkleProofRow]] = []
                 while state.proof_queue.qsize() > 0:
                     pending_proof_entries.append(state.proof_queue.get_nowait())
                 state.proof_event.clear()
@@ -6349,7 +6397,7 @@ class Wallet:
 
             # This is non-blocking. We know it empties all the pending headers.
             if state.header_event.is_set():
-                pending_headers = list[tuple[Header, Chain]]()
+                pending_headers: list[tuple[Header, Chain]] = []
                 while state.header_queue.qsize() > 0:
                     pending_headers.append(state.header_queue.get_nowait())
                 state.header_event.clear()
@@ -6363,9 +6411,9 @@ class Wallet:
                         del state.block_transactions[block_hash]
 
             date_updated = get_posix_timestamp()
-            transaction_proof_updates = list[TransactionProofUpdateRow]()
-            proof_updates = list[MerkleProofUpdateRow]()
-            verified_proof_entries = list[tuple[Header, tuple[TSCMerkleProof, MerkleProofRow]]]()
+            transaction_proof_updates: list[TransactionProofUpdateRow] = []
+            proof_updates: list[MerkleProofUpdateRow] = []
+            verified_proof_entries: list[tuple[Header, tuple[TSCMerkleProof, MerkleProofRow]]] = []
 
             for process_entry in process_entries:
                 header, (proof, proof_row) = process_entry
@@ -6531,9 +6579,9 @@ class TransactionCreationContext:
     account: AbstractAccount | None = None
 
     def __init__(self) -> None:
-        self._fee_quotes = list[TransactionFeeContext]()
+        self._fee_quotes: list[TransactionFeeContext] = []
         self._fee_quote_future: concurrent.futures.Future[list[TransactionFeeContext]] | None = None
-        self.callbacks = list[Callable[[list[TransactionFeeContext]], None]]()
+        self.callbacks: list[Callable[[list[TransactionFeeContext]], None]] = []
 
     def clean_up(self) -> None:
         if self._fee_quote_future is not None:
