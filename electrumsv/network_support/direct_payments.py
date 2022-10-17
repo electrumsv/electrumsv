@@ -1,30 +1,34 @@
 from __future__ import annotations
 
-import typing
-
 from bitcoinx import PrivateKey
-import uuid
-import json
 from datetime import datetime, timezone
+import uuid
+from http import HTTPStatus
+import json
+from typing import TypedDict
 
-from .dpp_proxy import MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT_ACK, \
-    MSG_TYPE_PAYMENT_ERROR, MSG_TYPE_PAYMENT_REQUEST_ERROR
-from .types import ServerConnectionState, TokenPermissions
 from ..app_state import app_state
-from ..constants import PeerChannelAccessTokenFlag
-from ..dpp_messages import Payment, PaymentACK, PeerChannelDict, HYBRID_PAYMENT_MODE_BRFCID
+from ..dpp_messages import HPMPaymentACK, HYBRID_PAYMENT_MODE_BRFCID, Payment, PaymentACK, \
+    PeerChannelDict, PaymentACKDict
+from .dpp_proxy import MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT_ACK, \
+    MSG_TYPE_PAYMENT_REQUEST_ERROR, MSG_TYPE_PAYMENT_ERROR
 from ..exceptions import Bip270Exception
 from ..logs import logs
 from ..networks import Net
 from ..standards.json_envelope import pack_json_envelope
 from ..types import IndefiniteCredentialId
-from ..transaction import Transaction
 from ..wallet_database.types import DPPMessageRow, PaymentRequestRow, PaymentRequestOutputRow
 
-if typing.TYPE_CHECKING:
-    from ..wallet import Wallet
-
 logger = logs.get_logger("direct-payments")
+
+
+# This structure is what the dpp-proxy server expects in the body of the `payment.error` websocket
+# message type in order to generate the appropriate http response for the payer SPV wallet
+class ClientError(TypedDict):
+    id: str
+    code: str
+    title: str
+    message: str
 
 
 async def send_outgoing_direct_payment_async(payment_url: str,
@@ -53,7 +57,7 @@ async def send_outgoing_direct_payment_async(payment_url: str,
         if response.status not in (200, 201, 202):
             # Propagate 'Bad request' (HTTP 400) messages to the user since they
             # contain valuable information.
-            if response.status == 400:
+            if response.status in {HTTPStatus.BAD_REQUEST, HTTPStatus.UNPROCESSABLE_ENTITY}:
                 content_text = await response.text(encoding="UTF-8")
                 message = f"{response.reason}: {content_text}"
             else:
@@ -68,36 +72,6 @@ async def send_outgoing_direct_payment_async(payment_url: str,
     payment_ack = PaymentACK.from_json(ack_json)
     logger.debug("PaymentACK message received: %s", payment_ack.to_json())
     return payment_ack
-
-
-def dpp_make_peer_channel_info(wallet: Wallet, tx_hash: bytes,
-        peer_channel_server_state: ServerConnectionState) -> PeerChannelDict:
-    mapi_rows = wallet.data.read_mapi_broadcasts([tx_hash])
-    assert len(mapi_rows) == 1
-    mapi_row = mapi_rows[0]
-
-    peer_channel_rows = wallet.data.read_server_peer_channels(
-        peer_channel_id=mapi_row.peer_channel_id)
-    assert len(peer_channel_rows) == 1, f"number of peer_channel_rows: {len(peer_channel_rows)}"
-    peer_channel = peer_channel_rows[0]
-    assert peer_channel.remote_channel_id is not None
-
-    assert mapi_row.peer_channel_id is not None
-    peer_channel_token_rows = wallet.data.read_server_peer_channel_access_tokens(
-        mapi_row.peer_channel_id, flags=PeerChannelAccessTokenFlag.FOR_THIRD_PARTY_USAGE |
-            PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE)
-
-    # There will be two third party tokens (a write token for mAPI and a read token for the peer
-    # wallet that is paying us)
-    read_token_row = None
-    for token in peer_channel_token_rows:
-        if token.permission_flags & TokenPermissions.READ_ACCESS != 0:
-            read_token_row = token
-
-    assert read_token_row is not None
-    peer_channel_info = PeerChannelDict(host=peer_channel_server_state.server.url,
-        token=read_token_row.access_token, channel_id=peer_channel.remote_channel_id)
-    return peer_channel_info
 
 
 def dpp_make_payment_request_response(server_url: str, credential_id: IndefiniteCredentialId,
@@ -165,16 +139,11 @@ def dpp_make_payment_request_response(server_url: str, credential_id: Indefinite
     return message_row_response
 
 
-def dpp_make_ack(tx: Transaction, peer_channel: PeerChannelDict,
+def dpp_make_ack(txid: str, peer_channel: PeerChannelDict,
         message_row_received: DPPMessageRow) -> DPPMessageRow:
-
-    payment_ack_data = {
-        "modeId": HYBRID_PAYMENT_MODE_BRFCID,
-        "mode": {
-            "transactionIds": [tx.hex_hash()]
-        },
-        "peerChannel": peer_channel
-    }
+    mode = HPMPaymentACK(transactionIds=[txid], peerChannel=peer_channel)
+    payment_ack_data = PaymentACKDict(modeId=HYBRID_PAYMENT_MODE_BRFCID, mode=mode,
+        peerChannel=peer_channel, redirectUrl=None)
 
     message_row_response = DPPMessageRow(
         message_id=str(uuid.uuid4()),
@@ -191,9 +160,13 @@ def dpp_make_ack(tx: Transaction, peer_channel: PeerChannelDict,
     return message_row_response
 
 
-def dpp_make_pr_error(message_row_received: DPPMessageRow, error_reason: str) -> DPPMessageRow:
+def dpp_make_payment_request_error(message_row_received: DPPMessageRow, error_reason: str,
+        code: int = 400, title: str = "Bad Request") -> DPPMessageRow:
+    message_id = str(uuid.uuid4())
+    client_error = ClientError(id=message_id, code=str(code), title=title,
+        message=error_reason)
     message_row_response = DPPMessageRow(
-        message_id=str(uuid.uuid4()),
+        message_id=message_id,
         paymentrequest_id=message_row_received.paymentrequest_id,
         dpp_invoice_id=message_row_received.dpp_invoice_id,
         correlation_id=message_row_received.correlation_id,
@@ -201,16 +174,19 @@ def dpp_make_pr_error(message_row_received: DPPMessageRow, error_reason: str) ->
         client_id=message_row_received.client_id,
         user_id=message_row_received.user_id,
         expiration=message_row_received.expiration,
-        body=error_reason.encode('utf-8'),
+        body=json.dumps(client_error).encode('utf-8'),
         timestamp=datetime.now(tz=timezone.utc).isoformat(),
         type=MSG_TYPE_PAYMENT_REQUEST_ERROR)
     return message_row_response
 
 
-def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: str) \
-        -> DPPMessageRow:
+def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: str,
+        code: int = 400, title: str = "Bad Request") -> DPPMessageRow:
+    message_id = str(uuid.uuid4())
+    client_error = ClientError(id=message_id, code=str(code), title=title,
+        message=error_reason)
     message_row_response = DPPMessageRow(
-        message_id=str(uuid.uuid4()),
+        message_id=message_id,
         paymentrequest_id=message_row_received.paymentrequest_id,
         dpp_invoice_id=message_row_received.dpp_invoice_id,
         correlation_id=message_row_received.correlation_id,
@@ -218,7 +194,7 @@ def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: st
         client_id=message_row_received.client_id,
         user_id=message_row_received.user_id,
         expiration=message_row_received.expiration,
-        body=error_reason.encode('utf-8'),
+        body=json.dumps(client_error).encode('utf-8'),
         timestamp=datetime.now(tz=timezone.utc).isoformat(),
         type=MSG_TYPE_PAYMENT_ERROR)
     return message_row_response

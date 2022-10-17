@@ -1,3 +1,4 @@
+import json
 import os
 import tempfile
 from typing import cast, Generator, List, Optional
@@ -7,6 +8,7 @@ import bitcoinx
 from electrumsv_database.sqlite import DatabaseContext, LeakedSQLiteConnectionError
 import pytest
 
+from ..dpp_messages import HYBRID_PAYMENT_MODE_BRFCID, PeerChannelDict
 from ..util import get_posix_timestamp
 
 try:
@@ -28,7 +30,7 @@ from electrumsv.wallet_database import migration
 from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
     MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestOutputRow,
-    PaymentRequestRow, PaymentRequestUpdateRow, ServerPeerChannelRow, ServerPeerChannelMessageRow,
+    PaymentRequestRow, PaymentRequestUpdateRow, PeerChannelMessageRow, ServerPeerChannelRow,
     TransactionOutputShortRow, TransactionProofUpdateRow, TransactionRow, WalletBalance,
     WalletEventInsertRow)
 
@@ -621,7 +623,7 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         # This updates the block_height on merkle proof 1 (for transaction 1) to BLOCK_HEIGHT_1b.
         proof_update_row = MerkleProofUpdateRow(BLOCK_HEIGHT_1b, BLOCK_HASH_1, tx_hash_1)
         db_functions.update_transaction_proof_write([ tx_proof_update_row ], [ merkle_proof_row_3,
-            merkle_proof_row_4 ], [ proof_update_row ], [], db_connection)
+            merkle_proof_row_4 ], [ proof_update_row ], [], [], db_connection)
 
         # Confirm the block_height on merkle proof 1 (for transaction 1) is BLOCK_HEIGHT_1b.
         proofs = db_functions.read_merkle_proofs(db_context, [ tx_hash_1 ])
@@ -1072,19 +1074,28 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
 
     LINE_COUNT = 3
     dpp_invoice_id = "dpp_invoice_id"
+    dpp_ack_json = json.dumps({
+        "modeId": HYBRID_PAYMENT_MODE_BRFCID,
+        "mode": {
+            "transactionIds": ["txid1"]
+        },
+        "peerChannel":
+            json.dumps(PeerChannelDict(host="someurl",
+                token="sometoken", channel_id="somechannelid"))
+    })
     merchant_reference = "merchant_reference"
     dummy_encrypted_secure_key = "KEY"
     server_id = 1
     date_created = int(get_posix_timestamp())
     expiration = date_created + 60*60
     create_request1_row = PaymentRequestRow(1, PaymentFlag.PAID, None, expiration, TX_DESC1,
-        server_id, dpp_invoice_id, merchant_reference, dummy_encrypted_secure_key, date_created,
-        date_created)
+        server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
+        dummy_encrypted_secure_key, date_created, date_created)
     create_request1_output_row = PaymentRequestOutputRow(1, 0, 0, ScriptType.P2PKH, b"SCRIPT",
         b"PUSHDATAHASH", 111, KEYINSTANCE_ID, date_created, date_created)
     create_request2_row = PaymentRequestRow(2, PaymentFlag.UNPAID, 100, expiration, TX_DESC2,
-        server_id, dpp_invoice_id, merchant_reference, dummy_encrypted_secure_key, date_created,
-        date_created)
+        server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
+        dummy_encrypted_secure_key, date_created, date_created)
     create_request2_output_row = PaymentRequestOutputRow(2, 0, 0, ScriptType.P2PKH, b"SCRIPT",
         b"PUSHDATAHASH", 100, KEYINSTANCE_ID+1, date_created, date_created)
 
@@ -1229,7 +1240,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     assert create_request2_row.paymentrequest_id is not None
     future = db_context.post_to_thread(db_functions.update_payment_requests_write, [
         PaymentRequestUpdateRow(PaymentFlag.UNKNOWN, 20, 999, "newdesc", "newmerchantref",
-        create_request2_row.paymentrequest_id) ])
+        dpp_ack_json, create_request2_row.paymentrequest_id) ])
     future.result()
 
     # Ensure we find both payment requests associated with this account including the new one.
@@ -1486,7 +1497,7 @@ async def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: Database
     duplicate_row2 = db_functions.read_invoice_duplicate(db_context, row.value, row.payment_uri)
     assert duplicate_row2 == row
 
-    future = db_functions.delete_invoices(db_context, [ (line2_1.invoice_id,) ])
+    future = db_functions.delete_invoices(db_context, [ line2_1.invoice_id ])
     future.result()
 
     db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1)
@@ -1556,7 +1567,7 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
 
     # MESSAGE: Create an arbitrary test message.
     sequence = 111
-    create_message_row = ServerPeerChannelMessageRow(None, peer_channel_id1, b'abc',
+    create_message_row = PeerChannelMessageRow(None, peer_channel_id1, b'abc',
         PeerChannelMessageFlag.NONE, sequence, date_created, date_created, date_created)
     future2 = db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write,
         [ create_message_row ])
@@ -1579,9 +1590,9 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
 
     # MESSAGE: Create an arbitrary test message.
     future2 = db_context.post_to_thread(db_functions.create_server_peer_channel_messages_write, [
-        ServerPeerChannelMessageRow(None, peer_channel_id2, b'abc',
+        PeerChannelMessageRow(None, peer_channel_id2, b'abc',
             PeerChannelMessageFlag.NONE, sequence+1, date_created, date_created, date_created),
-        ServerPeerChannelMessageRow(None, peer_channel_id2, b'abc',
+        PeerChannelMessageRow(None, peer_channel_id2, b'abc',
             PeerChannelMessageFlag.UNPROCESSED, sequence+2, date_created, date_created,
                 date_created),
     ])

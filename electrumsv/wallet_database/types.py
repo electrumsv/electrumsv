@@ -196,6 +196,7 @@ class PaymentRequestRow(NamedTuple):
     description: str | None
     server_id: int | None
     dpp_invoice_id: str | None
+    dpp_ack_json: str | None
     # What we put in any outgoing payment terms to describe what the payee is paying for.
     merchant_reference: str | None
     encrypted_key_text: str | None
@@ -209,6 +210,7 @@ class PaymentRequestUpdateRow(NamedTuple):
     date_expires: int | None
     description: str | None
     merchant_reference: str | None
+    dpp_ack_json: str | None
     paymentrequest_id: int
 
 
@@ -555,14 +557,26 @@ class ServerPeerChannelRow(NamedTuple):
     date_updated: int
 
 
-class ServerPeerChannelAccessTokenRow(NamedTuple):
+class ExternalPeerChannelRow(NamedTuple):
+    peer_channel_id: int | None
+    invoice_id: int
+    remote_channel_id: str | None
+    remote_url: str | None
+    peer_channel_flags: ServerPeerChannelFlag
+    date_created: int
+    date_updated: int
+
+
+# Used for both owned and externally owned peer channel tables
+class PeerChannelAccessTokenRow(NamedTuple):
     peer_channel_id: int
     token_flags: PeerChannelAccessTokenFlag
     permission_flags: int
     access_token: str
 
 
-class ServerPeerChannelMessageRow(NamedTuple):
+# Used for both owned and externally owned peer channel tables
+class PeerChannelMessageRow(NamedTuple):
     message_id: int | None
     peer_channel_id: int
     message_data: bytes
@@ -655,3 +669,7 @@ class PushDataMatchMetadataRow(NamedTuple):
 class PaymentRequestTransactionHashRow(NamedTuple):
     paymentrequest_id: int
     transaction_hash: bytes
+
+
+class PeerChannelIds(NamedTuple):
+    peer_channel_id: int

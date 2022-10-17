@@ -46,6 +46,7 @@ import aiohttp
 from aiohttp import ClientConnectorError
 from bitcoinx import hash_to_hex_str
 
+from ..dpp_messages import PeerChannelDict
 from ..exceptions import BadServerError, ServerAuthorizationError, ServerConnectionError, \
     ServerError
 from ..constants import MAPIBroadcastFlag, PeerChannelAccessTokenFlag, ServerPeerChannelFlag
@@ -54,7 +55,7 @@ from ..standards.mapi import MAPIBroadcastResponse, validate_mapi_broadcast_resp
 from ..standards.json_envelope import JSONEnvelope, validate_json_envelope
 from ..transaction import Transaction
 from ..types import ServerAndCredential
-from ..wallet_database.types import MAPIBroadcastRow, ServerPeerChannelAccessTokenRow
+from ..wallet_database.types import MAPIBroadcastRow, PeerChannelAccessTokenRow
 
 from .api_server import RequestFeeQuoteResult
 from .general_api import create_peer_channel_locally_and_remotely_async
@@ -73,7 +74,7 @@ logger = logs.get_logger("network-mapi")
 @dataclass
 class PeerChannelCallback:
     callback_url: str
-    callback_access_token: ServerPeerChannelAccessTokenRow
+    callback_access_token: PeerChannelAccessTokenRow
     merkle_proof: bool
     double_spend_check: bool
 
@@ -192,7 +193,7 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
         peer_channel_server_state: ServerConnectionState | None,
         server_and_credential: ServerAndCredential, tx: Transaction, /,
         merkle_proof: bool = False, double_spend_check: bool = False) \
-            -> MAPIBroadcastResponse:
+            -> tuple[MAPIBroadcastResponse, PeerChannelDict | None]:
     """
     Via `create_peer_channel_locally_and_remotely_async`:
         Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
@@ -205,14 +206,15 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
     """
     peer_channel_id: int | None = None
     peer_channel_callback: PeerChannelCallback | None = None
+    peer_channel_info: PeerChannelDict | None = None
     if peer_channel_server_state is not None:
-        third_party_token_flags = ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK | \
-                                  PeerChannelAccessTokenFlag.FOR_THIRD_PARTY_USAGE
+        third_party_token_flags = PeerChannelAccessTokenFlag.FOR_THIRD_PARTY_USAGE | \
+            PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE
         peer_channel_row, mapi_write_token, read_only_token = \
             await create_peer_channel_locally_and_remotely_async(
                 peer_channel_server_state,
-                third_party_token_flags, PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE,
-                third_party_token_flags, PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE)
+                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, third_party_token_flags,
+                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, third_party_token_flags)
         assert peer_channel_row.remote_channel_id is not None
         assert peer_channel_row.remote_url is not None
 
@@ -220,6 +222,10 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
         peer_channel_callback = PeerChannelCallback(peer_channel_row.remote_url,
             mapi_write_token, merkle_proof=merkle_proof,
             double_spend_check=double_spend_check)
+        # Peer Channel Info to provide to the Payer via DPP protocol
+        assert read_only_token is not None
+        peer_channel_info = PeerChannelDict(host=peer_channel_server_state.server_url,
+            token=read_only_token.access_token, channel_id=peer_channel_row.remote_channel_id)
 
     tx_hash = tx.hash()
     date_created = int(time.time())
@@ -238,17 +244,10 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
             hash_to_hex_str(tx_hash), str(server_error))
         raise
 
-    # TODO(1.4.0) MAPI. Need to consider downstream consequences of allowing
-    #  'Transaction already known' failure state to continue as if it succeeded.
-    if mapi_broadcast_result['returnResult'] == 'failure' and \
-            mapi_broadcast_result['resultDescription'] != 'Transaction already known':
-        logger.debug("Transaction broadcast via MAPI server failed : %s (%s)",
+    if mapi_broadcast_result['returnResult'] == 'failure':
+        logger.error("Transaction broadcast via MAPI server failed : %s (%s)",
             server_and_credential.server.url, mapi_broadcast_result)
-        return mapi_broadcast_result
-
-    if mapi_broadcast_result['resultDescription'] == 'Transaction already known':
-        logger.debug("Transaction was already known to the network - treating this as a "
-                     "successful broadcast")
+        return mapi_broadcast_result, peer_channel_info
 
     logger.debug("Transaction broadcast via MAPI server succeeded: %s",
         server_and_credential.server.url)
@@ -260,7 +259,7 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
 
     # Todo - when the merkle proof callback is successfully processed,
     #  delete the MAPIBroadcastRow
-    return mapi_broadcast_result
+    return mapi_broadcast_result, peer_channel_info
 
 
 async def post_mapi_transaction_broadcast_async(transaction_bytes: bytes,

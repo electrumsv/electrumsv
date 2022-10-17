@@ -21,7 +21,7 @@ LIBZBAR_COMMIT=aac86d5f08d64ab4c3da78188eb622fa3cb07182
 PYINSTALLER_REPO="https://github.com/pyinstaller/pyinstaller.git"
 PYINSTALLER_COMMIT="4b9fd01d7dc5a0aae3ba7c100437547915464f0e"
 
-PYTHON_VERSION=3.10.0
+PYTHON_VERSION=3.10.7
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64

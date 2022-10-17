@@ -343,7 +343,7 @@ def add_global_options(parser: argparse.ArgumentParser) -> None:
                        default=False, help="Use Scaling Testnet")
     group.add_argument("--regtest", action="store_true", dest="regtest",
                        default=False, help="Use Regression Testnet")
-    group.add_argument("--file-logging", action="store_true", dest="file_logging", default=False,
+    group.add_argument("--file-logging", action="store_true", dest="file_logging", default=True,
                        help="Redirect logging to log file")
 
     # REST API

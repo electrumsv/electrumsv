@@ -51,18 +51,18 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     IncompleteProofDataSubmittedError, TransactionAlreadyExistsError, TransactionRemovalError)
 from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
-    HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyInstanceFlagRow, KeyInstanceFlagChangeRow,
-    KeyInstanceRow, KeyListRow, MasterKeyRow, MAPIBroadcastRow,
-    NetworkServerRow, PasswordUpdateResult, PaymentRequestRow, PaymentRequestOutputRow,
-    PaymentRequestTransactionHashRow, PaymentRequestUpdateRow, MerkleProofUpdateRow,
-    PushDataMatchMetadataRow, PushDataMatchRow, PushDataHashRegistrationRow,
-    ServerPeerChannelAccessTokenRow, ServerPeerChannelRow, ServerPeerChannelMessageRow,
-    SpendConflictType, SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow,
-    TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
-    TransactionOutputSpendableRow, TransactionValueRow,
-    TransactionOutputFullRow, TransactionOutputShortRow, TransactionProoflessRow,
-    TxProofData, TransactionProofUpdateRow, TransactionRow, MerkleProofRow, WalletBalance,
-    WalletDataRow, WalletEventInsertRow, WalletEventRow, DPPMessageRow)
+    DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceAccountRow, InvoiceRow,
+    KeyInstanceFlagRow, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, MasterKeyRow,
+    MAPIBroadcastRow, NetworkServerRow, PasswordUpdateResult, PaymentRequestRow,
+    PaymentRequestOutputRow, PaymentRequestTransactionHashRow, PaymentRequestUpdateRow,
+    PeerChannelIds, MerkleProofUpdateRow, PeerChannelAccessTokenRow, PushDataMatchMetadataRow,
+    PushDataMatchRow, PushDataHashRegistrationRow, ServerPeerChannelRow,
+    PeerChannelMessageRow, SpendConflictType, SpentOutputRow, TransactionDeltaSumRow,
+    TransactionExistsRow, TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
+    TransactionOutputSpendableRow, TransactionValueRow, TransactionOutputFullRow,
+    TransactionOutputShortRow, TransactionProoflessRow, TxProofData, TransactionProofUpdateRow,
+    TransactionRow, MerkleProofRow, WalletBalance, WalletDataRow, WalletEventInsertRow,
+    WalletEventRow)
 from .util import flag_clause
 
 logger = logs.get_logger("db-functions")
@@ -130,8 +130,8 @@ def create_payment_request_write(request_row: PaymentRequestRow,
     request_sql = \
     """
     INSERT INTO PaymentRequests (paymentrequest_id, state, value, date_expires, description,
-    server_id, dpp_invoice_id, merchant_reference, encrypted_key_text, date_created,
-    date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+        server_id, dpp_invoice_id, dpp_ack_json, merchant_reference, encrypted_key_text,
+        date_created, date_updated) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
     """
     cursor = db.execute(request_sql, request_row)
     paymentrequest_id = cast(int | None, cursor.lastrowid)
@@ -256,12 +256,40 @@ def create_wallet_events(db_context: DatabaseContext, entries: list[WalletEventI
     return db_context.post_to_thread(_write)
 
 
-def delete_invoices(db_context: DatabaseContext, entries: Iterable[tuple[int]]) \
+def delete_invoices(db_context: DatabaseContext, invoice_ids: list[int]) \
         -> concurrent.futures.Future[None]:
-    sql = "DELETE FROM Invoices WHERE invoice_id=?"
+    read_sql = "SELECT peer_channel_id FROM ExternalPeerChannels WHERE invoice_id IN ({})"
+    sql_write1 = "DELETE FROM ExternalPeerChannelMessages WHERE peer_channel_id=?"
+    sql_write2 = "DELETE FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
+    sql_write3 = "DELETE FROM ExternalPeerChannels WHERE peer_channel_id=?"
+    sql_write4 = "DELETE FROM Invoices WHERE invoice_id=?"
+
     def _write(db: Optional[sqlite3.Connection]=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
-        db.executemany(sql, entries)
+        # Delete External Peer Channel Data
+        row_matches = read_rows_by_id(PeerChannelIds, db, read_sql, [], invoice_ids)
+        peer_channel_ids = [(row.peer_channel_id,) for row in row_matches]
+        invoice_id_sql_values = [(invoice_id,) for invoice_id in invoice_ids]
+
+        db.executemany(sql_write1, peer_channel_ids)
+        db.executemany(sql_write2, peer_channel_ids)
+        db.executemany(sql_write3, peer_channel_ids)
+        db.executemany(sql_write4, invoice_id_sql_values)
+    return db_context.post_to_thread(_write)
+
+
+def delete_external_peer_channels(db_context: DatabaseContext,
+        peer_channel_ids: list[int]) -> concurrent.futures.Future[None]:
+    sql_values = [(peer_channel_id,) for peer_channel_id in peer_channel_ids]
+    sql1 = "DELETE FROM ExternalPeerChannelMessages WHERE peer_channel_id=?"
+    sql2 = "DELETE FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
+    sql3 = "DELETE FROM ExternalPeerChannels WHERE peer_channel_id=?"
+
+    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
+        db.executemany(sql1, sql_values)
+        db.executemany(sql2, sql_values)
+        db.executemany(sql3, sql_values)
     return db_context.post_to_thread(_write)
 
 
@@ -883,8 +911,8 @@ def read_payment_request(db: sqlite3.Connection, request_id: int) \
         -> tuple[PaymentRequestRow | None, list[PaymentRequestOutputRow]]:
     request_sql = """
         SELECT PR.paymentrequest_id, PR.state, PR.value, PR.date_expires, PR.description,
-            PR.server_id, PR.dpp_invoice_id, PR.merchant_reference, PR.encrypted_key_text,
-            PR.date_created, PR.date_updated
+            PR.server_id, PR.dpp_invoice_id, PR.dpp_ack_json, PR.merchant_reference, 
+            PR.encrypted_key_text, PR.date_created, PR.date_updated
         FROM PaymentRequests PR
         WHERE PR.paymentrequest_id=?
     """
@@ -892,7 +920,7 @@ def read_payment_request(db: sqlite3.Connection, request_id: int) \
     if t is None:
         return None, []
     request_row = PaymentRequestRow(t[0], PaymentFlag(t[1]), t[2], t[3], t[4], t[5], t[6], t[7],
-        t[8], t[9], t[10])
+        t[8], t[9], t[10], t[11])
 
     request_outputs_sql = """
         SELECT paymentrequest_id, transaction_index, output_index, output_script_type,
@@ -908,9 +936,10 @@ def read_payment_request(db: sqlite3.Connection, request_id: int) \
 def read_payment_requests(db: sqlite3.Connection, *, account_id: int | None=None,
         flags: PaymentFlag | None=None, mask: PaymentFlag | None=None,
         server_id: int | None=None) -> list[PaymentRequestRow]:
-    sql = "SELECT PR.paymentrequest_id, PR.state, PR.value, PR.date_expires, PR.description, " \
-        "PR.server_id, PR.dpp_invoice_id, PR.merchant_reference, PR.encrypted_key_text, " \
-        "PR.date_created, PR.date_updated FROM PaymentRequests PR"
+    sql = """SELECT PR.paymentrequest_id, PR.state, PR.value, PR.date_expires, PR.description,
+        PR.server_id, PR.dpp_invoice_id, PR.dpp_ack_json, PR.merchant_reference,
+        PR.encrypted_key_text, PR.date_created, PR.date_updated
+        FROM PaymentRequests PR"""
     sql_values: list[Any] = []
     used_where = False
     if account_id is not None:
@@ -936,7 +965,7 @@ def read_payment_requests(db: sqlite3.Connection, *, account_id: int | None=None
             used_where = True
         sql_values.append(server_id)
     return [ PaymentRequestRow(t[0], PaymentFlag(t[1]), t[2], t[3], t[4], t[5], t[6], t[7],
-        t[8], t[9], t[10]) for t in db.execute(sql, sql_values).fetchall() ]
+        t[8], t[9], t[10], t[11]) for t in db.execute(sql, sql_values).fetchall() ]
 
 
 @replace_db_context_with_connection
@@ -1461,6 +1490,30 @@ def create_server_peer_channel_write(row: ServerPeerChannelRow,
     return peer_channel_id
 
 
+def create_external_peer_channel_write(row: ExternalPeerChannelRow,
+        db: Optional[sqlite3.Connection]=None) -> int:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    flags = row.peer_channel_flags
+    # Ensure the inserted record gets an automatically allocated primary key.
+    assert row.peer_channel_id is None
+    # Ensure the remote id is only non-`None` outside of allocation operations.
+    assert row.remote_channel_id is None or flags & ServerPeerChannelFlag.ALLOCATING == 0
+    # Ensure the remote id is only `None` in an allocation operation.
+    assert row.remote_channel_id is not None or flags & ServerPeerChannelFlag.ALLOCATING != 0
+
+    sql = """
+        INSERT INTO ExternalPeerChannels (peer_channel_id, invoice_id, remote_channel_id,
+            remote_url, peer_channel_flags, date_created, date_updated)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+        RETURNING peer_channel_id
+    """
+    insert_result_1 = db.execute(sql, row).fetchone()
+    if insert_result_1 is None:
+        raise DatabaseUpdateError(f"Failed creating new server peer channel {row}")
+    peer_channel_id = cast(int, insert_result_1[0])
+    return peer_channel_id
+
+
 @replace_db_context_with_connection
 def read_server_peer_channels(db: sqlite3.Connection, server_id: int | None=None,
         peer_channel_id: int | None=None) -> list[ServerPeerChannelRow]:
@@ -1490,9 +1543,62 @@ def read_server_peer_channels(db: sqlite3.Connection, server_id: int | None=None
         row[5], row[6]) for row in cursor.fetchall() ]
 
 
+@replace_db_context_with_connection
+def read_external_peer_channels(db: sqlite3.Connection, remote_channel_id: str | None=None,
+        peer_channel_flags: ServerPeerChannelFlag | None = None,
+        mask: ServerPeerChannelFlag | None = None) -> list[ExternalPeerChannelRow]:
+    sql = """
+        SELECT peer_channel_id, invoice_id, remote_channel_id, remote_url, peer_channel_flags,
+            date_created, date_updated
+        FROM ExternalPeerChannels
+        """
+    sql_values: list[Any] = []
+    where_clause = False
+    if remote_channel_id is not None:
+        sql += "WHERE remote_channel_id=? "
+        sql_values.append(remote_channel_id)
+        where_clause = True
+
+    clause, extra_values = flag_clause("peer_channel_flags", peer_channel_flags, mask)
+    if clause:
+        if where_clause:
+            sql += f"AND {clause}"
+        else:
+            sql += f"WHERE {clause} "
+            where_clause = True
+        sql_values.extend(extra_values)
+
+    cursor = db.execute(sql, sql_values)
+    return [ ExternalPeerChannelRow(row[0], row[1], row[2], row[3], ServerPeerChannelFlag(row[4]),
+        row[5], row[6]) for row in cursor.fetchall() ]
+
+
+@replace_db_context_with_connection
+def read_external_peer_channel_messages_by_id(db: sqlite3.Connection, peer_channel_id: int,
+        most_recent_only: bool=False) -> list[PeerChannelMessageRow]:
+    sql = """
+        SELECT message_id, peer_channel_id, message_data, message_flags, sequence,
+            date_received, date_created, date_updated
+        FROM ExternalPeerChannelMessages
+    """
+    sql_values: list[Any] = []
+    where_clause = False
+    if peer_channel_id is not None:
+        sql += "WHERE peer_channel_id=? "
+        sql_values.append(peer_channel_id)
+        where_clause = True
+
+    if most_recent_only is not None:
+        sql += "ORDER BY date_received DESC LIMIT 1"
+
+    cursor = db.execute(sql, sql_values)
+    return [ PeerChannelMessageRow(row[0], row[1], row[2], PeerChannelMessageFlag(row[3]), row[4],
+        row[5], row[6], row[7]) for row in cursor.fetchall() ]
+
+
 def update_server_peer_channel_write(remote_channel_id: Optional[str],
         remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
-        peer_channel_id: int, addable_access_tokens: list[ServerPeerChannelAccessTokenRow],
+        peer_channel_id: int, addable_access_tokens: list[PeerChannelAccessTokenRow],
         db: Optional[sqlite3.Connection]=None) -> ServerPeerChannelRow:
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = """
@@ -1517,6 +1623,45 @@ def update_server_peer_channel_write(remote_channel_id: Optional[str],
 
     return result_row
 
+
+def update_external_peer_channel_message_flags_write(processed_message_ids: list[int],
+        db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql = "UPDATE ExternalPeerChannelMessages SET message_flags=message_flags&? " \
+        "WHERE message_id IN ({})"
+    sql_values = [ ~PeerChannelMessageFlag.UNPROCESSED ]
+    execute_sql_by_id(db, sql, sql_values, processed_message_ids)
+
+
+def update_external_peer_channel_write(remote_channel_id: str | None,
+        remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
+        peer_channel_id: int, addable_access_tokens: list[PeerChannelAccessTokenRow],
+        db: Optional[sqlite3.Connection]=None) -> ExternalPeerChannelRow:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    sql = """
+        UPDATE ExternalPeerChannels
+        SET remote_channel_id=?1, remote_url=?2, peer_channel_flags=?3
+        WHERE peer_channel_id=?4
+        RETURNING peer_channel_id, invoice_id, remote_channel_id, remote_url, peer_channel_flags,
+            date_created, date_updated
+    """
+    cursor = db.execute(sql, (remote_channel_id, remote_url, peer_channel_flags, peer_channel_id))
+    rows = cursor.fetchall()
+    assert len(rows) == 1
+    row = rows[0]
+    result_row = ExternalPeerChannelRow(row[0], row[1], row[2], row[3],
+        ServerPeerChannelFlag(row[4]), row[5], row[6])
+
+    if len(addable_access_tokens) > 0:
+        sql = "INSERT INTO ExternalPeerChannelAccessTokens (peer_channel_id, " \
+            "token_flags, permission_flags, access_token) VALUES (?,?,?,?)"
+        cursor = db.executemany(sql, addable_access_tokens)
+        assert cursor.rowcount == len(addable_access_tokens)
+
+    return result_row
+
+
+
 def update_server_peer_channel_message_flags_write(processed_message_ids: list[int],
         db: Optional[sqlite3.Connection]=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
@@ -1529,7 +1674,7 @@ def update_server_peer_channel_message_flags_write(processed_message_ids: list[i
 @replace_db_context_with_connection
 def read_server_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_id: int,
         mask: Optional[PeerChannelAccessTokenFlag], flags: Optional[PeerChannelAccessTokenFlag]) \
-            -> list[ServerPeerChannelAccessTokenRow]:
+            -> list[PeerChannelAccessTokenRow]:
     sql = "SELECT peer_channel_id, token_flags, permission_flags, access_token " \
         "FROM ServerPeerChannelAccessTokens WHERE peer_channel_id=?"
     sql_values: list[Any] = [peer_channel_id]
@@ -1538,12 +1683,28 @@ def read_server_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_
         sql += " AND "+ clause
         sql_values.extend(extra_values)
 
-    return [ ServerPeerChannelAccessTokenRow(*row)
+    return [ PeerChannelAccessTokenRow(*row)
         for row in db.execute(sql, sql_values).fetchall() ]
 
 
-def create_server_peer_channel_messages_write(create_rows: list[ServerPeerChannelMessageRow],
-        db: Optional[sqlite3.Connection]=None) -> list[ServerPeerChannelMessageRow]:
+@replace_db_context_with_connection
+def read_external_peer_channel_access_tokens(db: sqlite3.Connection, peer_channel_id: int,
+        mask: Optional[PeerChannelAccessTokenFlag], flags: Optional[PeerChannelAccessTokenFlag]) \
+            -> list[PeerChannelAccessTokenRow]:
+    sql = "SELECT peer_channel_id, token_flags, permission_flags, access_token " \
+        "FROM ExternalPeerChannelAccessTokens WHERE peer_channel_id=?"
+    sql_values: list[Any] = [peer_channel_id]
+    clause, extra_values = flag_clause("token_flags", flags, mask)
+    if clause:
+        sql += " AND "+ clause
+        sql_values.extend(extra_values)
+
+    return [ PeerChannelAccessTokenRow(*row)
+        for row in db.execute(sql, sql_values).fetchall() ]
+
+
+def create_server_peer_channel_messages_write(create_rows: list[PeerChannelMessageRow],
+        db: Optional[sqlite3.Connection]=None) -> list[PeerChannelMessageRow]:
     assert db is not None
 
     insert_prefix_sql = """
@@ -1557,7 +1718,26 @@ def create_server_peer_channel_messages_write(create_rows: list[ServerPeerChanne
     """
     # Remember we cannot just return the `message_id` and substitute it into the source row
     # because SQLite cannot guarantee the row order matches the returned assigned id order.
-    return bulk_insert_returning(ServerPeerChannelMessageRow, db, insert_prefix_sql,
+    return bulk_insert_returning(PeerChannelMessageRow, db, insert_prefix_sql,
+        insert_suffix_sql, create_rows)
+
+
+def create_external_peer_channel_messages_write(create_rows: list[PeerChannelMessageRow],
+        db: Optional[sqlite3.Connection]=None) -> list[PeerChannelMessageRow]:
+    assert db is not None
+
+    insert_prefix_sql = """
+        INSERT INTO ExternalPeerChannelMessages (message_id, peer_channel_id, message_data,
+            message_flags, sequence, date_received, date_created, date_updated)
+        VALUES
+    """
+    insert_suffix_sql = """
+        RETURNING message_id, peer_channel_id, message_data, message_flags, sequence,
+            date_received, date_created, date_updated
+    """
+    # Remember we cannot just return the `message_id` and substitute it into the source row
+    # because SQLite cannot guarantee the row order matches the returned assigned id order.
+    return bulk_insert_returning(PeerChannelMessageRow, db, insert_prefix_sql,
         insert_suffix_sql, create_rows)
 
 
@@ -1566,7 +1746,7 @@ def read_server_peer_channel_messages(db: sqlite3.Connection, server_id: int,
         message_flags: Optional[PeerChannelMessageFlag],
         message_mask: Optional[PeerChannelMessageFlag],
         channel_flags: Optional[ServerPeerChannelFlag],
-        channel_mask: Optional[ServerPeerChannelFlag]) -> list[ServerPeerChannelMessageRow]:
+        channel_mask: Optional[ServerPeerChannelFlag]) -> list[PeerChannelMessageRow]:
     sql = """
         SELECT SPCM.message_id, SPCM.peer_channel_id, SPCM.message_data, SPCM.message_flags,
             SPCM.sequence, SPCM.date_received, SPCM.date_created, SPCM.date_updated
@@ -1583,7 +1763,31 @@ def read_server_peer_channel_messages(db: sqlite3.Connection, server_id: int,
     if clause:
         sql += f" AND ({clause})"
         sql_values.extend(extra_values2)
-    return [ ServerPeerChannelMessageRow(*row) for row in db.execute(sql, sql_values).fetchall() ]
+    return [ PeerChannelMessageRow(*row) for row in db.execute(sql, sql_values).fetchall()]
+
+
+@replace_db_context_with_connection
+def read_external_peer_channel_messages(db: sqlite3.Connection,
+        message_flags: Optional[PeerChannelMessageFlag],
+        message_mask: Optional[PeerChannelMessageFlag],
+        channel_flags: Optional[ServerPeerChannelFlag],
+        channel_mask: Optional[ServerPeerChannelFlag]) -> list[PeerChannelMessageRow]:
+    sql = """
+        SELECT EPCM.message_id, EPCM.peer_channel_id, EPCM.message_data, EPCM.message_flags,
+            EPCM.sequence, EPCM.date_received, EPCM.date_created, EPCM.date_updated
+        FROM ExternalPeerChannelMessages AS EPCM
+        INNER JOIN ExternalPeerChannels AS EPC ON EPC.peer_channel_id=EPCM.peer_channel_id
+    """
+    sql_values = list[Any]()
+    clause, extra_values1 = flag_clause("EPCM.message_flags", message_flags, message_mask)
+    if clause:
+        sql += f" AND ({clause})"
+        sql_values.extend(extra_values1)
+    clause, extra_values2 = flag_clause("EPC.peer_channel_flags", channel_flags, channel_mask)
+    if clause:
+        sql += f" AND ({clause})"
+        sql_values.extend(extra_values2)
+    return [ PeerChannelMessageRow(*row) for row in db.execute(sql, sql_values).fetchall()]
 
 
 @replace_db_context_with_connection
@@ -1891,7 +2095,8 @@ def update_transaction_output_flags(db_context: DatabaseContext, txo_keys: list[
 
 def update_transaction_proof_write(tx_update_rows: list[TransactionProofUpdateRow],
         proof_rows: list[MerkleProofRow], proof_update_rows: list[MerkleProofUpdateRow],
-        processed_message_ids: list[int], db: Optional[sqlite3.Connection]=None) -> None:
+        processed_message_ids: list[int], processed_message_ids_externally_owned: list[int],
+        db: Optional[sqlite3.Connection]=None) -> None:
     """
     Set the proof related fields for a transaction. We also insert the proof into the proofs table.
 
@@ -1938,12 +2143,15 @@ def update_transaction_proof_write(tx_update_rows: list[TransactionProofUpdateRo
     if len(processed_message_ids) > 0:
         update_server_peer_channel_message_flags_write(processed_message_ids, db)
 
+    if len(processed_message_ids_externally_owned) > 0:
+        update_external_peer_channel_message_flags_write(processed_message_ids_externally_owned, db)
+
 
 def update_transaction_proof_and_flag_write(tx_update_rows: list[TransactionProofUpdateRow],
         flag_entries: list[tuple[TxFlags, TxFlags, bytes]],
         db: Optional[sqlite3.Connection]=None) -> None:
     assert db is not None
-    update_transaction_proof_write(tx_update_rows, [], [], [], db)
+    update_transaction_proof_write(tx_update_rows, [], [], [], [], db)
     update_transaction_flags_write(flag_entries, db)
 
 
@@ -2275,7 +2483,7 @@ def update_payment_requests_write(entries: Iterable[PaymentRequestUpdateRow],
         db: sqlite3.Connection | None=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
     sql = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, date_expires=?, "
-        "description=?, merchant_reference=? WHERE paymentrequest_id=?")
+        "description=?, merchant_reference=?, dpp_ack_json=? WHERE paymentrequest_id=?")
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
     db.executemany(sql, rows)

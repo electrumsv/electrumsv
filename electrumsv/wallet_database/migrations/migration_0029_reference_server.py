@@ -237,6 +237,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             value                       INTEGER     NULL,
             server_id                   INTEGER     NULL,
             dpp_invoice_id              TEXT        NULL,
+            dpp_ack_json           TEXT        NULL,
             merchant_reference          TEXT        NULL,
             encrypted_key_text          TEXT        NULL,
             date_created                INTEGER     NOT NULL,
@@ -336,11 +337,11 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         #   table.
         conn.execute("""
             INSERT INTO PaymentRequests2 (paymentrequest_id, state, description, date_expires,
-                value, server_id, dpp_invoice_id, merchant_reference, encrypted_key_text,
-                date_created, date_updated)
+                value, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference, 
+                encrypted_key_text, date_created, date_updated)
             SELECT PR.paymentrequest_id, PR.state, PR.description,
                 CASE WHEN PR.expiration IS NULL THEN NULL ELSE PR.date_created + PR.expiration END,
-                PR.value, NULL, NULL, NULL, NULL, PR.date_created,
+                PR.value, NULL, NULL, NULL, NULL, NULL, PR.date_created,
                 PR.date_updated
             FROM PaymentRequests AS PR
             WHERE paymentrequest_id=?
@@ -392,12 +393,35 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     """)
 
     conn.execute("""
+        CREATE TABLE ExternalPeerChannels (
+            peer_channel_id             INTEGER     PRIMARY KEY,
+            invoice_id                  INTEGER     NOT NULL,
+            remote_channel_id           TEXT        DEFAULT NULL,
+            remote_url                  TEXT        DEFAULT NULL,
+            peer_channel_flags          INTEGER     NOT NULL,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (invoice_id) REFERENCES Invoices (invoice_id)
+        )
+    """)
+
+    conn.execute("""
         CREATE TABLE ServerPeerChannelAccessTokens (
             peer_channel_id             INTEGER     NOT NULL,
             token_flags                 INTEGER     NOT NULL,
             permission_flags            INTEGER     NOT NULL,
             access_token                TEXT        NOT NULL,
             FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE ExternalPeerChannelAccessTokens (
+            peer_channel_id             INTEGER     NOT NULL,
+            token_flags                 INTEGER     NOT NULL,
+            permission_flags            INTEGER     NOT NULL,
+            access_token                TEXT        NOT NULL,
+            FOREIGN KEY (peer_channel_id) REFERENCES ExternalPeerChannels (peer_channel_id)
         )
     """)
 
@@ -412,6 +436,20 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,
             FOREIGN KEY (peer_channel_id) REFERENCES ServerPeerChannels (peer_channel_id)
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE ExternalPeerChannelMessages (
+            message_id                  INTEGER     PRIMARY KEY,
+            peer_channel_id             INTEGER     NOT NULL,
+            message_data                BLOB        NOT NULL,
+            message_flags               INTEGER     NOT NULL,
+            sequence                    INTEGER     NOT NULL,
+            date_received               INTEGER     NOT NULL,
+            date_created                INTEGER     NOT NULL,
+            date_updated                INTEGER     NOT NULL,
+            FOREIGN KEY (peer_channel_id) REFERENCES ExternalPeerChannels (peer_channel_id)
         )
     """)
 

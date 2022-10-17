@@ -46,8 +46,8 @@ from typing import Any, AsyncIterable, Awaitable, Callable, cast, Coroutine, Ite
 import weakref
 
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
-    BIP32PrivateKey, Chain, double_sha256, Header, hash_to_hex_str, hex_str_to_hash,
-    MissingHeader, P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Script)
+    BIP32PrivateKey, Chain, double_sha256, Header, hash_to_hex_str, hex_str_to_hash, MissingHeader,
+    P2PKH_Address, P2SH_Address, PrivateKey, PublicKey, Script)
 from electrumsv_database.sqlite import DatabaseContext
 
 from . import coinchooser
@@ -55,20 +55,19 @@ from .app_state import app_state
 from .bitcoin import  scripthash_bytes, ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
     API_SERVER_TYPES, BlockHeight, ChainManagementKind, ChainWorkerToken, CHANGE_SUBPATH,
-    DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType,
-    DerivationPath, KeyInstanceFlag, KeystoreTextType, KeystoreType, MAPIBroadcastFlag,
-    MasterKeyFlags, MAX_VALUE, MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB,
-    NetworkEventNames, NetworkServerFlag, NetworkServerType, PaymentFlag,
-    PeerChannelAccessTokenFlag,
-    PeerChannelMessageFlag, PushDataHashRegistrationFlag, PushDataMatchFlag, RECEIVING_SUBPATH,
-    SERVER_USES, ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag,
-    ScriptType, TransactionImportFlag,
-    TransactionInputFlag, TransactionOutputFlag, TxFlags, unpack_derivation_path,
-    WALLET_ACCOUNT_PATH_TEXT, WALLET_IDENTITY_PATH_TEXT, WalletEvent, WalletEventFlag,
-    WalletEventType, WalletSettings)
+    DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath,
+    KeyInstanceFlag, KeystoreTextType, KeystoreType, MAPIBroadcastFlag, MasterKeyFlags, MAX_VALUE,
+    MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkEventNames,
+    NetworkServerFlag, NetworkServerType, PaymentFlag, PeerChannelAccessTokenFlag,
+    PeerChannelMessageFlag, PushDataHashRegistrationFlag, PushDataMatchFlag,
+    PEER_CHANNEL_EXPIRY_SECONDS, RECEIVING_SUBPATH, SERVER_USES,
+    ServerCapability, ServerConnectionFlag, ServerPeerChannelFlag, ScriptType,
+    TransactionImportFlag, TransactionInputFlag, TransactionOutputFlag, TxFlags,
+    unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT, WALLET_IDENTITY_PATH_TEXT, WalletEvent,
+    WalletEventFlag, WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
-from .dpp_messages import Payment, PaymentACK
+from .dpp_messages import Payment, PaymentACK, PeerChannelDict, PaymentACKDict
 from .exceptions import (BadServerError, Bip270Exception, BroadcastError, ExcessiveFee,
     InvalidPassword, NotEnoughFunds, NoViableServersError, PreviousTransactionsMissingException,
     ServerConnectionError, ServerError, UnsupportedAccountTypeError, UnsupportedScriptTypeError,
@@ -79,23 +78,25 @@ from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore,
     SinglesigKeyStoreTypes, SignableKeystoreTypes, StandardKeystoreTypes, Xpub
 from .logs import logs
 from .network_support.api_server import APIServerDefinition, NewServer
-from .network_support.direct_payments import send_outgoing_direct_payment_async, \
-    dpp_make_peer_channel_info, dpp_make_ack, dpp_make_payment_error, \
-    dpp_make_payment_request_response
+from .network_support.direct_payments import dpp_make_ack, dpp_make_payment_error, \
+    dpp_make_payment_request_response, send_outgoing_direct_payment_async, \
+    dpp_make_payment_request_error
 from .network_support.dpp_proxy import _is_later_dpp_message_sequence, \
     close_dpp_server_connection_async, create_dpp_server_connection_async, \
     create_dpp_server_connections_async, dpp_websocket_send, find_connectable_dpp_server, \
-    MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS
+    MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_REQUEST_CREATE
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
     create_tip_filter_registration_async, delete_tip_filter_registration_async, \
     maintain_server_connection_async, request_binary_merkle_proof_async, \
     request_transaction_data_async, upgrade_server_connection_async
+from .network_support.peer_channel import maintain_external_peer_channel_connection_async
 from .network_support.headers import get_longest_valid_chain
 from .network_support.mapi import mapi_transaction_broadcast_async, update_mapi_fee_quotes_async
-from .network_support.types import GenericPeerChannelMessage, ServerConnectionProblems, \
-    ServerConnectionState, TipFilterPushDataMatchesData, TipFilterRegistrationJobOutput
+from .network_support.types import GenericPeerChannelMessage, PeerChannelServerState, \
+    ServerConnectionProblems, ServerConnectionState, ServerStateProtocol, \
+    TipFilterPushDataMatchesData, TipFilterRegistrationJobOutput, TokenPermissions
 from .networks import Net
 from .restapi_websocket import broadcast_restapi_event_async, BroadcastEventNames, \
     BroadcastEventPayloadNames, close_restapi_connection_async
@@ -123,17 +124,16 @@ from .wallet_database.exceptions import DatabaseUpdateError, KeyInstanceNotFound
 from .wallet_database import functions as db_functions
 from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow,
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
-    HistoryListRow, InvoiceAccountRow, InvoiceRow, KeyDataProtocol, KeyData,
-    KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow,
-    MAPIBroadcastRow, MasterKeyRow, NetworkServerRow,
-    PasswordUpdateResult, PaymentRequestRow, PaymentRequestOutputRow, PaymentRequestUpdateRow,
-    MerkleProofUpdateRow, PushDataHashRegistrationRow, PushDataMatchRow, PushDataMatchMetadataRow,
-    ServerPeerChannelRow, ServerPeerChannelAccessTokenRow, ServerPeerChannelMessageRow,
-    SpentOutputRow, TransactionDeltaSumRow, TransactionExistsRow, TransactionLinkState,
-    TransactionOutputShortRow, TransactionOutputSpendableRow,
-    TransactionOutputSpendableProtocol, TransactionInputAddRow, TransactionOutputAddRow,
-    MerkleProofRow, TransactionProofUpdateRow, TransactionRow, TransactionValueRow, WalletBalance,
-    WalletEventInsertRow, WalletEventRow, DPPMessageRow)
+    DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceAccountRow, InvoiceRow,
+    KeyDataProtocol, KeyData, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow,
+    MAPIBroadcastRow, MasterKeyRow, NetworkServerRow, PasswordUpdateResult, PaymentRequestRow,
+    PaymentRequestOutputRow, PaymentRequestUpdateRow, MerkleProofUpdateRow,
+    PushDataHashRegistrationRow, PushDataMatchRow, PushDataMatchMetadataRow, ServerPeerChannelRow,
+    PeerChannelAccessTokenRow, PeerChannelMessageRow, SpentOutputRow,
+    TransactionDeltaSumRow, TransactionExistsRow, TransactionLinkState, TransactionOutputShortRow,
+    TransactionOutputSpendableRow, TransactionOutputSpendableProtocol, TransactionInputAddRow,
+    TransactionOutputAddRow, MerkleProofRow, TransactionProofUpdateRow, TransactionRow,
+    TransactionValueRow, WalletBalance, WalletEventInsertRow, WalletEventRow)
 from .wallet_database.util import create_derivation_data2
 from .wallet_support.keys import get_multi_signer_script_template, \
     get_pushdata_hash_for_derivation, get_pushdata_hash_for_public_keys, \
@@ -1080,7 +1080,8 @@ class AbstractAccount:
     async def create_payment_request_async(self, amount: int, internal_description: str | None,
             merchant_reference: str | None, date_expires: int | None = None,
             server_id: int | None = None, dpp_invoice_id: str | None=None,
-            encrypted_key_text: str | None=None, flags: PaymentFlag=PaymentFlag.NONE) \
+            dpp_ack_json: str | None=None, encrypted_key_text: str | None=None,
+            flags: PaymentFlag=PaymentFlag.NONE) \
                 -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
         # The payment request flags that are allowed to be set are just the supplementary flags,
         # not the state flags.
@@ -1106,7 +1107,7 @@ class AbstractAccount:
         date_created = int(time.time())
         # This will get the payment request id assigned on insert.
         request_row = PaymentRequestRow(None, flags | PaymentFlag.UNPAID, amount, date_expires,
-            internal_description, server_id, dpp_invoice_id, merchant_reference,
+            internal_description, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
             encrypted_key_text, date_created, date_created)
         request_output_rows: list[PaymentRequestOutputRow] = [
             PaymentRequestOutputRow(None, 0, 0, script_type, script_template.to_script_bytes(),
@@ -1870,8 +1871,8 @@ class WalletDataAccess:
             entries: Iterable[tuple[PaymentFlag, PaymentFlag, int]]) -> None:
         await self._db_context.run_in_thread_async(db_functions.update_invoice_flags, entries)
 
-    def delete_invoices(self, entries: Iterable[tuple[int]]) -> concurrent.futures.Future[None]:
-        return db_functions.delete_invoices(self._db_context, entries)
+    def delete_invoices(self, invoice_ids: list[int]) -> concurrent.futures.Future[None]:
+        return db_functions.delete_invoices(self._db_context, invoice_ids)
 
     async def create_invoice_proxy_message_async(self, dpp_messages: list[DPPMessageRow]) -> None:
         await self._db_context.run_in_thread_async(db_functions.create_dpp_messages, dpp_messages)
@@ -2070,6 +2071,38 @@ class WalletDataAccess:
 
     # Peer channels.
 
+    async def create_external_peer_channel_async(self,
+            remote_channel_id: str, remote_url: str, token: str, invoice_id: int) \
+                -> tuple[ExternalPeerChannelRow, PeerChannelAccessTokenRow]:
+        """
+        This is similar in function to the `create_peer_channel_locally_and_remotely_async` except
+        that we are not the creator of the remote peer channel (the payee already created it)
+        """
+        date_created = get_posix_timestamp()
+        remote_peer_channel_id = remote_channel_id
+        peer_channel_flags = ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK
+        peer_channel_row = ExternalPeerChannelRow(None, invoice_id, remote_peer_channel_id,
+            remote_url, peer_channel_flags, date_created, date_created)
+        peer_channel_id = await self._db_context.run_in_thread_async(
+            db_functions.create_external_peer_channel_write, peer_channel_row)
+        peer_channel_row = peer_channel_row._replace(peer_channel_id=peer_channel_id)
+        logger.debug("Added peer channel %s with flags: %s", remote_peer_channel_id,
+            peer_channel_row.peer_channel_flags)
+
+        # Record peer channel token in the database if it doesn't exist there already
+        assert peer_channel_row.peer_channel_id is not None
+        read_only_access_token_flag = PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE | \
+                                      PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE
+        read_only_access_token = PeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
+            read_only_access_token_flag, TokenPermissions.READ_ACCESS, token)
+
+        # Add the read_only token
+        peer_channel_row = await self.update_external_peer_channel_async(
+            remote_peer_channel_id, remote_url, peer_channel_flags, peer_channel_id,
+            addable_access_tokens=[read_only_access_token])
+
+        return peer_channel_row, read_only_access_token
+
     async def create_server_peer_channel_async(self, row: ServerPeerChannelRow,
             tip_filter_server_id: Optional[int]=None) -> int:
         return await self._db_context.run_in_thread_async(
@@ -2079,34 +2112,74 @@ class WalletDataAccess:
             peer_channel_id: int | None = None) -> list[ServerPeerChannelRow]:
         return db_functions.read_server_peer_channels(self._db_context, server_id, peer_channel_id)
 
+    def read_external_peer_channels(self, remote_channel_id: str | None = None,
+            flags: ServerPeerChannelFlag | None = None, mask: ServerPeerChannelFlag | None = None) \
+            -> list[ExternalPeerChannelRow]:
+        return db_functions.read_external_peer_channels(self._db_context, remote_channel_id, flags,
+            mask)
+
+    def read_external_peer_channel_messages_by_id(self, peer_channel_id: int,
+            most_recent_only: bool=False) -> list[PeerChannelMessageRow]:
+        return db_functions.read_external_peer_channel_messages_by_id(self._db_context,
+            peer_channel_id, most_recent_only)
+
     def read_server_peer_channel_access_tokens(self, peer_channel_id: int,
             mask: Optional[PeerChannelAccessTokenFlag]=None,
             flags: Optional[PeerChannelAccessTokenFlag]=None) \
-                -> list[ServerPeerChannelAccessTokenRow]:
+                -> list[PeerChannelAccessTokenRow]:
         return db_functions.read_server_peer_channel_access_tokens(self._db_context,
             peer_channel_id, mask, flags)
 
-    async def update_server_peer_channel_async(self, remote_channel_id: Optional[str],
-            remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
-            peer_channel_id: int,
-            addable_access_tokens: list[ServerPeerChannelAccessTokenRow]) -> ServerPeerChannelRow:
+    def read_external_peer_channel_access_tokens(self, peer_channel_id: int,
+            mask: Optional[PeerChannelAccessTokenFlag]=None,
+            flags: Optional[PeerChannelAccessTokenFlag]=None) \
+                -> list[PeerChannelAccessTokenRow]:
+        return db_functions.read_external_peer_channel_access_tokens(self._db_context,
+            peer_channel_id, mask, flags)
+
+    async def update_server_peer_channel_async(self, remote_channel_id: str | None,
+                remote_url: str | None, peer_channel_flags: ServerPeerChannelFlag,
+                peer_channel_id: int,
+            addable_access_tokens: list[PeerChannelAccessTokenRow]) -> ServerPeerChannelRow:
         return await self._db_context.run_in_thread_async(
             db_functions.update_server_peer_channel_write, remote_channel_id, remote_url,
                 peer_channel_flags, peer_channel_id, addable_access_tokens)
 
+    async def update_external_peer_channel_async(self, remote_channel_id: Optional[str],
+            remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
+            peer_channel_id: int, addable_access_tokens: list[
+                PeerChannelAccessTokenRow]) -> ExternalPeerChannelRow:
+        return await self._db_context.run_in_thread_async(
+            db_functions.update_external_peer_channel_write, remote_channel_id, remote_url,
+                peer_channel_flags, peer_channel_id, addable_access_tokens)
+
     async def create_server_peer_channel_messages_async(self,
-            rows: list[ServerPeerChannelMessageRow]) -> list[ServerPeerChannelMessageRow]:
+            rows: list[PeerChannelMessageRow]) -> list[PeerChannelMessageRow]:
         return await self._db_context.run_in_thread_async(
             db_functions.create_server_peer_channel_messages_write, rows)
+
+    async def create_external_peer_channel_messages_async(self,
+            rows: list[PeerChannelMessageRow]) -> list[PeerChannelMessageRow]:
+        return await self._db_context.run_in_thread_async(
+            db_functions.create_external_peer_channel_messages_write, rows)
 
     async def read_server_peer_channel_messages_async(self, server_id: int,
             message_flags: Optional[PeerChannelMessageFlag]=None,
             message_mask: Optional[PeerChannelMessageFlag]=None,
             channel_flags: Optional[ServerPeerChannelFlag]=None,
             channel_mask: Optional[ServerPeerChannelFlag]=None) \
-                -> list[ServerPeerChannelMessageRow]:
+                -> list[PeerChannelMessageRow]:
         return db_functions.read_server_peer_channel_messages(self._db_context, server_id,
             message_flags, message_mask, channel_flags, channel_mask)
+
+    async def read_external_peer_channel_messages_async(self,
+            message_flags: Optional[PeerChannelMessageFlag]=None,
+            message_mask: Optional[PeerChannelMessageFlag]=None,
+            channel_flags: Optional[ServerPeerChannelFlag]=None,
+            channel_mask: Optional[ServerPeerChannelFlag]=None) \
+                -> list[PeerChannelMessageRow]:
+        return db_functions.read_external_peer_channel_messages(self._db_context, message_flags,
+            message_mask, channel_flags, channel_mask)
 
     # Pushdata hashes.
 
@@ -2233,10 +2306,11 @@ class WalletDataAccess:
 
     async def update_transaction_proof_async(self, tx_update_rows: list[TransactionProofUpdateRow],
             proof_rows: list[MerkleProofRow], proof_update_rows: list[MerkleProofUpdateRow],
-            processed_message_ids: list[int]) -> None:
+            processed_message_ids: list[int], processed_message_ids_externally_owned: list[int]) \
+                -> None:
         return await self._db_context.run_in_thread_async(
             db_functions.update_transaction_proof_write, tx_update_rows, proof_rows,
-                proof_update_rows, processed_message_ids)
+                proof_update_rows, processed_message_ids, processed_message_ids_externally_owned)
 
     async def update_transaction_proofs_and_flags(self,
             tx_update_rows: list[TransactionProofUpdateRow],
@@ -2363,7 +2437,9 @@ class Wallet:
         self._fee_quote_lock = asyncio.Lock()
 
         ## State related to the wallet processing headers from it's header source.
-        self._header_source_synchronised_event = asyncio.Event()
+        self._header_source_chain_reconciled_event = asyncio.Event()
+        self._blockchain_server_chain_reconciled_event = asyncio.Event()
+
         self._start_chain_management_event = asyncio.Event()
 
         # It is possible that the wallet receives merkle proofs that it cannot process because
@@ -2379,6 +2455,10 @@ class Wallet:
         self._worker_task_manage_server_connections: concurrent.futures.Future[None] | None = None
         self._worker_task_manage_dpp_connections: Optional[concurrent.futures.Future[None]] = None
         self._worker_tasks_maintain_server_connection: dict[int, list[ServerConnectionState]] = {}
+        self._worker_tasks_external_peer_channel_connections = \
+            dict[int, list[PeerChannelServerState]]()
+        self._worker_task_peer_channel_garbage_collection: \
+            concurrent.futures.Future[None] | None = None
         self._worker_task_chain_management: concurrent.futures.Future[None] | None = None
         self._worker_task_obtain_transactions: concurrent.futures.Future[None] | None = None
         self._worker_task_obtain_merkle_proofs: concurrent.futures.Future[None] | None = None
@@ -3559,7 +3639,7 @@ class Wallet:
 
     async def broadcast_transaction_async(self, transaction: Transaction,
             transaction_context: TransactionContext | None) -> \
-                tuple[MAPIBroadcastResponse, ServerConnectionState | None]:
+                tuple[MAPIBroadcastResponse, PeerChannelDict | None, ServerConnectionState | None]:
         """
         Broadcast a transaction. This transaction does not even have to be known to the wallet.
 
@@ -3567,15 +3647,16 @@ class Wallet:
         """
         broadcast_hash = transaction.hash()
         successful = False
+        peer_channel_server_state: ServerConnectionState | None = None
         if transaction_context is not None and transaction_context.mapi_server_hint is not None:
             # For now we expect to be connected to a peer channel server.
             peer_channel_server_state = self.get_connection_state_for_usage(
                 NetworkServerFlag.USE_MESSAGE_BOX)
             assert peer_channel_server_state is not None
 
-            broadcast_response = await mapi_transaction_broadcast_async(self.data,
-                peer_channel_server_state, transaction_context.mapi_server_hint, transaction, True,
-                True)
+            broadcast_response, peer_channel_info = await mapi_transaction_broadcast_async(
+                self.data, peer_channel_server_state, transaction_context.mapi_server_hint,
+                transaction, True, True)
             successful = broadcast_response["returnResult"] == "success"
         else:
             raise BroadcastError("P2P broadcast is not currently supported")
@@ -3584,7 +3665,7 @@ class Wallet:
             await self.set_transaction_state_async(broadcast_hash, TxFlags.STATE_CLEARED,
                 TxFlags.MASK_STATE_BROADCAST)
 
-        return broadcast_response, peer_channel_server_state
+        return broadcast_response, peer_channel_info, peer_channel_server_state
 
     async def update_mapi_fee_quotes_async(self, account_id: int, timeout: float=4.0) \
             -> AsyncIterable[tuple[NewServer, IndefiniteCredentialId | None]]:
@@ -3952,6 +4033,53 @@ class Wallet:
             if websocket_state2 is not None:
                 await close_restapi_connection_async(websocket_state1)
 
+    async def subscribe_to_external_peer_channel(self, remote_url: str,
+            remote_channel_id: str, token: str, invoice_id: int,
+            pre_existing_channel: bool=False) -> None:
+        """Calling this must be idempotent - i.e. it will only perform database writes if
+        there is not already an entry, otherwise it only updates in-memory caches and re-establishes
+        websocket connectivity"""
+        credential_id = app_state.credentials.add_indefinite_credential(
+            token)
+        assert self._network is not None
+        # Add Peer Channel information to the database if it has not already been added
+        if not pre_existing_channel:
+            peer_channel_row, read_token = await self.data.create_external_peer_channel_async(
+                remote_channel_id, remote_url, token, invoice_id=invoice_id)
+        else:
+            channel_rows = self.data.read_external_peer_channels(
+                remote_channel_id=remote_channel_id)
+            assert len(channel_rows) == 1
+            peer_channel_row = channel_rows[0]
+
+        peer_channel_server_state = PeerChannelServerState(
+            wallet_proxy=weakref.proxy(self),
+            wallet_data=self.data,
+            session=self._network.aiohttp_session,
+            credential_id=credential_id,
+            remote_channel_id=remote_channel_id,
+            external_channel_row=peer_channel_row
+        )
+
+        assert peer_channel_row.remote_channel_id is not None
+        peer_channel_server_state.mapi_callback_consumer_future = app_state.async_.spawn(
+            self._consume_mapi_callback_messages_async(peer_channel_server_state))
+
+        # Connect to the peer channel and actively listen on the websocket for messages
+        peer_channel_server_state.connection_future = app_state.async_.spawn(
+            maintain_external_peer_channel_connection_async(peer_channel_server_state))
+        peer_channel_server_state.connection_future.add_done_callback(
+            partial(self._maintain_server_connection_done, peer_channel_server_state))
+
+        account_id = self._petty_cash_account.get_id()
+        if self._worker_tasks_external_peer_channel_connections.get(account_id) is not None:
+            self._worker_tasks_external_peer_channel_connections[account_id]\
+                .append(peer_channel_server_state)
+        else:
+            self._worker_tasks_external_peer_channel_connections[account_id] = \
+                [(peer_channel_server_state)]
+
+
     async def send_outgoing_direct_payment_async(self, invoice_id: int,
             transaction: Transaction) -> PaymentACK:
         """
@@ -3967,20 +4095,20 @@ class Wallet:
 
         payment_ack = await send_outgoing_direct_payment_async(
             invoice_row.payment_uri, transaction.to_hex())
-
-        # This was wrong. We need to start up a custom connection for the payment ack using the
-        # new model.
-        # peer_channel_server_state = self.get_connection_state_for_usage(
-        #     NetworkServerFlag.USE_MESSAGE_BOX)
-        # assert peer_channel_server_state is not None
-        # await add_external_peer_channel_async(peer_channel_server_state,
-        #     payment_ack.peer_channel_info)
+        await self.set_transaction_state_async(transaction_hash, TxFlags.STATE_DISPATCHED,
+            TxFlags.MASK_STATE_BROADCAST)
+        assert payment_ack.peer_channel_info is not None
+        remote_url = payment_ack.peer_channel_info['host']
+        remote_channel_id = payment_ack.peer_channel_info['channel_id']
+        token = payment_ack.peer_channel_info['token']
+        await self.subscribe_to_external_peer_channel(remote_url=remote_url,
+            remote_channel_id=remote_channel_id, token=token, invoice_id=invoice_id,
+            pre_existing_channel=False)
 
         await self.data.update_invoice_flags_async(
             [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
         await self.notify_external_listeners_async("outgoing-payment-delivered",
             invoice_id=invoice_id)
-
         return payment_ack
 
     def _event_transaction_verified(self, event_name: str, transaction_hash: bytes, header: Header,
@@ -4027,7 +4155,7 @@ class Wallet:
         self._dpp_invoice_credentials: dict[str, tuple[IndefiniteCredentialId, PublicKey]] = {}
         payment_request_rows = self.data.read_payment_requests(
             flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID,
-            mask= PaymentFlag.MASK_TYPE | PaymentFlag.MASK_STATE)
+            mask=PaymentFlag.MASK_TYPE | PaymentFlag.MASK_STATE)
         for payment_request_row in payment_request_rows:
             self.register_outstanding_invoice(payment_request_row, password)
 
@@ -4088,9 +4216,29 @@ class Wallet:
         # These are the servers the user has opted to use primarily whether through manual or
         # automatic choice.
         for server, usage_flags in self.get_wallet_servers():
-            await self.start_server_connection_async(server, usage_flags)
+            await self.start_reference_server_connection_async(server, usage_flags)
 
-    def _maintain_server_connection_done(self, state: ServerConnectionState,
+        # Read in all non-deactivated peer channels for externally owned peer channels
+        for external_peer_channel_row in self.data.read_external_peer_channels(
+                flags=ServerPeerChannelFlag.NONE,
+                mask=ServerPeerChannelFlag.DEACTIVATED):
+            peer_channel_id = external_peer_channel_row.peer_channel_id
+            assert peer_channel_id is not None
+            access_tokens = self.data.read_external_peer_channel_access_tokens(peer_channel_id,
+                None, PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE)
+            assert len(access_tokens) == 1, "There should only be one access token " \
+                "designated for local use"
+
+            assert external_peer_channel_row.remote_url is not None
+            assert external_peer_channel_row.remote_channel_id is not None
+            remote_url = external_peer_channel_row.remote_url
+            remote_channel_id = external_peer_channel_row.remote_channel_id
+            token = access_tokens[0].access_token
+            await self.subscribe_to_external_peer_channel(remote_url=remote_url,
+                remote_channel_id=remote_channel_id, token=token,
+                invoice_id=external_peer_channel_row.invoice_id, pre_existing_channel=True)
+
+    def _maintain_server_connection_done(self, state: ServerStateProtocol,
             future: concurrent.futures.Future[ServerConnectionProblems]) -> None:
         """
         The task that establishes the connection and manages it has exited.
@@ -4184,7 +4332,7 @@ class Wallet:
         self._petty_cash_account.set_server_ids(new_blockchain_server_id,
             new_peer_channel_server_id)
 
-    async def start_server_connection_async(self, server: NewServer,
+    async def start_reference_server_connection_async(self, server: NewServer,
             usage_flags: NetworkServerFlag) -> ServerConnectionState:
         assert self._network is not None, "use of network in offline mode"
 
@@ -4217,10 +4365,18 @@ class Wallet:
                     existing_server_state = account_server_state
 
         def start_use_case_specific_worker_tasks(server_state: ServerConnectionState,
-                usage_flags: NetworkServerFlag) -> None:
-            if usage_flags & NetworkServerFlag.USE_BLOCKCHAIN:
+                added_usage_flags: NetworkServerFlag) -> None:
+
+            # In theory this consumer could be started only for servers that actually will
+            # be receiving mapi callbacks but this is a future problem. We should aim to only
+            # run code where it is relevant.
+            if added_usage_flags & NetworkServerFlag.USE_MESSAGE_BOX:
                 server_state.mapi_callback_consumer_future = app_state.async_.spawn(
                     self._consume_mapi_callback_messages_async(server_state))
+
+            # If the server was created only for "message box" usage, then we still need to
+            # start the mapi callback consumer task
+            if added_usage_flags & NetworkServerFlag.USE_BLOCKCHAIN:
                 server_state.output_spends_consumer_future = app_state.async_.spawn(
                     self._consume_output_spend_notifications_async(
                         server_state.output_spend_result_queue))
@@ -4270,7 +4426,6 @@ class Wallet:
 
         self._new_server_connection_event.set()
         self._new_server_connection_event.clear()
-
         return server_state
 
     async def _monitor_connection_stage_changes_async(self, state: ServerConnectionState) -> None:
@@ -4311,20 +4466,33 @@ class Wallet:
             server_state = self.get_connection_state_for_usage(usage_flags)
         return server_state
 
-    async def _consume_mapi_callback_messages_async(self, state: ServerConnectionState) -> None:
+    async def _consume_mapi_callback_messages_async(self, state: ServerStateProtocol) -> None:
         """
         Process MAPI callback messages received from a server.
 
         This will either receive messages directly from the server message loop, or it will
         process backlogged unprocessed messages on startup.
         """
-        message_entries: list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]] = []
-        for message_row in await self.data.read_server_peer_channel_messages_async(
-                state.server.server_id,
-                PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
-                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, ServerPeerChannelFlag.MASK_PURPOSE):
-            message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
-            message_entries.append((message_row, message))
+        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]()
+        if isinstance(state, ServerConnectionState):
+            for message_row in await self.data.read_server_peer_channel_messages_async(
+                    state.server.server_id,
+                    PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
+                    ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
+                    ServerPeerChannelFlag.MASK_PURPOSE):
+                message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
+                message_entries.append((message_row, message))
+        elif isinstance(state, PeerChannelServerState):
+            for message_row in await self.data.read_external_peer_channel_messages_async(
+                    PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
+                    ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
+                    ServerPeerChannelFlag.MASK_PURPOSE):
+                message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
+                message_entries.append((message_row, message))
+        else:
+            raise NotImplementedError("Server connection state type not recognized")
+
+        # Iterate loop and get from queue
         state.mapi_callback_response_queue.put_nowait(message_entries)
         state.mapi_callback_response_event.set()
 
@@ -4336,15 +4504,17 @@ class Wallet:
             if self._stopping or self._stopped:
                 return
 
-            # We can now process the next batch of messages.
-            message_entries = state.mapi_callback_response_queue.get_nowait()
-            self._logger.debug(f"Got mAPI callback messages: {message_entries}")
             if state.mapi_callback_response_queue.qsize() == 0:
                 state.mapi_callback_response_event.clear()
+                continue
+
+            # We can now process the next batch of messages.
+            message_entries = state.mapi_callback_response_queue.get_nowait()
 
             tx_update_rows :list[TransactionProofUpdateRow] = []
             proof_rows: list[MerkleProofRow] = []
             processed_message_ids: list[int] = []
+            processed_message_ids_externally_owned: list[int] = []
             headerless_proofs = list[tuple[TSCMerkleProof, MerkleProofRow]]()
             verified_entries = list[tuple[bytes, Header, TSCMerkleProof]]()
             date_updated = get_posix_timestamp()
@@ -4352,7 +4522,10 @@ class Wallet:
             for message_row, message in message_entries:
                 self._logger.debug("Got mAPI callback message: %s", message)
                 assert message_row.message_id is not None
-                processed_message_ids.append(message_row.message_id)
+                if isinstance(state, ServerConnectionState):
+                    processed_message_ids.append(message_row.message_id)
+                elif isinstance(state, PeerChannelServerState):
+                    processed_message_ids_externally_owned.append(message_row.message_id)
 
                 if not isinstance(message["payload"], str):
                     # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
@@ -4417,6 +4590,8 @@ class Wallet:
                     block_hash = double_sha256(proof.block_header_bytes)
                     header_match = self.lookup_header_for_hash(block_hash)
                     if header_match is None:
+                        self._logger.debug("Missing header for merkle proof with block hash: '%s'.",
+                            hash_to_hex_str(block_hash))
                         # Reasons why we are here:
                         # - This header is on the wallet's current chain but it is on the
                         #   unprocessed tip. This falls to the headerless proof worker to resolve
@@ -4450,7 +4625,6 @@ class Wallet:
                             proof.transaction_hash))
                         proof_rows.append(MerkleProofRow(block_hash, proof.transaction_index,
                             block_height, proof.to_bytes(), proof.transaction_hash))
-
                         verified_entries.append((proof.transaction_hash, header, proof))
                         logger.debug("MCB Storing verified merkle proof for transaction %s",
                             hash_to_hex_str(proof.transaction_hash))
@@ -4470,15 +4644,14 @@ class Wallet:
             # also creating it in the merkle proof table if it is not already there.
             if len(tx_update_rows) > 0 or len(proof_rows) > 0:
                 await self.data.update_transaction_proof_async(tx_update_rows, proof_rows, [],
-                    processed_message_ids)
+                    processed_message_ids, processed_message_ids_externally_owned)
 
             # These are detached proofs, which we do not have a header or chain for. We register
             # Them so that when the header comes in, they can be considered for use.
             for headerless_proof in headerless_proofs:
                 self._connect_headerless_proof_worker_state.proof_queue.put_nowait(headerless_proof)
-            # TODO(1.4.0) Code sanity check. Should we set this even if we do not put proofs? If
-            #     so, add a comment why.
-            self._connect_headerless_proof_worker_state.proof_event.set()
+            if headerless_proofs:
+                self._connect_headerless_proof_worker_state.proof_event.set()
 
             # We set these proofs on transactions which makes the transactions verified.
             for verified_entry in verified_entries:
@@ -4522,7 +4695,7 @@ class Wallet:
         """
         payment_request_rows = self.data.read_payment_requests(
             flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID,
-            mask=PaymentFlag.MASK_TYPE | PaymentFlag.UNPAID, server_id=state.server.server_id)
+            mask=PaymentFlag.MASK_TYPE | PaymentFlag.MASK_STATE, server_id=state.server.server_id)
 
         # Initialize ws:// connections for pre-existing active invoice records from the database
         assert len(state.dpp_websockets) == 0
@@ -4548,9 +4721,30 @@ class Wallet:
                     "DPPMessageRow data: %s", message_row.paymentrequest_id, message_row)
                 continue
 
+            if request_row.state & PaymentFlag.MASK_STATE == PaymentFlag.PAID:
+                if message_row.type == MSG_TYPE_PAYMENT:
+                    # Defensive code in the case that the payer tries to pay an invoice that is
+                    # already paid.
+                    assert request_row.dpp_ack_json is not None
+                    self._logger.warning("Peer attempted to pay for an already paid invoice")
+                    dpp_ack_dict = cast(PaymentACKDict, json.loads(request_row.dpp_ack_json))
+                    dpp_ack_message = dpp_make_ack(txid=dpp_ack_dict["mode"]["transactionIds"][0],
+                        peer_channel=dpp_ack_dict["peerChannel"], message_row_received=message_row)
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
+                    continue
+                elif message_row.type == MSG_TYPE_PAYMENT_REQUEST_CREATE:
+                    error_reason = "Requested payment terms for an already paid invoice. " \
+                        f"Invoice id: {request_row.dpp_invoice_id}"
+                    self._logger.warning(error_reason)
+                    dpp_err_message = dpp_make_payment_request_error(message_row, error_reason)
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                    continue
+                else:
+                    raise NotImplementedError("Unexpected message type")
+
             assert request_row.paymentrequest_id is not None
-            assert request_row.state & PaymentFlag.MASK_TYPE == PaymentFlag.INVOICE
-            assert request_row.state & PaymentFlag.MASK_STATE == PaymentFlag.UNPAID
+            assert request_row.state & PaymentFlag.MASK_TYPE == PaymentFlag.INVOICE, \
+                request_row.state
             if request_row.state & PaymentFlag.UNPAID != 0:
                 assert request_row.state & PaymentFlag.PAID == 0, request_row.state
             if request_row.state & PaymentFlag.PAID != 0:
@@ -4565,7 +4759,8 @@ class Wallet:
                 assert request_row.paymentrequest_id is not None
                 update_row = PaymentRequestUpdateRow(new_state, request_row.requested_value,
                     request_row.date_expires, request_row.description,
-                    request_row.merchant_reference, request_row.paymentrequest_id)
+                    request_row.merchant_reference, request_row.dpp_ack_json,
+                    request_row.paymentrequest_id)
                 await self.data.update_payment_requests_async([ update_row ])
 
             self._logger.debug("State machine processing DPPMessageRow: %s for state: %s",
@@ -4583,26 +4778,36 @@ class Wallet:
                     request_row, request_output_rows, message_row)
                 app_state.async_.spawn(dpp_websocket_send(state, dpp_response_message))
 
-            elif request_row.state & PaymentFlag.PAYMENT_RECEIVED == \
-                    PaymentFlag.PAYMENT_RECEIVED:
+            elif request_row.state & PaymentFlag.PAYMENT_RECEIVED == PaymentFlag.PAYMENT_RECEIVED:
                 # This parsing step also validates the received `Payment` message
                 try:
                     payment_obj = Payment.from_json(message_row.body.decode('utf-8'))
                 except Bip270Exception:
-                    # TODO(1.4.0) mAPI. Work out how best to propagate the failure reason
-                    #  back to the user in the GUI.
                     self._logger.exception("Received direct-payment-protocol `Payment` was invalid")
                     continue
 
                 # As the *Payee*, we broadcast the transaction
                 tx = Transaction.from_hex(payment_obj.transaction_hex)
-
                 assert request_row.paymentrequest_id is not None
                 try:
-                    await self.close_payment_request_async(request_row.paymentrequest_id,
+                    await self.validate_payment_request_async(request_row.paymentrequest_id,
                         [ (tx, None) ])
-                except ValueError:
-                    self._logger.exception("Unexpected exception processing the transaction")
+                except Bip270Exception as e:
+                    self._logger.exception("Bip270Exception validating payment request: %s, "
+                        "txid: %s", request_row.paymentrequest_id, tx.txid())
+                    error_reason = str(e)
+                    dpp_err_message = dpp_make_payment_error(message_row, error_reason)
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                    continue
+                except Exception:
+                    self._logger.exception("Unexpected exception validating the payment request: "
+                        "%s, txid: %s", request_row.paymentrequest_id, tx.txid())
+                    error_reason = "The Payee wallet encountered an unexpected exception " \
+                        f"validating payment request: {request_row.paymentrequest_id}, " \
+                        f"txid: {tx.txid()}."
+                    dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
+                        "Internal Server Error")
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
                     continue
 
                 mapi_server_hint = \
@@ -4610,51 +4815,134 @@ class Wallet:
                 assert mapi_server_hint is not None
                 tx_context = TransactionContext(mapi_server_hint=mapi_server_hint)
                 try:
-                    broadcast_response, peer_channel_server_state = \
+                    broadcast_response, peer_channel_info, peer_channel_server_state = \
                         await self.broadcast_transaction_async(tx, tx_context)
                     successful = broadcast_response["returnResult"] == "success"
-                except (GeneralAPIError, ServerConnectionError, ServerError, ServerConnectionError,
-                        BadServerError):
-                    # TODO(1.4.0) mAPI. Work out how best to propagate the failure reason
-                    #  back to the user in the GUI without crashing the task or event loop.
+                except (GeneralAPIError, ServerConnectionError, ServerError, BadServerError):
                     self._logger.exception("Unexpected exception broadcasting to mAPI")
                     continue
 
                 assert successful is not None
                 if successful:
-                    # TODO(1.4.0) DPP. Refactor this with an `update_payment_request_flags` function
-                    # Update the payment request to `PaymentFlag.PAID` status
-                    new_state_flag = PaymentFlag.PAID
-                    new_state = request_row.state & \
-                                ~(PaymentFlag.MASK_DPP_STATE_MACHINE | PaymentFlag.MASK_STATE) \
-                                | new_state_flag
-                    request_row = request_row._replace(state=new_state)
+                    try:
+                        # NOTE: This will update the payment request with PaymentFlag.PAID
+                        await self.close_payment_request_async(request_row.paymentrequest_id,
+                            [(tx, None)])
+                    except Bip270Exception as e:
+                        error_reason = str(e)
+                        dpp_err_message = dpp_make_payment_error(message_row, error_reason)
+                        app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                        self._logger.exception("Unexpected exception processing the transaction")
+                        continue
+                    except Exception:
+                        self._logger.exception("Unexpected exception processing the transaction")
+                        error_reason = "The Payee wallet encountered an unexpected exception " \
+                            "processing this transaction."
+                        dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
+                            "Internal Server Error")
+                        app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                        continue
+
+                    # Re-read from the db because `close_payment_request_async` applied updates
+                    request_row, request_output_rows = self.data.read_payment_request(
+                        request_id=message_row.paymentrequest_id)
+                    assert request_row is not None
                     assert request_row.paymentrequest_id is not None
-                    update_row = PaymentRequestUpdateRow(new_state, request_row.requested_value,
-                        request_row.date_expires, request_row.description,
-                        request_row.merchant_reference, request_row.paymentrequest_id)
+                    assert peer_channel_info is not None
+
+                    # Add dpp_ack_json to payment_request_row in case the Payer tries to
+                    # re-attempt payment for the same invoice.
+                    dpp_ack_message = dpp_make_ack(tx.txid(), peer_channel_info, message_row)
+                    update_row = PaymentRequestUpdateRow(request_row.state,
+                        request_row.requested_value, request_row.date_expires,
+                        request_row.description, request_row.merchant_reference,
+                        dpp_ack_message.body.decode('utf-8'),
+                        request_row.paymentrequest_id)
                     await self.data.update_payment_requests_async([update_row])
 
                     # Send PaymentACK to payer
-                    assert peer_channel_server_state is not None
-                    peer_channel_info = dpp_make_peer_channel_info(self, tx.hash(),
-                        peer_channel_server_state)
-                    dpp_ack_message = dpp_make_ack(tx, peer_channel_info, message_row)
-                    asyncio.create_task(dpp_websocket_send(state, dpp_ack_message))
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
                 else:
-                    # TODO(1.4.0) mAPI. Work out how best to propagate the failure reason
-                    #  back to the user in the GUI without crashing the task or event loop.
                     self._logger.error("mAPI broadcast for txid: %s failed with reason: %s",
                         tx.txid(), broadcast_response['resultDescription'])
 
-                    # Inform the *Payee* of the reason we rejected their `Payment`
+                    # Inform the *Payer* of the reason we rejected their `Payment`
                     error_reason = broadcast_response['resultDescription']
                     dpp_err_message = dpp_make_payment_error(message_row, error_reason)
-                    asyncio.create_task(dpp_websocket_send(state, dpp_err_message))
+                    app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+
+                    # Mark the now unused peer channel with deactivated state
+                    # NOTE: This is an "Owned" peer channel type (not externally owned)
+                    if peer_channel_server_state is not None:
+                        assert peer_channel_info is not None
+                        assert peer_channel_server_state.cached_peer_channel_rows is not None
+                        remote_channel_id = peer_channel_info['channel_id']
+                        peer_channel_row = peer_channel_server_state.\
+                            cached_peer_channel_rows[remote_channel_id]
+                        new_channel_flags = peer_channel_row.peer_channel_flags | \
+                            ServerPeerChannelFlag.DEACTIVATED
+                        assert peer_channel_row.peer_channel_id is not None
+                        await self.data.update_server_peer_channel_async(
+                            peer_channel_row.remote_channel_id,
+                            peer_channel_row.remote_url, new_channel_flags,
+                            peer_channel_row.peer_channel_id,
+                            addable_access_tokens=[])
 
             # ----- States for when we are the Payer ----- #
             # NOTE: Not included because when we are the ** Payer **, we use the simplified
             # http request/response REST API endpoints of the DPP server (i.e. BIP272 URI)
+
+    async def garbage_collect_externally_owned_peer_channels_async(self) -> None:
+        """Cleanup peer channels that have mAPI callback messages with timestamp past the
+        expiry window and set the peer channel to the DEACTIVATED state."""
+        def have_active_connection(remote_channel_id: str) -> bool:
+            for account_id in list(self._worker_tasks_external_peer_channel_connections):
+                for externally_owned_state in \
+                        self._worker_tasks_external_peer_channel_connections[account_id]:
+
+                    # The peer_channel_message_queue.qsize() check is to ensure that the initial
+                    # check for missed messages has completed after websocket connection.
+                    # The `processing_message_event` is an additional precaution to ensure that
+                    # processing of the last message in the queue actually completes before
+                    # deactivation.
+                    if externally_owned_state.remote_channel_id == remote_channel_id\
+                            and externally_owned_state.peer_channel_message_queue.qsize() == 0 \
+                            and not externally_owned_state.processing_message_event.is_set():
+                        return True
+            return False
+
+        async def deactivate_channel_if_appropriate(
+                external_peer_channel_row: ExternalPeerChannelRow) -> None:
+            assert external_peer_channel_row.peer_channel_id is not None
+            messages = self.data.read_external_peer_channel_messages_by_id(
+                external_peer_channel_row.peer_channel_id, most_recent_only=True)
+            if len(messages) == 1:
+                peer_channel_past_expiry = \
+                    int(time.time()) - messages[0].date_received > PEER_CHANNEL_EXPIRY_SECONDS
+                if messages[0].message_flags & PeerChannelMessageFlag.UNPROCESSED == 0 and \
+                        peer_channel_past_expiry:
+                    self._logger.info("Deactivating external peer channel row: %s ",
+                        external_peer_channel_row)
+                    new_flags = external_peer_channel_row.peer_channel_flags | \
+                        ServerPeerChannelFlag.DEACTIVATED
+                    await self.data.update_external_peer_channel_async(
+                        external_peer_channel_row.remote_channel_id,
+                        external_peer_channel_row.remote_url, new_flags,
+                        external_peer_channel_row.peer_channel_id, []
+                    )
+
+        while not (self._stopping or self._stopped):
+            await asyncio.sleep(60)
+            # Get all externally owned peer channels that are NOT in the deactivated state
+            for external_peer_channel_row in self.data.read_external_peer_channels(
+                    flags=ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
+                    mask=ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK |
+                         ServerPeerChannelFlag.DEACTIVATED):
+                # If we do not yet have an established connection, there might still be more
+                # messages to come
+                assert external_peer_channel_row.remote_channel_id is not None
+                if have_active_connection(external_peer_channel_row.remote_channel_id):
+                    await deactivate_channel_if_appropriate(external_peer_channel_row)
 
     async def _consume_tip_filter_matches_async(self, state: ServerConnectionState) -> None:
         """
@@ -4671,7 +4959,7 @@ class Wallet:
             * If the batch is processed then it is no longer valid.
             * If the batch is processed (task cancelled) then it will be picked up next restart.
         """
-        message_entries: list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]] = []
+        message_entries: list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]] = []
         for message_row in await self.data.read_server_peer_channel_messages_async(
                 state.server.server_id,
                 PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
@@ -4927,11 +5215,11 @@ class Wallet:
                 self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, -1,
                     tx_hash, (tx_flags & TxFlags.MASK_STATE) | TxFlags.STATE_CLEARED)
 
-    async def close_payment_request_async(self, request_id: int,
+    async def validate_payment_request_async(self, request_id: int,
             candidates: list[tuple[Transaction, TransactionContext | None]],
             error_callback: Callable[[str], None] | None=None) -> None:
         """
-        Raises `ValueError` if the candidate transactions do not fully and correctly pay for
+        Raises `Bip270Exception` if the candidate transactions do not fully and correctly pay for
             the payment request.
         """
         request_row, request_output_rows = self.data.read_payment_request(request_id)
@@ -4939,7 +5227,7 @@ class Wallet:
         assert len(request_output_rows) > 0
 
         if not all(transaction.is_complete() for transaction, transaction_context in candidates):
-            raise ValueError(_("One or more of the transactions provided are not final."))
+            raise Bip270Exception(_("One or more of the transactions provided are not final."))
 
         request_output_row_by_script_bytes = {
             request_output_row.output_script_bytes: request_output_row
@@ -4963,7 +5251,7 @@ class Wallet:
                     self._logger.debug("Transaction '%s' output %d has value %d, "
                         "expected value %d", hash_to_hex_str(transaction_hash), output_index,
                         transaction_output.value, request_output_row.output_value)
-                    raise ValueError(_("The transactions do not provide the correct values."))
+                    raise Bip270Exception(_("The transactions do not provide the correct values."))
                 transaction_output_key_usage[output_index] = (request_output_row.keyinstance_id,
                     request_output_row.output_script_type)
 
@@ -4972,7 +5260,7 @@ class Wallet:
         if received_value != request_row.requested_value:
             self._logger.debug("The transactions are incorrect and provided value %d but "
                 "expected value %d satoshis.", received_value, request_row.requested_value)
-            raise ValueError(_("The transactions do not provide the correct values."))
+            raise Bip270Exception(_("The transactions do not provide the correct values."))
 
         # NOTE(output-spends) This will trigger registration for output spend events to monitor
         #     if this transaction gets broadcast externally.
@@ -4990,6 +5278,15 @@ class Wallet:
             except TransactionAlreadyExistsError:
                 # TODO Check if the keys are mapped correctly.
                 pass
+
+    async def close_payment_request_async(self, request_id: int,
+            candidates: list[tuple[Transaction, TransactionContext | None]],
+            error_callback: Callable[[str], None] | None=None) -> None:
+        """
+        Raises `ValueError` if the candidate transactions do not fully and correctly pay for
+            the payment request.
+        """
+        await self.validate_payment_request_async(request_id, candidates, error_callback)
 
         transaction_description_update_rows = await self.data.close_paid_payment_request_async(
             request_id)
@@ -5132,7 +5429,6 @@ class Wallet:
         self._is_chain_management_pending = False
 
         is_blockchain_server_active = self.is_blockchain_server_active()
-
         if network is not None:
             # Online mode.
             network.add_wallet(self)
@@ -5152,6 +5448,9 @@ class Wallet:
 
             self._worker_task_manage_dpp_connections = app_state.async_.spawn(
                 self._manage_dpp_connections_async())
+
+            self._worker_task_peer_channel_garbage_collection = app_state.async_.spawn(
+                self.garbage_collect_externally_owned_peer_channels_async())
 
         else:
             # Offline mode.
@@ -5231,6 +5530,9 @@ class Wallet:
             self._worker_task_manage_dpp_connections.cancel()
             pending_futures.add(self._worker_task_manage_dpp_connections)
             self._worker_task_manage_dpp_connections = None
+        if self._worker_task_peer_channel_garbage_collection is not None:
+            self._worker_task_peer_channel_garbage_collection.cancel()
+            pending_futures.add(self._worker_task_peer_channel_garbage_collection)
 
         async def trigger_chain_management_interrupt_event() -> None:
             # `Event.set` is not thread-safe, needs to be executed in the async thread.
@@ -5242,19 +5544,22 @@ class Wallet:
         app_state.async_.spawn_and_wait(trigger_chain_management_interrupt_event())
 
         # Only kill if not signalled to exit by the chain management interrupt event.
-        kill_worker_tasks = not self._header_source_synchronised_event.is_set()
+        kill_blockchain_server_dependent_workers = \
+            not self._blockchain_server_chain_reconciled_event.is_set()
         if self._worker_task_obtain_transactions is not None:
-            if kill_worker_tasks:
+            if kill_blockchain_server_dependent_workers:
                 self._worker_task_obtain_transactions.cancel()
             pending_futures.add(self._worker_task_obtain_transactions)
             self._worker_task_obtain_transactions = None
         if self._worker_task_obtain_merkle_proofs is not None:
-            if kill_worker_tasks:
+            if kill_blockchain_server_dependent_workers:
                 self._worker_task_obtain_merkle_proofs.cancel()
             pending_futures.add(self._worker_task_obtain_merkle_proofs)
             self._worker_task_obtain_merkle_proofs = None
+
+        kill_headerless_proofs_worker = not self._header_source_chain_reconciled_event.is_set()
         if self._worker_task_connect_headerless_proofs is not None:
-            if kill_worker_tasks:
+            if kill_headerless_proofs_worker:
                 self._worker_task_connect_headerless_proofs.cancel()
             pending_futures.add(self._worker_task_connect_headerless_proofs)
             self._worker_task_connect_headerless_proofs = None
@@ -5275,6 +5580,19 @@ class Wallet:
                     state.tip_filter_consumer_future.cancel()
                     pending_futures.add(state.tip_filter_consumer_future)
         del self._worker_tasks_maintain_server_connection
+
+        for account_id in \
+                list(self._worker_tasks_external_peer_channel_connections):
+            for externally_owned_state in \
+                    self._worker_tasks_external_peer_channel_connections.pop(account_id):
+                if externally_owned_state.mapi_callback_consumer_future is not None:
+                    pending_futures.add(externally_owned_state.mapi_callback_consumer_future)
+                if externally_owned_state.connection_future is not None:
+                    externally_owned_state.connection_future.cancel()
+                    pending_futures.add(externally_owned_state.connection_future)
+
+        if self._worker_task_peer_channel_garbage_collection is not None:
+            pending_futures.add(self._worker_task_peer_channel_garbage_collection)
 
         total_wait = 0.0
         while len(pending_futures) > 0 and total_wait < 5.0:
@@ -5566,7 +5884,8 @@ class Wallet:
         self._blockchain_server_state_ready = True
         self._start_chain_management_event.set()
         if server_state is not None:
-            self._header_source_synchronised_event.set()
+            self._blockchain_server_chain_reconciled_event.set()
+        self._header_source_chain_reconciled_event.set()
 
     def _update_current_chain(self, chain: Chain, header: Header) -> None:
         """
@@ -5750,7 +6069,7 @@ class Wallet:
         self._logger.debug("_obtain_transactions_worker_async entered")
 
         # We need the header source to be fully synchronised before we start.
-        await self._header_source_synchronised_event.wait()
+        await self._blockchain_server_chain_reconciled_event.wait()
         self._logger.debug("_obtain_transactions_worker_async started")
 
         # To get here there must not have been any further missing transactions.
@@ -5908,7 +6227,7 @@ class Wallet:
         assert app_state.headers is not None
 
         # We need the header source to be fully synchronised before we start.
-        await self._header_source_synchronised_event.wait()
+        await self._blockchain_server_chain_reconciled_event.wait()
 
         # TODO(1.4.0) Networking, issue#916. If the user does not have their internet connection
         #     enabled when the wallet is first opened, then this will maybe error and exit or block.
@@ -6004,7 +6323,7 @@ class Wallet:
                         tsc_proof.transaction_index, header.height, tsc_proof.to_bytes(),
                         row.tx_hash)
                     await self.data.update_transaction_proof_async([ tx_update_row ],
-                        [ proof_row ], [], [])
+                        [ proof_row ], [], [], [])
 
                     self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, tx_hash, header,
                         tsc_proof)
@@ -6019,8 +6338,7 @@ class Wallet:
 
     async def _connect_headerless_proofs_worker_async(self) -> None:
         # We need the header source to be fully synchronised before we start.
-        await self._header_source_synchronised_event.wait()
-
+        await self._header_source_chain_reconciled_event.wait()
         assert self._connect_headerless_proof_worker_state is not None
 
         state = self._connect_headerless_proof_worker_state
@@ -6130,8 +6448,10 @@ class Wallet:
                         BlockHeight.MEMPOOL, None, TxFlags.STATE_CLEARED, date_updated,
                         proof.transaction_hash))
 
+            self._logger.debug("Updating %s headerless proofs after receipt of new block header(s)",
+                len(transaction_proof_updates))
             await self.data.update_transaction_proof_async(transaction_proof_updates, [],
-                proof_updates, [])
+                proof_updates, [], [])
 
             for header, (proof, _proof_row) in verified_proof_entries:
                 self.data.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED,

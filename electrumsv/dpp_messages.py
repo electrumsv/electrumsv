@@ -26,7 +26,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, cast, List, Optional, Dict, TYPE_CHECKING, Union, TypedDict
+from typing import Any, cast, Dict, List, Literal, Optional, TypedDict, Union
 import types
 import urllib.parse
 
@@ -42,9 +42,6 @@ from .standards.json_envelope import JSONEnvelope, validate_json_envelope
 from .transaction import XTxOutput
 from .util import get_posix_timestamp
 from .wallet_database.types import PaymentRequestRow, PaymentRequestOutputRow
-
-if TYPE_CHECKING:
-    from electrumsv.wallet import AbstractAccount
 
 logger = logs.get_logger("dpp-messages")
 
@@ -79,32 +76,59 @@ class PeerChannelsDict(TypedDict):
     peerChannel: dict[str, Any]
 
 
-class TransactionDict(TypedDict):
-    outputs: dict[Any, Any]
-    inputs: dict[str, Any] | None
-    policies: dict[str, Any] | None
+class Policies(TypedDict):
+    fees: dict[str, int] | None
+    SPVRequired: bool
+    lockTime: int
 
 
-class HybridPaymentModeStandardDict(TypedDict):
+class DPPNativeInput(TypedDict):
+    scriptSig: str
+    txid: str
+    vout: int
+    value: int
+    nSequence: int | None
+
+
+class DPPNativeOutput(TypedDict):
+    script: str
+    amount: int
+    description: str | None
+
+
+# HPM == "HybridPaymentMode"
+class HPMTransactionTermsDict(TypedDict):
+    outputs: dict[Literal["native"], list[DPPNativeOutput]]        # {"native": list[Output]}
+    inputs: dict[Literal["native"], list[DPPNativeInput]] | None  # {"native": list[DPPNativeInput]}
+    policies: Policies | None
+
+
+class PaymentTermsModes(TypedDict):
+    # i.e. {
+    #           HYBRID_PAYMENT_MODE_BRFCID: {
+    #               <choiceIDs> : {
+    #                   "transactions": [
+    #                       <hybrid payment mode struct>
+    #                   ]
+    #               }
+    #           }
+    #      }
+    ef63d9775da5: dict[str, dict[str, list[HPMTransactionTermsDict]]]
+
+
+class HPMPaymentACK(TypedDict):
+    transactionIds: list[str]
+    peerChannel: PeerChannelDict | None
+
+
+class HPMPayment(TypedDict):
     optionId: str
-    transactions: list[TransactionDict]
+    transactions: list[str]  # hex raw transactions
     ancestors: dict[str, Any] | None
 
 
-class HybridPaymentModeDict(TypedDict):
-    # i.e. { HYBRID_PAYMENT_MODE_BRFCID: HybridPaymentModeStandard }
-    ef63d9775da5: dict[str, HybridPaymentModeStandardDict]
-
-
-class PaymentDict(TypedDict):
-    modeId: str  # i.e. HYBRID_PAYMENT_MODE_BRFCID
-    # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
-    mode: HybridPaymentModeDict
-    originator: dict[str, Any] | None
-    transaction: Optional[str]  # DEPRECATED as per TSC spec.
-    memo: Optional[str]  # Optional
-
-
+# `PaymentTermsDict`, `PaymentDict` and `PaymentACKDict` are the three top-level structs of the
+# DPP protocol
 class PaymentTermsDict(TypedDict):
     network: str
     version: str
@@ -113,17 +137,23 @@ class PaymentTermsDict(TypedDict):
     memo: str
     paymentUrl: str
     beneficiary: dict[str, Any] | None
-    modes: HybridPaymentModeDict
+    modes: PaymentTermsModes
     merchantData: dict[str, Any] | None
+
+
+class PaymentDict(TypedDict):
+    modeId: str  # i.e. HYBRID_PAYMENT_MODE_BRFCID
+    mode: HPMPayment
+    originator: dict[str, Any] | None
+    transaction: Optional[str]  # DEPRECATED as per TSC spec.
+    memo: Optional[str]  # Optional
 
 
 class PaymentACKDict(TypedDict):
     modeId: str
-    # TODO(1.4.0) DPP. - this is actually wrong. "mode" here differs from the PR
-    mode: HybridPaymentModeDict
+    mode: HPMPaymentACK
     peerChannel: PeerChannelDict
     redirectUrl: str | None
-
 
 
 class Output:
@@ -144,7 +174,7 @@ class Output:
         return XTxOutput(self.amount, script) # type: ignore
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> 'Output':
+    def from_dict(cls, data: DPPNativeOutput) -> Output:
         if 'script' not in data:
             raise Bip270Exception("Missing required 'script' field")
         script_hex = data['script']
@@ -179,30 +209,41 @@ class Output:
         return json.dumps(data)
 
 
+# See: https://tsc.bitcoinassociation.net/standards/direct_payment_protocol/#Specification
+# changed from "mainnet" to "bitcoin-sv" for backwards compatibility
+DPP_NETWORK_MAINNET: Literal["bitcoin-sv"] = "bitcoin-sv"
+DPP_NETWORK_REGTEST: Literal["regtest"] = "regtest"
+DPP_NETWORK_TESTNET: Literal["testnet"] = "testnet"
+DPP_NETWORK_STN: Literal["stn"] = "stn"
+NETWORK_NAMES = Literal["bitcoin-sv", "regtest", "testnet", "stn"]
+
+
+def get_dpp_network_string() -> NETWORK_NAMES:
+    if Net._net is SVMainnet:
+        return DPP_NETWORK_MAINNET
+    elif Net._net is SVTestnet:
+        return DPP_NETWORK_TESTNET
+    elif Net._net is SVScalingTestnet:
+        return DPP_NETWORK_STN
+    elif Net._net is SVRegTestnet:
+        return DPP_NETWORK_REGTEST
+    raise ValueError("Unrecognized network")
+
+
 class PaymentTerms:
-    HANDCASH_NETWORK = "bitcoin"
-    BIP270_NETWORK = "bitcoin-sv"
-
-    # See: https://tsc.bitcoinassociation.net/standards/direct_payment_protocol/#Specification
-    DPP_NETWORK_REGTEST = "regtest"
-    DPP_NETWORK_TESTNET = "testnet"
-    DPP_NETWORK_STN = "stn"
-    DPP_NETWORK_MAINNET = "mainnet"
-
     MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
-    error: Optional[str] = None
-
-    def __init__(self, outputs: List[Output], version: str, creation_timestamp: Optional[int]=None,
-            expiration_timestamp: int | None=None, memo: str | None=None,
-            beneficiary: dict[str, Any] | None=None, payment_url: str | None=None,
-            merchant_data: str | None=None,
-            hybrid_payment_data: dict[str, HybridPaymentModeStandardDict] | None=None) -> None:
+    def __init__(self, outputs: List[Output], network: str, version: str,
+            creation_timestamp: Optional[int]=None, expiration_timestamp: int | None=None,
+            memo: str | None=None, beneficiary: dict[str, Any] | None=None,
+            payment_url: str | None=None, merchant_data: str | None=None,
+            hybrid_payment_data: dict[str, dict[str, list[HPMTransactionTermsDict]]] | None=None) \
+                -> None:
         # This is only used if there is a requestor identity (old openalias, needs rewrite).
         self._id: Optional[int] = None
         self.tx = None
 
-        self.network = self.DPP_NETWORK_REGTEST
+        self.network = network
         self.version = version
         self.outputs = outputs
         self.hybrid_payment_data = hybrid_payment_data
@@ -227,7 +268,8 @@ class PaymentTerms:
             request_output_rows: list[PaymentRequestOutputRow]) -> PaymentTerms:
         outputs = [ Output(request_output_row.output_script_bytes,
             request_output_row.output_value) for request_output_row in request_output_rows ]
-        return cls(outputs, "1.0", creation_timestamp=request_row.date_created,
+        network = get_dpp_network_string()
+        return cls(outputs, "1.0", network, creation_timestamp=request_row.date_created,
             expiration_timestamp=request_row.date_expires, memo=request_row.merchant_reference)
 
     @classmethod
@@ -238,8 +280,8 @@ class PaymentTerms:
         payment_terms = cast(PaymentTermsDict, json.loads(s))
 
         network = payment_terms.get('network')
-        if network not in (cls.DPP_NETWORK_REGTEST, cls.DPP_NETWORK_TESTNET, cls.DPP_NETWORK_STN,
-                cls.DPP_NETWORK_MAINNET):
+        if network not in (DPP_NETWORK_REGTEST, DPP_NETWORK_TESTNET, DPP_NETWORK_STN,
+                DPP_NETWORK_MAINNET):
             raise Bip270Exception(_("Invalid network '{}'").format(network))
 
         if 'version' not in payment_terms:
@@ -254,18 +296,18 @@ class PaymentTerms:
         if 'ef63d9775da5' not in payment_terms['modes']:
             raise Bip270Exception(_("modes section must include standard mode: 'ef63d9775da5'"))
 
-        payment_modes = payment_terms['modes']['ef63d9775da5']
-        if not isinstance(payment_modes, dict):
+        hybrid_payment_mode = payment_terms['modes']['ef63d9775da5']
+        if not isinstance(hybrid_payment_mode, dict):
             raise Bip270Exception(_("Corrupt payment details"))
 
         # For the time being we only accept 'native' outputs and only a single
         # choice - i.e. "choiceID0" to avoid too much up-front-complexity
-        if 'choiceID0' not in payment_modes:
+        if 'choiceID0' not in hybrid_payment_mode:
             raise Bip270Exception(_("choiceID0 field is required by ElectrumSV, outputs must "
                                     "be native type and policies field must contain a valid "
                                     "mAPI fee quote"))
 
-        choice0_payment_mode = payment_modes['choiceID0']
+        choice0_payment_mode = hybrid_payment_mode['choiceID0']
         if 'transactions' not in choice0_payment_mode:
             raise Bip270Exception(_("choiceID0 field is required by ElectrumSV, outputs must "
                                     "be native type and policies field must contain a valid "
@@ -291,10 +333,8 @@ class PaymentTerms:
         for ui_dict in transactions[0]['outputs']['native']:
             outputs.append(Output.from_dict(ui_dict))
 
-        pr = cls(outputs=outputs, version=payment_terms['version'])
-        # We preserve the network we were given as maybe it is HandCash's non-standard "bitcoin"
-        pr.network = network
-        pr.hybrid_payment_data = payment_modes
+        pr = cls(outputs=outputs, version=payment_terms['version'], network=network,
+            hybrid_payment_data=hybrid_payment_mode)
 
         if 'creationTimestamp' not in payment_terms:
             raise Bip270Exception(_("Creation time missing"))
@@ -466,21 +506,20 @@ class Payment:
 class PaymentACK:
     MAXIMUM_JSON_LENGTH = 11 * 1000 * 1000
 
-    def __init__(self, mode_id: str, mode: HybridPaymentModeDict,
-            peer_channel_info: PeerChannelDict, redirect_url: Optional[str]) -> None:
+    def __init__(self, mode_id: str, mode: HPMPaymentACK, peer_channel_info: PeerChannelDict,
+            redirect_url: str | None = None) -> None:
         self.mode_id = mode_id
         self.mode = mode
         self.peer_channel_info = peer_channel_info
         self.redirect_url = redirect_url
 
-    def to_dict(self) -> Dict[str, Any]:
-        data: Dict[str, Any] = {
-            'modeId': self.mode_id,
-            'mode': self.mode,
-            'peerChannel': self.peer_channel_info,
-            'redirectUrl': self.redirect_url
-        }
-        return data
+    def to_dict(self) -> PaymentACKDict:
+        return PaymentACKDict(
+            modeId=self.mode_id,
+            mode=self.mode,
+            peerChannel=self.peer_channel_info,
+            redirectUrl=self.redirect_url
+        )
 
     @classmethod
     def from_dict(cls, data: PaymentACKDict) -> PaymentACK:

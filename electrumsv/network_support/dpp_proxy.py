@@ -23,13 +23,17 @@ MSG_TYPE_PAYMENT_ERROR = "payment.error"
 MSG_TYPE_PAYMENT_REQUEST_CREATE = "paymentterms.create"
 MSG_TYPE_PAYMENT_REQUEST_RESPONSE = "paymentterms.response"
 MSG_TYPE_PAYMENT_REQUEST_ERROR = "paymentterms.error"
+MSG_TYPE_CHANNEL_EXPIRY = "channel.expired"
 
 ALL_MSG_TYPES = {MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK,
     MSG_TYPE_PAYMENT_ERROR,
     MSG_TYPE_PAYMENT_REQUEST_CREATE, MSG_TYPE_PAYMENT_REQUEST_RESPONSE,
-    MSG_TYPE_PAYMENT_REQUEST_ERROR}
+    MSG_TYPE_PAYMENT_REQUEST_ERROR, MSG_TYPE_CHANNEL_EXPIRY}
 DPP_MESSAGE_SEQUENCE = [MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_CREATE,
     MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK]
+
+
+RECONNECTION_INTERVAL = 10  # seconds
 
 
 def _is_later_dpp_message_sequence(prior: DPPMessageRow, later: DPPMessageRow) -> bool:
@@ -48,7 +52,6 @@ class DPPPayerError(Exception):
     pass
 
 
-
 async def dpp_websocket_send(state: ServerConnectionState, message_row: DPPMessageRow) -> None:
     websocket = state.dpp_websockets[message_row.dpp_invoice_id]
     if websocket is not None:  # ws:// is still open
@@ -60,7 +63,6 @@ async def dpp_websocket_send(state: ServerConnectionState, message_row: DPPMessa
                      "Retrying in 10 seconds...", message_row.dpp_invoice_id, state.server.url)
         await asyncio.sleep(10)
         state.dpp_messages_queue.put_nowait(message_row)
-
 
 
 MESSAGE_STATE_BY_TYPE = {
@@ -101,60 +103,85 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
     - ServerConnectionState.dpp_websocket is used for sending messages
     - ServerConnectionState.dpp_messages_queue is used for received messages
     """
-    assert state.wallet_data is not None
-    assert payment_request_row.paymentrequest_id is not None
-    assert payment_request_row.dpp_invoice_id is not None
-    try:
-        headers = {"Accept": "application/json"}
-        server_url = state.server.url.replace("http", "ws")
-        logger.debug("Opening DPP websocket for payment request: %s", payment_request_row)
-        # TODO(1.4.0) DPP / AustEcon. Describe what `internal=true` means.
-        websocket_url = f"{server_url}ws/{payment_request_row.dpp_invoice_id}?internal=true"
+    assert state.wallet_proxy is not None
+    while not (state.wallet_proxy._stopped or state.wallet_proxy._stopping):
+        assert state.wallet_data is not None
+        assert payment_request_row.paymentrequest_id is not None
+        assert payment_request_row.dpp_invoice_id is not None
+        try:
+            headers = {"Accept": "application/json"}
+            server_url = state.server.url.replace("http", "ws")
+            logger.debug("Opening DPP websocket for payment request: %s", payment_request_row)
+            # TODO(1.4.0) DPP / AustEcon. Describe what `internal=true` means.
+            websocket_url = f"{server_url}ws/{payment_request_row.dpp_invoice_id}?internal=true"
 
-        # TODO(1.4.0) DPP / AustEcon. Rationalise why five seconds timeout.
-        async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
-                as server_websocket:
-            state.dpp_websockets[payment_request_row.dpp_invoice_id] = server_websocket
-            state.dpp_websocket_connection_events[payment_request_row.dpp_invoice_id].set()
+            # TODO(1.4.0) DPP / AustEcon. Rationalise why five seconds timeout.
+            async with state.session.ws_connect(websocket_url, headers=headers,
+                    timeout=5.0) as server_websocket:
+                state.dpp_websockets[payment_request_row.dpp_invoice_id] = server_websocket
+                state.dpp_websocket_connection_events[payment_request_row.dpp_invoice_id].set()
 
-            websocket_message: aiohttp.WSMessage
-            async for websocket_message in server_websocket:
-                if websocket_message.type == aiohttp.WSMsgType.TEXT:
-                    message_json = cast(dict[str, Any], json.loads(websocket_message.data))
+                websocket_message: aiohttp.WSMessage
+                async for websocket_message in server_websocket:
+                    if websocket_message.type == aiohttp.WSMsgType.TEXT:
+                        message_json = cast(dict[str, Any], json.loads(websocket_message.data))
+                    else:
+                        raise NotImplementedError(
+                            "The Direct Payment Protocol does not have a binary format")
+
+                    _validate_dpp_message_json(message_json)
+                    expiration_date_text = message_json["expiration"]
+
+                    dpp_message = DPPMessageRow(
+                        message_id=message_json["messageId"],
+                        paymentrequest_id=payment_request_row.paymentrequest_id,
+                        dpp_invoice_id=message_json["channelId"],
+                        correlation_id=message_json["correlationId"],
+                        app_id=message_json["appId"],
+                        client_id=message_json["clientID"],
+                        user_id=message_json["userId"],
+                        expiration=expiration_date_text,
+                        body=json.dumps(message_json["body"]).encode('utf-8'),
+                        timestamp=message_json["timestamp"],
+                        type=message_json["type"]
+                    )
+                    if message_json["type"] == MSG_TYPE_JOIN_SUCCESS:
+                        continue
+                    elif message_json["type"] == MSG_TYPE_CHANNEL_EXPIRY:
+                        # By default dpp-proxy channels expire after 2 hours
+                        # see: `EnvSocketChannelTimeoutSeconds` in the dpp-proxy server
+                        logger.warning("DPP channel expired for payment request id : %s",
+                            payment_request_row.paymentrequest_id)
+                        return
+                    elif message_json["type"] != MSG_TYPE_JOIN_SUCCESS:
+                        await state.wallet_data.create_invoice_proxy_message_async([dpp_message])
+                        state.dpp_messages_queue.put_nowait(dpp_message)
+                    else:
+                        raise ValueError("Unrecognized dpp message type")
+        except aiohttp.ClientConnectorError:
+            logger.debug("Unable to connect to server websocket")
+        except WSServerHandshakeError as e:
+            logger.exception("Websocket connection to %s failed the handshake", state.server.url)
+        finally:
+            if not (state.wallet_proxy._stopped or state.wallet_proxy._stopping):
+                assert state.wallet_data is not None
+                assert payment_request_row.paymentrequest_id is not None
+                assert payment_request_row.dpp_invoice_id is not None
+                payment_request_row_from_db, _ = \
+                    state.wallet_data.read_payment_request(payment_request_row.paymentrequest_id)
+                assert payment_request_row is not None
+                if payment_request_row.state & PaymentFlag.MASK_STATE == PaymentFlag.PAID:
+                    logger.debug("Closing DPP websocket for payment request: %r",
+                        payment_request_row)
+                    state.dpp_websockets.pop(payment_request_row.dpp_invoice_id, None)
                 else:
-                    raise NotImplementedError("The Direct Payment Protocol does not have a binary "
-                                              "format")
-
-                _validate_dpp_message_json(message_json)
-                expiration_date_text = message_json["expiration"]
-
-                dpp_message = DPPMessageRow(
-                    message_id=message_json["messageId"],
-                    paymentrequest_id=payment_request_row.paymentrequest_id,
-                    dpp_invoice_id=message_json["channelId"],
-                    correlation_id=message_json["correlationId"],
-                    app_id=message_json["appId"],
-                    client_id=message_json["clientID"],
-                    user_id=message_json["userId"],
-                    expiration=expiration_date_text,
-                    body=json.dumps(message_json["body"]).encode('utf-8'),
-                    timestamp=message_json["timestamp"],
-                    type=message_json["type"]
-                )
-                await state.wallet_data.create_invoice_proxy_message_async([ dpp_message ])
-                if message_json["type"] != MSG_TYPE_JOIN_SUCCESS:
-                    state.dpp_messages_queue.put_nowait(dpp_message)
-    except aiohttp.ClientConnectorError:
-        logger.debug("Unable to connect to server websocket")
-    except WSServerHandshakeError as e:
-        logger.exception("Websocket connection to %s failed the handshake", state.server.url)
-    finally:
-        # TODO(1.4.0) DPP. When a DPP server goes down, we need a mechanism to retry every 5 seconds
-        #  or so. Otherwise we will no longer have open websocket connections for invoices even
-        #  though the DPP proxy server is back online again. Currently the user will have to
-        #  restart to wallet to reconnect.
-        logger.debug("Closing DPP websocket for payment request: %s", payment_request_row)
-        state.dpp_websockets.pop(payment_request_row.dpp_invoice_id, None)
+                    logger.debug("Premature loss of DPP websocket connection for payment "
+                        "request: %s, will attempt to reconnect every %s seconds",
+                        payment_request_row, RECONNECTION_INTERVAL)
+                    await asyncio.sleep(RECONNECTION_INTERVAL)
+            else:
+                logger.debug("Closing DPP websocket for payment request: %s", payment_request_row)
+                state.dpp_websockets.pop(payment_request_row.dpp_invoice_id, None)
 
 
 async def create_dpp_server_connection_async(state: ServerConnectionState,

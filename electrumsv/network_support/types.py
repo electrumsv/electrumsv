@@ -5,6 +5,8 @@ for an ESVReferenceClient and/or use a github submodule in ElectrumSV
 (or something along those lines).
 """
 from __future__ import annotations
+import aiohttp
+from aiohttp import ClientWebSocketResponse
 import asyncio
 import concurrent.futures
 import dataclasses
@@ -12,13 +14,9 @@ import enum
 from enum import IntFlag
 from typing import Any, NamedTuple, Optional, Protocol, Sequence, TYPE_CHECKING, TypedDict
 
-import aiohttp
-from aiohttp import ClientWebSocketResponse
-
 from ..constants import NetworkServerFlag, ScriptType, ServerConnectionFlag
 from ..types import IndefiniteCredentialId, Outpoint, OutputSpend
-from ..wallet_database.types import ServerPeerChannelMessageRow, DPPMessageRow
-
+from ..wallet_database.types import DPPMessageRow, ExternalPeerChannelRow, PeerChannelMessageRow
 from .constants import ServerProblemKind
 
 if TYPE_CHECKING:
@@ -181,23 +179,100 @@ ServerConnectionProblems = dict[ServerProblemKind, list[str]]
 
 
 class ServerStateProtocol(Protocol):
+    wallet_proxy: Wallet | None
+    wallet_data: WalletDataAccess | None
     session: aiohttp.ClientSession
-
     credential_id: IndefiniteCredentialId | None
+
+    # This should only be used to send problems that occur that should result in the connection
+    # being closed and the user informed.
+    disconnection_event_queue: asyncio.Queue[tuple[ServerProblemKind, str]]
+
+    # Wallet consuming: Post MAPI callback responses here to get them registered with the server.
+    mapi_callback_response_queue: asyncio.Queue[list[
+        tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]]
+    mapi_callback_response_event: asyncio.Event
+    mapi_callback_consumer_future: Optional[concurrent.futures.Future[None]]
+
+    # The stage of the connection process it has last reached.
+    connection_flags: ServerConnectionFlag
+    stage_change_event: asyncio.Event
+
+    # Wallet individual futures (all servers).
+    connection_future: Optional[concurrent.futures.Future[ServerConnectionProblems]]
+
+    # Server consuming: Incoming peer channel message notifications from the server.
+    peer_channel_message_queue: asyncio.Queue[str]
+
+    # Server websocket-related futures.
+    websocket_futures: list[concurrent.futures.Future[None]]
+
+    def clear_for_reconnection(self, clear_flags: ServerConnectionFlag=ServerConnectionFlag.NONE) \
+            -> None:
+        ...
 
     @property
     def server_url(self) -> str:
         ...
 
 
+@dataclasses.dataclass
 class PeerChannelServerState(ServerStateProtocol):
     wallet_proxy: Wallet | None
     wallet_data: WalletDataAccess | None
     session: aiohttp.ClientSession
-    credential_id: IndefiniteCredentialId | None = None
+    credential_id: IndefiniteCredentialId | None
+    remote_channel_id: str
 
+    external_channel_row: ExternalPeerChannelRow
+
+    # The garbage collector will wait until message processing is complete before deactivating
+    processing_message_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+
+    # This should only be used to send problems that occur that should result in the connection
+    # being closed and the user informed.
+    disconnection_event_queue: asyncio.Queue[tuple[ServerProblemKind, str]] = dataclasses.field(
+        default_factory=asyncio.Queue[tuple[ServerProblemKind, str]])
+
+    # Wallet consuming: Post MAPI callback responses here to get them registered with the server.
+    mapi_callback_response_queue: \
+        asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+                dataclasses.field(default_factory=asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
+    mapi_callback_response_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+    mapi_callback_consumer_future: Optional[concurrent.futures.Future[None]] = None
+
+    # The stage of the connection process it has last reached.
+    connection_flags: ServerConnectionFlag = ServerConnectionFlag.INITIALISED
+    stage_change_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
+
+    # Wallet individual futures (all servers).
+    connection_future: Optional[concurrent.futures.Future[ServerConnectionProblems]] = None
+
+    # Server consuming: Incoming peer channel message notifications from the server.
+    peer_channel_message_queue: asyncio.Queue[str] = dataclasses.field(
+        default_factory=asyncio.Queue[str])
+
+    # Server websocket-related futures.
+    websocket_futures: list[concurrent.futures.Future[None]] = dataclasses.field(
+        default_factory=list[concurrent.futures.Future[None]])
+
+    def clear_for_reconnection(self, clear_flags: ServerConnectionFlag=ServerConnectionFlag.NONE) \
+            -> None:
+        self.connection_flags = clear_flags | ServerConnectionFlag.INITIALISED
+        self.stage_change_event.set()
+        self.stage_change_event.clear()
+
+        # When we establish a new websocket we will register all the outstanding output spend
+        # registrations that we need, so whatever is left in the queue at this point is redundant.
+        while not self.disconnection_event_queue.empty():
+            self.disconnection_event_queue.get_nowait()
+
+    @property
     def server_url(self) -> str:
-        return "self._external_channel_row.server_url_or_something"
+        assert self.external_channel_row.remote_url is not None
+        return self.external_channel_row.remote_url
 
 
 @dataclasses.dataclass
@@ -231,18 +306,20 @@ class ServerConnectionState(ServerStateProtocol):
 
     # Wallet consuming: Post MAPI callback responses here to get them registered with the server.
     mapi_callback_response_queue: \
-        asyncio.Queue[list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]] = \
-            dataclasses.field(default_factory=asyncio.Queue[list[tuple[ServerPeerChannelMessageRow,
-                GenericPeerChannelMessage]]])
+        asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+        dataclasses.field(default_factory=asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
     mapi_callback_response_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
     # Wallet consuming: Incoming spend notifications from the server.
     output_spend_result_queue: asyncio.Queue[Sequence[OutputSpend]] = dataclasses.field(
         default_factory=asyncio.Queue[Sequence[OutputSpend]])
     # Wallet consuming: Post tip filter matches here to get them registered with the server.
     tip_filter_matches_queue: \
-        asyncio.Queue[list[tuple[ServerPeerChannelMessageRow, GenericPeerChannelMessage]]] = \
-            dataclasses.field(default_factory=asyncio.Queue[list[tuple[ServerPeerChannelMessageRow,
-                GenericPeerChannelMessage]]])
+        asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+        dataclasses.field(default_factory=asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
     # Wallet consuming: Direct payment protocol-related messages from the DPP server
     dpp_messages_queue: asyncio.Queue[DPPMessageRow] = dataclasses.field(
         default_factory=asyncio.Queue[DPPMessageRow])
@@ -306,4 +383,3 @@ class VerifiableKeyData(TypedDict):
     public_key_hex: str
     signature_hex: str
     message_hex: str
-

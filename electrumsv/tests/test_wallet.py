@@ -18,7 +18,7 @@ from electrumsv.constants import (AccountFlags, BlockHeight, CHANGE_SUBPATH, DAT
     RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
     TxFlags, unpack_derivation_path)
 from electrumsv.crypto import pw_decode
-from electrumsv.exceptions import InvalidPassword, IncompatibleWalletError
+from electrumsv.exceptions import Bip270Exception, InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
     Imported_KeyStore, instantiate_keystore_from_text, Old_KeyStore,
     Multisig_KeyStore)
@@ -39,7 +39,7 @@ from electrumsv.wallet_support.keys import get_pushdata_hash_for_keystore_key_da
 
 from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, setup_async, \
     tear_down_async, TEST_WALLET_PATH
-
+from ..network_support.types import ServerConnectionState
 
 T1 = TypeVar("T1")
 
@@ -1549,7 +1549,7 @@ async def test_close_paid_payment_request_async_notifies(app_state: AppStateProx
         fake_close_paid_payment_request_async
 
     wallet._event_payment_requests_paid_async = unittest.mock.AsyncMock()
-    with pytest.raises(ValueError) as exception_info:
+    with pytest.raises(Bip270Exception) as exception_info:
         await wallet.close_payment_request_async(1, [])
     assert "The transactions do not provide the correct values." == exception_info.value.args[0]
 
@@ -1586,7 +1586,8 @@ async def test_transaction_double_spent_async(app_state: AppStateProxy, mock_val
     wallet = Wallet(mock_storage)
     wallet.data = unittest.mock.Mock()
     wallet.data.read_server_peer_channel_messages_async = unittest.mock.AsyncMock()
-    server_state = unittest.mock.Mock()
+    wallet.data.read_external_peer_channel_messages_async = unittest.mock.AsyncMock()
+    server_state = unittest.mock.Mock(spec=ServerConnectionState)
     server_state.mapi_callback_response_event = unittest.mock.Mock()
     server_state.mapi_callback_response_queue = unittest.mock.Mock()
     fake_message_row = unittest.mock.Mock()
