@@ -16,9 +16,13 @@ steps:
     sudo apt-get update
     # PyQt6 cannot find `libEGL.so.1` when `PyQt6.QtGui` is imported, unless we do `libegl1`.
     sudo apt-get install libusb-1.0-0-dev libudev-dev libegl1
-    python3 -m pip install pip==22.2.2
-    python3 -m pip install -r contrib/deterministic-build/linux-py3.10-requirements.txt
-    python3 -m pip install -r contrib/deterministic-build/linux-py3.10-requirements-hw.txt
+    # Pip 23.1 starts writing errors to the log breaking CI due to deprecating the way we install
+    # packages. This is the latest in a series of problems caused by pip, bad updates to it and
+    # broken CI builds. The update check also writes more errors to the log if you install an
+    # older version so we are forced to disable that too.
+    python3 -m pip install pip==22.2.2 --disable-pip-version-check
+    python3 -m pip install -r contrib/deterministic-build/linux-py3.10-requirements.txt --disable-pip-version-check
+    python3 -m pip install -r contrib/deterministic-build/linux-py3.10-requirements-hw.txt --disable-pip-version-check
   displayName: Prepare general environment
   condition: |
     and(
