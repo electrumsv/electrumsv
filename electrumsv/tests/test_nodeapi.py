@@ -153,7 +153,7 @@ def test_get_wallet_from_request_implicit_fail_ensure_many(app_state_nodeapi: Ap
     assert len(object["error"]) == 2
     assert object["error"]["code"] == -19
     assert object["error"]["message"] == "Wallet file not specified (must request wallet RPC " \
-        "through /wallet/<filename> uri-path)."
+        "through /wallet/<filename> uri-path)"
 
 @pytest.mark.parametrize("ensure_available", (True, False))
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
@@ -377,7 +377,7 @@ async def test_call_walletpassphrase_password_incorrect_async(app_state_nodeapi:
     assert object["result"] is None
     assert len(object["error"]) == 2
     assert object["error"]["code"] == -14
-    assert object["error"]["message"] == "Error: The wallet passphrase entered was incorrect."
+    assert object["error"]["message"] == "Error: The wallet passphrase entered was incorrect"
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
 async def test_call_walletpassphrase_password_wrong_type_async(app_state_nodeapi: AppStateProxy,
