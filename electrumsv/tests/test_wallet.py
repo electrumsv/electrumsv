@@ -1588,6 +1588,8 @@ async def test_transaction_double_spent_async(app_state: AppStateProxy, mock_val
     wallet.data.read_server_peer_channel_messages_async = unittest.mock.AsyncMock()
     wallet.data.read_external_peer_channel_messages_async = unittest.mock.AsyncMock()
     server_state = unittest.mock.Mock(spec=ServerConnectionState)
+    server_state.server = unittest.mock.Mock()
+    server_state.server.server_id = 1
     server_state.mapi_callback_response_event = unittest.mock.Mock()
     server_state.mapi_callback_response_queue = unittest.mock.Mock()
     fake_message_row = unittest.mock.Mock()
