@@ -1,0 +1,16 @@
+{
+    "expected_labels": {
+    },
+    "settled_tx_hashes": [
+    ],
+    "derivation_datas": [
+        {
+            "derivation": null,
+            "label": null,
+            "passphrase": null,
+            "seed": "entire coral usage young front fury okay fade hen process follow light",
+            "xprv": "tprv8ZgxMBicQKsPeZUuQQJFTjDtjNuoMKoX6oJTrdszNFezhkucdUSvVUahcC62hLgo9z2eqPF8vio3aHkqBufbvkipyqSenkCgUsaoJNxmbim",
+            "xpub": "tpubD6NzVbkrYhZ4Y2WhJ3xqs8t1JQRjWezRg6uF99vHnXTPYFAPFsGWfyCZnMeHzUyCRhTX9jczY5ZJnsVZBc164EP7ug6dWtDqe5ayWXbWGpy"
+        }
+    ]
+}
