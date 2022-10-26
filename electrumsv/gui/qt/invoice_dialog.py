@@ -37,6 +37,7 @@ class InvoiceDialog(WindowModalDialog):
         self._pr = pr = PaymentTerms.from_json(row.invoice_data)
 
         state = row.flags & PaymentFlag.MASK_STATE
+        # `EXPIRED` is never stored and solely used for extra visual state.
         if state & PaymentFlag.UNPAID and has_expired(row.date_expires):
             state = PaymentFlag.EXPIRED
 

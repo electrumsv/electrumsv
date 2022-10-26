@@ -3,20 +3,31 @@ import asyncio
 from http import HTTPStatus
 import json
 import os
-from typing import TYPE_CHECKING
+import shutil
+import tempfile
+from typing import Any, cast
 import unittest.mock
 
 import aiohttp
 from aiohttp.test_utils import TestClient
 from aiohttp import web
+import bitcoinx
 import pytest
 
 from electrumsv.app_state import AppStateProxy
+from electrumsv.constants import AccountCreationType, KeystoreTextType, PaymentFlag
 from electrumsv.exceptions import InvalidPassword
+from electrumsv.keystore import instantiate_keystore_from_text
+from electrumsv.network_support.types import ServerConnectionState, TipFilterRegistrationJobOutput
+from electrumsv.networks import Net, SVRegTestnet
 from electrumsv import nodeapi
+from electrumsv.storage import WalletStorage
+from electrumsv.types import KeyStoreResult
+from electrumsv.wallet import StandardAccount, Wallet
+from electrumsv.wallet_database.types import PaymentRequestRow, PaymentRequestOutputRow
 
-if TYPE_CHECKING:
-    from electrumsv.wallet import Wallet
+from .util import _create_mock_app_state2, mock_headers, MockStorage, PasswordToken, \
+    TEST_WALLET_PATH
 
 
 @pytest.fixture
@@ -28,6 +39,29 @@ def server_tester(event_loop, aiohttp_client):
     nodeapi.setup_web_application(web_application)
     return event_loop.run_until_complete(aiohttp_client(web_application))
 
+# @pytest.fixture
+# def funded_wallet() -> Wallet:
+#     temp_dir = tempfile.mkdtemp()
+#     wallet_filename = "26_regtest_standard_mining_with_mature_and_immature_coins.sqlite"
+#     wallet_password = "123456"
+#     wallet_password_token = PasswordToken(wallet_password)
+
+#     source_wallet_path = os.path.join(TEST_WALLET_PATH, wallet_filename)
+#     wallet_path = os.path.join(temp_dir, wallet_filename)
+#     shutil.copyfile(source_wallet_path, wallet_path)
+
+#     Net.set_to(SVRegTestnet)
+#     wallet_storage = WalletStorage(wallet_path)
+#     with unittest.mock.patch(
+#         "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+#         as migration29_app_state:
+#             migration29_app_state.headers = mock_headers()
+#             wallet_storage.upgrade(True, wallet_password_token)
+#     with unittest.mock.patch("electrumsv.keystore.app_state") as app_state_keystore:
+#         app_state_keystore.credentials.get_wallet_password = lambda wallet_path: wallet_password
+#         with unittest.mock.patch("electrumsv.wallet.app_state") as app_state_wallet:
+#             app_state_wallet.credentials.get_wallet_password = lambda wallet_path: wallet_password
+#             return Wallet(wallet_storage)
 
 
 def test_transform_parameters_valid_array() -> None:
@@ -37,19 +71,6 @@ def test_transform_parameters_valid_array() -> None:
 def test_transform_parameters_valid_match() -> None:
     parameters = nodeapi.transform_parameters(444, [ "b", "a"], { "a": "aa", "b": 5 })
     assert parameters == [ 5, "aa" ]
-
-def test_transform_parameters_invalid_empty() -> None:
-    with pytest.raises(web.HTTPInternalServerError) as exception_value:
-        nodeapi.transform_parameters(444, [ "a", "b"], {})
-    response = exception_value.value
-    assert isinstance(response.body, bytes)
-    object = json.loads(response.body)
-    assert len(object) == 3
-    assert object["id"] == 444
-    assert object["result"] is None
-    assert len(object["error"]) == 2
-    assert object["error"]["code"] == -8
-    assert object["error"]["message"] == "Unknown named parameter a"
 
 def test_transform_parameters_invalid_mismatch() -> None:
     with pytest.raises(web.HTTPInternalServerError) as exception_value:
@@ -61,12 +82,16 @@ def test_transform_parameters_invalid_mismatch() -> None:
     assert object["id"] == 444
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -8
-    assert object["error"]["message"] == "Unknown named parameter b"
+    assert object["error"]["code"] == -8 # INVALID_PARAMETER
+    assert object["error"]["message"] == "Unknown named parameter a"
 
-def test_transform_parameters_invalid_missing() -> None:
+def test_get_parameter_string_success() -> None:
+    assert nodeapi.get_string_parameter(444, "definitely a string") == "definitely a string"
+
+@pytest.mark.parametrize("parameter_value", (111, None, 1.1))
+def test_get_parameter_string_fail(parameter_value: Any) -> None:
     with pytest.raises(web.HTTPInternalServerError) as exception_value:
-        nodeapi.transform_parameters(444, [ "b", "a" ], { "a": 1 })
+        nodeapi.get_string_parameter(444, parameter_value)
     response = exception_value.value
     assert isinstance(response.body, bytes)
     object = json.loads(response.body)
@@ -74,8 +99,33 @@ def test_transform_parameters_invalid_missing() -> None:
     assert object["id"] == 444
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -8
-    assert object["error"]["message"] == "Unknown named parameter b"
+    assert object["error"]["code"] == -32700 # PARSE_ERROR
+    assert object["error"]["message"] == "JSON value is not a string as expected"
+
+@pytest.mark.parametrize("parameter_value,expected_value",
+    # Integer, fixed point string, floating point.
+    ((111, 11100000000), ("123.231", 12323100000), (123.231, 12323100000),
+    # Higher bound valid range, lower bound valid range.
+    (21000000, 21000000 * 100000000), (0, 0)))
+def test_get_amount_parameter_success(parameter_value: Any, expected_value: int) -> None:
+    assert nodeapi.get_amount_parameter(444, parameter_value) == expected_value
+
+@pytest.mark.parametrize("parameter_value,error_text", (("dfdf", "Invalid amount"),
+    (None, "Amount is not a number or string"),
+    # Just over higher and lower bound range values.
+    (21000001, "Amount out of range"), (-1, "Amount out of range")))
+def test_get_amount_parameter_parse_failure(parameter_value: Any, error_text: str) -> None:
+    with pytest.raises(web.HTTPInternalServerError) as exception_value:
+        nodeapi.get_amount_parameter(444, parameter_value)
+    response = exception_value.value
+    assert isinstance(response.body, bytes)
+    object = json.loads(response.body)
+    assert len(object) == 3
+    assert object["id"] == 444
+    assert object["result"] is None
+    assert len(object["error"]) == 2
+    assert object["error"]["code"] == -3 # TYPE_ERROR
+    assert object["error"]["message"] == error_text
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
 def test_get_wallet_from_request_implicit_fail_none(app_state_nodeapi: AppStateProxy) -> None:
@@ -345,6 +395,462 @@ async def test_server_authentication_method_unknown_fail_async(server_tester: Te
     assert len(object["error"]) == 2
     assert object["error"]["code"] == -32601
     assert object["error"]["message"] == "Method not found"
+
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_getnewaddress_no_available_server_async(app_state_nodeapi: AppStateProxy,
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    def get_tip_filter_server_state() -> None:
+        return None
+    wallet.get_tip_filter_server_state.side_effect = get_tip_filter_server_state
+
+    call_object = {
+        "id": 232,
+        "method": "getnewaddress",
+        "params": [],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] is None
+    assert len(object["error"]) == 2
+    assert object["error"]["code"] == -4
+    assert object["error"]["message"] == "No connected tip filter server"
+
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_getnewaddress_no_account_async(app_state_nodeapi: AppStateProxy,
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    server_state = unittest.mock.Mock(spec=ServerConnectionState)
+    def get_tip_filter_server_state() -> ServerConnectionState:
+        nonlocal server_state
+        return server_state
+    wallet.get_tip_filter_server_state.side_effect = get_tip_filter_server_state
+
+    # mock_account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        return []
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    call_object = {
+        "id": 232,
+        "method": "getnewaddress",
+        "params": [],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] is None
+    assert len(object["error"]) == 2
+    assert object["error"]["code"] == -4
+    assert object["error"]["message"] == "Ambiguous account (found 0, expected 1)"
+
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_getnewaddress_too_many_accounts_async(app_state_nodeapi: AppStateProxy,
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    server_state = unittest.mock.Mock(spec=ServerConnectionState)
+    def get_tip_filter_server_state() -> ServerConnectionState:
+        nonlocal server_state
+        return server_state
+    wallet.get_tip_filter_server_state.side_effect = get_tip_filter_server_state
+
+    mock_account1 = unittest.mock.Mock(spec=StandardAccount)
+    mock_account2 = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        return [ mock_account1, mock_account2 ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    call_object = {
+        "id": 232,
+        "method": "getnewaddress",
+        "params": [],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] is None
+    assert len(object["error"]) == 2
+    assert object["error"]["code"] == -4
+    assert object["error"]["message"] == "Ambiguous account (found 2, expected 1)"
+
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_getnewaddress_monitor_failure_no_server_async(app_state_nodeapi: AppStateProxy,
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    server_state = unittest.mock.Mock(spec=ServerConnectionState)
+    def get_tip_filter_server_state() -> ServerConnectionState:
+        nonlocal server_state
+        return server_state
+    wallet.get_tip_filter_server_state.side_effect = get_tip_filter_server_state
+
+    account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        nonlocal account
+        return [ account ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    payment_request_row = unittest.mock.Mock(spec=PaymentRequestRow)
+    payment_request_output_row = unittest.mock.Mock(spec=PaymentRequestOutputRow)
+    payment_request_output_row.output_script_bytes = \
+        bytes.fromhex("76a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac")
+
+    async def create_payment_request_async(amount: int | None,
+            internal_description: str | None,
+            merchant_reference: str | None, date_expires: int | None = None,
+            server_id: int | None = None, dpp_invoice_id: str | None=None,
+            dpp_ack_json: str | None=None, encrypted_key_text: str | None=None,
+            flags: PaymentFlag=PaymentFlag.NONE) \
+                -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
+        # These are all expected values.
+        assert amount is None
+        assert internal_description is None
+        assert merchant_reference is None
+        assert server_id is None
+        assert dpp_invoice_id is None
+        assert dpp_ack_json is None
+        assert  encrypted_key_text is None
+        assert flags & PaymentFlag.MASK_TYPE == PaymentFlag.MONITORED
+        nonlocal payment_request_row, payment_request_output_row
+        return payment_request_row, [ payment_request_output_row ]
+    account.create_payment_request_async = create_payment_request_async
+
+    # job_data = unittest.mock.Mock(spec=TipFilterRegistrationJobOutput)
+    async def monitor_blockchain_payment_async(request_id: int) \
+            -> TipFilterRegistrationJobOutput | None:
+        return None
+    account.monitor_blockchain_payment_async = monitor_blockchain_payment_async
+
+    call_object = {
+        "id": 232,
+        "method": "getnewaddress",
+        "params": [],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] is None
+    assert len(object["error"]) == 2
+    assert object["error"]["code"] == -4
+    assert object["error"]["message"] == "No connected tip filter server"
+
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_getnewaddress_monitor_server_error_async(app_state_nodeapi: AppStateProxy,
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    server_state = unittest.mock.Mock(spec=ServerConnectionState)
+    def get_tip_filter_server_state() -> ServerConnectionState:
+        nonlocal server_state
+        return server_state
+    wallet.get_tip_filter_server_state.side_effect = get_tip_filter_server_state
+
+    account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        nonlocal account
+        return [ account ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    payment_request_row = unittest.mock.Mock(spec=PaymentRequestRow)
+    payment_request_output_row = unittest.mock.Mock(spec=PaymentRequestOutputRow)
+    payment_request_output_row.output_script_bytes = \
+        bytes.fromhex("76a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac")
+
+    async def create_payment_request_async(amount: int | None,
+            internal_description: str | None,
+            merchant_reference: str | None, date_expires: int | None = None,
+            server_id: int | None = None, dpp_invoice_id: str | None=None,
+            dpp_ack_json: str | None=None, encrypted_key_text: str | None=None,
+            flags: PaymentFlag=PaymentFlag.NONE) \
+                -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
+        # These are all expected values.
+        assert amount is None
+        assert internal_description is None
+        assert merchant_reference is None
+        assert server_id is None
+        assert dpp_invoice_id is None
+        assert dpp_ack_json is None
+        assert  encrypted_key_text is None
+        assert flags & PaymentFlag.MASK_TYPE == PaymentFlag.MONITORED
+        nonlocal payment_request_row, payment_request_output_row
+        return payment_request_row, [ payment_request_output_row ]
+    account.create_payment_request_async = create_payment_request_async
+
+    job_data = unittest.mock.Mock(spec=TipFilterRegistrationJobOutput)
+    job_data.completed_event = unittest.mock.Mock(spec=asyncio.Event)
+    job_data.date_registered = None
+    job_data.failure_reason = "The server had a problem test message"
+    async def monitor_blockchain_payment_async(request_id: int) \
+            -> TipFilterRegistrationJobOutput | None:
+        nonlocal job_data
+        return job_data
+    account.monitor_blockchain_payment_async = monitor_blockchain_payment_async
+
+    call_object = {
+        "id": 232,
+        "method": "getnewaddress",
+        "params": [],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] is None
+    assert len(object["error"]) == 2
+    assert object["error"]["code"] == -4
+    assert object["error"]["message"] == job_data.failure_reason
+
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_getnewaddress_success_async(app_state_nodeapi: AppStateProxy,
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    server_state = unittest.mock.Mock(spec=ServerConnectionState)
+    def get_tip_filter_server_state() -> ServerConnectionState:
+        nonlocal server_state
+        return server_state
+    wallet.get_tip_filter_server_state.side_effect = get_tip_filter_server_state
+
+    account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        nonlocal account
+        return [ account ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    payment_request_row = unittest.mock.Mock(spec=PaymentRequestRow)
+    payment_request_output_row = unittest.mock.Mock(spec=PaymentRequestOutputRow)
+    payment_request_output_row.output_script_bytes = \
+        bytes.fromhex("76a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac")
+
+    async def create_payment_request_async(amount: int | None,
+            internal_description: str | None,
+            merchant_reference: str | None, date_expires: int | None = None,
+            server_id: int | None = None, dpp_invoice_id: str | None=None,
+            dpp_ack_json: str | None=None, encrypted_key_text: str | None=None,
+            flags: PaymentFlag=PaymentFlag.NONE) \
+                -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
+        # These are all expected values.
+        assert amount is None
+        assert internal_description is None
+        assert merchant_reference is None
+        assert server_id is None
+        assert dpp_invoice_id is None
+        assert dpp_ack_json is None
+        assert  encrypted_key_text is None
+        assert flags & PaymentFlag.MASK_TYPE == PaymentFlag.MONITORED
+        nonlocal payment_request_row, payment_request_output_row
+        return payment_request_row, [ payment_request_output_row ]
+    account.create_payment_request_async = create_payment_request_async
+
+    job_data = unittest.mock.Mock(spec=TipFilterRegistrationJobOutput)
+    job_data.completed_event = unittest.mock.Mock(spec=asyncio.Event)
+    job_data.date_registered = 11111
+    job_data.failure_reason = None
+    async def monitor_blockchain_payment_async(request_id: int) \
+            -> TipFilterRegistrationJobOutput | None:
+        nonlocal job_data
+        return job_data
+    account.monitor_blockchain_payment_async = monitor_blockchain_payment_async
+
+    call_object = {
+        "id": 232,
+        "method": "getnewaddress",
+        "params": [],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.OK
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] == "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2"
+    assert object["error"] is None
+
+@unittest.mock.patch('electrumsv.keystore.app_state', new_callable=_create_mock_app_state2)
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state2)
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_sendtoaddress_failure_no_account_async(app_state_nodeapi: AppStateProxy,
+        app_state_wallet: AppStateProxy, app_state_keystore: AppStateProxy,
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallet_password = "password"
+    app_state_wallet.credentials.get_wallet_password = lambda wallet_path: wallet_password
+    app_state_keystore.credentials.get_wallet_password = lambda wallet_path: wallet_password
+    tmp_storage = cast(WalletStorage, MockStorage(wallet_password))
+    wallet = Wallet(tmp_storage)
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    call_object = {
+        "id": 232,
+        "method": "sendtoaddress",
+        "params": [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000 ],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] is None
+    assert len(object["error"]) == 2
+    assert object["error"]["code"] == -4 # WALLET_ERROR
+    assert object["error"]["message"] == "Ambiguous account (found 0, expected 1)"
+
+@unittest.mock.patch('electrumsv.keystore.app_state', new_callable=_create_mock_app_state2)
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state2)
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_sendtoaddress_failure_too_many_accounts_async(app_state_nodeapi: AppStateProxy,
+        app_state_wallet: AppStateProxy, app_state_keystore: AppStateProxy,
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallet_password = "password"
+    app_state_wallet.credentials.get_wallet_password = lambda wallet_path: wallet_password
+    app_state_keystore.credentials.get_wallet_password = lambda wallet_path: wallet_password
+    tmp_storage = cast(WalletStorage, MockStorage(wallet_password))
+    wallet = Wallet(tmp_storage)
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    for i in range(2):
+        data = os.urandom(64)
+        coin = bitcoinx.BitcoinRegtest
+        xprv = bitcoinx.BIP32PrivateKey._from_parts(data[:32], data[32:], coin)
+        text_match = xprv.to_extended_key_string()
+        assert text_match is not None # typing bug
+        keystore = instantiate_keystore_from_text(KeystoreTextType.EXTENDED_PRIVATE_KEY,
+            text_match, wallet_password, derivation_text=None, passphrase="", watch_only=False)
+        wallet.create_account_from_keystore(
+            KeyStoreResult(AccountCreationType.IMPORTED, keystore))
+
+    call_object = {
+        "id": 232,
+        "method": "sendtoaddress",
+        "params": [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000 ],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] is None
+    assert len(object["error"]) == 2
+    assert object["error"]["code"] == -4 # WALLET_ERROR
+    assert object["error"]["message"] == "Ambiguous account (found 2, expected 1)"
+
+# @unittest.mock.patch('electrumsv.keystore.app_state', new_callable=_create_mock_app_state2)
+# @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state2)
+# @unittest.mock.patch('electrumsv.nodeapi.app_state')
+# async def test_call_sendtoaddress_failure_empty_account_async(app_state_nodeapi: AppStateProxy,
+#         app_state_wallet: AppStateProxy, app_state_keystore: AppStateProxy,
+#         server_tester: TestClient, funded_wallet: Wallet) -> None:
+#     assert server_tester.app is not None
+#     mock_server = server_tester.app["server"]
+#     # Ensure the server does not require authorization to make a call.
+#     mock_server._password = ""
+
+#     wallet_password = "password"
+#     app_state_wallet.credentials.get_wallet_password = lambda wallet_path: wallet_password
+#     app_state_keystore.credentials.get_wallet_password = lambda wallet_path: wallet_password
+
+#     wallets: dict[str, Wallet] = {}
+#     irrelevant_path = os.urandom(32).hex()
+#     wallets[irrelevant_path] = funded_wallet
+#     app_state_nodeapi.daemon.wallets = wallets
+
+#     call_object = {
+#         "id": 232,
+#         "method": "sendtoaddress",
+#         "params": [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000 ],
+#     }
+#     response = await server_tester.request(path="/", method="POST", json=call_object)
+#     assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+#     object = await response.json()
+#     assert len(object) == 3
+#     assert object["id"] == 232
+#     assert object["result"] is None
+#     assert len(object["error"]) == 2
+#     assert object["error"]["code"] == -4 # WALLET_ERROR
+#     assert object["error"]["message"] == "Ambiguous account (found 2, expected 1)"
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
 async def test_call_walletpassphrase_password_incorrect_async(app_state_nodeapi: AppStateProxy,

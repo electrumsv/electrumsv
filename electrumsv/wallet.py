@@ -1077,15 +1077,17 @@ class AbstractAccount:
     def get_masterkey_id(self) -> Optional[int]:
         raise NotImplementedError
 
-    async def create_payment_request_async(self, amount: int, internal_description: str | None,
+    async def create_payment_request_async(self, amount: int | None,
+            internal_description: str | None,
             merchant_reference: str | None, date_expires: int | None = None,
             server_id: int | None = None, dpp_invoice_id: str | None=None,
             dpp_ack_json: str | None=None, encrypted_key_text: str | None=None,
             flags: PaymentFlag=PaymentFlag.NONE) \
                 -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
-        # The payment request flags that are allowed to be set are just the supplementary flags,
-        # not the state flags.
+        # We do not allow setting the state flags.
         assert flags & PaymentFlag.MASK_STATE == 0
+        # The request and output amount can only be blank for @BlindPaymentRequests.
+        assert isinstance(amount, int) or flags & PaymentFlag.MONITORED
 
         # We set `KeyInstanceFlag.ACTIVE` here with the understanding that we are responsible for
         # removing it when the payment request is deleted, expires or whatever.
@@ -1192,10 +1194,8 @@ class AbstractAccount:
         # We only accept one output row for monitored blockchain payments.
         assert len(request_output_rows) == 1
 
-        server_state = self._wallet.get_connection_state_for_usage(
-            NetworkServerFlag.USE_BLOCKCHAIN)
-        if server_state is None or \
-                server_state.connection_flags & ServerConnectionFlag.TIP_FILTER_READY == 0:
+        server_state = self._wallet.get_tip_filter_server_state()
+        if server_state is None:
             return None
 
         job = await create_tip_filter_registration_async(server_state,
@@ -1217,11 +1217,8 @@ class AbstractAccount:
         assert request_row is not None
         assert request_row.date_expires is not None
 
-        # TODO(pre-commit) Ensure that this will.
-        server_state = self._wallet.get_connection_state_for_usage(
-            NetworkServerFlag.USE_BLOCKCHAIN)
-        if server_state is None or \
-                server_state.connection_flags & ServerConnectionFlag.TIP_FILTER_READY == 0:
+        server_state = self._wallet.get_tip_filter_server_state()
+        if server_state is None:
             return False
 
         for request_output_row in request_output_rows:
@@ -2285,12 +2282,12 @@ class WalletDataAccess:
         return db_functions.read_transaction_value_entries(self._db_context, account_id,
             tx_hashes=tx_hashes, mask=mask)
 
-    def read_transactions_exist(self, tx_hashes: Sequence[bytes], account_id: Optional[int]=None) \
+    def read_transactions_exist(self, tx_hashes: Sequence[bytes], account_id: int | None=None) \
             -> list[TransactionExistsRow]:
         return db_functions.read_transactions_exist(self._db_context, tx_hashes, account_id)
 
     async def set_transaction_state_async(self, tx_hash: bytes, flag: TxFlags,
-            ignore_mask: Optional[TxFlags]=None) -> bool:
+            ignore_mask: TxFlags | None=None) -> bool:
         return await self._db_context.run_in_thread_async(
             db_functions.set_transaction_state_write, tx_hash, flag, ignore_mask)
 
@@ -4438,6 +4435,13 @@ class Wallet:
             self.progress_event.set()
             self.progress_event.clear()
 
+    def get_tip_filter_server_state(self) -> ServerConnectionState | None:
+        server_state = self.get_connection_state_for_usage(NetworkServerFlag.USE_BLOCKCHAIN)
+        if server_state is None or \
+                server_state.connection_flags & ServerConnectionFlag.TIP_FILTER_READY == 0:
+            return None
+        return server_state
+
     def get_connection_state_for_usage(self, usage_flags: NetworkServerFlag) \
             -> ServerConnectionState | None:
         # TODO(future) In the longer term a wallet will be able to have multiple petty cash
@@ -5311,13 +5315,20 @@ class Wallet:
             "a transaction hash that is not linked to keys associated with outstanding payment " \
             f"requests {hash_to_hex_str(transaction_hash)}"
 
-        # While we do not create payment requests
         closed_payment_request_ids: list[int] = []
         all_transaction_description_update_rows: list[tuple[str, int, bytes]] = []
         for payment_request_id in payment_request_ids:
             request_row, request_output_rows = self.data.read_payment_request(payment_request_id)
             assert request_row is not None
             assert len(request_output_rows) > 0
+
+            # @BlindPaymentRequests
+            # This is to support the node wallet comparible JSON-RPC API. The GUI does not use it.
+            # The idea is that these payment requests relate to an existing externally registered
+            # tip filter registration and the external party should be notified about all payment
+            # transactions to this key.
+            if request_row.requested_value is None:
+                continue
 
             try:
                 transaction_description_update_rows = \

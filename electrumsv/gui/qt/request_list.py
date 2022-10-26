@@ -174,7 +174,8 @@ class RequestList(MyTreeWidget):
 
             if flags == PaymentFlag.UNPAID and row.date_expires is not None:
                 date_expires = row.date_expires
-                if date_expires < current_time + 5:
+                if current_time + 5 > date_expires:
+                    # `EXPIRED` is never stored and solely used for extra visual state.
                     flags = (flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
                 else:
                     nearest_expiry_time = min(nearest_expiry_time, date_expires)

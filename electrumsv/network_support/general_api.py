@@ -987,8 +987,12 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
         assert len(job.entries) > 0
 
         logger.debug("Processing %d tip filter registrations", len(job.entries))
+
+        # Notify the triggering party that we are starting the requested attempt.
         job.output.start_event.set()
 
+        # Create the local state that reflects we are starting the process of putting these
+        # external registrations in place.
         date_created = int(time.time())
         db_insert_rows: list[PushDataHashRegistrationRow] = []
         server_rows: list[tuple[bytes, int]] = []
@@ -1004,12 +1008,14 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
         await state.wallet_data.create_tip_filter_pushdata_registrations_async(db_insert_rows,
             upsert=True)
 
+        # Place the external tip filter registrations.
         try:
             job.output.date_registered = await create_tip_filter_registrations_async(state,
                 server_rows)
         except (GeneralAPIError, ServerConnectionError) as exception:
+            logger.exception("Failed tip filter registrations with blockchain server")
             job.output.failure_reason = str(exception)
-            date_updated = int(get_posix_timestamp())
+            date_updated = int(time.time())
             await state.wallet_data.update_registered_tip_filter_pushdatas_flags_async([
                 (PushDataHashRegistrationFlag.REGISTRATION_FAILED, date_updated,
                     state.server.server_id, keyinstance_id)
@@ -1019,7 +1025,7 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
             # At this point we have all the information we need to record the registrations
             # as being active on this server and complete the job. This removes the
             # `REGISTERING` flag.
-            date_updated = int(get_posix_timestamp())
+            date_updated = int(time.time())
             await state.wallet_data.update_registered_tip_filter_pushdatas_async([
                 (job.output.date_registered, date_updated,
                     ~PushDataHashRegistrationFlag.REGISTERING, PushDataHashRegistrationFlag.NONE,
@@ -1028,6 +1034,8 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
             ])
 
             logger.debug("Processed %d tip filter registrations", len(job.entries))
+
+        # Notify the triggering party that we are done with the requested attempt.
         job.output.completed_event.set()
 
 

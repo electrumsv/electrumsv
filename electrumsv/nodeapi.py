@@ -43,19 +43,26 @@ from __future__ import annotations
 import asyncio
 from base64 import b64decode
 import binascii
+from decimal import Decimal
 import json
 import os
+import re
+import time
 from types import NoneType
 from typing import Any, Awaitable, Callable, cast, TYPE_CHECKING, TypedDict
 
 from aiohttp import web
 # NOTE(typing) `cors_middleware` is not explicitly exported, so mypy strict fails. No idea.
 from aiohttp_middlewares import cors_middleware # type: ignore
+from bitcoinx import Address, Script
 
 from .app_state import app_state
-from .constants import CredentialPolicyFlag
+from .bitcoin import script_template_to_string
+from .constants import CredentialPolicyFlag, PaymentFlag
 from .exceptions import InvalidPassword
 from .logs import logs
+from .networks import Net
+from .transaction import classify_transaction_output_script
 from .util import constant_time_compare
 
 if TYPE_CHECKING:
@@ -90,6 +97,9 @@ METHOD_NOT_FOUND  = -32601              # Use the not found (404) status code.
 INVALID_PARAMS    = -32602              # Internal server error (500) status code.
 PARSE_ERROR       = -32700              # Internal server error (500) status code.
 
+TYPE_ERROR                      = -3    # Internal server error (500) status code.
+WALLET_ERROR                    = -4    # Internal server error (500) status code.
+INVALID_ADDRESS_OR_KEY          = -5    # Internal server error (500) status code.
 INVALID_PARAMETER               = -8    # Internal server error (500) status code.
 WALLET_KEYPOOL_RAN_OUT          = -12   # Internal server error (500) status code.
 WALLET_PASSPHRASE_INCORRECT     = -14   # Internal server error (500) status code.
@@ -297,6 +307,10 @@ def get_wallet_from_request(request: web.Request, request_id: RequestIdType,
     The node JSON-RPC API exposes the calls under both the non-wallet-specific `/` top-level
     and the wallet-specific `/wallet/<wallet-name>` paths. If there is only one wallet loaded
     the non-wallet-specific path will just work for that or otherwise not find a wallet.
+
+    Raises `HTTPNotFound` for the implicit case of no wallet loaded.
+    Raises `HTTPInternalServerError` for the implicit cases of too many wallets and the explicit
+        cases of bad wallet path and and wallet not being loaded.
     """
     wallet_name = request.match_info.get("wallet")
     if wallet_name is None:
@@ -356,25 +370,197 @@ def transform_parameters(request_id: RequestIdType, parameters_names: list[str],
 
     parameter_values: list[Any] = []
     for parameter_name in parameters_names:
-        if parameter_name not in parameters:
-            # Node returns an error when encountering a missing parameter in the object.
-            raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
-                    text=json.dumps(ResponseDict(id=request_id, result=None,
-                        error=ErrorDict(code=INVALID_PARAMETER,
-                            message=f"Unknown named parameter {parameter_name}"))))
-        parameter_values.append(parameters[parameter_name])
+        if parameter_name in parameters:
+            parameter_values.append(parameters[parameter_name])
+        else:
+            parameter_values.append(None)
+
+    disallowed_names = list(set(parameters) - set(parameters_names))
+    if len(disallowed_names) > 0:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=INVALID_PARAMETER,
+                        message=f"Unknown named parameter {disallowed_names[0]}"))))
+
     return parameter_values
 
+def get_string_parameter(request_id: RequestIdType, parameter_value: Any) -> str:
+    if not isinstance(parameter_value, str):
+        # The node maps the C++ exception on a non-string value to an RPC_PARSE_ERROR.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=PARSE_ERROR,
+                    message="JSON value is not a string as expected"))))
+    return parameter_value
+
+def get_amount_parameter(request_id: RequestIdType, parameter_value: Any) -> int:
+    """
+    Convert the parameter to satoshis if possible.
+    """
+    if not isinstance(parameter_value, (int, float, str)):
+        # The node maps the C++ exception on a non-string value to an RPC_PARSE_ERROR.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=TYPE_ERROR,
+                    message="Amount is not a number or string"))))
+
+    amount_coins: Decimal
+    if isinstance(parameter_value, int):
+        amount_coins = Decimal(parameter_value)
+    elif isinstance(parameter_value, str):
+        if re.match(r"(\d+)?(\.\d+)?$", parameter_value) is None:
+            # The node maps the C++ exception on a non-string value to an RPC_PARSE_ERROR.
+            raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=TYPE_ERROR,
+                        message="Invalid amount"))))
+        amount_coins = Decimal(parameter_value)
+    elif isinstance(parameter_value, float):
+        # Get rid of the floating point error.
+        amount_coins = round(Decimal(parameter_value), 8)
+    else:
+        raise NotImplementedError("Programmer error")
+
+    satoshis_per_coin = 100000000
+    max_satoshis = 21000000 * satoshis_per_coin
+    amount_satoshis = int(amount_coins * satoshis_per_coin)
+    if amount_satoshis < 0 or amount_satoshis > max_satoshis:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=TYPE_ERROR,
+                    message="Amount out of range"))))
+    return amount_satoshis
 
 async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestIdType,
         parameters: RequestParametersType) -> Any:
-    # wallet = get_wallet_from_request(request, request_id)
-    return "jsonrpc_getnewaddress_async"
+    """
+    Create a new receiving address, register it successfully with the provisioned blockchain
+    service and then return it to the caller.
+
+    Raises `HTTPInternalServerError` for related errors to return to the API using application.
+    """
+    # Regarding cleaning up on errors these are all @FutureDatabasePruning cases. This applies to
+    # both created payment request rows and tip filter registration rows.
+
+    # Ensure the user is accessing either an explicit or implicit wallet.
+    wallet = get_wallet_from_request(request, request_id)
+    assert wallet is not None
+
+    # While this is checked when we go to monitor the payment it is unlikely that it will become
+    # unavailable between now and then. By checking it before doing anything we can avoid doing
+    # things we would otherwise need to clean up.
+    server_state = wallet.get_tip_filter_server_state()
+    if server_state is None:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_ERROR, message="No connected tip filter server"))))
+
+    # Similarly the user must only have one account (and we will ignore any
+    # automatically created petty cash accounts which we do not use yet).
+    accounts = wallet.get_visible_accounts()
+    if len(accounts) != 1:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_ERROR,
+                    message=f"Ambiguous account (found {len(accounts)}, expected 1)"))))
+    account = accounts[0]
+
+    # By not setting an actual value for the amount the code that would otherwise close the
+    # payment request when the expected value to be received is met, ignores the payment for
+    # this payment request. See @BlindPaymentRequests.
+    date_expires = int(time.time()) + 24 * 60 * 60
+    request_row, request_output_rows = await account.create_payment_request_async(None,
+        None, merchant_reference=None, date_expires=date_expires, flags=PaymentFlag.MONITORED)
+    assert request_row.paymentrequest_id is not None
+
+    job_data = await account.monitor_blockchain_payment_async(request_row.paymentrequest_id)
+    if job_data is None:
+        # If we did not check for this case above before we created the payment request we
+        # would probably clean up here. But the chance of this happening is so slight and
+        # the unmonitored and never returned payment request should expire.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_ERROR, message="No connected tip filter server"))))
+
+    # We do not want to continue until the tip filter registration is successfully placed with
+    # the blockchain server.
+    await job_data.completed_event.wait()
+
+    if job_data.date_registered is None:
+        # The failure reason is the stringified text for the exception encountered. The details
+        # are also present in the logs. It should be a relayed error from the blockchain server.
+        assert job_data.failure_reason is not None
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_ERROR, message=job_data.failure_reason))))
+
+    # Strictly speaking we return the address of whatever this is. It is almost guaranteed to be
+    # a base58 encoded P2PKH address that we return.
+    output_script = Script(request_output_rows[0].output_script_bytes)
+    script_type, threshold, script_template = classify_transaction_output_script(
+        output_script)
+    return script_template_to_string(script_template)
 
 async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestIdType,
         parameters: RequestParametersType) -> Any:
-    # wallet = get_wallet_from_request(request, request_id)
-    return "jsonrpc_sendtoaddress_async"
+    """
+    Raises `HTTPNotFoundError` for wallet location failure.
+    Raises `HTTPInternalServerError` for wallet location failure, parameter processing failure.
+    """
+    # Ensure the user is accessing either an explicit or implicit wallet.
+    wallet = get_wallet_from_request(request, request_id)
+    assert wallet is not None
+
+    # Similarly the user must only have one account (and we will ignore any
+    # automatically created petty cash accounts which we do not use yet).
+    accounts = wallet.get_visible_accounts()
+    if len(accounts) != 1:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_ERROR,
+                    message=f"Ambiguous account (found {len(accounts)}, expected 1)"))))
+    account = accounts[0]
+
+    parameter_values = transform_parameters(request_id, [ "address", "amount", "comment",
+        "commentto", "subtractfeefromamount" ], parameters)
+    if len(parameter_values) < 2 or len(parameter_values) > 5:
+        # Node returns help. We do not. The user should see the documentation.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=INVALID_PARAMS,
+                    message="Invalid parameters, see documentation for this call"))))
+
+    address_text = get_string_parameter(request_id, parameter_values[0])
+    try:
+        address = Address.from_string(address_text, Net.COIN)
+    except ValueError:
+        # The node maps the C++ exception on a non-integer value to an RPC_PARSE_ERROR.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=INVALID_ADDRESS_OR_KEY,
+                    message="Invalid address"))))
+
+    amount_satoshis = get_amount_parameter(request_id, parameter_values[1])
+    if amount_satoshis < 1:
+        # The node maps the C++ exception on a non-integer value to an RPC_PARSE_ERROR.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=TYPE_ERROR, message="Invalid amount for send"))))
+
+    comment_sections: list[str] = []
+    if len(parameter_values) >= 4 and isinstance(parameter_values[3], str):
+        comment_sections.append(parameter_values[3])
+    if len(parameter_values) >= 3 and isinstance(parameter_values[2], str):
+        comment_sections.append(parameter_values[2])
+
+    comment_text: str | None = None
+    if len(comment_sections) > 0:
+        comment_text = ": ".join(comment_sections)
+
+    # account.make_unsigned_transaction()
+
+    # ...
+    return "the txid!"
 
 async def jsonrpc_sendmany_async(request: web.Request, request_id: RequestIdType,
         parameters: RequestParametersType) -> Any:

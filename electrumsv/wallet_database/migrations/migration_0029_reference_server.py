@@ -337,7 +337,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
         #   table.
         conn.execute("""
             INSERT INTO PaymentRequests2 (paymentrequest_id, state, description, date_expires,
-                value, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference, 
+                value, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
                 encrypted_key_text, date_created, date_updated)
             SELECT PR.paymentrequest_id, PR.state, PR.description,
                 CASE WHEN PR.expiration IS NULL THEN NULL ELSE PR.date_created + PR.expiration END,
@@ -353,6 +353,8 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     conn.execute("DROP TABLE PaymentRequests")
     conn.execute("ALTER TABLE PaymentRequests2 RENAME TO PaymentRequests")
 
+    # `output_value` can be NULL but only for blank payment requests that are monitored
+    # (`PaymentFlag.MONITORED`).
     conn.execute("""
         CREATE TABLE PaymentRequestOutputs (
             paymentrequest_id           INTEGER     NOT NULL,
@@ -361,7 +363,7 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             output_script_type          INTEGER     NOT NULL,
             output_script               BLOB        NOT NULL,
             pushdata_hash               BLOB        NOT NULL,
-            output_value                INTEGER     NOT NULL,
+            output_value                INTEGER     NULL,
             keyinstance_id              INTEGER     NOT NULL,
             date_created                INTEGER     NOT NULL,
             date_updated                INTEGER     NOT NULL,

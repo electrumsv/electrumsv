@@ -133,7 +133,8 @@ class InvoiceList(MyTreeWidget):
         for row in invoice_rows:
             flags = row.flags & PaymentFlag.MASK_STATE
             if flags & PaymentFlag.UNPAID and row.date_expires:
-                if row.date_expires <= current_time + 5:
+                if current_time + 5 > row.date_expires:
+                    # `EXPIRED` is never stored and solely used for extra visual state.
                     flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
                 else:
                     nearest_expiry_time = min(nearest_expiry_time, row.date_expires)
@@ -214,7 +215,8 @@ class InvoiceList(MyTreeWidget):
 
         flags = row.flags & PaymentFlag.MASK_STATE
         if flags & PaymentFlag.UNPAID and row.date_expires:
-            if row.date_expires <= get_posix_timestamp() + 4:
+            if time.time() + 5 > row.date_expires:
+                # `EXPIRED` is never stored and solely used for extra visual state.
                 flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
 
         if column_data:

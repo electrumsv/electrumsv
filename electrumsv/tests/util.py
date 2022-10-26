@@ -1,5 +1,6 @@
 
 from __future__ import annotations
+import asyncio
 import os
 from typing import Any, Coroutine, NoReturn, TypeVar
 import unittest.mock
@@ -119,6 +120,18 @@ def _create_mock_app_state() -> unittest.mock.MagicMock:
         coro.close()
     def _spawn_and_wait(coroutine: Coroutine[Any, Any, T1], timeout: int | None=None) -> T1:
         coroutine.close()
+    mock = unittest.mock.MagicMock()
+    mock.async_.spawn = _spawn
+    mock.async_.spawn_and_wait = _spawn_and_wait
+    return mock
+
+def _create_mock_app_state2() -> unittest.mock.MagicMock:
+    # The primary goal of this is to avoid the warnings about never awaited coroutines.
+    def _spawn(coro: Coroutine[Any, Any, Any], on_done=None) -> Any:
+        task = asyncio.create_task(coro)
+    def _spawn_and_wait(coroutine: Coroutine[Any, Any, T1], timeout: int | None=None) -> T1:
+        task = asyncio.create_task(coroutine)
+        1/0
     mock = unittest.mock.MagicMock()
     mock.async_.spawn = _spawn
     mock.async_.spawn_and_wait = _spawn_and_wait

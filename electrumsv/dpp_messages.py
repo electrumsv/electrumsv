@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any, cast, Dict, List, Literal, Optional, TypedDict, Union
 import types
 import urllib.parse
@@ -40,7 +41,6 @@ from .logs import logs
 from .networks import Net, SVScalingTestnet, SVTestnet, SVMainnet, SVRegTestnet
 from .standards.json_envelope import JSONEnvelope, validate_json_envelope
 from .transaction import XTxOutput
-from .util import get_posix_timestamp
 from .wallet_database.types import PaymentRequestRow, PaymentRequestOutputRow
 
 logger = logs.get_logger("dpp-messages")
@@ -59,7 +59,7 @@ REQUEST_HEADERS = {
 # https://github.com/electrumsv/bips/blob/master/bip-0270.mediawiki
 
 def has_expired(expiration_timestamp: Optional[int]=None) -> bool:
-    return expiration_timestamp is not None and expiration_timestamp < get_posix_timestamp()
+    return expiration_timestamp is not None and expiration_timestamp < time.time()
 
 
 HYBRID_PAYMENT_MODE_BRFCID = "ef63d9775da5"
@@ -250,7 +250,7 @@ class PaymentTerms:
         if creation_timestamp is not None:
             creation_timestamp = int(creation_timestamp)
         else:
-            creation_timestamp = get_posix_timestamp()
+            creation_timestamp = int(time.time())
         self.creation_timestamp = creation_timestamp
         if expiration_timestamp is not None:
             expiration_timestamp = int(expiration_timestamp)

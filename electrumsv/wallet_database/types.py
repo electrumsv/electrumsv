@@ -215,14 +215,15 @@ class PaymentRequestUpdateRow(NamedTuple):
 
 
 class PaymentRequestOutputRow(NamedTuple):
-    # This is `None` for the `INSERT` as this makes SQLite allocate the primary key value for us.
+    # `None` is allowed here for the `INSERT` to make SQLite allocate the primary key value for us.
     paymentrequest_id: int | None
     transaction_index: int
     output_index: int
     output_script_type: ScriptType
     output_script_bytes: bytes
     pushdata_hash: bytes
-    output_value: int
+    # @BlindPaymentRequests
+    output_value: int | None
     keyinstance_id: int
     date_created: int
     date_updated: int

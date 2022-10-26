@@ -285,7 +285,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
         self.app.timer.timeout.connect(self.timer_actions)
 
-    def reference(self) -> 'ElectrumWindow':
+    def reference(self) -> ElectrumWindow:
         return self
 
     def __del__(self) -> None:
