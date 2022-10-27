@@ -67,7 +67,7 @@ from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags,
     WalletEventFlag, WalletEventType, WalletSettings)
 from .contacts import Contacts
 from .crypto import pw_decode, pw_encode
-from .dpp_messages import Payment, PaymentACK, PeerChannelDict, PaymentACKDict
+from .dpp_messages import Payment, PaymentACK, PaymentACKDict
 from .exceptions import (BadServerError, Bip270Exception, BroadcastError, ExcessiveFee,
     InvalidPassword, NotEnoughFunds, NoViableServersError, PreviousTransactionsMissingException,
     ServerConnectionError, ServerError, UnsupportedAccountTypeError, UnsupportedScriptTypeError,
@@ -102,20 +102,20 @@ from .restapi_websocket import broadcast_restapi_event_async, BroadcastEventName
     BroadcastEventPayloadNames, close_restapi_connection_async
 from .standards.electrum_transaction_extended import transaction_from_electrumsv_dict
 from .standards.json_envelope import JSONEnvelope, validate_json_envelope
-from .standards.mapi import MAPICallbackResponse, validate_mapi_callback_response, \
-    MAPIBroadcastResponse
+from .standards.mapi import MAPICallbackResponse, validate_mapi_callback_response
 from .standards.tsc_merkle_proof import separate_proof_and_embedded_transaction, TSCMerkleProof, \
     TSCMerkleProofError, TSCMerkleProofJson, verify_proof
 from .storage import WalletStorage
 from .transaction import (HardwareSigningMetadata, Transaction,
     TransactionContext, TransactionFeeEstimator, tx_dict_from_text, TxSerialisationFormat,
     XPublicKey, XTxInput, XTxOutput)
-from .types import (ConnectHeaderlessProofWorkerState, DatabaseKeyDerivationData,
+from .types import (BroadcastResult, ConnectHeaderlessProofWorkerState, DatabaseKeyDerivationData,
     FeeEstimatorProtocol, FeeQuoteCommon, IndefiniteCredentialId,
     KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult,
-    MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld, MasterKeyDataMultiSignature,
-    MissingTransactionMetadata, Outpoint, OutputSpend, ServerAccountKey, ServerAndCredential,
-    TransactionFeeContext, TransactionKeyUsageMetadata, WaitingUpdateCallback)
+    MAPIBroadcastResult, MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld,
+    MasterKeyDataMultiSignature, MissingTransactionMetadata, Outpoint, OutputSpend,
+    ServerAccountKey, ServerAndCredential, TransactionFeeContext, TransactionKeyUsageMetadata,
+    WaitingUpdateCallback)
 from .util import format_satoshis, get_posix_timestamp, get_wallet_name_from_path, \
     TriggeredCallbacks, ValueLocks
 from .util.cache import LRUCache
@@ -3635,16 +3635,15 @@ class Wallet:
         return True
 
     async def broadcast_transaction_async(self, transaction: Transaction,
-            transaction_context: TransactionContext | None) -> \
-                tuple[MAPIBroadcastResponse, PeerChannelDict | None, ServerConnectionState | None]:
+            transaction_context: TransactionContext | None) -> BroadcastResult:
         """
         Broadcast a transaction. This transaction does not even have to be known to the wallet.
 
         For now this is limited to broadcasting via MAPI.
         """
         broadcast_hash = transaction.hash()
-        successful = False
-        peer_channel_server_state: ServerConnectionState | None = None
+        result: BroadcastResult | None = None
+
         if transaction_context is not None and transaction_context.mapi_server_hint is not None:
             # For now we expect to be connected to a peer channel server.
             peer_channel_server_state = self.get_connection_state_for_usage(
@@ -3654,15 +3653,19 @@ class Wallet:
             broadcast_response, peer_channel_info = await mapi_transaction_broadcast_async(
                 self.data, peer_channel_server_state, transaction_context.mapi_server_hint,
                 transaction, True, True)
-            successful = broadcast_response["returnResult"] == "success"
-        else:
+            result = BroadcastResult(
+                broadcast_response["returnResult"] == "success",
+                MAPIBroadcastResult(broadcast_response, peer_channel_info,
+                    peer_channel_server_state))
+
+        if result is None:
             raise BroadcastError("P2P broadcast is not currently supported")
 
-        if successful:
+        if result.success:
             await self.set_transaction_state_async(broadcast_hash, TxFlags.STATE_CLEARED,
                 TxFlags.MASK_STATE_BROADCAST)
 
-        return broadcast_response, peer_channel_info, peer_channel_server_state
+        return result
 
     async def update_mapi_fee_quotes_async(self, account_id: int, timeout: float=4.0) \
             -> AsyncIterable[tuple[NewServer, IndefiniteCredentialId | None]]:
@@ -3703,6 +3706,7 @@ class Wallet:
                         servers_with_credentials.append(server_and_credential)
         if len(servers_with_credentials) > 0:
             return random.choice(servers_with_credentials)
+
         return None
 
     async def try_get_mapi_proofs(self, tx_hashes: list[bytes], reorging_chain: Chain) \
@@ -4819,15 +4823,14 @@ class Wallet:
                 assert mapi_server_hint is not None
                 tx_context = TransactionContext(mapi_server_hint=mapi_server_hint)
                 try:
-                    broadcast_response, peer_channel_info, peer_channel_server_state = \
-                        await self.broadcast_transaction_async(tx, tx_context)
-                    successful = broadcast_response["returnResult"] == "success"
+                    broadcast_result = await self.broadcast_transaction_async(tx, tx_context)
                 except (GeneralAPIError, ServerConnectionError, ServerError, BadServerError):
                     self._logger.exception("Unexpected exception broadcasting to mAPI")
                     continue
+                mapi_result = broadcast_result.mapi
+                assert mapi_result is not None
 
-                assert successful is not None
-                if successful:
+                if broadcast_result.success:
                     try:
                         # NOTE: This will update the payment request with PaymentFlag.PAID
                         await self.close_payment_request_async(request_row.paymentrequest_id,
@@ -4852,11 +4855,12 @@ class Wallet:
                         request_id=message_row.paymentrequest_id)
                     assert request_row is not None
                     assert request_row.paymentrequest_id is not None
-                    assert peer_channel_info is not None
+                    assert mapi_result.peer_channel_data is not None
 
                     # Add dpp_ack_json to payment_request_row in case the Payer tries to
                     # re-attempt payment for the same invoice.
-                    dpp_ack_message = dpp_make_ack(tx.txid(), peer_channel_info, message_row)
+                    dpp_ack_message = dpp_make_ack(tx.txid(), mapi_result.peer_channel_data,
+                        message_row)
                     update_row = PaymentRequestUpdateRow(request_row.state,
                         request_row.requested_value, request_row.date_expires,
                         request_row.description, request_row.merchant_reference,
@@ -4868,20 +4872,20 @@ class Wallet:
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
                 else:
                     self._logger.error("mAPI broadcast for txid: %s failed with reason: %s",
-                        tx.txid(), broadcast_response['resultDescription'])
+                        tx.txid(), mapi_result.response['resultDescription'])
 
                     # Inform the *Payer* of the reason we rejected their `Payment`
-                    error_reason = broadcast_response['resultDescription']
+                    error_reason = mapi_result.response['resultDescription']
                     dpp_err_message = dpp_make_payment_error(message_row, error_reason)
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
 
                     # Mark the now unused peer channel with deactivated state
                     # NOTE: This is an "Owned" peer channel type (not externally owned)
-                    if peer_channel_server_state is not None:
-                        assert peer_channel_info is not None
-                        assert peer_channel_server_state.cached_peer_channel_rows is not None
-                        remote_channel_id = peer_channel_info['channel_id']
-                        peer_channel_row = peer_channel_server_state.\
+                    if mapi_result.server_state is not None:
+                        assert mapi_result.peer_channel_data is not None
+                        assert mapi_result.server_state.cached_peer_channel_rows is not None
+                        remote_channel_id = mapi_result.peer_channel_data['channel_id']
+                        peer_channel_row = mapi_result.server_state.\
                             cached_peer_channel_rows[remote_channel_id]
                         new_channel_flags = peer_channel_row.peer_channel_flags | \
                             ServerPeerChannelFlag.DEACTIVATED

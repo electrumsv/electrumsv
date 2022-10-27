@@ -4,14 +4,19 @@ from os.path import dirname
 from pathlib import Path
 import shutil
 import tempfile
+from typing import Callable
+import unittest.mock
 
 import bitcoinx
 import pytest
-from electrumsv.transaction import Transaction, XPublicKey
 
-from electrumsv.networks import Net, SVMainnet, SVTestnet
+from electrumsv.networks import Net, SVMainnet, SVRegTestnet, SVTestnet
 from electrumsv.simple_config import SimpleConfig
 from electrumsv.util.misc import obj_size
+from electrumsv.transaction import Transaction, XPublicKey
+from electrumsv.wallet import Wallet, WalletStorage
+
+from .util import mock_headers, PasswordToken, TEST_WALLET_PATH
 
 
 @pytest.fixture(params=(SVMainnet, SVTestnet))
@@ -72,3 +77,48 @@ def fresh_wallet_path():
     user_dir = tempfile.mkdtemp()
     yield os.path.join(user_dir, f"somewallet-{os.urandom(4).hex()}")
     shutil.rmtree(user_dir)
+
+
+@pytest.fixture(scope="session")
+def funded_wallet_factory() -> Callable[[], Wallet]:
+    """
+    This helper method provides a new copy of a stock funded wallet. The wallet in question is
+    a sample regtest blockchain imported from the simple indexer file
+    "contrib\blockchains\blockchain_115_3677f4" with an extra block on top to
+    """
+    temp_dir = tempfile.mkdtemp()
+    wallet_filename = "26_regtest_standard_mining_with_mature_and_immature_coins.sqlite"
+    wallet_password = "123456"
+    wallet_password_token = PasswordToken(wallet_password)
+
+    source_wallet_path = os.path.join(TEST_WALLET_PATH, wallet_filename)
+    upgrade_wallet_path = os.path.join(temp_dir, wallet_filename)
+    shutil.copyfile(source_wallet_path, upgrade_wallet_path)
+
+    # NOTE(rt12) Mocking out the headers is not ideal but we kind of have to do it for now.
+    Net.set_to(SVRegTestnet)
+    try:
+        wallet_storage = WalletStorage(upgrade_wallet_path)
+        with unittest.mock.patch(
+            "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+            as migration29_app_state:
+                migration29_app_state.headers = mock_headers()
+                wallet_storage.upgrade(True, wallet_password_token)
+        wallet_storage.close()
+    finally:
+        Net.set_to(SVMainnet)
+
+    def local_function() -> Wallet:
+        nonlocal upgrade_wallet_path, wallet_filename
+        # @Python311 This should use `sqlite3.deserialize` to load the upgraded wallet into
+        #     memory and use an ephemeral copy.
+        copy_path = tempfile.mkdtemp()
+        copy_wallet_path = os.path.join(copy_path, wallet_filename)
+        shutil.copyfile(upgrade_wallet_path, copy_wallet_path)
+
+        # The caller must have mocked in the wallet password for the wallet to be opened.
+        copy_wallet_storage = WalletStorage(copy_wallet_path)
+        return Wallet(copy_wallet_storage)
+
+    return local_function
+

@@ -58,11 +58,11 @@ from bitcoinx import Address, Script
 
 from .app_state import app_state
 from .bitcoin import script_template_to_string
-from .constants import CredentialPolicyFlag, PaymentFlag
+from .constants import CredentialPolicyFlag, NetworkServerFlag, PaymentFlag, TransactionImportFlag
 from .exceptions import InvalidPassword
 from .logs import logs
 from .networks import Net
-from .transaction import classify_transaction_output_script
+from .transaction import classify_transaction_output_script, XTxOutput
 from .util import constant_time_compare
 
 if TYPE_CHECKING:
@@ -102,10 +102,10 @@ WALLET_ERROR                    = -4    # Internal server error (500) status cod
 INVALID_ADDRESS_OR_KEY          = -5    # Internal server error (500) status code.
 INVALID_PARAMETER               = -8    # Internal server error (500) status code.
 WALLET_KEYPOOL_RAN_OUT          = -12   # Internal server error (500) status code.
+WALLET_UNLOCK_NEEDED            = -13   # Internal server error (500) status code.
 WALLET_PASSPHRASE_INCORRECT     = -14   # Internal server error (500) status code.
 WALLET_NOT_FOUND                = -18   # Internal server error (500) status code.
 WALLET_NOT_SPECIFIED            = -19   # Internal server error (500) status code.
-
 
 class NodeAPIServer:
     is_running = False
@@ -521,6 +521,22 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
                     message=f"Ambiguous account (found {len(accounts)}, expected 1)"))))
     account = accounts[0]
 
+    wallet_password = app_state.credentials.get_wallet_password(wallet.get_storage_path())
+    if wallet_password is None:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_UNLOCK_NEEDED,
+                    message="Error: Please enter the wallet passphrase with " \
+                        "walletpassphrase first."))))
+
+    peer_channel_server_state = wallet.get_connection_state_for_usage(
+        NetworkServerFlag.USE_MESSAGE_BOX)
+    if peer_channel_server_state is None:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_ERROR,
+                    message="No configured peer channel server"))))
+
     parameter_values = transform_parameters(request_id, [ "address", "amount", "comment",
         "commentto", "subtractfeefromamount" ], parameters)
     if len(parameter_values) < 2 or len(parameter_values) > 5:
@@ -557,10 +573,35 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
     if len(comment_sections) > 0:
         comment_text = ": ".join(comment_sections)
 
-    # account.make_unsigned_transaction()
+    coins = account.get_transaction_outputs_with_key_data()
+    assert len(coins) > 1
+    outputs = [ XTxOutput(-1, address.to_script()) ] # type: ignore[arg-type]
+
+    # TODO MAPI fee estimator (ensure it is involved and no mapi estimates an error).
+
+    transaction, transaction_context = account.make_unsigned_transaction(coins, outputs)
+    if comment_text is not None:
+        transaction_context.account_descriptions[account.get_id()] = comment_text
+    future = account.sign_transaction(transaction, wallet_password, context=transaction_context,
+        import_flags=TransactionImportFlag.UNSET)
+    assert future is not None
+    await asyncio.wrap_future(future)
+
+    # The only mechanism we have to know if the transaction ends up in a block is the peer
+    # channel registration.
+    # TODO we will get a merkle proof for the payments we send but not the ones we receive?
+    # TODO we will get the merkle proof for the payments we recieve ...
+    broadcast_result = await wallet.broadcast_transaction_async(transaction, transaction_context)
+    mapi_result = broadcast_result.mapi
+    assert mapi_result is not None
 
     # ...
-    return "the txid!"
+
+    # At this point the transaction should be signed.
+
+    transaction_id = transaction.txid()
+    assert transaction_id is not None
+    return transaction_id
 
 async def jsonrpc_sendmany_async(request: web.Request, request_id: RequestIdType,
         parameters: RequestParametersType) -> Any:
