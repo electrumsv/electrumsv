@@ -12,4 +12,5 @@ PyQt6>=6.3.0
 requests
 python-dateutil>=2.8.0
 qrcode
+typing-extensions
 websocket-client
