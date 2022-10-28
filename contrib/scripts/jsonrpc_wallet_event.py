@@ -32,7 +32,6 @@ def main() -> None:
     script_path = os.path.dirname(full_script_path)
     # Place the log file in the same directory.
     log_filename = os.path.join(script_path, "tx.log")
-    print(log_filename)
 
     if len(sys.argv) != 2:
         write_to_log_file(log_filename, "ERROR incorrect number of arguments")
