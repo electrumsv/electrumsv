@@ -23,6 +23,9 @@ class AppStateProxyTest(AppStateProxy):
         config = UnittestSimpleConfig()
         super().__init__(config, 'qt')
 
+        self.daemon = unittest.mock.Mock()
+        self.daemon.nodeapi_server = None
+
     def _migrate(self) -> None:
         pass
 

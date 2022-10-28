@@ -335,6 +335,14 @@ def add_global_options(parser: argparse.ArgumentParser) -> None:
     group.add_argument("-w", "--wallet", dest="wallet_path", help="wallet path")
     group.add_argument("-wp", "--walletpassword", dest="wallet_password", default=None,
                        help="Supply wallet password")
+    # @NodeWalletAPI Add the `-walletnotify` command-line argument.
+    # The node does not validate this in any way, whether trying to work out if the script is
+    # executable or even exists. Given it is a full command script that is executed with
+    # substitutions we should just error and leave it up to the user to deal with it.
+    group.add_argument("-walletnotify", "--walletnotify", action="store",
+        dest="walletnotify", nargs=1, help="Specify the path of a script to be executed when "
+            "notifications related to JSON-RPC API usage are dispatched (this will be deprecated "
+            "with the JSON-RPC API and is only intended for that purpose)")
 
     # Select Network
     group.add_argument("--testnet", action="store_true", dest="testnet", default=False,

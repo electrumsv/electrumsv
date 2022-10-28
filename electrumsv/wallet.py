@@ -846,7 +846,7 @@ class AbstractAccount:
         raise NotImplementedError
 
     def get_possible_scripts_for_derivation(self, derivation_type: DerivationType,
-            derivation_data2: Optional[bytes]) -> list[tuple[ScriptType, Script]]:
+            derivation_data2: bytes | None) -> list[tuple[ScriptType, Script]]:
         script_types = ACCOUNT_SCRIPT_TYPES.get(self.type())
         if script_types is None:
             raise UnsupportedAccountTypeError
@@ -867,7 +867,7 @@ class AbstractAccount:
     def sign_transaction(self, tx: Transaction, password: str,
             context: Optional[TransactionContext]=None,
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) \
-                -> Optional[concurrent.futures.Future[TransactionLinkState]]:
+                -> concurrent.futures.Future[TransactionLinkState] | None:
         if self.is_watching_only():
             return None
 
@@ -927,8 +927,26 @@ class AbstractAccount:
                     in tx_context.account_descriptions.items() ]
                 self._wallet.set_transaction_labels(update_entries)
 
+        # These need to be explicitly passed into the import transaction logic.
+        transaction_output_key_usage: dict[int, tuple[int, ScriptType]] = {}
+        for output_index, transaction_output in enumerate(tx.outputs):
+            key_usages: list[tuple[int, ScriptType]] = []
+            # If there are extended public keys they should either be single signature or
+            # multi-signature and only one key instance that is shared in the multi case.
+            for x_pubkey in transaction_output.x_pubkeys.values():
+                assert x_pubkey.derivation_data.keyinstance_id is not None
+                key_usage = (x_pubkey.derivation_data.keyinstance_id,
+                    transaction_output.script_type)
+                if key_usage not in key_usages:
+                    key_usages.append(key_usage)
+            # These will either be a receiving/change output
+            assert len(key_usages) <= 1
+            if len(key_usages) == 1:
+                transaction_output_key_usage[output_index] = key_usages[0]
+
         transaction_future = app_state.async_.spawn(self._wallet.add_local_transaction_async(
-            tx_hash, tx, tx_flags, BlockHeight.LOCAL, None, None, import_flags))
+            tx_hash, tx, tx_flags, BlockHeight.LOCAL, None, None, import_flags,
+            transaction_output_key_usage=transaction_output_key_usage))
         transaction_future.add_done_callback(callback)
         return transaction_future
 
@@ -3497,6 +3515,10 @@ class Wallet:
         # specific change.
         self.events.trigger_callback(WalletEvent.TRANSACTION_ADD, transaction_hash, transaction,
             link_state, import_flags)
+
+        #
+        if app_state.daemon.nodeapi_server is not None:
+            app_state.daemon.nodeapi_server.event_transaction_added(transaction_hash)
 
         return link_state
 

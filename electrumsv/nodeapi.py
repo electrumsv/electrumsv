@@ -47,6 +47,8 @@ from decimal import Decimal
 import json
 import os
 import re
+import subprocess
+import threading
 import time
 from types import NoneType
 from typing import Any, Awaitable, Callable, cast, TYPE_CHECKING, TypedDict
@@ -54,7 +56,7 @@ from typing import Any, Awaitable, Callable, cast, TYPE_CHECKING, TypedDict
 from aiohttp import web
 # NOTE(typing) `cors_middleware` is not explicitly exported, so mypy strict fails. No idea.
 from aiohttp_middlewares import cors_middleware # type: ignore
-from bitcoinx import Address, Script
+from bitcoinx import Address, hash_to_hex_str, Script
 
 from .app_state import app_state
 from .bitcoin import script_template_to_string
@@ -68,9 +70,10 @@ from .util import constant_time_compare
 if TYPE_CHECKING:
     from .wallet import Wallet
 
-
 HandlerType = Callable[[web.Request], Awaitable[web.StreamResponse]]
 
+
+logger = logs.get_logger("nodeapi")
 
 # We use typed dictionaries inline rather than layering functions to abstract this in order to try
 # to make the code easier to read.
@@ -159,6 +162,44 @@ class NodeAPIServer:
     async def shutdown_async(self) -> None:
         assert self._runner is not None
         await self._runner.cleanup()
+
+    def event_transaction_added(self, transaction_hash: bytes) -> None:
+        """
+        Called by `Wallet._import_transaction_async` as an explicit JSON-RPC API hook.
+
+        This is non-blocking and launches a thread to run the notification command in. The user
+        can pass multiple commands to run for each notification, and while the node only allows
+        one it doesn't really make any difference and it's more work to try and limit the
+        command-line argument passing than just handle it.
+        """
+
+        if "walletnotify" not in app_state.config.cmdline_options:
+            return
+        transaction_id = hash_to_hex_str(transaction_hash)
+
+        for command_line in app_state.config.cmdline_options["walletnotify"]:
+            command_line = command_line.replace("%s", transaction_id)
+            run_walletnotify_script(command_line)
+
+
+def run_walletnotify_script(command_line: str) -> None:
+    """
+    For every `-walletnotify` command-line that the user passes to the wallet, we start a daemon
+    thread that runs the script. If the user has long-running or stalled or erroneous scripts
+    we do not care, the use of daemon threads should ensure they are all cleaned up on exit.
+    """
+    def execute_walletnotify_script() -> None:
+        try:
+            # The command line is a whole string with command and arguments together. For this
+            # to run, the `shell` argument must be `True`. `check` ensures that if the command
+            # errors we get an exception raised with details that will get logged.
+            subprocess.run(command_line, shell=True, check=True)
+        except Exception:
+            logger.exception("Failed executing 'walletnotify' command of '%s'", command_line)
+
+    thread = threading.Thread(target=execute_walletnotify_script)
+    thread.setDaemon(True)
+    thread.start()
 
 
 @web.middleware

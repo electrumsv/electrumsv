@@ -49,10 +49,10 @@ class ConnectHeaderlessProofWorkerState:
 
 @dataclasses.dataclass(frozen=True)
 class DatabaseKeyDerivationData:
-    derivation_path: Optional[DerivationPath]
-    account_id: Optional[int] = dataclasses.field(default=None)
-    masterkey_id: Optional[int] = dataclasses.field(default=None)
-    keyinstance_id: Optional[int] = dataclasses.field(default=None)
+    derivation_path: DerivationPath|None
+    account_id: int|None = dataclasses.field(default=None)
+    masterkey_id: int|None = dataclasses.field(default=None)
+    keyinstance_id: int|None = dataclasses.field(default=None)
     source: DatabaseKeyDerivationType = dataclasses.field(default=DatabaseKeyDerivationType.UNKNOWN)
 
     @classmethod

@@ -59,7 +59,8 @@ class RequestColumn(IntEnum):
     DATE = 0
     DESCRIPTION = 1
     AMOUNT_REQUESTED = 2
-    STATUS = 3
+    AMOUNT_RECEIVED = 3
+    STATUS = 4
 
 
 # TODO(ScriptTypeAssumption) It is assumed that all active payment requests from the receive tab
@@ -185,6 +186,7 @@ class RequestList(MyTreeWidget):
                 date,
                 row.description or "",
                 requested_amount_str,
+                "-",
                 pr_tooltips.get(state,'')
             ])
 
