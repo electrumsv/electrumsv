@@ -7,6 +7,14 @@ provided in a format that aims to eventually cover the majority of basic use cas
 This RESTAPI may be subject to slight changes but the example dapp source code is there for users to modify
 to suit your own specific needs.
 
+Possible network options for ``{network}``
+
+- ``mainnet``
+- ``testnet``
+- ``scalingtestnet``
+- ``regtest``
+
+
 Endpoints
 ##########
 
