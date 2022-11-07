@@ -2,7 +2,7 @@ The Node wallet API
 ===================
 
 The Bitcoin SV node bitcoind has provided a JSON-RPC based wallet API. However running a node just
-to have operate a wallet is becoming prohibitive as blocks and the blockchain get larger and larger
+to operate a wallet is becoming prohibitive as blocks and the blockchain get larger and larger
 on Bitcoin SV.
 
 ElectrumSV aims to provide a replacement option to running the node. This is a special mode where
