@@ -225,7 +225,7 @@ class LabelSync(object):
                 continue
             result[key] = value
 
-        logger.info(f"received {len(result):,d} labels")
+        logger.debug(f"received {len(result):,d} labels")
 
         updates: Dict[str, str] = {}
         for key, value in result.items():

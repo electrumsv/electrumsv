@@ -103,7 +103,7 @@ def import_key(private_key: bitcoinx.PrivateKey) -> None:
     if result.status_code != 200:
         raise requests.exceptions.HTTPError(result.text)
     p2pkh_address = private_key.public_key.to_address(network=Net.COIN).to_string()
-    logger.info("imported address %s into the node wallet for tracking", p2pkh_address)
+    logger.debug("imported address %s into the node wallet for tracking", p2pkh_address)
 
 
 def regtest_topup_account(receive_address: bitcoinx.P2PKH_Address, amount: int=25) \
@@ -127,7 +127,7 @@ def regtest_topup_account(receive_address: bitcoinx.P2PKH_Address, amount: int=2
     if result.status_code != 200:
         raise requests.exceptions.HTTPError(result.text)
     txid = cast(str, result.json()['result'])
-    logger.info("topped up wallet with %s coins to receive address='%s'. txid=%s", amount,
+    logger.debug("topped up wallet with %s coins to receive address='%s'. txid=%s", amount,
         receive_address.to_string(), txid)
     return txid
 

@@ -199,5 +199,5 @@ class AiohttpServer(BaseAiohttpServer):
     async def run_async(self) -> None:
         await self._start_async()
         self.is_running = True
-        self.logger.debug("started on http://%s:%s", self.host, self.port)
+        self.logger.info("REST API started on http://%s:%s", self.host, self.port)
         await self.shutdown_event.wait()

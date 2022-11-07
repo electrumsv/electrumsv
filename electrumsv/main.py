@@ -26,12 +26,13 @@
 # ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+
 import asyncio
 import os
 from os import urandom
 import sys
 import time
-from typing import Any, cast, Dict, Optional, Tuple, Union
+from typing import Any, cast
 
 import bitcoinx
 
@@ -58,7 +59,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
-def prompt_password(prompt: str, confirm: bool=True) -> Optional[str]:
+def prompt_password(prompt: str, confirm: bool=True) -> str|None:
     # NOTE(shoddy-windows-getpass-support) Search for this named note for more information.
     import getpass
     password = getpass.getpass(prompt)
@@ -89,7 +90,7 @@ def run_non_RPC(config: SimpleConfig) -> None:
 
     if cmdname in {'create_wallet', 'create_account'}:
         app_state.read_headers()
-        password: Optional[str]
+        password: str|None
         if not config.cmdline_options.get('nopasswordcheck'):
             password = prompt_password("Password: ")
             password = password.strip() if password is not None else password
@@ -138,7 +139,7 @@ def run_non_RPC(config: SimpleConfig) -> None:
         sys.exit(f"error: unrecognised command '{cmdname}'")
 
 
-def init_daemon(config_options: Dict[str, Any]) -> None:
+def init_daemon(config_options: dict[str, Any]) -> None:
     config = SimpleConfig(config_options)
     wallet_path = config.get_cmdline_wallet_filepath()
     if not WalletStorage.files_are_matched_by_path(wallet_path):
@@ -163,7 +164,7 @@ def init_daemon(config_options: Dict[str, Any]) -> None:
     config_options['password'] = password
 
 
-def init_cmdline(config_options: Dict[str, Any]) -> Tuple[Command, Optional[str]]:
+def init_cmdline(config_options: dict[str, Any]) -> tuple[Command, str|None]:
     # The config object should be read-only. Do not change it.
     config = SimpleConfig(config_options)
     cmdname = config.get('cmd')
@@ -196,7 +197,7 @@ def init_cmdline(config_options: Dict[str, Any]) -> Tuple[Command, Optional[str]
               "proposed by third parties.", file=sys.stderr)
 
     # commands needing password
-    password: Optional[str]
+    password: str|None
     if cmd.requires_wallet or cmd.requires_password: # `cmd.requires_wallet or server is None`
         if config.get('password'):
             password = config.get_optional_type(str, 'password')
@@ -217,11 +218,11 @@ def init_cmdline(config_options: Dict[str, Any]) -> Tuple[Command, Optional[str]
     return cmd, password
 
 
-def run_offline_command(config: SimpleConfig, config_options: Dict[str, Any]) -> Any:
+def run_offline_command(config: SimpleConfig, config_options: dict[str, Any]) -> Any:
     cmdname = config.get_explicit_type(str, 'cmd', "?")
     cmd = known_commands[cmdname]
     password = config_options.get('password')
-    wallet: Optional[Wallet]
+    wallet: Wallet|None
     if cmd.requires_wallet:
         wallet_path = config.get_cmdline_wallet_filepath()
         if not WalletStorage.files_are_matched_by_path(wallet_path):
@@ -338,7 +339,7 @@ def read_cli_args() -> None:
             sys.argv[i] = hidden_text
 
 
-def get_config_options() -> Dict[str, Any]:
+def get_config_options() -> dict[str, Any]:
     read_cli_args()
     parser = get_parser()
     args = parser.parse_args()
@@ -350,16 +351,6 @@ def get_config_options() -> Dict[str, Any]:
         if value is not None and key not in config_variables.get(args.cmd, {})
     }
     return config_options
-
-
-def set_restapi_credentials(config: SimpleConfig, config_options: Dict[str, Any]) -> None:
-    # TODO(deprecation) @DeprecateRESTBasicAuth.
-    if config_options.get('restapi_username'):
-        config._set_key_in_user_config(
-            "rpcuser", config_options.get('restapi_username'), save=True)
-    if config_options.get('restapi_password') == '' or config_options.get('restapi_password'):
-        config._set_key_in_user_config(
-            "rpcpassword", config_options.get('restapi_password'), save=True)
 
 
 def main() -> None:
@@ -437,10 +428,8 @@ def main() -> None:
     # This takes a copy of `config_options`, any changes to `config_options` past this point will
     # not be present in `config`'s copy.
     config = SimpleConfig(config_options)
-    set_restapi_credentials(config, config_options)
-    cmdname = config.get_optional_type(str, 'cmd')
-
     # Set the app state proxy
+    cmdname = config.get_optional_type(str, 'cmd')
     if cmdname == 'gui':
         try:
             from electrumsv.gui.qt.app_state import QtAppStateProxy
@@ -459,7 +448,7 @@ def main() -> None:
         run_non_RPC(config)
         sys.exit(0)
 
-    result: Union[str, Dict[Any, Any]] = ""
+    result: str | dict[Any, Any] = ""
     if cmdname == 'gui':
         lockfile_fd = daemon.get_lockfile_fd(config)
         if lockfile_fd:

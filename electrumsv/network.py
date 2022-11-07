@@ -398,7 +398,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         self._main_loop_future.cancel()
         await self._shutdown_complete_event.wait()
         await self.aiohttp_session.close()
-        logger.warning('stopped')
+        logger.info("Stopped")
 
     # def is_server_disabled(self, url: str, server_type: NetworkServerType) -> bool:
     #     """

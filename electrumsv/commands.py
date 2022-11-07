@@ -326,7 +326,7 @@ def add_network_options(parser: argparse.ArgumentParser) -> None:
 def add_global_options(parser: argparse.ArgumentParser) -> None:
     group = parser.add_argument_group('global options')
     group.add_argument("-v", "--verbose", action="store", dest="verbose",
-                       const='info', default='warning', nargs='?',
+                       const='info', default='info', nargs='?',
                        choices = ('debug', 'info', 'warning', 'error'),
                        help="Set logging verbosity")
     group.add_argument("-D", "--dir", dest="electrum_sv_path", help="ElectrumSV directory")
@@ -346,11 +346,11 @@ def add_global_options(parser: argparse.ArgumentParser) -> None:
 
     # Select Network
     group.add_argument("--testnet", action="store_true", dest="testnet", default=False,
-                       help="Use Testnet")
+                       help="Use the Testnet")
     group.add_argument("--scaling-testnet", action="store_true", dest="scalingtestnet",
-                       default=False, help="Use Scaling Testnet")
+                       default=False, help="Use the Scaling Testnet")
     group.add_argument("--regtest", action="store_true", dest="regtest",
-                       default=False, help="Use Regression Testnet")
+                       default=False, help="Use the Regression Testnet")
     group.add_argument("--file-logging", action="store_true", dest="file_logging", default=True,
                        help="Redirect logging to log file")
 
@@ -358,18 +358,27 @@ def add_global_options(parser: argparse.ArgumentParser) -> None:
     # TODO(obsolete) This --restapi argument can be removed. It is needed by the electrumsv_sdk
     #   for now, and if not present ESV will error on startup due to unrecogised arguments.
     group.add_argument("--restapi", action="store_true", dest="restapi",
-                       help="Run the built-in restapi")
-    group.add_argument("--restapi-port", dest="restapi_port",
-                       help="Set restapi port")
+        help="Run the built-in REST API (deprecated)")
+    group.add_argument("--restapi-port", dest="restapi_port", help="Set REST API port")
     # TODO(deprecation) @DeprecateRESTBasicAuth
     group.add_argument("--restapi-username", dest="restapi_username",
-                       help="Set restapi username (Basic Auth)")
+        help="Set REST API user name (Basic Auth)")
     group.add_argument("--restapi-password", dest="restapi_password",
-                       help="Set restapi password (Basic Auth)")
+        help="Set REST API password (Basic Auth)")
+
+    # @NodeWalletAPI Add the JSON-RPC API port/user/password command-line arguments.
+    group.add_argument("--enable-node-wallet-api", action="store_true", dest="enable_nodeapi",
+        help="Enable the node wallet JSON-RPC API")
+    group.add_argument("-rpcport", dest="nodeapi_port", help="Set JSON-RPC API port",
+        default=8332)
+    group.add_argument("-rpcuser", dest="nodeapi_username",
+        help="Set JSON-RPC API user name (Basic Auth)")
+    group.add_argument("-rpcpassword", dest="nodeapi_password",
+        help="Set JSON-RPC API password (Basic Auth)")
 
     # Wallet Creation
     group.add_argument("--no-password-check", action="store_true", dest="nopasswordcheck",
-                       default=False, help="Skip password confirmation step for wallet creation")
+        default=False, help="Skip password confirmation step for wallet creation")
 
 
 def get_parser() -> argparse.ArgumentParser:

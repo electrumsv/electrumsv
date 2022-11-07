@@ -316,17 +316,17 @@ class QrReaderCameraDialog(MessageBoxMixin, QDialog):
         def check_res(res: QSize) -> bool:
             return res.width() >= min_size and res.height() >= min_size
 
-        self._logger.info('searching for at least {0}x{0}'.format(min_size))
+        self._logger.debug('searching for at least {0}x{0}'.format(min_size))
 
         # Query and display all resolutions the camera supports
         format_str = 'camera resolutions: {}'
-        self._logger.info(format_str.format(res_list_to_str(resolutions)))
+        self._logger.debug(format_str.format(res_list_to_str(resolutions)))
 
         # Filter to those that are at least min_size in both width and height
         ideal_resolutions = [r for r in resolutions if check_res(r)]
         less_than_ideal_resolutions = [r for r in resolutions if r not in ideal_resolutions]
         format_str = 'ideal resolutions: {}, less-than-ideal resolutions: {}'
-        self._logger.info(format_str.format(res_list_to_str(ideal_resolutions),
+        self._logger.debug(format_str.format(res_list_to_str(ideal_resolutions),
             res_list_to_str(less_than_ideal_resolutions)))
 
         # Raise an error if we have no usable resolutions
@@ -348,7 +348,7 @@ class QrReaderCameraDialog(MessageBoxMixin, QDialog):
         resolution = sorted(candidate_resolutions, key=lambda r: r.width() * r.height(),
             reverse=not is_ideal)[0]
         format_str = 'chosen resolution is {}x{}'
-        self._logger.info(format_str.format(resolution.width(), resolution.height()))
+        self._logger.debug(format_str.format(resolution.width(), resolution.height()))
 
         return resolution, is_ideal
 
@@ -395,7 +395,7 @@ class QrReaderCameraDialog(MessageBoxMixin, QDialog):
                 break
 
         if device_info is None:
-            self._logger.info('Failed to open selected camera, trying to use default camera')
+            self._logger.debug('Failed to open selected camera, trying to use default camera')
             device_info = QMediaDevices.defaultVideoInput()
 
         if device_info is None or device_info.isNull():
@@ -409,7 +409,7 @@ class QrReaderCameraDialog(MessageBoxMixin, QDialog):
         self._error_message = None
 
         if self.camera:
-            self._logger.info("Warning: start_scan already called for this instance.")
+            self._logger.debug("Warning: start_scan already called for this instance.")
 
         assert self._video_sink is not None
 
@@ -430,7 +430,7 @@ class QrReaderCameraDialog(MessageBoxMixin, QDialog):
     def _find_device_resolution(self, device: QCameraDevice) -> bool:
         video_formats = device.videoFormats()
         if len(video_formats) == 0:
-            self._logger.info("No video formats for camera device %s", device)
+            self._logger.debug("No video formats for camera device %s", device)
             self.reject()
             return False
 
@@ -467,7 +467,7 @@ class QrReaderCameraDialog(MessageBoxMixin, QDialog):
         self.crop_blur_effect.setCrop(self.qr_crop)
 
     def _on_camera_error_occurred(self, errorCode: QCamera.Error, errorString: str) -> None:
-        self._logger.info("QCamera error: %s", errorString)
+        self._logger.debug("QCamera error: %s", errorString)
 
     def accept(self) -> None:
         self._ok_done = True  # immediately blocks further processing
@@ -497,7 +497,7 @@ class QrReaderCameraDialog(MessageBoxMixin, QDialog):
 
         self.validator = None
 
-        self._logger.info('closed %s', res)
+        self._logger.debug('closed %s', res)
 
         self.qr_finished.emit(code == QDialog.DialogCode.Accepted, self._error_message, res)
 
@@ -507,7 +507,7 @@ class QrReaderCameraDialog(MessageBoxMixin, QDialog):
 
         # image_format = QVideoFrameFormat.imageFormatFromPixelFormat(frame.pixelFormat())
         # if image_format == QImage.Format.Format_Invalid:
-        #     logger.info("QR code scanner for video frame with invalid pixel format %s",
+        #     logger.debug("QR code scanner for video frame with invalid pixel format %s",
         #         frame.pixelFormat())
         #     self._close_camera()
         #     return None
@@ -515,7 +515,7 @@ class QrReaderCameraDialog(MessageBoxMixin, QDialog):
         self._on_frame_image_available(frame.toImage())
 
         # if not frame.map(QVideoFrame.MapMode.ReadOnly):
-        #     logger.info(_('QR code scanner failed to map video frame'))
+        #     logger.debug(_('QR code scanner failed to map video frame'))
         #     return None
 
         # try:
@@ -546,7 +546,7 @@ class QrReaderCameraDialog(MessageBoxMixin, QDialog):
         self.frame_id += 1
 
         if image.size() != self.resolution:
-            self._logger.info('Getting video data at %dx%d instead of the requested %dx%d, '
+            self._logger.debug('Getting video data at %dx%d instead of the requested %dx%d, '
                 'switching resolution.', image.size().width(), image.size().height(),
                 self.resolution.width(), self.resolution.height())
             self._set_resolution(image.size())
@@ -621,7 +621,7 @@ class QrReaderCameraDialog(MessageBoxMixin, QDialog):
             if self.validator is not None:
                 # 1/3 of a second's worth of qr frames determines strong_count
                 self.validator.strong_count = math.ceil(qr_fps / 3)
-            self._logger.info("running at %f FPS, scanner at %f FPS", fps, qr_fps)
+            self._logger.debug("running at %f FPS, scanner at %f FPS", fps, qr_fps)
             self.frame_counter = 0
             self.qr_frame_counter = 0
             self.last_stats_time = now

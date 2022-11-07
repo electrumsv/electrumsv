@@ -127,7 +127,7 @@ class SimpleConfig:
 
     def set_key(self, key: str, value: Any, save: bool=True) -> None:
         if not self.is_modifiable(key):
-            logger.warning("not changing config key '%s' set on the command line", key)
+            logger.warning("Not changing config key '%s' set on the command line", key)
             return
         self._set_key_in_user_config(key, value, save)
 

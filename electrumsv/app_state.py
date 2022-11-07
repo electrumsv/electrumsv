@@ -179,7 +179,7 @@ class AppStateProxy(object):
         self.headers = read_cached_headers(Net.COIN, self.headers_filename(),
             Net.CHECKPOINT)
         for n, chain in enumerate(self.headers.chains(), start=1):
-            logger.info("chain #%d: %s", n, chain.desc())
+            logger.debug("chain #%d: %s", n, chain.desc())
 
         # The daemon is only running if the application has been started up in either online or
         # offline mode. In these cases we want to support header import, whether from the network

@@ -155,7 +155,7 @@ class NodeAPIServer:
     async def run_async(self) -> None:
         await self._start_async()
         self.is_running = True
-        self._logger.debug("started on http://%s:%s", self._host, self._port)
+        self._logger.info("JSON-RPC wallet API started on http://%s:%s", self._host, self._port)
         self.startup_event.set()
         await self.shutdown_event.wait()
 
@@ -494,7 +494,7 @@ async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestI
     if server_state is None:
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
             text=json.dumps(ResponseDict(id=request_id, result=None,
-                error=ErrorDict(code=WALLET_ERROR, message="No connected tip filter server"))))
+                error=ErrorDict(code=WALLET_ERROR, message="No connected blockchain server"))))
 
     # Similarly the user must only have one account (and we will ignore any
     # automatically created petty cash accounts which we do not use yet).
@@ -521,7 +521,7 @@ async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestI
         # the unmonitored and never returned payment request should expire.
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
             text=json.dumps(ResponseDict(id=request_id, result=None,
-                error=ErrorDict(code=WALLET_ERROR, message="No connected tip filter server"))))
+                error=ErrorDict(code=WALLET_ERROR, message="No connected blockchain server"))))
 
     # We do not want to continue until the tip filter registration is successfully placed with
     # the blockchain server.

@@ -105,7 +105,6 @@ How is ElectrumSV implemented?
     involved in the project. Refer to the
     :doc:`codebase reference <building-on-electrumsv/codebase-reference>`.
 
-
 How can I access my wallet using the REST API?
     For most users, accessing their wallet with the user interface will be fine. But if you have
     a minimal amount of development skill the availability of the REST API gives you a lot more
@@ -114,6 +113,10 @@ How can I access my wallet using the REST API?
     accounts. Perhaps you want to add your own interface for your wallet or maybe automate how
     you use it. Read more about the
     :doc:`REST API <building-on-electrumsv/rest-api>`.
+
+How can I access my wallet using the node wallet API?
+    Read more about the
+    :doc:`node wallet API <building-on-electrumsv/node-wallet-api>`.
 
 How would I extend ElectrumSV as a customised wallet server?
     The REST API is limited in what it can do by nature. Getting the ElectrumSV development team
@@ -134,6 +137,7 @@ Do I have to develop against the existing public blockchains?
    /building-on-electrumsv/codebase-reference
    /building-on-electrumsv/local-or-offline-development
    /building-on-electrumsv/rest-api
+   /building-on-electrumsv/node-wallet-api
    /building-on-electrumsv/customised-wallet-servers
    /building-on-electrumsv/functional-tests
    /building-on-electrumsv/benchmarks

@@ -563,7 +563,7 @@ async def _manage_external_peer_channel_connection_async(state: PeerChannelServe
     try:
         async with state.session.ws_connect(websocket_url, headers=headers, timeout=5.0) \
                 as server_websocket:
-            logger.info('Connected to server websocket, url=%s', websocket_url_template)
+            logger.debug('Connected to server websocket, url=%s', websocket_url_template)
 
             state.connection_flags |= ServerConnectionFlag.WEB_SOCKET_READY
 
@@ -587,7 +587,7 @@ async def _manage_external_peer_channel_connection_async(state: PeerChannelServe
                     elif websocket_message.type in (aiohttp.WSMsgType.CLOSE,
                             aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED,
                             aiohttp.WSMsgType.CLOSING):
-                        logger.info("Server websocket closed")
+                        logger.debug("Server websocket closed")
                         break
                     else:
                         logger.error("Unhandled server websocket message type %r",

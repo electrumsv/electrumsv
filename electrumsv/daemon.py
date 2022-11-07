@@ -52,28 +52,28 @@ from .wallet import Wallet
 logger = logs.get_logger("daemon")
 
 
-def get_lockfile(config: SimpleConfig) -> str:
+def get_lockfile_path(config: SimpleConfig) -> str:
     return os.path.join(config.path, 'daemon')
 
 
-def remove_lockfile(lockfile: str) -> None:
-    logger.debug("removing lockfile")
+def remove_lockfile(lockfile_path: str) -> None:
+    logger.debug("Removing lockfile")
     try:
-        os.unlink(lockfile)
+        os.unlink(lockfile_path)
     except OSError:
         pass
 
 
 def get_lockfile_fd(config: SimpleConfig) -> int | None:
-    '''Tries to create the lockfile, using O_EXCL to
-    prevent races.  If it succeeds it returns the FD.
-    Otherwise try and connect to the server specified in the lockfile.
-    If this succeeds, the server is returned.  Otherwise remove the
-    lockfile and try again.'''
-    lockfile = get_lockfile(config)
+    """
+    Tries to create the lockfile using O_EXCL to prevent races.  If it succeeds it returns the
+    file descriptor. Otherwise it tries to connect to the server specified in the lockfile and if
+    this succeeds, `None` is returned.  Otherwise, the lockfile is removed and we loop.
+    """
+    lockfile_path = get_lockfile_path(config)
     while True:
         try:
-            return os.open(lockfile, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+            return os.open(lockfile_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
         except OSError:
             pass
 
@@ -82,27 +82,27 @@ def get_lockfile_fd(config: SimpleConfig) -> int | None:
             # This is a valid response.
             return None
         # Couldn't connect; remove lockfile and try again.
-        remove_lockfile(lockfile)
+        remove_lockfile(lockfile_path)
 
 
-def remote_daemon_request(config: SimpleConfig, url: str, json_value: Any=None) -> Any:
-    lockfile_path = get_lockfile(config)
+def remote_daemon_request(config: SimpleConfig, url_path: str, json_value: Any=None) -> Any:
+    lockfile_path = get_lockfile_path(config)
     with open(lockfile_path) as f:
         text = f.read()
         if text == "":
             return { "error": "corrupt lockfile" }
         (host, port), _create_time = json.loads(text)
-    assert not url.startswith("http") and host not in url
-    full_url = f"http://{host}:{port}{url}"
-    rpc_user, rpc_password = get_rpc_credentials(config, is_restapi=True)
+    assert not url_path.startswith("http") and host not in url_path
+    url = f"http://{host}:{port}{url_path}"
+    restapi_credential = get_api_credentials(config, is_restapi=True)
     try:
-        response = requests.post(full_url, json=json_value, auth=(rpc_user, rpc_password))
+        response = requests.post(url, json=json_value, auth=restapi_credential)
     except requests.exceptions.ConnectionError:
         return { "error": "Daemon not running" }
     return response.json()
 
 
-def get_rpc_credentials(config: SimpleConfig, is_restapi: bool=False) -> tuple[str, str]:
+def get_api_credentials(config: SimpleConfig, is_restapi: bool) -> tuple[str, str]:
     """
     We share the credentials between the REST API and the node-compatible JSON-RPC API.
     To use the REST API the user should provide the `rpcpassword` as a bearer token, and does
@@ -114,22 +114,31 @@ def get_rpc_credentials(config: SimpleConfig, is_restapi: bool=False) -> tuple[s
         nbytes = (nbits + 7) // 8
         return cast(int, be_bytes_to_int(os.urandom(nbytes)) % (1 << nbits))
 
+    username_key = "restapi_username" if is_restapi else "nodeapi_username"
+    password_key = "restapi_password" if is_restapi else "nodeapi_password"
+
+    # What are the repercussions of not persisting these credentials?
+
     # TODO(deprecation) @DeprecateRESTBasicAuth
-    rpc_user = cast(str | None, config.get('rpcuser', None))
-    api_password = cast(str | None, config.get('rpcpassword', None))
-    if rpc_user is None or api_password is None:
-        rpc_user = 'user'
+    username_value = cast(str | None, config.get(username_key, None))
+    password_value = cast(str | None, config.get(password_key, None))
+    if username_value is None or password_value is None:
+        username_value = 'user'
+
         nbits = 128
         pw_int = random_integer(nbits)
         pw_b64 = base64.b64encode(
             pw_int.to_bytes(nbits // 8, 'big'), b'-_')
-        api_password = pw_b64.decode('ascii')
-        config.set_key('rpcuser', rpc_user)
-        config.set_key('rpcpassword', api_password, save=True)
-    elif api_password == '':
-        which = "REST API" if is_restapi else "JSON-RPC API"
-        logger.warning("No password set for %s. Access is therefore granted to any users.", which)
-    return rpc_user, api_password
+        password_value = pw_b64.decode('ascii')
+
+        # The only time we ever persist credentials is where we generate them and the user
+        # will want to pick them out of the config.
+        config._set_key_in_user_config(username_key, username_value)
+        config._set_key_in_user_config(password_key, password_value, save=True)
+    elif password_value == "":
+        which = "REST API" if is_restapi else "JSON-RPC wallet API"
+        logger.warning("No password set for %s. No credentials required for access.", which)
+    return username_value, password_value
 
 
 class Daemon(DaemonThread):
@@ -166,29 +175,40 @@ class Daemon(DaemonThread):
         self._init_nodeapi_server(config)
         self._init_restapi_server(config, fd)
 
+    # @NodeWalletAPI
     def _init_nodeapi_server(self, config: SimpleConfig) -> None:
-        host = config.get_explicit_type(str, "nodeapi_host", '127.0.0.1')
-        if os.environ.get('NODEAPI_HOST'):
-            host = cast(str, os.environ.get('NODEAPI_HOST'))
+        # The operator has to explicitly enable this API by providing the required command-line
+        # argument `--enable-node-wallet-api`. This flag will be fetched from the non-persisted
+        # command-line options.
+        if not config.get_explicit_type(bool, "enable_nodeapi", False):
+            return
 
-        port = int(cast(str | int, config.get('nodeapi_port', 8332)))
-        if os.environ.get('NODEAPI_PORT'):
-            port = int(cast(str, os.environ.get('NODEAPI_PORT')))
+        host = cast(str, os.environ.get("NODEAPI_HOST")) if os.environ.get("NODEAPI_HOST") \
+            else config.get_explicit_type(str, "nodeapi_host", "127.0.0.1")
+        port = int(cast(str, os.environ.get('NODEAPI_PORT'))) if os.environ.get('NODEAPI_PORT') \
+            else int(cast(str | int, config.get("nodeapi_port", 8332)))
 
-        username, password = get_rpc_credentials(config, is_restapi=False)
-        self.nodeapi_server = NodeAPIServer(host=host, port=port, username=username,
-            password=password)
+        # TODO(deprecation) @DeprecateRESTBasicAuth
+        username_value = cast(str | None, config.get("nodeapi_username", None))
+        password_value = cast(str | None, config.get("nodeapi_password", None))
+        # If the password is given and given as empty, then we do not check credentials.
+        if password_value == "":
+            logger.warning("No password set for JSON-RPC wallet API. "
+                "No credentials required for access.")
+        elif username_value is None or password_value is None:
+            logger.error("JSON-RPC wallet API server not running: invalid user name or password")
+            return
+
+        self.nodeapi_server = NodeAPIServer(host=host, port=port, username=username_value,
+            password=password_value)
 
     def _init_restapi_server(self, config: SimpleConfig, fd: int) -> None:
-        host = config.get_explicit_type(str, "restapi_host", '127.0.0.1')
-        if os.environ.get('RESTAPI_HOST'):
-            host = cast(str, os.environ.get('RESTAPI_HOST'))
+        host = cast(str, os.environ.get("RESTAPI_HOST")) if os.environ.get("RESTAPI_HOST") \
+            else config.get_explicit_type(str, "restapi_host", "127.0.0.1")
+        port = int(cast(str, os.environ.get("RESTAPI_PORT"))) if os.environ.get("RESTAPI_PORT") \
+            else int(cast(str | int, config.get("restapi_port", 9999)))
 
-        port = int(cast(str | int, config.get('restapi_port', 9999)))
-        if os.environ.get('RESTAPI_PORT'):
-            port = int(cast(str, os.environ.get('RESTAPI_PORT')))
-
-        username, password = get_rpc_credentials(config, is_restapi=True)
+        username, password = get_api_credentials(config, is_restapi=True)
         self.rest_server = AiohttpServer(host=host, port=port, username=username,
             password=password)
 
@@ -381,31 +401,32 @@ class Daemon(DaemonThread):
             app_state.async_.spawn_and_wait(self.rest_server.stop())
         if self.nodeapi_server is not None:
             app_state.async_.spawn_and_wait(self.nodeapi_server.shutdown_async())
-        self.logger.debug("stopped")
+        self.logger.info("Stopped")
 
     def run(self) -> None:
         assert self.rest_server is not None
         assert not self.rest_server.is_running
         app_state.async_.spawn(self.rest_server.run_async())
 
-        assert self.nodeapi_server is not None
-        assert not self.nodeapi_server.is_running
-        app_state.async_.spawn(self.nodeapi_server.run_async())
+        if self.nodeapi_server is not None:
+            assert not self.nodeapi_server.is_running
+            app_state.async_.spawn(self.nodeapi_server.run_async())
 
         self.wait_for_shutdown()
 
-        logger.warning("no longer running")
         app_state.shutdown()
-        if self.network:
-            logger.warning("waiting for network shutdown")
+        if self.network is not None:
+            logger.info("Waiting for network shutdown")
             assert self.fx_task is not None, "fx task should be valid if network is"
             self.fx_task.cancel()
             app_state.async_.spawn_and_wait(self.network.shutdown_wait())
+        else:
+            logger.info("No longer running")
         app_state.on_stop()
         self.on_stop()
 
     def stop(self) -> None:
-        logger.warning("stopping")
+        logger.info("Stopping")
         super().stop()
         self.stop_wallets()
-        remove_lockfile(get_lockfile(self.config))
+        remove_lockfile(get_lockfile_path(self.config))

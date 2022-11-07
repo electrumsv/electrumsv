@@ -106,7 +106,7 @@ async def subscribe_to_headers_async(server_state: HeaderServerState,
                 content = cast(bytes, msg.data)
                 raw_header = content[0:80]
                 block_hash = hash_to_hex_str(double_sha256(raw_header))
-                logger.info("Message new chain tip hash: %s", block_hash)
+                logger.debug("Message new chain tip hash: %s", block_hash)
                 height = bitcoinx.le_bytes_to_int(content[80:84])
                 yield TipResponse(raw_header, height)
                 if msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):

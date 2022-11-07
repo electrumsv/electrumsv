@@ -398,7 +398,7 @@ async def test_call_getnewaddress_no_available_server_async(app_state_nodeapi: A
     assert object["result"] is None
     assert len(object["error"]) == 2
     assert object["error"]["code"] == -4
-    assert object["error"]["message"] == "No connected tip filter server"
+    assert object["error"]["message"] == "No connected blockchain server"
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
 async def test_call_getnewaddress_no_account_async(app_state_nodeapi: AppStateProxy,
@@ -551,7 +551,7 @@ async def test_call_getnewaddress_monitor_failure_no_server_async(app_state_node
     assert object["result"] is None
     assert len(object["error"]) == 2
     assert object["error"]["code"] == -4
-    assert object["error"]["message"] == "No connected tip filter server"
+    assert object["error"]["message"] == "No connected blockchain server"
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
 async def test_call_getnewaddress_monitor_server_error_async(app_state_nodeapi: AppStateProxy,

@@ -1516,7 +1516,7 @@ class DeterministicAccount(AbstractAccount):
             next_index = 0
             derivation_entries.append((derivation_subpath, count-1))
             assert expected_next_index == -1 or expected_next_index == next_index
-        self._logger.info(f"creating {count} new keys within {derivation_subpath} "
+        self._logger.debug(f"creating {count} new keys within {derivation_subpath} "
             f"next_index={next_index}")
         masterkey_id = keystore.get_id()
         return tuple(KeyAllocation(masterkey_id, DerivationType.BIP32_SUBPATH,
@@ -3759,7 +3759,7 @@ class Wallet:
 
         reorged_tx_hashes = await self.data.update_reorged_transactions_async(orphaned_block_hashes)
 
-        self._logger.info('Removing verification of %d transactions. Orphaned block hashes: %s',
+        self._logger.debug('Removing verification of %d transactions. Orphaned block hashes: %s',
             len(reorged_tx_hashes), loggable_block_ids)
 
         # We want to get all the proofs we already have for the reorged transactions on the
@@ -4361,7 +4361,7 @@ class Wallet:
 
         if usage_flags & NetworkServerFlag.USE_BLOCKCHAIN != 0:
             blockchain_server_key = ServerAccountKey(server.url, server.server_type, None)
-            logger.info("Setting blockchain service to: '%s'", blockchain_server_key)
+            logger.debug("Setting blockchain service to: '%s'", blockchain_server_key)
 
             await self._network.wait_until_header_server_is_ready_async(blockchain_server_key)
 
@@ -4951,7 +4951,7 @@ class Wallet:
                     int(time.time()) - messages[0].date_received > PEER_CHANNEL_EXPIRY_SECONDS
                 if messages[0].message_flags & PeerChannelMessageFlag.UNPROCESSED == 0 and \
                         peer_channel_past_expiry:
-                    self._logger.info("Deactivating external peer channel row: %s ",
+                    self._logger.debug("Deactivating external peer channel row: %s ",
                         external_peer_channel_row)
                     new_flags = external_peer_channel_row.peer_channel_flags | \
                         ServerPeerChannelFlag.DEACTIVATED
@@ -5756,7 +5756,7 @@ class Wallet:
                 self.local_chain_update_event.clear()
 
                 for header in new_headers:
-                    logger.info("New tip hash: %s, height: %s", hash_to_hex_str(header.hash),
+                    logger.debug("New tip hash: %s, height: %s", hash_to_hex_str(header.hash),
                         header.height)
                     self._connect_headerless_proof_worker_state.header_queue.put_nowait(
                         (header, extension_chain))
@@ -6021,7 +6021,7 @@ class Wallet:
                     range(fork_height + 1, current_tip_header.height + 1)]
 
                 block_hashes_as_str = [hash_to_hex_str(h) for h in orphaned_block_hashes]
-                logger.info("Reorg detected; undoing wallet verifications for block hashes %s",
+                logger.debug("Reorg detected; undoing wallet verifications for block hashes %s",
                     block_hashes_as_str)
 
                 self._chain_management_queue.put_nowait(
