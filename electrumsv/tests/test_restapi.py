@@ -38,8 +38,8 @@ def fake_get_app_state_regtest():
 
 def test_get_network_type(monkeypatch):
     monkeypatch.setattr(electrumsv.restapi, 'get_app_state', fake_get_app_state_main)
-    assert get_network_type() == 'main'
+    assert get_network_type() == 'mainnet'
     monkeypatch.setattr(electrumsv.restapi, 'get_app_state', fake_get_app_state_test)
-    assert get_network_type() == 'test'
+    assert get_network_type() == 'testnet'
     monkeypatch.setattr(electrumsv.restapi, 'get_app_state', fake_get_app_state_stn)
-    assert get_network_type() == 'stn'
+    assert get_network_type() == 'scalingtestnet'

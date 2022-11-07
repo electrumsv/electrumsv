@@ -18,9 +18,9 @@ if TYPE_CHECKING:
 
 
 # Supported networks in restapi url
-MAINNET = 'main'
-TESTNET = 'test'
-SCALINGTESTNET = 'stn'
+MAINNET = 'mainnet'
+TESTNET = 'testnet'
+SCALINGTESTNET = 'scalingtestnet'
 REGTESTNET = 'regtest'
 
 
