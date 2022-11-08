@@ -51,15 +51,15 @@ users to notice the bugs.
 
 Known breaking changes and possible developer actions:
 
-- `IntFlag` inverse operates relative to the set of allocated flags, and is no longer an integer
+- ``IntFlag`` inverse operates relative to the set of allocated flags, and is no longer an integer
   inverse of the numerical value. This means that an enum with values A=1, B=2, C=4 will give
-  `~(A|B|C) == 0` and `~A == B|C`. In 3.10 `~(A|B|C) == 0xFFFFFFF8` and `~A == 0xFFFFFFFE`.
+  ``~(A|B|C) == 0`` and ``~A == B|C``. In 3.10 ``~(A|B|C) == 0xFFFFFFF8`` and ``~A == 0xFFFFFFFE``.
 
-  - Verify that no inverse operations should happen in `IntFlag` member assignments.
+  - Verify that no inverse operations should happen in ``IntFlag`` member assignments.
 
-  - Verify that all inverse operations of `IntFlag` members cast to integer first.
+  - Verify that all inverse operations of ``IntFlag`` members cast to integer first.
 
   - Developers apply the preceding two entries moving forward.
 
-  - Consider just dropping `IntFlag` and replacing it with something less fragile and less prone
+  - Consider just dropping ``IntFlag`` and replacing it with something less fragile and less prone
     to undocumented changing behaviour.
