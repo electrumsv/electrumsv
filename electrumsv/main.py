@@ -139,29 +139,34 @@ def run_non_RPC(config: SimpleConfig) -> None:
         sys.exit(f"error: unrecognised command '{cmdname}'")
 
 
-def init_daemon(config_options: dict[str, Any]) -> None:
-    config = SimpleConfig(config_options)
-    wallet_path = config.get_cmdline_wallet_filepath()
-    if not WalletStorage.files_are_matched_by_path(wallet_path):
-        print("Error: Wallet file not found.")
-        print("Type 'electrum-sv create' to create a new wallet, "
-              "or provide a path to a wallet with the -w option")
-        sys.exit(0)
+def process_daemon_subcommand(config_options: dict[str, Any], subcommand: str) -> None:
+    if subcommand == "load_wallet":
+        config = SimpleConfig(config_options)
+        wallet_path = config.get_cmdline_wallet_filepath()
 
-    assert wallet_path is not None
-    WalletStorage(wallet_path)
-    if 'wallet_password' in config_options:
-        print('Warning: unlocking wallet with commandline argument \"--walletpassword\"')
-        password = config_options['wallet_password']
-    elif config.get('password'):
-        password = config.get('password')
-    else:
-        password = prompt_password('Password: ', confirm=False)
-        if not password:
-            print("Error: Password required")
+        # Check if these is a file at the given path that *could* be a wallet.
+        if not WalletStorage.files_are_matched_by_path(wallet_path):
+            print(f"Wallet file not found: '{wallet_path}'.")
+            print("Type 'electrum-sv create' to create a new wallet, "
+                "or provide a path to a wallet with the -w option")
             sys.exit(1)
 
-    config_options['password'] = password
+        assert wallet_path is not None
+        # Check that the located file loads as a supported form of wallet storage.
+        WalletStorage(wallet_path)
+
+        if 'wallet_password' in config_options:
+            print('Warning: unlocking wallet with commandline argument \"--walletpassword\"')
+            password = config_options['wallet_password']
+        elif config.get('password'):
+            password = config.get('password')
+        else:
+            password = prompt_password('Password: ', confirm=False)
+            if not password:
+                print("Error: Password required")
+                sys.exit(1)
+
+        config_options['password'] = password
 
 
 def init_cmdline(config_options: dict[str, Any]) -> tuple[Command, str|None]:
@@ -402,7 +407,7 @@ def main() -> None:
                 'electrum_sv_data')
 
     if config_options.get('file_logging'):
-        if config_options.get('portable'):
+        if 'electrum_sv_path' in config_options:
             log_path = os.path.join(config_options['electrum_sv_path'], "logs")
         else:
             log_path = os.path.join(platform.user_dir(prefer_local=True), "logs")
@@ -481,7 +486,7 @@ def main() -> None:
             result = daemon.remote_daemon_request(config, "/v1/rpc/daemon", config_options)
         else:
             if subcommand == 'load_wallet':
-                init_daemon(config_options)
+                process_daemon_subcommand(config_options, subcommand)
 
             result = daemon.remote_daemon_request(config, "/v1/rpc/daemon", config_options)
     else:

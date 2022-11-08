@@ -41,7 +41,7 @@ import os
 import random
 import threading
 import time
-from typing import Any, AsyncIterable, Awaitable, Callable, cast, Coroutine, Iterable, Optional, \
+from typing import Any, AsyncIterable, Callable, cast, Coroutine, Iterable, Literal, Optional, \
     Sequence, TypedDict, TypeVar, TYPE_CHECKING
 import weakref
 
@@ -5533,7 +5533,7 @@ class Wallet:
         app_state.credentials.remove_indefinite_credential(self.identity_private_key_credential_id)
 
         # This will be a metadata save on exit. Anything else has been updated as it was changed.
-        updated_states = list[NetworkServerRow]()
+        updated_states: list[NetworkServerRow] = []
         for server in self._servers.values():
             updated_states.extend(server.to_updated_rows())
         if len(updated_states):
@@ -5552,7 +5552,7 @@ class Wallet:
 
     def _shutdown_network_related_tasks(self) -> None:
         # Collect the futures we are waiting to complete.
-        pending_futures = set[concurrent.futures.Future[Any]]()
+        pending_futures: set[concurrent.futures.Future[Any]] = set()
 
         # The following tasks can be cancelled directly and do not need to shutdown cleanly.
         if self._worker_task_initialise_headers is not None:
@@ -5618,8 +5618,7 @@ class Wallet:
                     pending_futures.add(state.tip_filter_consumer_future)
         del self._worker_tasks_maintain_server_connection
 
-        for account_id in \
-                list(self._worker_tasks_external_peer_channel_connections):
+        for account_id in list(self._worker_tasks_external_peer_channel_connections):
             for externally_owned_state in \
                     self._worker_tasks_external_peer_channel_connections.pop(account_id):
                 if externally_owned_state.mapi_callback_consumer_future is not None:
@@ -5628,8 +5627,10 @@ class Wallet:
                     externally_owned_state.connection_future.cancel()
                     pending_futures.add(externally_owned_state.connection_future)
 
-        if self._worker_task_peer_channel_garbage_collection is not None:
-            pending_futures.add(self._worker_task_peer_channel_garbage_collection)
+        for state in self.dpp_proxy_server_states:
+            if state.dpp_consumer_future is not None:
+                state.dpp_consumer_future.cancel()
+                pending_futures.add(state.dpp_consumer_future)
 
         total_wait = 0.0
         while len(pending_futures) > 0 and total_wait < 5.0:
@@ -5641,11 +5642,6 @@ class Wallet:
             done, not_done = concurrent.futures.wait(pending_futures, 1.0)
             pending_futures = not_done
             total_wait += 1.0
-
-        for state in self.dpp_proxy_server_states:
-            if state.dpp_consumer_future is not None:
-                state.dpp_consumer_future.cancel()
-                pending_futures.add(state.dpp_consumer_future)
 
         if len(pending_futures) > 0:
             # This should never happen outside of in development errors. We include it both for
@@ -5665,8 +5661,8 @@ class Wallet:
                 plugin.replace_gui_handler(window, keystore)
 
     async def _wait_for_chain_related_work_async(self, token: ChainWorkerToken,
-            coroutine_callables: Optional[Sequence[Callable[[], Coroutine[Any, Any, Any]]]]=None) \
-                -> None:
+            coroutine_callables: \
+                Sequence[Callable[[], Coroutine[Any, Any, Literal[True]]]]|None=None) -> None:
         """
         This should be called by a worker task to get permission to do another batch of work.
         Any worker task using this should be doing work that would otherwise engage in race
@@ -5686,12 +5682,17 @@ class Wallet:
                 # because that is what `asyncio.wait` returns.
                 chain_task = asyncio.create_task(self._chain_management_interrupt_event.wait(),
                     name="chain management interrupt")
-                extended_awaitables: list[Awaitable[Any]] = \
-                    [ entry() for entry in coroutine_callables ]
+                extended_awaitables: list[asyncio.Task[Literal[True]]] = \
+                    [ asyncio.create_task(entry(), name=token.name)
+                        for entry in coroutine_callables ]
                 extended_awaitables.append(chain_task)
 
-                awaitables_done, _awaitables_pending = await asyncio.wait(extended_awaitables,
-                    return_when=asyncio.FIRST_COMPLETED)
+                try:
+                    awaitables_done, _awaitables_pending = await asyncio.wait(extended_awaitables,
+                        return_when=asyncio.FIRST_COMPLETED)
+                finally:
+                    for task in extended_awaitables:
+                        task.cancel()
 
                 # If there is a network shutdown event
                 # If chain management is pending we stay here. Otherwise we exit to the caller.

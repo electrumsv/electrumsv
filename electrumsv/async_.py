@@ -21,13 +21,14 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+from __future__ import annotations
 from asyncio import CancelledError, Event, Lock, Queue, new_event_loop, run_coroutine_threadsafe
 import concurrent.futures
 from functools import partial
 import queue
 import threading
 from types import TracebackType
-from typing import Any, Callable, Coroutine, Optional, ParamSpec, Set, Type, TypeVar
+from typing import Any, Callable, Coroutine, ParamSpec, Set, Type, TypeVar
 
 from .logs import logs
 
@@ -62,7 +63,7 @@ class ASync(object):
         '''Return an asyncio.Event for our event loop.'''
         return Queue(maxsize)
 
-    def __enter__(self) -> "ASync":
+    def __enter__(self) -> ASync:
         logger.debug('starting async thread')
         self.thread.start()
         # Wait for the thread to definitively start before returning
@@ -70,9 +71,8 @@ class ASync(object):
         logger.debug('async thread started')
         return self
 
-    def __exit__(self, exc_type: Optional[Type[BaseException]],
-            exc_value: Optional[BaseException], traceback: Optional[TracebackType]) \
-                -> None:
+    def __exit__(self, exc_type: Type[BaseException]|None, exc_value: BaseException|None,
+            traceback: TracebackType|None) -> None:
         # Wait for the thread to definitively stop before returning
         # stop_event must be set from the loop
         logger.debug('stopping async thread')

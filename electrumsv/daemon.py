@@ -23,6 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
+import asyncio
 import base64
 import concurrent.futures
 import json
@@ -87,22 +88,30 @@ def get_lockfile_fd(config: SimpleConfig) -> int | None:
 
 def remote_daemon_request(config: SimpleConfig, url_path: str, json_value: Any=None) -> Any:
     lockfile_path = get_lockfile_path(config)
+    if not os.path.exists(lockfile_path):
+        return { "error": "Daemon not running" }
+
     with open(lockfile_path) as f:
         text = f.read()
         if text == "":
             return { "error": "corrupt lockfile" }
         (host, port), _create_time = json.loads(text)
+
     assert not url_path.startswith("http") and host not in url_path
     url = f"http://{host}:{port}{url_path}"
-    restapi_credential = get_api_credentials(config, is_restapi=True)
+    # @RESTAPICredentials We expect the credentials to be persisted in the `config` file due to
+    #     the workaround done in `get_api_credentials` when they are generated.
+    restapi_credential = get_api_credentials(config)
     try:
-        response = requests.post(url, json=json_value, auth=restapi_credential)
+        response = requests.post(url, json=json_value, auth=restapi_credential, timeout=10)
     except requests.exceptions.ConnectionError:
-        return { "error": "Daemon not running" }
+        return { "error": "Daemon not connectable" }
+    except requests.exceptions.ReadTimeout:
+        return { "error": "Daemon subcommand timed out" }
     return response.json()
 
 
-def get_api_credentials(config: SimpleConfig, is_restapi: bool) -> tuple[str, str]:
+def get_api_credentials(config: SimpleConfig) -> tuple[str, str]:
     """
     We share the credentials between the REST API and the node-compatible JSON-RPC API.
     To use the REST API the user should provide the `rpcpassword` as a bearer token, and does
@@ -114,14 +123,9 @@ def get_api_credentials(config: SimpleConfig, is_restapi: bool) -> tuple[str, st
         nbytes = (nbits + 7) // 8
         return cast(int, be_bytes_to_int(os.urandom(nbytes)) % (1 << nbits))
 
-    username_key = "restapi_username" if is_restapi else "nodeapi_username"
-    password_key = "restapi_password" if is_restapi else "nodeapi_password"
-
-    # What are the repercussions of not persisting these credentials?
-
     # TODO(deprecation) @DeprecateRESTBasicAuth
-    username_value = cast(str | None, config.get(username_key, None))
-    password_value = cast(str | None, config.get(password_key, None))
+    username_value = cast(str | None, config.get("restapi_username", None))
+    password_value = cast(str | None, config.get("restapi_password", None))
     if username_value is None or password_value is None:
         username_value = 'user'
 
@@ -133,11 +137,10 @@ def get_api_credentials(config: SimpleConfig, is_restapi: bool) -> tuple[str, st
 
         # The only time we ever persist credentials is where we generate them and the user
         # will want to pick them out of the config.
-        config._set_key_in_user_config(username_key, username_value)
-        config._set_key_in_user_config(password_key, password_value, save=True)
+        config._set_key_in_user_config("restapi_username", username_value)
+        config._set_key_in_user_config("restapi_password", password_value, save=True)
     elif password_value == "":
-        which = "REST API" if is_restapi else "JSON-RPC wallet API"
-        logger.warning("No password set for %s. No credentials required for access.", which)
+        logger.warning("No password set for REST API. No credentials required for access.")
     return username_value, password_value
 
 
@@ -208,7 +211,7 @@ class Daemon(DaemonThread):
         port = int(cast(str, os.environ.get("RESTAPI_PORT"))) if os.environ.get("RESTAPI_PORT") \
             else int(cast(str | int, config.get("restapi_port", 9999)))
 
-        username, password = get_api_credentials(config, is_restapi=True)
+        username, password = get_api_credentials(config)
         self.rest_server = AiohttpServer(host=host, port=port, username=username,
             password=password)
 
@@ -247,14 +250,56 @@ class Daemon(DaemonThread):
     def ping(self) -> bool:
         return True
 
-    async def run_daemon(self, config_options: dict[str, Any]) -> bool | str | dict[str, Any]:
+    async def run_subcommand_async(self, config_options: dict[str, Any]) \
+            -> bool | str | dict[str, Any]:
+        """
+        When ElectrumSV is running it is implicitly a wallet server and can be controlled from
+        the command-line using what we call daemon subcommands.
+
+        We run the wallet server with either the gui::
+
+            > ./electrum-sv
+            ... The application continues running.
+
+        Or we run the wallet server headlessly::
+
+            > ./electrum-sv daemon
+            ... The application continues running.
+
+        Now in another console the user can run subcommands and direct the wallet server
+        to do things without having to use the REST API.
+
+        Load a wallet::
+
+            | > ./electrum-sv daemon load_wallet
+            -w .electrum-sv/INSTANCE1/regtest/wallets/testwallet.sqlite
+            | Password:
+            | true
+
+        In the above case the command connected to the wallet server, invoked this function and
+        the returned `True` was printed out to the user encoded as JSON (which explains why we
+        see `true` not `True`).
+
+        Query the wallet server status::
+
+            $ ./electrum-sv daemon status
+            {
+                "blockchain_height": 0,
+                "fee_per_kb": 500,
+                "path": "INSTANCE1/regtest",
+                "spv_nodes": 1,
+                "version": "1.4.0b1",
+                "wallets": {
+                    ".electrum-sv/INSTANCE1/regtest/wallets/testwallet.sqlite": true
+                }
+            }
+        """
         config = SimpleConfig(config_options)
-        sub = config.get('subcommand')
-        assert sub in [None, 'start', 'stop', 'status', 'load_wallet', 'close_wallet']
-        response: bool | str | dict[str, Any]
-        if sub in [None, 'start']:
-            response = "Daemon already running"
-        elif sub == 'load_wallet':
+        subcommand = cast(str | None, config.get('subcommand'))
+        assert subcommand in [None, 'start', 'stop', 'status', 'load_wallet', 'close_wallet']
+        if subcommand in [None, 'start']:
+            return "Daemon already running"
+        elif subcommand == "load_wallet":
             cmdline_wallet_filepath = config.get_cmdline_wallet_filepath()
             assert cmdline_wallet_filepath is not None
             wallet_path = WalletStorage.canonical_path(cmdline_wallet_filepath)
@@ -264,35 +309,34 @@ class Daemon(DaemonThread):
                 wallet_path, wallet_password, CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
             wallet = self.load_wallet(wallet_path)
             if wallet is None:
-                response = "Unable to load wallet"
-            else:
-                response = True
-        elif sub == 'close_wallet':
+                return "Unable to load wallet"
+            return True
+        elif subcommand == "close_wallet":
             cmdline_wallet_filepath = config.get_cmdline_wallet_filepath()
             assert cmdline_wallet_filepath is not None
             path = WalletStorage.canonical_path(cmdline_wallet_filepath)
             if path in self.wallets:
                 self.stop_wallet_at_path(path)
-                response = True
-            else:
-                response = False
-        elif sub == 'status':
+                return True
+            return False
+        elif subcommand == 'status':
             if self.network:
-                response = self.network.status()
-                response.update({
+                status_object = self.network.status()
+                status_object.update({
                     'fee_per_kb': self.config.fee_per_kb(),
                     'path': self.config.path,
                     'version': PACKAGE_VERSION,
                     'wallets': {k: w.is_synchronized() for k, w in self.wallets.items()},
                 })
-            else:
-                response = "Daemon offline"
-        elif sub == 'stop':
-            self.stop()
-            response = "Daemon stopped"
-        else:
-            response = False
-        return response
+                return status_object
+            return "Daemon offline"
+        elif subcommand == 'stop':
+            # This is running in the async thread. If we do a blocking stop function that
+            # needs to do async cleanup we are going to deadlock. Run the stop function in a
+            # thread so we can yield the scheduler to handle the cleanup work.
+            await asyncio.to_thread(self.stop)
+            return "Daemon stopped"
+        return False
 
     async def run_gui(self, config_options: dict[str, Any]) -> str:
         assert app_state.app is not None
@@ -398,8 +442,10 @@ class Daemon(DaemonThread):
 
     def on_stop(self) -> None:
         if self.rest_server and self.rest_server.is_running:
+            logger.info("Waiting for REST API shutdown")
             app_state.async_.spawn_and_wait(self.rest_server.stop())
         if self.nodeapi_server is not None:
+            logger.info("Waiting for JSON-RPC API shutdown")
             app_state.async_.spawn_and_wait(self.nodeapi_server.shutdown_async())
         self.logger.info("Stopped")
 

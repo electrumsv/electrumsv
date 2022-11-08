@@ -97,7 +97,8 @@ async def update_mapi_fee_quotes_async(servers_with_credentials: list[ServerAndC
         # Do we need a fee quote from this server? Does it require credentials we do not have?
         request_quote_result = server.should_request_fee_quote(credential_id)
         if request_quote_result == RequestFeeQuoteResult.SHOULD:
-            task = asyncio.create_task(_get_mapi_fee_quote_async(server, credential_id))
+            task = asyncio.create_task(_get_mapi_fee_quote_async(server, credential_id),
+                name="mapi fee quotes")
             # We want to match successfully completed tasks to the output data
             entry_by_task[task] = ServerAndCredential(server, credential_id)
             server_tasks.add(task)

@@ -14,10 +14,12 @@ ElectrumSV provides.
 Command-line options
 --------------------
 
-These command-line options are only provided to match those provided by the `bitcoind`
+Outside of ``--enable-node-wallet-api``, these command-line options are provided to match
+those provided by `bitcoind`. They are not used for any other purpose outside of configuring
+the node wallet API server.
 
---enable-node-wallet-api
-########################
+``--enable-node-wallet-api``
+############################
 
 This command-line argument must be specified to direct ElectrumSV to run a server providing the
 JSON-RPC wallet API.
@@ -26,16 +28,16 @@ In the following example, the operator provides this command-line argument and t
 JSON-RPC wallet API can be seen to be available by the logged entry.
 
 .. code-block:: console
-    :caption: Linux
+    :caption: Linux / MacOS
 
-    $ ./electrum-sv --enable-node-wallet-api -rpcuser=bob -rpcpassword=weakpassword
+    $ ./electrum-sv daemon --enable-node-wallet-api -rpcuser=bob -rpcpassword=weakpassword
     2022-11-07 12:28:54,983:INFO:rest-server:REST API started on http://127.0.0.1:9999
     2022-11-07 12:28:54,983:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:8332
 
 .. code-block:: doscon
     :caption: Windows
 
-    electrumsv>py electrum-sv --enable-node-wallet-api -rpcuser=bob -rpcpassword=weakpassword
+    electrumsv>py electrum-sv daemon --enable-node-wallet-api -rpcuser=bob -rpcpassword=weakpassword
     2022-11-07 12:28:54,983:INFO:rest-server:REST API started on http://127.0.0.1:9999
     2022-11-07 12:28:54,983:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:8332
 
@@ -43,7 +45,7 @@ In the following example, the operator does not provide this command-line argume
 JSON-RPC wallet API can be seen as not available by the absence of the logged entry.
 
 .. code-block:: console
-    :caption: Linux
+    :caption: Linux / MacOS
 
     $ ./electrum-sv
     2022-11-07 10:03:24,380:INFO:rest-server:REST API started on http://127.0.0.1:9999
@@ -54,23 +56,23 @@ JSON-RPC wallet API can be seen as not available by the absence of the logged en
     electrumsv>py electrum-sv
     2022-11-07 10:03:24,380:INFO:rest-server:REST API started on http://127.0.0.1:9999
 
--rpcuser
-########
+``-rpcuser``
+############
 
 This is the basic authorization user name. It is required for the server to run, except when
 credentials are disabled by an empty `rpcpassword` value.
 
 .. code-block:: console
-    :caption: Linux
+    :caption: Linux / MacOS
 
-    $ ./electrum-sv --enable-node-wallet-api -rpcuser=bob -rpcpassword=weakpassword
+    $ ./electrum-sv daemon --enable-node-wallet-api -rpcuser=bob -rpcpassword=weakpassword
     2022-11-07 12:28:54,983:INFO:rest-server:REST API started on http://127.0.0.1:9999
     2022-11-07 12:28:54,983:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:8332
 
 .. code-block:: doscon
     :caption: Windows
 
-    electrumsv>py electrum-sv --enable-node-wallet-api -rpcuser=bob -rpcpassword=weakpassword
+    electrumsv>py electrum-sv daemon --enable-node-wallet-api -rpcuser=bob -rpcpassword=weakpassword
     2022-11-07 12:28:54,983:INFO:rest-server:REST API started on http://127.0.0.1:9999
     2022-11-07 12:28:54,983:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:8332
 
@@ -79,21 +81,21 @@ been disabled with a blank password. An error will be logged indicating why the 
 running, if the operator does not provide this argument.
 
 .. code-block:: console
-    :caption: Linux
+    :caption: Linux / MacOS
 
-    $ ./electrum-sv --enable-node-wallet-api -rpcpassword=weakpassword
+    $ ./electrum-sv daemon --enable-node-wallet-api -rpcpassword=weakpassword
     2022-11-07 12:43:29,313:ERROR:daemon:JSON-RPC wallet API server not running: invalid user name or password
     2022-11-07 12:43:29,313:INFO:rest-server:REST API started on http://127.0.0.1:9999
 
 .. code-block:: doscon
     :caption: Windows
 
-    electrumsv>py electrum-sv --enable-node-wallet-api -rpcpassword=weakpassword
+    electrumsv>py electrum-sv daemon --enable-node-wallet-api -rpcpassword=weakpassword
     2022-11-07 12:43:29,313:ERROR:daemon:JSON-RPC wallet API server not running: invalid user name or password
     2022-11-07 12:43:29,313:INFO:rest-server:REST API started on http://127.0.0.1:9999
 
--rpcpassword
-############
+``-rpcpassword``
+################
 
 This is the basic authorization password. Passing an empty password whether as `-rpcpassword=` or
 `-rpcpassword ""` will disable authorization and allow anyone who can access the host it is
@@ -102,9 +104,17 @@ running on to freely make any API calls.
 Providing a blank password disables credential checking and will log a warning.
 
 .. code-block:: console
-    :caption: Linux
+    :caption: Linux / MacOS
 
-    $ ./electrum-sv --enable-node-wallet-api -rpcpassword=
+    $ ./electrum-sv daemon --enable-node-wallet-api -rpcpassword=
+    2022-11-07 10:03:24,375:WARNING:daemon:No password set for JSON-RPC wallet API. No credentials required for access.
+    2022-11-07 10:03:24,380:INFO:rest-server:REST API started on http://127.0.0.1:9999
+    2022-11-07 10:03:24,381:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:8332
+
+.. code-block:: doscon
+    :caption: Windows
+
+    electrumsv>py electrum-sv daemon  --enable-node-wallet-api -rpcpassword=
     2022-11-07 10:03:24,375:WARNING:daemon:No password set for JSON-RPC wallet API. No credentials required for access.
     2022-11-07 10:03:24,380:INFO:rest-server:REST API started on http://127.0.0.1:9999
     2022-11-07 10:03:24,381:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:8332
@@ -112,15 +122,22 @@ Providing a blank password disables credential checking and will log a warning.
 A value for this argument must be provided for the server to run. An error will be logged indicating
 why the server is not running, if the operator does not provide this argument.
 
-.. code-block:: doscon
-    :caption: Windows
+.. code-block:: console
+    :caption: Linux / MacOS
 
-    electrumsv>py electrum-sv --enable-node-wallet-api -rpcuser=bob
+    $ ./electrum-sv daemon --enable-node-wallet-api -rpcuser=bob
     2022-11-07 12:43:29,313:ERROR:daemon:JSON-RPC wallet API server not running: invalid user name or password
     2022-11-07 12:43:29,313:INFO:rest-server:REST API started on http://127.0.0.1:9999
 
--rpcport
-########
+.. code-block:: doscon
+    :caption: Windows
+
+    electrumsv>py electrum-sv daemon --enable-node-wallet-api -rpcuser=bob
+    2022-11-07 12:43:29,313:ERROR:daemon:JSON-RPC wallet API server not running: invalid user name or password
+    2022-11-07 12:43:29,313:INFO:rest-server:REST API started on http://127.0.0.1:9999
+
+``-rpcport``
+############
 
 The server will default to using port `8332` to serve the API. Using this command-line argument
 the operator can direct the JSON-RPC API to be served on a different port.
@@ -128,9 +145,9 @@ the operator can direct the JSON-RPC API to be served on a different port.
 Specifying a custom port of `18332` will result in the server using that port instead.
 
 .. code-block:: console
-    :caption: Linux
+    :caption: Linux / MacOS
 
-    $ ./electrum-sv --enable-node-wallet-api -rpcpassword= -rpcport=18332
+    $ ./electrum-sv daemon --enable-node-wallet-api -rpcpassword= -rpcport=18332
     2022-11-07 12:49:22,204:WARNING:daemon:No password set for JSON-RPC wallet API. No credentials required for access.
     2022-11-07 12:49:22,204:INFO:rest-server:REST API started on http://127.0.0.1:9999
     2022-11-07 12:49:22,204:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:18332
@@ -138,13 +155,13 @@ Specifying a custom port of `18332` will result in the server using that port in
 .. code-block:: doscon
     :caption: Windows
 
-    electrumsv>py electrum-sv --enable-node-wallet-api -rpcpassword= -rpcport=18332
+    electrumsv>py electrum-sv daemon --enable-node-wallet-api -rpcpassword= -rpcport=18332
     2022-11-07 12:49:22,204:WARNING:daemon:No password set for JSON-RPC wallet API. No credentials required for access.
     2022-11-07 12:49:22,204:INFO:rest-server:REST API started on http://127.0.0.1:9999
     2022-11-07 12:49:22,204:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:18332
 
--walletnotify
-#############
+``-walletnotify``
+#################
 
 The way that external notifications are provided about changes in wallet state by `bitcoind` is
 by providing a value to the `walletnotify` command-line argument. ElectrumSV also accepts this
@@ -154,13 +171,14 @@ which there has been a state change.
 
 ``TODO:`` List the events in which notifications are dispatched.
 
-Here we specify the `contrib\scripts\jsonrpc_wallet_event.py` sample script provided with
-ElectrumSV for debugging. It logs all events to a `tx.log` file in the same directory as the script.
+Here we specify the ``contrib/scripts/jsonrpc_wallet_event.py`` sample script provided with
+ElectrumSV for debugging. It logs all events to a `tx.log` file in the same directory as the script
+as a testing aid.
 
 .. code-block:: console
-    :caption: Linux
+    :caption: Linux / MacOS
 
-    electrumsv>py electrum-sv --enable-node-wallet-api -rpcpassword= -walletnotify="python3 contrib/scripts/jsonrpc_wallet_event.py %s"
+    electrumsv>py electrum-sv daemon --enable-node-wallet-api -rpcpassword= -walletnotify="python3 contrib/scripts/jsonrpc_wallet_event.py %s"
     2022-11-07 12:49:22,204:WARNING:daemon:No password set for JSON-RPC wallet API. No credentials required for access.
     2022-11-07 12:49:22,204:INFO:rest-server:REST API started on http://127.0.0.1:9999
     2022-11-07 12:49:22,204:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:18332
@@ -168,10 +186,41 @@ ElectrumSV for debugging. It logs all events to a `tx.log` file in the same dire
 .. code-block:: doscon
     :caption: Windows
 
-    electrumsv>py electrum-sv --enable-node-wallet-api -rpcpassword= -walletnotify="py contrib\scripts\jsonrpc_wallet_event.py %s"
+    electrumsv>py electrum-sv daemon --enable-node-wallet-api -rpcpassword= -walletnotify="py contrib\scripts\jsonrpc_wallet_event.py %s"
     2022-11-07 12:49:22,204:WARNING:daemon:No password set for JSON-RPC wallet API. No credentials required for access.
     2022-11-07 12:49:22,204:INFO:rest-server:REST API started on http://127.0.0.1:9999
     2022-11-07 12:49:22,204:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:18332
+
+Setup
+-----
+
+Once the wallet is running correctly, there are two tasks that need to be performed to get a
+working wallet and to be able to make use of the JSON-RPC API.
+
+#. Create a wallet.
+#. Link the wallet to a blockchain server.
+
+Wallet creation
+###############
+
+**TODO** Document the data directory.
+
+With ElectrumSV running in daemon mode and serving the node wallet API, the next step is to
+create a compatible wallet for use.
+
+.. warning::
+
+    Wallets can only be used with the node wallet API if there is one and only one account in
+    the wallet. Existing ElectrumSV wallets that have no accounts or more than one account will
+    not be usable with the node wallet API.
+
+More text here.
+
+Blockchain server access
+########################
+
+ttt
+
 
 API usage
 ---------
@@ -188,12 +237,21 @@ Requests made on the JSON-RPC API are required to provide basic authorization cr
   to authorize access.
 
 Curl can be used to make manual or scripted API calls, and will take care of encoding the
-basic authorization user name and password for the request. In this case `rpcuser` was provided
-as `bob` and `rpcpassword` as `weakpassword`.
+basic authorization user name and password for the request.
+
+In the following example the arguments were ``-rpcuser bob`` and ``-rpcpassword weakpassword``.
+This enforced basic authorization credential checking for that user name and password combination.
 
 .. code-block:: console
 
-     curl --user bob:weakpassword --data-binary '{"jsonrpc": "1.0", "id":"curltest", "method": "getnewaddress", "params": [] }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
+    curl --user bob:weakpassword --data-binary '{"jsonrpc": "1.0", "id":"curltest", "method": "getnewaddress", "params": [] }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
+
+In the following example the arguments were just ``-rpcpassword ""``. This disabled the checking of
+credentials for API access.
+
+.. code-block:: console
+
+    curl --data-binary '{"jsonrpc": "1.0", "id":"curltest", "method": "getnewaddress", "params": [] }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
 
 Base errors
 ###########
@@ -203,141 +261,140 @@ on and should be identical to those returned by the node JSON-RPC implementation
 be able to come here when they encounter an error that is obviously not specific to the call they
 are making and match the status code to a possible reason they are getting it.
 
-If the response returned is an unauthorized (401 status code) with no reason.
+- 400 (Bad request).
 
-- If the `Authorization` header is required but not present.
-- If the authorization type is not `Basic`.
-- If the authorization value cannot be converted into a valid username and password.
+    - If a call entry from a single or batch request is not an object. The response body is:
 
-If the response returned is an internal server error (500 status code).
+        .. code-block:: js
 
-- If the JSON in the body cannot be deserialized correctly. The response body is:
-
-    .. code-block:: js
-
-        {
-            id: null,
-            result: null,
-            error: {
-                code: -32700, // RPC_PARSE_ERROR
-                message: "Parse error"
+            {
+                id: null,
+                result: null,
+                error: {
+                    code: -32600, // RPC_INVALID_REQUEST
+                    message: "Invalid Request object"
+                }
             }
-        }
 
-- If the deserialized body is not an object (a single call) or an array (a batch call).
-  The response body is:
+    - If the `id` field is not a string, numeric or `null`. The response body is:
 
-    .. code-block:: js
+        .. code-block:: js
 
-        {
-            id: null,
-            result: null,
-            error: {
-                code: -32700, // RPC_PARSE_ERROR
-                message: "Top-level object parse error"
+            {
+                id: null,
+                result: null,
+                error: {
+                    code: -32600, // RPC_INVALID_REQUEST
+                    message: "Id must be int, string or null"
+                }
             }
-        }
 
-- If the `/wallet/<wallet-name>` path form is used and no wallet with the name `<wallet-name>`
-  exists. The response body is:
+        .. warning::
 
-    .. code-block:: js
+            The node itself places no constraints on what the `id` value can be. This is a custom
+            ElectrumSV constraint. We can relax it if we need to.
 
-        {
-            id: incoming_call.id,
-            result: null,
-            error: {
-                code: -18, // RPC_WALLET_NOT_FOUND
-                message: "Requested wallet does not exist or is not loaded"
+    - If the `method` field is not present. The response body is:
+
+        .. code-block:: js
+
+            {
+                id: incoming_call.id,
+                result: null,
+                error: {
+                    code: -32600, // RPC_INVALID_REQUEST
+                    message: "Missing method"
+                }
             }
-        }
 
-If the response returned is a bad request (400 status code).
+    - If the `method` field value is not a string. The response body is:
 
-- If a call entry from a single or batch request is not an object. The response body is:
+        .. code-block:: js
 
-    .. code-block:: js
-
-        {
-            id: null,
-            result: null,
-            error: {
-                code: -32600, // RPC_INVALID_REQUEST
-                message: "Invalid Request object"
+            {
+                id: incoming_call.id,
+                result: null,
+                error: {
+                    code: -32600, // RPC_INVALID_REQUEST
+                    message: "Method must be a string"
+                }
             }
-        }
 
-- If the `id` field is not a string, numeric or `null`. The response body is:
+    - If the `params` field value is not an object or an array. The response body is:
 
-    .. code-block:: js
+        .. code-block:: js
 
-        {
-            id: null,
-            result: null,
-            error: {
-                code: -32600, // RPC_INVALID_REQUEST
-                message: "Id must be int, string or null"
+            {
+                id: incoming_call.id,
+                result: null,
+                error: {
+                    code: -32600, // RPC_INVALID_REQUEST
+                    message: "Params must be an array or object"
+                }
             }
-        }
 
-    .. warning::
+- 401 (Unauthorized).
 
-        The node itself places no constraints on what the `id` value can be. This is a custom ElectrumSV constraint. We can relax it if we need to.
+    - If the `Authorization` header is required but not present.
+    - If the authorization type is not `Basic`.
+    - If the authorization value cannot be converted into a valid username and password.
 
-- If the `method` field is not present. The response body is:
+- 404 (Not found).
 
-    .. code-block:: js
+    - If the `method` field value is not a recognized method name. The response body is:
 
-        {
-            id: incoming_call.id,
-            result: null,
-            error: {
-                code: -32600, // RPC_INVALID_REQUEST
-                message: "Missing method"
+        .. code-block:: js
+
+            {
+                id: incoming_call.id,
+                result: null,
+                error: {
+                    code: -32601, // RPC_METHOD_NOT_FOUND
+                    message: "Method not found"
+                }
             }
-        }
+- 500 (Internal server error).
 
-- If the `method` field value is not a string. The response body is:
+    - If the JSON in the body cannot be deserialized correctly. The response body is:
 
-    .. code-block:: js
+        .. code-block:: js
 
-        {
-            id: incoming_call.id,
-            result: null,
-            error: {
-                code: -32600, // RPC_INVALID_REQUEST
-                message: "Method must be a string"
+            {
+                id: null,
+                result: null,
+                error: {
+                    code: -32700, // RPC_PARSE_ERROR
+                    message: "Parse error"
+                }
             }
-        }
 
-- If the `params` field value is not an object or an array. The response body is:
+    - If the deserialized body is not an object (a single call) or an array (a batch call).
+      The response body is:
 
-    .. code-block:: js
+        .. code-block:: js
 
-        {
-            id: incoming_call.id,
-            result: null,
-            error: {
-                code: -32600, // RPC_INVALID_REQUEST
-                message: "Params must be an array or object"
+            {
+                id: null,
+                result: null,
+                error: {
+                    code: -32700, // RPC_PARSE_ERROR
+                    message: "Top-level object parse error"
+                }
             }
-        }
 
-If the response returned is a not found (404 status code).
+    - If the `/wallet/<wallet-name>` path form is used and no wallet with the name `<wallet-name>`
+      exists. The response body is:
 
-- If the `method` field value is not a recognized method name. The response body is:
+        .. code-block:: js
 
-    .. code-block:: js
-
-        {
-            id: incoming_call.id,
-            result: null,
-            error: {
-                code: -32601, // RPC_METHOD_NOT_FOUND
-                message: "Method not found"
+            {
+                id: incoming_call.id,
+                result: null,
+                error: {
+                    code: -18, // RPC_WALLET_NOT_FOUND
+                    message: "Requested wallet does not exist or is not loaded"
+                }
             }
-        }
-
 
 Supported endpoints
 ###################

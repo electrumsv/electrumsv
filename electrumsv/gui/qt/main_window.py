@@ -1150,18 +1150,27 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             # in network status.
             awaitables = [
                 # The wallet is updating it's local chain.
-                self._wallet.local_chain_update_event.wait(),
+                asyncio.create_task(self._wallet.local_chain_update_event.wait(),
+                    name="Wallet.local_chain_update_event"),
                 # If there is a blockchain server and its connection state changes.
-                self._wallet.progress_event.wait(),
+                asyncio.create_task(self._wallet.progress_event.wait(),
+                    name="wallet.progress_event"),
             ]
             if self.network is not None:
                 # A new server has connected (might be the blockchain one reconnecting).
-                awaitables.append(self.network.new_server_ready_event.wait())
+                awaitables.append(asyncio.create_task(self.network.new_server_ready_event.wait(),
+                    name="Network.new_server_ready_event"))
                 # A server has lost connection (might be the blockchain one disconnecting).
-                awaitables.append(self.network.lost_server_connection_event.wait())
+                awaitables.append(asyncio.create_task(
+                    self.network.lost_server_connection_event.wait(),
+                    name="Network.lost_server_connection_event"))
             # We have a timeout so that we can indicate that we might be lagging if we have
             # not had any events, but no headers have been received recently.
-            await asyncio.wait(awaitables, timeout=4*60, return_when=asyncio.FIRST_COMPLETED)
+            try:
+                await asyncio.wait(awaitables, timeout=4*60, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for task in awaitables:
+                    task.cancel()
 
     def _on_keys_updated(self, account_id: int, keyinstance_ids: List[int]) -> None:
         self.update_status_bar()

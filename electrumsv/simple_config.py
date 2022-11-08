@@ -5,7 +5,7 @@ import json
 import os
 import stat
 import threading
-from typing import Any, Callable, cast, Dict, Optional, Type, TypeVar
+from typing import Any, Callable, cast, Type, TypeVar
 
 from mypy_extensions import DefaultArg
 
@@ -37,10 +37,10 @@ class SimpleConfig:
     They are taken in order (1. overrides config options set in 2.)
     """
 
-    def __init__(self, options: Optional[Dict[str, Any]]=None,
-            read_user_config_function: Optional[Callable[[str], Dict[str, Any]]]=None,
-            read_user_dir_function:
-                Optional[Callable[[DefaultArg(bool, 'prefer_local')], str]]=None) -> None:
+    def __init__(self, options: dict[str, Any]|None=None,
+            read_user_config_function: Callable[[str], dict[str, Any]]|None=None,
+            read_user_dir_function: Callable[[DefaultArg(bool, 'prefer_local')], str]|None=None) \
+                -> None:
 
         if options is None:
             options = {}
@@ -105,12 +105,12 @@ class SimpleConfig:
         logger.debug("electrum-sv directory '%s'", path)
         return path
 
-    def file_path(self, file_name: str) -> Optional[str]:
+    def file_path(self, file_name: str) -> str|None:
         if self.path:
             return os.path.join(self.path, file_name)
         return None
 
-    def rename_config_keys(self, config: Dict[str, Any], keypairs: Dict[str, str],
+    def rename_config_keys(self, config: dict[str, Any], keypairs: dict[str, str],
             deprecation_warning: bool=False) -> bool:
         """Migrate old key names to new ones"""
         updated = False
@@ -140,15 +140,14 @@ class SimpleConfig:
             if save:
                 self.save_user_config()
 
-    def get(self, key: str, default: Any=None) -> Optional[Any]:
+    def get(self, key: str, default: Any=None) -> Any|None:
         with self.lock:
             out = self.cmdline_options.get(key)
             if out is None:
                 out = self.user_config.get(key, default)
         return out
 
-    def get_optional_type(self, return_type: Type[T], key: str, default: Optional[T]=None) \
-            -> Optional[T]:
+    def get_optional_type(self, return_type: Type[T], key: str, default: T|None=None) -> T|None:
         with self.lock:
             value = self.cmdline_options.get(key)
             if value is None:
@@ -158,7 +157,7 @@ class SimpleConfig:
 
     def get_explicit_type(self, return_type: Type[T], key: str, default: T) -> T:
         with self.lock:
-            value: Optional[T] = self.cmdline_options.get(key)
+            value: T|None = self.cmdline_options.get(key)
             if value is None:
                 value = cast(T, self.user_config.get(key, default))
         assert isinstance(value, return_type)
@@ -243,7 +242,7 @@ class SimpleConfig:
         make_dir(path)
         return path
 
-    def get_cmdline_wallet_filepath(self) -> Optional[str]:
+    def get_cmdline_wallet_filepath(self) -> str|None:
         if self.get('wallet_path'):
             return os.path.join(cast(str, self.get('cwd')), cast(str, self.get('wallet_path')))
         return None
@@ -255,14 +254,14 @@ class SimpleConfig:
     def get_session_timeout(self) -> int:
         return self.get_explicit_type(int, 'session_timeout', 300)
 
-    def custom_fee_rate(self) -> Optional[int]:
+    def custom_fee_rate(self) -> int|None:
         return self.get_optional_type(int, 'customfee')
 
     def fee_per_kb(self) -> int:
-        retval = cast(Optional[int], self.get('customfee'))
+        retval = cast(int|None, self.get('customfee'))
         # TODO(MAPI) Not sure this is ever set.
         if retval is None:
-            retval = cast(Optional[int], self.get('fee_per_kb'))
+            retval = cast(int|None, self.get('fee_per_kb'))
         if retval is None:
             retval = DEFAULT_FEE  # New wallet
         return retval
@@ -311,7 +310,7 @@ class SimpleConfig:
             return b''
 
 
-def read_user_config(path: str) -> Dict[str, Any]:
+def read_user_config(path: str) -> dict[str, Any]:
     """Parse and return the user config settings as a dictionary."""
     if not path:
         return {}
