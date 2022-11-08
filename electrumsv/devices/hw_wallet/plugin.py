@@ -93,13 +93,13 @@ class HW_PluginBase(object):
             if (library_version == 'unknown' or
                     versiontuple(library_version) < self.minimum_library or  # type: ignore
                     hasattr(self, "maximum_library") and
-                    versiontuple(library_version) >= self.maximum_library):  # type: ignore
+                    versiontuple(library_version) >= self.maximum_library):
                 raise LibraryFoundButUnusable(library_version=library_version)
         except ImportError:
             return False
         except LibraryFoundButUnusable as e:
             library_version = e.library_version
-            max_version_str = (version_str(self.maximum_library)  # type: ignore
+            max_version_str = (version_str(self.maximum_library)
                                if hasattr(self, "maximum_library") else "inf")
             self.libraries_available_message = (
                     _("Library version for '{}' is incompatible.").format(self.name)

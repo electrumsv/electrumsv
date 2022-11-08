@@ -1688,10 +1688,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             top_button_layout = TableTopButtonLayout()
             if hasattr(list_widget, "reset_table"):
                 top_button_layout.refresh_signal.connect(
-                    list_widget.reset_table) # type: ignore[attr-defined]
+                    list_widget.reset_table)
             else:
                 top_button_layout.refresh_signal.connect(self.refresh_wallet_display)
-            top_button_layout.filter_signal.connect(list_widget.filter) # type: ignore[attr-defined]
+            top_button_layout.filter_signal.connect(list_widget.filter)
             w.on_search_toggled = partial( # type: ignore[attr-defined]
                 top_button_layout.on_toggle_filter)
 
@@ -1704,7 +1704,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         vbox.addWidget(list_widget)
 
         if hasattr(list_widget, "update_top_button_layout"):
-            list_widget.update_top_button_layout(top_button_layout) # type: ignore[attr-defined]
+            list_widget.update_top_button_layout(top_button_layout)
 
         return w
 
@@ -1813,7 +1813,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.show_warning(_("The current tab does not support searching."))
             return
 
-        tab.on_search_toggled() # type: ignore[attr-defined]
+        tab.on_search_toggled()
 
     def _show_wallet_information(self) -> None:
         def open_file_explorer(path: str, *_discard: Iterable[Any]) -> None:

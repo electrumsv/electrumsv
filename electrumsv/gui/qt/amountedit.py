@@ -79,17 +79,17 @@ class AmountEdit(MyLineEdit):
 
     def paintEvent(self, event: QPaintEvent) -> None:
         QLineEdit.paintEvent(self, event)
-        if self.base_unit_func:
-            panel = QStyleOptionFrame()
-            self.initStyleOption(panel)
-            textRect = self.style().subElementRect(QStyle.SubElement.SE_LineEditContents, panel,
-                self)
-            textRect.adjust(2, 0, -10, 0)
-            painter = QPainter(self)
-            painter.setPen(self.help_palette.brush(QPalette.ColorGroup.Disabled,
-                QPalette.ColorRole.Text).color())
-            painter.drawText(textRect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
-                self.base_unit_func())
+
+        panel = QStyleOptionFrame()
+        self.initStyleOption(panel)
+        textRect = self.style().subElementRect(QStyle.SubElement.SE_LineEditContents, panel,
+            self)
+        textRect.adjust(2, 0, -10, 0)
+        painter = QPainter(self)
+        painter.setPen(self.help_palette.brush(QPalette.ColorGroup.Disabled,
+            QPalette.ColorRole.Text).color())
+        painter.drawText(textRect, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter,
+            self.base_unit_func())
 
     def get_amount(self) -> Optional[Decimal]:
         try:

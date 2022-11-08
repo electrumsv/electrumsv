@@ -1040,7 +1040,7 @@ def update_fixed_tree_height(tree: QTreeWidget, maximum_height: Optional[int]=No
     table_height = row_height * row_count
     if maximum_height > 5:
         table_height = min(table_height, maximum_height)
-    if tree.header().isVisible:
+    if tree.header().isVisible():
         table_height += tree.header().height() + 2
     tree.setFixedHeight(table_height)
 
