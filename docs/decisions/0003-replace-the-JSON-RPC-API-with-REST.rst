@@ -2,6 +2,7 @@ Replace the JSON-RPC API with REST
 ##################################
 
 :Date: 2020-12-05
+:Status: Completed.
 
 Context
 -------

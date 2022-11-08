@@ -2,6 +2,7 @@ Initial key allocation policy
 #############################
 
 :Date: 2020-12-17
+:Status: Obsolete in 1.4.0.
 
 Context
 -------

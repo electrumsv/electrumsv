@@ -2,6 +2,7 @@ Database writes with SQLite
 ###########################
 
 :Date: 2020-12-04
+:Status: Completed.
 
 Context
 -------

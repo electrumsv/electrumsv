@@ -2,6 +2,7 @@ Replace the JSON storage with SQLite
 ####################################
 
 :Date: 2020-12-05
+:Status: Completed.
 
 Context
 -------
