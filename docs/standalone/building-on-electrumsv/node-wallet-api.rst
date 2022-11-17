@@ -194,12 +194,14 @@ as a testing aid.
 Setup
 -----
 
-Once the wallet is running correctly, there are two tasks that need to be performed to get a
-working wallet and to be able to make use of the JSON-RPC API.
+Once you are satisfied the ElectrumSV daemon is running correctly, there are several tasks that
+need to be performed to get a working wallet and to be able to make use of the JSON-RPC API to
+do things like solicit payments for it.
 
 #. Create a compatible wallet.
-#. Start the ElectrumSV daemon and load the wallet.
-#. Link the wallet to a blockchain server.
+#. Start the ElectrumSV daemon.
+#. Load the wallet you created.
+#. Link that wallet to a blockchain server.
 
 Wallet creation
 ###############
