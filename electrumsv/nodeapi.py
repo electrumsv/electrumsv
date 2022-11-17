@@ -521,7 +521,8 @@ async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestI
         # the unmonitored and never returned payment request should expire.
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
             text=json.dumps(ResponseDict(id=request_id, result=None,
-                error=ErrorDict(code=WALLET_ERROR, message="No connected blockchain server"))))
+                error=ErrorDict(code=WALLET_ERROR,
+                    message="Blockchain server address monitoring request not successful"))))
 
     # We do not want to continue until the tip filter registration is successfully placed with
     # the blockchain server.
