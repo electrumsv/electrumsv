@@ -31,6 +31,7 @@ import json
 import sys
 from typing import Any, Callable, cast, TYPE_CHECKING, TypeVar, Optional
 
+from .constants import DaemonSubcommands
 from .i18n import _
 from .logs import logs
 
@@ -159,6 +160,11 @@ class Commands:
         raise Exception('Not a JSON-RPC command')
 
     @command('')
+    def create_jsonrpc_wallet(self) -> None:
+        """Create a new wallet with standard account"""
+        raise Exception('Not a JSON-RPC command')
+
+    @command('')
     def create_account(self) -> None:
         """Create a new account"""
         raise Exception('Not a JSON-RPC command')
@@ -202,8 +208,6 @@ command_options = {
                     "address if it's not in the wallet"),
     'nbits':       (None, "Number of bits of entropy"),
     'language':    ("-L", "Default language for wordlist"),
-    'privkey':     (None, "Private key. Set to '?' to get a prompt."),
-    'unsigned':    ("-u", "Do not sign transaction"),
     'locktime':    (None, "Set locktime block number"),
     'domain':      ("-D", "List of addresses"),
     'memo':        ("-m", "Description of the request"),
@@ -404,10 +408,10 @@ def get_parser() -> argparse.ArgumentParser:
                             help="default language used in GUI")
     add_network_options(parser_gui)
     add_global_options(parser_gui)
+
     # daemon
     parser_daemon = subparsers.add_parser('daemon', help="Run Daemon")
-    parser_daemon.add_argument("subcommand", choices=['start', 'status', 'stop',
-                                                      'load_wallet', 'close_wallet'], nargs='?')
+    parser_daemon.add_argument("subcommand", choices=DaemonSubcommands, nargs='?')
     parser_daemon.add_argument("-dapp", "--daemon-app-module", dest="daemon_app_module",
         help="Run the daemon control app from the given module")
     #parser_daemon.set_defaults(func=run_daemon)

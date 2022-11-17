@@ -36,15 +36,20 @@ import requests
 
 from .app_state import app_state
 from .commands import known_commands, Commands
-from .constants import CredentialPolicyFlag, DATABASE_EXT, StorageKind
+from .constants import CredentialPolicyFlag, DaemonSubcommandLiteral, DaemonSubcommands, \
+    DATABASE_EXT, NetworkServerFlag, SERVER_USES, StorageKind
 from .exchange_rate import FxTask
+from .exceptions import InvalidPassword, ServerConnectionError
 from .logs import logs
 from .network import Network
+from .network_support.api_server import get_viable_servers
+from .network_support.exceptions import AuthenticationError, GeneralAPIError
 from .nodeapi import NodeAPIServer
 from .restapi import AiohttpServer
 from .restapi_endpoints import DefaultEndpoints
 from .simple_config import SimpleConfig
 from .storage import categorise_file, WalletStorage
+from .types import DaemonStatusDict
 from .util import json_decode, DaemonThread, get_wallet_name_from_path
 from .version import PACKAGE_VERSION
 from .wallet import Wallet
@@ -108,6 +113,8 @@ def remote_daemon_request(config: SimpleConfig, url_path: str, json_value: Any=N
         return { "error": "Daemon not connectable" }
     except requests.exceptions.ReadTimeout:
         return { "error": "Daemon subcommand timed out" }
+    if not response.ok:
+        return { "error": f"Daemon errored processing the subcommand: '{response.reason}'" }
     return response.json()
 
 
@@ -251,7 +258,7 @@ class Daemon(DaemonThread):
         return True
 
     async def run_subcommand_async(self, config_options: dict[str, Any]) \
-            -> bool | str | dict[str, Any]:
+            -> bool | str | DaemonStatusDict:
         """
         When ElectrumSV is running it is implicitly a wallet server and can be controlled from
         the command-line using what we call daemon subcommands.
@@ -287,55 +294,167 @@ class Daemon(DaemonThread):
                 "blockchain_height": 0,
                 "fee_per_kb": 500,
                 "path": "INSTANCE1/regtest",
-                "spv_nodes": 1,
-                "version": "1.4.0b1",
+                "version": "1.4.0",
                 "wallets": {
                     ".electrum-sv/INSTANCE1/regtest/wallets/testwallet.sqlite": true
                 }
             }
         """
         config = SimpleConfig(config_options)
-        subcommand = cast(str | None, config.get('subcommand'))
-        assert subcommand in [None, 'start', 'stop', 'status', 'load_wallet', 'close_wallet']
-        if subcommand in [None, 'start']:
-            return "Daemon already running"
-        elif subcommand == "load_wallet":
-            cmdline_wallet_filepath = config.get_cmdline_wallet_filepath()
-            assert cmdline_wallet_filepath is not None
-            wallet_path = WalletStorage.canonical_path(cmdline_wallet_filepath)
+        subcommand = cast(DaemonSubcommandLiteral | None, config.get('subcommand'))
+        assert subcommand is None or subcommand in DaemonSubcommands
+
+        if subcommand in [None, "start"]:
+            return "Daemon already running."
+
+        if subcommand == "load_wallet":
+            command_line_wallet_path = cast(str|None, config.get("wallet_path"))
+            if command_line_wallet_path is None:
+                return "Error: Wallet file required. " \
+                    "Use -w <filename> to specify a wallet filename."
+
+            wallet_path = config.resolve_existing_wallet_path(command_line_wallet_path)
+            if wallet_path is None:
+                return f"Error: Wallet file not found: '{command_line_wallet_path}'."
+
+            if self.get_wallet(wallet_path):
+                return f"Wallet '{command_line_wallet_path}' already loaded."
+
+            wallet_path = WalletStorage.canonical_path(wallet_path)
             wallet_password = config_options.get('password')
             assert wallet_password is not None
             app_state.credentials.set_wallet_password(
                 wallet_path, wallet_password, CredentialPolicyFlag.FLUSH_AFTER_WALLET_LOAD)
             wallet = self.load_wallet(wallet_path)
             if wallet is None:
-                return "Unable to load wallet"
+                return f"Error: Unable to load wallet '{command_line_wallet_path}'."
+
+            logger.info("Loaded wallet '%s'", wallet_path)
             return True
-        elif subcommand == "close_wallet":
-            cmdline_wallet_filepath = config.get_cmdline_wallet_filepath()
-            assert cmdline_wallet_filepath is not None
-            path = WalletStorage.canonical_path(cmdline_wallet_filepath)
-            if path in self.wallets:
-                self.stop_wallet_at_path(path)
+
+        if subcommand == "unload_wallet":
+            command_line_wallet_path = cast(str|None, config.get("wallet_path"))
+            assert command_line_wallet_path is not None
+            wallet_path = config.resolve_existing_wallet_path(command_line_wallet_path)
+            if wallet_path is None:
+                return f"Error: Wallet file not found: '{command_line_wallet_path}'."
+
+            wallet_path = WalletStorage.canonical_path(wallet_path)
+            if wallet_path in self.wallets:
+                # This is running in the async thread. If we do a blocking stop function that
+                # needs to do async cleanup we are going to deadlock. Run the stop function in a
+                # thread so we can yield the scheduler to handle the cleanup work.
+                await asyncio.to_thread(self.stop_wallet_at_path, wallet_path)
+                logger.info("Unloaded wallet '%s'", wallet_path)
                 return True
+
             return False
-        elif subcommand == 'status':
-            if self.network:
-                status_object = self.network.status()
-                status_object.update({
-                    'fee_per_kb': self.config.fee_per_kb(),
-                    'path': self.config.path,
-                    'version': PACKAGE_VERSION,
-                    'wallets': {k: w.is_synchronized() for k, w in self.wallets.items()},
-                })
-                return status_object
-            return "Daemon offline"
-        elif subcommand == 'stop':
+
+        if subcommand == "service_signup":
+            command_line_wallet_path = cast(str|None, config.get("wallet_path"))
+            if command_line_wallet_path is None:
+                return "Error: Wallet file required. " \
+                    "Use -w <filename> to specify a wallet filename."
+
+            wallet_path = config.resolve_existing_wallet_path(command_line_wallet_path)
+            if wallet_path is None:
+                return f"Error: Wallet file not found: '{command_line_wallet_path}'."
+
+            wallet = self.get_wallet(wallet_path)
+            if wallet is None:
+                return f"Error: Wallet '{command_line_wallet_path}' not loaded. " \
+                    "Use the 'load_wallet' daemon subcommand to load a wallet."
+
+            wallet_password = config_options.get('password')
+            assert wallet_password is not None
+            password, password_policy_flag = app_state.credentials.get_wallet_password_and_policy(
+                wallet_path)
+            if password is None:
+                app_state.credentials.set_wallet_password(
+                    wallet_path, wallet_password, CredentialPolicyFlag.FLUSH_AFTER_CUSTOM_DURATION,
+                    10.0)
+
+            # Strictly speaking we should not be using servers already
+            usage_flags = NetworkServerFlag.USE_BLOCKCHAIN | NetworkServerFlag.USE_MESSAGE_BOX
+            for _server, server_flags in wallet.get_wallet_servers():
+                for usage_flag in SERVER_USES:
+                    if server_flags & usage_flag != 0:
+                        usage_flags &= ~usage_flag
+
+            if 0 == usage_flags:
+                return "All services appear to be signed up for."
+
+            message_lines: list[str] = [
+                "Registering..",
+                "  For services:",
+            ]
+            if usage_flags & NetworkServerFlag.USE_BLOCKCHAIN:
+                message_lines.append("    Blockchain.")
+            if usage_flags & NetworkServerFlag.USE_MESSAGE_BOX:
+                message_lines.append("    Message box.")
+
+            # This should only find one server for all usage flags, on regtest the reference
+            # server with simple indexer, and on mainnet the BA reference server with indexer
+            # behind it.
+            servers_by_usage_flag = wallet.get_unused_reference_servers(usage_flags)
+            servers = get_viable_servers(servers_by_usage_flag, usage_flags)
+            if len(servers) == 0:
+                message_lines.append("Error: No available servers.")
+            elif len(servers) == 1:
+                server, server_flags = servers[0]
+                message_lines.extend([
+                    "  With server:",
+                    "    "+ server.url,
+                ])
+                try:
+                    await wallet.create_server_account_async(server, server_flags)
+                except InvalidPassword:
+                    message_lines.append("Error: Wallet password incorrect during server "
+                        "account creation.")
+                except AuthenticationError as authentication_error:
+                    logger.error("Unexpected server authentication error", exc_info=True)
+                    message_lines.append(
+                        f"Error: Server authentication failed '{authentication_error}'")
+                except GeneralAPIError as api_error:
+                    logger.error("Unexpected server API error", exc_info=True)
+                    message_lines.append(
+                        f"Error: Server communication error '{api_error}'")
+                except ServerConnectionError as connection_error:
+                    logger.error("Unexpected server connection error", exc_info=True)
+                    message_lines.append(
+                        f"Error: Server connection failed '{connection_error}'")
+                else:
+                    message_lines.append("Done.")
+            else:
+                message_lines.append("Error: Detected inconsistency with available servers.")
+                for server, server_flag in servers:
+                    message_lines.append("  - "+ server.url)
+
+            return os.linesep.join(message_lines)
+
+        if subcommand == "status":
+            status_object: DaemonStatusDict = {
+                "fee_per_kb": self.config.fee_per_kb(),
+                "network": "offline",
+                "path": self.config.path,
+                "version": PACKAGE_VERSION,
+                "wallets": { k: w.status() for k, w in self.wallets.items() },
+            }
+
+            if self.network is not None:
+                network_status = self.network.status()
+                status_object["network"] = "online"
+                status_object["blockchain_height"] = network_status["blockchain_height"]
+
+            return status_object
+
+        if subcommand == 'stop':
             # This is running in the async thread. If we do a blocking stop function that
             # needs to do async cleanup we are going to deadlock. Run the stop function in a
             # thread so we can yield the scheduler to handle the cleanup work.
             await asyncio.to_thread(self.stop)
-            return "Daemon stopped"
+            return "Daemon stopped."
+
         return False
 
     async def run_gui(self, config_options: dict[str, Any]) -> str:
@@ -409,7 +528,7 @@ class Daemon(DaemonThread):
         for path in list(self.wallets):
             self.stop_wallet_at_path(path)
 
-    async def run_cmdline(self, config_options: dict[str, Any]) -> Any:
+    async def run_command_line_async(self, config_options: dict[str, Any]) -> Any:
         config = SimpleConfig(config_options)
         cmdname = cast(str, config.get('cmd'))
         cmd = known_commands[cmdname]
@@ -419,8 +538,8 @@ class Daemon(DaemonThread):
             wallet_path = WalletStorage.canonical_path(cmdline_wallet_filepath)
             wallet = self.wallets.get(wallet_path)
             if wallet is None:
-                return {'error': 'Wallet "%s" is not loaded. Use "electrum-sv daemon load_wallet"'
-                        % get_wallet_name_from_path(wallet_path)}
+                return {
+                    "error": f"Wallet '{get_wallet_name_from_path(wallet_path)}' is not loaded" }
         else:
             wallet = None
 

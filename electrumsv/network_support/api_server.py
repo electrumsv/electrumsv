@@ -40,7 +40,8 @@ import enum
 import json
 import dateutil.parser
 import dataclasses
-from typing import cast, TypedDict
+import random
+from typing import cast, TypedDict, TYPE_CHECKING
 
 from ..app_state import app_state
 from ..constants import NetworkServerFlag, NetworkServerType, ServerCapability
@@ -51,6 +52,10 @@ from ..standards.mapi import FeeQuote
 from ..types import IndefiniteCredentialId, ServerAccountKey
 from ..util import get_posix_timestamp
 from ..wallet_database.types import NetworkServerRow
+
+
+if TYPE_CHECKING:
+    from ..wallet import Wallet
 
 
 __all__ = [ "NewServerAccessState", "NewServer" ]
@@ -347,3 +352,18 @@ class NewServer:
     def __repr__(self) -> str:
         return f"NewServer(server_id={self.server_id}, url={self.url} " \
             f"server_type={self.server_type})"
+
+
+def get_viable_servers(servers_by_usage_flag: dict[NetworkServerFlag, set[NewServer]],
+        usage_flags: NetworkServerFlag) -> list[tuple[NewServer, NetworkServerFlag]]:
+    # For every used service type we need to have viable servers matched.
+    usage_flag_by_server: dict[NewServer, NetworkServerFlag] = {}
+    for usage_flag in { NetworkServerFlag.USE_BLOCKCHAIN, NetworkServerFlag.USE_MESSAGE_BOX }:
+        if usage_flags & usage_flag == 0 or usage_flag not in servers_by_usage_flag:
+            continue
+        selected_server = random.choice(list(servers_by_usage_flag[usage_flag]))
+        if selected_server in usage_flag_by_server:
+            usage_flag_by_server[selected_server] |= usage_flag
+        else:
+            usage_flag_by_server[selected_server] = usage_flag
+    return list(usage_flag_by_server.items())

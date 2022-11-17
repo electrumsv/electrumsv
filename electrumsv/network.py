@@ -31,7 +31,7 @@ import dataclasses
 import concurrent.futures
 import time
 from io import BytesIO
-from typing import Any, cast, Iterable, TYPE_CHECKING
+from typing import cast, Iterable, TYPE_CHECKING
 
 from .app_state import app_state
 from .constants import NetworkEventNames, NetworkServerType, ServerCapability
@@ -42,7 +42,7 @@ from .network_support.types import TipResponse
 from .network_support.headers import get_batched_headers_by_height_async, get_chain_tips_async, \
     HeaderServerState, ServerConnectivityMetadata, subscribe_to_headers_async
 from .networks import Net
-from .types import ServerAccountKey
+from .types import NetworkStatusDict, ServerAccountKey
 from .util import TriggeredCallbacks
 
 if TYPE_CHECKING:
@@ -454,8 +454,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         server_state.synchronisation_update_event.set()
         server_state.synchronisation_update_event.clear()
 
-    def status(self) -> dict[str, Any]:
+    def status(self) -> NetworkStatusDict:
         return {
-            'blockchain_height': self.get_local_height(),
-            'spv_nodes': len(self._known_header_server_keys),
+            "blockchain_height": self.get_local_height(),
         }

@@ -1,5 +1,5 @@
 from enum import Enum, IntEnum, IntFlag
-from typing import Sequence
+from typing import Literal, Sequence
 
 from bitcoinx import pack_be_uint32, unpack_be_uint32_from
 from electrumsv_database.sqlite import DATABASE_EXT as SQLITE_DATABASE_EXT
@@ -665,3 +665,8 @@ CSS_LABEL_WARNING = """
         background-color: #FEFECB;
     }
 """
+
+DaemonSubcommands = ("load_wallet", "service_signup", "start", "status", "stop", \
+    "unload_wallet")
+DaemonSubcommandLiteral = Literal["load_wallet", "service_signup", "start", "status", "stop", \
+    "unload_wallet"]

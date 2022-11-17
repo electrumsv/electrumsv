@@ -37,7 +37,6 @@
 from __future__ import annotations
 import concurrent.futures
 from enum import Enum, IntEnum
-import random
 from typing import TYPE_CHECKING
 import weakref
 
@@ -50,10 +49,10 @@ from ...app_state import app_state
 from ...constants import NetworkServerFlag, NetworkServerType, SERVER_USES, ServerConnectionFlag
 from ...exceptions import InvalidPassword, ServerConnectionError
 from ...i18n import _
+from ...network_support.api_server import get_viable_servers
 from ...network_support.exceptions import AuthenticationError, GeneralAPIError
 if TYPE_CHECKING:
     from ...network_support.api_server import NewServer
-    from ...network_support.types import ServerConnectionState
     from ...wallet import Wallet
 
 
@@ -427,18 +426,7 @@ class RegistrationWidget(QWidget):
             -> list[tuple[NewServer, NetworkServerFlag]]:
         servers_by_usage_flag = self._wallet_proxy.get_unused_reference_servers(usage_flags,
             self._failed_servers)
-
-        # For every used service type we need to have viable servers matched.
-        usage_flag_by_server: dict[NewServer, NetworkServerFlag] = {}
-        for usage_flag in { NetworkServerFlag.USE_BLOCKCHAIN, NetworkServerFlag.USE_MESSAGE_BOX }:
-            if usage_flags & usage_flag == 0 or usage_flag not in servers_by_usage_flag:
-                continue
-            selected_server = random.choice(list(servers_by_usage_flag[usage_flag]))
-            if selected_server in usage_flag_by_server:
-                usage_flag_by_server[selected_server] |= usage_flag
-            else:
-                usage_flag_by_server[selected_server] = usage_flag
-        return list(usage_flag_by_server.items())
+        return get_viable_servers(servers_by_usage_flag, usage_flags)
 
     def _update_progress_bar_ui(self, step: int, step_text: str) -> None:
         self._progress_label.setText(step_text)

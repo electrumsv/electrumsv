@@ -66,7 +66,7 @@ def prompt_password(prompt: str, confirm: bool=True) -> str|None:
     if password and confirm:
         password2 = getpass.getpass("Confirm: ")
         if password != password2:
-            sys.exit("Error: Passwords do not match.")
+            sys.exit("Error: passwords do not match")
     if not password:
         return None
     return password
@@ -88,34 +88,70 @@ def run_non_RPC(config: SimpleConfig) -> None:
 
         return final_path
 
-    if cmdname in {'create_wallet', 'create_account'}:
+    if cmdname in {"create_wallet", "create_jsonrpc_wallet", "create_account"}:
         app_state.read_headers()
         password: str|None
         if not config.cmdline_options.get('nopasswordcheck'):
             password = prompt_password("Password: ")
             password = password.strip() if password is not None else password
         else:
-            password = config.cmdline_options.get('wallet_password')
+            password = config.cmdline_options.get("wallet_password")
         if not password:
-            sys.exit("error: wallet creation requires a password")
+            sys.exit("error: wallet/account creation requires a password")
 
-        if cmdname == 'create_wallet':
+        if cmdname == "create_wallet":
+            # This is either the explicit path the user provided or the current directory of
+            # the caller.
             wallet_path = get_wallet_path()
+
             password_token = app_state.credentials.set_wallet_password(wallet_path, password,
                 CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY)
             assert password_token is not None
             storage = WalletStorage.create(wallet_path, password_token)
             storage.close()
+
             print(f"Wallet saved in '{wallet_path}'")
+            print("WARNING: This wallet requires an account to be added.")
+            print("WARNING: This wallet is unsuitable for use with the node wallet API.")
             sys.exit(0)
 
-        elif cmdname == 'create_account':
+        elif cmdname == "create_jsonrpc_wallet":
+            # This is the wallet path in the data directory.
+            wallet_folder_path = config.get_default_wallet_dirpath()
+            # The calling context already checked that the filename is provided.
+            wallet_filename = cast(str, config.get('wallet_path'))
+            # As we expect wallet files usable with the JSON-RPC API to be located in the
+            # "wallets" subdirectory in the data directory, the filename must have no path.
+            if os.path.dirname(wallet_filename):
+                sys.exit(f"Error: wallet file name '{wallet_filename}' must just be the name")
+
+            wallet_path = WalletStorage.canonical_path(os.path.join(wallet_folder_path,
+                wallet_filename))
+            if WalletStorage.files_are_matched_by_path(wallet_path):
+                sys.exit(f"Error: wallet file '{wallet_path}' already exists")
+
+            # Create the empty wallet.
+            password_token = app_state.credentials.set_wallet_password(wallet_path, password,
+                CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY)
+            assert password_token is not None
+            storage = WalletStorage.create(wallet_path, password_token)
+
+            # Add a standard account to the wallet.
+            wallet = Wallet(storage)
+            keystore_result = wallet.derive_child_keystore(for_account=True, password=password)
+            wallet.create_account_from_keystore(keystore_result)
+
+            print(f"Wallet saved in '{wallet_path}'")
+            print("NOTE: This wallet is ready for use with the node wallet API.")
+            sys.exit(0)
+
+        elif cmdname == "create_account":
             wallet_path = cast(str, config.get_cmdline_wallet_filepath())
             password_token = app_state.credentials.set_wallet_password(wallet_path, password,
                 CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY)
             assert password_token is not None
             storage = WalletStorage.create(wallet_path, password_token)
-            parent_wallet = Wallet(storage, password)
+            wallet = Wallet(storage, password)
 
             # create an account for the Wallet (only random new seeds supported - no importing)
             text_type = KeystoreTextType.EXTENDED_PRIVATE_KEY
@@ -129,9 +165,9 @@ def run_non_RPC(config: SimpleConfig) -> None:
             assert text_match is not None # typing bug
             keystore = instantiate_keystore_from_text(text_type, text_match, password,
                 derivation_text=None, passphrase="", watch_only=False)
-            parent_wallet.create_account_from_keystore(
+            wallet.create_account_from_keystore(
                 KeyStoreResult(AccountCreationType.IMPORTED, keystore))
-            parent_wallet.stop()
+            wallet.stop()
             print(f"New standard (bip32) account created for: '{wallet_path}'")
             sys.exit(0)
 
@@ -140,33 +176,35 @@ def run_non_RPC(config: SimpleConfig) -> None:
 
 
 def process_daemon_subcommand(config_options: dict[str, Any], subcommand: str) -> None:
-    if subcommand == "load_wallet":
+    if subcommand in ("load_wallet", "service_signup"):
         config = SimpleConfig(config_options)
-        wallet_path = config.get_cmdline_wallet_filepath()
 
-        # Check if these is a file at the given path that *could* be a wallet.
-        if not WalletStorage.files_are_matched_by_path(wallet_path):
-            print(f"Wallet file not found: '{wallet_path}'.")
-            print("Type 'electrum-sv create' to create a new wallet, "
-                "or provide a path to a wallet with the -w option")
-            sys.exit(1)
+        command_line_wallet_path = cast(str, config.get("wallet_path"))
+        wallet_path = config.resolve_existing_wallet_path(command_line_wallet_path)
+        if wallet_path is None:
+            sys.exit(f"Wallet file not found: '{command_line_wallet_path}'.")
 
         assert wallet_path is not None
         # Check that the located file loads as a supported form of wallet storage.
-        WalletStorage(wallet_path)
+        storage = WalletStorage(wallet_path)
+        try:
+            if "wallet_password" in config_options:
+                print('Warning: unlocking wallet with commandline argument \"--walletpassword\"')
+                password = config_options["wallet_password"]
+            elif config.get("password"):
+                password = config.get("password")
+            else:
+                password = prompt_password("Password: ", confirm=False)
+                if not password:
+                    sys.exit("Error: password required.")
 
-        if 'wallet_password' in config_options:
-            print('Warning: unlocking wallet with commandline argument \"--walletpassword\"')
-            password = config_options['wallet_password']
-        elif config.get('password'):
-            password = config.get('password')
-        else:
-            password = prompt_password('Password: ', confirm=False)
-            if not password:
-                print("Error: Password required")
-                sys.exit(1)
+            assert isinstance(password, str)
+            if not storage.is_password_valid(password):
+                sys.exit("Error: wallet password incorrect.")
+        finally:
+            storage.close()
 
-        config_options['password'] = password
+        config_options["password"] = password
 
 
 def init_cmdline(config_options: dict[str, Any]) -> tuple[Command, str|None]:
@@ -176,47 +214,25 @@ def init_cmdline(config_options: dict[str, Any]) -> tuple[Command, str|None]:
     assert isinstance(cmdname, str)
     cmd = known_commands[cmdname.replace("-", "_")]
 
-    if cmdname == 'signtransaction' and config.get('privkey'):
-        cmd.requires_wallet = False
-        cmd.requires_password = False
-
-    if cmdname in ['payto', 'paytomany'] and config.get('unsigned'):
-        cmd.requires_password = False
-
-    if cmdname in ['payto', 'paytomany'] and config.get('broadcast'):
-        cmd.requires_network = True
-
     wallet_path = config.get_cmdline_wallet_filepath()
     if cmd.requires_wallet and not WalletStorage.files_are_matched_by_path(wallet_path):
-        print("Error: Wallet file not found.")
-        # TODO: Identify command name/script name and use in place of `electrum-sv`
-        print("Type 'electrum-sv create_wallet' to create a new wallet, "
-              "or provide a path to a wallet with the -w option")
-        sys.exit(0)
-
-    # important warning
-    if cmd.name in ['getprivatekeys']:
-        print("WARNING: ALL your private keys are secret.", file=sys.stderr)
-        print("Exposing a single private key can compromise your entire wallet!", file=sys.stderr)
-        print("In particular, DO NOT use 'redeem private key' services "
-              "proposed by third parties.", file=sys.stderr)
+        sys.exit("Error: wallet file not found")
 
     # commands needing password
     password: str|None
     if cmd.requires_wallet or cmd.requires_password: # `cmd.requires_wallet or server is None`
-        if config.get('password'):
-            password = config.get_optional_type(str, 'password')
+        if config.get("password"):
+            password = config.get_optional_type(str, "password")
         else:
             password = prompt_password('Password:', False)
             if not password:
-                print("Error: Password required")
-                sys.exit(1)
+                sys.exit("Error: password required")
     else:
         password = None
 
-    config_options['password'] = password
+    config_options["password"] = password
 
-    if cmd.name == 'password':
+    if cmd.name == "password":
         new_password = prompt_password('New password:')
         config_options['new_password'] = new_password
 
@@ -226,27 +242,30 @@ def init_cmdline(config_options: dict[str, Any]) -> tuple[Command, str|None]:
 def run_offline_command(config: SimpleConfig, config_options: dict[str, Any]) -> Any:
     cmdname = config.get_explicit_type(str, 'cmd', "?")
     cmd = known_commands[cmdname]
-    password = config_options.get('password')
+    password = config_options.get("password")
     wallet: Wallet|None
+
     if cmd.requires_wallet:
         wallet_path = config.get_cmdline_wallet_filepath()
         if not WalletStorage.files_are_matched_by_path(wallet_path):
-            print("Error: wallet does not exist at given path")
-            sys.exit(1)
+            sys.exit("Error: wallet does not exist at given path")
+
         assert wallet_path is not None
         storage = WalletStorage(wallet_path)
         wallet = Wallet(storage)
     else:
         wallet = None
+
     if cmd.requires_password:
         assert wallet is not None and password is not None
         try:
             wallet.check_password(password)
         except (InvalidPassword, IncompatibleWalletError):
-            print("Error: This password cannot access the wallet's private data.")
-            sys.exit(1)
+            sys.exit("Error: invalid password for wallet")
+
     if cmd.requires_network:
         print("Warning: running command offline")
+
     # arguments passed to function
     args = [cast(str, config.get(x)) for x in cmd.params]
     # decode json arguments
@@ -255,7 +274,7 @@ def run_offline_command(config: SimpleConfig, config_options: dict[str, Any]) ->
     # options
     kwargs = {}
     for x in cmd.options:
-        kwargs[x] = (config_options.get(x) if x in ['password', 'new_password'] else config.get(x))
+        kwargs[x] = (config_options.get(x) if x in ["password", 'new_password'] else config.get(x))
     cmd_runner = Commands(config, wallet, None)
     func = getattr(cmd_runner, cmd.name)
     result = func(*args, **kwargs)
@@ -306,7 +325,7 @@ def run_app_with_daemon(fd: int, is_gui: bool=False) -> None:
 
 def enforce_requirements() -> None:
     if sys.version_info[:3] < (3, 10, 0) or sys.version_info[:3] >= (3, 11, 0):
-        sys.exit("ERROR: ElectrumSV requires Python version 3.10")
+        sys.exit("Error: ElectrumSV requires Python version 3.10")
 
     # Are we running from source, and do we have the requirements?  If not we do not apply.
     requirement_path = os.path.join(
@@ -374,16 +393,8 @@ def main() -> None:
     # on osx, delete Process Serial Number arg generated for apps launched in Finder
     sys.argv = [x for x in sys.argv if not x.startswith('-psn')]
 
-    # old 'help' syntax
-    if len(sys.argv) > 1 and sys.argv[1] == 'help':
-        sys.argv.remove('help')
-        sys.argv.append('-h')
-
     config_options = get_config_options()
     logs.set_level(config_options['verbose'])
-
-    if config_options.get('server'):
-        config_options['auto_connect'] = False
     config_options['cwd'] = os.getcwd()
 
     # fixme: this can probably be achieved with a runtime hook (pyinstaller)
@@ -424,11 +435,8 @@ def main() -> None:
 
     # check uri
     uri = config_options.get('url')
-    if uri:
-        if not web.is_URI(uri):
-            print('unknown command:', uri, file=sys.stderr)
-            sys.exit(1)
-        config_options['url'] = uri
+    if uri and not web.is_URI(uri):
+        sys.exit(f"unknown command: '{uri}'")
 
     # This takes a copy of `config_options`, any changes to `config_options` past this point will
     # not be present in `config`'s copy.
@@ -441,40 +449,39 @@ def main() -> None:
         except ImportError as e:
             platform.missing_import(e)
             raise
-        QtAppStateProxy(config, 'qt')
-    elif cmdname == 'daemon' and 'daemon_app_module' in config_options:
-        load_app_module(config_options['daemon_app_module'], config)
+        QtAppStateProxy(config, "qt")
+    elif cmdname == "daemon" and "daemon_app_module" in config_options:
+        load_app_module(config_options["daemon_app_module"], config)
     else:
-        AppStateProxy(config, 'cmdline')
+        AppStateProxy(config, "cmdline")
         app_state.set_app(DefaultApp())
 
     # run non-RPC commands separately
-    if cmdname in [ 'create_wallet', 'create_account' ]:
+    if cmdname in { "create_wallet", "create_jsonrpc_wallet", "create_account" }:
         run_non_RPC(config)
         sys.exit(0)
 
     result: str | dict[Any, Any] = ""
-    if cmdname == 'gui':
+    if cmdname == "gui":
         lockfile_fd = daemon.get_lockfile_fd(config)
         if lockfile_fd:
             run_app_with_daemon(lockfile_fd, is_gui=True)
         else:
             result = daemon.remote_daemon_request(config, "/v1/rpc/gui", config_options)
 
-    elif cmdname == 'daemon':
-        subcommand = config.get_optional_type(str, 'subcommand')
-        if subcommand in [None, 'start']:
+    elif cmdname == "daemon":
+        subcommand = config.get_optional_type(str, "subcommand")
+        if subcommand in [None, "start"]:
             lockfile_fd = daemon.get_lockfile_fd(config)
             if lockfile_fd:
                 if not app_state.has_app():
-                    print("No application present to run.")
-                    sys.exit(0)
+                    sys.exit("No application present to run.")
 
-                if subcommand == 'start':
+                if subcommand == "start":
                     fork = getattr(os, "fork")
                     if fork is None:
-                        print(f"Starting the daemon is not supported on {sys.platform}.")
-                        sys.exit(0)
+                        sys.exit(f"Starting the daemon is not supported on {sys.platform}.")
+
                     pid = fork()
                     if pid:
                         print("Starting daemon (PID %d)" % pid, file=sys.stderr)
@@ -485,9 +492,8 @@ def main() -> None:
 
             result = daemon.remote_daemon_request(config, "/v1/rpc/daemon", config_options)
         else:
-            if subcommand == 'load_wallet':
-                process_daemon_subcommand(config_options, subcommand)
-
+            assert subcommand is not None
+            process_daemon_subcommand(config_options, subcommand)
             result = daemon.remote_daemon_request(config, "/v1/rpc/daemon", config_options)
     else:
         # command line
@@ -496,8 +502,8 @@ def main() -> None:
         cmd = known_commands[cmdname]
         if cmd.requires_network:
             result = daemon.remote_daemon_request(config, "/v1/rpc/cmdline", config_options)
-            print("Daemon not running; try 'electrum-sv daemon start'")
-            sys.exit(1)
+            # NOTE(rt12) No idea when this happens or why we exit with an error despite the call.
+            sys.exit("Daemon not running")
         else:
             result = run_offline_command(config, config_options)
 

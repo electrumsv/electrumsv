@@ -121,7 +121,7 @@ class DaemonEndpoints:
         body_text = body_bytes.decode("utf-8")
         config_options = json.loads(body_text)
         assert type(config_options) is dict
-        result = await app_state.daemon.run_cmdline(config_options)
+        result = await app_state.daemon.run_command_line_async(config_options)
         return web.json_response(result)
 
 

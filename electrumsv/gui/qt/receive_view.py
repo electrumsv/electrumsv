@@ -1,5 +1,6 @@
+from __future__ import annotations
 from functools import partial
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 import weakref
 
 from PyQt6.QtCore import QSize, Qt
@@ -29,7 +30,7 @@ class ReceiveView(QWidget):
 
     _request_list: RequestList
 
-    def __init__(self, main_window: "ElectrumWindow", account_id: int) -> None:
+    def __init__(self, main_window: ElectrumWindow, account_id: int) -> None:
         super().__init__(main_window)
 
         self._main_window_proxy: ElectrumWindow = weakref.proxy(main_window)
@@ -37,7 +38,7 @@ class ReceiveView(QWidget):
         self._account = main_window._wallet.get_account(account_id)
         self._logger = logs.get_logger(f"receive-view[{self._account_id}]")
 
-        self._dialogs: Dict[Optional[int], ReceiveDialog] = {}
+        self._dialogs: dict[int|None, ReceiveDialog] = {}
 
         toolbar_label = QLabel(_("Receive a new payment through:"))
         toolbar_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -207,7 +208,7 @@ class ReceiveView(QWidget):
         """
         pass
 
-    def get_bsv_edits(self) -> List[BTCAmountEdit]:
+    def get_bsv_edits(self) -> list[BTCAmountEdit]:
         """
         Called by the main window to get the edit widgets to update when the user changes what
         base unit they wish to use.
@@ -217,7 +218,7 @@ class ReceiveView(QWidget):
             edits.extend(dialog.get_bsv_edits())
         return edits
 
-    def show_dialog(self, request_id: Optional[int], request_type: PaymentFlag) -> None:
+    def show_dialog(self, request_id: int|None, request_type: PaymentFlag) -> None:
         """
         Show the dialog for the given `request_id`.
 
@@ -251,7 +252,7 @@ class ReceiveView(QWidget):
         assert self._dialogs[None].get_paymentrequest_id() == request_id
         self._dialogs[request_id] = self._dialogs.pop(None)
 
-    def _on_dialog_closed(self, request_id: Optional[int]) -> None:
+    def _on_dialog_closed(self, request_id: int|None) -> None:
         if request_id in self._dialogs:
             del self._dialogs[request_id]
 

@@ -223,6 +223,25 @@ class SimpleConfig:
             f.write(s)
         os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
 
+    def resolve_existing_wallet_path(self, original_path: str) -> str|None:
+        from .storage import WalletStorage
+
+        wallet_path: str|None = None
+        if WalletStorage.files_are_matched_by_path(original_path):
+            wallet_path = original_path
+        else:
+            # Look within the current directory first.
+            local_wallet_path = os.path.join(cast(str, self.get('cwd')), original_path)
+            if WalletStorage.files_are_matched_by_path(local_wallet_path):
+                wallet_path = local_wallet_path
+            else:
+                # Look in the data directory wallet folder last.
+                standard_wallet_path = os.path.join(self.get_default_wallet_dirpath(),
+                    original_path)
+                if WalletStorage.files_are_matched_by_path(standard_wallet_path):
+                    wallet_path = standard_wallet_path
+        return wallet_path
+
     def get_preferred_wallet_dirpath(self) -> str:
         """
         Raises `FileNotFoundError` if default wallet folder is not found, should it fall back to

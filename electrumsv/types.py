@@ -3,8 +3,8 @@ import asyncio
 import dataclasses
 import struct
 from types import TracebackType
-from typing import Callable, List, NamedTuple, Optional, Protocol, Tuple, Type, TYPE_CHECKING, \
-    TypedDict, Union
+from typing import Callable, Literal, NamedTuple, Protocol, Type, TYPE_CHECKING
+from typing_extensions import NotRequired, TypedDict
 import uuid
 
 from bitcoinx import Chain, hash_to_hex_str, Header
@@ -59,7 +59,7 @@ class DatabaseKeyDerivationData:
     def from_key_data(cls, row: KeyDataProtocol,
             source: DatabaseKeyDerivationType=DatabaseKeyDerivationType.UNKNOWN) \
                 -> DatabaseKeyDerivationData:
-        derivation_path: Optional[DerivationPath] = None
+        derivation_path: DerivationPath|None = None
         if row.derivation_type == DerivationType.BIP32_SUBPATH:
             assert isinstance(row.derivation_data2, bytes)
             derivation_path = unpack_derivation_path(row.derivation_data2)
@@ -94,11 +94,11 @@ class OutputSpend(NamedTuple):
     out_index: int
     in_tx_hash: bytes
     in_index: int
-    block_hash: Optional[bytes]
+    block_hash: bytes|None
 
     @classmethod
     def from_network(cls, out_tx_hash: bytes, out_index: int, in_tx_hash: bytes, in_index: int,
-            block_hash: Optional[bytes]) -> OutputSpend:
+            block_hash: bytes|None) -> OutputSpend:
         """
         Convert the binary representation to the Python representation.
         """
@@ -138,9 +138,9 @@ tip_filter_unregistration_struct = struct.Struct(">32s")
 tip_filter_list_struct = struct.Struct(">32sII")
 
 
-ExceptionInfoType = Tuple[Type[BaseException], BaseException, TracebackType]
+ExceptionInfoType = tuple[Type[BaseException], BaseException, TracebackType]
 
-WaitingUpdateCallback = Callable[[Arg(bool, "advance"), DefaultArg(Optional[str], "message")], None]
+WaitingUpdateCallback = Callable[[Arg(bool, "advance"), DefaultArg(str|None, "message")], None]
 
 
 class ServerAccountKey(NamedTuple):
@@ -165,18 +165,18 @@ class ServerAccountKey(NamedTuple):
 
 class MasterKeyDataBIP32(TypedDict):
     xpub: str
-    seed: Optional[str]
+    seed: str|None
     # If there is a seed / no parent masterkey, the xpub/xprv are derived from the seed using this.
     # - For master keys with Electrum seeds this will always be 'm'
     # If there is no seed, the xpub/xprv are derived from the parent masterkey using this.
-    derivation: Optional[str]
-    passphrase: Optional[str]
-    label: Optional[str]
-    xprv: Optional[str]
+    derivation: str|None
+    passphrase: str|None
+    label: str|None
+    xprv: str|None
 
 
 class MasterKeyDataElectrumOld(TypedDict):
-    seed: Optional[str]
+    seed: str|None
     mpk: str
 
 
@@ -188,13 +188,13 @@ class MasterKeyDataHardware(TypedDict):
     hw_type: str
     xpub: str
     derivation: str
-    label: Optional[str]
-    cfg: Optional[MasterKeyDataHardwareCfg]
+    label: str|None
+    cfg: MasterKeyDataHardwareCfg|None
 
 
-MultiSignatureMasterKeyDataTypes = Union[MasterKeyDataBIP32, MasterKeyDataElectrumOld,
-    MasterKeyDataHardware]
-CosignerListType = List[Tuple[DerivationType, MultiSignatureMasterKeyDataTypes]]
+MultiSignatureMasterKeyDataTypes = MasterKeyDataBIP32 | MasterKeyDataElectrumOld | \
+    MasterKeyDataHardware
+CosignerListType = list[tuple[DerivationType, MultiSignatureMasterKeyDataTypes]]
 
 
 _MasterKeyDataMultiSignature = TypedDict(
@@ -208,8 +208,8 @@ class MasterKeyDataMultiSignature(_MasterKeyDataMultiSignature):
     n: int
 
 
-MasterKeyDataTypes = Union[MasterKeyDataBIP32, MasterKeyDataElectrumOld,
-    MasterKeyDataHardware, MasterKeyDataMultiSignature]
+MasterKeyDataTypes = MasterKeyDataBIP32 | MasterKeyDataElectrumOld | MasterKeyDataHardware | \
+    MasterKeyDataMultiSignature
 
 
 class KeyInstanceDataBIP32SubPath(TypedDict):
@@ -225,16 +225,17 @@ class KeyInstanceDataPrivateKey(TypedDict):
     prv: str
 
 
-KeyInstanceDataTypes = Union[KeyInstanceDataBIP32SubPath, KeyInstanceDataHash,
-    KeyInstanceDataPrivateKey]
+KeyInstanceDataTypes = KeyInstanceDataBIP32SubPath | KeyInstanceDataHash | \
+    KeyInstanceDataPrivateKey
 
 
-DerivationDataTypes = Union[KeyInstanceDataTypes, MasterKeyDataTypes]
+DerivationDataTypes = KeyInstanceDataBIP32SubPath | KeyInstanceDataHash | \
+    KeyInstanceDataPrivateKey | MasterKeyDataTypes
 
 
 class KeyStoreResult(NamedTuple):
     account_creation_type: AccountCreationType
-    keystore: Optional[KeyStore] = None
+    keystore: KeyStore|None = None
     account_id: int = -1
 
 
@@ -326,3 +327,17 @@ class TransactionFeeContext:
     fee_quote: FeeQuoteCommon
     server_and_credential: ServerAndCredential
 
+
+class NetworkStatusDict(TypedDict):
+    blockchain_height: int
+
+class WalletStatusDict(TypedDict):
+    servers: dict[str, list[str]]
+
+class DaemonStatusDict(TypedDict):
+    blockchain_height: NotRequired[int]
+    fee_per_kb: int
+    network: Literal["online", "offline"]
+    path: str
+    version: str
+    wallets: dict[str, WalletStatusDict]

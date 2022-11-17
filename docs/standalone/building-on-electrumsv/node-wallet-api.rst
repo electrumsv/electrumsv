@@ -197,7 +197,8 @@ Setup
 Once the wallet is running correctly, there are two tasks that need to be performed to get a
 working wallet and to be able to make use of the JSON-RPC API.
 
-#. Create a wallet.
+#. Create a compatible wallet.
+#. Start the ElectrumSV daemon and load the wallet.
 #. Link the wallet to a blockchain server.
 
 Wallet creation
@@ -205,8 +206,28 @@ Wallet creation
 
 **TODO** Document the data directory.
 
-With ElectrumSV running in daemon mode and serving the node wallet API, the next step is to
-create a compatible wallet for use.
+In order to create a wallet that is compatible with the node wallet API, a special command
+``create_jsonrpc_wallet`` has to be used. The file name to be used should be provided with the
+``-w`` option and the wallet will be created in the "wallets" folder in the ElectrumSV
+data directory.
+
+.. code-block:: console
+    :caption: Linux / MacOS
+
+    electrumsv>py electrum-sv create_jsonrpc_wallet -w my_new_wallet
+    Password:
+    Confirm:
+    Wallet saved in '/home/R/.electrum-sv/wallets/my_new_wallet.sqlite'
+    NOTE: This wallet is ready for use with the node wallet API.
+
+.. code-block:: doscon
+    :caption: Windows
+
+    electrumsv>py electrum-sv create_jsonrpc_wallet my_new_wallet
+    Password:
+    Confirm:
+    Wallet saved in 'C:\Users\R\AppData\Roaming\ElectrumSV\regtest\wallets\my_new_wallet.sqlite'
+    NOTE: This wallet is ready for use with the node wallet API.
 
 .. warning::
 
@@ -214,12 +235,110 @@ create a compatible wallet for use.
     the wallet. Existing ElectrumSV wallets that have no accounts or more than one account will
     not be usable with the node wallet API.
 
-More text here.
-
 Blockchain server access
 ########################
 
-ttt
+The advantage the wallet integrated into the Bitcoin node has is that it listens to and processes
+all blocks, and knows what in them relates to the wallet. This is however why it is now problematic
+to run, because the resource requirements to receive and process all those blocks is prohibitive.
+
+In order to detect incoming payments the ElectrumSV JSON-RPC wallet needs to replace that
+prohibitive block processing with something much much lighter weight. This is done by registering
+the addresses those payments will come in on with a remote blockchain server. That blockchain
+server also notifies us when transactions are broadcast and other events of interest that were
+discerned directly from block data by the node wallet.
+
+The wallet you created with the ``create_jsonrpc_wallet`` command needs to set up an account
+on the blockchain server Bitcoin Association provides. This is what is described below.
+
+The first step is to start the wallet server.
+
+.. code-block:: console
+    :caption: Linux / MacOS
+
+    $ ./electrum-sv daemon --enable-node-wallet-api -rpcpassword=
+    2022-11-07 10:03:24,375:WARNING:daemon:No password set for JSON-RPC wallet API. No credentials required for access.
+    2022-11-07 10:03:24,380:INFO:rest-server:REST API started on http://127.0.0.1:9999
+    2022-11-07 10:03:24,381:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:8332
+
+.. code-block:: doscon
+    :caption: Windows
+
+    electrumsv>py electrum-sv daemon  --enable-node-wallet-api -rpcpassword=
+    2022-11-07 10:03:24,375:WARNING:daemon:No password set for JSON-RPC wallet API. No credentials required for access.
+    2022-11-07 10:03:24,380:INFO:rest-server:REST API started on http://127.0.0.1:9999
+    2022-11-07 10:03:24,381:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:8332
+
+Next open another console/terminal and load your wallet with the daemon subcommand ``load_wallet``.
+This asks the wallet server to load that wallet. If there is an error, it will display in
+place of the ``true`` that is otherwise returned.
+
+.. code-block:: console
+    :caption: Linux / MacOS
+
+    $ ./electrum-sv daemon load_wallet -w my_new_wallet
+    Password:
+    true
+
+.. code-block:: doscon
+    :caption: Windows
+
+    electrumsv>py electrum-sv daemon  load_wallet -w my_new_wallet
+    Password:
+    true
+
+The final step is to setup the wallet's account with the blockchain server. This requires network
+access by the wallet server and the ``service_signup`` daemon subcommand is used for this. You
+need to specify the wallet you are signing up.
+
+A successful signup will result in the following output:
+
+.. code-block:: console
+    :caption: Linux / MacOS
+
+    $ ./electrum-sv --regtest -D INSTANCE1 daemon service_signup -w my_new_wallet
+    Password:
+    Registering..
+    For services:
+        Blockchain.
+        Message box.
+    With server:
+        http://127.0.0.1:47124/
+    Done.
+
+.. code-block:: doscon
+    :caption: Windows
+
+    electrumsv>py electrum-sv --regtest -D INSTANCE1 daemon service_signup -w my_new_wallet
+    Password:
+    Registering..
+    For services:
+        Blockchain.
+        Message box.
+    With server:
+        http://127.0.0.1:47124/
+    Done.
+
+If the wallet is already signed up with for the services, the output will indicate this:
+
+.. code-block:: console
+    :caption: Linux / MacOS
+
+    $ ./electrum-sv --regtest -D INSTANCE1 daemon service_signup -w my_new_wallet
+    Password:
+    All services appear to be signed up for.
+
+.. code-block:: doscon
+    :caption: Windows
+
+    electrumsv>py electrum-sv --regtest -D INSTANCE1 daemon service_signup -w my_new_wallet
+    Password:
+    All services appear to be signed up for.
+
+It is also possible to use the ``status`` daemon subcommand to see what servers you are signed
+up with and for what services:
+
+
 
 
 API usage

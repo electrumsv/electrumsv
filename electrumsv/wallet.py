@@ -41,7 +41,7 @@ import os
 import random
 import threading
 import time
-from typing import Any, AsyncIterable, Callable, cast, Coroutine, Iterable, Literal, Optional, \
+from typing import Any, AsyncIterable, Callable, cast, Coroutine, Iterable, Literal, \
     Sequence, TypedDict, TypeVar, TYPE_CHECKING
 import weakref
 
@@ -115,7 +115,7 @@ from .types import (BroadcastResult, ConnectHeaderlessProofWorkerState, Database
     MAPIBroadcastResult, MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld,
     MasterKeyDataMultiSignature, MissingTransactionMetadata, Outpoint, OutputSpend,
     ServerAccountKey, ServerAndCredential, TransactionFeeContext, TransactionKeyUsageMetadata,
-    WaitingUpdateCallback)
+    WaitingUpdateCallback, WalletStatusDict)
 from .util import format_satoshis, get_posix_timestamp, get_wallet_name_from_path, \
     TriggeredCallbacks, ValueLocks
 from .util.cache import LRUCache
@@ -165,8 +165,8 @@ class AccountExportEntry(TypedDict):
     value: str
     balance: str
     label: str
-    fiat_value: Optional[str]
-    fiat_balance: Optional[str]
+    fiat_value: str|None
+    fiat_balance: str|None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -213,7 +213,7 @@ class AbstractAccount:
     Completion states (watching-only, single account, no seed, etc) are handled inside classes.
     """
 
-    _default_keystore: Optional[KeyStore] = None
+    _default_keystore: KeyStore|None = None
     _stopped: bool = False
 
     MAX_SOFTWARE_CHANGE_OUTPUTS = 10
@@ -226,7 +226,7 @@ class AbstractAccount:
         self._id = row.account_id
 
         self._logger = logs.get_logger("account[{}]".format(self.name()))
-        self._network: Optional[Network] = None
+        self._network: Network|None = None
 
         # locks: if you need to take several, acquire them in the order they are defined here!
         self.lock = threading.RLock()
@@ -307,7 +307,7 @@ class AbstractAccount:
         return { "subpath": key_allocation.derivation_path }
 
     def set_keyinstance_flags(self, keyinstance_ids: Sequence[int], flags: KeyInstanceFlag,
-            mask: Optional[KeyInstanceFlag]=None) \
+            mask: KeyInstanceFlag|None=None) \
                 -> concurrent.futures.Future[list[KeyInstanceFlagChangeRow]]:
         """
         Encapsulate updating the flags for keyinstances belonging to this account.
@@ -336,7 +336,7 @@ class AbstractAccount:
         future.add_done_callback(callback)
         return future
 
-    def get_keystore(self) -> Optional[KeyStore]:
+    def get_keystore(self) -> KeyStore|None:
         if self._row.default_masterkey_id is not None:
             return self._wallet.get_keystore(self._row.default_masterkey_id)
         return self._default_keystore
@@ -350,12 +350,12 @@ class AbstractAccount:
 
     # TODO(multi-account) This is not compatible with multi-account usage of the same transaction
     # unless we repackage the outer transaction. We kind of need per-account transaction context.
-    def get_transaction(self, tx_hash: bytes) -> Optional[tuple[Transaction, TransactionContext]]:
+    def get_transaction(self, tx_hash: bytes) -> tuple[Transaction, TransactionContext]|None:
         """
         Get the transaction with account-specific metadata like the description.
         """
         tx = self._wallet.get_transaction(tx_hash)
-        context: Optional[TransactionContext] = None
+        context: TransactionContext|None = None
         if tx is None:
             return None
         # Populate the description.
@@ -365,7 +365,7 @@ class AbstractAccount:
             context.account_descriptions[self._id] = desc
         return tx, context
 
-    def set_transaction_label(self, tx_hash: bytes, text: Optional[str]) \
+    def set_transaction_label(self, tx_hash: bytes, text: str|None) \
             -> concurrent.futures.Future[None]:
         return self._wallet.set_transaction_labels([ (text, self._id, tx_hash) ])
 
@@ -493,7 +493,7 @@ class AbstractAccount:
     def get_threshold(self) -> int:
         return 1
 
-    def export_private_key(self, keydata: KeyDataProtocol, password: str) -> Optional[str]:
+    def export_private_key(self, keydata: KeyDataProtocol, password: str) -> str|None:
         """ extended WIF format """
         if self.is_watching_only():
             return None
@@ -510,20 +510,19 @@ class AbstractAccount:
     def get_balance(self) -> WalletBalance:
         return self._wallet.data.read_account_balance(self._id)
 
-    def get_key_list(self, keyinstance_ids: Optional[list[int]]=None) -> list[KeyListRow]:
+    def get_key_list(self, keyinstance_ids: list[int]|None=None) -> list[KeyListRow]:
         return self._wallet.data.read_key_list(self._id, keyinstance_ids)
 
-    def get_local_transaction_entries(self, tx_hashes: Optional[list[bytes]]=None) \
+    def get_local_transaction_entries(self, tx_hashes: list[bytes]|None=None) \
             -> list[TransactionValueRow]:
         return self._wallet.data.read_transaction_value_entries(self._id, tx_hashes=tx_hashes,
             mask=TxFlags.MASK_STATE_LOCAL)
 
-    def get_transaction_value_entries(self, mask: Optional[TxFlags]=None) \
-            -> list[TransactionValueRow]:
+    def get_transaction_value_entries(self, mask: TxFlags|None=None) -> list[TransactionValueRow]:
         return self._wallet.data.read_transaction_value_entries(self._id, mask=mask)
 
     def get_transaction_outputs_with_key_data(self, exclude_frozen: bool=True, mature: bool=True,
-            confirmed_only: Optional[bool]=None, keyinstance_ids: Optional[list[int]]=None) \
+            confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None) \
                 -> Sequence[AccountTransactionOutputSpendableRow]:
         if confirmed_only is None:
             confirmed_only = cast(bool, app_state.config.get('confirmed_only', False))
@@ -532,8 +531,8 @@ class AbstractAccount:
             exclude_frozen=exclude_frozen, keyinstance_ids=keyinstance_ids)
 
     def get_transaction_outputs_with_key_and_tx_data(self, exclude_frozen: bool=True,
-            mature: bool=True, confirmed_only: Optional[bool]=None,
-            keyinstance_ids: Optional[list[int]]=None) \
+            mature: bool=True, confirmed_only: bool|None=None,
+            keyinstance_ids: list[int]|None=None) \
                 -> list[AccountTransactionOutputSpendableRowExtended]:
         if confirmed_only is None:
             confirmed_only = cast(bool, app_state.config.get('confirmed_only', False))
@@ -561,7 +560,7 @@ class AbstractAccount:
             value              = row.value,
         )
 
-    def get_history(self, domain: Optional[Sequence[int]]=None) -> list[HistoryListEntry]:
+    def get_history(self, domain: Sequence[int]|None=None) -> list[HistoryListEntry]:
         """
         Return the list of transactions in the account kind of sorted from newest to oldest.
 
@@ -596,8 +595,8 @@ class AbstractAccount:
         history_raw.reverse()
         return history_raw
 
-    def export_history(self, from_datetime: Optional[datetime]=None,
-            to_datetime: Optional[datetime]=None) -> list[AccountExportEntry]:
+    def export_history(self, from_datetime: datetime|None=None, to_datetime: datetime|None=None) \
+            -> list[AccountExportEntry]:
         fx = app_state.fx
         assert app_state.headers is not None
 
@@ -742,7 +741,7 @@ class AbstractAccount:
         tx.BIP_LI01_sort()
         return tx, tx_context
 
-    def start(self, network: Optional[Network]) -> None:
+    def start(self, network: Network|None) -> None:
         self._network = network
 
     def stop(self) -> None:
@@ -759,7 +758,7 @@ class AbstractAccount:
             return keystore.can_export()
         return False
 
-    def cpfp(self, tx: Transaction, fee: int=0) -> Optional[Transaction]:
+    def cpfp(self, tx: Transaction, fee: int=0) -> Transaction|None:
         """
         Construct a "child pays for parent" transaction for `tx`.
 
@@ -815,14 +814,14 @@ class AbstractAccount:
     def get_xpubkeys_for_key_data(self, row: KeyDataProtocol) -> dict[bytes, XPublicKey]:
         raise NotImplementedError
 
-    def get_master_public_key(self) -> Optional[str]:
+    def get_master_public_key(self) -> str|None:
         raise NotImplementedError
 
     def get_master_public_keys(self) -> list[str]:
         raise NotImplementedError
 
     def get_public_keys_for_derivation(self, derivation_type: DerivationType,
-            derivation_data2: Optional[bytes]) -> list[PublicKey]:
+            derivation_data2: bytes|None) -> list[PublicKey]:
         assert derivation_data2 is not None
         if derivation_type == DerivationType.BIP32_SUBPATH:
             derivation_path = unpack_derivation_path(derivation_data2)
@@ -858,14 +857,14 @@ class AbstractAccount:
             for script_type in script_types ]
 
     def get_script_for_derivation(self, script_type: ScriptType, derivation_type: DerivationType,
-            derivation_data2: Optional[bytes]) -> Script:
+            derivation_data2: bytes|None) -> Script:
         script_template = self.get_script_template_for_derivation(script_type, derivation_type,
             derivation_data2)
         # NOTE(typing) Pylance does not know how to deal with abstract methods.
         return script_template.to_script()
 
     def sign_transaction(self, tx: Transaction, password: str,
-            context: Optional[TransactionContext]=None,
+            context: TransactionContext|None=None,
             import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) \
                 -> concurrent.futures.Future[TransactionLinkState] | None:
         if self.is_watching_only():
@@ -981,7 +980,7 @@ class AbstractAccount:
         return hardware_output_info
 
     def obtain_previous_transactions(self, tx: Transaction, context: TransactionContext,
-            update_cb: Optional[WaitingUpdateCallback]=None, *,
+            update_cb: WaitingUpdateCallback|None=None, *,
             # NOTE(rt12) This is disabled by default as we do not want unexpected network access,
             #     post-electrumx.
             allow_remote_access: bool=False) -> None:
@@ -992,7 +991,7 @@ class AbstractAccount:
         need_tx_hashes: set[bytes] = set()
         for txin in tx.inputs:
             txid = hash_to_hex_str(txin.prev_hash)
-            prev_tx: Optional[Transaction] = context.parent_transactions.get(txin.prev_hash)
+            prev_tx: Transaction|None = context.parent_transactions.get(txin.prev_hash)
             if prev_tx is None:
                 # If the input is a coin we are spending, then it should be in the database.
                 # Otherwise we'll try to get it from the network - as long as we are not offline.
@@ -1018,7 +1017,7 @@ class AbstractAccount:
             have_tx_hashes = set(context.parent_transactions)
             raise PreviousTransactionsMissingException(have_tx_hashes, need_tx_hashes)
 
-    def _external_transaction_request(self, tx_hash: bytes) -> Optional[Transaction]:
+    def _external_transaction_request(self, tx_hash: bytes) -> Transaction|None:
         txid = hash_to_hex_str(tx_hash)
         if self._network is None:
             self._logger.debug("unable to fetch input transaction %s from network (offline)", txid)
@@ -1040,7 +1039,7 @@ class AbstractAccount:
 
     def extend_serialised_transaction(self, format: TxSerialisationFormat, tx: Transaction,
             context: TransactionContext, data: dict[str, Any],
-            update_cb: Optional[WaitingUpdateCallback]=None) -> Optional[dict[str, Any]]:
+            update_cb: WaitingUpdateCallback|None=None) -> dict[str, Any]|None:
         """
         Worker function that gathers the data required for serialised transactions.
 
@@ -1092,7 +1091,7 @@ class AbstractAccount:
         # accounts.
         return True
 
-    def get_masterkey_id(self) -> Optional[int]:
+    def get_masterkey_id(self) -> int|None:
         raise NotImplementedError
 
     async def create_payment_request_async(self, amount: int | None,
@@ -1262,7 +1261,7 @@ class SimpleAccount(AbstractAccount):
 
 
 class ImportedAccountBase(SimpleAccount):
-    def get_masterkey_id(self) -> Optional[int]:
+    def get_masterkey_id(self) -> int|None:
         return None
 
     def can_delete_key(self) -> bool:
@@ -1464,7 +1463,7 @@ class DeterministicAccount(AbstractAccount):
             else:
                 self._derivation_sub_paths[masterkey_id].append(new_entry)
 
-    def get_masterkey_id(self) -> Optional[int]:
+    def get_masterkey_id(self) -> int|None:
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         return keystore.get_id()
 
@@ -1541,8 +1540,8 @@ class DeterministicAccount(AbstractAccount):
 
         keystore = cast(Deterministic_KeyStore, self.get_keystore())
         masterkey_id = keystore.get_id()
-        future: Optional[concurrent.futures.Future[tuple[int, DerivationType, bytes,
-            KeyInstanceFlag]]] = self._wallet.data.reserve_keyinstance(self._id, masterkey_id,
+        future: concurrent.futures.Future[tuple[int, DerivationType, bytes,
+            KeyInstanceFlag]]|None = self._wallet.data.reserve_keyinstance(self._id, masterkey_id,
             derivation_subpath, flags)
         assert future is not None
         try:
@@ -1683,7 +1682,7 @@ class SimpleDeterministicAccount(SimpleAccount, DeterministicAccount):
         return cast(Xpub, keystore).derive_pubkey(derivation_path)
 
     def derive_script_template(self, derivation_path: DerivationPath,
-            script_type: Optional[ScriptType]=None) -> ScriptTemplate:
+            script_type: ScriptType|None=None) -> ScriptTemplate:
         return self.get_script_template(self.derive_pubkeys(derivation_path), script_type)
 
 
@@ -1835,8 +1834,8 @@ class WalletDataAccess:
             -> concurrent.futures.Future[None]:
         return db_functions.update_account_script_types(self._db_context, entries)
 
-    def update_account_server_ids(self, indexing_server_id: Optional[int],
-            peer_channel_server_id: Optional[int], account_id: int) \
+    def update_account_server_ids(self, indexing_server_id: int|None,
+            peer_channel_server_id: int|None, account_id: int) \
                 -> concurrent.futures.Future[None]:
         return self._db_context.post_to_thread(db_functions.update_account_server_ids_write,
             indexing_server_id, peer_channel_server_id, account_id)
@@ -1846,13 +1845,13 @@ class WalletDataAccess:
     def read_account_ids_for_transaction(self, tx_hash: bytes) -> list[int]:
         return db_functions.read_account_ids_for_transaction(self._db_context, tx_hash)
 
-    def read_transaction_descriptions(self, account_id: Optional[int]=None,
-            tx_hashes: Optional[Sequence[bytes]]=None) -> list[AccountTransactionDescriptionRow]:
+    def read_transaction_descriptions(self, account_id: int|None=None,
+            tx_hashes: Sequence[bytes]|None=None) -> list[AccountTransactionDescriptionRow]:
         return db_functions.read_transaction_descriptions(self._db_context,
             account_id, tx_hashes)
 
     def update_account_transaction_descriptions(self,
-            entries: Iterable[tuple[Optional[str], int, bytes]]) -> concurrent.futures.Future[None]:
+            entries: Iterable[tuple[str|None, int, bytes]]) -> concurrent.futures.Future[None]:
         return db_functions.update_account_transaction_descriptions(self._db_context,
             entries)
 
@@ -1861,24 +1860,24 @@ class WalletDataAccess:
     def create_invoices(self, entries: Iterable[InvoiceRow]) -> concurrent.futures.Future[None]:
         return db_functions.create_invoices(self._db_context, entries)
 
-    def read_invoice(self, *, invoice_id: Optional[int]=None, tx_hash: Optional[bytes]=None,
-            payment_uri: Optional[str]=None) -> Optional[InvoiceRow]:
+    def read_invoice(self, *, invoice_id: int|None=None, tx_hash: bytes|None=None,
+            payment_uri: str|None=None) -> InvoiceRow|None:
         return db_functions.read_invoice(self._db_context, invoice_id=invoice_id,
             tx_hash=tx_hash, payment_uri=payment_uri)
 
-    def read_invoice_duplicate(self, value: int, payment_uri: str) -> Optional[InvoiceRow]:
+    def read_invoice_duplicate(self, value: int, payment_uri: str) -> InvoiceRow|None:
         return db_functions.read_invoice_duplicate(self._db_context, value, payment_uri)
 
-    def read_invoices_for_account(self, account_id: int, flags: Optional[int]=None,
-            mask: Optional[int]=None) -> list[InvoiceAccountRow]:
+    def read_invoices_for_account(self, account_id: int, flags: int|None=None,
+            mask: int|None=None) -> list[InvoiceAccountRow]:
         return db_functions.read_invoices_for_account(self._db_context, account_id, flags,
             mask)
 
-    def update_invoice_transactions(self, entries: Iterable[tuple[Optional[bytes], int]]) \
+    def update_invoice_transactions(self, entries: Iterable[tuple[bytes|None, int]]) \
             -> concurrent.futures.Future[None]:
         return db_functions.update_invoice_transactions(self._db_context, entries)
 
-    def update_invoice_descriptions(self, entries: Iterable[tuple[Optional[str], int]]) \
+    def update_invoice_descriptions(self, entries: Iterable[tuple[str|None, int]]) \
             -> concurrent.futures.Future[None]:
         return db_functions.update_invoice_descriptions(self._db_context, entries)
 
@@ -1911,19 +1910,19 @@ class WalletDataAccess:
         return db_functions.reserve_keyinstance(self._db_context, account_id,
             masterkey_id, derivation_path, allocation_flags)
 
-    def read_key_list(self, account_id: int, keyinstance_ids: Optional[list[int]]=None) \
+    def read_key_list(self, account_id: int, keyinstance_ids: list[int]|None=None) \
             -> list[KeyListRow]:
         return db_functions.read_key_list(self._db_context, account_id,
             keyinstance_ids)
 
     def read_keyinstances_for_derivations(self, account_id: int,
             derivation_type: DerivationType, derivation_data2s: list[bytes],
-            masterkey_id: Optional[int]=None) -> list[KeyInstanceRow]:
+            masterkey_id: int|None=None) -> list[KeyInstanceRow]:
         return db_functions.read_keyinstances_for_derivations(self._db_context,
             account_id, derivation_type, derivation_data2s, masterkey_id)
 
     def read_keyinstance(self, *, account_id: int | None=None, keyinstance_id: int) \
-            -> Optional[KeyInstanceRow]:
+            -> KeyInstanceRow|None:
         return db_functions.read_keyinstance(self._db_context, account_id=account_id,
             keyinstance_id=keyinstance_id)
 
@@ -1934,11 +1933,11 @@ class WalletDataAccess:
             account_id=account_id, keyinstance_ids=keyinstance_ids, flags=flags, mask=mask)
 
     def set_keyinstance_flags(self, key_ids: Sequence[int], flags: KeyInstanceFlag,
-            mask: Optional[KeyInstanceFlag]=None) \
+            mask: KeyInstanceFlag|None=None) \
                 -> concurrent.futures.Future[list[KeyInstanceFlagChangeRow]]:
         return db_functions.set_keyinstance_flags(self._db_context, key_ids, flags, mask)
 
-    def update_keyinstance_descriptions(self, entries: Iterable[tuple[Optional[str], int]]) \
+    def update_keyinstance_descriptions(self, entries: Iterable[tuple[str|None, int]]) \
             -> concurrent.futures.Future[None]:
         return db_functions.update_keyinstance_descriptions(self._db_context, entries)
 
@@ -1959,7 +1958,7 @@ class WalletDataAccess:
         return await self._db_context.run_in_thread_async(
             db_functions.create_mapi_broadcasts_write, rows)
 
-    def read_mapi_broadcasts(self, tx_hashes: Optional[list[bytes]]=None) \
+    def read_mapi_broadcasts(self, tx_hashes: list[bytes]|None=None) \
             -> list[MAPIBroadcastRow]:
         return db_functions.read_mapi_broadcasts(self._db_context, tx_hashes)
 
@@ -1984,7 +1983,7 @@ class WalletDataAccess:
 
     # Network.
 
-    def read_network_servers(self, server_key: Optional[ServerAccountKey]=None) \
+    def read_network_servers(self, server_key: ServerAccountKey|None=None) \
             -> list[NetworkServerRow]:
         return db_functions.read_network_servers(self._db_context, server_key)
 
@@ -1993,7 +1992,7 @@ class WalletDataAccess:
         return db_functions.update_network_servers(self._db_context, rows)
 
     async def update_network_server_credentials_async(self, server_id: int,
-            encrypted_api_key: Optional[str], payment_key_bytes: Optional[bytes],
+            encrypted_api_key: str|None, payment_key_bytes: bytes|None,
             updated_flags: NetworkServerFlag, updated_flags_mask: NetworkServerFlag) -> None:
         await self._db_context.run_in_thread_async(
             db_functions.update_network_server_credentials_write, server_id, encrypted_api_key,
@@ -2119,7 +2118,7 @@ class WalletDataAccess:
         return peer_channel_row, read_only_access_token
 
     async def create_server_peer_channel_async(self, row: ServerPeerChannelRow,
-            tip_filter_server_id: Optional[int]=None) -> int:
+            tip_filter_server_id: int|None=None) -> int:
         return await self._db_context.run_in_thread_async(
             db_functions.create_server_peer_channel_write, row, tip_filter_server_id)
 
@@ -2139,15 +2138,15 @@ class WalletDataAccess:
             peer_channel_id, most_recent_only)
 
     def read_server_peer_channel_access_tokens(self, peer_channel_id: int,
-            mask: Optional[PeerChannelAccessTokenFlag]=None,
-            flags: Optional[PeerChannelAccessTokenFlag]=None) \
+            mask: PeerChannelAccessTokenFlag|None=None,
+            flags: PeerChannelAccessTokenFlag|None=None) \
                 -> list[PeerChannelAccessTokenRow]:
         return db_functions.read_server_peer_channel_access_tokens(self._db_context,
             peer_channel_id, mask, flags)
 
     def read_external_peer_channel_access_tokens(self, peer_channel_id: int,
-            mask: Optional[PeerChannelAccessTokenFlag]=None,
-            flags: Optional[PeerChannelAccessTokenFlag]=None) \
+            mask: PeerChannelAccessTokenFlag|None=None,
+            flags: PeerChannelAccessTokenFlag|None=None) \
                 -> list[PeerChannelAccessTokenRow]:
         return db_functions.read_external_peer_channel_access_tokens(self._db_context,
             peer_channel_id, mask, flags)
@@ -2160,8 +2159,8 @@ class WalletDataAccess:
             db_functions.update_server_peer_channel_write, remote_channel_id, remote_url,
                 peer_channel_flags, peer_channel_id, addable_access_tokens)
 
-    async def update_external_peer_channel_async(self, remote_channel_id: Optional[str],
-            remote_url: Optional[str], peer_channel_flags: ServerPeerChannelFlag,
+    async def update_external_peer_channel_async(self, remote_channel_id: str|None,
+            remote_url: str|None, peer_channel_flags: ServerPeerChannelFlag,
             peer_channel_id: int, addable_access_tokens: list[
                 PeerChannelAccessTokenRow]) -> ExternalPeerChannelRow:
         return await self._db_context.run_in_thread_async(
@@ -2179,19 +2178,19 @@ class WalletDataAccess:
             db_functions.create_external_peer_channel_messages_write, rows)
 
     async def read_server_peer_channel_messages_async(self, server_id: int,
-            message_flags: Optional[PeerChannelMessageFlag]=None,
-            message_mask: Optional[PeerChannelMessageFlag]=None,
-            channel_flags: Optional[ServerPeerChannelFlag]=None,
-            channel_mask: Optional[ServerPeerChannelFlag]=None) \
+            message_flags: PeerChannelMessageFlag|None=None,
+            message_mask: PeerChannelMessageFlag|None=None,
+            channel_flags: ServerPeerChannelFlag|None=None,
+            channel_mask: ServerPeerChannelFlag|None=None) \
                 -> list[PeerChannelMessageRow]:
         return db_functions.read_server_peer_channel_messages(self._db_context, server_id,
             message_flags, message_mask, channel_flags, channel_mask)
 
     async def read_external_peer_channel_messages_async(self,
-            message_flags: Optional[PeerChannelMessageFlag]=None,
-            message_mask: Optional[PeerChannelMessageFlag]=None,
-            channel_flags: Optional[ServerPeerChannelFlag]=None,
-            channel_mask: Optional[ServerPeerChannelFlag]=None) \
+            message_flags: PeerChannelMessageFlag|None=None,
+            message_mask: PeerChannelMessageFlag|None=None,
+            channel_flags: ServerPeerChannelFlag|None=None,
+            channel_mask: ServerPeerChannelFlag|None=None) \
                 -> list[PeerChannelMessageRow]:
         return db_functions.read_external_peer_channel_messages(self._db_context, message_flags,
             message_mask, channel_flags, channel_mask)
@@ -2295,7 +2294,7 @@ class WalletDataAccess:
         return db_functions.read_unconnected_merkle_proofs(self._db_context)
 
     def read_transaction_value_entries(self, account_id: int, *,
-            tx_hashes: Optional[list[bytes]]=None, mask: Optional[TxFlags]=None) \
+            tx_hashes: list[bytes]|None=None, mask: TxFlags|None=None) \
                 -> list[TransactionValueRow]:
         return db_functions.read_transaction_value_entries(self._db_context, account_id,
             tx_hashes=tx_hashes, mask=mask)
@@ -2337,15 +2336,15 @@ class WalletDataAccess:
 
     def read_account_transaction_outputs_with_key_data(self, account_id: int,
             confirmed_only: bool=False, exclude_immature: bool=False,
-            exclude_frozen: bool=False, keyinstance_ids: Optional[list[int]]=None) \
+            exclude_frozen: bool=False, keyinstance_ids: list[int]|None=None) \
                 -> list[AccountTransactionOutputSpendableRow]:
         return db_functions.read_account_transaction_outputs_with_key_data(
             self._db_context, account_id, confirmed_only, exclude_immature,
             exclude_frozen, keyinstance_ids)
 
     def read_account_transaction_outputs_with_key_and_tx_data(self, account_id: int,
-            confirmed_only: bool=False, mature_height: Optional[int]=None,
-            exclude_frozen: bool=False, keyinstance_ids: Optional[list[int]]=None) \
+            confirmed_only: bool=False, mature_height: int|None=None,
+            exclude_frozen: bool=False, keyinstance_ids: list[int]|None=None) \
                 -> list[AccountTransactionOutputSpendableRowExtended]:
         return db_functions.read_account_transaction_outputs_with_key_and_tx_data(
             self._db_context, account_id, confirmed_only, mature_height,
@@ -2370,7 +2369,7 @@ class WalletDataAccess:
         return db_functions.read_transaction_outputs_explicit(self._db_context, l)
 
     def update_transaction_output_flags(self, txo_keys: list[Outpoint],
-            flags: TransactionOutputFlag, mask: Optional[TransactionOutputFlag]=None) \
+            flags: TransactionOutputFlag, mask: TransactionOutputFlag|None=None) \
                 -> concurrent.futures.Future[bool]:
         return db_functions.update_transaction_output_flags(self._db_context,
             txo_keys, flags, mask)
@@ -2389,7 +2388,7 @@ class WalletDataAccess:
         future.add_done_callback(callback)
         return future
 
-    def read_wallet_events(self, account_id: Optional[int]=None,
+    def read_wallet_events(self, account_id: int|None=None,
             mask: WalletEventFlag=WalletEventFlag.NONE) -> list[WalletEventRow]:
         return db_functions.read_wallet_events(self._db_context, account_id=account_id,
             mask=mask)
@@ -2412,17 +2411,17 @@ class Wallet:
     This represents a loaded wallet and manages both data and network access for it.
     """
 
-    _network: Optional[Network] = None
+    _network: Network|None = None
     _stopped = False
     _stopping = False
 
-    _persisted_tip_hash: Optional[bytes] = None
-    _current_chain: Optional[Chain] = None
-    _current_tip_header: Optional[Header] = None
-    _blockchain_server_state: Optional[HeaderServerState] = None
+    _persisted_tip_hash: bytes|None = None
+    _current_chain: Chain|None = None
+    _current_tip_header: Header|None = None
+    _blockchain_server_state: HeaderServerState|None = None
     _blockchain_server_state_ready: bool = False
 
-    def __init__(self, storage: WalletStorage, password: Optional[str]=None) -> None:
+    def __init__(self, storage: WalletStorage, password: str|None=None) -> None:
         self._id = random.randint(0, (1<<32)-1)
 
         self._storage = storage
@@ -2445,7 +2444,7 @@ class Wallet:
 
         self._accounts: dict[int, AbstractAccount] = {}
         self._keystores: dict[int, KeyStore] = {}
-        self._wallet_master_keystore: Optional[BIP32_KeyStore] = None
+        self._wallet_master_keystore: BIP32_KeyStore|None = None
 
         self._missing_transactions: dict[bytes, MissingTransactionEntry] = {}
 
@@ -2468,7 +2467,7 @@ class Wallet:
         self._worker_startup_reorg_check: concurrent.futures.Future[None] | None = None
         self._worker_task_initialise_headers: concurrent.futures.Future[None] | None = None
         self._worker_task_manage_server_connections: concurrent.futures.Future[None] | None = None
-        self._worker_task_manage_dpp_connections: Optional[concurrent.futures.Future[None]] = None
+        self._worker_task_manage_dpp_connections: concurrent.futures.Future[None]|None = None
         self._worker_tasks_maintain_server_connection: dict[int, list[ServerConnectionState]] = {}
         self._worker_tasks_external_peer_channel_connections = \
             dict[int, list[PeerChannelServerState]]()
@@ -2716,7 +2715,7 @@ class Wallet:
         future.add_done_callback(update_cached_values)
         return future, completion_event
 
-    def get_account(self, account_id: int) -> Optional[AbstractAccount]:
+    def get_account(self, account_id: int) -> AbstractAccount|None:
         return self._accounts.get(account_id)
 
     def get_accounts_for_keystore(self, keystore: KeyStore) -> list[AbstractAccount]:
@@ -2761,7 +2760,7 @@ class Wallet:
 
     def _realize_keystore(self, row: MasterKeyRow) -> KeyStore:
         data = cast(MasterKeyDataTypes, json.loads(row.derivation_data))
-        parent_keystore: Optional[KeyStore] = None
+        parent_keystore: KeyStore|None = None
         if row.parent_masterkey_id is not None:
             parent_keystore = self._keystores[row.parent_masterkey_id]
         keystore = instantiate_keystore(row.derivation_type, data, parent_keystore, row)
@@ -2774,7 +2773,7 @@ class Wallet:
         """
         Create the correct account type instance and register it for the given account id.
         """
-        account: Optional[AbstractAccount] = None
+        account: AbstractAccount|None = None
         if account_row.default_masterkey_id is None:
             if flags & AccountInstantiationFlags.IMPORTED_ADDRESSES:
                 account = ImportedAddressAccount(self, account_row)
@@ -2850,7 +2849,7 @@ class Wallet:
     # Called by `account_wizard.py:AddAccountWizardPage._create_new_account` to create new
     # standard accounts which are now derived from the wallet seed.
     def derive_child_keystore(self, for_account: bool=False,
-            password: Optional[str]=None) -> KeyStoreResult:
+            password: str|None=None) -> KeyStoreResult:
         if for_account:
             assert password is not None, "this code path should always have a password"
             assert self._wallet_master_keystore is not None
@@ -2904,7 +2903,7 @@ class Wallet:
             entries: set[str], password: str) -> AbstractAccount:
         raw_keyinstance_rows: list[KeyInstanceRow] = []
 
-        account_name: Optional[str] = None
+        account_name: str|None = None
         account_flags: AccountInstantiationFlags
         if text_type == KeystoreTextType.ADDRESSES:
             account_name = "Imported addresses"
@@ -3020,13 +3019,13 @@ class Wallet:
         return await request_transaction_data_async(state, tx_hash)
 
     def get_credential_id_for_server_key(self, key: ServerAccountKey) \
-            -> Optional[IndefiniteCredentialId]:
+            -> IndefiniteCredentialId|None:
         return self._registered_api_keys.get(key)
 
     def update_network_servers(self, added_server_rows: list[NetworkServerRow],
             updated_server_rows: list[NetworkServerRow],
             deleted_server_keys: list[ServerAccountKey], updated_api_keys: dict[ServerAccountKey,
-                tuple[Optional[str], Optional[tuple[str, str]]]]) \
+                tuple[str|None, tuple[str, str]|None]]) \
                     -> concurrent.futures.Future[list[NetworkServerRow]]:
         """
         Update the database, wallet and network for the given set of network server changes.
@@ -3043,7 +3042,7 @@ class Wallet:
             # Raise any exception if it errored or get the result if completed successfully.
             created_rows = future.result()
 
-            credential_id: Optional[IndefiniteCredentialId] = None
+            credential_id: IndefiniteCredentialId|None = None
             # Need to delete, add and update cached credentials. This should happen regardless of
             # whether the network is activated.
             for server_key, (encrypted_api_key, new_key_state) in updated_api_keys.items():
@@ -3062,7 +3061,7 @@ class Wallet:
                     self._registered_api_keys[server_key] = \
                         app_state.credentials.add_indefinite_credential(unencrypted_value)
 
-            updated_states: list[tuple[NetworkServerRow, Optional[IndefiniteCredentialId]]] = []
+            updated_states: list[tuple[NetworkServerRow, IndefiniteCredentialId|None]] = []
 
             for server_row in created_rows:
                 assert server_row.server_id is not None
@@ -3162,7 +3161,7 @@ class Wallet:
         self.populate_transaction_context_key_data_from_search(tx, tx_context)
 
     @staticmethod
-    def sanity_check_derivation_key_data(data1: Optional[DatabaseKeyDerivationData],
+    def sanity_check_derivation_key_data(data1: DatabaseKeyDerivationData|None,
             data2: DatabaseKeyDerivationData) -> None:
         if data1 is not None:
             if data1.derivation_path is not None:
@@ -3567,7 +3566,7 @@ class Wallet:
         return future
 
     def ensure_incomplete_transaction_keys_exist(self, tx: Transaction) \
-            -> tuple[Optional[concurrent.futures.Future[None]], list[KeyInstanceRow]]:
+            -> tuple[concurrent.futures.Future[None]|None, list[KeyInstanceRow]]:
         """
         Ensure that the keys the incomplete transaction uses exist.
 
@@ -3581,7 +3580,7 @@ class Wallet:
 
         self._logger.debug("ensure_incomplete_transaction_keys_exist")
 
-        last_future: Optional[concurrent.futures.Future[None]] = None
+        last_future: concurrent.futures.Future[None]|None = None
         keyinstance_rows: list[KeyInstanceRow] = []
         # Make sure we have created the keys that the transaction inputs use.
         for txin in tx.inputs:
@@ -3610,7 +3609,7 @@ class Wallet:
         return last_future, keyinstance_rows
 
     def find_account_for_extended_public_key(self, extended_public_key: XPublicKey) \
-            -> Optional[AbstractAccount]:
+            -> AbstractAccount|None:
         """
         Find the account that can sign transactions that spend coins secured by the given
         extended public key.
@@ -3621,7 +3620,7 @@ class Wallet:
                     return account
         return None
 
-    def set_transaction_labels(self, entries: list[tuple[Optional[str], int, bytes]]) \
+    def set_transaction_labels(self, entries: list[tuple[str|None, int, bytes]]) \
             -> concurrent.futures.Future[None]:
         def callback(future: concurrent.futures.Future[None]) -> None:
             # Skip if the operation was cancelled.
@@ -3894,7 +3893,7 @@ class Wallet:
     def get_servers(self) -> list[NewServer]:
         return list(self._servers.values())
 
-    def get_server(self, server_key: ServerAccountKey) -> Optional[NewServer]:
+    def get_server(self, server_key: ServerAccountKey) -> NewServer|None:
         assert server_key.account_id is None
         return self._servers.get(server_key)
 
@@ -4020,7 +4019,7 @@ class Wallet:
                 # the wallet user has managed to delete it, we are adding it back in. However,
                 # that is not in the scope of preventing in the original design and we likely do
                 # not allow users to delete servers yet.
-                encrypted_api_key: Optional[str] = None
+                encrypted_api_key: str|None = None
                 credential_id = None
                 row = NetworkServerRow(None, server_key.server_type, server_key.url, None,
                     server_flags, hardcoded_api_key_template, encrypted_api_key, None, None, None,
@@ -5034,7 +5033,7 @@ class Wallet:
                     continue
 
                 date_created = int(time.time())
-                block_hash: Optional[bytes] = None
+                block_hash: bytes|None = None
                 if pushdata_matches["blockId"] is not None:
                     block_hash = hex_str_to_hash(pushdata_matches["blockId"])
                 for tip_filter_match in pushdata_matches["matches"]:
@@ -5607,6 +5606,9 @@ class Wallet:
                 if state.mapi_callback_consumer_future is not None:
                     pending_futures.add(state.mapi_callback_consumer_future)
                 # These are manually cancelled and it should be safe to do so.
+                if state.stage_change_pipeline_future is not None:
+                    state.stage_change_pipeline_future.cancel()
+                    pending_futures.add(state.stage_change_pipeline_future)
                 if state.connection_future is not None:
                     state.connection_future.cancel()
                     pending_futures.add(state.connection_future)
@@ -5815,7 +5817,7 @@ class Wallet:
                 self._chain_worker_queue.task_done()
 
     async def _reconcile_wallet_with_header_source(self,
-            server_state: Optional[HeaderServerState], header_source_chain: Chain,
+            server_state: HeaderServerState|None, header_source_chain: Chain,
             header_source_tip_header: Header) -> None:
         """
         Before the wallet starts modifying blockchain related data, it needs to reconcile it's
@@ -5877,7 +5879,7 @@ class Wallet:
                         if transaction_chain is header_source_chain:
                             continue
 
-                        common_chain, common_height = cast(tuple[Optional[Chain], int],
+                        common_chain, common_height = cast(tuple[Chain|None, int],
                             transaction_chain.common_chain_and_height(header_source_chain))
                         if common_height == -1:
                             # TODO(1.4.0) Unreliable application, issue#906. Different blockchain.
@@ -5945,7 +5947,7 @@ class Wallet:
         self.local_chain_update_event.set()
         self.local_chain_update_event.clear()
 
-    def process_header_source_update(self, server_state: Optional[HeaderServerState],
+    def process_header_source_update(self, server_state: HeaderServerState|None,
             previous_chain: Chain, previous_tip_header: Header, current_chain: Chain,
             current_tip_header: Header, force: bool=False) -> bool:
         """
@@ -6001,7 +6003,7 @@ class Wallet:
             if current_chain is previous_chain:
                 is_reorg = False
             else:
-                _chain, fork_height = cast(tuple[Optional[Chain], int],
+                _chain, fork_height = cast(tuple[Chain|None, int],
                     previous_chain.common_chain_and_height(current_chain))
                 if fork_height == -1:
                     # TODO(1.4.0) Unreliable application, issue#906. On different blockchain.
@@ -6044,7 +6046,7 @@ class Wallet:
             #     warn the user if relevant?
             return False
 
-    def _is_wallet_header_source(self, server_state: Optional[HeaderServerState]) -> bool:
+    def _is_wallet_header_source(self, server_state: HeaderServerState|None) -> bool:
         if self._blockchain_server_state is not None:
             # Header source: The explicitly or implicitly user selected blockchain server.
             # We have to follow them as a header source because they will be providing results
@@ -6500,7 +6502,7 @@ class Wallet:
     def get_current_chain(self) -> Chain | None:
         return self._current_chain
 
-    def get_header_source_state(self, server_state: Optional[HeaderServerState]) \
+    def get_header_source_state(self, server_state: HeaderServerState|None) \
             -> tuple[Chain, Header]:
         if server_state is None:
             chain = get_longest_valid_chain()
@@ -6546,7 +6548,7 @@ class Wallet:
             return False
         return cast(bytes, double_sha256(header_bytes)) == block_hash
 
-    def lookup_header_for_height(self, block_height: int) -> Optional[Header]:
+    def lookup_header_for_height(self, block_height: int) -> Header|None:
         """
         """
         if self._current_chain is None:
@@ -6557,7 +6559,7 @@ class Wallet:
             return None
 
     def lookup_header_for_hash(self, block_hash: bytes, force_chain: Chain | None=None) \
-            -> Optional[tuple[Header, Chain]]:
+            -> tuple[Header, Chain]|None:
         """
         Lookup the header based on the wallet's current chain state.
 
@@ -6589,7 +6591,7 @@ class Wallet:
 
         # Case: We are on a fork and the header lies on the longer chain we are attached to
         #       but at or below the common height (above that would be a different fork).
-        common_chain: Optional[Chain]
+        common_chain: Chain|None
         common_height: int
         common_chain, common_height = lookup_chain.common_chain_and_height(chain)
         # Case: We do not even share the Genesis block with the other chain. We could assert but
@@ -6603,6 +6605,16 @@ class Wallet:
 
         # The header is at the common height or below on the common chain.
         return header, common_chain
+
+    def status(self) -> WalletStatusDict:
+        servers_state: dict[str, list[str]] = {}
+        for usage_flag in SERVER_USES:
+            server_state = self.get_connection_state_for_usage(usage_flag)
+            if server_state is not None:
+                if server_state.server.url not in servers_state:
+                    servers_state[server_state.server.url] = []
+                servers_state[server_state.server.url].append(cast(str, usage_flag.name))
+        return { "servers": servers_state }
 
     def reference(self) -> Wallet:
         return self
