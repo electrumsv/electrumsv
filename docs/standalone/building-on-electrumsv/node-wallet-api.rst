@@ -178,7 +178,7 @@ as a testing aid.
 .. code-block:: console
     :caption: Linux / MacOS
 
-    electrumsv>py electrum-sv daemon --enable-node-wallet-api -rpcpassword= -walletnotify="python3 contrib/scripts/jsonrpc_wallet_event.py %s"
+    $ ./electrum-sv daemon --enable-node-wallet-api -rpcpassword= -walletnotify="python3 contrib/scripts/jsonrpc_wallet_event.py %s"
     2022-11-07 12:49:22,204:WARNING:daemon:No password set for JSON-RPC wallet API. No credentials required for access.
     2022-11-07 12:49:22,204:INFO:rest-server:REST API started on http://127.0.0.1:9999
     2022-11-07 12:49:22,204:INFO:nodeapi-server:JSON-RPC wallet API started on http://127.0.0.1:18332
@@ -214,7 +214,7 @@ data directory.
 .. code-block:: console
     :caption: Linux / MacOS
 
-    electrumsv>py electrum-sv create_jsonrpc_wallet -w my_new_wallet
+    $ ./electrum-sv create_jsonrpc_wallet -w my_new_wallet
     Password:
     Confirm:
     Wallet saved in '/home/R/.electrum-sv/wallets/my_new_wallet.sqlite'
