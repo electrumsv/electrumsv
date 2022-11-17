@@ -296,7 +296,7 @@ A successful signup will result in the following output:
 .. code-block:: console
     :caption: Linux / MacOS
 
-    $ ./electrum-sv --regtest -D INSTANCE1 daemon service_signup -w my_new_wallet
+    $ ./electrum-sv daemon service_signup -w my_new_wallet
     Password:
     Registering..
     For services:
@@ -309,7 +309,7 @@ A successful signup will result in the following output:
 .. code-block:: doscon
     :caption: Windows
 
-    electrumsv>py electrum-sv --regtest -D INSTANCE1 daemon service_signup -w my_new_wallet
+    electrumsv>py electrum-sv daemon service_signup -w my_new_wallet
     Password:
     Registering..
     For services:
@@ -324,22 +324,64 @@ If the wallet is already signed up with for the services, the output will indica
 .. code-block:: console
     :caption: Linux / MacOS
 
-    $ ./electrum-sv --regtest -D INSTANCE1 daemon service_signup -w my_new_wallet
+    $ ./electrum-sv daemon service_signup -w my_new_wallet
     Password:
     All services appear to be signed up for.
 
 .. code-block:: doscon
     :caption: Windows
 
-    electrumsv>py electrum-sv --regtest -D INSTANCE1 daemon service_signup -w my_new_wallet
+    electrumsv>py electrum-sv daemon service_signup -w my_new_wallet
     Password:
     All services appear to be signed up for.
 
-It is also possible to use the ``status`` daemon subcommand to see what servers you are signed
-up with and for what services:
+It is also possible to use the ``status`` daemon subcommand to verify what servers you are connected
+to and which services they are handling. This can be seen in the ``wallets`` section under the
+``servers`` key:
 
+.. code-block:: console
+    :caption: Linux / MacOS
 
+    $ ./electrum-sv daemon status
+    {
+        "blockchain_height": 116,
+        "fee_per_kb": 500,
+        "network": "online",
+        "path": "/home/bob/.electrum-sv",
+        "version": "1.4.0",
+        "wallets": {
+            "/home/bob/.electrum-sv/wallets/1.sqlite": {
+                "servers": {
+                    "http://127.0.0.1:47124/": [
+                        "USE_BLOCKCHAIN",
+                        "USE_MESSAGE_BOX"
+                    ]
+                }
+            }
+        }
+    }
 
+.. code-block:: doscon
+    :caption: Windows
+
+    electrumsv>py -3.10 electrum-sv daemon status
+    {
+        "blockchain_height": 116,
+        "fee_per_kb": 500,
+        "network": "online",
+        "path": "c:\\Users\\R\\AppData\\Roaming\\ElectrumSV",
+        "version": "1.4.0",
+        "wallets": {
+            "c:\\Users\\R\\AppData\\Roaming\\ElectrumSV\\wallets\\1.sqlite": {
+                "servers": {
+                    "http://127.0.0.1:47124/": [
+                        "USE_BLOCKCHAIN",
+                        "USE_MESSAGE_BOX"
+                    ]
+                }
+            }
+        }
+    }
 
 API usage
 ---------
@@ -552,8 +594,15 @@ call processing are described above.
 
     - :Code: -4 ``RPC_WALLET_ERROR``
       :Message: | ``No connected blockchain server``
-                | No address can be provided until the blockchain server is connected and can be
-                  engaged to monitor the address that will be allocated.
+                | No address can be provided until the wallet has signed up with a server and
+                  it is currently connected to that server.
+
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``Blockchain server address monitoring request not successful``
+                | It was not possible to get a successful acknowledgement from the blockchain
+                  server that it would monitor the address. It might be that the server has lost
+                  connection or it might be that some unexpected error occurred provisioning the
+                  monitoring of the address from the server. See the logs.
 
     - :Code: -4 ``RPC_WALLET_ERROR``
       :Message: | ``Ambiguous account (found <count>, expected 1)``
