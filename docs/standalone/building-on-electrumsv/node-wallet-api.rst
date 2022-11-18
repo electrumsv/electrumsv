@@ -321,7 +321,7 @@ A successful signup will result in the following output:
         http://127.0.0.1:47124/
     Done.
 
-If the wallet is already signed up with for the services, the output will indicate this:
+If the wallet is already signed up for the services, the output will indicate this:
 
 .. code-block:: console
     :caption: Linux / MacOS
