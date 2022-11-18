@@ -219,7 +219,7 @@ data directory.
     $ ./electrum-sv create_jsonrpc_wallet -w my_new_wallet
     Password:
     Confirm:
-    Wallet saved in '/home/R/.electrum-sv/wallets/my_new_wallet.sqlite'
+    Wallet saved in '/home/bob/.electrum-sv/wallets/my_new_wallet.sqlite'
     NOTE: This wallet is ready for use with the node wallet API.
 
 .. code-block:: doscon
@@ -228,7 +228,7 @@ data directory.
     electrumsv>py electrum-sv create_jsonrpc_wallet my_new_wallet
     Password:
     Confirm:
-    Wallet saved in 'C:\Users\R\AppData\Roaming\ElectrumSV\regtest\wallets\my_new_wallet.sqlite'
+    Wallet saved in 'C:\Users\bob\AppData\Roaming\ElectrumSV\regtest\wallets\my_new_wallet.sqlite'
     NOTE: This wallet is ready for use with the node wallet API.
 
 .. warning::
@@ -352,7 +352,7 @@ to and which services they are handling. This can be seen in the ``wallets`` sec
         "path": "/home/bob/.electrum-sv",
         "version": "1.4.0",
         "wallets": {
-            "/home/bob/.electrum-sv/wallets/1.sqlite": {
+            "/home/bob/.electrum-sv/wallets/my_new_wallet.sqlite": {
                 "servers": {
                     "http://127.0.0.1:47124/": [
                         "USE_BLOCKCHAIN",
@@ -371,10 +371,10 @@ to and which services they are handling. This can be seen in the ``wallets`` sec
         "blockchain_height": 116,
         "fee_per_kb": 500,
         "network": "online",
-        "path": "c:\\Users\\R\\AppData\\Roaming\\ElectrumSV",
+        "path": "c:\\Users\\bob\\AppData\\Roaming\\ElectrumSV",
         "version": "1.4.0",
         "wallets": {
-            "c:\\Users\\R\\AppData\\Roaming\\ElectrumSV\\wallets\\1.sqlite": {
+            "c:\\Users\\bob\\AppData\\Roaming\\ElectrumSV\\wallets\\my_new_wallet.sqlite": {
                 "servers": {
                     "http://127.0.0.1:47124/": [
                         "USE_BLOCKCHAIN",
