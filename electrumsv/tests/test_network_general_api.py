@@ -1,15 +1,14 @@
+from aiohttp import web
+from aiohttp import ClientSession
+from aiohttp.web_ws import WebSocketResponse
 import base64
+import bitcoinx
+from bitcoinx import double_sha256, hash_to_hex_str
 import json
 import logging
 from typing import Any, cast
 import unittest.mock
 import uuid
-
-from aiohttp import web
-from aiohttp import ClientSession
-from aiohttp.web_ws import WebSocketResponse
-import bitcoinx
-from bitcoinx import hash_to_hex_str, double_sha256
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import NetworkServerType, ServerCapability

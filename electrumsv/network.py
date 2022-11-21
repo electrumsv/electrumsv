@@ -39,9 +39,9 @@ from .exceptions import ServiceUnavailableError
 from .logs import logs
 from .network_support.api_server import APIServerDefinition
 from .network_support.types import TipResponse
-from .network_support.headers import get_batched_headers_by_height_async, get_chain_tips_async, \
-    HeaderServerState, ServerConnectivityMetadata, subscribe_to_headers_async, \
-    filter_tips_for_longest_chain
+from .network_support.headers import filter_tips_for_longest_chain, \
+    get_batched_headers_by_height_async, get_chain_tips_async, HeaderServerState, \
+    ServerConnectivityMetadata, subscribe_to_headers_async
 from .networks import Net
 from .types import NetworkStatusDict, ServerAccountKey
 from .util import TriggeredCallbacks
