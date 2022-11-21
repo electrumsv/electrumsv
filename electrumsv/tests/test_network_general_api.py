@@ -9,7 +9,7 @@ from aiohttp import web
 from aiohttp import ClientSession
 from aiohttp.web_ws import WebSocketResponse
 import bitcoinx
-from bitcoinx import hash_to_hex_str
+from bitcoinx import hash_to_hex_str, double_sha256
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import NetworkServerType, ServerCapability
@@ -18,7 +18,8 @@ from electrumsv.network_support.types import ChannelNotification, ServerConnecti
     ServerWebsocketNotification, TokenPermissions
 from electrumsv.network_support.general_api import unpack_binary_restoration_entry
 from electrumsv.network_support.headers import get_batched_headers_by_height_async, \
-    get_chain_tips_async, get_single_header_async, HeaderServerState, subscribe_to_headers_async
+    get_chain_tips_async, get_single_header_async, HeaderServerState, subscribe_to_headers_async, \
+    filter_tips_for_longest_chain
 from electrumsv.network_support.peer_channel import create_peer_channel_async, \
     create_peer_channel_api_token_async, create_peer_channel_message_json_async, \
     delete_peer_channel_async, get_peer_channel_max_sequence_number_async, \
@@ -175,7 +176,7 @@ async def mock_get_chain_tips(request: web.Request):
     try:
         accept_type = request.headers.get('Accept')
         assert accept_type == 'application/octet-stream'
-        headers_array = GENESIS_HEADER + bitcoinx.int_to_le_bytes(0)
+        headers_array = GENESIS_HEADER + bitcoinx.pack_le_int32(0)
         return web.Response(body=headers_array, content_type='application/octet-stream')
     except AssertionError as e:
         raise web.HTTPBadRequest(reason=str(e))
@@ -389,12 +390,17 @@ async def test_get_batched_headers_by_height(mock_app_state: AppStateProxy, aioh
 @unittest.mock.patch('electrumsv.network_support.general_api.app_state')
 async def test_get_chain_tips(mock_app_state: AppStateProxy, aiohttp_client):
     mock_app_state.credentials.get_indefinite_credential = lambda *args: REGTEST_BEARER_TOKEN
-    expected_response = GENESIS_HEADER + bitcoinx.int_to_le_bytes(0)
+    bitcoinx.unpack_header(GENESIS_HEADER)
+
+    expected_response = bitcoinx.Header(*bitcoinx.unpack_header(GENESIS_HEADER),
+        hash=double_sha256(GENESIS_HEADER), raw=GENESIS_HEADER, height=0)
     test_session = await aiohttp_client(create_app())
     state = HeaderServerState(ServerAccountKey(BASE_URL, NetworkServerType.GENERAL, None), None)
-    header = await get_chain_tips_async(state, test_session)
-    assert header.height == 0
-    assert header.raw == GENESIS_HEADER
+    tip_headers = await get_chain_tips_async(state, test_session)
+    tip_header = filter_tips_for_longest_chain(tip_headers)
+    assert tip_header == expected_response
+    assert tip_header.height == 0
+    assert tip_header.raw == GENESIS_HEADER
 
 
 @unittest.mock.patch('electrumsv.network_support.general_api.app_state')

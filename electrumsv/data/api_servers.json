@@ -1,4 +1,22 @@
 [
+  {
+        "id": 20000,
+        "url": "https://x.bitcoinsv.io/",
+        "type": "GENERAL",
+        "capabilities": [
+            "HEADERS",
+            "PEER_CHANNELS",
+            "RESTORATION",
+            "MERKLE_PROOF_REQUEST",
+            "TRANSACTION_REQUEST",
+            "OUTPUT_SPENDS",
+            "TIP_FILTER"
+        ],
+        "api_key_required": true,
+        "last_try": 0.0,
+        "last_good": 0.0,
+        "static_data_date": "2022-11-19T04:45:05+0000"
+    },
     {
         "id": 20001,
         "type": "MERCHANT_API",
@@ -12,5 +30,12 @@
         "url": "https://mapi.gorillapool.io/mapi/",
         "api_key_required": false,
         "static_data_date": "2022-06-30T23:45:00+0000"
+    },
+    {
+        "id": 30001,
+        "type": "DPP_PROXY",
+        "url": "https://x.bitcoinsv.io/dpp-proxy/",
+        "api_key_required": false,
+        "static_data_date": "2021-07-6T04:45:05+0000"
     }
 ]
