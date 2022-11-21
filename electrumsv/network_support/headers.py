@@ -2,6 +2,7 @@ import asyncio
 import concurrent.futures
 import dataclasses
 import http
+from io import BytesIO
 from typing import AsyncIterable, cast, Optional
 
 import aiohttp
@@ -67,7 +68,7 @@ async def get_batched_headers_by_height_async(server_state: HeaderServerState,
 
 
 async def get_chain_tips_async(server_state: HeaderServerState, session: aiohttp.ClientSession) \
-        -> Header:
+        -> list[Header]:
     url = f"{server_state.server_key.url}api/v1/headers/tips"
     headers = {
         "Accept": "application/octet-stream"
@@ -87,13 +88,28 @@ async def get_chain_tips_async(server_state: HeaderServerState, session: aiohttp
                 logger.error(error_message)
                 raise HeaderResponseError(error_message)
 
-            data: bytes = await response.content.read()
-            raw_header = data[0:80]
-            height = bitcoinx.le_bytes_to_int(data[80:84])
-            # TODO(technical-debt) Look into why this is not `Net.COIN`?
-            return Net._net.COIN.deserialized_header(raw_header, height)
+            headers_array: bytes = await response.content.read()
+            assert len(headers_array) % 84 == 0  # 80 byte header + 4 byte int32 height
+            count_headers = len(headers_array) // 84
+            stream = BytesIO(headers_array)
+
+            block_headers: list[Header] = []
+            for i in range(count_headers):
+                raw_header = stream.read(80)
+                height = bitcoinx.le_bytes_to_int(stream.read(4))
+                # TODO(technical-debt) Look into why this is not `Net.COIN`?
+                block_headers.append(Net._net.COIN.deserialized_header(raw_header, height))
+            return block_headers
     except aiohttp.ClientConnectionError:
         raise ServiceUnavailableError(f"Cannot connect to header API at {url}")
+
+
+def filter_tips_for_longest_chain(tips: list[Header]) -> Header:
+    longest_chain_tip = tips[0]
+    for tip in tips:
+        if tip.height > longest_chain_tip.height:
+            longest_chain_tip = tip
+    return longest_chain_tip
 
 
 async def subscribe_to_headers_async(server_state: HeaderServerState,

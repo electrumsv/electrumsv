@@ -40,7 +40,8 @@ from .logs import logs
 from .network_support.api_server import APIServerDefinition
 from .network_support.types import TipResponse
 from .network_support.headers import get_batched_headers_by_height_async, get_chain_tips_async, \
-    HeaderServerState, ServerConnectivityMetadata, subscribe_to_headers_async
+    HeaderServerState, ServerConnectivityMetadata, subscribe_to_headers_async, \
+    filter_tips_for_longest_chain
 from .networks import Net
 from .types import NetworkStatusDict, ServerAccountKey
 from .util import TriggeredCallbacks
@@ -140,7 +141,8 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         Raises `ServiceUnavailableError` via _request_and_connect_headers_at_heights_async
         """
         assert app_state.headers is not None
-        tip_header = await get_chain_tips_async(server_state, self.aiohttp_session)
+        tip_headers = await get_chain_tips_async(server_state, self.aiohttp_session)
+        tip_header = filter_tips_for_longest_chain(tip_headers)
         server_state.tip_header = tip_header
         while True:
             try:
@@ -439,7 +441,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             header_array = await get_batched_headers_by_height_async(server_state,
                 self.aiohttp_session, min_height, count)
             stream = BytesIO(header_array)
-
             count_of_raw_headers = len(header_array) // 80
             for i in range(count_of_raw_headers):
                 raw_header = stream.read(80)
@@ -447,6 +448,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 # we are okay with this.
                 app_state.connect_header(raw_header)
 
+            logger.debug("Connected %s headers", count_of_raw_headers)
             app_state.headers_update_event.set()
             app_state.headers_update_event.clear()
 
