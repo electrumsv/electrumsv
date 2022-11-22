@@ -166,6 +166,9 @@ async def post_restoration_filter_request_binary(state: ServerConnectionState,
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=request_data, headers=headers) as response:
+                if response.status == HTTPStatus.NOT_FOUND:
+                    return
+
                 if response.status != HTTPStatus.OK:
                     raise FilterResponseInvalidError(f"Bad response status code {response.status} "
                         f"reason: {response.reason}")
