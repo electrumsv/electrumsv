@@ -96,6 +96,23 @@ What if I do not want to upgrade to the latest version?
    /problem-solving/macos
    /problem-solving/upgrade-concerns
 
+Using ElectrumSV
+----------------
+
+Where are the wallet files stored?
+    When the wallet application is run it will store and look for related files like blockchain
+    headers, wallet settings and wallets in either a standard folder location on the user's
+    computer, or in a custom location they have explicitly specified.
+    Read more about
+    :doc:`data directories <using-electrumsv/data-directories>`.
+
+.. toctree::
+   :maxdepth: 2
+   :hidden:
+   :caption: Using ElectrumSV
+
+   /using-electrumsv/data-directories
+
 Building on ElectrumSV
 ----------------------
 

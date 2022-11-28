@@ -169,7 +169,14 @@ command-line argument in order to aid in a clean switch. The provided value shou
 command to execute and the `%s` placeholder will be replaced with the id of the transaction for
 which there has been a state change.
 
-``TODO:`` List the events in which notifications are dispatched.
+Supported events:
+
+* A transaction is added to the wallet.
+* An external transaction is added to the wallet.
+* The wallet broadcasts a transaction.
+* The wallet is notified that a transaction has been broadcast.
+* A transaction is associated with a block on the favoured tip (mined).
+* A transaction is disassociated with a block on the favoured tip (reorged).
 
 Here we specify the ``contrib/scripts/jsonrpc_wallet_event.py`` sample script provided with
 ElectrumSV for debugging. It logs all events to a `tx.log` file in the same directory as the script
@@ -206,12 +213,10 @@ do things like solicit payments for it.
 Wallet creation
 ###############
 
-**TODO** Document the data directory.
-
 In order to create a wallet that is compatible with the node wallet API, a special command
 ``create_jsonrpc_wallet`` has to be used. The file name to be used should be provided with the
-``-w`` option and the wallet will be created in the "wallets" folder in the ElectrumSV
-data directory.
+``-w`` option and the wallet will be created in the "wallets" folder in the
+:ref:`ElectrumSV data directory <data-directories>`.
 
 .. code-block:: console
     :caption: Linux / MacOS
@@ -617,6 +622,91 @@ call processing are described above.
                 | An error occurred attempting to register the address with the blockchain server
                   to be monitored for incoming payments. The error message provides some indication
                   of what happened, but the wallet logs will be needed to diagnose further.
+
+
+sendtoaddress
+~~~~~~~~~~~~~
+
+Construct and broadcast a payment transaction to the given address for the given amount.
+
+Broadcast of the transaction happens through a MAPI endpoint, and the fee is based on the
+quote returned by that selected endpoint.
+
+``TODO:`` Retry broadcast for failed broadcasts?
+
+**Parameters:**
+
+#. Address (string, required). The P2PKH address of the recipient.
+#. Amount (numeric or string, required). The amount in BSV to send (e.g. 0.1).
+#. Comment (string, optional). A note to be attached to the transaction in the wallet, for
+   reference purposes.
+#. Comment to (string, optional). The node wallet used this to allow the user to specify the name
+   of a person or organisation who is the recipient. If provided this will be appended to the
+   preceding comment parameter.
+#. Subtract fee from amount (bool, optional). This is not supported and if passed with a ``true``
+   value will give a ``RPC_INVALID_PARAMETER`` error.
+
+**Returns:**
+
+The transaction id of the broadcast transaction (string).
+
+**Incompatibilities:**
+
+#. We do not currently support the fifth parameter, which the node accepts as an indication the
+   caller wishes the fee to be subtracted from the payment amount.
+
+**Error responses:**
+
+These errors are the custom errors returned from within this call. Base errors that occur during
+call processing are described above.
+
+- 404 (Not found)
+
+    - :Code: -32601 ``RPC_METHOD_NOT_FOUND``
+      :Message: | ``Method not found (wallet method is disabled because no wallet is loaded)``
+                | The implicit wallet access failed because no wallets are loaded.
+
+- 500 (Internal server error)
+
+    - :Code: -3 ``RPC_TYPE_ERROR``
+      :Message: | ``Invalid amount for send``
+                | The specified amount is zero or less.
+
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``Ambiguous account (found <count>, expected 1)``
+                | A wallet used by the JSON-RPC API must only have one account so that the
+                  API code knows which to make use of. The given wallet has either no accounts
+                  or more than one account (the current number indicated by the `count`).
+
+    - :Code: -5 ``RPC_INVALID_ADDRESS_OR_KEY``
+      :Message: | ``Invalid address``
+                | The provided address parameter is not a valid P2PKH address.
+
+    - :Code: -6 ``RPC_WALLET_INSUFFICIENT_FUNDS``
+      :Message: | ``Insufficient funds``
+                | There is not enough money in the wallet available to meet the specified payment
+                  amount.
+
+    - :Code: -8 ``RPC_INVALID_PARAMETER``
+      :Message: | ``Subtract fee from amount not currently supported``
+                | This is an intentional incompatibility. The wallet application does not currently
+                  support deducting the fee from the payment amount.
+
+    - :Code: -13 ``RPC_WALLET_UNLOCK_NEEDED``
+      :Message: | ``Error: Please enter the wallet passphrase with walletpassphrase first.``
+                | In order to send funds from this wallet to the provided address, access to the
+                  signing keys is required. This is given by unlocking the wallet, if it is not
+                  already unlocked.
+
+    - :Code: -32602 ``RPC_INVALID_PARAMS``
+      :Message: | ``Invalid parameters, see documentation for this call``
+                | Either too few or too many parameters were provided.
+
+    - :Code: -32700 ``RPC_PARSE_ERROR``
+      :Message: | ``JSON value is not a string as expected``
+                | The type of the `comment` or `comment to` parameters are expected to be strings
+                  and one or more were interpreted as another type.
+
 
 walletpassphrase
 ~~~~~~~~~~~~~~~~

@@ -2303,15 +2303,39 @@ class WalletDataAccess:
             -> list[TransactionExistsRow]:
         return db_functions.read_transactions_exist(self._db_context, tx_hashes, account_id)
 
-    async def set_transaction_state_async(self, tx_hash: bytes, flag: TxFlags,
+    async def set_transaction_state_async(self, transaction_hash: bytes, flag: TxFlags,
             ignore_mask: TxFlags | None=None) -> bool:
-        return await self._db_context.run_in_thread_async(
-            db_functions.set_transaction_state_write, tx_hash, flag, ignore_mask)
+        """
+        Change the state of a transaction but only if it is in an expected state.
+
+        Returns `True` if the state was changed.
+        Returns `False` if the transaction does not exist or was not in an expected state.
+        """
+        succeeded = await self._db_context.run_in_thread_async(
+            db_functions.set_transaction_state_write, transaction_hash, flag, ignore_mask)
+        # @TransactionStateChange: This tag is used to mark all the locations that we trigger
+        # the transaction state change event. The locations were chosen because they are the lower
+        # level calls that were previously made in the higher level wallet code where we used to
+        # trigger it. In theory, we would benefit by batching the calls although in the other
+        # locations not `set_transaction_state_async`.
+        if succeeded:
+            self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, transaction_hash,
+                flag & TxFlags.MASK_STATE)
+            if app_state.daemon.nodeapi_server is not None:
+                app_state.daemon.nodeapi_server.event_transaction_change(transaction_hash)
+        return succeeded
 
     async def update_reorged_transactions_async(self, orphaned_block_hashes: list[bytes]) \
             -> list[bytes]:
-        return await self._db_context.run_in_thread_async(
+        transaction_hashes = await self._db_context.run_in_thread_async(
             db_functions.update_reorged_transactions_write, orphaned_block_hashes)
+        # @TransactionStateChange
+        for transaction_hash in transaction_hashes:
+            self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, transaction_hash,
+                TxFlags.STATE_CLEARED)
+            if app_state.daemon.nodeapi_server is not None:
+                app_state.daemon.nodeapi_server.event_transaction_change(transaction_hash)
+        return transaction_hashes
 
     async def update_transaction_flags_async(self, entries: list[tuple[TxFlags, TxFlags, bytes]]) \
             -> int:
@@ -2320,17 +2344,38 @@ class WalletDataAccess:
 
     async def update_transaction_proof_async(self, tx_update_rows: list[TransactionProofUpdateRow],
             proof_rows: list[MerkleProofRow], proof_update_rows: list[MerkleProofUpdateRow],
-            processed_message_ids: list[int], processed_message_ids_externally_owned: list[int]) \
-                -> None:
-        return await self._db_context.run_in_thread_async(
+            processed_message_ids: list[int], processed_message_ids_externally_owned: list[int],
+            event_relevant_flags: set[TxFlags]) -> None:
+        await self._db_context.run_in_thread_async(
             db_functions.update_transaction_proof_write, tx_update_rows, proof_rows,
                 proof_update_rows, processed_message_ids, processed_message_ids_externally_owned)
+        # @TransactionStateChange
+        for update_row in tx_update_rows:
+            state_flags = update_row.tx_flags & TxFlags.MASK_STATE
+            if state_flags not in event_relevant_flags:
+                continue
+            self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, update_row.tx_hash,
+                state_flags)
+            if app_state.daemon.nodeapi_server is not None:
+                app_state.daemon.nodeapi_server.event_transaction_change(update_row.tx_hash)
 
     async def update_transaction_proofs_and_flags(self,
             tx_update_rows: list[TransactionProofUpdateRow],
             flag_entries: list[tuple[TxFlags, TxFlags, bytes]]) -> None:
         await self._db_context.run_in_thread_async(
             db_functions.update_transaction_proof_and_flag_write, tx_update_rows, flag_entries)
+
+        # @TransactionStateChange
+        updated_entries: set[tuple[bytes, TxFlags]] = set()
+        for update_row in tx_update_rows:
+            updated_entries.add((update_row.tx_hash, update_row.tx_flags))
+        for _flag_mask_bits, flag_set_bits, transaction_hash in flag_entries:
+            updated_entries.add((transaction_hash, flag_set_bits))
+        for transaction_hash, transaction_flags in updated_entries:
+            self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, transaction_hash,
+                transaction_flags & TxFlags.MASK_STATE)
+            if app_state.daemon.nodeapi_server is not None:
+                app_state.daemon.nodeapi_server.event_transaction_change(transaction_hash)
 
     # Transaction outputs.
 
@@ -3515,9 +3560,8 @@ class Wallet:
         self.events.trigger_callback(WalletEvent.TRANSACTION_ADD, transaction_hash, transaction,
             link_state, import_flags)
 
-        #
         if app_state.daemon.nodeapi_server is not None:
-            app_state.daemon.nodeapi_server.event_transaction_added(transaction_hash)
+            app_state.daemon.nodeapi_server.event_transaction_change(transaction_hash)
 
         return link_state
 
@@ -3639,22 +3683,6 @@ class Wallet:
         future.add_done_callback(callback)
         return future
 
-    async def set_transaction_state_async(self, tx_hash: bytes, flags: TxFlags,
-            ignore_mask: TxFlags | None=None) -> bool:
-        """
-        Change the state of a transaction but only if it is in an expected state.
-
-        Returns `True` if the state was changed.
-        Returns `False` if the transaction does not exist or was not in an expected state.
-        """
-        if not await self.data.set_transaction_state_async(tx_hash, flags, ignore_mask):
-            return False
-
-        for account_id in self.data.read_account_ids_for_transaction(tx_hash):
-            self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, account_id, tx_hash,
-                flags)
-        return True
-
     async def broadcast_transaction_async(self, transaction: Transaction,
             transaction_context: TransactionContext | None) -> BroadcastResult:
         """
@@ -3683,7 +3711,7 @@ class Wallet:
             raise BroadcastError("P2P broadcast is not currently supported")
 
         if result.success:
-            await self.set_transaction_state_async(broadcast_hash, TxFlags.STATE_CLEARED,
+            await self.data.set_transaction_state_async(broadcast_hash, TxFlags.STATE_CLEARED,
                 TxFlags.MASK_STATE_BROADCAST)
 
         return result
@@ -4117,7 +4145,7 @@ class Wallet:
 
         payment_ack = await send_outgoing_direct_payment_async(
             invoice_row.payment_uri, transaction.to_hex())
-        await self.set_transaction_state_async(transaction_hash, TxFlags.STATE_DISPATCHED,
+        await self.data.set_transaction_state_async(transaction_hash, TxFlags.STATE_DISPATCHED,
             TxFlags.MASK_STATE_BROADCAST)
         assert payment_ack.peer_channel_info is not None
         remote_url = payment_ack.peer_channel_info['host']
@@ -4673,10 +4701,11 @@ class Wallet:
             # also creating it in the merkle proof table if it is not already there.
             if len(tx_update_rows) > 0 or len(proof_rows) > 0:
                 await self.data.update_transaction_proof_async(tx_update_rows, proof_rows, [],
-                    processed_message_ids, processed_message_ids_externally_owned)
+                    processed_message_ids, processed_message_ids_externally_owned,
+                    { TxFlags.STATE_SETTLED })
 
             # These are detached proofs, which we do not have a header or chain for. We register
-            # Them so that when the header comes in, they can be considered for use.
+            # them so that when the header comes in, they can be considered for use.
             for headerless_proof in headerless_proofs:
                 self._connect_headerless_proof_worker_state.proof_queue.put_nowait(headerless_proof)
             if headerless_proofs:
@@ -5239,10 +5268,6 @@ class Wallet:
             if len(tx_update_rows) > 0:
                 self._check_missing_proofs_event.set()
                 self.events.trigger_callback(WalletEvent.TRANSACTION_HEIGHTS_UPDATED, 1, 1)
-
-            for tx_hash, tx_flags in mempool_transactions.items():
-                self.events.trigger_callback(WalletEvent.TRANSACTION_STATE_CHANGE, -1,
-                    tx_hash, (tx_flags & TxFlags.MASK_STATE) | TxFlags.STATE_CLEARED)
 
     async def validate_payment_request_async(self, request_id: int,
             candidates: list[tuple[Transaction, TransactionContext | None]],
@@ -6297,7 +6322,7 @@ class Wallet:
                 row = rows[0]
                 tx_hash = row.tx_hash
                 self._logger.debug("Requesting merkle proof from server for transaction %s",
-                    hash_to_hex_str(row.tx_hash))
+                    hash_to_hex_str(tx_hash))
                 try:
                     tsc_full_proof_bytes = await request_binary_merkle_proof_async(state, tx_hash,
                         include_transaction=False)
@@ -6327,7 +6352,7 @@ class Wallet:
                     # We store the proof in a way where we know we obtained it recently, but
                     # that it is still in need of processing. The late header worker can
                     # read these in on startup and will get it via the queue at runtime.
-                    # date_updated = get_posix_timestamp()
+                    # date_updated = int(time.time())
                     proof_row = MerkleProofRow(tsc_proof.block_hash,
                         tsc_proof.transaction_index, -1, tsc_proof.to_bytes(), tx_hash)
                     await self.data.create_merkle_proofs_async([ proof_row  ])
@@ -6352,18 +6377,18 @@ class Wallet:
                 block_height = cast(int, header.height)
                 if self.is_header_within_current_chain(header.height, tsc_proof.block_hash):
                     self._logger.debug("OMP Storing verified merkle proof for transaction %s",
-                        hash_to_hex_str(row.tx_hash))
+                        hash_to_hex_str(tx_hash))
 
                     # This proof is valid for the wallet's view of the blockchain.
-                    date_updated = get_posix_timestamp()
+                    date_updated = int(time.time())
                     tx_update_row = TransactionProofUpdateRow(tsc_proof.block_hash, block_height,
                         tsc_proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
-                        row.tx_hash)
+                        tx_hash)
                     proof_row = MerkleProofRow(tsc_proof.block_hash,
                         tsc_proof.transaction_index, header.height, tsc_proof.to_bytes(),
-                        row.tx_hash)
+                        tx_hash)
                     await self.data.update_transaction_proof_async([ tx_update_row ],
-                        [ proof_row ], [], [], [])
+                        [ proof_row ], [], [], [], { TxFlags.STATE_SETTLED })
 
                     self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, tx_hash, header,
                         tsc_proof)
@@ -6491,9 +6516,10 @@ class Wallet:
             self._logger.debug("Updating %s headerless proofs after receipt of new block header(s)",
                 len(transaction_proof_updates))
             await self.data.update_transaction_proof_async(transaction_proof_updates, [],
-                proof_updates, [], [])
+                proof_updates, [], [], { TxFlags.STATE_CLEARED, TxFlags.STATE_SETTLED })
 
             for header, (proof, _proof_row) in verified_proof_entries:
+                assert proof.transaction_hash is not None
                 self.data.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED,
                     proof.transaction_hash, header, proof)
 

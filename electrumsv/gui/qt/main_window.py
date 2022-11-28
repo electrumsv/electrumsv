@@ -131,7 +131,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     keys_created_signal = pyqtSignal(object, object)
     notifications_created_signal = pyqtSignal(object)
     notifications_updated_signal = pyqtSignal(object)
-    transaction_state_signal = pyqtSignal(object, object, object)
+    transaction_state_signal = pyqtSignal(object, object)
     transaction_added_signal = pyqtSignal(object, object, object)
     transaction_deleted_signal = pyqtSignal(object, object)
     transaction_verified_signal = pyqtSignal(object, object, object)
@@ -2415,8 +2415,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.history_view.update_descriptions(update_entries)
         self.utxo_list.update_tx_labels(update_entries)
 
-    def _on_transaction_state_change(self, account_id: int, tx_hash: bytes,
-            new_state: TxFlags) -> None:
+    def _on_transaction_state_change(self, tx_hash: bytes, new_state: TxFlags) -> None:
         self.update_history_view()
 
     def update_history_view(self) -> None:

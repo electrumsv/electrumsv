@@ -16,7 +16,7 @@ get involved in the project.
 
 Blockchain headers
     ElectrumSV is a P2P wallet and is limited by the network access the user running it has.
-    While in the longer term we will obtan headers from the Bitcoin P2P network if possible,
+    While in the longer term we will obtain headers from the Bitcoin P2P network if possible,
     in the shorter term we need to focus on consistently reliable ways of obtaining headers.
     At this time headers are obtained via a standard REST API from remote servers. Read more about
     :doc:`how ElectrumSV obtains and uses headers <codebase-reference/blockchain-headers>`.

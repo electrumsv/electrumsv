@@ -61,7 +61,7 @@ from bitcoinx import Address, hash_to_hex_str, Script
 from .app_state import app_state
 from .bitcoin import script_template_to_string
 from .constants import CredentialPolicyFlag, NetworkServerFlag, PaymentFlag, TransactionImportFlag
-from .exceptions import InvalidPassword
+from .exceptions import InvalidPassword, NotEnoughFunds
 from .logs import logs
 from .networks import Net
 from .transaction import classify_transaction_output_script, XTxOutput
@@ -103,12 +103,14 @@ PARSE_ERROR       = -32700              # Internal server error (500) status cod
 TYPE_ERROR                      = -3    # Internal server error (500) status code.
 WALLET_ERROR                    = -4    # Internal server error (500) status code.
 INVALID_ADDRESS_OR_KEY          = -5    # Internal server error (500) status code.
+WALLET_INSUFFICIENT_FUNDS       = -6    # Internal server error (500) status code.
 INVALID_PARAMETER               = -8    # Internal server error (500) status code.
 WALLET_KEYPOOL_RAN_OUT          = -12   # Internal server error (500) status code.
 WALLET_UNLOCK_NEEDED            = -13   # Internal server error (500) status code.
 WALLET_PASSPHRASE_INCORRECT     = -14   # Internal server error (500) status code.
 WALLET_NOT_FOUND                = -18   # Internal server error (500) status code.
 WALLET_NOT_SPECIFIED            = -19   # Internal server error (500) status code.
+
 
 class NodeAPIServer:
     is_running = False
@@ -163,15 +165,24 @@ class NodeAPIServer:
         assert self._runner is not None
         await self._runner.cleanup()
 
-    def event_transaction_added(self, transaction_hash: bytes) -> None:
+    def event_transaction_change(self, transaction_hash: bytes) -> None:
         """
-        Called by `Wallet._import_transaction_async` as an explicit JSON-RPC API hook.
+        Called by various wallet code as an explicit JSON-RPC API hook.
+
+        - When a transaction is added.
+        - When a transaction is verified (mined or post-reorg).
 
         This is non-blocking and launches a thread to run the notification command in. The user
         can pass multiple commands to run for each notification, and while the node only allows
         one it doesn't really make any difference and it's more work to try and limit the
         command-line argument passing than just handle it.
         """
+
+        # nocheckin
+        transaction_id = hash_to_hex_str(transaction_hash)
+        import traceback
+        print(f"NODE API FOR {transaction_id}")
+        traceback.print_stack()
 
         if "walletnotify" not in app_state.config.cmdline_options:
             return
@@ -434,6 +445,15 @@ def get_string_parameter(request_id: RequestIdType, parameter_value: Any) -> str
                     message="JSON value is not a string as expected"))))
     return parameter_value
 
+def get_bool_parameter(request_id: RequestIdType, parameter_value: Any) -> bool:
+    if not isinstance(parameter_value, bool):
+        # The node maps the C++ exception on a non-string value to an RPC_PARSE_ERROR.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=PARSE_ERROR,
+                    message="JSON value is not a boolean as expected"))))
+    return parameter_value
+
 def get_amount_parameter(request_id: RequestIdType, parameter_value: Any) -> int:
     """
     Convert the parameter to satoshis if possible.
@@ -579,6 +599,7 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
                 error=ErrorDict(code=WALLET_ERROR,
                     message="No configured peer channel server"))))
 
+    # Compatibility: Raises RPC_INVALID_PARAMETER if we were given unlisted named parameters.
     parameter_values = transform_parameters(request_id, [ "address", "amount", "comment",
         "commentto", "subtractfeefromamount" ], parameters)
     if len(parameter_values) < 2 or len(parameter_values) > 5:
@@ -588,44 +609,74 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
                 error=ErrorDict(code=INVALID_PARAMS,
                     message="Invalid parameters, see documentation for this call"))))
 
+    # Compatibility: Raises RPC_PARSE_ERROR for non-string.
     address_text = get_string_parameter(request_id, parameter_values[0])
     try:
         address = Address.from_string(address_text, Net.COIN)
     except ValueError:
-        # The node maps the C++ exception on a non-integer value to an RPC_PARSE_ERROR.
+        # Compatibility: Raises RPC_INVALID_ADDRESS_OR_KEY if the address is invalid.
+        # rpcwallet.cpp:sendtoaddress (effective check)
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
             text=json.dumps(ResponseDict(id=request_id, result=None,
                 error=ErrorDict(code=INVALID_ADDRESS_OR_KEY,
                     message="Invalid address"))))
 
+    # Compatibility: Raises RPC_PARSE_ERROR for invalid type.
     amount_satoshis = get_amount_parameter(request_id, parameter_values[1])
     if amount_satoshis < 1:
-        # The node maps the C++ exception on a non-integer value to an RPC_PARSE_ERROR.
+        # Compatibility: Raises RPC_TYPE_ERROR for invalid amounts (zero or less).
+        # rpcwallet.cpp:sendtoaddress (effective check)
+        # rpcwallet.cpp:SendMoney (redundant check)
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
             text=json.dumps(ResponseDict(id=request_id, result=None,
                 error=ErrorDict(code=TYPE_ERROR, message="Invalid amount for send"))))
 
     comment_sections: list[str] = []
-    if len(parameter_values) >= 4 and isinstance(parameter_values[3], str):
-        comment_sections.append(parameter_values[3])
-    if len(parameter_values) >= 3 and isinstance(parameter_values[2], str):
-        comment_sections.append(parameter_values[2])
+    if len(parameter_values) >= 3:
+        # Compatibility: Raises RPC_PARSE_ERROR for invalid type.
+        text = get_string_parameter(request_id, parameter_values[2])
+        if len(text) > 0:
+            comment_sections.append(text)
+    if len(parameter_values) >= 4:
+        # Compatibility: Raises RPC_PARSE_ERROR for invalid type.
+        text = get_string_parameter(request_id, parameter_values[3])
+        if len(text) > 0:
+            comment_sections.append(f"(to: {text})")
 
     comment_text: str | None = None
     if len(comment_sections) > 0:
-        comment_text = ": ".join(comment_sections)
+        comment_text = " ".join(comment_sections)
+
+    subtract_fee_from_amount = False
+    if len(parameter_values) >= 5:
+        # Compatibility: Raises RPC_PARSE_ERROR for invalid type.
+        subtract_fee_from_amount = get_bool_parameter(request_id, parameter_values[4])
+        if subtract_fee_from_amount:
+            # Incompatibility: Raises RPC_INVALID_PARAMETER to indicate current lack of support.
+            raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=INVALID_PARAMETER, message="Subtract fee from amount not "
+                        "currently supported"))))
 
     coins = account.get_transaction_outputs_with_key_data()
     assert len(coins) > 1
     outputs = [ XTxOutput(-1, address.to_script()) ] # type: ignore[arg-type]
 
     # TODO MAPI fee estimator (ensure it is involved and no mapi estimates an error).
+    try:
+        transaction, transaction_context = account.make_unsigned_transaction(coins, outputs)
+    except NotEnoughFunds:
+        # rpcwallet.cpp:SendMoney
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_INSUFFICIENT_FUNDS, message="Insufficient funds"))))
 
-    transaction, transaction_context = account.make_unsigned_transaction(coins, outputs)
     if comment_text is not None:
         transaction_context.account_descriptions[account.get_id()] = comment_text
     future = account.sign_transaction(transaction, wallet_password, context=transaction_context,
         import_flags=TransactionImportFlag.UNSET)
+    # We are okay with an assertion here because we should be confident it is impossible for this
+    # to happen outside of approved circumstances.
     assert future is not None
     await asyncio.wrap_future(future)
 
@@ -636,8 +687,6 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
     broadcast_result = await wallet.broadcast_transaction_async(transaction, transaction_context)
     mapi_result = broadcast_result.mapi
     assert mapi_result is not None
-
-    # ...
 
     # At this point the transaction should be signed.
 

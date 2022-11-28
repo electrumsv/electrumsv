@@ -200,10 +200,6 @@ class MockWallet(Wallet):
     def get_id(self) -> int:
         return 32323232
 
-    async def set_transaction_state_async(self, tx_hash: bytes, flags: TxFlags,
-            ignore_mask: Optional[TxFlags]=None) -> bool:
-        return True
-
 
 class MockApp:
     def __init__(self):
