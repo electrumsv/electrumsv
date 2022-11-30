@@ -63,7 +63,7 @@ class RESTAPIApplication:
     async def async_on_triggered_event(self, *event_data: Any) -> None:
         event_name = event_data[0]
         if event_name == WalletEventNames.TRANSACTION_STATE_CHANGE:
-            _event_name, _acc_id, tx_hash, existing_flags, updated_flags = event_data
+            _event_name, tx_hash, existing_flags, updated_flags = event_data
             await self._tx_state_push_notification(tx_hash)
         elif event_name == WalletEventNames.TRANSACTION_ADDED:
             _event_name, tx_hash, _tx, _involved_account_ids, _external = event_data

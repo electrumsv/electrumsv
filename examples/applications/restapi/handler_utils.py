@@ -124,7 +124,10 @@ class ExtendedHandlerUtils:
         super().__init__()
         self.logger = logs.get_logger("ext-handler-utils")
         self.wallets_path = os.path.join(app_state.config.electrum_path(), "wallets")
-        self.all_wallets = self._get_all_wallets(self.wallets_path)
+        if os.path.exists(self.wallets_path):
+            self.all_wallets = self._get_all_wallets(self.wallets_path)
+        else:
+            self.all_wallets = []
         self.app_state = app_state  # easier to monkeypatch for testing
         self.prev_transaction = ''
         self.txb_executor = ThreadPoolExecutor(max_workers=self.MAX_WORKERS,
@@ -256,14 +259,17 @@ class ExtendedHandlerUtils:
             return wallet_path
         raise web.HTTPNotFound(reason=Errors.WALLET_NOT_FOUND_MESSAGE)
 
-    def _get_all_wallets(self, wallets_path: str) -> List[str]:
+    def _get_all_wallets(self, wallets_path: str) -> list[str]:
         """returns all parent wallet paths"""
+        # This is called on startup and the wallets directory may not exist if no wallets have
+        # been created yet, i.e. "electrum-sv create_wallet <wallet-name>" was not executed.
+        assert os.path.exists(wallets_path)
+
         all_parent_wallets = []
         for item in os.listdir(wallets_path):
             if item.endswith("-shm") or item.endswith("-wal"):
                 continue
-            else:
-                all_parent_wallets.append(item)
+            all_parent_wallets.append(item)
         return sorted(all_parent_wallets)
 
     def _get_parent_wallet(self, wallet_name: str) -> Wallet:
@@ -502,7 +508,7 @@ class ExtendedHandlerUtils:
 
     async def _broadcast_transaction(self, rawtx: str, tx_hash: bytes, account: AbstractAccount):
         result = await self.send_request('blockchain.transaction.broadcast', [rawtx])
-        await account._wallet.set_transaction_state_async(tx_hash, TxFlags.STATE_CLEARED,
+        await account._wallet.data.set_transaction_state_async(tx_hash, TxFlags.STATE_CLEARED,
             TxFlags.MASK_STATE_BROADCAST)
         self.logger.debug("successful broadcast for %s", result)
         return result
