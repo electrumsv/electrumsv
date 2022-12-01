@@ -678,6 +678,18 @@ call processing are described above.
                   API code knows which to make use of. The given wallet has either no accounts
                   or more than one account (the current number indicated by the `count`).
 
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``No suitable MAPI server for broadcast``
+                | The wallet tried to obtain fee quotes from MAPI servers and failed.
+                  As it chooses the fee for the payment you are askign it to make based on
+                  available MAPI server quotes, this means it cannot proceed.
+
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``<A succinct reason for why broadcast failed>``
+                | There may be a range of reasons for why the broadcast of the signed transaction
+                  failed. The 'succinct reason' detailed in the response should make it clear why,
+                  and if not give a pointer to a path to follow up.
+
     - :Code: -5 ``RPC_INVALID_ADDRESS_OR_KEY``
       :Message: | ``Invalid address``
                 | The provided address parameter is not a valid P2PKH address.

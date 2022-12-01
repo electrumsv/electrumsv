@@ -41,8 +41,8 @@ import os
 import random
 import threading
 import time
-from typing import Any, AsyncIterable, Callable, cast, Coroutine, Iterable, Literal, \
-    Sequence, TypedDict, TypeVar, TYPE_CHECKING
+from typing import Any, Callable, cast, Coroutine, Iterable, Literal, Sequence, TypedDict, \
+    TypeVar, TYPE_CHECKING
 import weakref
 
 from bitcoinx import (Address, bip32_build_chain_string, bip32_decompose_chain_string,
@@ -3717,7 +3717,7 @@ class Wallet:
         return result
 
     async def update_mapi_fee_quotes_async(self, account_id: int, timeout: float=4.0) \
-            -> AsyncIterable[tuple[NewServer, IndefiniteCredentialId | None]]:
+            -> list[TransactionFeeContext]:
         """
         Ask the wallet to coordinate ensuring it has updated fee quotes.
 
@@ -3725,12 +3725,18 @@ class Wallet:
         """
         # In most cases overlapping updates will be fetching the same things. Any blocked calls
         # will pick up matches from the blocking call.
+        fee_quotes: list[TransactionFeeContext] = []
         async with self._fee_quote_lock:
             servers_with_credentials = self.get_servers_for_account_id(account_id,
                 NetworkServerType.MERCHANT_API)
             async for server, credential_id in update_mapi_fee_quotes_async(
                     servers_with_credentials, timeout):
-                yield server, credential_id
+                server_state = server.api_key_state[credential_id]
+                assert server_state.last_fee_quote is not None
+                fee_context = TransactionFeeContext(server_state.last_fee_quote,
+                    ServerAndCredential(server, credential_id))
+                fee_quotes.append(fee_context)
+        return fee_quotes
 
     def get_mapi_broadcast_context(self, account_id: int, tx: Transaction) \
             -> ServerAndCredential | None:
@@ -3751,7 +3757,7 @@ class Wallet:
                 if fee_quote is not None:
                     server_fee_estimator = TransactionFeeEstimator(fee_quote, server_and_credential)
                     server_fee = server_fee_estimator.estimate_fee(transaction_size)
-                    if server_fee >= transaction_fee:
+                    if server_fee <= transaction_fee:
                         servers_with_credentials.append(server_and_credential)
         if len(servers_with_credentials) > 0:
             return random.choice(servers_with_credentials)
@@ -4868,6 +4874,10 @@ class Wallet:
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
                     continue
 
+                # @pettycash @accountkeys ??
+                # The petty cash account is supposed to fund general wallet background maintenance
+                # without requiring the user to enter their password to approve spending. Is it the
+                # right choice to use here? Is there any other option?
                 mapi_server_hint = \
                     self.get_mapi_broadcast_context(state.petty_cash_account_id, tx)
                 assert mapi_server_hint is not None
@@ -6720,14 +6730,7 @@ class TransactionCreationContext:
         """
         assert self.account is not None
         account_id = self.account.get_id()
-        async for server, credential_id in self.account._wallet.update_mapi_fee_quotes_async(
-                account_id):
-            server_state = server.api_key_state[credential_id]
-            assert server_state.last_fee_quote is not None
-            fee_context = TransactionFeeContext(server_state.last_fee_quote,
-                ServerAndCredential(server, credential_id))
-            fee_quotes.append(fee_context)
-
+        fee_quotes.extend(await self.account._wallet.update_mapi_fee_quotes_async(account_id))
         return fee_quotes
 
     def _on_future_fee_quotes_done(self,
