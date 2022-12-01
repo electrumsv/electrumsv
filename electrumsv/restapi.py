@@ -183,7 +183,7 @@ class AiohttpServer(BaseAiohttpServer):
             assert self.username is not None and self.password is not None
             if not (constant_time_compare(username, self.username)
                     and constant_time_compare(password, self.password)):
-                raise web.HTTPForbidden(reason="Invalid 'Basic' credentials (username/password)ZZZ")
+                raise web.HTTPForbidden(reason="Invalid 'Basic' credentials (username/password)")
         elif authorization_type == 'Bearer':
             assert self.password is not None
             if not constant_time_compare(authorization_key, self.password):
