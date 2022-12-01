@@ -789,42 +789,97 @@ async def test_call_sendtoaddress_failure_too_many_accounts_async(app_state_node
     assert object["error"]["code"] == -4 # WALLET_ERROR
     assert object["error"]["message"] == "Ambiguous account (found 2, expected 1)"
 
+# The keystore app_state is required for credential caching by wallet logic.
 @unittest.mock.patch('electrumsv.keystore.app_state', new_callable=_create_mock_app_state2)
 @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state2)
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
-async def test_call_sendtoaddress_failure_empty_account_async(app_state_nodeapi: AppStateProxy,
+async def test_call_sendtoaddress_walletpassphrase_required_async(app_state_nodeapi: AppStateProxy,
         app_state_wallet: AppStateProxy, app_state_keystore: AppStateProxy,
-        server_tester: TestClient, funded_wallet_factory: Callable[[], Wallet]) -> None:
+        server_tester: TestClient) -> None:
     assert server_tester.app is not None
     mock_server = server_tester.app["server"]
     # Ensure the server does not require authorization to make a call.
     mock_server._password = ""
 
-    wallet_password = "123456"
-    # The `funded_wallet_factory` fixture copies and opens the wallet and requires the password.
+    wallet_password = "password"
+    # Setup: ensure the `Wallet` instantiation code can find the password when instantiating the
+    #     petty cash account (and any other applicable points).
     app_state_wallet.credentials.get_wallet_password = lambda wallet_path: wallet_password
-    app_state_keystore.credentials.get_wallet_password = lambda wallet_path: wallet_password
-
-    wallet = funded_wallet_factory()
+    tmp_storage = cast(WalletStorage, MockStorage(wallet_password))
+    wallet = Wallet(tmp_storage)
 
     wallets: dict[str, Wallet] = {}
     irrelevant_path = os.urandom(32).hex()
     wallets[irrelevant_path] = wallet
     app_state_nodeapi.daemon.wallets = wallets
 
-    # This does not matter.
-    fee_per_kb = 500
+    # Setup: create one account in the wallet.
+    data = os.urandom(64)
+    coin = bitcoinx.BitcoinRegtest
+    xprv = bitcoinx.BIP32PrivateKey._from_parts(data[:32], data[32:], coin)
+    text_match = xprv.to_extended_key_string()
+    assert text_match is not None # typing bug
+    keystore = instantiate_keystore_from_text(KeystoreTextType.EXTENDED_PRIVATE_KEY,
+        text_match, wallet_password, derivation_text=None, passphrase="", watch_only=False)
+    wallet.create_account_from_keystore(
+        KeyStoreResult(AccountCreationType.IMPORTED, keystore))
 
-    def estimate_fee(transaction_size: TransactionSize) -> int:
-        return fee_per_kb * sum(transaction_size) // 1000
-    mock_fee_estimator = unittest.mock.Mock(spec=FeeEstimatorProtocol)
-    mock_fee_estimator.estimate_fee.side_effect = estimate_fee
+    # Setup: Ensure the API password check does not find a password.
+    app_state_nodeapi.credentials.get_wallet_password = lambda wallet_path: None
 
-    def get_fee_estimator() -> FeeEstimatorProtocol:
-        return mock_fee_estimator
-    app_state_wallet.config.get_fee_estimator.side_effect = get_fee_estimator
+    # Test: Make the call and check the result.
+    call_object = {
+        "id": 232,
+        "method": "sendtoaddress",
+        "params": [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000 ],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] is None
+    assert len(object["error"]) == 2
+    assert object["error"]["code"] == -13 # WALLET_UNLOCK_NEEDED
+    assert object["error"]["message"] == "Error: Please enter the wallet passphrase with " \
+        "walletpassphrase first."
 
-    # The nodeapi accesses the password to sign the transaction.
+# The keystore app_state is required for credential caching by wallet logic.
+@unittest.mock.patch('electrumsv.keystore.app_state', new_callable=_create_mock_app_state2)
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state2)
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_sendtoaddress_failure_no_message_box_server_async(
+        app_state_nodeapi: AppStateProxy, app_state_wallet: AppStateProxy,
+        app_state_keystore: AppStateProxy, server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallet_password = "password"
+    # Setup: ensure the `Wallet` instantiation code can find the password when instantiating the
+    #     petty cash account (and any other applicable points).
+    app_state_wallet.credentials.get_wallet_password = lambda wallet_path: wallet_password
+    tmp_storage = cast(WalletStorage, MockStorage(wallet_password))
+    wallet = Wallet(tmp_storage)
+
+    # Setup: create one account in the wallet.
+    data = os.urandom(64)
+    coin = bitcoinx.BitcoinRegtest
+    xprv = bitcoinx.BIP32PrivateKey._from_parts(data[:32], data[32:], coin)
+    text_match = xprv.to_extended_key_string()
+    assert text_match is not None # typing bug
+    keystore = instantiate_keystore_from_text(KeystoreTextType.EXTENDED_PRIVATE_KEY,
+        text_match, wallet_password, derivation_text=None, passphrase="", watch_only=False)
+    wallet.create_account_from_keystore(
+        KeyStoreResult(AccountCreationType.IMPORTED, keystore))
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    # Setup: The nodeapi checks the password is present before our failure point.
     app_state_nodeapi.credentials.get_wallet_password = lambda wallet_path: wallet_password
 
     call_object = {
@@ -842,11 +897,83 @@ async def test_call_sendtoaddress_failure_empty_account_async(app_state_nodeapi:
     assert object["error"]["code"] == -4 # WALLET_ERROR
     assert object["error"]["message"] == "No configured peer channel server"
 
-    # assert response.status == HTTPStatus.OK
-    # object = await response.json()
-    # assert len(object) == 3
-    # assert object["id"] == 232
-    # assert object["result"] == "the txid!"
+@unittest.mock.patch('electrumsv.keystore.app_state', new_callable=_create_mock_app_state2)
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state2)
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_sendtoaddress_failure_invalid_parameters_async(
+        app_state_nodeapi: AppStateProxy,app_state_wallet: AppStateProxy,
+        app_state_keystore: AppStateProxy, server_tester: TestClient,
+        funded_wallet_factory: Callable[[], Wallet]) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallet_password = "123456"
+    # The `funded_wallet_factory` fixture copies and opens the wallet and requires the password.
+    app_state_wallet.credentials.get_wallet_password = lambda wallet_path: wallet_password
+    app_state_keystore.credentials.get_wallet_password = lambda wallet_path: wallet_password
+
+    wallet = funded_wallet_factory()
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    call_object = {
+        "id": 232,
+        "method": "sendtoaddress",
+        "params": [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000 ],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] is None
+    assert len(object["error"]) == 2
+    assert object["error"]["code"] == -4 # WALLET_ERROR
+    assert object["error"]["message"] == "No configured peer channel server"
+
+# @unittest.mock.patch('electrumsv.keystore.app_state', new_callable=_create_mock_app_state2)
+# @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state2)
+# @unittest.mock.patch('electrumsv.nodeapi.app_state')
+# async def test_call_sendtoaddress_failure_invalid_parameters_async(
+#         app_state_nodeapi: AppStateProxy,app_state_wallet: AppStateProxy,
+#         app_state_keystore: AppStateProxy, server_tester: TestClient,
+#         funded_wallet_factory: Callable[[], Wallet]) -> None:
+#     assert server_tester.app is not None
+#     mock_server = server_tester.app["server"]
+#     # Ensure the server does not require authorization to make a call.
+#     mock_server._password = ""
+
+#     wallet_password = "123456"
+#     # The `funded_wallet_factory` fixture copies and opens the wallet and requires the password.
+#     app_state_wallet.credentials.get_wallet_password = lambda wallet_path: wallet_password
+#     app_state_keystore.credentials.get_wallet_password = lambda wallet_path: wallet_password
+
+#     wallet = funded_wallet_factory()
+
+#     wallets: dict[str, Wallet] = {}
+#     irrelevant_path = os.urandom(32).hex()
+#     wallets[irrelevant_path] = wallet
+#     app_state_nodeapi.daemon.wallets = wallets
+
+#     call_object = {
+#         "id": 232,
+#         "method": "sendtoaddress",
+#         "params": [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000 ],
+#     }
+#     response = await server_tester.request(path="/", method="POST", json=call_object)
+#     assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+#     object = await response.json()
+#     assert len(object) == 3
+#     assert object["id"] == 232
+#     assert object["result"] is None
+#     assert len(object["error"]) == 2
+#     assert object["error"]["code"] == -4 # WALLET_ERROR
+#     assert object["error"]["message"] == "No configured peer channel server"
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
 async def test_call_walletpassphrase_password_incorrect_async(app_state_nodeapi: AppStateProxy,

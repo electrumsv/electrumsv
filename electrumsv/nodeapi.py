@@ -46,6 +46,7 @@ import binascii
 from decimal import Decimal
 import json
 import os
+import random
 import re
 import subprocess
 import threading
@@ -61,10 +62,10 @@ from bitcoinx import Address, hash_to_hex_str, Script
 from .app_state import app_state
 from .bitcoin import script_template_to_string
 from .constants import CredentialPolicyFlag, NetworkServerFlag, PaymentFlag, TransactionImportFlag
-from .exceptions import InvalidPassword, NotEnoughFunds
+from .exceptions import BroadcastError, InvalidPassword, NotEnoughFunds
 from .logs import logs
 from .networks import Net
-from .transaction import classify_transaction_output_script, XTxOutput
+from .transaction import classify_transaction_output_script, TransactionFeeEstimator, XTxOutput
 from .util import constant_time_compare
 
 if TYPE_CHECKING:
@@ -177,17 +178,10 @@ class NodeAPIServer:
         one it doesn't really make any difference and it's more work to try and limit the
         command-line argument passing than just handle it.
         """
-
-        # nocheckin
-        transaction_id = hash_to_hex_str(transaction_hash)
-        import traceback
-        print(f"NODE API FOR {transaction_id}")
-        traceback.print_stack()
-
         if "walletnotify" not in app_state.config.cmdline_options:
             return
-        transaction_id = hash_to_hex_str(transaction_hash)
 
+        transaction_id = hash_to_hex_str(transaction_hash)
         for command_line in app_state.config.cmdline_options["walletnotify"]:
             command_line = command_line.replace("%s", transaction_id)
             run_walletnotify_script(command_line)
@@ -658,13 +652,23 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
                     error=ErrorDict(code=INVALID_PARAMETER, message="Subtract fee from amount not "
                         "currently supported"))))
 
-    coins = account.get_transaction_outputs_with_key_data()
-    assert len(coins) > 1
-    outputs = [ XTxOutput(-1, address.to_script()) ] # type: ignore[arg-type]
+    # @MAPIFeeQuote @TechnicalDebt Non-ideal way to ensure the fee quotes are cached.
+    viable_fee_contexts = await wallet.update_mapi_fee_quotes_async(account.get_id())
+    if len(viable_fee_contexts) == 0:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_ERROR,
+                    message="No suitable MAPI server for broadcast"))))
 
-    # TODO MAPI fee estimator (ensure it is involved and no mapi estimates an error).
+    selected_fee_context = random.choice(viable_fee_contexts)
+    mapi_fee_estimator = TransactionFeeEstimator(selected_fee_context.fee_quote,
+        selected_fee_context.server_and_credential)
+
+    coins = account.get_transaction_outputs_with_key_data()
+    outputs = [ XTxOutput(amount_satoshis, address.to_script()) ] # type: ignore[arg-type]
     try:
-        transaction, transaction_context = account.make_unsigned_transaction(coins, outputs)
+        transaction, transaction_context = account.make_unsigned_transaction(coins, outputs,
+            mapi_fee_estimator)
     except NotEnoughFunds:
         # rpcwallet.cpp:SendMoney
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
@@ -684,7 +688,22 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
     # channel registration.
     # TODO we will get a merkle proof for the payments we send but not the ones we receive?
     # TODO we will get the merkle proof for the payments we recieve ...
-    broadcast_result = await wallet.broadcast_transaction_async(transaction, transaction_context)
+    mapi_server_hint = wallet.get_mapi_broadcast_context(account.get_id(), transaction)
+    if mapi_server_hint is None:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_ERROR,
+                    message="No suitable MAPI server for broadcast"))))
+
+    transaction_context.mapi_server_hint = mapi_server_hint
+    try:
+        broadcast_result = await wallet.broadcast_transaction_async(transaction,
+            transaction_context)
+    except BroadcastError as broadcast_error:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_ERROR, message=str(broadcast_error)))))
+
     mapi_result = broadcast_result.mapi
     assert mapi_result is not None
 
