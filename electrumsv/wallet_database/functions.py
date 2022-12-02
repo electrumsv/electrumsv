@@ -996,6 +996,7 @@ def create_pushdata_matches_write(rows: list[PushDataMatchRow], processed_messag
     INSERT INTO ServerPushDataMatches (server_id, pushdata_hash, transaction_hash,
         transaction_index, block_hash, match_flags, date_created)
     VALUES (?,?,?,?,?,?,?)
+    ON CONFLICT(pushdata_hash, transaction_hash, transaction_index) DO NOTHING;
     """
     db.executemany(sql, rows)
 
