@@ -814,7 +814,6 @@ def register_output_spends_async(state: ServerConnectionState) -> None:
     It is critical that this is executed first thing after the websocket connection is established.
     These registrations only persist as long as that websocket connection is alive.
     """
-    # Feed the initial state into the worker task.
     # TODO(petty-cash) This should when we support multiple petty cash accounts we should specify
     #     which grouping of accounts are funded by a given petty cash account. It is possible we
     #     may end up mapping the petty cash account id to those accounts in the database.
