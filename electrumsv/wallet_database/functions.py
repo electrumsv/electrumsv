@@ -639,22 +639,30 @@ def read_proofless_transactions(db: sqlite3.Connection) -> list[TransactionProof
 @replace_db_context_with_connection
 def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> list[OutputSpend]:
     """
-    Retrieve all the outpoints we need to monitor (and why) via the 'output-spend' API. Remember
-    that the goal is to detect either the appearance of these in the mempool or a block.
+    Retrieve all the outpoints we need to monitor (and why) via the 'output-spend' API. The goal
+    is to detect either the appearance of these in the mempool or a block.
 
-    We intentionally do not monitor output spends for MAPI broadcasts.
+    We do not monitor output spends for MAPI broadcasts because:
+    1. We expect a transaction successfully broadcast through MAPI to implicitly enter the mempool.
+    2. We expect to receive the merkle proof through a peer channel notification.
     """
-    sql = f"""
+    sql = """
     SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index, TX.block_hash
     FROM TransactionInputs TXI
-    INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash AND TX.flags&{TxFlags.MASK_STATE}!=0 AND
-        TX.flags&{TxFlags.STATE_SETTLED}=0
-    LEFT JOIN MAPIBroadcasts MBC ON MBC.tx_hash=TXI.tx_hash
-        AND MBC.mapi_broadcast_flags&{MAPIBroadcastFlag.BROADCAST|MAPIBroadcastFlag.DELETED}
-            ={MAPIBroadcastFlag.BROADCAST}
+    INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash AND TX.flags&?1!=0 AND TX.flags&?2=0
+    LEFT JOIN MAPIBroadcasts MBC ON MBC.tx_hash=TXI.tx_hash AND MBC.mapi_broadcast_flags&?3=?4
     WHERE MBC.tx_hash IS NULL
     """
-    rows = db.execute(sql).fetchall()
+    sql_values = [
+        # There must be a state set on the transaction.
+        TxFlags.MASK_STATE,
+        # We want to monitor non-settled transactions, as long as they haven't been "deleted".
+        TxFlags.STATE_SETTLED|TxFlags.REMOVED,
+        # If there is already a valid broadcast result we are done, and do not need to.
+        MAPIBroadcastFlag.BROADCAST|MAPIBroadcastFlag.DELETED,
+        MAPIBroadcastFlag.BROADCAST
+    ]
+    rows = db.execute(sql, sql_values).fetchall()
     return [ OutputSpend(*row) for row in rows ]
 
 
@@ -664,17 +672,17 @@ def read_existing_output_spends(db: sqlite3.Connection, outpoints: list[Outpoint
     """
     Get metadata for any existing spends of the provided outpoints.
     """
-    sql = f"""
+    sql = """
     SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index, TX.block_hash,
         TX.flags, MBC.mapi_broadcast_flags
     FROM TransactionInputs TXI
     INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash
-    LEFT JOIN MAPIBroadcasts MBC ON MBC.tx_hash=TXI.tx_hash
-        AND MBC.mapi_broadcast_flags&{MAPIBroadcastFlag.BROADCAST|MAPIBroadcastFlag.DELETED}
-            ={MAPIBroadcastFlag.BROADCAST}
+    LEFT JOIN MAPIBroadcasts MBC ON MBC.tx_hash=TXI.tx_hash AND MBC.mapi_broadcast_flags&?=?
     """
     sql_condition = "TXI.spent_tx_hash=? AND TXI.spent_txo_index=?"
-    return read_rows_by_ids(SpentOutputRow, db, sql, sql_condition, [], outpoints)
+    sql_values = [ MAPIBroadcastFlag.BROADCAST|MAPIBroadcastFlag.DELETED,
+        MAPIBroadcastFlag.BROADCAST ]
+    return read_rows_by_ids(SpentOutputRow, db, sql, sql_condition, sql_values, outpoints)
 
 
 @replace_db_context_with_connection
@@ -911,7 +919,7 @@ def read_payment_request(db: sqlite3.Connection, request_id: int) \
         -> tuple[PaymentRequestRow | None, list[PaymentRequestOutputRow]]:
     request_sql = """
         SELECT PR.paymentrequest_id, PR.state, PR.value, PR.date_expires, PR.description,
-            PR.server_id, PR.dpp_invoice_id, PR.dpp_ack_json, PR.merchant_reference, 
+            PR.server_id, PR.dpp_invoice_id, PR.dpp_ack_json, PR.merchant_reference,
             PR.encrypted_key_text, PR.date_created, PR.date_updated
         FROM PaymentRequests PR
         WHERE PR.paymentrequest_id=?
