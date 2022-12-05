@@ -370,7 +370,7 @@ async def maintain_server_connection_async(state: ServerConnectionState) \
     state.connection_flags |= ServerConnectionFlag.STARTING
 
     try:
-        while state.connection_flags & ServerConnectionFlag.EXITING == 0:
+        while state.connection_flags & ServerConnectionFlag.MASK_EXIT == 0:
             state.connection_flags &= ServerConnectionFlag.MASK_COMMON_INITIAL
 
             # Both the connection management task and worker tasks.
@@ -404,8 +404,11 @@ async def maintain_server_connection_async(state: ServerConnectionState) \
             #     This is an arbitrary timeout, we should factor when this happens into the UI and
             #     how we manage server usage.
             await asyncio.sleep(10)
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("maintain_server_connection_async encountered connection issue")
     finally:
-        logger.error("maintain_server_connection_async encountered connection issue")
         state.connection_flags = ServerConnectionFlag.EXITED
 
     return {}
@@ -548,14 +551,13 @@ async def _manage_server_connection_async(state: ServerConnectionState) -> None:
                 as server_websocket:
             logger.debug('Connected to server websocket, url=%s', websocket_url_template)
 
-            # Snapshot the usage flags before changing the state.
-            existing_usage_flags = state.usage_flags
-
+            # State transition: If there is something else enabled by the user before we reach this
+            # point that should be upgraded, we will handle it below.
             state.connection_flags |= ServerConnectionFlag.PREPARING_WEB_SOCKET
             state.stage_change_event.set()
             state.stage_change_event.clear()
 
-            await _upgrade_server_connection_async(state, existing_usage_flags)
+            await _upgrade_server_connection_async(state, state.usage_flags)
 
             state.connection_flags |= ServerConnectionFlag.WEB_SOCKET_READY
             state.stage_change_event.set()
@@ -623,6 +625,15 @@ async def _manage_server_connection_async(state: ServerConnectionState) -> None:
         #     are reasonable and expected, we can remove this.
         logger.debug("Wrapped aiohttp exception (do we need to preserve this?)", exc_info=True)
         raise ServerConnectionError("Unable to establish server connection")
+
+    # Not an intentional exit, flag it as a server-side disconnection. This will be received and
+    # handled by the "on done" `_on_server_connection_worker_task_done` callback, but unfortunately
+    # it also gets logged by the async "uncaught exception" handler. Ignore that.
+    if state.connection_flags & ServerConnectionFlag.MASK_EXIT == 0:
+        raise ServerConnectionError("Disconnected by the server")
+
+    # If we are exiting because we were told to externally, like when the wallet is being closed,
+    # we want to do it silently and not trigger handling related to server connections.
 
 
 async def upgrade_server_connection_async(state: ServerConnectionState,
@@ -732,7 +743,7 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
     logger.debug("Entering process_incoming_peer_channel_messages_async, server_url=%s "
                  "(Wallet='%s')", state.server_url, state.wallet_proxy.name())
 
-    while state.connection_flags & ServerConnectionFlag.EXITING == 0:
+    while state.connection_flags & ServerConnectionFlag.MASK_EXIT == 0:
         remote_channel_id = await state.peer_channel_message_queue.get()
 
         peer_channel_row = state.cached_peer_channel_rows.get(remote_channel_id)
@@ -919,7 +930,7 @@ async def manage_output_spends_async(state: ServerConnectionState) -> None:
 
     logger.debug("Entering process_registration_batch_async")
     try:
-        while state.connection_flags & ServerConnectionFlag.EXITING == 0:
+        while state.connection_flags & ServerConnectionFlag.MASK_EXIT == 0:
             await process_registration_batch_async()
     finally:
         logger.debug("Exiting process_registration_batch_async")
@@ -964,7 +975,7 @@ async def manage_tip_filter_registrations_async(state: ServerConnectionState) ->
     #     registrations very seldomly (as the primary use case is the declining monitor the
     #     blockchain legacy payment situation).
     try:
-        while state.connection_flags & ServerConnectionFlag.EXITING == 0:
+        while state.connection_flags & ServerConnectionFlag.MASK_EXIT == 0:
             await _manage_tip_filter_registrations_async(state)
     finally:
         logger.debug("Exiting manage_tip_filter_registrations_async, server_id=%d",
@@ -981,7 +992,7 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
     assert state.wallet_data is not None
 
     logger.debug("Waiting for tip filtering registrations, server_id=%d", state.server.server_id)
-    while state.connection_flags & ServerConnectionFlag.EXITING == 0:
+    while state.connection_flags & ServerConnectionFlag.MASK_EXIT == 0:
         job = await state.tip_filter_new_registration_queue.get()
         assert len(job.entries) > 0
 

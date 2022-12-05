@@ -416,7 +416,7 @@ async def process_externally_owned_peer_channel_messages_async(state: PeerChanne
     logger.debug("Entering process_externally_owned_peer_channel_messages_async, server_url=%s "
                  "(Wallet='%s')", state.server_url, state.wallet_proxy.name())
 
-    while state.connection_flags & ServerConnectionFlag.EXITING == 0:
+    while state.connection_flags & ServerConnectionFlag.MASK_EXIT == 0:
         state.processing_message_event.clear()
         remote_channel_id = await state.peer_channel_message_queue.get()
         state.processing_message_event.set()
@@ -491,7 +491,7 @@ async def maintain_external_peer_channel_connection_async(state: PeerChannelServ
     state.connection_flags |= ServerConnectionFlag.STARTING
 
     try:
-        while state.connection_flags & ServerConnectionFlag.EXITING == 0:
+        while state.connection_flags & ServerConnectionFlag.MASK_EXIT == 0:
             state.connection_flags &= ServerConnectionFlag.MASK_COMMON_INITIAL
 
             # Both the connection management task and worker tasks.
