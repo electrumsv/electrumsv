@@ -370,7 +370,7 @@ class SVApplication(QApplication):
         self.timer.start()
         signal.signal(signal.SIGINT, lambda *args: self.quit())
         self.initial_dialogs()
-        path = app_state.config.get_cmdline_wallet_filepath()
+        path = app_state.config.get_commandline_wallet_path()
         if not self.start_new_window(path, app_state.config.get('url'), is_startup=True):
             self.quit()
 

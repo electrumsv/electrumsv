@@ -182,7 +182,7 @@ class InvoiceList(MyTreeWidget):
     #   https://github.com/electrumsv/electrumsv/blob/sv-1.2.5/electrumsv/paymentrequest.py#L523
     # def import_invoices(self, account: AbstractAccount) -> None:
     #     try:
-    #         wallet_folder = self.config.get_preferred_wallet_dirpath()
+    #         wallet_folder = self.config.get_wallet_directory_path()
     #     except FileNotFoundError as e:
     #         self._main_window.show_error(str(e))
     #         return

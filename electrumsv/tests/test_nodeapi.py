@@ -202,7 +202,7 @@ def test_get_wallet_from_request_explicit_fail_no_path(app_state_nodeapi: AppSta
 
     def dummy_get_path() -> str:
         raise FileNotFoundError()
-    app_state_nodeapi.config.get_preferred_wallet_dirpath.side_effect = dummy_get_path
+    app_state_nodeapi.config.get_wallet_directory_path.side_effect = dummy_get_path
 
     with pytest.raises(web.HTTPInternalServerError) as exception_value:
         nodeapi.get_wallet_from_request(mock_request, 444)
@@ -228,7 +228,7 @@ def test_get_wallet_from_request_explicit_success(app_state_nodeapi: AppStatePro
 
     def dummy_get_path() -> str:
         return "leading_path"
-    app_state_nodeapi.config.get_preferred_wallet_dirpath.side_effect = dummy_get_path
+    app_state_nodeapi.config.get_wallet_directory_path.side_effect = dummy_get_path
     def dummy_get_wallet(file_name: str) -> Wallet | None:
         nonlocal dummy_wallet
         if file_name == expected_path:

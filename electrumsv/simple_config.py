@@ -9,7 +9,6 @@ from typing import Any, Callable, cast, Type, TypeVar
 
 from mypy_extensions import DefaultArg
 
-from . import util
 from .constants import DEFAULT_FEE
 from .logs import logs
 from .platform import platform
@@ -103,7 +102,7 @@ class SimpleConfig:
         if os.path.exists(obsolete_file):
             os.remove(obsolete_file)
         logger.debug("electrum-sv directory '%s'", path)
-        return path
+        return os.path.abspath(path)
 
     def file_path(self, file_name: str) -> str|None:
         if self.path:
@@ -223,46 +222,60 @@ class SimpleConfig:
             f.write(s)
         os.chmod(path, stat.S_IREAD | stat.S_IWRITE)
 
-    def resolve_existing_wallet_path(self, original_path: str) -> str|None:
+    def resolve_existing_wallet_path(self, wallet_path: str) -> str|None:
+        """
+        This returns the absolute path of the given wallet file, if it exists.
+
+        1. If it is an absolute path to an existing wallet file already, we return it back.
+        2. If it is a relative path to an existing wallet file based on the _config working
+           directory_, then we return its absolute path.
+        3. If it is a file name and not a path and exists in the wallet folder under the
+           application data directory, then we return its absolute path.
+
+        Raises `FileNotFoundError` if it reaches step 3 and the application data directory does
+            not exist.
+        """
         from .storage import WalletStorage
 
-        wallet_path: str|None = None
-        if WalletStorage.files_are_matched_by_path(original_path):
-            wallet_path = original_path
-        else:
-            # Look within the current directory first.
-            local_wallet_path = os.path.join(cast(str, self.get('cwd')), original_path)
-            if WalletStorage.files_are_matched_by_path(local_wallet_path):
-                wallet_path = local_wallet_path
-            else:
-                # Look in the data directory wallet folder last.
-                standard_wallet_path = os.path.join(self.get_default_wallet_dirpath(),
-                    original_path)
-                if WalletStorage.files_are_matched_by_path(standard_wallet_path):
-                    wallet_path = standard_wallet_path
-        return wallet_path
+        # Remember that this only combines relative paths, absolute paths are left as is.
+        absolute_wallet_path = os.path.join(cast(str, self.get('cwd')), wallet_path)
+        if WalletStorage.files_are_matched_by_path(absolute_wallet_path):
+            return absolute_wallet_path
 
-    def get_preferred_wallet_dirpath(self) -> str:
-        """
-        Raises `FileNotFoundError` if default wallet folder is not found, should it fall back to
-            looking at that as the option to use.
-        """
-        wallet_path = self.get_cmdline_wallet_filepath()
-        if wallet_path is not None:
-            return os.path.dirname(os.path.abspath(wallet_path))
-        return self.get_default_wallet_dirpath()
+        # If this is going to be in the data directory wallet folder, it needs to just be a name.
+        if os.path.basename(wallet_path) == wallet_path:
+            absolute_wallet_path = os.path.join(self.get_wallet_directory_path(), wallet_path)
+            if WalletStorage.files_are_matched_by_path(absolute_wallet_path):
+                return absolute_wallet_path
 
-    def get_default_wallet_dirpath(self) -> str:
+        return None
+
+    def get_wallet_directory_path(self) -> str:
         """
+        This returns the path of the wallet directory in the data directory, and it makes sure that
+        the path exists if it has not already been created.
+
         Raises `FileNotFoundError` if `self.path` is not found.
         """
-        util.assert_datadir_available(self.path)
+        if not os.path.exists(self.path):
+            raise FileNotFoundError("ElectrumSV data directory does not exist. Was it deleted "
+                f"while running?\nShould be at {self.path}")
+
         path = os.path.join(self.path, "wallets")
         make_dir(path)
         return path
 
-    def get_cmdline_wallet_filepath(self) -> str|None:
+    def get_commandline_wallet_path(self) -> str|None:
+        """
+        If the user has specified a wallet file to open, return its absolute path. We only use this
+        if we are wanting that wallet path. We do not care about the directory it is in. 99.999% of
+        users use the GUI and not the command-line to open wallets, and if they provide a wallet
+        path it's the one they precisely want to open.
+        """
         if self.get('wallet_path'):
+            # If the precise wallet path given on the command-line is absolute, note that the
+            # join will ignore the current working directory automatically so this will work
+            # correctly for both relative and absolute command-line wallet paths.
             return os.path.join(cast(str, self.get('cwd')), cast(str, self.get('wallet_path')))
         return None
 
