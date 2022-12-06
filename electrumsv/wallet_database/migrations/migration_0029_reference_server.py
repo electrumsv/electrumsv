@@ -475,13 +475,18 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
             ON ServerPushDataRegistrations(server_id, pushdata_hash)
     """)
 
+    # TODO(sqlite) The `block_hash` column was `BLOCK` as of 2022-12-07 where it should have been
+    #     `BLOB`. This means that the affinity of the column would have been `NUMERIC`. As `BLOB`
+    #     values do not get converted, not even with strict typing, this should not present a
+    #     problem if we turn on strict typing. However if we do plan on turning on features like
+    #     that, this sort of problem indicates we should check column types and correct them.
     conn.execute("""
         CREATE TABLE ServerPushDataMatches (
             server_id                   INTEGER     NOT NULL,
             pushdata_hash               BLOB        NOT NULL,
             transaction_hash            BLOB        NOT NULL,
             transaction_index           INTEGER     NOT NULL,
-            block_hash                  BLOCK       NULL,
+            block_hash                  BLOB        NULL,
             match_flags                 INTEGER     NOT NULL,
             date_created                INTEGER     NOT NULL,
             FOREIGN KEY (server_id) REFERENCES Servers (server_id)
