@@ -78,7 +78,7 @@ def run_non_RPC(config: SimpleConfig) -> None:
     cmdname = config.get_optional_type(str, 'cmd')
 
     def get_wallet_path() -> str:
-        wallet_path = config.get_cmdline_wallet_filepath()
+        wallet_path = config.get_commandline_wallet_path()
         if wallet_path is None:
             sys.exit("error: no wallet path provided")
 
@@ -117,7 +117,7 @@ def run_non_RPC(config: SimpleConfig) -> None:
 
         elif cmdname == "create_jsonrpc_wallet":
             # This is the wallet path in the data directory.
-            wallet_folder_path = config.get_default_wallet_dirpath()
+            wallet_folder_path = config.get_wallet_directory_path()
             # The calling context already checked that the filename is provided.
             wallet_filename = cast(str, config.get('wallet_path'))
             # As we expect wallet files usable with the JSON-RPC API to be located in the
@@ -146,7 +146,7 @@ def run_non_RPC(config: SimpleConfig) -> None:
             sys.exit(0)
 
         elif cmdname == "create_account":
-            wallet_path = cast(str, config.get_cmdline_wallet_filepath())
+            wallet_path = cast(str, config.get_commandline_wallet_path())
             password_token = app_state.credentials.set_wallet_password(wallet_path, password,
                 CredentialPolicyFlag.FLUSH_ALMOST_IMMEDIATELY)
             assert password_token is not None
@@ -214,7 +214,7 @@ def init_cmdline(config_options: dict[str, Any]) -> tuple[Command, str|None]:
     assert isinstance(cmdname, str)
     cmd = known_commands[cmdname.replace("-", "_")]
 
-    wallet_path = config.get_cmdline_wallet_filepath()
+    wallet_path = config.get_commandline_wallet_path()
     if cmd.requires_wallet and not WalletStorage.files_are_matched_by_path(wallet_path):
         sys.exit("Error: wallet file not found")
 
@@ -246,7 +246,7 @@ def run_offline_command(config: SimpleConfig, config_options: dict[str, Any]) ->
     wallet: Wallet|None
 
     if cmd.requires_wallet:
-        wallet_path = config.get_cmdline_wallet_filepath()
+        wallet_path = config.get_commandline_wallet_path()
         if not WalletStorage.files_are_matched_by_path(wallet_path):
             sys.exit("Error: wallet does not exist at given path")
 
@@ -395,6 +395,10 @@ def main() -> None:
 
     config_options = get_config_options()
     logs.set_level(config_options['verbose'])
+
+    # The applications working directory should never change. The reason we store this is because
+    # `config_options` is passed to the daemon with daemon subcommand calls and this is useful
+    # context.
     config_options['cwd'] = os.getcwd()
 
     # fixme: this can probably be achieved with a runtime hook (pyinstaller)

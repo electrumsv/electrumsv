@@ -37,7 +37,7 @@ import requests
 from .app_state import app_state
 from .commands import known_commands, Commands
 from .constants import CredentialPolicyFlag, DaemonSubcommandLiteral, DaemonSubcommands, \
-    DATABASE_EXT, NetworkServerFlag, SERVER_USES, StorageKind
+    DATABASE_EXT, NetworkServerFlag, SERVER_USES, ServerConnectionFlag, StorageKind
 from .exchange_rate import FxTask
 from .exceptions import InvalidPassword, ServerConnectionError
 from .logs import logs
@@ -340,6 +340,7 @@ class Daemon(DaemonThread):
                 return f"Error: Wallet file not found: '{command_line_wallet_path}'."
 
             wallet_path = WalletStorage.canonical_path(wallet_path)
+            assert os.path.isabs(wallet_path)
             if wallet_path in self.wallets:
                 # This is running in the async thread. If we do a blocking stop function that
                 # needs to do async cleanup we are going to deadlock. Run the stop function in a
@@ -406,6 +407,7 @@ class Daemon(DaemonThread):
                     "  With server:",
                     "    "+ server.url,
                 ])
+
                 try:
                     await wallet.create_server_account_async(server, server_flags)
                 except InvalidPassword:
@@ -424,6 +426,16 @@ class Daemon(DaemonThread):
                     message_lines.append(
                         f"Error: Server connection failed '{connection_error}'")
                 else:
+                    # Starting the connection continues in an async task and does not block this
+                    # call (at least not for the actual connecting part).
+                    state = await wallet.start_reference_server_connection_async(server,
+                        server_flags)
+                    while state.connection_flags & ServerConnectionFlag.MASK_EXIT == 0:
+                        if state.connection_flags & ServerConnectionFlag.WEB_SOCKET_READY != 0:
+                            # The connection was established successfully.
+                            break
+                        await state.stage_change_event.wait()
+
                     message_lines.append("Done.")
             else:
                 message_lines.append("Error: Detected inconsistency with available servers.")
@@ -462,7 +474,7 @@ class Daemon(DaemonThread):
 
         config = SimpleConfig(config_options)
         if hasattr(app_state, 'windows'):
-            path = config.get_cmdline_wallet_filepath()
+            path = config.get_commandline_wallet_path()
             app_state.app.new_window(path, config.get('url'))
             return "ok"
 
@@ -475,6 +487,7 @@ class Daemon(DaemonThread):
         elif wallet_categorisation.kind != StorageKind.FILE:
             return None
 
+        assert os.path.isabs(wallet_filepath), wallet_filepath
         if wallet_filepath in self.wallets:
             return self.wallets[wallet_filepath]
 
@@ -503,6 +516,7 @@ class Daemon(DaemonThread):
 
     def get_wallet(self, path: str) -> Wallet | None:
         wallet_filepath = WalletStorage.canonical_path(path)
+        assert os.path.isabs(wallet_filepath), wallet_filepath
         return self.wallets.get(wallet_filepath)
 
     def get_wallet_by_id(self, wallet_id: int) -> Wallet | None:
@@ -514,11 +528,14 @@ class Daemon(DaemonThread):
     def start_wallet(self, wallet: Wallet) -> None:
         # We expect the storage path to be exact, including the database extension. So it should
         # match the canonical path used elsewhere.
-        self.wallets[wallet.get_storage_path()] = wallet
+        wallet_filepath = wallet.get_storage_path()
+        assert os.path.isabs(wallet_filepath), wallet_filepath
+        self.wallets[wallet_filepath] = wallet
         wallet.start(self.network)
 
     def stop_wallet_at_path(self, path: str) -> None:
         wallet_filepath = WalletStorage.canonical_path(path)
+        assert os.path.isabs(wallet_filepath), wallet_filepath
         # Issue #659 wallet may already be stopped.
         if wallet_filepath in self.wallets:
             wallet = self.wallets.pop(wallet_filepath)
@@ -529,13 +546,21 @@ class Daemon(DaemonThread):
             self.stop_wallet_at_path(path)
 
     async def run_command_line_async(self, config_options: dict[str, Any]) -> Any:
+        """
+        Another ElectrumSV instance has performed a "daemon subcommand" and we are receiving the
+        state to act on, including which command and whatever other command-line arguments were
+        given, within `config_options`.
+        """
         config = SimpleConfig(config_options)
         cmdname = cast(str, config.get('cmd'))
         cmd = known_commands[cmdname]
         if cmd.requires_wallet:
-            cmdline_wallet_filepath = config.get_cmdline_wallet_filepath()
+            # This should get the path given by the user to the external instance. This comes from
+            # the passes `config_options` which include the external `cwd` and `wallet_path` values.
+            cmdline_wallet_filepath = config.get_commandline_wallet_path()
             assert cmdline_wallet_filepath is not None
             wallet_path = WalletStorage.canonical_path(cmdline_wallet_filepath)
+            assert os.path.isabs(wallet_path)
             wallet = self.wallets.get(wallet_path)
             if wallet is None:
                 return {

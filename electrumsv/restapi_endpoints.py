@@ -162,7 +162,7 @@ class LocalEndpoints:
         """ Load an existing wallet or get the loaded status of it if it is already loaded. """
         check_network_for_request(request)
         try:
-            wallet_folder_path = app_state.config.get_preferred_wallet_dirpath()
+            wallet_folder_path = app_state.config.get_wallet_directory_path()
         except FileNotFoundError:
             raise web.HTTPInternalServerError(reason="No preferred wallet path")
 
@@ -210,7 +210,7 @@ class LocalEndpoints:
         """ Creates a new wallet using a specified file name and password. """
         check_network_for_request(request)
         try:
-            wallet_folder_path = app_state.config.get_preferred_wallet_dirpath()
+            wallet_folder_path = app_state.config.get_wallet_directory_path()
         except FileNotFoundError:
             raise web.HTTPInternalServerError(reason="No preferred wallet path")
 

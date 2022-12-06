@@ -382,7 +382,7 @@ def get_wallet_from_request(request: web.Request, request_id: RequestIdType,
         return None
 
     try:
-        wallet_folder_path = app_state.config.get_preferred_wallet_dirpath()
+        wallet_folder_path = app_state.config.get_wallet_directory_path()
     except FileNotFoundError:
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
                 text=json.dumps(ResponseDict(id=request_id, result=None,

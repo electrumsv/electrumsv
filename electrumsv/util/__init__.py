@@ -22,7 +22,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-import concurrent.futures
 from decimal import Decimal
 from datetime import datetime, timedelta, tzinfo
 import json
@@ -139,19 +138,6 @@ def profiler(func: Callable[..., T1]) -> Callable[..., T1]:
         logger.debug("%s %.8f", n, t)
         return o
     return lambda *args, **kw_args: do_profile(func, args, kw_args)
-
-
-def assert_datadir_available(config_path: str) -> None:
-    """
-    Raises `FileNotFoundError` if the given path is not found.
-    """
-    path = config_path
-    if os.path.exists(path):
-        return
-    else:
-        raise FileNotFoundError(
-            'ElectrumSV datadir does not exist. Was it deleted while running?' + '\n' +
-            'Should be at {}'.format(path))
 
 
 def make_dir(path: str) -> None:

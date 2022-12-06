@@ -609,7 +609,7 @@ class ChooseWalletPage(QWizardPage):
         return True
 
     def _event_click_create_wallet(self) -> None:
-        initial_path = app_state.config.get_preferred_wallet_dirpath()
+        initial_path = app_state.config.get_wallet_directory_path()
         create_filepath = create_new_wallet(self, initial_path)
         if create_filepath is not None:
             # How the app knows which wallet was selected/created.
@@ -622,7 +622,7 @@ class ChooseWalletPage(QWizardPage):
             wizard.accept()
 
     def _event_click_open_file(self) -> None:
-        initial_dirpath = app_state.config.get_preferred_wallet_dirpath()
+        initial_dirpath = app_state.config.get_wallet_directory_path()
         wallet_filepath, __ = QFileDialog.getOpenFileName(self, "Select your wallet file",
             initial_dirpath)
         if wallet_filepath:
