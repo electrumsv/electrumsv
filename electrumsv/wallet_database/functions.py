@@ -989,15 +989,30 @@ def read_payment_request_outputs(db: sqlite3.Connection, paymentrequest_ids: lis
     return read_rows_by_id(PaymentRequestOutputRow, db, sql, (), paymentrequest_ids)
 
 
-def create_pushdata_matches_write(rows: list[PushDataMatchRow], processed_message_ids: list[int],
+def upsert_pushdata_matches_write(rows: list[PushDataMatchRow], processed_message_ids: list[int],
         db: Optional[sqlite3.Connection]=None) -> None:
+    """Pushdata notifications are received when:
+    - A transaction hits the mempool
+    - A transaction is confirmed into a block.
+    - A transaction is reorged or returned to the mempool
+    The tip filter peer channel will return these events in chronological order. The last event
+    in the series will be the final resulting state of the row."""
     assert db is not None and isinstance(db, sqlite3.Connection)
-    sql = """
-    INSERT INTO ServerPushDataMatches (server_id, pushdata_hash, transaction_hash,
-        transaction_index, block_hash, match_flags, date_created)
-    VALUES (?,?,?,?,?,?,?)
-    """
-    db.executemany(sql, rows)
+    for row in rows:
+        sql_update = """
+            UPDATE ServerPushDataMatches SET server_id=?1, pushdata_hash=?2, transaction_hash=?3,
+                transaction_index=?4, block_hash=?5, match_flags=?6, date_created=?7
+            WHERE pushdata_hash==?2 AND transaction_hash==?3 AND transaction_index==?4
+        """
+        cursor = db.execute(sql_update, row)
+        if cursor.rowcount == 0:
+            sql = """
+            INSERT INTO ServerPushDataMatches (server_id, pushdata_hash, transaction_hash,
+                transaction_index, block_hash, match_flags, date_created)
+            VALUES (?,?,?,?,?,?,?)
+            """
+            cursor = db.execute(sql, row)
+            assert cursor.rowcount == 1
 
     if len(processed_message_ids) > 0:
         update_server_peer_channel_message_flags_write(processed_message_ids, db)

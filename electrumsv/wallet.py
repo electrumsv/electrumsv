@@ -2197,10 +2197,10 @@ class WalletDataAccess:
 
     # Pushdata hashes.
 
-    async def create_pushdata_matches_async(self, rows: list[PushDataMatchRow],
+    async def upsert_pushdata_matches_async(self, rows: list[PushDataMatchRow],
             processed_message_ids: list[int]) -> None:
         await self._db_context.run_in_thread_async(
-            db_functions.create_pushdata_matches_write, rows, processed_message_ids)
+            db_functions.upsert_pushdata_matches_write, rows, processed_message_ids)
 
     def read_pushdata_match_metadata(self) -> list[PushDataMatchMetadataRow]:
         return db_functions.read_pushdata_match_metadata(self._db_context)
@@ -5087,18 +5087,23 @@ class Wallet:
                         date_created)
                     creation_pushdata_match_rows.append(creation_pushdata_match_row)
 
-            self._logger.debug("Writing %d pushdata matches to the database",
+            self._logger.debug("Upserting %d pushdata matches to the database",
                 len(creation_pushdata_match_rows))
-            # The processed messages will have their `UNPROCESSED` flag removed here as part of an
-            # atomic update, that also inserts their extracted pushdata matches.
-            await self.data.create_pushdata_matches_async(creation_pushdata_match_rows,
+            # The tip filter peer channel will return notification events in chronological order.
+            # The last event in the series will be the final resulting state of the upserted row.
+            # For example on wallet startup we may receive 1) mempool 2) confirmed 3) reorg
+            # so the final row state will represent (3) the reorg and corresponding block hash
+            # The processed messages will have their `UNPROCESSED` flag removed here too.
+            await self.data.upsert_pushdata_matches_async(creation_pushdata_match_rows,
                 processed_message_ids)
 
             # We have to go to the database to find out:
             # - What account a push data match is associated with.
             # - Which matches do not already have the associated transaction imported.
-            # We could do this in the `create_pushdata_matches_async` call and return it, but
-            # this double-dipping in the database is good enough for now.
+            # If we have already fetched the transaction data for a previous mempool notification,
+            # `read_pushdata_match_metadata` will filter out this notification as
+            # redundant and `_consume_output_spend_notifications_async` task will be responsible
+            # for all subsequent state updates (e.g. confirmation & merkle proof)
             match_metadata_rows = self.data.read_pushdata_match_metadata()
             for metadata_row in match_metadata_rows:
                 if metadata_row.account_id in rows_by_account_id:
@@ -6323,7 +6328,6 @@ class Wallet:
 
             # We just take the first returned transaction for now (and ignore the rest).
             rows = db_functions.read_proofless_transactions(self.get_db_context())
-            tx_hash = rows[0].tx_hash if len(rows) else None
             if len(rows) > 0:
                 # We want to make sure we read any other transactions other than the first.
                 if len(rows) > 1:
