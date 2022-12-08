@@ -4243,7 +4243,7 @@ class Wallet:
                 return account_row.blockchain_server_id is not None
         return False
 
-    async def _initialise_headers_from_header_store(self) -> None:
+    async def _initialise_headers_to_stored_longest_chain(self) -> None:
         """
         On startup if the wallet does not have an active blockchain server it will initialise
         it's knowledge of the blockchain from the header store.
@@ -4254,6 +4254,20 @@ class Wallet:
         logger.debug("Initialising headers from header store")
         current_chain = get_longest_valid_chain()
         current_tip_header = cast(Header, current_chain.tip)
+        await self._reconcile_wallet_with_header_source(None, current_chain, current_tip_header)
+
+    async def _initialise_headers_to_persisted_tip_hash(self) -> None:
+        """
+        On startup, until the wallet has an active blockchain server it will initialise its
+        current chain to the previously persisted tip.
+
+        This ensures that wallets that are not able to connect, whether offline or with a
+        bad internet connection, are still able to lookup all headers related to existing
+        confirmed transactions.
+        """
+        logger.debug("Initialising headers from persisted tip hash")
+        assert self._persisted_tip_hash is not None
+        current_tip_header, current_chain = app_state.lookup_header(self._persisted_tip_hash)
         await self._reconcile_wallet_with_header_source(None, current_chain, current_tip_header)
 
     async def _start_existing_server_connections(self) -> None:
@@ -5532,7 +5546,12 @@ class Wallet:
         if not is_blockchain_server_active:
             # Wallets start off following the longest valid chain.
             self._worker_task_initialise_headers = app_state.async_.spawn(
-                self._initialise_headers_from_header_store())
+                self._initialise_headers_to_stored_longest_chain())
+        else:
+            # This is the preferred default unless it is a brand new wallet without a registered
+            # blockchain server as we do not want to switch chains which would reorg transactions
+            self._worker_task_initialise_headers = app_state.async_.spawn(
+                self._initialise_headers_to_persisted_tip_hash())
 
         self._worker_task_obtain_transactions = app_state.async_.spawn(
             self._obtain_transactions_worker_async())
