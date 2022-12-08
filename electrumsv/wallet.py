@@ -4269,6 +4269,15 @@ class Wallet:
         # TODO(1.4.0) Networking, issue#841. These worker tasks should be restarted if they
         #     prematurely exit?
 
+        # If the reference server is offline `self.start_reference_server_connection_async`
+        # will block and `self._current_chain` will remin unset.
+        # This will cause header lookups to fail which in turn causes other issues such as "unknown"
+        # timestamps of transactions in the history tab of the UI.
+        # Instead we always initialise the wallet's self._current_chain from the local header store
+        # longest chain as the initial default and then switch chains as needed once we've
+        # connected to the remote server.
+        await self._initialise_headers_from_header_store()
+
         # These are the servers the user has opted to use primarily whether through manual or
         # automatic choice.
         for server, usage_flags in self.get_wallet_servers():
@@ -6601,7 +6610,7 @@ class Wallet:
 
         The wallet cannot allow access to the header store as a way of asserting what the wallet
         does or does not know about the blockchain. What the wallet knows about the blockchain
-        is dependent on it's header source, which in the case of a blockchain service provider
+        is dependent on its header source, which in the case of a blockchain service provider
         will have to follow the chain state of that provider.
 
         All chain state access relative to a given wallet should happen through the `Wallet`
