@@ -16,11 +16,6 @@ trigger:
   paths:
     exclude: [ 'README.md', 'docs' ]
 
-pr:
-  - master
-  - releases/*
-  - features/*
-
 variables:
 - group: electrumsv-variables
 - name: wine-build-image
