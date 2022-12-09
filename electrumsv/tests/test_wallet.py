@@ -791,6 +791,8 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
     # Ensure that the keys used by the transaction are present to be linked to.
     account.derive_new_keys_until(RECEIVING_SUBPATH + (2,))
 
+    maturity_height = 100000
+
     db_context = tmp_storage.get_db_context()
     db = db_context.acquire_connection()
     try:
@@ -810,10 +812,10 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         assert tv_rows1[0].account_id == account.get_id()
         assert tv_rows1[0].total == 1044113
 
-        balance = db_functions.read_account_balance(db_context, account.get_id())
+        balance = db_functions.read_account_balance(db_context, account.get_id(), maturity_height)
         assert balance == WalletBalance(0, 0, 0, 1044113)
 
-        balance = db_functions.read_wallet_balance(db_context)
+        balance = db_functions.read_wallet_balance(db_context, maturity_height)
         assert balance == WalletBalance(0, 0, 0, 1044113)
 
         tx_2 = Transaction.from_hex(tx_hex_spend)
@@ -829,10 +831,10 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         assert tv_rows2[0].total == -1044113
 
         # Check the transaction balance.
-        balance = db_functions.read_account_balance(db_context, account.get_id())
+        balance = db_functions.read_account_balance(db_context, account.get_id(), maturity_height)
         assert balance == WalletBalance(0, 0, 0, 0)
 
-        balance = db_functions.read_wallet_balance(db_context)
+        balance = db_functions.read_wallet_balance(db_context, maturity_height)
         assert balance == WalletBalance(0, 0, 0, 0)
 
         # Verify all the transaction outputs are present and are linked to spending inputs.

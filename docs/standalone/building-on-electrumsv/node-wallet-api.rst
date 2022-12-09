@@ -623,6 +623,124 @@ call processing are described above.
                   to be monitored for incoming payments. The error message provides some indication
                   of what happened, but the wallet logs will be needed to diagnose further.
 
+listunspent
+~~~~~~~~~~~
+
+List the unspent outputs within the wallet. This can optionally be filtered by number of
+confirmations or specific addresses.
+
+**Parameters:**
+
+#. ``minconf`` (integer, optional, default=1). Limit the results to the UTXOs with this number or
+   more confirmations.
+#. ``maxconf`` (integer, optional, default=9999999). Limit the results to the UTXOs with this number
+   or less confirmations.
+#. ``addresses`` (list of strings, optional). Limit the results to the UTXOs locked to the
+   provided addresses.
+#. ``include_unsafe`` (bool, optional). This is not supported and if specified will give an
+   ``RPC_INVALID_PARAMETER`` error.
+
+**Returns:**
+
+An array of objects, where each object details a matched UTXO. Each object has the following
+fields:
+
+- ``txid``: The canonically encoded hexadeximal transaction id.
+- ``vout``: The output index in that transaction.
+- ``scriptPubKey``: The hexadecimal encoded output locking script.
+- ``amount``: The number of bitcoin locked in the output.
+- ``confirmations``: Number of mined blocks including the transaction and on top of it.
+- ``spendable``: Whether the output can currently be spent. Unspendable outputs may have been:
+  - Mined as coinbase outputs and not yet mature.
+  - Manually frozen by the user (not doable with the JSON-RPC API).
+  - Tracked by a watch only wallet (not doable with the JSON-RPC API).
+- ``solvable``: Mirrors ``spendable`` for now.
+- ``safe``: Always ``true`` for now.
+- ``address``: Only present if this address was included in the ``addresses`` array and filtered on.
+
+For example, passing ``"params": { "addresses": ["mmne6bSrjwRZk16Y7TkwrrWysiUXZfd9ZY"] }`` returns:
+```
+[
+    {
+        "txid": "023d74ad33de138ef8b98cfd9950dc1b69c5855146e6a64f502a5be92fd626af",
+        "vout": 0,
+        "scriptPubKey":"76a91444c838328b3b9ab6e0ee1f021e281c46fb2804ca88ac",
+        "amount": 50.00000553,
+        "confirmations": 2,
+        "spendable": false,
+        "solvable": true,
+        "safe": true,
+        "address": "mmne6bSrjwRZk16Y7TkwrrWysiUXZfd9ZY"
+    }
+]
+```
+Note that in this case the UTXO is an unspent immature coinbase output, and is not spendable.
+
+**Incompatibilities:**
+
+#. We do not currently support the ``include_unsafe`` parameter, which the node accepts as an
+   flag that unsafe outputs should be returned or not.
+#. It is unclear if our definition of ``spendable`` is the same as the node wallet.
+#. It is unclear if our definition of ``solvable`` is the same as the node wallet.
+#. We do not currently support the ``solvable`` result field.
+#. The node wallet does redundant type checking on the ``minconf`` and ``maxconf`` parameters
+   which would otherwise override the ``RPC_PARSE_ERROR`` with a ``RPC_TYPE_ERROR``. As existing
+   API usage should not be erroring with incorrectly typed parameters, this should not be
+   an important point of compatibility.
+
+**Error responses:**
+
+These errors are the custom errors returned from within this call. Base errors that occur during
+call processing are described above.
+
+- 404 (Not found)
+
+    - :Code: -32601 ``RPC_METHOD_NOT_FOUND``
+      :Message: | ``Method not found (wallet method is disabled because no wallet is loaded)``
+                | The implicit wallet access failed because no wallets are loaded.
+
+- 500 (Internal server error)
+
+    - :Code: -3 ``RPC_TYPE_ERROR``
+      :Message: | ``Expected type list, got <other type>``
+                | The type of the ``addresses`` parameter was not a javascript array, and was
+                  instead some other type here substituted as "<other type>".
+
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``Ambiguous account (found <count>, expected 1)``
+                | A wallet used by the JSON-RPC API must only have one account so that the
+                  API code knows which to make use of. The given wallet has either no accounts
+                  or more than one account (the current number indicated by "<count>").
+
+    - :Code: -5 ``RPC_INVALID_ADDRESS_OR_KEY``
+      :Message: | ``Invalid Bitcoin address: <details>``
+                | An entry in the ``addresses`` parameter was a string but not a valid address.
+                  "<details>" will be substituted for contextual text on the reason the address
+                  is not valid.
+
+    - :Code: -8 ``RPC_INVALID_PARAMETER``
+      :Message: | ``Invalid parameter, duplicated address: <address>``
+                | An entry in the ``addresses`` parameter was specified twice. The node wallet
+                  errors on this, so do we.
+      :Message: | ``Invalid parameter, not supported: include_unsafe``
+                | The ``include_unsafe`` parameter was specified, however we do not support it
+                  at this time.
+      :Message: | ``Invalid parameter, unexpected utxo type: <number>``
+                | A unspent output was encountered that does not have a supported key type for
+                  the JSON-RPC API. This would be if the user is accessing an externally created
+                  account with this API.
+
+    - :Code: -32602 ``RPC_INVALID_PARAMS``
+      :Message: | ``Invalid parameters, see documentation for this call``
+                | Either too few or too many parameters were provided.
+
+    - :Code: -32700 ``RPC_PARSE_ERROR``
+      :Message: | ``JSON value is not a string as expected``
+                | The type of the entries in the ``addresses`` parameter are expected to be strings
+                  and one or more were interpreted as another type.
+      :Message: | ``JSON value is not an integer as expected``
+                | The type of the ``minconf`` or ``maxconf`` parameters are expected to be integers
+                  and one or more were interpreted as another type.
 
 sendtoaddress
 ~~~~~~~~~~~~~
@@ -636,14 +754,14 @@ quote returned by that selected endpoint.
 
 **Parameters:**
 
-#. Address (string, required). The P2PKH address of the recipient.
-#. Amount (numeric or string, required). The amount in BSV to send (e.g. 0.1).
-#. Comment (string, optional). A note to be attached to the transaction in the wallet, for
+#. ``address`` (string, required). The P2PKH address of the recipient.
+#. ``amount`` (numeric or string, required). The amount in BSV to send (e.g. 0.1).
+#. ``comment`` (string, optional). A note to be attached to the transaction in the wallet, for
    reference purposes.
-#. Comment to (string, optional). The node wallet used this to allow the user to specify the name
+#. ``commentto`` (string, optional). The node wallet used this to allow the user to specify the name
    of a person or organisation who is the recipient. If provided this will be appended to the
    preceding comment parameter.
-#. Subtract fee from amount (bool, optional). This is not supported and if passed with a ``true``
+#. ``subtractfeefromamount`` (bool, optional). This is not supported and if passed with a ``true``
    value will give a ``RPC_INVALID_PARAMETER`` error.
 
 **Returns:**
