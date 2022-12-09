@@ -446,8 +446,7 @@ class ExtendedHandlerUtils:
         return accounts
 
     def _coin_state_dto(self, account) -> Dict[str, Any]:
-        all_coins = account.get_transaction_outputs_with_key_and_tx_data(confirmed_only=False,
-            mature=False)
+        all_coins = account.get_transaction_outputs_with_key_and_tx_data(confirmed_only=False)
         unmatured_coins = []
         cleared_coins = []
         settled_coins = []

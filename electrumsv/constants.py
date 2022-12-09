@@ -303,7 +303,6 @@ class TransactionOutputFlag(IntFlag):
     # if allocated then ideally we might extend this to prevent further dispatch in any form.
     FROZEN              = 1 << 3
     COINBASE            = 1 << 4
-    COINBASE_IMMATURE   = 1 << 5
 
 
 class PaymentFlag(IntFlag):

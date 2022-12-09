@@ -505,10 +505,13 @@ class AbstractAccount:
         return cast(str, private_key.to_WIF())
 
     def get_frozen_balance(self) -> WalletBalance:
-        return self._wallet.data.read_account_balance(self._id, TransactionOutputFlag.FROZEN)
+        maturity_height = self._wallet.get_local_height() - 100
+        return self._wallet.data.read_account_balance(self._id, maturity_height,
+            TransactionOutputFlag.FROZEN)
 
     def get_balance(self) -> WalletBalance:
-        return self._wallet.data.read_account_balance(self._id)
+        maturity_height = self._wallet.get_local_height() - 100
+        return self._wallet.data.read_account_balance(self._id, maturity_height)
 
     def get_key_list(self, keyinstance_ids: list[int]|None=None) -> list[KeyListRow]:
         return self._wallet.data.read_key_list(self._id, keyinstance_ids)
@@ -526,20 +529,19 @@ class AbstractAccount:
                 -> Sequence[AccountTransactionOutputSpendableRow]:
         if confirmed_only is None:
             confirmed_only = cast(bool, app_state.config.get('confirmed_only', False))
+        maturity_height = self._wallet.get_local_height() - 100 if mature else None
         return self._wallet.data.read_account_transaction_outputs_with_key_data(self._id,
-            confirmed_only=confirmed_only, exclude_immature=mature,
+            confirmed_only=confirmed_only, maturity_height=maturity_height,
             exclude_frozen=exclude_frozen, keyinstance_ids=keyinstance_ids)
 
     def get_transaction_outputs_with_key_and_tx_data(self, exclude_frozen: bool=True,
-            mature: bool=True, confirmed_only: bool|None=None,
-            keyinstance_ids: list[int]|None=None) \
+            confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None) \
                 -> list[AccountTransactionOutputSpendableRowExtended]:
         if confirmed_only is None:
             confirmed_only = cast(bool, app_state.config.get('confirmed_only', False))
-        mature_height = self._wallet.get_local_height() if mature else None
         return self._wallet.data.read_account_transaction_outputs_with_key_and_tx_data(self._id,
-            confirmed_only=confirmed_only, mature_height=mature_height,
-            exclude_frozen=exclude_frozen, keyinstance_ids=keyinstance_ids)
+            confirmed_only=confirmed_only, exclude_frozen=exclude_frozen,
+            keyinstance_ids=keyinstance_ids)
 
     def get_extended_input_for_spendable_output(self, row: TransactionOutputSpendableProtocol) \
             -> XTxInput:
@@ -1819,12 +1821,12 @@ class WalletDataAccess:
 
     # Accounts.
 
-    def read_account_balance(self, account_id: int,
+    def read_account_balance(self, account_id: int, maturity_height: int,
             txo_flags: TransactionOutputFlag=TransactionOutputFlag.NONE,
             txo_mask: TransactionOutputFlag=TransactionOutputFlag.SPENT,
             exclude_frozen: bool=True) -> WalletBalance:
         return db_functions.read_account_balance(self._db_context,
-            account_id, txo_flags, txo_mask, exclude_frozen)
+            account_id, maturity_height, txo_flags, txo_mask, exclude_frozen)
 
     def update_account_names(self, entries: Iterable[tuple[str, int]]) \
             -> concurrent.futures.Future[None]:
@@ -2380,20 +2382,19 @@ class WalletDataAccess:
     # Transaction outputs.
 
     def read_account_transaction_outputs_with_key_data(self, account_id: int,
-            confirmed_only: bool=False, exclude_immature: bool=False,
+            confirmed_only: bool=False, maturity_height: int|None=None,
             exclude_frozen: bool=False, keyinstance_ids: list[int]|None=None) \
                 -> list[AccountTransactionOutputSpendableRow]:
         return db_functions.read_account_transaction_outputs_with_key_data(
-            self._db_context, account_id, confirmed_only, exclude_immature,
+            self._db_context, account_id, confirmed_only, maturity_height,
             exclude_frozen, keyinstance_ids)
 
     def read_account_transaction_outputs_with_key_and_tx_data(self, account_id: int,
-            confirmed_only: bool=False, mature_height: int|None=None,
-            exclude_frozen: bool=False, keyinstance_ids: list[int]|None=None) \
+            confirmed_only: bool=False, exclude_frozen: bool=False,
+            keyinstance_ids: list[int]|None=None) \
                 -> list[AccountTransactionOutputSpendableRowExtended]:
         return db_functions.read_account_transaction_outputs_with_key_and_tx_data(
-            self._db_context, account_id, confirmed_only, mature_height,
-                exclude_frozen, keyinstance_ids)
+            self._db_context, account_id, confirmed_only, exclude_frozen, keyinstance_ids)
 
     def read_spent_outputs_to_monitor(self) -> list[OutputSpend]:
         return db_functions.read_spent_outputs_to_monitor(self._db_context)

@@ -142,7 +142,6 @@ class CredentialCache:
         if not wallet_path.endswith(DATABASE_EXT):
             wallet_path += DATABASE_EXT
         with self._credential_lock:
-            assert wallet_path not in self._wallet_credentials
             creation_time = time.time()
             encrypted_value = cast(bytes, self._public_key.encrypt_message(password))
             if policy is None or policy & CredentialPolicyFlag.DISCARD_IMMEDIATELY:

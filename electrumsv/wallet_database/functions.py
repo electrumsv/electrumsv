@@ -335,7 +335,7 @@ def delete_payment_request_write(paymentrequest_id: int, db: sqlite3.Connection 
 #   through. Each case statement would need to filter out frozen UTXOs, and a frozen case
 #   would need to be added.
 @replace_db_context_with_connection
-def read_account_balance(db: sqlite3.Connection, account_id: int,
+def read_account_balance(db: sqlite3.Connection, account_id: int, maturity_height: int,
         txo_flags: TransactionOutputFlag=TransactionOutputFlag.NONE,
         txo_mask: TransactionOutputFlag=TransactionOutputFlag.SPENT,
         exclude_frozen: bool=True) -> WalletBalance:
@@ -345,31 +345,29 @@ def read_account_balance(db: sqlite3.Connection, account_id: int,
     sql = (
         "SELECT "
             # Confirmed.
-            "CAST(TOTAL(CASE WHEN TX.flags&? AND TXO.flags&?=? THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&?1 AND "
+                "(TXO.flags&?2=0 OR TX.block_height<=?3) THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "CAST(TOTAL(CASE WHEN TX.flags&? THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&?4 THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
-            "CAST(TOTAL(CASE WHEN TX.flags&? AND TXO.flags&?=? THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&?1 AND "
+                "(TXO.flags&?2!=0 AND TX.block_height>?3) THEN TXO.value ELSE 0 END) AS INT), "
             # Allocated total.
-            "CAST(TOTAL(CASE WHEN TX.flags&? THEN TXO.value ELSE 0 END) AS INT) "
+            "CAST(TOTAL(CASE WHEN TX.flags&?5 THEN TXO.value ELSE 0 END) AS INT) "
         "FROM AccountTransactions ATX "
         "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash ")
     if exclude_frozen:
         sql += "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
     sql += ("INNER JOIN Transactions TX ON TX.tx_hash=ATX.tx_hash "
-        "WHERE ATX.account_id=? AND TXO.keyinstance_id IS NOT NULL AND "
-            "TXO.flags&?=?")
-    # The `COINBASE_IMMATURE` flag is expected to be set on insert unless it is known the
-    # transaction is mature.
-    coinbase_filter_mask = TransactionOutputFlag.COINBASE_IMMATURE
+        "WHERE ATX.account_id=?6 AND TXO.keyinstance_id IS NOT NULL AND "
+            "TXO.flags&?7=?8")
     sql_values = [
-        TxFlags.STATE_SETTLED, coinbase_filter_mask, TransactionOutputFlag.NONE,
+        TxFlags.STATE_SETTLED, TransactionOutputFlag.COINBASE, maturity_height,
         TxFlags.STATE_CLEARED,
-        TxFlags.STATE_SETTLED, coinbase_filter_mask, coinbase_filter_mask,
         TxFlags.MASK_STATE_LOCAL,
         account_id, txo_mask, txo_flags ]
     if exclude_frozen:
-        sql += " AND KI.flags&?=0"
+        sql += " AND KI.flags&?9=0"
         sql_values.append(KeyInstanceFlag.FROZEN)
     row = db.execute(sql, sql_values).fetchone()
     if row is None:
@@ -392,7 +390,7 @@ def read_transaction_block_hashes(db: sqlite3.Connection) -> list[bytes]:
 
 @replace_db_context_with_connection
 def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, account_id: int,
-        confirmed_only: bool=False, exclude_immature: bool=False, exclude_frozen: bool=False,
+        confirmed_only: bool=False, maturity_height: int|None=None, exclude_frozen: bool=False,
         keyinstance_ids: Optional[list[int]]=None) -> list[AccountTransactionOutputSpendableRow]:
     """
     Get the unspent coins in the given account.
@@ -411,8 +409,6 @@ def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, accou
     txo_mask = TransactionOutputFlag.SPENT | TransactionOutputFlag.ALLOCATED
     if exclude_frozen:
         txo_mask |= TransactionOutputFlag.FROZEN
-    if exclude_immature:
-        txo_mask |= TransactionOutputFlag.COINBASE_IMMATURE
 
     sql = (
         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
@@ -425,6 +421,10 @@ def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, accou
     if exclude_frozen:
         sql += " AND KI.flags&?=0"
         sql_values.append(KeyInstanceFlag.FROZEN)
+    if maturity_height is not None:
+        sql += " AND (TXO.flags&?=0 OR TX.block_height<=?)"
+        sql_values.extend([ TransactionOutputFlag.COINBASE, maturity_height ])
+
     if keyinstance_ids is not None:
         sql += " AND TXO.keyinstance_id IN ({})"
         rows = read_rows_by_id(AccountTransactionOutputSpendableRow, db, sql, sql_values,
@@ -438,8 +438,8 @@ def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, accou
 
 @replace_db_context_with_connection
 def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection, account_id: int,
-        confirmed_only: bool=False, exclude_immature: bool=False, exclude_frozen: bool=False,
-        keyinstance_ids: Optional[list[int]]=None) \
+        confirmed_only: bool=False, exclude_frozen: bool=False,
+        keyinstance_ids: list[int]|None=None) \
             -> list[AccountTransactionOutputSpendableRowExtended]:
     """
     Get the unspent coins in the given account extended with transaction fields.
@@ -458,8 +458,6 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
     txo_mask = TransactionOutputFlag.SPENT | TransactionOutputFlag.ALLOCATED
     if exclude_frozen:
         txo_mask |= TransactionOutputFlag.FROZEN
-    if exclude_immature:
-        txo_mask |= TransactionOutputFlag.COINBASE_IMMATURE
 
     sql = (
         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
@@ -473,6 +471,7 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
     if exclude_frozen:
         sql += " AND KI.flags&?=0"
         sql_values.append(KeyInstanceFlag.FROZEN)
+
     if keyinstance_ids is not None:
         sql += " AND TXO.keyinstance_id IN ({})"
         rows = read_rows_by_id(AccountTransactionOutputSpendableRowExtended, db, sql, sql_values,
@@ -1813,6 +1812,7 @@ def read_dpp_messages_by_pr_id(db: sqlite3.Connection, paymentrequest_ids: list[
 
 @replace_db_context_with_connection
 def read_wallet_balance(db: sqlite3.Connection,
+        maturity_height: int,
         txo_flags: TransactionOutputFlag=TransactionOutputFlag.NONE,
         txo_mask: TransactionOutputFlag=TransactionOutputFlag.SPENT,
         exclude_frozen: bool=True) -> WalletBalance:
@@ -1822,28 +1822,24 @@ def read_wallet_balance(db: sqlite3.Connection,
     sql = (
         "SELECT "
             # Confirmed.
-            "CAST(TOTAL(CASE WHEN TX.flags&? AND TXO.flags&?=? THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&?1 AND "
+                "(TXO.flags&?2=0 OR TX.block_height<=?3) THEN TXO.value ELSE 0 END) AS INT), "
             # Unconfirmed total.
-            "CAST(TOTAL(CASE WHEN TX.flags&? THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&?4 THEN TXO.value ELSE 0 END) AS INT), "
             # Unmatured total.
-            "CAST(TOTAL(CASE WHEN TX.flags&? AND TXO.flags&?=? THEN TXO.value ELSE 0 END) AS INT), "
+            "CAST(TOTAL(CASE WHEN TX.flags&?1 AND "
+                "(TXO.flags&?2!=0 AND TX.block_height>?3) THEN TXO.value ELSE 0 END) AS INT), "
             # Allocated total.
-            "CAST(TOTAL(CASE WHEN TX.flags&? THEN TXO.value ELSE 0 END) AS INT) "
+            "CAST(TOTAL(CASE WHEN TX.flags&?5 THEN TXO.value ELSE 0 END) AS INT) "
         "FROM TransactionOutputs TXO "
         "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
-        "WHERE TXO.flags&?=?")
-    # The `COINBASE_IMMATURE` flag is expected to be set on insert unless it is known the
-    # transaction is mature.
-    coinbase_filter_mask = TransactionOutputFlag.COINBASE_IMMATURE
+        "WHERE TXO.flags&?6=?7")
     sql_values = [
-        TxFlags.STATE_SETTLED, coinbase_filter_mask, TransactionOutputFlag.NONE,
-        TxFlags.STATE_CLEARED,
-        TxFlags.STATE_SETTLED, coinbase_filter_mask, coinbase_filter_mask,
-        TxFlags.MASK_STATE_LOCAL,
-        txo_mask, txo_flags ]
+        TxFlags.STATE_SETTLED, TransactionOutputFlag.COINBASE, maturity_height,
+        TxFlags.STATE_CLEARED, TxFlags.MASK_STATE_LOCAL, txo_mask, txo_flags ]
     if exclude_frozen:
-        sql += " AND KI.flags&?=0"
+        sql += " AND KI.flags&?8=0"
         sql_values.append(KeyInstanceFlag.FROZEN)
     cursor = db.execute(sql, sql_values)
     return WalletBalance(*cursor.fetchone())

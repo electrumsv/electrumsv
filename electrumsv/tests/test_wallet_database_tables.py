@@ -683,10 +683,10 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     DERIVATION_DATA2 = b'222'
     DERIVATION_DATA3 = b'333'
     BLOCK_HASH=b'bab'
+    BLOCK_HEIGHT=200
 
     row1 = TransactionOutputShortRow(TX_HASH_COINBASE, TX_INDEX, 50, KEYINSTANCE_ID_1,
-        TXOUT_FLAGS | TransactionOutputFlag.COINBASE | TransactionOutputFlag.COINBASE_IMMATURE,
-        ScriptType.P2PKH, b'')
+        TXOUT_FLAGS | TransactionOutputFlag.COINBASE, ScriptType.P2PKH, b'')
     row2 = TransactionOutputShortRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID_2, TXOUT_FLAGS,
         ScriptType.P2PKH, b'')
     row3 = TransactionOutputShortRow(TX_HASH, TX_INDEX+1, 200, KEYINSTANCE_ID_3, TXOUT_FLAGS,
@@ -701,7 +701,7 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     # Satisfy the transaction foreign key constraint by creating the transaction.
     tx_rows = [
         TransactionRow(tx_hash=TX_HASH_COINBASE, tx_bytes=TX_BYTES_COINBASE,
-            flags=TxFlags.STATE_SETTLED, block_height=10,
+            flags=TxFlags.STATE_SETTLED, block_height=BLOCK_HEIGHT,
             block_hash=BLOCK_HASH, block_position=None, fee_value=2, description=None,
             version=None, locktime=None, date_created=1, date_updated=1),
         TransactionRow(tx_hash=TX_HASH, tx_bytes=TX_BYTES, flags=TxFlags.STATE_CLEARED,
@@ -789,69 +789,18 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     ## Test `read_account_transaction_outputs_with_key_data`.
     # Verify that the `mature_height` parameter works for this method.
     txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
-        exclude_immature=True)
+        maturity_height=BLOCK_HEIGHT-1)
     assert len(txos_rows) == 2
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
     assert txos_rows[0].tx_hash == TX_HASH and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX+1
-
-    # Manually clear the COINBASE_IMMATURE flag on the transaction output.
-    future = db_functions.update_transaction_output_flags(db_context,
-        [ Outpoint(TX_HASH_COINBASE, TX_INDEX) ], TransactionOutputFlag.NONE,
-        TransactionOutputFlag(~TransactionOutputFlag.COINBASE_IMMATURE))
-    future.result()
 
     txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
-        exclude_immature=True)
+        maturity_height=BLOCK_HEIGHT)
     assert len(txos_rows) == 3
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
-
-    # Manually set the COINBASE_IMMATURE flag on the transaction output again.
-    future = db_functions.update_transaction_output_flags(db_context,
-        [ Outpoint(TX_HASH_COINBASE, TX_INDEX) ], TransactionOutputFlag.COINBASE_IMMATURE)
-    future.result()
-
-    # Verify that the `mature_height` parameter works for this method.
-    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
-        ACCOUNT_ID, exclude_immature=True)
-    assert len(txos_rows) == 2
-    txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
-    assert txos_rows[0].tx_hash == TX_HASH and txos_rows[0].txo_index == TX_INDEX
-    assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX+1
-
-    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
-        ACCOUNT_ID)
-    assert len(txos_rows) == 3
-    assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
-    assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
-    assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
-
-    # Manually clear the COINBASE_IMMATURE flag on the transaction output.
-    future = db_functions.update_transaction_output_flags(db_context,
-        [ Outpoint(TX_HASH_COINBASE, TX_INDEX) ], TransactionOutputFlag.NONE,
-        TransactionOutputFlag(~TransactionOutputFlag.COINBASE_IMMATURE))
-    future.result()
-
-    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
-        ACCOUNT_ID)
-    assert len(txos_rows) == 3
-    assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
-    assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
-    assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
-
-    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
-        ACCOUNT_ID, exclude_immature=True)
-    assert len(txos_rows) == 3
-    assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
-    assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
-    assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
-
-    # Manually set the COINBASE_IMMATURE flag on the transaction output again.
-    future = db_functions.update_transaction_output_flags(db_context,
-        [ Outpoint(TX_HASH_COINBASE, TX_INDEX) ], TransactionOutputFlag.COINBASE_IMMATURE)
-    future.result()
 
     # Verify that the `confirmed_only` parameter works for this method.
     txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
@@ -862,7 +811,7 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
     txos_rows = db_functions.read_account_transaction_outputs_with_key_data(db_context, ACCOUNT_ID,
-        confirmed_only=True)
+        confirmed_only=True, maturity_height=BLOCK_HEIGHT)
     assert len(txos_rows) == 1
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
 
@@ -880,33 +829,29 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
 
     # Balances WRT mature_height.
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, BLOCK_HEIGHT-1)
     assert balance == WalletBalance(0, row2.value + row3.value, row1.value, 0)
-    balance = db_functions.read_wallet_balance(db_context)
+    balance = db_functions.read_wallet_balance(db_context, BLOCK_HEIGHT-1)
     assert balance == WalletBalance(0, row2.value + row3.value, row1.value, 0)
 
-    # Manually clear the COINBASE_IMMATURE flag on the transaction output.
-    future = db_functions.update_transaction_output_flags(db_context,
-        [ Outpoint(TX_HASH_COINBASE, TX_INDEX) ], TransactionOutputFlag.NONE,
-        TransactionOutputFlag(~TransactionOutputFlag.COINBASE_IMMATURE))
-    future.result()
-
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, BLOCK_HEIGHT)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_wallet_balance(db_context)
+    balance = db_functions.read_wallet_balance(db_context, BLOCK_HEIGHT)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
 
     ## We are going to freeze the output we do not plan to spend, and verify that it is factored
     ## into account and wallet balances.
     # Balances with no frozen TXO.
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=False)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, BLOCK_HEIGHT,
+        exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=True)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, BLOCK_HEIGHT,
+        exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
 
-    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=False)
+    balance = db_functions.read_wallet_balance(db_context, BLOCK_HEIGHT, exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=True)
+    balance = db_functions.read_wallet_balance(db_context, BLOCK_HEIGHT, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
 
     # Add a key flag. In this case `FROZEN`.
@@ -915,14 +860,14 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     # Balances with a frozen TXO present.
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=False)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, BLOCK_HEIGHT, exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=True)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, BLOCK_HEIGHT, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row3.value, 0, 0)
 
-    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=False)
+    balance = db_functions.read_wallet_balance(db_context, BLOCK_HEIGHT, exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=True)
+    balance = db_functions.read_wallet_balance(db_context, BLOCK_HEIGHT, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row3.value, 0, 0)
 
     # `read_account_transaction_outputs_with_key_data`. Spendable TXOs based on `FROZEN` flag.
@@ -967,14 +912,16 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     # Balances with a frozen TXO present.
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=False)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, BLOCK_HEIGHT,
+        exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, exclude_frozen=True)
+    balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, BLOCK_HEIGHT,
+        exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row3.value, 0, 0)
 
-    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=False)
+    balance = db_functions.read_wallet_balance(db_context, BLOCK_HEIGHT, exclude_frozen=False)
     assert balance == WalletBalance(row1.value, row2.value + row3.value, 0, 0)
-    balance = db_functions.read_wallet_balance(db_context, exclude_frozen=True)
+    balance = db_functions.read_wallet_balance(db_context, BLOCK_HEIGHT, exclude_frozen=True)
     assert balance == WalletBalance(row1.value, row3.value, 0, 0)
 
     # `read_account_transaction_outputs_with_key_data`. Spendable TXOs based on `FROZEN` flag.
