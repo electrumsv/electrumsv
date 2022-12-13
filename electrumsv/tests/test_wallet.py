@@ -729,7 +729,7 @@ async def test_transaction_script_offsets_and_lengths(mock_app_state, tmp_storag
             BlockHeight.LOCAL)
 
         # Verify all the transaction outputs are present and are linked to spending inputs.
-        txo_rows = db_functions.read_transaction_outputs_full(db_context)
+        txo_rows = db_functions.UNITTEST_read_transaction_outputs_all(db_context)
         assert len(txo_rows) == 2
 
         tx_data = db_functions.read_transaction_bytes(db_context, tx_hash_1)
@@ -753,7 +753,7 @@ async def test_transaction_script_offsets_and_lengths(mock_app_state, tmp_storag
             b"\xad'\xed\xee6SP\xb6;P$\xa8\xf8\x16\x8er\x97\xbd\xd7\x0b",
             Ops.OP_EQUALVERIFY, Ops.OP_CHECKSIG]
 
-        txi_rows = db_functions.read_transaction_inputs_full(db_context)
+        txi_rows = db_functions.UNITTEST_read_transaction_inputs_all(db_context)
         assert len(txi_rows) == 1
 
         assert txi_rows[0].txi_index == 0
@@ -838,7 +838,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         assert balance == WalletBalance(0, 0, 0, 0)
 
         # Verify all the transaction outputs are present and are linked to spending inputs.
-        txof_rows = db_functions.read_transaction_outputs_full(db_context)
+        txof_rows = db_functions.UNITTEST_read_transaction_outputs_all(db_context)
         assert len(txof_rows) == 3
         # tx_1.output0 is linked to the first key.
         assert txof_rows[0].tx_hash == tx_hash_1 and txof_rows[0].txo_index == 0 and \
@@ -1133,7 +1133,7 @@ def test_wallet_migration_database_script_metadata(mock_app_state) -> None:
             tx_data = db_functions.read_transaction_bytes(db_context, tx_hash)
             assert tx_data is not None
 
-            txi_rows = db_functions.read_transaction_inputs_full(db_context)
+            txi_rows = db_functions.UNITTEST_read_transaction_inputs_all(db_context)
             assert len(txi_rows) == 10
             assert txi_rows[0].txi_index == 0
             assert txi_rows[0].script_offset == 42
@@ -1142,7 +1142,7 @@ def test_wallet_migration_database_script_metadata(mock_app_state) -> None:
                 txi_rows[0].script_length])
             assert list(script.ops()) == [b"0D\x02 ?\x8e^ht\xdd\xd7\xd1s^\x0f)\x18\x0b,\x7fB\x1f\xe7i(\\\xc7\x8f>\x1c\x8eHM\x94\x080\x02 \x07`\x82\xfb\xaf\xdf\xa9\x00'\xb9\xd89RY\xa7\xad\x9f\xcb\x83\xf2\xbe\xabC\x0e\xe7G|\x99*'\x11tA", b'\x02\x1f\x03\xb5\xa2\xf6T+\xaca\x9a\xa3\x82n\xdb\x90\x04k\xb2\x8c\xc8ot\xd3\xf5{\xa9ie\x81\xb5\x95"']
 
-            txo_rows = db_functions.read_transaction_outputs_full(db_context)
+            txo_rows = db_functions.UNITTEST_read_transaction_outputs_all(db_context)
             assert len(txo_rows) == 1
 
             assert txo_rows[0].txo_index == 0

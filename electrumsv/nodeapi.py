@@ -62,8 +62,8 @@ from bitcoinx import Address, hash_to_hex_str, Script
 
 from .app_state import app_state
 from .bitcoin import COIN, script_template_to_string
-from .constants import CredentialPolicyFlag, DerivationType, \
-    NetworkServerFlag, PaymentFlag, TransactionImportFlag, TransactionOutputFlag
+from .constants import CredentialPolicyFlag, DerivationType, NetworkServerFlag, PaymentFlag, \
+    TransactionImportFlag, TransactionOutputFlag, TxFlags
 from .exceptions import BroadcastError, InvalidPassword, NotEnoughFunds
 from .logs import logs
 from .networks import Net
@@ -644,12 +644,10 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
                             message=f"Invalid parameter, duplicated address: {entry_value}"))))
             filter_addresses.add(address)
 
+    only_safe = True
     if len(parameter_values) > 3 and parameter_values[3] is not None:
-        # Incompatibility: Raises RPC_INVALID_PARAMETER if the `include_unsafe` is provided.
-        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
-            text=json.dumps(ResponseDict(id=request_id, result=None,
-                error=ErrorDict(code=INVALID_PARAMETER,
-                    message="Invalid parameter, not supported: include_unsafe"))))
+        include_unsafe = get_bool_parameter(request_id, parameter_values[3])
+        only_safe = not include_unsafe
 
     class NodeUnspentOutputDict(TypedDict):
         # The UTXO outpoint.
@@ -672,7 +670,7 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
     wallet_height = wallet.get_local_height()
     results: list[NodeUnspentOutputDict] = []
     for utxo_data in account.get_transaction_outputs_with_key_and_tx_data(
-            exclude_frozen=False, confirmed_only=confirmed_only):
+            exclude_frozen=True, confirmed_only=confirmed_only):
         assert utxo_data.derivation_data2 is not None
         if utxo_data.derivation_type != DerivationType.BIP32_SUBPATH:
             raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
@@ -699,9 +697,70 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
         if confirmations < minimum_confirmations or confirmations > maximum_confirmations:
             continue
 
-        spendable = can_spend and utxo_data.flags & TransactionOutputFlag.FROZEN == 0
-        if spendable and utxo_data.flags & TransactionOutputFlag.COINBASE != 0:
-            spendable = confirmations >= 100
+        # Condition 1:
+        # - Not if the given transaction is non-final.
+        #   ElectrumSV take: All transactions in the database as of 2022-12 are final.
+
+        # Condition 2:
+        # - Not if the given transaction is an immature coinbase transaction.
+        if utxo_data.flags & TransactionOutputFlag.COINBASE != 0 and confirmations < 100:
+            continue
+
+        # Condition 3 / 4:
+        # - Not if the given transaction's depth in the main chain less than zero.
+        #   wallet.cpp:GetDepthInMainChain
+        #   - If there is no block hash the height is the MEMPOOL_HEIGHT constant.
+        #     - Any local signed transaction is presumably broadcastable or abandoned.
+        #   - If the transaction is on a block on the wallet's chain, then the depth is
+        #     the positive height of that anointed as legitimate block.
+        #   - If the transaction is on a block on a fork, then the depth is the negative height
+        #     of that forked block.
+        # - Not if the given transaction's depth is 0 but it's not in our mempool.
+
+        # ElectrumSV take: We only set `block_hash` (and `STATE_SETTLED`) on transactions on the
+        #     wallet's main chain. We can only know if a transaction is in a mempool if
+        #     we have broadcast it (and set `STATE_CLEARED`). Our best equivalent to this is
+        #     `MASK_STATE_BROADCAST` which is just both those flags.
+        if utxo_data.tx_flags & TxFlags.MASK_STATE_BROADCAST == 0:
+            continue
+
+        # Condition 5: Is the given transaction trusted? (wallet.cpp:CWalletTx::IsTrusted)
+        # - Not if the given transaction is non-final.
+        # - Yes if the given transaction has at least one confirmation.
+        # - Not if the given transaction is in a block on another fork.
+        # - Not if the wallet is configured to not spend "zero confirmation change" (which the node
+        #   wallet defaults to setting to spend).
+        # - Not if the given transaction is not funded by ourselves (note that this is not tied to
+        #   the use of a change derivation path).
+        # - Not if the given known to be unconfirmed transaction is not in "this node's"  mempool.
+        # - Not if any of the funding does not come from us.
+        # - Not if our funding is not spendable by us (we can produce a signature / have the key).
+
+        # ElectrumSV take:
+        # - We do not get non-final transactions here.
+        # - We have already filtered out non-broadcast/non-mined transactions.
+        # - We do not have a setting for whether to spend "zero confirmation change" or not but we
+        #   do have a setting for "only spend confirmed coins" (we default this to no). These are
+        #   not the same thing.
+        #   - Read all the funding TXOs, if we have them all and they have keys, then we are
+        #     meeting this constraint.
+        # - Basically it comes down to the latter. A trusted coin is one from any confirmed
+        #   transaction or one that comes from an coin in an unconfirmed transaction that we
+        #   completely funded ourselves. We treat "zero confirmation change" as true and do not
+        #   provide a way to disable it.
+        safe = True
+        if confirmations == 0:
+            for funding_row in wallet.data.read_parent_transaction_outputs_with_key_data(
+                    utxo_data.tx_hash, include_absent=True):
+                # This will exit on funding by unknown transactions and also on funding by external
+                # transactions we do not have the keys for.
+                if funding_row.keyinstance_id is None:
+                    safe = False
+                    break
+
+        if only_safe and not safe:
+            continue
+
         utxo_entry: NodeUnspentOutputDict = {
             "txid": hash_to_hex_str(utxo_data.tx_hash),
             "vout": utxo_data.txo_index,
@@ -709,10 +768,14 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
             "scriptPubKey": address.to_script_bytes().hex(),
             "amount": utxo_data.value/COIN,
             "confirmations": confirmations,
-            "spendable": spendable,
-            "solvable": can_spend,
-            # Compatibility: We do not bother calculating this.
-            "safe": True,
+            # From the node: "Whether we have the private keys to spend this output."
+            "spendable": utxo_data.keyinstance_id is not None,
+            # From the node: "Whether we know how to spend this output, ignoring the lack of keys."
+            "solvable": True,
+            # From the node: "Whether this output is considered safe to spend. Unconfirmed
+            #     transactions from outside keys are considered unsafe and will not be used to fund
+            #     new spending transactions."
+            "safe": safe,
         }
         if filter_addresses is not None:
             utxo_entry["address"] = address.to_string()

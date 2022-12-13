@@ -59,10 +59,10 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     PushDataMatchRow, PushDataHashRegistrationRow, ServerPeerChannelRow,
     PeerChannelMessageRow, SpendConflictType, SpentOutputRow, TransactionDeltaSumRow,
     TransactionExistsRow, TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
-    TransactionOutputSpendableRow, TransactionValueRow, TransactionOutputFullRow,
-    TransactionOutputShortRow, TransactionProoflessRow, TxProofData, TransactionProofUpdateRow,
-    TransactionRow, MerkleProofRow, WalletBalance, WalletDataRow, WalletEventInsertRow,
-    WalletEventRow)
+    TransactionOutputShortRow, TransactionOutputSpendRow, TransactionOutputSpendableRow,
+    TransactionValueRow, TransactionOutputFullRow, TransactionProoflessRow, TxProofData,
+    TransactionProofUpdateRow, TransactionRow, MerkleProofRow, WalletBalance, WalletDataRow,
+    WalletEventInsertRow, WalletEventRow)
 from .util import flag_clause
 
 logger = logs.get_logger("db-functions")
@@ -167,14 +167,26 @@ def create_dpp_messages(entries: list[DPPMessageRow], db: Optional[sqlite3.Conne
     db.executemany(sql, entries)
 
 
-def create_transaction_outputs(db_context: DatabaseContext,
+def UNITTEST_create_transaction_inputs(db_context: DatabaseContext,
+        entries: list[TransactionInputAddRow]) -> concurrent.futures.Future[None]:
+    sql = "INSERT INTO TransactionInputs (tx_hash, txi_index, spent_tx_hash, spent_txo_index, " \
+        "sequence, flags, script_offset, script_length, date_created, date_updated) " \
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+    def _write(db: sqlite3.Connection|None=None) -> None:
+        assert db is not None and isinstance(db, sqlite3.Connection)
+        cursor = db.executemany(sql, entries)
+        assert cursor.rowcount == len(entries)
+    return db_context.post_to_thread(_write)
+
+
+def UNITTEST_create_transaction_outputs(db_context: DatabaseContext,
         entries: Iterable[TransactionOutputShortRow]) -> concurrent.futures.Future[None]:
     sql = ("INSERT INTO TransactionOutputs (tx_hash, txo_index, value, keyinstance_id, "
         "flags, script_type, script_hash, date_created, date_updated) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    timestamp = get_posix_timestamp()
+        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
+    timestamp = int(time.time())
     db_rows = [ (*t, timestamp, timestamp) for t in entries ]
-    def _write(db: Optional[sqlite3.Connection]=None) -> None:
+    def _write(db: sqlite3.Connection|None=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(sql, db_rows)
     return db_context.post_to_thread(_write)
@@ -855,24 +867,25 @@ def read_masterkeys(db: sqlite3.Connection) -> list[MasterKeyRow]:
 
 
 @replace_db_context_with_connection
-def read_parent_transaction_outputs_with_key_data(db: sqlite3.Connection, tx_hash: bytes) \
-        -> list[TransactionOutputSpendableRow]:
+def read_parent_transaction_outputs_with_key_data(db: sqlite3.Connection, tx_hash: bytes,
+        include_absent: bool) -> list[TransactionOutputSpendRow]:
     """
     When we have the spending transaction in the database, we can look up the outputs using
     the database and do not have to provide the spent output keys.
     """
+    join_type = "LEFT" if include_absent else "INNER"
     sql_values = (tx_hash,)
     sql = (
-        "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
-            "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, "
+        "SELECT TXI.txi_index, TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, "
+            "TXO.script_type, TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, "
             "KI.derivation_data2 "
         "FROM TransactionInputs TXI "
-        "INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash "
+        f"{join_type} JOIN TransactionOutputs TXO ON TXO.tx_hash=TXI.spent_tx_hash "
             "AND TXO.txo_index=TXI.spent_txo_index "
         "LEFT JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
         "WHERE TXI.tx_hash=?")
     cursor = db.execute(sql, sql_values)
-    rows = [ TransactionOutputSpendableRow(*row) for row in cursor.fetchall() ]
+    rows = [ TransactionOutputSpendRow(*row) for row in cursor.fetchall() ]
     cursor.close()
     return rows
 
@@ -1222,7 +1235,7 @@ def read_transaction_outputs_explicit(db: sqlite3.Connection, output_ids: list[O
 
 
 @replace_db_context_with_connection
-def read_transaction_inputs_full(db: sqlite3.Connection) -> list[TransactionInputAddRow]:
+def UNITTEST_read_transaction_inputs_all(db: sqlite3.Connection) -> list[TransactionInputAddRow]:
     """
     Read all the transaction outputs for the given outpoints if they exist.
     """
@@ -1238,7 +1251,7 @@ def read_transaction_inputs_full(db: sqlite3.Connection) -> list[TransactionInpu
 
 
 @replace_db_context_with_connection
-def read_transaction_outputs_full(db: sqlite3.Connection,
+def UNITTEST_read_transaction_outputs_all(db: sqlite3.Connection,
         output_ids: Optional[list[Outpoint]]=None) -> list[TransactionOutputFullRow]:
     """
     Read all the transaction outputs for the given outpoints if they exist.

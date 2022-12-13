@@ -21,8 +21,8 @@ except ModuleNotFoundError:
 
 from electrumsv.constants import (AccountFlags, AccountTxFlags, BlockHeight, DerivationType,
     KeyInstanceFlag, MAPIBroadcastFlag, MasterKeyFlags, NetworkServerFlag, NetworkServerType,
-    PaymentFlag, PeerChannelMessageFlag, ScriptType, ServerPeerChannelFlag, TransactionOutputFlag,
-    TxFlags, WalletEventFlag, WalletEventType)
+    PaymentFlag, PeerChannelMessageFlag, ScriptType, ServerPeerChannelFlag, TransactionInputFlag,
+    TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
 from electrumsv.types import Outpoint, ServerAccountKey
 from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
@@ -31,8 +31,8 @@ from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
     MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestOutputRow,
     PaymentRequestRow, PaymentRequestUpdateRow, PeerChannelMessageRow, ServerPeerChannelRow,
-    TransactionOutputShortRow, TransactionProofUpdateRow, TransactionRow, WalletBalance,
-    WalletEventInsertRow)
+    TransactionInputAddRow, TransactionOutputShortRow, TransactionProofUpdateRow, TransactionRow,
+    WalletBalance, WalletEventInsertRow)
 
 from .util import mock_headers, PasswordToken
 
@@ -667,6 +667,165 @@ def test_table_transactionproofs_CRUD(db_context: DatabaseContext) -> None:
         db_context.release_connection(db_connection)
 
 
+def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
+    # TX_BYTES_COINBASE = os.urandom(100)
+    # TX_HASH_COINBASE = bitcoinx.double_sha256(TX_BYTES_COINBASE)
+
+    SPENT_TX_1_BYTES = os.urandom(100)
+    SPENT_TX_1_HASH = bitcoinx.double_sha256(SPENT_TX_1_BYTES)
+    SPENT_TX_1_TXO_INDEX_1 = 0
+
+    OTHER_TX_1_BYTES = os.urandom(100)
+    OTHER_TX_1_HASH = bitcoinx.double_sha256(OTHER_TX_1_BYTES)
+    OTHER_TX_1_TXO_INDEX_1 = 0
+
+    FUNDED_TX_1_BYTES = os.urandom(100)
+    FUNDED_TX_1_HASH = bitcoinx.double_sha256(FUNDED_TX_1_BYTES)
+    FUNDED_TX_1_TXI_INDEX_1 = 0
+    FUNDED_TX_1_TXI_INDEX_2 = 1
+    FUNDED_TX_1_TXO_INDEX_1 = 0
+    FUNDED_TX_1_TXO_INDEX_2 = 1
+
+    TXIN_FLAGS = TransactionInputFlag.NONE
+    TXOUT_FLAGS = TransactionOutputFlag.NONE
+    KEYINSTANCE_ID_1 = 1
+    KEYINSTANCE_ID_2 = 2
+    KEYINSTANCE_ID_3 = 3
+    ACCOUNT_ID = 10
+    MASTERKEY_ID = 20
+    DERIVATION_DATA1 = b'111'
+    DERIVATION_DATA2 = b'222'
+    DERIVATION_DATA3 = b'333'
+    BLOCK_HASH=b'bab'
+    BLOCK_HEIGHT=200
+
+    funded_tx_1_txi_row_1 = TransactionInputAddRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXI_INDEX_1,
+        SPENT_TX_1_HASH, SPENT_TX_1_TXO_INDEX_1, 0xFFFFFFFF, TXIN_FLAGS, 0, 0, 20221213, 20221213)
+    other_tx_1_txi_row_1 = TransactionInputAddRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXI_INDEX_2,
+        OTHER_TX_1_HASH, OTHER_TX_1_TXO_INDEX_1, 0xFFFFFFFF, TXIN_FLAGS, 0, 0, 20221213, 20221213)
+
+    # No effect: The transactioninput foreign key constraint will fail as the transaction
+    # does not exist.
+    with pytest.raises(sqlite3.IntegrityError):
+        future = db_functions.UNITTEST_create_transaction_inputs(db_context,
+            [ funded_tx_1_txi_row_1 ])
+        future.result(timeout=5)
+
+    # Satisfy the transaction foreign key constraint by creating the transaction.
+    transaction_rows = [
+        TransactionRow(tx_hash=FUNDED_TX_1_HASH, tx_bytes=FUNDED_TX_1_BYTES,
+            flags=TxFlags.STATE_CLEARED, block_height=BlockHeight.MEMPOOL,
+            block_hash=None, block_position=None, fee_value=2, description=None,
+            version=None, locktime=None, date_created=1, date_updated=1),
+        TransactionRow(tx_hash=SPENT_TX_1_HASH, tx_bytes=SPENT_TX_1_BYTES,
+            flags=TxFlags.STATE_SETTLED, block_height=BLOCK_HEIGHT, block_hash=BLOCK_HASH,
+            block_position=None, fee_value=2, description=None, version=None, locktime=None,
+            date_created=1, date_updated=1)
+    ]
+    future = db_functions.create_transactions_UNITTEST(db_context, transaction_rows)
+    future.result(timeout=5)
+
+    # Satisfy the masterkey foreign key constraint by creating the masterkey.
+    future = db_functions.create_master_keys(db_context, [
+        MasterKeyRow(MASTERKEY_ID, None, DerivationType.ELECTRUM_MULTISIG, b'111',
+            MasterKeyFlags.NONE) ])
+    future.result(timeout=5)
+
+    # Satisfy the account foreign key constraint by creating the account.
+    account_row = AccountRow(ACCOUNT_ID, MASTERKEY_ID, ScriptType.P2PKH, 'name',
+        AccountFlags.NONE, None, None)
+    future = db_functions.create_accounts(db_context, [ account_row ])
+    future.result()
+
+    future = db_functions.create_account_transactions_UNITTEST(db_context, [
+        AccountTransactionRow(ACCOUNT_ID, FUNDED_TX_1_HASH, AccountTxFlags.NONE, None, 1, 1),
+        AccountTransactionRow(ACCOUNT_ID, SPENT_TX_1_HASH, AccountTxFlags.NONE, None, 1, 1),
+    ])
+    future.result(timeout=5)
+
+    # Satisfy the keyinstance foreign key constraint by creating the keyinstance.
+    keyinstance_rows = [
+        KeyInstanceRow(KEYINSTANCE_ID_1, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
+            DERIVATION_DATA1, DERIVATION_DATA1, KeyInstanceFlag.NONE, None),
+        KeyInstanceRow(KEYINSTANCE_ID_2, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
+            DERIVATION_DATA2, DERIVATION_DATA2, KeyInstanceFlag.NONE, None),
+        KeyInstanceRow(KEYINSTANCE_ID_3, ACCOUNT_ID, MASTERKEY_ID, DerivationType.BIP32,
+            DERIVATION_DATA3, DERIVATION_DATA3, KeyInstanceFlag.NONE, None),
+    ]
+    future = db_functions.create_keyinstances(db_context, keyinstance_rows)
+    future.result(timeout=5)
+
+    row1 = TransactionOutputShortRow(SPENT_TX_1_HASH, SPENT_TX_1_TXO_INDEX_1, 301,
+        KEYINSTANCE_ID_3, TXOUT_FLAGS, ScriptType.P2PKH, b'')
+    row2 = TransactionOutputShortRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_1, 100,
+        KEYINSTANCE_ID_2, TXOUT_FLAGS, ScriptType.P2PKH, b'')
+    row3 = TransactionOutputShortRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_2, 200,
+        KEYINSTANCE_ID_3, TXOUT_FLAGS, ScriptType.P2PKH, b'')
+
+    # Create some UTXOs for the funded transaction.
+    future = db_functions.UNITTEST_create_transaction_outputs(db_context, [ row1, row2, row3 ])
+    future.result(timeout=5)
+
+    # Insert our funding TXI for the funded transaction.
+    future = db_functions.UNITTEST_create_transaction_inputs(db_context, [ funded_tx_1_txi_row_1,
+        other_tx_1_txi_row_1 ])
+    future.result(timeout=5)
+
+    # No effect: The primary key constraint will prevent any conflicting entry from being added.
+    with pytest.raises(sqlite3.IntegrityError):
+        future = db_functions.UNITTEST_create_transaction_inputs(db_context,
+            [ funded_tx_1_txi_row_1, other_tx_1_txi_row_1 ])
+        future.result(timeout=5)
+
+    # List the funding output rows for the given transaction.
+    results = db_functions.read_parent_transaction_outputs_with_key_data(db_context,
+        FUNDED_TX_1_HASH, include_absent=False)
+    assert len(results) == 1
+    assert results[0].txi_index == funded_tx_1_txi_row_1.txi_index
+    assert results[0].tx_hash == funded_tx_1_txi_row_1.spent_tx_hash
+    assert results[0].txo_index == funded_tx_1_txi_row_1.spent_txo_index
+    assert results[0].value == row1.value
+    assert results[0].keyinstance_id == row1.keyinstance_id
+    assert results[0].script_type == row1.script_type
+    assert results[0].flags == row1.flags
+    assert results[0].account_id == keyinstance_rows[2].account_id
+    assert results[0].masterkey_id == keyinstance_rows[2].masterkey_id
+    assert results[0].derivation_type == keyinstance_rows[2].derivation_type
+    assert results[0].derivation_data2 == keyinstance_rows[2].derivation_data2
+
+    # List the funding output rows for the given transaction but include blank rows for inputs we
+    # do not have the funding outputs for.
+    results = db_functions.read_parent_transaction_outputs_with_key_data(db_context,
+        FUNDED_TX_1_HASH, include_absent=True)
+    assert len(results) == 2
+    # Ensure ordering is by input index.
+    results = sorted(results)
+    assert results[0].txi_index == funded_tx_1_txi_row_1.txi_index
+    assert results[0].tx_hash == funded_tx_1_txi_row_1.spent_tx_hash
+    assert results[0].txo_index == funded_tx_1_txi_row_1.spent_txo_index
+    assert results[0].value == row1.value
+    assert results[0].keyinstance_id == row1.keyinstance_id
+    assert results[0].script_type == row1.script_type
+    assert results[0].flags == row1.flags
+    assert results[0].account_id == keyinstance_rows[2].account_id
+    assert results[0].masterkey_id == keyinstance_rows[2].masterkey_id
+    assert results[0].derivation_type == keyinstance_rows[2].derivation_type
+    assert results[0].derivation_data2 == keyinstance_rows[2].derivation_data2
+
+    assert results[1].txi_index == other_tx_1_txi_row_1.txi_index
+    assert results[1].tx_hash is None
+    assert results[1].txo_index is None
+    assert results[1].value is None
+    assert results[1].keyinstance_id is None
+    assert results[1].script_type is None
+    assert results[1].flags is None
+    assert results[1].account_id is None
+    assert results[1].masterkey_id is None
+    assert results[1].derivation_type is None
+    assert results[1].derivation_data2 is None
+
+
+
 def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     TX_BYTES_COINBASE = os.urandom(100)
     TX_HASH_COINBASE = bitcoinx.double_sha256(TX_BYTES_COINBASE)
@@ -695,7 +854,7 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     # No effect: The transactionoutput foreign key constraint will fail as the transactionoutput
     # does not exist.
     with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.create_transaction_outputs(db_context, [ row2 ])
+        future = db_functions.UNITTEST_create_transaction_outputs(db_context, [ row2 ])
         future.result(timeout=5)
 
     # Satisfy the transaction foreign key constraint by creating the transaction.
@@ -742,12 +901,12 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     future.result(timeout=5)
 
     # Create the first and second row.
-    future = db_functions.create_transaction_outputs(db_context, [ row1, row2, row3 ])
+    future = db_functions.UNITTEST_create_transaction_outputs(db_context, [ row1, row2, row3 ])
     future.result(timeout=5)
 
     # No effect: The primary key constraint will prevent any conflicting entry from being added.
     with pytest.raises(sqlite3.IntegrityError):
-        future = db_functions.create_transaction_outputs(db_context, [ row2 ])
+        future = db_functions.UNITTEST_create_transaction_outputs(db_context, [ row2 ])
         future.result(timeout=5)
 
     ## Test `read_transaction_outputs_with_key_data` for the `derivation_data2` path.
@@ -1164,7 +1323,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     txo_row1 = TransactionOutputShortRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID+1, TXOUT_FLAGS,
         ScriptType.P2PKH, b'')
 
-    future = db_functions.create_transaction_outputs(db_context, [ txo_row1 ])
+    future = db_functions.UNITTEST_create_transaction_outputs(db_context, [ txo_row1 ])
     future.result(timeout=5)
 
     account_transaction_entries = [

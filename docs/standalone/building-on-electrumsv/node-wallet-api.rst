@@ -635,10 +635,10 @@ confirmations or specific addresses.
    more confirmations.
 #. ``maxconf`` (integer, optional, default=9999999). Limit the results to the UTXOs with this number
    or less confirmations.
-#. ``addresses`` (list of strings, optional). Limit the results to the UTXOs locked to the
-   provided addresses.
-#. ``include_unsafe`` (bool, optional). This is not supported and if specified will give an
-   ``RPC_INVALID_PARAMETER`` error.
+#. ``addresses`` (list of strings, optional, default=null). Limit the results to the UTXOs locked
+   to the provided addresses.
+#. ``include_unsafe`` (bool, optional, default=false). Safe coins are confirmed or unconfirmed and
+   fully funded by ourselves. By default they are not included in the set of returned coins.
 
 **Returns:**
 
@@ -650,12 +650,10 @@ fields:
 - ``scriptPubKey``: The hexadecimal encoded output locking script.
 - ``amount``: The number of bitcoin locked in the output.
 - ``confirmations``: Number of mined blocks including the transaction and on top of it.
-- ``spendable``: Whether the output can currently be spent. Unspendable outputs may have been:
-  - Mined as coinbase outputs and not yet mature.
-  - Manually frozen by the user (not doable with the JSON-RPC API).
-  - Tracked by a watch only wallet (not doable with the JSON-RPC API).
-- ``solvable``: Mirrors ``spendable`` for now.
-- ``safe``: Always ``true`` for now.
+- ``spendable``: Whether we have the keys to spend this coin.
+- ``solvable``: Whether we know how to spend this coin regardless of whether we have the keys to do
+  so.
+- ``safe``: Indicate if this coin is considered safe or not, if unsafe coins were included.
 - ``address``: Only present if this address was included in the ``addresses`` array and filtered on.
 
 For example, passing ``"params": { "addresses": ["mmne6bSrjwRZk16Y7TkwrrWysiUXZfd9ZY"] }`` returns:
@@ -678,11 +676,6 @@ Note that in this case the UTXO is an unspent immature coinbase output, and is n
 
 **Incompatibilities:**
 
-#. We do not currently support the ``include_unsafe`` parameter, which the node accepts as an
-   flag that unsafe outputs should be returned or not.
-#. It is unclear if our definition of ``spendable`` is the same as the node wallet.
-#. It is unclear if our definition of ``solvable`` is the same as the node wallet.
-#. We do not currently support the ``solvable`` result field.
 #. The node wallet does redundant type checking on the ``minconf`` and ``maxconf`` parameters
    which would otherwise override the ``RPC_PARSE_ERROR`` with a ``RPC_TYPE_ERROR``. As existing
    API usage should not be erroring with incorrectly typed parameters, this should not be
@@ -722,9 +715,6 @@ call processing are described above.
       :Message: | ``Invalid parameter, duplicated address: <address>``
                 | An entry in the ``addresses`` parameter was specified twice. The node wallet
                   errors on this, so do we.
-      :Message: | ``Invalid parameter, not supported: include_unsafe``
-                | The ``include_unsafe`` parameter was specified, however we do not support it
-                  at this time.
       :Message: | ``Invalid parameter, unexpected utxo type: <number>``
                 | A unspent output was encountered that does not have a supported key type for
                   the JSON-RPC API. This would be if the user is accessing an externally created
@@ -741,6 +731,9 @@ call processing are described above.
       :Message: | ``JSON value is not an integer as expected``
                 | The type of the ``minconf`` or ``maxconf`` parameters are expected to be integers
                   and one or more were interpreted as another type.
+      :Message: | ``JSON value is not a boolean as expected``
+                | The type of the ``include_unsafe`` parameter is expected to be a boolean
+                  and was interpreted as another type.
 
 sendtoaddress
 ~~~~~~~~~~~~~

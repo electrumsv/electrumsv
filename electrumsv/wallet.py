@@ -126,14 +126,14 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
     DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceAccountRow, InvoiceRow,
     KeyDataProtocol, KeyData, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow,
-    MAPIBroadcastRow, MasterKeyRow, NetworkServerRow, PasswordUpdateResult, PaymentRequestRow,
-    PaymentRequestOutputRow, PaymentRequestUpdateRow, MerkleProofUpdateRow,
-    PushDataHashRegistrationRow, PushDataMatchRow, PushDataMatchMetadataRow, ServerPeerChannelRow,
-    PeerChannelAccessTokenRow, PeerChannelMessageRow, SpentOutputRow,
-    TransactionDeltaSumRow, TransactionExistsRow, TransactionLinkState, TransactionOutputShortRow,
-    TransactionOutputSpendableRow, TransactionOutputSpendableProtocol, TransactionInputAddRow,
-    TransactionOutputAddRow, MerkleProofRow, TransactionProofUpdateRow, TransactionRow,
-    TransactionValueRow, WalletBalance, WalletEventInsertRow, WalletEventRow)
+    MAPIBroadcastRow, MasterKeyRow, MerkleProofRow, NetworkServerRow, PasswordUpdateResult,
+    PaymentRequestRow, PaymentRequestOutputRow, PaymentRequestUpdateRow, MerkleProofUpdateRow,
+    PushDataHashRegistrationRow, PushDataMatchRow, PushDataMatchMetadataRow,
+    ServerPeerChannelRow, PeerChannelAccessTokenRow, PeerChannelMessageRow, SpentOutputRow,
+    TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
+    TransactionOutputAddRow, TransactionOutputShortRow, TransactionOutputSpendRow,
+    TransactionOutputSpendableProtocol, TransactionOutputSpendableRow, TransactionProofUpdateRow,
+    TransactionRow, TransactionValueRow, WalletBalance, WalletEventInsertRow, WalletEventRow)
 from .wallet_database.util import create_derivation_data2
 from .wallet_support.keys import get_multi_signer_script_template, \
     get_pushdata_hash_for_derivation, get_pushdata_hash_for_public_keys, \
@@ -2396,6 +2396,11 @@ class WalletDataAccess:
         return db_functions.read_account_transaction_outputs_with_key_and_tx_data(
             self._db_context, account_id, confirmed_only, exclude_frozen, keyinstance_ids)
 
+    def read_parent_transaction_outputs_with_key_data(self, transaction_hash: bytes, *,
+            include_absent: bool) -> list[TransactionOutputSpendRow]:
+        return db_functions.read_parent_transaction_outputs_with_key_data(self._db_context,
+            transaction_hash, include_absent)
+
     def read_spent_outputs_to_monitor(self) -> list[OutputSpend]:
         return db_functions.read_spent_outputs_to_monitor(self._db_context)
 
@@ -3235,17 +3240,17 @@ class Wallet:
             # If the transaction is in the database we map in it's data as authoritative.
             tx_hash = tx.hash()
 
-            for txo_row in db_functions.read_parent_transaction_outputs_with_key_data(
-                    self.get_db_context(), tx_hash):
+            for txo_row1 in self.data.read_parent_transaction_outputs_with_key_data(tx_hash,
+                    include_absent=False):
                 found_in_database = True
                 database_data = DatabaseKeyDerivationData.from_key_data(
-                    cast(KeyDataProtocol, txo_row),
+                    cast(KeyDataProtocol, txo_row1),
                     DatabaseKeyDerivationType.EXTENSION_LINKED)
-                outpoint = Outpoint(txo_row.tx_hash, txo_row.txo_index)
+                outpoint = Outpoint(txo_row1.tx_hash, txo_row1.txo_index)
                 self.sanity_check_derivation_key_data(
                     tx_context.key_datas_by_spent_outpoint.get(outpoint), database_data)
                 tx_context.key_datas_by_spent_outpoint[outpoint] = database_data
-                tx_context.spent_outpoint_values[outpoint] = txo_row.value
+                tx_context.spent_outpoint_values[outpoint] = txo_row1.value
 
             for txo_row in db_functions.read_transaction_outputs_with_key_data(
                     self.get_db_context(), tx_hash=tx_hash, require_keys=True):

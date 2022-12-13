@@ -475,9 +475,9 @@ async def test_call_endpoints_too_many_accounts_async(app_state_nodeapi: AppStat
     ("listunspent", [ None, None, [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2",
             "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2" ] ], -8,
         "Invalid parameter, duplicated address: 1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2"),
-    # Error case: RPC_INVALID_PARAMETER / Duplicate address in list.
-    ("listunspent", [ None, None, None, False ], -8,
-        "Invalid parameter, not supported: include_unsafe"),
+    # Error case: RPC_INVALID_PARAMETER / Integer instead of boolean for `include_unsafe`.
+    ("listunspent", [ None, None, None, 1 ], -32700,
+        "JSON value is not a boolean as expected"),
 
     ## ``sendtoaddress``: ``address`` parameter
     # Error case: RPC_INVALID_ADDRESS_OR_KEY / Testnet version byte in address.
@@ -883,11 +883,11 @@ async def test_call_listunspent_success_async(
     def get_transaction_outputs_with_key_and_tx_data(exclude_frozen: bool=True,
             confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None) \
                 -> list[AccountTransactionOutputSpendableRowExtended]:
-        assert exclude_frozen is False
+        assert exclude_frozen is True
         assert confirmed_only is True
         assert keyinstance_ids is None
         return [
-            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 1000, None,
+            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 1000, 1111111,
                 ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1, DerivationType.BIP32_SUBPATH,
                 FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED, FAKE_BLOCK_HASH)
         ]
