@@ -11,6 +11,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       -
+        name: Set Branch Env
+        run: echo "BRANCH=${GITHUB_REF##*/}" >> $GITHUB_ENV
+      -
         name: Set up QEMU
         uses: docker/setup-qemu-action@v2
       -
@@ -27,4 +30,6 @@ jobs:
         uses: docker/build-push-action@v3
         with:
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/payd:latest
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/payd:${{ env.BRANCH }}
+          build-args: |
+            BRANCH=${{ env.BRANCH }}
