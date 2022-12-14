@@ -230,7 +230,7 @@ In order to create a wallet that is compatible with the node wallet API, a speci
 .. code-block:: doscon
     :caption: Windows
 
-    electrumsv>py electrum-sv create_jsonrpc_wallet my_new_wallet
+    electrumsv>py electrum-sv create_jsonrpc_wallet -w my_new_wallet
     Password:
     Confirm:
     Wallet saved in 'C:\Users\bob\AppData\Roaming\ElectrumSV\regtest\wallets\my_new_wallet.sqlite'
