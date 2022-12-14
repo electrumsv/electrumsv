@@ -335,7 +335,9 @@ async def execute_jsonrpc_call_async(request: web.Request, object_data: Any) \
     # These calls are intentionally explicitly dispatched inline so that we avoid any
     # unforeseen dynamic dispatching problems and also it means you can be more likely to be
     # able to just read the code and understand it without layers of abstraction.
-    if method_name == "getnewaddress":
+    if method_name == "createrawtransaction":
+        pass
+    elif method_name == "getnewaddress":
         return request_id, await jsonrpc_getnewaddress_async(request, request_id, params)
     elif method_name == "listunspent":
         return request_id, await jsonrpc_listunspent_async(request, request_id, params)
@@ -765,6 +767,7 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
             "txid": hash_to_hex_str(utxo_data.tx_hash),
             "vout": utxo_data.txo_index,
 
+            "address": address.to_string(),
             "scriptPubKey": address.to_script_bytes().hex(),
             "amount": utxo_data.value/COIN,
             "confirmations": confirmations,
@@ -777,8 +780,6 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
             #     new spending transactions."
             "safe": safe,
         }
-        if filter_addresses is not None:
-            utxo_entry["address"] = address.to_string()
         results.append(utxo_entry)
 
     return results

@@ -832,6 +832,7 @@ async def test_call_getnewaddress_success_async(app_state_nodeapi: AppStateProxy
     # Filter for >=90 confirmations, match the 90 confirmations entry.
     (100, 10, [ 90, None ], [
         {
+            "address": str(P2PKH_ADDRESS_1),
             "amount": 0.00001000,
             "confirmations": 90,
             "safe": True,
@@ -845,6 +846,7 @@ async def test_call_getnewaddress_success_async(app_state_nodeapi: AppStateProxy
     # Filter for <=90 confirmations, match the 90 confirmations entry.
     (100, 10, [ None, 90 ], [
         {
+            "address": str(P2PKH_ADDRESS_1),
             "amount": 0.00001000,
             "confirmations": 90,
             "safe": True,
