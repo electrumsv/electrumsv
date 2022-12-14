@@ -656,9 +656,7 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
         txid: str
         vout: int
 
-        # The address BUT ONLY IF the caller is filtering for it specifically.
-        address: NotRequired[str]
-
+        address: str
         # The UTXO locking script.
         scriptPubKey: str
         amount: float

@@ -657,21 +657,23 @@ fields:
 - ``address``: Only present if this address was included in the ``addresses`` array and filtered on.
 
 For example, passing ``"params": { "addresses": ["mmne6bSrjwRZk16Y7TkwrrWysiUXZfd9ZY"] }`` returns:
-```
-[
-    {
-        "txid": "023d74ad33de138ef8b98cfd9950dc1b69c5855146e6a64f502a5be92fd626af",
-        "vout": 0,
-        "scriptPubKey":"76a91444c838328b3b9ab6e0ee1f021e281c46fb2804ca88ac",
-        "amount": 50.00000553,
-        "confirmations": 2,
-        "spendable": false,
-        "solvable": true,
-        "safe": true,
-        "address": "mmne6bSrjwRZk16Y7TkwrrWysiUXZfd9ZY"
-    }
-]
-```
+
+.. code-block:: js
+
+    [
+        {
+            "txid": "023d74ad33de138ef8b98cfd9950dc1b69c5855146e6a64f502a5be92fd626af",
+            "vout": 0,
+            "scriptPubKey":"76a91444c838328b3b9ab6e0ee1f021e281c46fb2804ca88ac",
+            "amount": 50.00000553,
+            "confirmations": 2,
+            "spendable": false,
+            "solvable": true,
+            "safe": true,
+            "address": "mmne6bSrjwRZk16Y7TkwrrWysiUXZfd9ZY"
+        }
+    ]
+
 Note that in this case the UTXO is an unspent immature coinbase output, and is not spendable.
 
 **Incompatibilities:**
