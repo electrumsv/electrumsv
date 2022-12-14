@@ -53,7 +53,7 @@ import threading
 import time
 from types import NoneType
 from typing import Any, Awaitable, Callable, cast, TYPE_CHECKING
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 from aiohttp import web
 # NOTE(typing) `cors_middleware` is not explicitly exported, so mypy strict fails. No idea.
@@ -656,9 +656,7 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
         txid: str
         vout: int
 
-        # The address BUT ONLY IF the caller is filtering for it specifically.
-        address: NotRequired[str]
-
+        address: str
         # The UTXO locking script.
         scriptPubKey: str
         amount: float
@@ -668,7 +666,6 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
         safe: bool
 
     confirmed_only = minimum_confirmations > 0
-    can_spend = not account.is_watching_only()
     wallet_height = wallet.get_local_height()
     results: list[NodeUnspentOutputDict] = []
     for utxo_data in account.get_transaction_outputs_with_key_and_tx_data(
