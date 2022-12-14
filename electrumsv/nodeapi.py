@@ -52,7 +52,8 @@ import subprocess
 import threading
 import time
 from types import NoneType
-from typing import Any, Awaitable, Callable, cast, TYPE_CHECKING, TypedDict
+from typing import Any, Awaitable, Callable, cast, TYPE_CHECKING
+from typing_extensions import NotRequired, TypedDict
 
 from aiohttp import web
 # NOTE(typing) `cors_middleware` is not explicitly exported, so mypy strict fails. No idea.
@@ -60,8 +61,9 @@ from aiohttp_middlewares import cors_middleware # type: ignore
 from bitcoinx import Address, hash_to_hex_str, Script
 
 from .app_state import app_state
-from .bitcoin import script_template_to_string
-from .constants import CredentialPolicyFlag, NetworkServerFlag, PaymentFlag, TransactionImportFlag
+from .bitcoin import COIN, script_template_to_string
+from .constants import CredentialPolicyFlag, DerivationType, NetworkServerFlag, PaymentFlag, \
+    TransactionImportFlag, TransactionOutputFlag, TxFlags
 from .exceptions import BroadcastError, InvalidPassword, NotEnoughFunds
 from .logs import logs
 from .networks import Net
@@ -333,8 +335,12 @@ async def execute_jsonrpc_call_async(request: web.Request, object_data: Any) \
     # These calls are intentionally explicitly dispatched inline so that we avoid any
     # unforeseen dynamic dispatching problems and also it means you can be more likely to be
     # able to just read the code and understand it without layers of abstraction.
-    if method_name == "getnewaddress":
+    if method_name == "createrawtransaction":
+        pass
+    elif method_name == "getnewaddress":
         return request_id, await jsonrpc_getnewaddress_async(request, request_id, params)
+    elif method_name == "listunspent":
+        return request_id, await jsonrpc_listunspent_async(request, request_id, params)
     elif method_name == "sendtoaddress":
         return request_id, await jsonrpc_sendtoaddress_async(request, request_id, params)
     elif method_name == "sendmany":
@@ -430,6 +436,15 @@ def transform_parameters(request_id: RequestIdType, parameters_names: list[str],
 
     return parameter_values
 
+def get_integer_parameter(request_id: RequestIdType, parameter_value: Any) -> int:
+    if not isinstance(parameter_value, int):
+        # The node maps the C++ exception on a non-integer value to an RPC_PARSE_ERROR.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=PARSE_ERROR,
+                        message="JSON value is not an integer as expected"))))
+    return parameter_value
+
 def get_string_parameter(request_id: RequestIdType, parameter_value: Any) -> str:
     if not isinstance(parameter_value, str):
         # The node maps the C++ exception on a non-string value to an RPC_PARSE_ERROR.
@@ -447,6 +462,16 @@ def get_bool_parameter(request_id: RequestIdType, parameter_value: Any) -> bool:
                 error=ErrorDict(code=PARSE_ERROR,
                     message="JSON value is not a boolean as expected"))))
     return parameter_value
+
+def type_check_argument(request_id: RequestIdType, parameter_value: Any, type_value: Any) -> None:
+    # The node puts the thrown `JSONRPCError` directly in the response `error`.
+    # server.cpp:RPCTypeCheckArgument
+    if not isinstance(parameter_value, type_value):
+        actual_name = type(parameter_value).__name__
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=TYPE_ERROR,
+                        message=f"Expected type {type_value.__name__}, got {actual_name}"))))
 
 def get_amount_parameter(request_id: RequestIdType, parameter_value: Any) -> int:
     """
@@ -557,6 +582,208 @@ async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestI
         output_script)
     return script_template_to_string(script_template)
 
+async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdType,
+        parameters: RequestParametersType) -> Any:
+    """
+    Returns a list of unspent transaction outputs with the desired number of confirmations.
+
+    Raises `HTTPInternalServerError` for related errors to return to the API using application.
+    """
+    # Ensure the user is accessing either an explicit or implicit wallet.
+    wallet = get_wallet_from_request(request, request_id)
+    assert wallet is not None
+
+    # Similarly the user must only have one account (and we will ignore any
+    # automatically created petty cash accounts which we do not use yet).
+    accounts = wallet.get_visible_accounts()
+    if len(accounts) != 1:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_ERROR,
+                    message=f"Ambiguous account (found {len(accounts)}, expected 1)"))))
+    account = accounts[0]
+
+    # Compatibility: Raises RPC_INVALID_PARAMETER if we were given unlisted named parameters.
+    parameter_values = transform_parameters(request_id, [ "minconf", "maxconf", "addresses",
+        "include_unsafe" ], parameters)
+
+    minimum_confirmations = 1
+    if len(parameter_values) > 0 and parameter_values[0] is not None:
+        # Incompatibility: It is not necessary to do a `type_check_argument` as the node does.
+        minimum_confirmations = get_integer_parameter(request_id, parameter_values[0])
+
+    maximum_confirmations = 9999999
+    if len(parameter_values) > 1 and parameter_values[1] is not None:
+        # Incompatibility: It is not necessary to do a `type_check_argument` as the node does.
+        maximum_confirmations = get_integer_parameter(request_id, parameter_values[1])
+
+    filter_addresses: set[Address]|None = None
+    if len(parameter_values) > 2 and parameter_values[2] is not None:
+        # Compatibility: Returns a `RPC_TYPE_ERROR` response if the parameter is not a list.
+        type_check_argument(request_id, parameter_values[2], list)
+
+        filter_addresses = set()
+        for entry_value in parameter_values[2]:
+            address_text = get_string_parameter(request_id, entry_value)
+            try:
+                address = Address.from_string(address_text, Net.COIN)
+            except ValueError as value_error:
+                # Compatibility: Raises RPC_INVALID_ADDRESS_OR_KEY if the address is invalid.
+                # rpcwallet.cpp:sendtoaddress (effective check)
+                # Note that we show our error message text not what the node says so that we can
+                # give hints like "wrong verbyte" or "p2sh not accepted" for direct context.
+                raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                    text=json.dumps(ResponseDict(id=request_id, result=None,
+                        error=ErrorDict(code=INVALID_ADDRESS_OR_KEY,
+                            message=f"Invalid Bitcoin address: {value_error}"))))
+
+            if address in filter_addresses:
+                # Compatibility: Raises RPC_INVALID_PARAMETER if the address is invalid.
+                # rpcwallet.cpp:sendtoaddress (effective check)
+                raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                    text=json.dumps(ResponseDict(id=request_id, result=None,
+                        error=ErrorDict(code=INVALID_PARAMETER,
+                            message=f"Invalid parameter, duplicated address: {entry_value}"))))
+            filter_addresses.add(address)
+
+    only_safe = True
+    if len(parameter_values) > 3 and parameter_values[3] is not None:
+        include_unsafe = get_bool_parameter(request_id, parameter_values[3])
+        only_safe = not include_unsafe
+
+    class NodeUnspentOutputDict(TypedDict):
+        # The UTXO outpoint.
+        txid: str
+        vout: int
+
+        # The address BUT ONLY IF the caller is filtering for it specifically.
+        address: NotRequired[str]
+
+        # The UTXO locking script.
+        scriptPubKey: str
+        amount: float
+        confirmations: int
+        spendable: bool
+        solvable: bool
+        safe: bool
+
+    confirmed_only = minimum_confirmations > 0
+    can_spend = not account.is_watching_only()
+    wallet_height = wallet.get_local_height()
+    results: list[NodeUnspentOutputDict] = []
+    for utxo_data in account.get_transaction_outputs_with_key_and_tx_data(
+            exclude_frozen=True, confirmed_only=confirmed_only):
+        assert utxo_data.derivation_data2 is not None
+        if utxo_data.derivation_type != DerivationType.BIP32_SUBPATH:
+            raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=INVALID_PARAMETER,
+                        message="Invalid parameter, unexpected utxo type: "+
+                            str(utxo_data.derivation_type)))))
+
+        public_keys = account.get_public_keys_for_derivation(utxo_data.derivation_type,
+            utxo_data.derivation_data2)
+        assert len(public_keys) == 1, "not a single-signature account"
+        address = public_keys[0].to_address(network=Net.COIN)
+
+        if filter_addresses is not None and address not in filter_addresses:
+            continue
+
+        confirmations = 0
+        if utxo_data.block_hash is not None and wallet_height > 0:
+            lookup_result = wallet.lookup_header_for_hash(utxo_data.block_hash)
+            if lookup_result is not None:
+                header, _chain = lookup_result
+                confirmations = wallet_height - header.height
+
+        if confirmations < minimum_confirmations or confirmations > maximum_confirmations:
+            continue
+
+        # Condition 1:
+        # - Not if the given transaction is non-final.
+        #   ElectrumSV take: All transactions in the database as of 2022-12 are final.
+
+        # Condition 2:
+        # - Not if the given transaction is an immature coinbase transaction.
+        if utxo_data.flags & TransactionOutputFlag.COINBASE != 0 and confirmations < 100:
+            continue
+
+        # Condition 3 / 4:
+        # - Not if the given transaction's depth in the main chain less than zero.
+        #   wallet.cpp:GetDepthInMainChain
+        #   - If there is no block hash the height is the MEMPOOL_HEIGHT constant.
+        #     - Any local signed transaction is presumably broadcastable or abandoned.
+        #   - If the transaction is on a block on the wallet's chain, then the depth is
+        #     the positive height of that anointed as legitimate block.
+        #   - If the transaction is on a block on a fork, then the depth is the negative height
+        #     of that forked block.
+        # - Not if the given transaction's depth is 0 but it's not in our mempool.
+
+        # ElectrumSV take: We only set `block_hash` (and `STATE_SETTLED`) on transactions on the
+        #     wallet's main chain. We can only know if a transaction is in a mempool if
+        #     we have broadcast it (and set `STATE_CLEARED`). Our best equivalent to this is
+        #     `MASK_STATE_BROADCAST` which is just both those flags.
+        if utxo_data.tx_flags & TxFlags.MASK_STATE_BROADCAST == 0:
+            continue
+
+        # Condition 5: Is the given transaction trusted? (wallet.cpp:CWalletTx::IsTrusted)
+        # - Not if the given transaction is non-final.
+        # - Yes if the given transaction has at least one confirmation.
+        # - Not if the given transaction is in a block on another fork.
+        # - Not if the wallet is configured to not spend "zero confirmation change" (which the node
+        #   wallet defaults to setting to spend).
+        # - Not if the given transaction is not funded by ourselves (note that this is not tied to
+        #   the use of a change derivation path).
+        # - Not if the given known to be unconfirmed transaction is not in "this node's"  mempool.
+        # - Not if any of the funding does not come from us.
+        # - Not if our funding is not spendable by us (we can produce a signature / have the key).
+
+        # ElectrumSV take:
+        # - We do not get non-final transactions here.
+        # - We have already filtered out non-broadcast/non-mined transactions.
+        # - We do not have a setting for whether to spend "zero confirmation change" or not but we
+        #   do have a setting for "only spend confirmed coins" (we default this to no). These are
+        #   not the same thing.
+        #   - Read all the funding TXOs, if we have them all and they have keys, then we are
+        #     meeting this constraint.
+        # - Basically it comes down to the latter. A trusted coin is one from any confirmed
+        #   transaction or one that comes from an coin in an unconfirmed transaction that we
+        #   completely funded ourselves. We treat "zero confirmation change" as true and do not
+        #   provide a way to disable it.
+        safe = True
+        if confirmations == 0:
+            for funding_row in wallet.data.read_parent_transaction_outputs_with_key_data(
+                    utxo_data.tx_hash, include_absent=True):
+                # This will exit on funding by unknown transactions and also on funding by external
+                # transactions we do not have the keys for.
+                if funding_row.keyinstance_id is None:
+                    safe = False
+                    break
+
+        if only_safe and not safe:
+            continue
+
+        utxo_entry: NodeUnspentOutputDict = {
+            "txid": hash_to_hex_str(utxo_data.tx_hash),
+            "vout": utxo_data.txo_index,
+
+            "address": address.to_string(),
+            "scriptPubKey": address.to_script_bytes().hex(),
+            "amount": utxo_data.value/COIN,
+            "confirmations": confirmations,
+            # From the node: "Whether we have the private keys to spend this output."
+            "spendable": utxo_data.keyinstance_id is not None,
+            # From the node: "Whether we know how to spend this output, ignoring the lack of keys."
+            "solvable": True,
+            # From the node: "Whether this output is considered safe to spend. Unconfirmed
+            #     transactions from outside keys are considered unsafe and will not be used to fund
+            #     new spending transactions."
+            "safe": safe,
+        }
+        results.append(utxo_entry)
+
+    return results
+
 async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestIdType,
         parameters: RequestParametersType) -> Any:
     """
@@ -585,14 +812,6 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
                     message="Error: Please enter the wallet passphrase with " \
                         "walletpassphrase first."))))
 
-    peer_channel_server_state = wallet.get_connection_state_for_usage(
-        NetworkServerFlag.USE_MESSAGE_BOX)
-    if peer_channel_server_state is None:
-        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
-            text=json.dumps(ResponseDict(id=request_id, result=None,
-                error=ErrorDict(code=WALLET_ERROR,
-                    message="No configured peer channel server"))))
-
     # Compatibility: Raises RPC_INVALID_PARAMETER if we were given unlisted named parameters.
     parameter_values = transform_parameters(request_id, [ "address", "amount", "comment",
         "commentto", "subtractfeefromamount" ], parameters)
@@ -607,13 +826,13 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
     address_text = get_string_parameter(request_id, parameter_values[0])
     try:
         address = Address.from_string(address_text, Net.COIN)
-    except ValueError:
+    except ValueError as value_error:
         # Compatibility: Raises RPC_INVALID_ADDRESS_OR_KEY if the address is invalid.
         # rpcwallet.cpp:sendtoaddress (effective check)
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
             text=json.dumps(ResponseDict(id=request_id, result=None,
                 error=ErrorDict(code=INVALID_ADDRESS_OR_KEY,
-                    message="Invalid address"))))
+                    message=f"Invalid address: {value_error}"))))
 
     # Compatibility: Raises RPC_PARSE_ERROR for invalid type.
     amount_satoshis = get_amount_parameter(request_id, parameter_values[1])
@@ -626,12 +845,12 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
                 error=ErrorDict(code=TYPE_ERROR, message="Invalid amount for send"))))
 
     comment_sections: list[str] = []
-    if len(parameter_values) >= 3:
+    if len(parameter_values) >= 3 and parameter_values[2] is not None:
         # Compatibility: Raises RPC_PARSE_ERROR for invalid type.
         text = get_string_parameter(request_id, parameter_values[2])
         if len(text) > 0:
             comment_sections.append(text)
-    if len(parameter_values) >= 4:
+    if len(parameter_values) >= 4 and parameter_values[3] is not None:
         # Compatibility: Raises RPC_PARSE_ERROR for invalid type.
         text = get_string_parameter(request_id, parameter_values[3])
         if len(text) > 0:
@@ -651,6 +870,14 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
                 text=json.dumps(ResponseDict(id=request_id, result=None,
                     error=ErrorDict(code=INVALID_PARAMETER, message="Subtract fee from amount not "
                         "currently supported"))))
+
+    peer_channel_server_state = wallet.get_connection_state_for_usage(
+        NetworkServerFlag.USE_MESSAGE_BOX)
+    if peer_channel_server_state is None:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=WALLET_ERROR,
+                    message="No configured peer channel server"))))
 
     # @MAPIFeeQuote @TechnicalDebt Non-ideal way to ensure the fee quotes are cached.
     viable_fee_contexts = await wallet.update_mapi_fee_quotes_async(account.get_id())
@@ -739,13 +966,7 @@ async def jsonrpc_walletpassphrase_async(request: web.Request, request_id: Reque
                     error=ErrorDict(code=PARSE_ERROR,
                         message="JSON value is not a string as expected"))))
 
-    cache_duration = parameter_values[1]
-    if not isinstance(cache_duration, int):
-        # The node maps the C++ exception on a non-integer value to an RPC_PARSE_ERROR.
-        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
-                text=json.dumps(ResponseDict(id=request_id, result=None,
-                    error=ErrorDict(code=PARSE_ERROR,
-                        message="JSON value is not an integer as expected"))))
+    cache_duration = get_integer_parameter(request_id, parameter_values[1])
 
     if len(wallet_password) == 0:
         # The node maps the C++ exception on a non-integer value to an RPC_PARSE_ERROR.

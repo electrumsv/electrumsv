@@ -1,7 +1,7 @@
 import json
 import dataclasses
 from datetime import datetime, timezone
-from typing import Any, NamedTuple, Protocol, Union
+from typing import Any, NamedTuple, Protocol
 
 from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
     MAPIBroadcastFlag, MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag,
@@ -375,14 +375,25 @@ class TransactionOutputSpendableRow(NamedTuple):
     derivation_type: DerivationType | None   # Spendable type field.
     derivation_data2: bytes | None           # Spendable type field.
 
-    # def to_account_row(self) -> AccountTransactionOutputSpendableRow:
-    #     assert self.account_id is not None
-    #     assert self.derivation_type is not None
-    #     return AccountTransactionOutputSpendableRow(tx_hash=self.tx_hash,
-    #           txo_index=self.txo_index,
-    #         value=self.value, keyinstance_id=self.keyinstance_id, script_type=self.script_type,
-    #         flags=self.flags, account_id=self.account_id, masterkey_id=self.masterkey_id,
-    #         derivation_type=self.derivation_type, derivation_data2=self.derivation_data2)
+
+class TransactionOutputSpendRow(NamedTuple):
+    """
+    Extended version of `TransactionOutputSpendableRow` with `txi_index` field.
+    """
+    # Transaction input fields.
+    txi_index: int
+    # Standard transaction output fields.
+    tx_hash: bytes
+    txo_index: int
+    value: int
+    keyinstance_id: int | None               # Overlapping common output/spendable type field.
+    script_type: ScriptType
+    flags: TransactionOutputFlag
+    # KeyInstance fields.
+    account_id: int | None                   # Spendable type field.
+    masterkey_id: int | None                 # Spendable type field.
+    derivation_type: DerivationType | None   # Spendable type field.
+    derivation_data2: bytes | None           # Spendable type field.
 
 
 # NOTE(TypeUnionsForCommonFields) NamedTuple does not support subclassing, Mypy recommends data
@@ -393,11 +404,9 @@ class TransactionOutputSpendableRow(NamedTuple):
 # included types.
 
 # Types which have the common output fields.
-TransactionOutputTypes = Union[
-    TransactionOutputShortRow,
-    TransactionOutputFullRow,
-    TransactionOutputSpendableRow,
-    AccountTransactionOutputSpendableRowExtended]
+TransactionOutputTypes = TransactionOutputShortRow | TransactionOutputFullRow | \
+    TransactionOutputSpendRow | TransactionOutputSpendableRow, \
+    AccountTransactionOutputSpendableRowExtended
 # Some lower comment.
 
 

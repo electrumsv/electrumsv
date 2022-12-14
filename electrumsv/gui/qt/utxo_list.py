@@ -118,7 +118,7 @@ class UTXOList(MyTreeWidget):
         self.clear()
 
         utxo_rows = self._account.get_transaction_outputs_with_key_and_tx_data(
-            confirmed_only=False, mature=False, exclude_frozen=False)
+            confirmed_only=False, exclude_frozen=False)
         tx_hashes = set(utxo_row.tx_hash for utxo_row in utxo_rows)
         tx_labels: Dict[bytes, str] = {}
         if len(tx_hashes):
