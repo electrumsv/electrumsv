@@ -4,6 +4,7 @@ from http import HTTPStatus
 import json
 import os
 from typing import Any, Callable, cast
+from typing_extensions import NotRequired, TypedDict
 import unittest.mock
 
 import aiohttp
@@ -449,6 +450,79 @@ async def test_call_endpoints_too_many_accounts_async(app_state_nodeapi: AppStat
 # We are checking that methods check their parameters. We do not need to check every permutation of
 # every type check, as the unit testing of the type checking functions already does that.
 @pytest.mark.parametrize("endpoint_name,parameter_list,error_code,error_text", [
+    ## ``listunspent``: general parameters
+    # Error case: RPC_INVALID_PARAMS / Need at least 2 parameters not 0.
+    ("createrawtransaction", [ ], -32602,
+        "Invalid parameters, see documentation for this call"),
+    # Error case: RPC_INVALID_PARAMS / Need at least 2 parameters not 1.
+    ("createrawtransaction", [ "x" ], -32602,
+        "Invalid parameters, see documentation for this call"),
+    # Error case: RPC_INVALID_PARAMS / Need at most 3 parameters not more.
+    ("createrawtransaction", [ "x", "x", "x", "x" ], -32602,
+        "Invalid parameters, see documentation for this call"),
+    ## ``listunspent``: ``inputs`` parameter
+    # Error case: RPC_INVALID_PARAMETER / Need a non-null for ``inputs``.
+    ("createrawtransaction", [ None, {}  ], -8,
+        "Invalid parameter, arguments 1 and 2 must be non-null"),
+    # Error case: RPC_TYPE_ERROR / Need a list for ``inputs``.
+    ("createrawtransaction", [ 1, {}  ], -3,
+        "Expected array, got int"),
+    # Error case: RPC_PARSE_ERROR / Need dict entries for ``inputs``.
+    ("createrawtransaction", [ [ 1 ], {}  ], -32700,
+        "JSON value is not an object as expected"),
+    # Error case: RPC_INVALID_PARAMETER / Need a valid hex ``prev_hash`` for ``inputs``.
+    ("createrawtransaction", [ [ { "txid": "a" } ], {} ], -8,
+        "txid must be hexadecimal string (not 'a') and length of it must be divisible by 2"),
+    # Error case: RPC_INVALID_PARAMETER / Need a valid hex ``prev_hash`` for ``inputs``.
+    ("createrawtransaction", [ [ { "txid": "aa" } ], {} ], -8,
+        "txid must be of length 64 (not 2)"),
+    # Error case: RPC_INVALID_PARAMETER / Need a valid hash length for ``inputs``.
+    ("createrawtransaction", [ [ { "txid":
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } ], {} ], -8,
+        "Invalid parameter, missing vout key"),
+    # Error case: RPC_INVALID_PARAMETER / Need a positive sequence for ``inputs``.
+    ("createrawtransaction", [ [ { "txid":
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "vout": 10,
+        "sequence": -1 } ], {} ], -8,
+        "Invalid parameter, sequence number is out of range"),
+    # Error case: RPC_INVALID_PARAMETER / Need a capped sequence for ``inputs``.
+    ("createrawtransaction", [ [ { "txid":
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "vout": 10,
+        "sequence": 0xFFFFFFFF+1 } ], {} ], -8,
+        "Invalid parameter, sequence number is out of range"),
+    ## ``listunspent``: ``outputs`` parameter
+    # Error case: RPC_INVALID_PARAMETER / Need a non-null for ``outputs``.
+    ("createrawtransaction", [ [], None  ], -8,
+        "Invalid parameter, arguments 1 and 2 must be non-null"),
+    # Error case: RPC_TYPE_ERROR / Need a dict for ``outputs``.
+    ("createrawtransaction", [ [], "sds"  ], -3,
+        "Expected object, got str"),
+    # Error case: RPC_INVALID_PARAMETER / Need a valid hex opreturn payload for ``outputs``.
+    ("createrawtransaction", [ [], { "data": "a" } ], -8,
+        "Data must be hexadecimal string (not 'a') and length of it must be divisible by 2"),
+    # Error case: RPC_INVALID_PARAMETER / Need a valid hex opreturn payload for ``outputs``.
+    ("createrawtransaction", [ [], { "data": "zz" } ], -8,
+        "Data must be hexadecimal string (not 'zz') and length of it must be divisible by 2"),
+    # Error case: RPC_INVALID_PARAMETER / Need a valid address for ``outputs``.
+    ("createrawtransaction", [ [], { 1: 1 } ], -5,
+        "Invalid Bitcoin address: invalid base 58 checksum for 1"),
+    # Error case: RPC_TYPE_ERROR / Invalid type.
+    ("createrawtransaction", [ [], { "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": [] } ], -3,
+        "Amount is not a number or string"),
+    # Error case: RPC_TYPE_ERROR / Negative amount to send.
+    ("createrawtransaction", [ [], { "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": -100 } ], -3,
+        "Amount out of range"),
+    # Error case: RPC_TYPE_ERROR / Too large amount to send.
+    ("createrawtransaction", [ [], { "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": 1e10 } ], -3,
+        "Amount out of range"),
+    ## ``listunspent``: ``locktime`` parameter
+    # Error case: RPC_INVALID_PARAMETER / Need a positive value.
+    ("createrawtransaction", [ [], {}, -3  ], -8,
+        "Invalid parameter, locktime out of range"),
+    # Error case: RPC_INVALID_PARAMETER / Need a value <= the limit.
+    ("createrawtransaction", [ [], {}, 0xFFFFFFFF+1  ], -8,
+        "Invalid parameter, locktime out of range"),
+
     ## ``listunspent``: ``minconf`` parameter
     # Error case: RPC_PARSE_ERROR / String in place of minimum confirmation count.
     ("listunspent", [ "string" ], -32700,
@@ -553,6 +627,88 @@ async def test_call_endpoints_failure_invalid_parameter_list_async(app_state_nod
     assert len(object["error"]) == 2
     assert object["error"]["code"] == error_code
     assert object["error"]["message"] == error_text
+
+class CreateInputDict(TypedDict):
+    txid: str
+    vout: int
+    sequence: NotRequired[int]
+
+createrawtransaction_success_parameters: list[tuple[tuple[list[CreateInputDict], dict, int|None],
+        str]] = [
+    # Input 0 will get a final sequence due to no locktime.
+    ((
+        [
+            { "txid": "aa"*32, "vout": 12 },
+            { "txid": "bb"*32, "vout": 24, "sequence": 0 },
+        ],
+        {
+                "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": 11,
+        },
+        None
+    ), "0100000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0c00000000"
+    "ffffffffbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb180000000000000"
+    "0000100ab9041000000001976a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac00000000"),
+    # Input 0 will get a default non-final sequence due to locktime.
+    ((
+        [
+            { "txid": "aa"*32, "vout": 12 },
+            { "txid": "bb"*32, "vout": 24, "sequence": 0 },
+        ],
+        {
+                "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": 11,
+        },
+        243242342
+    ), "0100000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0c00000000"
+    "feffffffbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb180000000000000"
+    "0000100ab9041000000001976a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac66957f0e"),
+    # Input 0 will get a default non-final sequence due to locktime.
+    ((
+        [
+            { "txid": "aa"*32, "vout": 12 },
+            { "txid": "bb"*32, "vout": 24 },
+        ],
+        {
+                "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": 11,
+                "data": b"This is a test".hex(),
+        },
+        None
+    ), "0100000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0c00000000"
+    "ffffffffbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1800000000fffff"
+    "fff0200ab9041000000001976a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac000000000000000011006a0e546869732069732061207465737400000000")
+]
+
+@pytest.mark.parametrize("parameter_list,resulting_hex", createrawtransaction_success_parameters)
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_createrawtransaction_success_async(
+        app_state_nodeapi: AppStateProxy, server_tester: TestClient,
+        parameter_list: list[CreateInputDict], resulting_hex: str) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    def get_tip_filter_server_state() -> None:
+        return None
+    wallet.get_tip_filter_server_state.side_effect = get_tip_filter_server_state
+
+    call_object = {
+        "id": 232,
+        "method": "createrawtransaction",
+        "params": parameter_list,
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.OK
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] == resulting_hex
+    assert object["error"] is None
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
 async def test_call_getnewaddress_no_connected_blockchain_server_async(

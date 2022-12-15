@@ -567,6 +567,110 @@ are making and match the status code to a possible reason they are getting it.
 Supported endpoints
 ###################
 
+createrawtransaction
+~~~~~~~~~~~~~~~~~~~~
+
+Act as a library of functionality and piece together an incomplete (not fully signed and final)
+transaction using the provided list of inputs, an object containing outputs and optionally lock
+time. The transaction created here is not persisted by the wallet in any way.
+
+**Parameters:**
+
+#. ``inputs`` (array of input objects, required). Each item in the array is an object containing
+   fields relating to the given input. The structure of an input object is described below.
+#. ``outputs`` (object of outputs, required). The amount in BSV to send (e.g. 0.1).
+#. ``locktime`` (numeric, optional). The transaction locktime value to use.
+
+Each object in the ``inputs`` array has the following structure:
+
+- ``txid`` (string, required). The canonically hexadecimal encoded transaction hash of the
+  transaction being spent.
+- ``vout`` (numeric, required). The index of the output in the given transaction being spent.
+- ``sequence`` (numeric, optional, default varies). The sequence value to be specified in the
+  input. This can of course be used to differentiate between final and non-final inputs. If the
+  transaction ``locktime`` value is non-zero, it will default to ``0xFFFFFFFE`` (last possible
+  non-final value) otherwise it default to ``0xFFFFFFFF`` (final).
+
+.. code-block:: json
+    :caption: Example input object.
+
+    {
+        "txid": "0df80206d8c30046d1fbf0f19959b81cef72a9d01fe4fe831520cfee361d2a8a",
+        "vout": 0
+    }
+
+The ``outputs`` object has the following structure:
+
+- ``"<address>"`` (string, required). The address to send an amount to.
+  - ``<amount>`` (numeric). The amount to send to the address.
+- ``"data"`` (literal string, optional). One optional "op return" data output.
+  - ``<hexadecimally encoded data>`` (string). The bytes of data to put in the
+    ``OP_FALSE OP_RETURN`` 0-value data output.
+
+.. code-block:: json
+    :caption: Example outputs object.
+
+    {
+        "mneqqWSAQCg6tTP4BUdnPDBRanFqaaryMM": 200,
+        "mineSVDRCrSg2gzBRsY4Swb5QHFgdnGkis": 500,
+        "data": "6e6f77206973207468652074696d65"
+    }
+
+**Returns:**
+
+The hexadecimally encoded serialised transaction bytes. ``scriptSig`` values in serialised inputs
+will be empty, represented by ``0`` which is a zero-length push.
+
+**Error responses:**
+
+These errors are the custom errors returned from within this call. Base errors that occur during
+call processing are described above.
+
+- 500 (Internal server error)
+
+    - :Code: -3 ``RPC_TYPE_ERROR``
+      :Message: | ``Expected array, got <other type>``
+                | The ``inputs`` argument is not the array type.
+      :Message: | ``Expected object, got <other type>``
+                | The ``outputs`` argument is not the object type.
+      :Message: | ``Expected number, got <other type>``
+                | The ``outputs`` argument is not the numeric type.
+      :Message: | ``Amount is not a number or string``
+                | An output object value is not a number or string.
+      :Message: | ``Invalid amount``
+                | An output object value is a string that cannot be parsed as a value.
+      :Message: | ``Amount out of range``
+                | An output object amount is an invalid amount of satoshis.
+
+    - :Code: -5 ``RPC_INVALID_ADDRESS_OR_KEY``
+      :Message: | ``Invalid Bitcoin address: <address>``
+                | The provided address parameter is not a valid P2PKH address.
+
+    - :Code: -8 ``RPC_INVALID_PARAMETER``
+      :Message: | ``Invalid parameter, arguments 1 and 2 must be non-null``
+                | One or both of ``inputs`` or ``outputs`` parameter were ``null``.
+      :Message: | ``Invalid parameter, locktime out of range``
+                | The value of ``locktime`` was not equal to or between 0 and 0xFFFFFFFF.
+      :Message: | ``txid must be hexadecimal string (not '<whatever it is>') and length of it must be divisible by 2``
+                | A ``txid`` field in an entry in the ``inputs`` parameter, was either missing,
+                  ``null`` or not an string that was a valid hexadecimal data.
+      :Message: | ``Invalid parameter, missing vout key``
+                | A ``vout`` field in an entry in the ``inputs`` parameter, was either missing,
+                  ``null`` or not an integer.
+      :Message: | ``Invalid parameter, vout must be positive``
+                | A ``vout`` field in an entry in the ``inputs`` parameter, was an integer but
+                  was negative which is invalid.
+      :Message: | ``Invalid parameter, sequence number is out of range``
+                | A ``sequence`` field in an entry in the ``inputs`` parameter, was an integer but
+                  was outside of the valid range of values. It cannot be less than 0 or greater
+                  than ``0xFFFFFFFF``.
+      :Message: | ``Invalid parameter, duplicated address: <address>``
+                | An entry in the ``addresses`` parameter was specified twice. The node wallet
+                  errors on this, so do we.
+
+    - :Code: -32700 ``RPC_PARSE_ERROR``
+      :Message: | ``JSON value is not an object as expected``
+                | The type of an entry in the ``inputs`` parameter was not an object.
 
 getnewaddress
 ~~~~~~~~~~~~~
@@ -635,7 +739,7 @@ confirmations or specific addresses.
    more confirmations.
 #. ``maxconf`` (integer, optional, default=9999999). Limit the results to the UTXOs with this number
    or less confirmations.
-#. ``addresses`` (list of strings, optional, default=null). Limit the results to the UTXOs locked
+#. ``addresses`` (array of strings, optional, default=null). Limit the results to the UTXOs locked
    to the provided addresses.
 #. ``include_unsafe`` (bool, optional, default=false). Safe coins are confirmed or unconfirmed and
    fully funded by ourselves. By default they are not included in the set of returned coins.

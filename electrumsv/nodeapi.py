@@ -58,7 +58,8 @@ from typing_extensions import TypedDict
 from aiohttp import web
 # NOTE(typing) `cors_middleware` is not explicitly exported, so mypy strict fails. No idea.
 from aiohttp_middlewares import cors_middleware # type: ignore
-from bitcoinx import Address, hash_to_hex_str, Script
+from bitcoinx import Address, hash_to_hex_str, Ops, pack_byte, push_item, Script, Tx, TxInput, \
+    TxOutput
 
 from .app_state import app_state
 from .bitcoin import COIN, script_template_to_string
@@ -336,7 +337,7 @@ async def execute_jsonrpc_call_async(request: web.Request, object_data: Any) \
     # unforeseen dynamic dispatching problems and also it means you can be more likely to be
     # able to just read the code and understand it without layers of abstraction.
     if method_name == "createrawtransaction":
-        pass
+        return request_id, await jsonrpc_createrawtransaction_async(request, request_id, params)
     elif method_name == "getnewaddress":
         return request_id, await jsonrpc_getnewaddress_async(request, request_id, params)
     elif method_name == "listunspent":
@@ -510,6 +511,155 @@ def get_amount_parameter(request_id: RequestIdType, parameter_value: Any) -> int
                 error=ErrorDict(code=TYPE_ERROR,
                     message="Amount out of range"))))
     return amount_satoshis
+
+# src\rpc\server.cpp:ParseHexV
+def parse_hex_v(request_id: RequestIdType, field_name: str, value: Any) -> bytes:
+    result: bytes|None = None
+    if isinstance(value, str) and len(value) > 0:
+        try:
+            result = bytes.fromhex(value)
+        except ValueError:
+            # Ignore non-hexadecimal characters.
+            # Ignore incorrect length for hexadecimal.
+            pass
+    if result is None:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=INVALID_PARAMETER,
+                    message=f"{field_name} must be hexadecimal string (not '{value}') and "
+                        "length of it must be divisible by 2"))))
+    return result
+
+# src\rpc\server.cpp:ParseHashV
+def parse_hash_v(request_id: RequestIdType, field_name: str, value: Any) -> bytes:
+    bytes_value = parse_hex_v(request_id, field_name, value)
+    if len(bytes_value) != 32:
+        # We are talking about the hexadecimal length to the user as their value is that.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=INVALID_PARAMETER,
+                    message=f"{field_name} must be of length 64 (not {len(bytes_value)*2})"))))
+    return bytes_value
+
+async def jsonrpc_createrawtransaction_async(request: web.Request, request_id: RequestIdType,
+        parameters: RequestParametersType) -> Any:
+    """
+    Returns a list of unspent transaction outputs with the desired number of confirmations.
+
+    Raises `HTTPInternalServerError` for related errors to return to the API using application.
+    """
+    # Compatibility: Raises RPC_INVALID_PARAMETER if we were given unlisted named parameters.
+    parameter_values = transform_parameters(request_id, [ "inputs", "outputs", "locktime" ],
+        parameters)
+    if len(parameter_values) < 2 or len(parameter_values) > 3:
+        # Node returns help. We do not. The user should see the documentation.
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=INVALID_PARAMS,
+                    message="Invalid parameters, see documentation for this call"))))
+
+    if parameter_values[0] is None or parameter_values[1] is None:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=INVALID_PARAMETER,
+                    message="Invalid parameter, arguments 1 and 2 must be non-null"))))
+
+    if not isinstance(parameter_values[0], list):
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=TYPE_ERROR,
+                    message=f"Expected array, got {type(parameter_values[0]).__name__}"))))
+
+    if not isinstance(parameter_values[1], dict):
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=TYPE_ERROR,
+                    message=f"Expected object, got {type(parameter_values[1]).__name__}"))))
+
+    locktime: int = 0
+    if len(parameter_values) > 2 and parameter_values[2] is not None:
+        locktime = get_integer_parameter(request_id, parameter_values[2])
+        if locktime < 0 or locktime > 0xFFFFFFFF:
+            raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=INVALID_PARAMETER,
+                        message="Invalid parameter, locktime out of range"))))
+
+    transaction_inputs: list[TxInput] = []
+    for input_entry in parameter_values[0]:
+        if not isinstance(input_entry, dict):
+            raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                    text=json.dumps(ResponseDict(id=request_id, result=None,
+                        error=ErrorDict(code=PARSE_ERROR,
+                            message="JSON value is not an object as expected"))))
+
+        prev_hash = parse_hash_v(request_id, "txid", input_entry.get("txid"))
+
+        prev_idx = input_entry.get("vout")
+        if not isinstance(prev_idx, int):
+            raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=INVALID_PARAMETER,
+                        message="Invalid parameter, missing vout key"))))
+
+        if prev_idx < 0:
+            raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=INVALID_PARAMETER,
+                        message="Invalid parameter, vout must be positive"))))
+
+        # Remember that locktime is only observed for non-final transactions.
+        if locktime == 0:
+            sequence = 0xFFFFFFFF # Finalised input.
+        else:
+            sequence = 0xFFFFFFFE # Non-finalised input.
+        sequence_value = input_entry.get("sequence")
+        if isinstance(sequence_value, int):
+            if sequence_value < 0 or sequence_value > 0xFFFFFFFF:
+                raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                    text=json.dumps(ResponseDict(id=request_id, result=None,
+                        error=ErrorDict(code=INVALID_PARAMETER,
+                            message="Invalid parameter, sequence number is out of range"))))
+            sequence = sequence_value
+
+        transaction_inputs.append(TxInput(prev_hash, prev_idx, Script(), sequence))
+
+    transaction_outputs: list[TxOutput] = []
+    seen_addresses: set[Address] = set()
+    for key_name, item_value in parameter_values[1].items():
+        value: int = 0
+        script: Script
+        if key_name == "data":
+            payload_bytes = parse_hex_v(request_id, "Data", item_value)
+            script_bytes = pack_byte(Ops.OP_0) + pack_byte(Ops.OP_RETURN) + push_item(
+                payload_bytes)
+            script = Script(script_bytes)
+        else:
+            assert isinstance(key_name, str)
+            try:
+                address = Address.from_string(key_name, Net.COIN)
+            except ValueError as value_error:
+                # Compatibility: Raises RPC_INVALID_ADDRESS_OR_KEY if the address is invalid.
+                # rpcwallet.cpp:sendtoaddress (effective check)
+                # Note that we show our error message text not what the node says so that we can
+                # give hints like "wrong verbyte" or "p2sh not accepted" for direct context.
+                raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                    text=json.dumps(ResponseDict(id=request_id, result=None,
+                        error=ErrorDict(code=INVALID_ADDRESS_OR_KEY,
+                            message=f"Invalid Bitcoin address: {value_error}"))))
+
+            if address in seen_addresses:
+                raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                    text=json.dumps(ResponseDict(id=request_id, result=None,
+                        error=ErrorDict(code=INVALID_PARAMETER,
+                            message=f"Invalid parameter, duplicated address: {key_name}"))))
+
+            seen_addresses.add(address)
+            script = address.to_script()
+            value = get_amount_parameter(request_id, item_value)
+        transaction_outputs.append(TxOutput(value, script))
+
+    return Tx(1, transaction_inputs, transaction_outputs, locktime).to_hex()
 
 async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestIdType,
         parameters: RequestParametersType) -> Any:
