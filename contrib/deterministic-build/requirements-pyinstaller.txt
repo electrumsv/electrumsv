@@ -33,9 +33,9 @@ pywin32-ctypes==0.2.0 \
     # via pyinstaller
 
 # The following packages are considered to be unsafe in a requirements file:
-setuptools==51.0.0 \
-    --hash=sha256:029c49fd713e9230f6a41c0298e6e1f5839f2cde7104c0ad5e053a37777e7688 \
-    --hash=sha256:8c177936215945c9a37ef809ada0fab365191952f7a123618432bbfac353c529
+setuptools==65.5.1 \
+    --hash=sha256:d0b9a8433464d5800cbe05094acf5c6d52a91bfac9b52bcfc4d41382be5d5d31 \
+    --hash=sha256:e197a19aa8ec9722928f2206f8de752def0e4c9fc6953527360d1c36d94ddb2f
     # via
     #   -r C:\Data\Git\electrumsv\contrib\requirements\requirements-pyinstaller.txt
     #   pyinstaller
