@@ -1,2 +1,2 @@
 pyinstaller
-setuptools==51.0.0
+setuptools==65.5.1
