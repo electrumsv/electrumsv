@@ -4,6 +4,9 @@ import sys
 import threading
 import unittest
 
+# NOTE(rt12) We are monkeypatching in our replacement before anything else is imported ideally.
+from electrumsv import ripemd # pylint: disable=unused-import
+
 from electrumsv.networks import Net, SVTestnet, SVMainnet
 from electrumsv.wallet_database.sqlite_support import DatabaseContext, JournalModes
 

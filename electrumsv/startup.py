@@ -28,6 +28,9 @@ import os.path as path
 import platform
 import sys
 
+# NOTE(rt12) We are monkeypatching in our replacement before anything else is imported ideally.
+from electrumsv import ripemd # pylint: disable=unused-import
+
 # NOTE(Python) 3.7.9 is the last version with binary releases for Windows or MacOS.
 MINIMUM_PYTHON_VERSION = (3, 7, 9)
 MINIMUM_SQLITE_VERSION = (3, 31, 1)
