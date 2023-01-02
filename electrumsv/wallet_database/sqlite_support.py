@@ -364,7 +364,7 @@ class DatabaseContext:
         return f"file:{unique_name}?mode=memory&cache=shared"
 
 class _QueryCompleter:
-    def __init__(self):
+    def __init__(self) -> None:
         self._event = threading.Event()
 
         self._gave_callback = False

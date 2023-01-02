@@ -29,11 +29,11 @@ built for the Windows subsystem and therefore do not automatically allocate a co
 import ctypes
 import os
 import sys
+from typing import Generator, Optional, Union
 
 assert sys.platform == 'win32'
 
 from electrumsv.logs import logs
-from typing import Generator, Union
 
 STD_OUTPUT_HANDLE = -11
 FILE_TYPE_DISK = 1
@@ -56,7 +56,7 @@ def _parent_process_pids() -> Generator[int, None, None]:
 
 def _create_or_attach_console(attach: bool=True,
                               create: bool=False,
-                              title: str=None) -> Union[bool, None]:
+                              title: Optional[str]=None) -> Union[bool, None]:
     """
     First this checks if output is redirected to a file and does nothing if it is. Then it tries
     to attach to the console of any parent process and if not successful it optionally creates a

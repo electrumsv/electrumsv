@@ -338,7 +338,7 @@ class KeepKeyPlugin(HW_PluginBase):
         client.get_address(Net.KEEPKEY_DISPLAY_COIN_NAME, address_n,
                            True, script_type=script_type)
 
-    def tx_inputs(self, tx: Transaction, xpub_path: Dict[str, str]) -> List[types.TxInputType]:
+    def tx_inputs(self, tx: Transaction, xpub_path: Dict[str, str]) -> List["types.TxInputType"]:
         inputs = []
         for txin in tx.inputs:
             txinputtype = types.TxInputType()

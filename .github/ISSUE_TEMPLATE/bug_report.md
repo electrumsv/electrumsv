@@ -24,7 +24,7 @@ A clear and concise description of what you expected to happen.
 If applicable, add screenshots to help explain your problem.
 
 **Desktop (please complete the following information):**
- - ElectrumSV version: [e.g. 1.3.15]
+ - ElectrumSV version: [e.g. 1.3.16]
  - OS: [e.g. iOS]
  - Version [e.g. 22]
 

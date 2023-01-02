@@ -133,7 +133,7 @@ class PaymentRequest:
     error: Optional[str] = None
 
     def __init__(self, outputs, creation_timestamp=None, expiration_timestamp=None, memo=None,
-                 payment_url=None, merchant_data=None):
+                 payment_url=None, merchant_data=None) -> None:
         # This is only used if there is a requestor identity (old openalias, needs rewrite).
         self._id: Optional[int] = None
         self.tx = None

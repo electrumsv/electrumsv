@@ -7,10 +7,17 @@ import sys
 CONTRIB_PATH = os.path.dirname(os.path.realpath(__file__))
 
 python_exe = shutil.which("python3")
+# TODO: Work out where this script is on non-windows platforms.
+compiler_path = None
 if sys.platform == "win32":
     python_exe = sys.executable
+    python_path = os.path.dirname(sys.executable)
+    scripts_path = os.path.join(python_path, "scripts")
+    assert os.path.exists(scripts_path)
+    compiler_path = os.path.join(scripts_path, "pip-compile.exe")
+    assert os.path.exists(compiler_path)
 
-print(f"Installing pip-tools")
+print("Installing pip-tools")
 subprocess.run([ python_exe, "-m", "pip", "install", "pip-tools" ])
 
 for r_suffix in [ '-pyinstaller', '',  '-hw', '-binaries' ]:
@@ -24,8 +31,8 @@ for r_suffix in [ '-pyinstaller', '',  '-hw', '-binaries' ]:
     adapt projects to the upcoming change.
     """
     # The only affected dependency for ElectrumSV is setuptools which we pin to 51.0.0 currently
-    subprocess.check_call(f"pip-compile --allow-unsafe --generate-hashes --output-file={dr_path}"
-                          f" {r_path}")
+    subprocess.check_call(f"--allow-unsafe --generate-hashes --output-file={dr_path} {r_path}",
+        executable=compiler_path)
     print("OK.")
 
 print("Done. Updated requirements")

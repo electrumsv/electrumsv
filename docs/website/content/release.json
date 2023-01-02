@@ -2,8 +2,8 @@
 	"version": "1.0.0",
 	"date": "2019-01-11T06:41:45.720171+13:00",
 	"stable": {
-			"version": "1.3.15",
-			"date": "2022-06-17T20:00:00.000000+13:00",
+			"version": "1.3.16",
+			"date": "2023-01-03T20:00:00.000000+13:00",
 			"signatures": ["H2q3xK9D1VsM+5EXYM7IfZtsqJ0048HP5evcLwWsTeYjAIKRiR1KaqwDjO0uwnVf5W7mpU/JlgdLrT1RKIvYKtc="]
 	},
 	"unstable": {

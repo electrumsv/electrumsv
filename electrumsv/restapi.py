@@ -154,7 +154,7 @@ class BaseAiohttpServer:
 class AiohttpServer(BaseAiohttpServer):
 
     def __init__(self, host: str="localhost", port: int=9999, username: Optional[str]=None,
-            password: str=None) -> None:
+            password: Optional[str]=None) -> None:
         super().__init__(host=host, port=port)
         self.username = username
         self.password = password

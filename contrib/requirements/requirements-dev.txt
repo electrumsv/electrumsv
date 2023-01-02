@@ -1,0 +1,7 @@
+mypy
+pip-tools
+pylint
+pytest
+types-python-dateutil
+types-requests
+types-setuptools
