@@ -10,6 +10,9 @@ import asyncio
 import json
 import time
 
+# NOTE(rt12) We are monkeypatching in our replacement before anything else is imported ideally.
+from electrumsv import ripemd # pylint: disable=unused-import
+
 import bitcoinx
 import pytest
 import requests
