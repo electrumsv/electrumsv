@@ -186,7 +186,26 @@ def build_for_platform(python_arch: str, python_version: str, python_abi: str) -
     # Extract and build the Python source code.
     logger.info(f"Extracting {source_archive_filename}")
     with tarfile.open(download_path / source_archive_filename, 'r') as z:
-        z.extractall(output_path)
+        def is_within_directory(directory, target):
+            
+            abs_directory = os.path.abspath(directory)
+            abs_target = os.path.abspath(target)
+        
+            prefix = os.path.commonprefix([abs_directory, abs_target])
+            
+            return prefix == abs_directory
+        
+        def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+        
+            for member in tar.getmembers():
+                member_path = os.path.join(path, member.name)
+                if not is_within_directory(path, member_path):
+                    raise Exception("Attempted Path Traversal in Tar File")
+        
+            tar.extractall(path, members, numeric_owner=numeric_owner) 
+            
+        
+        safe_extract(z, output_path)
 
     _run_command(str(build_path / "PCbuild" / "build.bat"), "-e", "--no-tkinter",
         "-p", build_arch)
