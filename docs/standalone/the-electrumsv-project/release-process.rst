@@ -154,7 +154,7 @@ Tagging the latest code as a potential stable release of a ``1.3.7`` version:
 
    git tag sv-1.3.7
 
-The developer than pushes both the latest code and the tag to Github, both separately, and in that
+The developer then pushes both the latest code and the tag to Github, both separately, and in that
 order:
 
 .. code:: console
