@@ -308,14 +308,14 @@ signature for that file, so that you can verify it was created by the ElectrumSV
 signatures are located on the official ElectrumSV web site, under it's
 `download folder <https://electrumsv.io/download/>`__. The ``.dmg`` you downloaded was for version
 ``1.3.12`` so locate the folder by that name, and look inside it. You should see the signature
-file ``ElectrumSV-1.3.12.dmg.sig``, which is what you need to download ``ElectrumSV-1.3.12.dmg``.
+file ``ElectrumSV-1.3.12.dmg.asc``, which is what you need to download ``ElectrumSV-1.3.12.dmg``.
 
 .. figure:: images/verifying-downloads-macos-gpg-06-downloaded-files.jpg
-   :alt: Confirm you have downloaded both the .dmg and the matching .dmg.sig files.
+   :alt: Confirm you have downloaded both the .dmg and the matching .dmg.asc files.
    :align: center
    :width: 90%
 
-   Confirm you have downloaded both the ``.dmg`` and the matching ``.dmg.sig`` files.
+   Confirm you have downloaded both the ``.dmg`` and the matching ``.dmg.asc`` files.
 
 Open the context menu for the ``ElectrumSV-1.3.12.dmg`` file (press ``Control`` when you click on
 the file). You will see a ``Services`` sub-menu, with an additional
@@ -328,7 +328,7 @@ the file). You will see a ``Services`` sub-menu, with an additional
 
    Open the context menu and select the OpenPGP verify entry.
 
-The GPG application will verify the ``.dmg`` using the detected matching ``.dmg.sig`` file and
+The GPG application will verify the ``.dmg`` using the detected matching ``.dmg.asc`` file and
 let you know the result.
 
 .. figure:: images/verifying-downloads-macos-gpg-09-checked.jpg
