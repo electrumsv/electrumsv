@@ -280,6 +280,8 @@ class AccountsView(QSplitter):
             from .secured_data_dialog import SecuredDataDialog
             d = SecuredDataDialog(self._main_window, self, keystore, password)
             d.exec_()
+        elif isinstance(account, MultisigAccount):
+            self._show_account_information(account_id)
         else:
             MessageBox.show_message(_("This type of account has no secured data. You are advised "
                 "to manually back up this wallet."), self._main_window.reference())

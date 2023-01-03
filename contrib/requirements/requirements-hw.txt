@@ -1,5 +1,8 @@
 trezor==0.12.0
 keepkey==6.1.0
 btchip-python==0.1.31
+# Keepkey uses an unpinned protobuf version, but has older definitions. We need to pin protobuf to
+# the version we used in previous releases to ensure these devices work.
+protobuf==3.18.0 # Prevent broken keepkey (which incurs this dependency).
 requests<=2.25.0
 urllib3>=1.26.4
