@@ -193,7 +193,10 @@ class Cards(QWidget):
         self._list.setItemWidget(list_item, card)
 
     def _remove_entry(self, row: Any) -> None:
-        removal_entries = []
+        # NOTE(rt12) Hack to silence bug in creating a second wallet while the first is open.
+        #     No idea but seems to work anyway.
+        if self._list is None:
+            return
         for i in range(self._list.count()-1, -1, -1):
             item = self._list.item(i)
             widget = self._list.itemWidget(item)

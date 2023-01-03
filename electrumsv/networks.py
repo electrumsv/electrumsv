@@ -69,12 +69,12 @@ class SVMainnet(object):
 
     # A post-split SV checkpoint.
     CHECKPOINT = CheckPoint(bytes.fromhex(
-        '00004020001c43664879f5c89384f39f0c71a48197b2f1bfdbbe83010000000000000000e3d8f953'
-        'f133959c98fadfced5b83f388b8aaee167772dc850425edcb5ac916e7862285fdf6203181438585e'
-    ), height=646575, prev_work=0x1149bb71861599709fe849c)
+        '00e0ff37689867096945489d8f39ccb2859e31f6f0fb3894705e3b0b0000000000000000f282be97'
+        'e1a80610fd44c3cd9bfa386f49e4b3bce4126600c0a98d22f18ae3314db8b3637cc30b1802cd6874'
+    ), height=773040, prev_work=0x140cb8794e892f2e39f0609)
 
     VERIFICATION_BLOCK_MERKLE_ROOT = (
-        '3fccaf735987c5a6bcf5ee24022a989d311b18e0fa20f67c4565137fb888317b'
+        '8e9c79a13f25f19bd2e126475cd6fcc359d8a66485cd6a7c1deebacf289dfd15'
     )
 
     BIP44_COIN_TYPE = 0
@@ -129,12 +129,11 @@ class SVTestnet(object):
 
     # A post-split SV checkpoint.
     CHECKPOINT = CheckPoint(bytes.fromhex(
-        '00000020b9ea0b497adc73aff2e3d2c3663db12bdf4f8d612d3317e76700000000000000b1e1eda1'
-        '767dc2e6fdb63e82d570461da2daa2f4fd9fe375ebce93f5b180a6f5ae7e285faef5021a7f406d4d'
-    ), height=1377549, prev_work=0xade538ee77b27b019d)
-
+        '00000020f248a5cf335bb0964833cb81bae10b2f47cc640f477d44926d000000000000005e737849'
+        'ae351b1d17e0fc3e9032ffd889ad218d561143a883a3664a4e20e0729bc1b3634485021a68ca47cc'
+    ), height=1530084, prev_work=0x1346dab3d7c7e35b984)
     VERIFICATION_BLOCK_MERKLE_ROOT = (
-        'c2ca8aef7a20779fc9b7cc00af6b9b65f7ff99ae68fe22132c448d15de0d5943'
+        '2ee768ac67da75c6df3326bd5d680ff39faeec07174e1d500fa0b6ca35932112'
     )
 
     BIP44_COIN_TYPE = 1
