@@ -30,9 +30,13 @@ for r_suffix in [ '-pyinstaller', '',  '-hw', '-binaries' ]:
     and the option will be removed. It is recommended to pass the argument now to
     adapt projects to the upcoming change.
     """
-    # The only affected dependency for ElectrumSV is setuptools which we pin to 51.0.0 currently
-    subprocess.check_call(f"--allow-unsafe --generate-hashes --output-file={dr_path} {r_path}",
-        executable=compiler_path)
+    # The only affected dependency for ElectrumSV is setuptools which we pin.
+    # Note that we pass the executable path for `pip-compile` for the version of Python that
+    # we are using, not the version for the default Python install. This strips the first value
+    # in the parameter list as an ignored executable name (we put `"whateverz"` here to illustrate
+    # this is not used.
+    subprocess.check_call("whateverz --allow-unsafe --generate-hashes "
+        f"--output-file={dr_path} {r_path}", executable=compiler_path)
     print("OK.")
 
 print("Done. Updated requirements")

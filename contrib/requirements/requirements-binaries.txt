@@ -5,3 +5,8 @@ pycryptodomex
 websocket-client
 dmgbuild
 psutil
+# NOTE(rt12): I literally have no idea the correct thing to do here. pip-tools has some concept
+#     of unsafe stuff that is poorly documented and it generates hashes pip refuses to install on
+#     some platforms but not others! Windows works fine, but MacOS does not. This is painful.
+#     So here is the setuptools I have installed locally on Windows, because.. I do not know.
+setuptools==58.1.0
