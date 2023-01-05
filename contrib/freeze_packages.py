@@ -20,7 +20,7 @@ if sys.platform == "win32":
 print("Installing pip-tools")
 subprocess.run([ python_exe, "-m", "pip", "install", "pip-tools" ])
 
-for r_suffix in [ '-pyinstaller', '',  '-hw', '-binaries' ]:
+for r_suffix in [ '-pyinstaller', '',  '-hw', '-binaries', '-dev' ]:
     requirements_filename = f"requirements{r_suffix}.txt"
     r_path = os.path.join(CONTRIB_PATH, "requirements", requirements_filename)
     dr_path = os.path.join(CONTRIB_PATH, "deterministic-build", f"requirements{r_suffix}.txt")

@@ -13,6 +13,8 @@ qrcode
 #     of unsafe stuff that is poorly documented and it generates hashes pip refuses to install on
 #     some platforms but not others! Windows works fine, but MacOS does not. This is painful.
 #     So here is the setuptools I have installed locally on Windows, because.. I do not know.
+#     It is pinned to this version in all requirement files so that installing one does not
+#     clash with another.
 setuptools==58.1.0
 yarl>=1.5.1
 urllib3>=1.26.4

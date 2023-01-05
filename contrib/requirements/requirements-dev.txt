@@ -2,6 +2,15 @@ mypy
 pip-tools
 pylint
 pytest
+pytest-mock
+pytest-timeout
+# NOTE(rt12): I literally have no idea the correct thing to do here. pip-tools has some concept
+#     of unsafe stuff that is poorly documented and it generates hashes pip refuses to install on
+#     some platforms but not others! Windows works fine, but MacOS does not. This is painful.
+#     So here is the setuptools I have installed locally on Windows, because.. I do not know.
+#     It is pinned to this version in all requirement files so that installing one does not
+#     clash with another.
+setuptools==58.1.0
 types-python-dateutil
 types-requests
 types-setuptools
