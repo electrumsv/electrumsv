@@ -792,6 +792,9 @@ class SVSession(RPCSession):
             await self._request_headers_at_heights(missing)
             for height in missing:
                 result[height] = header_at_height(self.chain, height)
+        # NOTE(rt12): Seeing entries in the history tab that were not getting refreshed after the
+        #     wallet was synchronised.
+        self._network.trigger_callback('updated')
         return result
 
     async def request_tx(self, tx_id: str):
@@ -1135,9 +1138,8 @@ class Network(TriggeredCallbacks):
                     session.logger.debug(f'received tx {tx_id} bytes: {len(tx_hex)//2}')
                 except CancelledError:
                     had_timeout = True
-                except Exception as e:
-                    logger.exception(e)
-                    logger.error(f'fetching transaction {tx_id}: {e}')
+                except Exception as default_error:
+                    logger.exception("fetching transaction %s", tx_id, exc_info=default_error)
                 else:
                     wallet.add_transaction(tx_hash, tx, TxFlags.StateCleared | TxFlags.HasByteData,
                         True)
