@@ -15,6 +15,6 @@ qrcode
 #     So here is the setuptools I have installed locally on Windows, because.. I do not know.
 #     It is pinned to this version in all requirement files so that installing one does not
 #     clash with another.
-setuptools==58.1.0
+setuptools==65.6.3
 yarl>=1.5.1
 urllib3>=1.26.4
