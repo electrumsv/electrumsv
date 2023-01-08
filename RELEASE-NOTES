@@ -38,8 +38,47 @@ ElectrumSV
 
 # Release 1.3.16
   * Release guide: https://electrumsv.io/articles/2023/electrumsv-1_3_16.html
-  * The primary reason for this release is updating the `certifi` dependency to deal with
-    revoked certificates.
+  * Security: Due to the packages we depend on, we bundle the root certificates that are used
+    to verify that when we connect to a web site it is the legitimate web site. One of these
+    certificates was revoked, and we need to do a release to provide a version of the wallet
+    that does not contain that revoked certificate. The version of the `certifi` package we
+    include has been updated.
+  * User interface: There seems to be a bug where restoring a wallet would leave the history
+    tab list of transactions not correctly updated. Specifically, the dates would still show
+    "Unknown" despite the transaction having been verified as in a block with the merkle proof.
+    It should have been updated with the date of the block. A workaround was added to force
+    an update, but the whole model seems to need a rewrite however the current focus is on the
+    1.4 release.
+  * User friendliness: We do not include all the past blockchain headers with the wallet, and
+    before the wallet can work properly it used to download all the headers. Nowadays we have
+    built-in checkpointing so that we can fetch the headers we need on demand, and not require
+    that long startup time. In order to make this release more user-friendly, we have updated
+    the mainnet and testnet header checkpoints.
+  * Documentation: The documentation covering how to verify your download with our PGP signatures
+    referred to a different file suffix ".sig" for the file signatures rather than ".asc" which
+    the tooling appears to have switched to, causing user confusion. This has now been aligned
+    with the tooling, and uses ".asc".
+  * Technical debt (Python language): The Python standard library has provided a range of useful
+    hashing functionality out of the box. One of these, RIPEMD-160, is used in Bitcoin primarily
+    for things like public key hashes (as used in P2PKH addresses) and script hashes (as used
+    in the past in P2SH addresses). The Python support for RIPEMD-160 comes from the support for
+    it in the OpenSSL library. With the removal of it from OpenSSL 3, it is also no longer
+    available in Python and ElectrumSV errors when it tries to access it. We now bundle a giant
+    hack that intercepts Python language RIPEMD-160 usage in both ElectrumSV and in our `bitcoinx`
+    dependency and reroutes it through Cryptodomex (which we include anyway and is primarily used
+    to speed up AES encryption/decryption).
+  * Technical debt (Github): Github helpfully notifies us when any of the packages we depend on
+    have security issues. A lot of these issues do not affect us in meaningful ways, but Github
+    cannot tell this and continually "not-spams" us about them every time it sees any activity.
+    In order to reduce the pain of using Github it requires that we update those packages
+    regardless.
+    * Protobuf was updated. This is package is a nuisance with numerous problems. There's a
+      security issue that does not effect us in 3.18.0, the version we previously used. But the
+      recommendation was to update to 3.18.3, and this crashed on MacOS. 3.20 and above breaks
+      backwards compatibility and we cannot use it because it is not our dependency, but that of
+      a third party (keepkey). So we settled on 3.19.6, which is the latest release before the
+      break in backwards compatibility and does not crash on MacOS.
+    * Setuptools was updated.
 
 # Release 1.3.15
   * Release guide: https://electrumsv.io/articles/2022/electrumsv-1_3_15.html

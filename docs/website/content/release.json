@@ -3,8 +3,8 @@
 	"date": "2019-01-11T06:41:45.720171+13:00",
 	"stable": {
 			"version": "1.3.16",
-			"date": "2023-01-03T20:00:00.000000+13:00",
-			"signatures": ["IHUBMEphnPrQlLA3tsBEQu37LGNHjXrq8E3TWZmLqEPxZJJRg0fb9kMlG6ezMB+lcfk/e7OdPfF0Z5wxsFKRclE="]
+			"date": "2023-01-09T20:00:00.000000+13:00",
+			"signatures": ["H1K9vqwufk6TpDjwBrTr56ZoBa+MeQUQpzujwgb4bHuidgRJ3Bb0XaR+3ZOkeDiXudFd+qR5W0hxe+TfL0W9Jd4="]
 	},
 	"unstable": {
 			"version": "1.3.0b5",
