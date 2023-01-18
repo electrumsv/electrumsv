@@ -1630,8 +1630,11 @@ def update_server_peer_channel_write(remote_channel_id: Optional[str],
     """
     cursor = db.execute(sql, (remote_channel_id, remote_url, peer_channel_flags,
         peer_channel_id))
-    assert cursor.rowcount == 1
-    row = cursor.fetchone()
+    # NOTE(sqlite): rowcount 3.10.6 and beyond only updates for each fetched row. This means we
+    #     need to fetch the returned rows to get a correct knowledge of how many were updated.
+    rows = cursor.fetchall()
+    assert len(rows) == 1
+    row = rows[0]
     result_row = ServerPeerChannelRow(row[0], row[1], row[2], row[3], ServerPeerChannelFlag(row[4]),
             row[5], row[6])
 
@@ -2477,8 +2480,11 @@ def close_paid_payment_request(request_id: int, db: sqlite3.Connection | None=No
     UPDATE KeyInstances SET date_updated=?, flags=CASE
         WHEN flags&?=? THEN flags&? ELSE flags&? END
     WHERE keyinstance_id IN ({",".join("?" for v in keyinstance_ids)})
-    RETURNING account_id, keyinstance_id, flags
     """
+    # NOTE(sqlite): rowcount 3.10.6 and beyond only updates for each fetched row. As we do not
+    #     fetch these previously returned values, we remove the `RETURNING` and gain a working
+    #     rowcount again.
+    # RETURNING account_id, keyinstance_id, flags
     cursor = db.execute(update_keyinstances_sql, update_keyinstances_values)
     if cursor.rowcount != len(keyinstance_ids):
         raise DatabaseUpdateError("Update keyinstances failed")
