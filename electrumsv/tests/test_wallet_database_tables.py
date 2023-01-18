@@ -1649,6 +1649,19 @@ def test_table_peer_channels_CRUD(db_context: DatabaseContext) -> None:
     read_row = read_rows[0]
     assert read_row == created_row
 
+    future = db_context.post_to_thread(db_functions.update_server_peer_channel_write,
+        None, "NOT A REAL URL", ServerPeerChannelFlag.NONE, peer_channel_id, [])
+    updated_row = future.result()
+    assert updated_row.remote_channel_id is None
+    assert updated_row.remote_url == "NOT A REAL URL"
+    assert updated_row.peer_channel_flags == ServerPeerChannelFlag.NONE
+
+    # Check that a read produces the same result as the update.
+    read_rows = db_functions.read_server_peer_channels(db_context, server_id)
+    assert len(read_rows) == 1
+    read_row = read_rows[0]
+    assert read_row == updated_row
+
 
 def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
     date_created = 1
