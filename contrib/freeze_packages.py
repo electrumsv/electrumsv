@@ -21,8 +21,23 @@ else:
     print(f"Unsupported platform {platform.system()}")
     sys.exit(0)
 
+executable_name = "pip-compile"
+compiler_path = None
+if sys.platform == "win32":
+    executable_name = "ignored-first-argument"
+    python_exe = sys.executable
+    python_path = os.path.dirname(sys.executable)
+    scripts_path = os.path.join(python_path, "scripts")
+    assert os.path.exists(scripts_path)
+    compiler_path = os.path.join(scripts_path, "pip-compile.exe")
+    assert os.path.exists(compiler_path)
 
-print(f"Installing pip-tools")
+# NOTE(rt12) 2023-01-30 The latest version of Setuptools is 67.0.0 and it
+#     errors rejecting the (unused) `extras_require` section of the
+#     `btchip-python` dependency. This section is parsed correctly in 65.5.0.
+subprocess.run([ python_exe, "-m", "pip", "install", "setuptools==65.5.0" ])
+
+print("Installing pip-tools")
 subprocess.run([ python_exe, "-m", "pip", "install", "pip-tools" ])
 
 for r_suffix in [ '-pyinstaller', '',  '-hw' ]:
@@ -37,11 +52,9 @@ for r_suffix in [ '-pyinstaller', '',  '-hw' ]:
     adapt projects to the upcoming change.
     """
     # The only affected dependency for ElectrumSV is setuptools which we pin to 51.0.0 currently
-    command_args = ["pip-compile", "--allow-unsafe", "--generate-hashes",
-        f"--output-file={dr_path}", r_path]
-    print(f"Running command: {' '.join(command_args)}")
-    ret = subprocess.run(command_args, stdout=sys.stdout, stderr=sys.stdout)
-    if ret.returncode != 0:
+    command_args = [ executable_name, "--allow-unsafe", "--generate-hashes", f"--output-file={dr_path}", r_path ]
+    ret = subprocess.check_call(command_args, executable=compiler_path)
+    if ret != 0:
         print("Failed running command")
         sys.exit(ret.returncode)
     print("OK.")
