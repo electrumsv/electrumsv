@@ -513,8 +513,11 @@ def main() -> None:
 
     if isinstance(result, str):
         print(result)
+        if result.startswith("Error:"):
+            sys.exit(1)
     elif type(result) is dict and result.get('error'):
         print(result.get('error'), file=sys.stderr)
+        sys.exit(1)
     elif result is not None:
         print(json_encode(result))
     sys.exit(0)

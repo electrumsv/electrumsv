@@ -67,6 +67,7 @@ from .constants import CredentialPolicyFlag, DerivationType, NetworkServerFlag, 
     TransactionImportFlag, TransactionOutputFlag, TxFlags
 from .exceptions import BroadcastError, InvalidPassword, NotEnoughFunds
 from .logs import logs
+from .network import header_sync_state_middleware
 from .networks import Net
 from .transaction import classify_transaction_output_script, TransactionFeeEstimator, XTxOutput
 from .util import constant_time_compare
@@ -81,6 +82,7 @@ logger = logs.get_logger("nodeapi")
 
 # We use typed dictionaries inline rather than layering functions to abstract this in order to try
 # to make the code easier to read.
+
 
 class ErrorDict(TypedDict):
     code: int
@@ -289,7 +291,7 @@ async def jsonrpc_handler_async(request: web.Request) -> web.Response:
 
 
 async def execute_jsonrpc_call_async(request: web.Request, object_data: Any) \
-        -> tuple[RequestIdType, Any]:
+        -> tuple[RequestIdType, Any] | web.Response:
     """
     This should only raise `aiohttp` web exceptions which should not need to be caught:
     - HTTPBadRequest
@@ -332,6 +334,16 @@ async def execute_jsonrpc_call_async(request: web.Request, object_data: Any) \
             text=json.dumps(ResponseDict(id=request_id, result=None,
                 error=ErrorDict(code=INVALID_REQUEST,
                     message="Params must be an array or object"))))
+
+    wallet = get_wallet_from_request(request, request_id)
+    if wallet is not None and wallet._network is not None:
+        if not await header_sync_state_middleware(wallet):
+            # Node `JSONRPCRequest::parse` error case.
+            return web.json_response(
+                data=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=WALLET_ERROR,
+                        message="Initial header synchronization in progress. Try again soon."))),
+                headers={"Content-Type": "application/json"}, status=425)
 
     # These calls are intentionally explicitly dispatched inline so that we avoid any
     # unforeseen dynamic dispatching problems and also it means you can be more likely to be

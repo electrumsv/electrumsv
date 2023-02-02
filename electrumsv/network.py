@@ -58,6 +58,15 @@ ONE_DAY = 24 * 3600
 MAX_CONCEIVABLE_REORG_DEPTH = 500
 
 
+async def header_sync_state_middleware(wallet: Wallet) -> bool:
+    """This is not implemented as a typical aiohttp middleware, but functionally it acts as a
+    middleware as it is called as a check prior to any RPC handlers"""
+    assert wallet._network is not None
+    if wallet._network.initial_headers_sync_complete():
+        return True
+    return False
+
+
 @dataclasses.dataclass
 class MainLoopContext:
     futures: list[concurrent.futures.Future[None]] = dataclasses.field(
@@ -142,6 +151,11 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         """
         assert app_state.headers is not None
         tip_headers = await get_chain_tips_async(server_state, self.aiohttp_session)
+        # This get_chain_tips_async call will be the first http request sent to the server.
+        # If successful, now is the time to trigger the `new_server_connection_event`
+        self.new_server_connection_event.set()
+        self.new_server_connection_event.clear()
+
         tip_header = filter_tips_for_longest_chain(tip_headers)
         server_state.tip_header = tip_header
         while True:
@@ -155,6 +169,9 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 server_tip=tip_header)
             heights = [height for height in range(any_common_base_header.height,
                 tip_header.height + 1)]
+            if len(heights) > 2000:
+                logger.warning("Synchronizing %s headers. Wallet functionality"
+                    "will be temporarily limited until complete", len(heights))
             await self._request_and_connect_headers_at_heights_async(server_state, heights)
 
         return app_state.lookup_header(tip_header.hash)
@@ -210,6 +227,9 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         server_state = self.connected_header_server_states[server_key]
         current_tip_header, current_chain = await self._synchronise_headers_for_server_tip(
             server_state)
+
+        logger.info("Setting initial header sync event for header server: %s", server_key.url)
+        server_state.initial_sync_completed.set()
 
         server_state.tip_header = current_tip_header
         server_state.chain = current_chain
@@ -340,6 +360,17 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
     def get_header_server_state(self, server_key: ServerAccountKey) -> HeaderServerState:
         return self.connected_header_server_states[server_key]
 
+    def initial_headers_sync_complete(self) -> bool:
+        """Connecting a large number of headers is a CPU bound process that degrades the user
+        experience. Therefore, it is best to inform the user that the initial
+        headers sync is ongoing and block NodeAPI RPC requests until initial sync is complete."""
+        # It is assumed that these are reliable services and so will always
+        # have a tip that is equal to or exceeding any wallet's `persisted_tip_hash`.
+        for server_key, state in self.connected_header_server_states.items():
+            if state.initial_sync_completed.is_set():
+                return True
+        return False
+
     def is_header_server_ready(self, server_key: ServerAccountKey) -> bool:
         server_state = self.connected_header_server_states.get(server_key)
         return server_state is not None and server_state.connection_event.is_set()
@@ -367,8 +398,6 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             future = app_state.async_.spawn(self._maintain_connection(context, server_key))
             self.connected_header_server_states[server_key] = HeaderServerState(server_key,
                 future)
-            self.new_server_connection_event.set()
-            self.new_server_connection_event.clear()
             return True
         return False
 
@@ -442,6 +471,9 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 self.aiohttp_session, min_height, count)
             stream = BytesIO(header_array)
             count_of_raw_headers = len(header_array) // 80
+            logger.debug("Fetched %s headers", count_of_raw_headers)
+
+            logger.debug("Connecting %s headers", count_of_raw_headers)
             for i in range(count_of_raw_headers):
                 raw_header = stream.read(80)
                 # This will acquire a lock for every call, but unless we see that in profiling

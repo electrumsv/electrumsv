@@ -41,7 +41,7 @@ from .constants import CredentialPolicyFlag, DaemonSubcommandLiteral, DaemonSubc
 from .exchange_rate import FxTask
 from .exceptions import InvalidPassword, ServerConnectionError
 from .logs import logs
-from .network import Network
+from .network import header_sync_state_middleware, Network
 from .network_support.api_server import get_viable_servers
 from .network_support.exceptions import AuthenticationError, GeneralAPIError
 from .nodeapi import NodeAPIServer
@@ -365,6 +365,10 @@ class Daemon(DaemonThread):
             if wallet is None:
                 return f"Error: Wallet '{command_line_wallet_path}' not loaded. " \
                     "Use the 'load_wallet' daemon subcommand to load a wallet."
+
+            if wallet is not None and wallet._network is not None:
+                if not await header_sync_state_middleware(wallet):
+                    return "Error: Initial header synchronization in progress. Try again soon."
 
             wallet_password = config_options.get('password')
             assert wallet_password is not None

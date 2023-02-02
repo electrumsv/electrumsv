@@ -358,11 +358,19 @@ async def test_server_authentication_method_type_fail_async(server_tester: TestC
     assert object["error"]["code"] == -32600
     assert object["error"]["message"] == "Method must be a string"
 
-async def test_server_authentication_method_unknown_fail_async(server_tester: TestClient) -> None:
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_server_authentication_method_unknown_fail_async(app_state_nodeapi: AppStateProxy,
+        server_tester: TestClient) -> None:
     assert server_tester.app is not None
     mock_server = server_tester.app["server"]
     # Ensure the server does not require authorization to make a call.
     mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallets[irrelevant_path] = unittest.mock.Mock()
+    app_state_nodeapi.daemon.wallets = wallets
+
     call_object = {
         "id": 2323,
         "method": "non-existent method",
