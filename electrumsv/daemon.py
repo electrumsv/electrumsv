@@ -41,7 +41,7 @@ from .constants import CredentialPolicyFlag, DaemonSubcommandLiteral, DaemonSubc
 from .exchange_rate import FxTask
 from .exceptions import InvalidPassword, ServerConnectionError
 from .logs import logs
-from .network import header_sync_state_middleware, Network
+from .network import Network
 from .network_support.api_server import get_viable_servers
 from .network_support.exceptions import AuthenticationError, GeneralAPIError
 from .nodeapi import NodeAPIServer
@@ -366,10 +366,6 @@ class Daemon(DaemonThread):
                 return f"Error: Wallet '{command_line_wallet_path}' not loaded. " \
                     "Use the 'load_wallet' daemon subcommand to load a wallet."
 
-            if wallet is not None and wallet._network is not None:
-                if not await header_sync_state_middleware(wallet):
-                    return "Error: Initial header synchronization in progress. Try again soon."
-
             wallet_password = config_options.get('password')
             assert wallet_password is not None
             password, password_policy_flag = app_state.credentials.get_wallet_password_and_policy(
@@ -482,7 +478,7 @@ class Daemon(DaemonThread):
             app_state.app.new_window(path, config.get('url'))
             return "ok"
 
-        return "error: ElectrumSV is running in daemon mode; stop the daemon first."
+        return "Error: ElectrumSV is running in daemon mode; stop the daemon first."
 
     def load_wallet(self, wallet_filepath: str) -> Wallet | None:
         wallet_categorisation = categorise_file(wallet_filepath)

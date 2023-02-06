@@ -1108,7 +1108,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
                 return
 
             edit.setStyleSheet(ColorScheme.DEFAULT.as_stylesheet())
-            fiat_edit.is_last_edited = (edit == fiat_edit)
+            fiat_edit.is_last_edited = edit == fiat_edit
             amount = edit.get_amount()
             rate = app_state.fx.exchange_rate() if app_state.fx else None
             if rate is None or amount is None:

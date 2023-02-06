@@ -46,8 +46,6 @@ class HeaderServerState:
     connection_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
     synchronisation_update_event: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
 
-    initial_sync_completed: asyncio.Event = dataclasses.field(default_factory=asyncio.Event)
-
 
 async def get_batched_headers_by_height_async(server_state: HeaderServerState,
         session: aiohttp.ClientSession, from_height: int, count: Optional[int]=None) -> bytes:
