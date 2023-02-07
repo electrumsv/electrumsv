@@ -381,7 +381,7 @@ class SettingsDialog(WindowModalDialog):
                 for j in range(64):
                     for i in range(128):
                         if pix[i, j]:
-                            o = (i + j * 128)
+                            o = i + j * 128
                             img[o // 8] |= (1 << (7 - o % 8))
                 img = bytes(img)
             invoke_client('change_homescreen', img)

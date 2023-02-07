@@ -478,7 +478,7 @@ class Daemon(DaemonThread):
             app_state.app.new_window(path, config.get('url'))
             return "ok"
 
-        return "error: ElectrumSV is running in daemon mode; stop the daemon first."
+        return "Error: ElectrumSV is running in daemon mode; stop the daemon first."
 
     def load_wallet(self, wallet_filepath: str) -> Wallet | None:
         wallet_categorisation = categorise_file(wallet_filepath)

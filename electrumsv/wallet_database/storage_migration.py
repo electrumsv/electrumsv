@@ -21,7 +21,7 @@ try:
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
-    import sqlite3 # type: ignore[no-redef]
+    import sqlite3
 from typing import Any, cast, Dict, Iterable, List, NamedTuple, Optional, Sequence, Tuple, \
     TypedDict, Union
 
@@ -87,7 +87,7 @@ class TxFlags_22(IntFlag):
     # A transaction received over the p2p network which is confirmed and known to be in a block.
     STATE_SETTLED = 1 << 21
 
-    METADATA_FIELD_MASK = (HasFee | HasHeight | HasPosition)
+    METADATA_FIELD_MASK = HasFee | HasHeight | HasPosition
 
 
 class AccountRow1(NamedTuple):

@@ -29,7 +29,7 @@ try:
 except ModuleNotFoundError:
     # MacOS has latest brew version of 3.35.5 (as of 2021-06-20).
     # Windows builds use the official Python 3.10.0 builds and bundled version of 3.35.5.
-    import sqlite3 # type: ignore[no-redef]
+    import sqlite3
 import time
 from typing import Any, cast, Iterable, Optional, Sequence
 
@@ -1201,7 +1201,7 @@ def read_transactions_exist(db: sqlite3.Connection, tx_hashes: Sequence[bytes],
 
 @replace_db_context_with_connection
 def read_transaction_flags(db: sqlite3.Connection, tx_hash: bytes) -> Optional[TxFlags]:
-    sql = ("SELECT flags FROM Transactions WHERE tx_hash=?")
+    sql = "SELECT flags FROM Transactions WHERE tx_hash=?"
     cursor = db.execute(sql, (tx_hash,))
     row = cursor.fetchone()
     cursor.close()
@@ -2268,7 +2268,7 @@ def update_invoice_flags(entries: Iterable[tuple[PaymentFlag, PaymentFlag, int]]
 
 def update_keyinstance_derivation_datas(db_context: DatabaseContext,
         entries: Iterable[tuple[bytes, int]]) -> concurrent.futures.Future[None]:
-    sql = ("UPDATE KeyInstances SET date_updated=?, derivation_data=? WHERE keyinstance_id=?")
+    sql = "UPDATE KeyInstances SET date_updated=?, derivation_data=? WHERE keyinstance_id=?"
 
     timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
@@ -2281,7 +2281,7 @@ def update_keyinstance_derivation_datas(db_context: DatabaseContext,
 
 def update_keyinstance_descriptions(db_context: DatabaseContext,
         entries: Iterable[tuple[Optional[str], int]]) -> concurrent.futures.Future[None]:
-    sql = ("UPDATE KeyInstances SET date_updated=?, description=? WHERE keyinstance_id=?")
+    sql = "UPDATE KeyInstances SET date_updated=?, description=? WHERE keyinstance_id=?"
     timestamp = get_posix_timestamp()
     rows = [ (timestamp,) + entry for entry in entries ]
     def _write(db: Optional[sqlite3.Connection]=None) -> None:

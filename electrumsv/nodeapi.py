@@ -82,6 +82,12 @@ logger = logs.get_logger("nodeapi")
 # We use typed dictionaries inline rather than layering functions to abstract this in order to try
 # to make the code easier to read.
 
+
+# aiohttp does not provide this. Define it locally.
+class HTTPTooEarly(web.HTTPClientError):
+    status_code = 425
+
+
 class ErrorDict(TypedDict):
     code: int
     message: str
@@ -294,6 +300,13 @@ async def execute_jsonrpc_call_async(request: web.Request, object_data: Any) \
     This should only raise `aiohttp` web exceptions which should not need to be caught:
     - HTTPBadRequest
     """
+    if app_state.daemon.network is not None:
+        if not app_state.daemon.network.is_initial_headers_sync_complete():
+            raise HTTPTooEarly(headers={"Content-Type": "application/json"},
+                text=json.dumps(ResponseDict(id=None, result=None,
+                    error=ErrorDict(code=WALLET_ERROR,
+                        message="Initial header synchronization in progress. Try again soon."))))
+
     if not isinstance(object_data, dict):
         raise web.HTTPBadRequest(headers={ "Content-Type": "application/json" },
             text=json.dumps(ResponseDict(id=None, result=None,

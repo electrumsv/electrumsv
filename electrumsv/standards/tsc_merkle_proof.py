@@ -173,7 +173,7 @@ class TSCMerkleProof:
         merkle_root_bytes: bytes | None = None
         nodes = list[TSCMerkleNode]()
 
-        include_full_tx = (len(tsc_json['txOrId']) > 64)
+        include_full_tx = len(tsc_json['txOrId']) > 64
         if include_full_tx:
             flags = flags | TxOrId.FULL_TRANSACTION
 
