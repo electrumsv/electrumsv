@@ -45,9 +45,10 @@ from bitcoinx import pack_le_int64, pack_le_uint32, pack_varint, read_le_uint32,
 
 from ..constants import DerivationPath, ScriptType
 from ..logs import logs
-from ..transaction import classify_transaction_output_script, parse_script_sig, Transaction, \
-    XPublicKey, XPublicKeyKind, XTxOutput
+from ..transaction import Transaction, XPublicKey, XPublicKeyKind, XTxOutput
 from ..types import DatabaseKeyDerivationData
+
+from .script_templates import classify_transaction_output_script, parse_script_sig
 
 # # A PSBT implementation.
 #

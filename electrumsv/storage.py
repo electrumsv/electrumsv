@@ -53,8 +53,8 @@ from .i18n import _
 from .keystore import bip44_derivation
 from .logs import logs
 from .networks import Net
-from .transaction import classify_transaction_output_script, parse_script_sig, Transaction, \
-    XPublicKey
+from .standards.script_templates import classify_transaction_output_script, parse_script_sig
+from .transaction import Transaction, XPublicKey
 from .util import get_posix_timestamp
 from .util.misc import ProgressCallbacks
 from .wallet_database import migration

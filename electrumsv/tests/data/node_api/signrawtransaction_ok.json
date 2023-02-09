@@ -1,0 +1,709 @@
+[
+    [
+        "Transaction count: 1; input count: 1; inputs signable ([True]); criteria: prevout data and signature mocked as available for all signable inputs from wallet.",
+        [
+            "010000000111111111111111111111111111111111111111111111111111111111111111110000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": "3044022068a95599b454a95980101bd64cd77973598bb2ea85d2967ae08fe7cfbd3c2e6a022029f261b4d762975bfcb9b309f761b4006b14f3588379ba0f25ab15eb2125cbec41"
+            },
+            "prevouts": [
+                {
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0,
+                    "scriptPubKey": "76a914e0419071d5d06628dba10da9940dfa7c22fbc80388ac",
+                    "amount": 100000.0,
+                    "is_spent": false,
+                    "public_keys_hex": [
+                        "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7"
+                    ]
+                }
+            ]
+        },
+        {
+            "hex": "01000000011111111111111111111111111111111111111111111111111111111111111111000000006a473044022068a95599b454a95980101bd64cd77973598bb2ea85d2967ae08fe7cfbd3c2e6a022029f261b4d762975bfcb9b309f761b4006b14f3588379ba0f25ab15eb2125cbec4121035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "complete": true
+        }
+    ],
+    [
+        "When one transaction with 1 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is not present and it cannot be signed.",
+        [
+            "010000000111111111111111111111111111111111111111111111111111111111111111110000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": "3044022068a95599b454a95980101bd64cd77973598bb2ea85d2967ae08fe7cfbd3c2e6a022029f261b4d762975bfcb9b309f761b4006b14f3588379ba0f25ab15eb2125cbec41"
+            },
+            "prevouts": []
+        },
+        {
+            "hex": "010000000111111111111111111111111111111111111111111111111111111111111111110000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ],
+    [
+        "When one transaction with 1 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is present but already spent and so we refuse to sign it.",
+        [
+            "010000000111111111111111111111111111111111111111111111111111111111111111110000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": "3044022068a95599b454a95980101bd64cd77973598bb2ea85d2967ae08fe7cfbd3c2e6a022029f261b4d762975bfcb9b309f761b4006b14f3588379ba0f25ab15eb2125cbec41"
+            },
+            "prevouts": [
+                {
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0,
+                    "scriptPubKey": "76a914e0419071d5d06628dba10da9940dfa7c22fbc80388ac",
+                    "amount": 100000.0,
+                    "is_spent": true,
+                    "public_keys_hex": [
+                        "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7"
+                    ]
+                }
+            ]
+        },
+        {
+            "hex": "010000000111111111111111111111111111111111111111111111111111111111111111110000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ],
+    [
+        "Transaction count: 1; input count: 1; inputs signable ([False]); criteria: prevout data and signature mocked as available for all signable inputs from wallet.",
+        [
+            "010000000111111111111111111111111111111111111111111111111111111111111111110000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {},
+            "prevouts": []
+        },
+        {
+            "hex": "010000000111111111111111111111111111111111111111111111111111111111111111110000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "complete": false,
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                }
+            ]
+        }
+    ],
+    [
+        "When one transaction with 1 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is not present and it cannot be signed.",
+        [
+            "010000000111111111111111111111111111111111111111111111111111111111111111110000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {},
+            "prevouts": []
+        },
+        {
+            "hex": "010000000111111111111111111111111111111111111111111111111111111111111111110000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ],
+    [
+        "When one transaction with 1 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is present but already spent and so we refuse to sign it.",
+        [
+            "010000000111111111111111111111111111111111111111111111111111111111111111110000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": ""
+            },
+            "prevouts": [
+                {
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0,
+                    "scriptPubKey": "76a914e0419071d5d06628dba10da9940dfa7c22fbc80388ac",
+                    "amount": 100000.0,
+                    "is_spent": true,
+                    "public_keys_hex": [
+                        "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7"
+                    ]
+                }
+            ]
+        },
+        {
+            "hex": "010000000111111111111111111111111111111111111111111111111111111111111111110000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ],
+    [
+        "Transaction count: 1; input count: 2; inputs signable ([True, True]); criteria: prevout data and signature mocked as available for all signable inputs from wallet.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": "3045022100f2c688683e5b66d6622e7802e948801dbd8f1ff4f690333b054cc7af092fc64502206839a4ba038291f8662ee2cf739069574f873364a5ff5110ec715f62b3b4599041",
+                "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7": "3045022100d0070940fcf317d40486611482dd743d5dc7137e3c6665d567ad727110569dce022009eb7a8ab44591463f0efe60d18450f5d40bc0b1fcb2af9c4f5658334e98661241"
+            },
+            "prevouts": [
+                {
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0,
+                    "scriptPubKey": "76a914e0419071d5d06628dba10da9940dfa7c22fbc80388ac",
+                    "amount": 100000.0,
+                    "is_spent": false,
+                    "public_keys_hex": [
+                        "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7"
+                    ]
+                },
+                {
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0,
+                    "scriptPubKey": "76a91410fd75e6097ec956e31b587396691dd79b364def88ac",
+                    "amount": 50000.0,
+                    "is_spent": false,
+                    "public_keys_hex": [
+                        "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7"
+                    ]
+                }
+            ]
+        },
+        {
+            "hex": "01000000021111111111111111111111111111111111111111111111111111111111111111000000006b483045022100f2c688683e5b66d6622e7802e948801dbd8f1ff4f690333b054cc7af092fc64502206839a4ba038291f8662ee2cf739069574f873364a5ff5110ec715f62b3b459904121035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7ffffffff2222222222222222222222222222222222222222222222222222222222222222000000006b483045022100d0070940fcf317d40486611482dd743d5dc7137e3c6665d567ad727110569dce022009eb7a8ab44591463f0efe60d18450f5d40bc0b1fcb2af9c4f5658334e98661241210263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "complete": true
+        }
+    ],
+    [
+        "When one transaction with 2 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is not present and it cannot be signed.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": "3045022100f2c688683e5b66d6622e7802e948801dbd8f1ff4f690333b054cc7af092fc64502206839a4ba038291f8662ee2cf739069574f873364a5ff5110ec715f62b3b4599041",
+                "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7": "3045022100d0070940fcf317d40486611482dd743d5dc7137e3c6665d567ad727110569dce022009eb7a8ab44591463f0efe60d18450f5d40bc0b1fcb2af9c4f5658334e98661241"
+            },
+            "prevouts": []
+        },
+        {
+            "hex": "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                },
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ],
+    [
+        "When one transaction with 2 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is present but already spent and so we refuse to sign it.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": "3045022100f2c688683e5b66d6622e7802e948801dbd8f1ff4f690333b054cc7af092fc64502206839a4ba038291f8662ee2cf739069574f873364a5ff5110ec715f62b3b4599041",
+                "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7": "3045022100d0070940fcf317d40486611482dd743d5dc7137e3c6665d567ad727110569dce022009eb7a8ab44591463f0efe60d18450f5d40bc0b1fcb2af9c4f5658334e98661241"
+            },
+            "prevouts": [
+                {
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0,
+                    "scriptPubKey": "76a914e0419071d5d06628dba10da9940dfa7c22fbc80388ac",
+                    "amount": 100000.0,
+                    "is_spent": true,
+                    "public_keys_hex": [
+                        "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7"
+                    ]
+                },
+                {
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0,
+                    "scriptPubKey": "76a91410fd75e6097ec956e31b587396691dd79b364def88ac",
+                    "amount": 50000.0,
+                    "is_spent": true,
+                    "public_keys_hex": [
+                        "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7"
+                    ]
+                }
+            ]
+        },
+        {
+            "hex": "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                },
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ],
+    [
+        "Transaction count: 1; input count: 2; inputs signable ([True, False]); criteria: prevout data and signature mocked as available for all signable inputs from wallet.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": "3045022100f2c688683e5b66d6622e7802e948801dbd8f1ff4f690333b054cc7af092fc64502206839a4ba038291f8662ee2cf739069574f873364a5ff5110ec715f62b3b4599041"
+            },
+            "prevouts": [
+                {
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0,
+                    "scriptPubKey": "76a914e0419071d5d06628dba10da9940dfa7c22fbc80388ac",
+                    "amount": 100000.0,
+                    "is_spent": false,
+                    "public_keys_hex": [
+                        "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7"
+                    ]
+                }
+            ]
+        },
+        {
+            "hex": "01000000021111111111111111111111111111111111111111111111111111111111111111000000006b483045022100f2c688683e5b66d6622e7802e948801dbd8f1ff4f690333b054cc7af092fc64502206839a4ba038291f8662ee2cf739069574f873364a5ff5110ec715f62b3b459904121035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "complete": false,
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0
+                }
+            ]
+        }
+    ],
+    [
+        "When one transaction with 2 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is not present and it cannot be signed.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": "3045022100f2c688683e5b66d6622e7802e948801dbd8f1ff4f690333b054cc7af092fc64502206839a4ba038291f8662ee2cf739069574f873364a5ff5110ec715f62b3b4599041"
+            },
+            "prevouts": []
+        },
+        {
+            "hex": "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                },
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ],
+    [
+        "When one transaction with 2 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is present but already spent and so we refuse to sign it.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": "3045022100f2c688683e5b66d6622e7802e948801dbd8f1ff4f690333b054cc7af092fc64502206839a4ba038291f8662ee2cf739069574f873364a5ff5110ec715f62b3b4599041",
+                "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7": ""
+            },
+            "prevouts": [
+                {
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0,
+                    "scriptPubKey": "76a914e0419071d5d06628dba10da9940dfa7c22fbc80388ac",
+                    "amount": 100000.0,
+                    "is_spent": true,
+                    "public_keys_hex": [
+                        "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7"
+                    ]
+                },
+                {
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0,
+                    "scriptPubKey": "76a91410fd75e6097ec956e31b587396691dd79b364def88ac",
+                    "amount": 50000.0,
+                    "is_spent": true,
+                    "public_keys_hex": [
+                        "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7"
+                    ]
+                }
+            ]
+        },
+        {
+            "hex": "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                },
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ],
+    [
+        "Transaction count: 1; input count: 2; inputs signable ([False, True]); criteria: prevout data and signature mocked as available for all signable inputs from wallet.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7": "3045022100d0070940fcf317d40486611482dd743d5dc7137e3c6665d567ad727110569dce022009eb7a8ab44591463f0efe60d18450f5d40bc0b1fcb2af9c4f5658334e98661241"
+            },
+            "prevouts": [
+                {
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0,
+                    "scriptPubKey": "76a91410fd75e6097ec956e31b587396691dd79b364def88ac",
+                    "amount": 50000.0,
+                    "is_spent": false,
+                    "public_keys_hex": [
+                        "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7"
+                    ]
+                }
+            ]
+        },
+        {
+            "hex": "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff2222222222222222222222222222222222222222222222222222222222222222000000006b483045022100d0070940fcf317d40486611482dd743d5dc7137e3c6665d567ad727110569dce022009eb7a8ab44591463f0efe60d18450f5d40bc0b1fcb2af9c4f5658334e98661241210263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "complete": false,
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                }
+            ]
+        }
+    ],
+    [
+        "When one transaction with 2 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is not present and it cannot be signed.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7": "3045022100d0070940fcf317d40486611482dd743d5dc7137e3c6665d567ad727110569dce022009eb7a8ab44591463f0efe60d18450f5d40bc0b1fcb2af9c4f5658334e98661241"
+            },
+            "prevouts": []
+        },
+        {
+            "hex": "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                },
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ],
+    [
+        "When one transaction with 2 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is present but already spent and so we refuse to sign it.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": "",
+                "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7": "3045022100d0070940fcf317d40486611482dd743d5dc7137e3c6665d567ad727110569dce022009eb7a8ab44591463f0efe60d18450f5d40bc0b1fcb2af9c4f5658334e98661241"
+            },
+            "prevouts": [
+                {
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0,
+                    "scriptPubKey": "76a914e0419071d5d06628dba10da9940dfa7c22fbc80388ac",
+                    "amount": 100000.0,
+                    "is_spent": true,
+                    "public_keys_hex": [
+                        "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7"
+                    ]
+                },
+                {
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0,
+                    "scriptPubKey": "76a91410fd75e6097ec956e31b587396691dd79b364def88ac",
+                    "amount": 50000.0,
+                    "is_spent": true,
+                    "public_keys_hex": [
+                        "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7"
+                    ]
+                }
+            ]
+        },
+        {
+            "hex": "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                },
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ],
+    [
+        "Transaction count: 1; input count: 2; inputs signable ([False, False]); criteria: prevout data and signature mocked as available for all signable inputs from wallet.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {},
+            "prevouts": []
+        },
+        {
+            "hex": "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "complete": false,
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                },
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0
+                }
+            ]
+        }
+    ],
+    [
+        "When one transaction with 2 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is not present and it cannot be signed.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {},
+            "prevouts": []
+        },
+        {
+            "hex": "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                },
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ],
+    [
+        "When one transaction with 2 unsigned input is expected to be signed by the wallet. Failure result because the prevout data is present but already spent and so we refuse to sign it.",
+        [
+            "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            null,
+            null,
+            null
+        ],
+        {
+            "signatures": {
+                "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7": "",
+                "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7": ""
+            },
+            "prevouts": [
+                {
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0,
+                    "scriptPubKey": "76a914e0419071d5d06628dba10da9940dfa7c22fbc80388ac",
+                    "amount": 100000.0,
+                    "is_spent": true,
+                    "public_keys_hex": [
+                        "035985e645039763a766737e6badc1204221284e66bb464f2ef6715086e6974cf7"
+                    ]
+                },
+                {
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0,
+                    "scriptPubKey": "76a91410fd75e6097ec956e31b587396691dd79b364def88ac",
+                    "amount": 50000.0,
+                    "is_spent": true,
+                    "public_keys_hex": [
+                        "0263b116b6aef8d492738eb20ef66385a28c9c45cf71f67cf568d784ae57d582e7"
+                    ]
+                }
+            ]
+        },
+        {
+            "hex": "010000000211111111111111111111111111111111111111111111111111111111111111110000000000ffffffff22222222222222222222222222222222222222222222222222222222222222220000000000ffffffff01b80b0000000000001976a91417848ce36849affe964042f38d6555c73eca9e3b88aca0860100",
+            "errors": [
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "1111111111111111111111111111111111111111111111111111111111111111",
+                    "vout": 0
+                },
+                {
+                    "error": "Input not found or already spent",
+                    "scriptSig": "",
+                    "sequence": 4294967295,
+                    "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                    "vout": 0
+                }
+            ],
+            "complete": false
+        }
+    ]
+]

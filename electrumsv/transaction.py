@@ -26,26 +26,24 @@ from __future__ import annotations
 import dataclasses
 import enum
 from io import BytesIO
-import struct
 from struct import error as struct_error
-from typing import Any, Callable, cast, Generator, Protocol, Sequence, TypeVar
+from typing import Any, Callable, cast, Protocol, TypeVar
 
 import attr
 from bitcoinx import (
-    Address, bip32_key_from_string, BIP32PublicKey, classify_output_script,
-    der_signature_to_compact, double_sha256, hash160, hash_to_hex_str, InvalidSignature,
-    Ops, P2MultiSig_Output, P2PK_Output, P2PKH_Address, P2SH_Address, pack_byte, pack_le_int32,
-    pack_le_uint32, pack_list, pack_varbytes, PrivateKey, PublicKey, push_int, push_item,
-    read_le_int32, read_le_int64, read_le_uint32, read_varint, Script, SigHash, Tx,
-    TxInput, TxOutput, varint_len
+    Address, bip32_key_from_string, BIP32PublicKey, der_signature_to_compact, double_sha256,
+    hash_to_hex_str, InvalidSignature, P2PK_Output, pack_byte, pack_le_int32, pack_le_uint32,
+    pack_list, pack_varbytes, PrivateKey, PublicKey, read_le_int32, read_le_int64, read_le_uint32,
+    read_varint, Script, SigHash, Tx, TxInput, TxOutput, varint_len
 )
 
 from .bitcoin import ScriptTemplate
-from .constants import DerivationPath, MULTI_SIGNER_SCRIPT_TYPES, ScriptType, \
-    SINGLE_SIGNER_SCRIPT_TYPES
+from .constants import DerivationPath, ScriptType
 from .logs import logs
 from .networks import Net
 from .script import AccumulatorMultiSigOutput
+from .standards.script_templates import classify_transaction_output_script, create_script_sig, \
+    to_bare_multisig_script_bytes
 from .types import DatabaseKeyDerivationData, FeeQuoteCommon, FeeQuoteTypeFee, \
     ServerAndCredential, TransactionSize, Outpoint
 
@@ -86,11 +84,11 @@ T = TypeVar('T')
 
 # Duplicated and extended from the bitcoinx implementation.
 def xread_list(read: ReadBytesFunc, tell: TellFunc,
-        read_one: Callable[[ReadBytesFunc, TellFunc], T]) -> list[T]:
+        read_one: Callable[[ReadBytesFunc, TellFunc, int], T], transaction_offset: int) -> list[T]:
     '''Return a list of items.
 
     Each item is read with read_one, the stream begins with a count of the items.'''
-    return [read_one(read, tell) for _ in range(read_varint(read))]
+    return [read_one(read, tell, transaction_offset) for _ in range(read_varint(read))]
 
 # Reimplemented from bitcoinx, to take the tell argument and return the offset.
 def xread_varbytes(read: ReadBytesFunc, tell: TellFunc) -> tuple[bytes, int]:
@@ -100,20 +98,6 @@ def xread_varbytes(read: ReadBytesFunc, tell: TellFunc) -> tuple[bytes, int]:
     if len(result) != n:
         raise struct_error(f'varbytes requires a buffer of {n:,d} bytes')
     return result, offset
-
-
-def classify_transaction_output_script(script: Script) \
-        -> tuple[ScriptType | None, int | None, ScriptTemplate]:
-    script_template = classify_output_script(script, Net.COIN)
-    if isinstance(script_template, P2MultiSig_Output):
-        return ScriptType.MULTISIG_BARE, script_template.threshold, script_template
-    elif isinstance(script_template, P2PK_Output):
-        return ScriptType.P2PK, 1, script_template
-    elif isinstance(script_template, P2PKH_Address):
-        return ScriptType.P2PKH, 1, script_template
-    elif isinstance(script_template, P2SH_Address):
-        return ScriptType.MULTISIG_P2SH, None, script_template
-    return None, None, script_template
 
 
 def script_to_display_text(script: Script, kind: ScriptTemplate) -> str:
@@ -339,12 +323,15 @@ class XTxInput(TxInput): # type: ignore[misc]
         return self.script_type
 
     @classmethod
-    def read(cls, read: ReadBytesFunc, tell: TellFunc) -> XTxInput:
+    def read(cls, read: ReadBytesFunc, tell: TellFunc, transaction_offset: int) -> XTxInput:
         prev_hash = read(32)
         prev_idx = read_le_uint32(read)
         script_sig_bytes, script_sig_offset = xread_varbytes(read, tell)
         script_sig = Script(script_sig_bytes)
         sequence = read_le_uint32(read)
+
+        # Adjust for transactions picked out mid-stream of a larger piece of data.
+        script_sig_offset = script_sig_offset - transaction_offset
 
         # NOTE(rt12) workaround for mypy not recognising the base class init arguments.
         return cls(prev_hash=prev_hash, prev_idx=prev_idx, # type: ignore[call-arg]
@@ -434,18 +421,18 @@ class XTxOutput(TxOutput): # type: ignore[misc]
     script_length: int = attr.ib(default=0)
 
     @classmethod
-    def read(cls, read: ReadBytesFunc, tell: TellFunc) -> XTxOutput:
+    def read(cls, read: ReadBytesFunc, tell: TellFunc, transaction_offset: int) -> XTxOutput:
         value = read_le_int64(read)
         script_pubkey_bytes, script_pubkey_offset = xread_varbytes(read, tell)
         script_pubkey = Script(script_pubkey_bytes)
         return cls(value, script_pubkey,
-            script_offset=script_pubkey_offset,
+            script_offset=script_pubkey_offset-transaction_offset,
             script_length=len(script_pubkey_bytes))
 
     @classmethod
     def from_bytes(cls, raw: bytes) -> XTxOutput:
         stream = BytesIO(raw)
-        return cls.read(stream.read, stream.tell)
+        return cls.read(stream.read, stream.tell, 0)
 
     def estimated_size(self) -> TransactionSize:
         # 8               <value>
@@ -466,205 +453,6 @@ class XTxOutput(TxOutput): # type: ignore[misc]
             f'script_type={self.script_type}, x_pubkeys={self.x_pubkeys}, '
             f'script_length={self.script_length} script_offset={self.script_offset})'
         )
-
-
-def _script_GetOp(_bytes: bytes) -> Generator[tuple[int, bytes | None, int], None, None]:
-    i = 0
-    blen = len(_bytes)
-    while i < blen:
-        vch = None
-        opcode = _bytes[i]
-        i += 1
-
-        if opcode <= Ops.OP_PUSHDATA4:
-            nSize = opcode
-            if opcode == Ops.OP_PUSHDATA1:
-                nSize = _bytes[i] if i < blen else 0
-                i += 1
-            elif opcode == Ops.OP_PUSHDATA2:
-                # tolerate truncated script
-                (nSize,) = struct.unpack_from('<H', _bytes, i) if i+2 <= blen else (0,)
-                i += 2
-            elif opcode == Ops.OP_PUSHDATA4:
-                (nSize,) = struct.unpack_from('<I', _bytes, i) if i+4 <= blen else (0,)
-                i += 4
-            # array slicing here never throws exception even if truncated script
-            vch = _bytes[i:i + nSize]
-            i += nSize
-
-        yield opcode, vch, i
-
-
-def _match_decoded(decoded: list[tuple[int, bytes | None, int]],
-        to_match: list[int | Ops]) -> bool:
-    if len(decoded) != len(to_match):
-        return False
-    for i in range(len(decoded)):
-        # Ops below OP_PUSHDATA4 all just push data
-        if (to_match[i] == Ops.OP_PUSHDATA4 and
-                decoded[i][0] <= Ops.OP_PUSHDATA4 and decoded[i][0] > 0):
-            continue
-        if to_match[i] != decoded[i][0]:
-            return False
-    return True
-
-
-def _extract_multisig_pattern(decoded: list[tuple[int, bytes | None, int]]) \
-        -> tuple[int, int, list[int | Ops]]:
-    m = decoded[0][0] - Ops.OP_1 + 1
-    n = decoded[-2][0] - Ops.OP_1 + 1
-    op_m = Ops.OP_1 + m - 1
-    op_n = Ops.OP_1 + n - 1
-    l: list[int | Ops] = [ op_m, *[Ops.OP_PUSHDATA4]*n, op_n, Ops.OP_CHECKMULTISIG ]
-    return m, n, l
-
-
-def to_bare_multisig_script_bytes(public_key_bytes_list: Sequence[bytes], threshold: int) -> bytes:
-    assert 1 <= threshold <= len(public_key_bytes_list)
-    parts = [push_int(threshold)]
-    parts.extend(push_item(public_key_bytes) for public_key_bytes in public_key_bytes_list)
-    parts.append(push_int(len(public_key_bytes_list)))
-    parts.append(pack_byte(Ops.OP_CHECKMULTISIG))
-    return b''.join(parts)
-
-
-def create_script_sig(script_type: ScriptType, threshold: int,
-        x_pubkeys: dict[bytes, XPublicKey], signature_by_key: dict[bytes, bytes],
-        ordered_public_key_bytes: Sequence[bytes]|None=None) -> Script | None:
-    # This should not be called unless we know of all the required signing keys.
-    assert len(x_pubkeys) >= threshold
-    if len(signature_by_key) < threshold:
-        return None
-
-    public_keys_bytes = list(signature_by_key)
-    if script_type in SINGLE_SIGNER_SCRIPT_TYPES:
-        if script_type == ScriptType.P2PK:
-            assert len(public_keys_bytes) == 1
-            public_key_bytes = public_keys_bytes[0]
-            assert public_key_bytes in x_pubkeys
-            return Script(push_item(signature_by_key[public_key_bytes]))
-        elif script_type == ScriptType.P2PKH:
-            assert len(public_keys_bytes) == 1
-            public_key_bytes = public_keys_bytes[0]
-            assert public_key_bytes in x_pubkeys
-            return Script(push_item(signature_by_key[public_key_bytes]) +
-                push_item(x_pubkeys[public_key_bytes].to_bytes()))
-    elif script_type in MULTI_SIGNER_SCRIPT_TYPES:
-        if script_type in (ScriptType.MULTISIG_P2SH, ScriptType.MULTISIG_BARE):
-            signature_entries = list(signature_by_key.items())
-            # Place the signatures in an order determined by the public key bytes.
-            signature_entries = sorted(signature_entries[:threshold])
-
-            if script_type == ScriptType.MULTISIG_P2SH:
-                parts = [pack_byte(Ops.OP_0)]
-                parts.extend(push_item(signature_bytes)
-                    for public_key_bytes, signature_bytes in signature_entries)
-                nested_script = to_bare_multisig_script_bytes([ public_key_bytes
-                    for public_key_bytes, signature_bytes in signature_entries ], threshold)
-                parts.append(push_item(nested_script))
-                return Script(b''.join(parts))
-            elif script_type == ScriptType.MULTISIG_BARE:
-                parts = [pack_byte(Ops.OP_0)]
-                parts.extend(push_item(signature_bytes)
-                    for public_key_bytes, signature_bytes in signature_entries)
-                return Script(b''.join(parts))
-        elif script_type == ScriptType.MULTISIG_ACCUMULATOR:
-            # These signatures must be in order, in this case we rely on insertion order.
-            assert ordered_public_key_bytes is not None
-            parts = []
-            for public_key_bytes in ordered_public_key_bytes:
-                if public_key_bytes in signature_by_key:
-                    parts.append([
-                        push_item(signature_by_key[public_key_bytes]),
-                        push_item(public_key_bytes),
-                        pack_byte(Ops.OP_TRUE),
-                    ])
-                else:
-                    parts.append([ pack_byte(Ops.OP_FALSE) ])
-            parts.reverse()
-            return Script(b''.join([ value for l in parts for value in l ]))
-    raise ValueError(f"unable to realize script {script_type}")
-
-
-@dataclasses.dataclass
-class ScriptSigData:
-    signatures: dict[bytes, bytes] = dataclasses.field(default_factory=dict)
-    threshold: int = dataclasses.field(default=0)
-    x_pubkeys: dict[bytes, XPublicKey] = dataclasses.field(default_factory=dict)
-    script_type: ScriptType = dataclasses.field(default=ScriptType.NONE)
-    address: Address|None = dataclasses.field(default=None)
-
-
-def parse_script_sig(script: bytes, to_x_public_key: Callable[[bytes], XPublicKey], *,
-        signature_placeholder: bytes|None = None) -> ScriptSigData:
-    """
-    What we can identify just using the script signature is P2PKH and P2SH. It is probably a given
-    that we will have the spent output and it's script to work with.
-    """
-    try:
-        decoded = list(_script_GetOp(script))
-    except Exception:
-        # coinbase transactions raise an exception
-        logger.exception("cannot find address in input script %s", script.hex())
-        return ScriptSigData()
-
-    x_pubkeys: dict[bytes, XPublicKey] = {}
-    signatures: dict[bytes, bytes] = {}
-
-    match: list[int|Ops]
-    # P2PK
-    # match = [ Ops.OP_PUSHDATA4 ]
-    # if _match_decoded(decoded, match):
-    #     # We can only match P2PK in a useful way if we have the spent output.
-    #     signature_bytes = cast(bytes, decoded[0][1])
-    #     return ScriptSigData(script_type=ScriptType.P2PK, threshold=1,
-    #         signatures={ public_key_bytes: signature_bytes })
-
-    # P2PKH inputs push a signature (around seventy bytes) and then their public key
-    # (65 bytes) onto the stack
-    match = [ Ops.OP_PUSHDATA4, Ops.OP_PUSHDATA4 ]
-    if _match_decoded(decoded, match):
-        signature_bytes = cast(bytes, decoded[0][1])
-        raw_public_key_bytes = decoded[1][1]
-        assert raw_public_key_bytes is not None
-        # The raw public key bytes are not guaranteed to be the same as what we actually use.
-        # They may be encoded Electrum extended keys or uncompressed public keys.
-        x_public_key = to_x_public_key(raw_public_key_bytes)
-        public_key_bytes = x_public_key.to_bytes()
-        x_pubkeys = { public_key_bytes: x_public_key }
-        if signature_bytes != signature_placeholder:
-            signatures[public_key_bytes] = signature_bytes
-        return ScriptSigData(script_type=ScriptType.P2PKH, threshold=1,
-            signatures=signatures, x_pubkeys=x_pubkeys, address=x_public_key.to_address())
-
-    # p2sh transaction, m of n
-    match = [ Ops.OP_0, *[ Ops.OP_PUSHDATA4 ] * (len(decoded) - 1) ]
-    if not _match_decoded(decoded, match):
-        logger.error("cannot find address in input script %s", script.hex())
-        return ScriptSigData()
-
-    nested_script = decoded[-1][1]
-    assert nested_script is not None
-    nested_decoded = [ x for x in _script_GetOp(nested_script) ]
-    nested_decoded_inner = cast(list[tuple[int, bytes, int]], nested_decoded[1:-2])
-    ordered_x_public_keys = [ to_x_public_key(x[1]) for x in nested_decoded_inner ]
-    public_key_bytes_list = [ x_pubkey.to_bytes() for x_pubkey in ordered_x_public_keys ]
-
-    m, n, match_multisig = _extract_multisig_pattern(nested_decoded)
-    if not _match_decoded(nested_decoded, match_multisig):
-        logger.error("cannot find address in input script %s", script.hex())
-        return ScriptSigData()
-
-    ordered_signature_bytes = [ cast(bytes, x[1]) for x in decoded[1:-1] ]
-    assert len(ordered_x_public_keys) == len(ordered_signature_bytes)
-
-    for order_index, public_key_bytes in enumerate(public_key_bytes_list):
-        x_pubkeys[public_key_bytes] = ordered_x_public_keys[order_index]
-        if ordered_signature_bytes[order_index] != signature_placeholder:
-            signatures[public_key_bytes] = ordered_signature_bytes[order_index]
-    return ScriptSigData(script_type=ScriptType.MULTISIG_P2SH, threshold=m, x_pubkeys=x_pubkeys,
-        address=P2SH_Address(hash160(to_bare_multisig_script_bytes(public_key_bytes_list, m)),
-        Net.COIN), signatures=signatures)
 
 
 def tx_dict_from_text(text: str) -> dict[str, Any]:
@@ -711,11 +499,12 @@ class Transaction(Tx): # type: ignore[misc]
     @classmethod
     def read(cls, read: Callable[[int], bytes], tell: Callable[[], int]) -> Transaction:
         '''Overridden to specialize reading the inputs.'''
+        transaction_offset = tell()
         # NOTE(typing) Until the base class is fully typed it's attrs won't be found properly.
         return cls(
             version=read_le_int32(read), # type: ignore[call-arg]
-            inputs=xread_list(read, tell, XTxInput.read),
-            outputs=xread_list(read, tell, XTxOutput.read),
+            inputs=xread_list(read, tell, XTxInput.read, transaction_offset),
+            outputs=xread_list(read, tell, XTxOutput.read, transaction_offset),
             locktime=read_le_uint32(read),
         )
 
@@ -871,10 +660,6 @@ class Transaction(Tx): # type: ignore[misc]
         if self.is_complete():
             return len(self.to_bytes())
         return sum(self.estimated_size())
-
-    # def base_size(self) -> int:
-    #     super().base_size()
-    #     return 10
 
     def estimated_size(self) -> TransactionSize:
         '''Return an estimated tx size in bytes.'''

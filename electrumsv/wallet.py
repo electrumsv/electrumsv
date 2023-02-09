@@ -131,7 +131,7 @@ from .wallet_database.types import (AccountRow, AccountTransactionDescriptionRow
     PushDataHashRegistrationRow, PushDataMatchRow, PushDataMatchMetadataRow,
     ServerPeerChannelRow, PeerChannelAccessTokenRow, PeerChannelMessageRow, SpentOutputRow,
     TransactionDeltaSumRow, TransactionExistsRow, TransactionInputAddRow, TransactionLinkState,
-    TransactionOutputAddRow, TransactionOutputShortRow, TransactionOutputSpendRow,
+    TransactionOutputAddRow, TransactionOutputSpendRow,
     TransactionOutputSpendableProtocol, TransactionOutputSpendableRow, TransactionProofUpdateRow,
     TransactionRow, TransactionValueRow, WalletBalance, WalletEventInsertRow, WalletEventRow)
 from .wallet_database.util import create_derivation_data2
@@ -535,13 +535,14 @@ class AbstractAccount:
             exclude_frozen=exclude_frozen, keyinstance_ids=keyinstance_ids)
 
     def get_transaction_outputs_with_key_and_tx_data(self, exclude_frozen: bool=True,
-            confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None) \
+            confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None,
+            outpoints: list[Outpoint]|None=None) \
                 -> list[AccountTransactionOutputSpendableRowExtended]:
         if confirmed_only is None:
             confirmed_only = cast(bool, app_state.config.get('confirmed_only', False))
         return self._wallet.data.read_account_transaction_outputs_with_key_and_tx_data(self._id,
             confirmed_only=confirmed_only, exclude_frozen=exclude_frozen,
-            keyinstance_ids=keyinstance_ids)
+            keyinstance_ids=keyinstance_ids, outpoints=outpoints)
 
     def get_extended_input_for_spendable_output(self, row: TransactionOutputSpendableProtocol) \
             -> XTxInput:
@@ -2391,10 +2392,11 @@ class WalletDataAccess:
 
     def read_account_transaction_outputs_with_key_and_tx_data(self, account_id: int,
             confirmed_only: bool=False, exclude_frozen: bool=False,
-            keyinstance_ids: list[int]|None=None) \
+            keyinstance_ids: list[int]|None=None, outpoints: list[Outpoint]|None=None) \
                 -> list[AccountTransactionOutputSpendableRowExtended]:
         return db_functions.read_account_transaction_outputs_with_key_and_tx_data(
-            self._db_context, account_id, confirmed_only, exclude_frozen, keyinstance_ids)
+            self._db_context, account_id, confirmed_only, exclude_frozen, keyinstance_ids,
+            outpoints)
 
     def read_parent_transaction_outputs_with_key_data(self, transaction_hash: bytes, *,
             include_absent: bool) -> list[TransactionOutputSpendRow]:
@@ -2415,9 +2417,8 @@ class WalletDataAccess:
             account_id=account_id, tx_hash=tx_hash, txo_keys=txo_keys,
             derivation_data2s=derivation_data2s, require_keys=require_keys)
 
-    def get_transaction_outputs_short(self, l: list[Outpoint]) \
-            -> list[TransactionOutputShortRow]:
-        return db_functions.read_transaction_outputs_explicit(self._db_context, l)
+    def read_transaction_outputs(self, l: list[Outpoint]) -> list[TransactionOutputAddRow]:
+        return db_functions.read_transaction_outputs(self._db_context, l)
 
     def update_transaction_output_flags(self, txo_keys: list[Outpoint],
             flags: TransactionOutputFlag, mask: TransactionOutputFlag|None=None) \
@@ -2476,7 +2477,7 @@ class Wallet:
         self._id = random.randint(0, (1<<32)-1)
 
         self._storage = storage
-        self._logger = logs.get_logger(f"wallet[{self.name()}]")
+        self.logger = logs.get_logger(f"wallet[{self.name()}]")
 
         # NOTE The wallet abstracts all database access. The database context should not be
         # used outside of the `Wallet` object.
@@ -2611,7 +2612,7 @@ class Wallet:
             last_known_tip_hash = None
         self._persisted_tip_hash = last_known_tip_hash
 
-        self._logger.debug("Existing persisted chain is %s",
+        self.logger.debug("Existing persisted chain is %s",
             hash_to_hex_str(last_known_tip_hash) if last_known_tip_hash is not None else None)
 
         self._keystores.clear()
@@ -3518,7 +3519,7 @@ class Wallet:
         async with self._obtain_transactions_async_lock:
             if transaction_hash in self._missing_transactions:
                 del self._missing_transactions[transaction_hash]
-                self._logger.debug("Removed missing transaction %s",
+                self.logger.debug("Removed missing transaction %s",
                     hash_to_hex_str(transaction_hash)[:8])
                 self.events.trigger_callback(WalletEvent.TRANSACTION_OBTAINED, transaction_row,
                     transaction, link_state)
@@ -3601,7 +3602,7 @@ class Wallet:
         - Invoice assocations with the transaction.
         """
         tx_id = hash_to_hex_str(tx_hash)
-        self._logger.debug("removing tx from history %s", tx_id)
+        self.logger.debug("removing tx from history %s", tx_id)
 
         def on_db_call_done(future: concurrent.futures.Future[bool]) -> None:
             # Skip if the operation was cancelled.
@@ -3628,7 +3629,7 @@ class Wallet:
         if tx.is_complete():
             return None, []
 
-        self._logger.debug("ensure_incomplete_transaction_keys_exist")
+        self.logger.debug("ensure_incomplete_transaction_keys_exist")
 
         last_future: concurrent.futures.Future[None]|None = None
         keyinstance_rows: list[KeyInstanceRow] = []
@@ -3792,13 +3793,13 @@ class Wallet:
         loggable_block_ids = [ hash_to_hex_str(h) for h in orphaned_block_hashes ]
 
         if self._stopping or self._stopped:
-            self._logger.debug("Cannot undo verifications on a stopped wallet. "
+            self.logger.debug("Cannot undo verifications on a stopped wallet. "
                 "Orphaned block hashes: %s", loggable_block_ids)
             return
 
         reorged_tx_hashes = await self.data.update_reorged_transactions_async(orphaned_block_hashes)
 
-        self._logger.debug('Removing verification of %d transactions. Orphaned block hashes: %s',
+        self.logger.debug('Removing verification of %d transactions. Orphaned block hashes: %s',
             len(reorged_tx_hashes), loggable_block_ids)
 
         # We want to get all the proofs we already have for the reorged transactions on the
@@ -3987,7 +3988,7 @@ class Wallet:
             server_type: NetworkServerType | None = getattr(NetworkServerType,
                 hardcoded_server_config['type'], None)
             if server_type is None:
-                self._logger.error("Misconfigured hard-coded server with url '%s' and type '%s'",
+                self.logger.error("Misconfigured hard-coded server with url '%s' and type '%s'",
                     hardcoded_server_config['url'], hardcoded_server_config['type'])
                 continue
 
@@ -4015,7 +4016,7 @@ class Wallet:
             for capability_name in server_config.get("capabilities", []):
                 capability_value = getattr(ServerCapability, capability_name, None)
                 if capability_value is None:
-                    self._logger.error("Server '%s' has invalid capability '%s'", url,
+                    self.logger.error("Server '%s' has invalid capability '%s'", url,
                         capability_name)
                 elif capability_value == ServerCapability.MERKLE_PROOF_REQUEST:
                     server_flags |= NetworkServerFlag.CAPABILITY_MERKLE_PROOF_REQUEST
@@ -4567,7 +4568,7 @@ class Wallet:
 
         while not (self._stopping or self._stopped):
             # This blocks until there is pending work and it is safe to perform it.
-            self._logger.debug("Waiting for more MAPI callback messages")
+            self.logger.debug("Waiting for more MAPI callback messages")
             await self._wait_for_chain_related_work_async(
                 ChainWorkerToken.MAPI_MESSAGE_CONSUMER, [ state.mapi_callback_response_event.wait ])
             if self._stopping or self._stopped:
@@ -4589,7 +4590,7 @@ class Wallet:
             date_updated = get_posix_timestamp()
 
             for message_row, message in message_entries:
-                self._logger.debug("Got mAPI callback message: %s", message)
+                self.logger.debug("Got mAPI callback message: %s", message)
                 assert message_row.message_id is not None
                 if isinstance(state, ServerConnectionState):
                     processed_message_ids.append(message_row.message_id)
@@ -4598,21 +4599,21 @@ class Wallet:
 
                 if not isinstance(message["payload"], str):
                     # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
-                    self._logger.error("Peer channel message (MAPI) payload invalid: '%s'",
+                    self.logger.error("Peer channel message (MAPI) payload invalid: '%s'",
                         message)
                     continue
 
                 try:
                     payload_bytes = base64.b64decode(message["payload"])
                 except binascii.Error:
-                    self._logger.error("Peer channel message (MAPI) payload invalid base64: '%s'",
+                    self.logger.error("Peer channel message (MAPI) payload invalid base64: '%s'",
                         message)
                     continue
 
                 try:
                     payload_object = json.loads(payload_bytes)
                 except json.JSONDecodeError:
-                    self._logger.error("Peer channel message (MAPI) payload invalid JSON: '%s'",
+                    self.logger.error("Peer channel message (MAPI) payload invalid JSON: '%s'",
                         message)
                     continue
 
@@ -4621,7 +4622,7 @@ class Wallet:
                     validate_json_envelope(envelope)
                 except ValueError as e:
                     # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
-                    self._logger.error("Peer channel MAPI callback envelope invalid: %s '%s'",
+                    self.logger.error("Peer channel MAPI callback envelope invalid: %s '%s'",
                         e.args[0], message)
                     continue
 
@@ -4630,7 +4631,7 @@ class Wallet:
                     validate_mapi_callback_response(response)
                 except ValueError as e:
                     # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
-                    self._logger.exception("Peer channel MAPI callback response invalid: %s '%s'",
+                    self.logger.exception("Peer channel MAPI callback response invalid: %s '%s'",
                         e.args[0], message)
                     continue
 
@@ -4650,7 +4651,7 @@ class Wallet:
                         # TODO(1.4.0) Unreliable server, issue#841. The MAPI proof is standalone
                         #     with embedded header, no failure! If we do get a dud proof then we
                         #     throw it away.
-                        self._logger.error("Peer channel MAPI proof invalid: '%s'", message)
+                        self.logger.error("Peer channel MAPI proof invalid: '%s'", message)
                         continue
 
                     assert proof.block_header_bytes is not None
@@ -4659,7 +4660,7 @@ class Wallet:
                     block_hash = double_sha256(proof.block_header_bytes)
                     header_match = self.lookup_header_for_hash(block_hash)
                     if header_match is None:
-                        self._logger.debug("Missing header for merkle proof with block hash: '%s'.",
+                        self.logger.debug("Missing header for merkle proof with block hash: '%s'.",
                             hash_to_hex_str(block_hash))
                         # Reasons why we are here:
                         # - This header is on the wallet's current chain but it is on the
@@ -4705,7 +4706,7 @@ class Wallet:
                             mapi_callback_response=response, event_source="MAPI",
                             event_payload=envelope["payload"]))
                 else:
-                    self._logger.error("Peer channel MAPI message not yet supported %s '%s'",
+                    self.logger.error("Peer channel MAPI message not yet supported %s '%s'",
                         response["callbackReason"], message)
                     continue
 
@@ -4787,7 +4788,7 @@ class Wallet:
             request_row, request_output_rows = self.data.read_payment_request(
                 request_id=message_row.paymentrequest_id)
             if request_row is None:
-                self._logger.error("Failed to read payment request with id: %s from the database. "
+                self.logger.error("Failed to read payment request with id: %s from the database. "
                     "DPPMessageRow data: %s", message_row.paymentrequest_id, message_row)
                 continue
 
@@ -4796,7 +4797,7 @@ class Wallet:
                     # Defensive code in the case that the payer tries to pay an invoice that is
                     # already paid.
                     assert request_row.dpp_ack_json is not None
-                    self._logger.warning("Peer attempted to pay for an already paid invoice")
+                    self.logger.warning("Peer attempted to pay for an already paid invoice")
                     dpp_ack_dict = cast(PaymentACKDict, json.loads(request_row.dpp_ack_json))
                     dpp_ack_message = dpp_make_ack(txid=dpp_ack_dict["mode"]["transactionIds"][0],
                         peer_channel=dpp_ack_dict["peerChannel"], message_row_received=message_row)
@@ -4805,7 +4806,7 @@ class Wallet:
                 elif message_row.type == MSG_TYPE_PAYMENT_REQUEST_CREATE:
                     error_reason = "Requested payment terms for an already paid invoice. " \
                         f"Invoice id: {request_row.dpp_invoice_id}"
-                    self._logger.warning(error_reason)
+                    self.logger.warning(error_reason)
                     dpp_err_message = dpp_make_payment_request_error(message_row, error_reason)
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
                     continue
@@ -4833,7 +4834,7 @@ class Wallet:
                     request_row.paymentrequest_id)
                 await self.data.update_payment_requests_async([ update_row ])
 
-            self._logger.debug("State machine processing DPPMessageRow: %s for state: %s",
+            self.logger.debug("State machine processing DPPMessageRow: %s for state: %s",
                 message_row, request_row.state)
 
             # ----- States for when we are the Payee ----- #
@@ -4853,7 +4854,7 @@ class Wallet:
                 try:
                     payment_obj = Payment.from_json(message_row.body.decode('utf-8'))
                 except Bip270Exception:
-                    self._logger.exception("Received direct-payment-protocol `Payment` was invalid")
+                    self.logger.exception("Received direct-payment-protocol `Payment` was invalid")
                     continue
 
                 # As the *Payee*, we broadcast the transaction
@@ -4863,14 +4864,14 @@ class Wallet:
                     await self.validate_payment_request_async(request_row.paymentrequest_id,
                         [ (tx, None) ])
                 except Bip270Exception as e:
-                    self._logger.exception("Bip270Exception validating payment request: %s, "
+                    self.logger.exception("Bip270Exception validating payment request: %s, "
                         "txid: %s", request_row.paymentrequest_id, tx.txid())
                     error_reason = str(e)
                     dpp_err_message = dpp_make_payment_error(message_row, error_reason)
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
                     continue
                 except Exception:
-                    self._logger.exception("Unexpected exception validating the payment request: "
+                    self.logger.exception("Unexpected exception validating the payment request: "
                         "%s, txid: %s", request_row.paymentrequest_id, tx.txid())
                     error_reason = "The Payee wallet encountered an unexpected exception " \
                         f"validating payment request: {request_row.paymentrequest_id}, " \
@@ -4891,7 +4892,7 @@ class Wallet:
                 try:
                     broadcast_result = await self.broadcast_transaction_async(tx, tx_context)
                 except (GeneralAPIError, ServerConnectionError, ServerError, BadServerError):
-                    self._logger.exception("Unexpected exception broadcasting to mAPI")
+                    self.logger.exception("Unexpected exception broadcasting to mAPI")
                     continue
                 mapi_result = broadcast_result.mapi
                 assert mapi_result is not None
@@ -4905,10 +4906,10 @@ class Wallet:
                         error_reason = str(e)
                         dpp_err_message = dpp_make_payment_error(message_row, error_reason)
                         app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
-                        self._logger.exception("Unexpected exception processing the transaction")
+                        self.logger.exception("Unexpected exception processing the transaction")
                         continue
                     except Exception:
-                        self._logger.exception("Unexpected exception processing the transaction")
+                        self.logger.exception("Unexpected exception processing the transaction")
                         error_reason = "The Payee wallet encountered an unexpected exception " \
                             "processing this transaction."
                         dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
@@ -4937,7 +4938,7 @@ class Wallet:
                     # Send PaymentACK to payer
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
                 else:
-                    self._logger.error("mAPI broadcast for txid: %s failed with reason: %s",
+                    self.logger.error("mAPI broadcast for txid: %s failed with reason: %s",
                         tx.txid(), mapi_result.response['resultDescription'])
 
                     # Inform the *Payer* of the reason we rejected their `Payment`
@@ -4995,7 +4996,7 @@ class Wallet:
                     int(time.time()) - messages[0].date_received > PEER_CHANNEL_EXPIRY_SECONDS
                 if messages[0].message_flags & PeerChannelMessageFlag.UNPROCESSED == 0 and \
                         peer_channel_past_expiry:
-                    self._logger.debug("Deactivating external peer channel row: %s ",
+                    self.logger.debug("Deactivating external peer channel row: %s ",
                         external_peer_channel_row)
                     new_flags = external_peer_channel_row.peer_channel_flags | \
                         ServerPeerChannelFlag.DEACTIVATED
@@ -5053,28 +5054,28 @@ class Wallet:
                 # We are getting JSON peer channel notifications. These are encoded as base64.
                 if not isinstance(message["payload"], str):
                     # TODO(1.4.0) Unreliable server, issue#841. WRT tip filter match, show user.
-                    self._logger.error("Peer channel message (filter) payload invalid: '%s'",
+                    self.logger.error("Peer channel message (filter) payload invalid: '%s'",
                         message)
                     continue
 
                 try:
                     payload_bytes = base64.b64decode(message["payload"])
                 except binascii.Error:
-                    self._logger.error("Peer channel message (filter) payload invalid base64: '%s'",
+                    self.logger.error("Peer channel message (filter) payload invalid base64: '%s'",
                         message)
                     continue
 
                 try:
                     payload_object = json.loads(payload_bytes)
                 except json.JSONDecodeError:
-                    self._logger.error("Peer channel message (filter) payload invalid JSON: '%s'",
+                    self.logger.error("Peer channel message (filter) payload invalid JSON: '%s'",
                         message)
                     continue
 
                 pushdata_matches = cast(TipFilterPushDataMatchesData, payload_object)
                 if "blockId" not in pushdata_matches or "matches" not in pushdata_matches:
                     # TODO(1.4.0) Unreliable server, issue#841. WRT tip filter match, show user.
-                    self._logger.error("Peer channel message payload invalid: '%s'", message)
+                    self.logger.error("Peer channel message payload invalid: '%s'", message)
                     continue
 
                 date_created = int(time.time())
@@ -5093,7 +5094,7 @@ class Wallet:
                         date_created)
                     creation_pushdata_match_rows.append(creation_pushdata_match_row)
 
-            self._logger.debug("Writing %d pushdata matches to the database",
+            self.logger.debug("Writing %d pushdata matches to the database",
                 len(creation_pushdata_match_rows))
             # The processed messages will have their `UNPROCESSED` flag removed here as part of an
             # atomic update, that also inserts their extracted pushdata matches.
@@ -5112,7 +5113,7 @@ class Wallet:
                 else:
                     rows_by_account_id[metadata_row.account_id] = [ metadata_row ]
 
-            self._logger.debug("Wallet processing %d tip filter matches", len(match_metadata_rows))
+            self.logger.debug("Wallet processing %d tip filter matches", len(match_metadata_rows))
 
             for account_id, match_metadata_rows in rows_by_account_id.items():
                 obtain_transaction_keys: list[MissingTransactionMetadata] = []
@@ -5122,7 +5123,7 @@ class Wallet:
                         { TransactionKeyUsageMetadata(metadata_row.pushdata_hash,
                             metadata_row.keyinstance_id, metadata_row.script_type) },
                         metadata_row.block_hash is not None))
-                self._logger.debug("Obtaining %d transactions for account %d, %s",
+                self.logger.debug("Obtaining %d transactions for account %d, %s",
                     len(obtain_transaction_keys), account_id, obtain_transaction_keys)
                 await self.obtain_transactions_async(account_id, obtain_transaction_keys,
                     TransactionImportFlag.TIP_FILTER_MATCH)
@@ -5137,7 +5138,7 @@ class Wallet:
         state = self.get_connection_state_for_usage(NetworkServerFlag.USE_BLOCKCHAIN)
         if state is None:
             # The server has not started yet.
-            self._logger.debug("Skipping premature output spend registrations")
+            self.logger.debug("Skipping premature output spend registrations")
             return
         state.output_spend_registration_queue.put_nowait(spent_outpoints)
 
@@ -5176,7 +5177,7 @@ class Wallet:
                     # TODO(server-reliability) Spent outputs. The user would have had to delete the
                     #     transaction from the database if that is even possible? Is that correct?
                     #     Should we do something here?
-                    self._logger.error("No database entries for spent output notification %r",
+                    self.logger.error("No database entries for spent output notification %r",
                         spent_output)
                     continue
 
@@ -5206,7 +5207,7 @@ class Wallet:
                         #     synchronous time consuming work like fetching the malleating
                         #     transaction.
 
-                        self._logger.error("Ignored output spend notification. This may be a "
+                        self.logger.error("Ignored output spend notification. This may be a "
                             "double spend, malleation, a developer not resetting their test "
                             "wallet or a non-final transaction being finalised by broadcast. "
                             "Details: %r ~ %r", spent_output, row)
@@ -5218,7 +5219,7 @@ class Wallet:
                             # applied by the processing of updates from our header source.
 
                             # TODO(reorgs) Consider using this output spend to check consistency.
-                            self._logger.debug("Unspent output event, transaction is back in "
+                            self.logger.debug("Unspent output event, transaction is back in "
                                 "mempool %r ~ %r", spent_output, row)
                         elif row.block_hash is None:
                             # The blockchain server has informed us that the transaction is in
@@ -5230,7 +5231,7 @@ class Wallet:
                                 #     this local transaction has been broadcast unexpectedly.
                                 pass
 
-                            self._logger.debug("Unspent output event, transaction has been mined "
+                            self.logger.debug("Unspent output event, transaction has been mined "
                                 " %r ~ %r", spent_output, row)
                             mined_transactions.add((row.spending_tx_hash, spent_output.block_hash))
                         else:
@@ -5240,7 +5241,7 @@ class Wallet:
                             # applied by the processing of updates from our header source.
 
                             # TODO(reorgs) Consider using this output spend to check consistency.
-                            self._logger.debug("Unspent output event, transaction reorged %r ~ %r",
+                            self.logger.debug("Unspent output event, transaction reorged %r ~ %r",
                                 spent_output, row)
                     elif row.block_hash is None and row.flags & TxFlags.MASK_STATE_LOCAL:
                         # The blockchain server has informed us that a transaction we do not
@@ -5250,11 +5251,11 @@ class Wallet:
                         #     transaction has been broadcast unexpectedly.
 
                         if row.mapi_broadcast_flags is None:
-                            self._logger.debug("Unspent output event, local transaction has been "
+                            self.logger.debug("Unspent output event, local transaction has been "
                                 "broadcast %r ~ %r", spent_output, row)
                             mempool_transactions[spent_output.in_tx_hash] = row.flags
                         else:
-                            self._logger.warning("Unspent output event, local transaction has "
+                            self.logger.warning("Unspent output event, local transaction has "
                                 "been broadcast with unwanted output spend notification "
                                 "%r ~ %r", spent_output, row)
                     else:
@@ -5318,7 +5319,7 @@ class Wallet:
                 if request_output_row is None:
                     continue
                 if request_output_row.output_value != transaction_output.value:
-                    self._logger.debug("Transaction '%s' output %d has value %d, "
+                    self.logger.debug("Transaction '%s' output %d has value %d, "
                         "expected value %d", hash_to_hex_str(transaction_hash), output_index,
                         transaction_output.value, request_output_row.output_value)
                     raise Bip270Exception(_("The transactions do not provide the correct values."))
@@ -5328,7 +5329,7 @@ class Wallet:
                 received_value += transaction_output.value
 
         if received_value != request_row.requested_value:
-            self._logger.debug("The transactions are incorrect and provided value %d but "
+            self.logger.debug("The transactions are incorrect and provided value %d but "
                 "expected value %d satoshis.", received_value, request_row.requested_value)
             raise Bip270Exception(_("The transactions do not provide the correct values."))
 
@@ -5400,7 +5401,7 @@ class Wallet:
                 transaction_description_update_rows = \
                     await self.data.close_paid_payment_request_async(payment_request_id)
             except DatabaseUpdateError:
-                self._logger.exception("Transaction did not close payment request %s",
+                self.logger.exception("Transaction did not close payment request %s",
                     payment_request_id)
             else:
                 all_transaction_description_update_rows.extend(transaction_description_update_rows)
@@ -5677,7 +5678,7 @@ class Wallet:
 
         total_wait = 0.0
         while len(pending_futures) > 0 and total_wait < 5.0:
-            self._logger.debug("Shutdown waiting for %d tasks to exit: %s", len(pending_futures),
+            self.logger.debug("Shutdown waiting for %d tasks to exit: %s", len(pending_futures),
                 pending_futures)
             # Cancelled tasks clean up when they get a chance to run next. Python will complain
             # on exit about tasks that are not cleaned up.
@@ -5692,10 +5693,10 @@ class Wallet:
             # zombie wallet process.
             for lagging_future in pending_futures:
                 lagging_future.cancel()
-            self._logger.error("Network related tasks shutdown uncleanly (cancelled %d)",
+            self.logger.error("Network related tasks shutdown uncleanly (cancelled %d)",
                 len(pending_futures))
         else:
-            self._logger.debug("Network related tasks shutdown cleanly")
+            self.logger.debug("Network related tasks shutdown cleanly")
 
     def create_gui_handler(self, window: WindowProtocol, account: AbstractAccount) -> None:
         for keystore in account.get_keystores():
@@ -5774,7 +5775,7 @@ class Wallet:
         # NOTE(technical-debt) This event is currently only set when a server is reconciled as a
         # header source. In the longer term we would want this to respond to updates to the
         # longest valid chain (if we are not following a server).
-        self._logger.debug("Waiting to start chain management task")
+        self.logger.debug("Waiting to start chain management task")
         await self._start_chain_management_event.wait()
         assert self._current_chain is not None
 
@@ -5784,10 +5785,10 @@ class Wallet:
             ChainWorkerToken.OBTAIN_PROOF_WORKER, ChainWorkerToken.OBTAIN_TRANSACTION_WORKER,
         }
 
-        self._logger.debug("Entered chain management task")
+        self.logger.debug("Entered chain management task")
         while True:
             item_kind, item_data = await self._chain_management_queue.get()
-            self._logger.debug("Acquired chain management work %s", item_kind)
+            self.logger.debug("Acquired chain management work %s", item_kind)
             if item_kind == ChainManagementKind.BLOCKCHAIN_EXTENSION:
                 extension_chain, new_headers = cast(tuple[Chain, list[Header]], item_data)
                 assert self._current_chain is extension_chain
@@ -5821,12 +5822,12 @@ class Wallet:
             # Wait for all the worker tasks to compete their current batches and block.
             signalled_worker_tokens = set[ChainWorkerToken]()
             while signalled_worker_tokens != expected_worker_tokens:
-                self._logger.debug("Awaiting chain management workers %s",
+                self.logger.debug("Awaiting chain management workers %s",
                     expected_worker_tokens-signalled_worker_tokens)
                 try:
                     worker_token = await asyncio.wait_for(self._chain_worker_queue.get(), 10.0)
                 except asyncio.TimeoutError:
-                    self._logger.exception("Timed out waiting for a worker to block, have %s",
+                    self.logger.exception("Timed out waiting for a worker to block, have %s",
                         signalled_worker_tokens)
                     # It is assumed that if this happens, the code is broken and the reliability
                     # of the application cannot be guaranteed.
@@ -5843,7 +5844,7 @@ class Wallet:
             await self.on_reorg(orphaned_block_hashes, new_chain)
             self._update_current_chain(new_chain, new_headers[-1])
 
-            self._logger.debug("Post reorg wallet chain %d->%d:%s",
+            self.logger.debug("Post reorg wallet chain %d->%d:%s",
                 new_chain.first_height, new_headers[-1].height,
                 hash_to_hex_str(new_headers[-1].hash))
 
@@ -5899,7 +5900,7 @@ class Wallet:
 
                     # Guarantees relating to these calls: Search for CorrectHeaderSequence.
                     self._update_current_chain(chain, header)
-                    self._logger.debug("Continuing existing wallet chain %d->%d:%s",
+                    self.logger.debug("Continuing existing wallet chain %d->%d:%s",
                         chain.first_height, header.height, hash_to_hex_str(header.hash))
                     assert self.process_header_source_update(server_state, chain, header,
                         header_source_chain, header_source_tip_header, force=True)
@@ -5948,7 +5949,7 @@ class Wallet:
                         header_source_tip_header, updated_header_source_chain,
                         updated_header_source_tip_header, force=True)
                 self._update_current_chain(header_source_chain, header_source_tip_header)
-                self._logger.debug("Processed detached wallet chain %d->%d:%s",
+                self.logger.debug("Processed detached wallet chain %d->%d:%s",
                     header_source_chain.first_height,
                     header_source_tip_header.height, hash_to_hex_str(header_source_tip_header.hash))
         else:
@@ -5956,7 +5957,7 @@ class Wallet:
             assert self._current_tip_header is not None
             # Guarantees relating to these calls: Search for CorrectHeaderSequence.
             self._update_current_chain(header_source_chain, header_source_tip_header)
-            self._logger.debug("Switched wallet chain %d->%d:%s", header_source_chain.first_height,
+            self.logger.debug("Switched wallet chain %d->%d:%s", header_source_chain.first_height,
                 header_source_tip_header.height, hash_to_hex_str(header_source_tip_header.hash))
             assert self.process_header_source_update(server_state, self._current_chain,
                 self._current_tip_header, header_source_chain,
@@ -6137,7 +6138,7 @@ class Wallet:
                         import_flags, match_metadatas, with_proof, [ account_id ])
                     missing_transaction_hashes.add(transaction_hash)
 
-            self._logger.debug("Registering %d missing transactions",
+            self.logger.debug("Registering %d missing transactions",
                 len(missing_transaction_hashes))
             # Prompt the missing transaction logic to try again if the user is re-registering
             # already missing transactions (the `TransactionImportFlag.PROMPTED` check).
@@ -6147,17 +6148,17 @@ class Wallet:
 
     async def _obtain_transactions_worker_async(self) -> None:
         assert app_state.headers is not None
-        self._logger.debug("_obtain_transactions_worker_async entered")
+        self.logger.debug("_obtain_transactions_worker_async entered")
 
         # We need the header source to be fully synchronised before we start.
         await self._blockchain_server_chain_reconciled_event.wait()
-        self._logger.debug("_obtain_transactions_worker_async started")
+        self.logger.debug("_obtain_transactions_worker_async started")
 
         # To get here there must not have been any further missing transactions.
         self._check_missing_transactions_event.set()
         while not (self._stopping or self._stopped):
             # This blocks until there is pending work and it is safe to perform it.
-            self._logger.debug("Waiting for more missing transactions")
+            self.logger.debug("Waiting for more missing transactions")
             await self._wait_for_chain_related_work_async(
                 ChainWorkerToken.OBTAIN_TRANSACTION_WORKER,
                 [ self._check_missing_transactions_event.wait ])
@@ -6177,7 +6178,7 @@ class Wallet:
                         break
                     # In theory this should pick missing transactions in order of insertion.
                     tx_hash = next(iter(self._missing_transactions))
-                    self._logger.debug("Picked missing transaction %s", hash_to_hex_str(tx_hash))
+                    self.logger.debug("Picked missing transaction %s", hash_to_hex_str(tx_hash))
                     entry = self._missing_transactions[tx_hash]
 
                 # The request gets billed to the first account to request a transaction.
@@ -6215,7 +6216,7 @@ class Wallet:
                         # TODO(1.4.0) Unreliable server, issue#841. Provided merkle proof invalid.
                         #     No trustable server should cause this, we should disable the server or
                         #     something similar.
-                        self._logger.error("Still need to implement handling for inability to "
+                        self.logger.error("Still need to implement handling for inability to "
                             "connect to a server to get arbitrary merkle proofs")
                         return
 
@@ -6248,12 +6249,12 @@ class Wallet:
                     try:
                         if not verify_proof(tsc_full_proof, header.merkle_root):
                             # TODO(1.4.0) Unreliable server, issue#841. Merkle proof verify fails.
-                            self._logger.error("Still need to implement handling for receiving "
+                            self.logger.error("Still need to implement handling for receiving "
                                 "invalid merkle proofs")
                             return
                     except TSCMerkleProofError:
                         # TODO(1.4.0) Unreliable server, issue#841. Merkle proof verify invalid.
-                        self._logger.error("Still need to implement handling for receiving "
+                        self.logger.error("Still need to implement handling for receiving "
                             "invalid merkle proofs")
                         return
 
@@ -6337,7 +6338,7 @@ class Wallet:
 
                 row = rows[0]
                 tx_hash = row.tx_hash
-                self._logger.debug("Requesting merkle proof from server for transaction %s",
+                self.logger.debug("Requesting merkle proof from server for transaction %s",
                     hash_to_hex_str(tx_hash))
                 try:
                     tsc_full_proof_bytes = await request_binary_merkle_proof_async(state, tx_hash,
@@ -6346,7 +6347,7 @@ class Wallet:
                     # TODO(1.4.0) Unreliable server, issue#841. Error connecting to server.
                     #     No reliable server should cause this, we should stand off the server or
                     #     something similar.
-                    self._logger.error("Still need to implement handling for inability to connect"
+                    self.logger.error("Still need to implement handling for inability to connect"
                         "to a server to get arbitrary merkle proofs")
                     await asyncio.sleep(60)
                     continue
@@ -6357,7 +6358,7 @@ class Wallet:
                     # TODO(1.4.0) Unreliable server, issue#841. Non-parseable merkle proof.
                     #     No trustable server should cause this, we should disable the server or
                     #     something similar.
-                    self._logger.error("Still need to implement handling for inability to connect"
+                    self.logger.error("Still need to implement handling for inability to connect"
                         "to a server to get arbitrary merkle proofs")
                     return
 
@@ -6381,18 +6382,18 @@ class Wallet:
                 try:
                     if not verify_proof(tsc_proof, header.merkle_root):
                         # TODO(1.4.0) Unreliable server, issue#841. Merkle proof verify fails.
-                        self._logger.error("Still need to implement handling for inability to "
+                        self.logger.error("Still need to implement handling for inability to "
                             "connect to a server to get arbitrary merkle proofs")
                         return
                 except TSCMerkleProofError:
                     # TODO(1.4.0) Unreliable server, issue#841. Merkle proof invalid on verify.
-                    self._logger.error("Still need to implement handling for receiving "
+                    self.logger.error("Still need to implement handling for receiving "
                         "invalid merkle proofs")
                     return
 
                 block_height = cast(int, header.height)
                 if self.is_header_within_current_chain(header.height, tsc_proof.block_hash):
-                    self._logger.debug("OMP Storing verified merkle proof for transaction %s",
+                    self.logger.debug("OMP Storing verified merkle proof for transaction %s",
                         hash_to_hex_str(tx_hash))
 
                     # This proof is valid for the wallet's view of the blockchain.
@@ -6529,7 +6530,7 @@ class Wallet:
                         BlockHeight.MEMPOOL, None, TxFlags.STATE_CLEARED, date_updated,
                         proof.transaction_hash))
 
-            self._logger.debug("Updating %s headerless proofs after receipt of new block header(s)",
+            self.logger.debug("Updating %s headerless proofs after receipt of new block header(s)",
                 len(transaction_proof_updates))
             await self.data.update_transaction_proof_async(transaction_proof_updates, [],
                 proof_updates, [], [], { TxFlags.STATE_CLEARED, TxFlags.STATE_SETTLED })

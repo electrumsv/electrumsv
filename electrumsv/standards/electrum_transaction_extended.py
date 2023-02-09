@@ -30,10 +30,11 @@ from bitcoinx import base58_encode_check, pack_le_uint32, pack_list, pack_le_int
     read_le_int64, read_le_uint32, Script, unpack_le_uint16
 
 from ..constants import DatabaseKeyDerivationType, DerivationPath, ScriptType
-from ..transaction import create_script_sig, NO_SIGNATURE, parse_script_sig, ReadBytesFunc, \
-    TellFunc, Transaction, TransactionContext, XPublicKey, xread_list, xread_varbytes, XTxInput, \
-    XTxOutput
+from ..transaction import NO_SIGNATURE, ReadBytesFunc, TellFunc, Transaction, TransactionContext, \
+    XPublicKey, xread_list, xread_varbytes, XTxInput, XTxOutput
 from ..types import DatabaseKeyDerivationData
+
+from .script_templates import create_script_sig, parse_script_sig
 
 if TYPE_CHECKING:
     from ..wallet import AbstractAccount
@@ -179,13 +180,17 @@ def transaction_to_electrumsv_dict(transaction: Transaction, context: Transactio
             out['outputs'] = output_data
     return out
 
-def transaction_input_from_electrum_bytes_stream(read: ReadBytesFunc, tell: TellFunc) -> XTxInput:
+def transaction_input_from_electrum_bytes_stream(read: ReadBytesFunc, tell: TellFunc,
+        transaction_offset: int) -> XTxInput:
     # This section is duplicated in `XTxInput.read`
     prev_hash = read(32)
     prev_idx = read_le_uint32(read)
     script_sig_bytes, script_sig_offset = xread_varbytes(read, tell)
     script_sig = Script(script_sig_bytes)
     sequence = read_le_uint32(read)
+
+    # Adjust for transactions picked out mid-stream of a larger piece of data.
+    script_sig_offset = script_sig_offset - transaction_offset
 
     kwargs = {
         'x_pubkeys': [],
@@ -216,12 +221,14 @@ def transaction_input_from_electrum_bytes_stream(read: ReadBytesFunc, tell: Tell
     return result
 
 def transaction_from_electrum_bytes(raw: bytes) -> Transaction:
+    transaction_offset = 0
     stream = BytesIO(raw)
     return Transaction(
         # NOTE(typing) Until the base class is fully typed it's attrs won't be found properly.
         version=read_le_int32(stream.read), # type: ignore[call-arg]
-        inputs=xread_list(stream.read, stream.tell, transaction_input_from_electrum_bytes_stream),
-        outputs=xread_list(stream.read, stream.tell, XTxOutput.read),
+        inputs=xread_list(stream.read, stream.tell, transaction_input_from_electrum_bytes_stream,
+            transaction_offset),
+        outputs=xread_list(stream.read, stream.tell, XTxOutput.read, transaction_offset),
         locktime=read_le_uint32(stream.read),
     )
 

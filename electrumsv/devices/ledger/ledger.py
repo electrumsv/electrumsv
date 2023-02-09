@@ -14,8 +14,8 @@ from ...i18n import _
 from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
-from ...transaction import classify_transaction_output_script, Transaction, TransactionContext, \
-    XTxOutput
+from ...standards.script_templates import classify_transaction_output_script
+from ...transaction import Transaction, TransactionContext, XTxOutput
 from ...types import MasterKeyDataHardware, MasterKeyDataHardwareCfg
 from ...util import versiontuple
 from ...wallet import AbstractAccount

@@ -23,7 +23,8 @@ from ...i18n import _
 from ...logs import logs
 from ...networks import Net, TEST_NETWORK_NAMES
 from ...network_support.types import TipFilterRegistrationJobOutput
-from ...transaction import classify_transaction_output_script, Transaction, TransactionContext
+from ...standards.script_templates import classify_transaction_output_script
+from ...transaction import Transaction, TransactionContext
 from ...util import age, get_posix_timestamp
 from ...wallet_database.types import PaymentRequestUpdateRow
 

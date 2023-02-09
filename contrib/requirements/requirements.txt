@@ -4,7 +4,7 @@ bitcoinX==0.7.1
 dmgbuild; platform_system=="Darwin"
 dnspython<2.0
 ecdsa>=0.13.3
-electrumsv-database>=1.6
+electrumsv-database>=1.7
 electrumsv-secp256k1>=0.9.1
 mypy-extensions         # This is an import that the code will not run without.
 psutil-wheels; platform_system=="Windows"

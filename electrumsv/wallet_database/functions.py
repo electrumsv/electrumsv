@@ -59,7 +59,7 @@ from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescrip
     PushDataMatchRow, PushDataHashRegistrationRow, ServerPeerChannelRow,
     PeerChannelMessageRow, SpendConflictType, SpentOutputRow, TransactionDeltaSumRow,
     TransactionExistsRow, TransactionInputAddRow, TransactionLinkState, TransactionOutputAddRow,
-    TransactionOutputShortRow, TransactionOutputSpendRow, TransactionOutputSpendableRow,
+    TransactionOutputSpendRow, TransactionOutputSpendableRow,
     TransactionValueRow, TransactionOutputFullRow, TransactionProoflessRow, TxProofData,
     TransactionProofUpdateRow, TransactionRow, MerkleProofRow, WalletBalance, WalletDataRow,
     WalletEventInsertRow, WalletEventRow)
@@ -180,15 +180,14 @@ def UNITTEST_create_transaction_inputs(db_context: DatabaseContext,
 
 
 def UNITTEST_create_transaction_outputs(db_context: DatabaseContext,
-        entries: Iterable[TransactionOutputShortRow]) -> concurrent.futures.Future[None]:
+        txo_rows: list[TransactionOutputAddRow]) -> concurrent.futures.Future[None]:
+    # Constraint: (tx_hash, tx_index) should be unique.
     sql = ("INSERT INTO TransactionOutputs (tx_hash, txo_index, value, keyinstance_id, "
-        "flags, script_type, script_hash, date_created, date_updated) "
-        "VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)")
-    timestamp = int(time.time())
-    db_rows = [ (*t, timestamp, timestamp) for t in entries ]
+        "script_type, flags, script_hash, script_offset, script_length, date_created, "
+        "date_updated) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)")
     def _write(db: sqlite3.Connection|None=None) -> None:
         assert db is not None and isinstance(db, sqlite3.Connection)
-        db.executemany(sql, db_rows)
+        db.executemany(sql, txo_rows)
     return db_context.post_to_thread(_write)
 
 
@@ -451,7 +450,7 @@ def read_account_transaction_outputs_with_key_data(db: sqlite3.Connection, accou
 @replace_db_context_with_connection
 def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection, account_id: int,
         confirmed_only: bool=False, exclude_frozen: bool=False,
-        keyinstance_ids: list[int]|None=None) \
+        keyinstance_ids: list[int]|None=None, outpoints: list[Outpoint]|None=None) \
             -> list[AccountTransactionOutputSpendableRowExtended]:
     """
     Get the unspent coins in the given account extended with transaction fields.
@@ -460,6 +459,8 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
     exclude_immature: only return unspent coins that are not coinbase < maturity height.
     exclude_frozen: only return unspent coins that are not frozen.
     """
+    assert keyinstance_ids is None or outpoints is None
+
     # Default to selecting all unallocated unspent transaction outputs.
     tx_mask = TxFlags.REMOVED
     tx_flags = TxFlags.UNSET
@@ -471,24 +472,32 @@ def read_account_transaction_outputs_with_key_and_tx_data(db: sqlite3.Connection
     if exclude_frozen:
         txo_mask |= TransactionOutputFlag.FROZEN
 
+    # NOTE(sqlite) `substring` is 1-based.
     sql = (
         "SELECT TXO.tx_hash, TXO.txo_index, TXO.value, TXO.keyinstance_id, TXO.script_type, "
             "TXO.flags, KI.account_id, KI.masterkey_id, KI.derivation_type, KI.derivation_data2, "
-            "TX.flags, TX.block_hash "
+            "TX.flags, TX.block_hash, "
+            "substring(TX.tx_data, TXO.script_offset+1, TXO.script_length) "
         "FROM TransactionOutputs TXO "
         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id "
-        "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash "
-        "WHERE KI.account_id=? AND TXO.flags&?=0 AND TX.flags&?=?")
+        "INNER JOIN Transactions TX ON TX.tx_hash=TXO.tx_hash")
+    where_condition = "KI.account_id=? AND TXO.flags&?=0 AND TX.flags&?=?"
     sql_values: list[Any] = [ account_id, txo_mask, tx_mask, tx_flags ]
     if exclude_frozen:
-        sql += " AND KI.flags&?=0"
+        where_condition += " AND KI.flags&?=0"
         sql_values.append(KeyInstanceFlag.FROZEN)
 
-    if keyinstance_ids is not None:
-        sql += " AND TXO.keyinstance_id IN ({})"
+    if outpoints is not None:
+        sql_condition = "TXO.tx_hash=? AND TXO.txo_index=?"
+        rows = read_rows_by_ids(AccountTransactionOutputSpendableRowExtended, db, sql,
+            sql_condition, sql_values, outpoints, where_condition)
+    elif keyinstance_ids is not None:
+        where_condition += " AND TXO.keyinstance_id IN ({})"
+        sql = f"{sql} WHERE {where_condition}"
         rows = read_rows_by_id(AccountTransactionOutputSpendableRowExtended, db, sql, sql_values,
             keyinstance_ids)
     else:
+        sql = f"{sql} WHERE {where_condition}"
         cursor = db.execute(sql, sql_values)
         rows = [ AccountTransactionOutputSpendableRowExtended(*row) for row in cursor.fetchall() ]
         cursor.close()
@@ -1222,16 +1231,17 @@ def read_transaction_hashes(db: sqlite3.Connection, account_id: Optional[int]=No
 
 
 @replace_db_context_with_connection
-def read_transaction_outputs_explicit(db: sqlite3.Connection, output_ids: list[Outpoint]) \
-        -> list[TransactionOutputShortRow]:
+def read_transaction_outputs(db: sqlite3.Connection, output_ids: list[Outpoint]) \
+        -> list[TransactionOutputAddRow]:
     """
     Read all the transaction outputs for the given outpoints if they exist.
     """
     sql = (
-        "SELECT tx_hash, txo_index, value, keyinstance_id, flags, script_type, script_hash "
+        "SELECT tx_hash, txo_index, value, keyinstance_id, script_type, flags, script_hash, "
+            "script_offset, script_length, date_created, date_updated "
         "FROM TransactionOutputs")
     sql_condition = "tx_hash=? AND txo_index=?"
-    return read_rows_by_ids(TransactionOutputShortRow, db, sql, sql_condition, [], output_ids)
+    return read_rows_by_ids(TransactionOutputAddRow, db, sql, sql_condition, [], output_ids)
 
 
 @replace_db_context_with_connection
