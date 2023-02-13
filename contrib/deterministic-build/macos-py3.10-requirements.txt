@@ -180,9 +180,8 @@ ecdsa==0.17.0 \
     --hash=sha256:5cf31d5b33743abe0dfc28999036c849a69d548f994b535e527ee3cb7f3ef676 \
     --hash=sha256:b9f500bb439e4153d0330610f5d26baaf18d17b8ced1bc54410d189385ea68aa
     # via -r /Users/rt12/src/electrumsv/contrib/requirements/requirements.txt
-electrumsv-database==1.6 \
-    --hash=sha256:58c9cd3a1c207b06899204fb5ba05b01eb93dba35bafd7daf7cc991c91dd59cd \
-    --hash=sha256:d172cf57a32dfb6ab8f10ffd89f44337df948dde6fdbe2b3b8913c8313575b19
+electrumsv-database==1.7 \
+    --hash=sha256:d2fa89c0404c30c0d4ef6f250eff37fc01eb370cd0483e436385ef9aaeadaadc
     # via -r /Users/rt12/src/electrumsv/contrib/requirements/requirements.txt
 electrumsv-secp256k1==0.9.4 \
     --hash=sha256:3b2d7b5380337692466f864dfc412452b09379565ec26b48cf27525685ef9fd9 \

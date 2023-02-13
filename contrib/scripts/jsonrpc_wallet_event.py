@@ -1,16 +1,16 @@
 from io import TextIOWrapper
 import os
-import platform
 import sys
 
-if platform.system() == "Windows":
-    import msvcrt
+if sys.platform == "win32":
+    import msvcrt # pylint: disable=import-error
     def lock_file(log_file: TextIOWrapper) -> None:
         msvcrt.locking(log_file.fileno(), msvcrt.LK_RLCK, 1)
     def unlock_file(log_file: TextIOWrapper) -> None:
         msvcrt.locking(log_file.fileno(), msvcrt.LK_UNLCK, 1)
 else:
-    import fcntl
+    # NOTE(pylint) pylint is not smart enough to know not to check this on Windows.
+    import fcntl # pylint: disable=import-error
     def lock_file(log_file: TextIOWrapper) -> None:
         fcntl.lockf(log_file.fileno(), fcntl.LOCK_EX)
     def unlock_file(log_file: TextIOWrapper) -> None:

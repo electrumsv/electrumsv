@@ -21,7 +21,8 @@ from ...exceptions import NotEnoughFunds, NoViableServersError, UserCancelled
 from ...i18n import _
 from ...logs import logs
 from ...networks import Net
-from ...transaction import classify_transaction_output_script, Transaction, XTxOutput
+from ...standards.script_templates import classify_transaction_output_script
+from ...transaction import Transaction, XTxOutput
 from ...types import TransactionFeeContext
 from ...wallet import AbstractAccount, TransactionCreationContext
 

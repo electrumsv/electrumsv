@@ -1,5 +1,7 @@
 from __future__ import annotations
 import asyncio
+import concurrent
+from decimal import Decimal
 from http import HTTPStatus
 import json
 import os
@@ -15,18 +17,34 @@ import pytest
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import AccountCreationType, KeystoreTextType, DerivationType, \
-    PaymentFlag, ScriptType, TransactionOutputFlag, TxFlags
+    PaymentFlag, ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.keystore import instantiate_keystore_from_text
 from electrumsv.network_support.types import ServerConnectionState, TipFilterRegistrationJobOutput
 from electrumsv import nodeapi
+from electrumsv.nodeapi import RPCError, SIGHASH_MAPPING
+from electrumsv.standards.script_templates import classify_transaction_output_script, \
+    create_script_sig
 from electrumsv.storage import WalletStorage
-from electrumsv.types import KeyStoreResult
+from electrumsv.transaction import Transaction, TransactionContext, XTxInput, XPublicKey
+from electrumsv.types import KeyStoreResult, Outpoint
 from electrumsv.wallet import StandardAccount, Wallet
 from electrumsv.wallet_database.types import AccountTransactionOutputSpendableRowExtended, \
-    PaymentRequestOutputRow, PaymentRequestRow
+    PaymentRequestOutputRow, PaymentRequestRow, TransactionLinkState, \
+    TransactionOutputSpendableProtocol
 
-from .util import _create_mock_app_state2, MockStorage
+from .util import _create_mock_app_state2, MockStorage, TEST_DATA_PATH
+
+TEST_NODEAPI_PATH = os.path.join(TEST_DATA_PATH, "node_api")
+
+
+def coins_to_satoshis(value: float) -> int:
+    amount_coins = Decimal(value)
+    satoshis_per_coin = 100000000
+    max_satoshis = 21000000 * satoshis_per_coin
+    amount_satoshis = int(amount_coins * satoshis_per_coin)
+    assert amount_satoshis >= 0 and amount_satoshis <= max_satoshis
+    return amount_satoshis
 
 
 PUBLIC_KEY_1_HEX = "02573afa26acf04e7cdafe46b39f8cba25f05c76d9a0cf500b9e196d72020931db"
@@ -35,6 +53,11 @@ P2PKH_ADDRESS_1 = PUBLIC_KEY_1.to_address()
 FAKE_DERIVATION_DATA2 = b"sdsdsd"
 FAKE_BLOCK_HASH = b"block hash"
 FAKE_TRANSACTION_HASH = b"txhash"
+
+P2PKH_TRANSACTION_HEX = \
+    "02000000012240c035d2eb02308aa988fc953a46b07cf80fc109121c192a01e667f7d5b" \
+    "41b0000000000ffffffff0140420f00000000001976a91443423852c99cb9825c2637f7" \
+    "5ec386619132899088ac00000000"
 
 
 @pytest.fixture
@@ -64,7 +87,7 @@ def test_transform_parameters_invalid_mismatch() -> None:
     assert object["id"] == 444
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -8 # INVALID_PARAMETER
+    assert object["error"]["code"] == RPCError.INVALID_PARAMETER
     assert object["error"]["message"] == "Unknown named parameter a"
 
 def test_get_parameter_string_success() -> None:
@@ -81,7 +104,7 @@ def test_get_parameter_string_fail(parameter_value: Any) -> None:
     assert object["id"] == 444
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -32700 # PARSE_ERROR
+    assert object["error"]["code"] == RPCError.PARSE_ERROR
     assert object["error"]["message"] == "JSON value is not a string as expected"
 
 @pytest.mark.parametrize("parameter_value,expected_value",
@@ -106,7 +129,7 @@ def test_get_amount_parameter_parse_failure(parameter_value: Any, error_text: st
     assert object["id"] == 444
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -3 # TYPE_ERROR
+    assert object["error"]["code"] == RPCError.TYPE_ERROR
     assert object["error"]["message"] == error_text
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
@@ -139,7 +162,7 @@ def test_get_wallet_from_request_implicit_fail_ensure_none(app_state_nodeapi: Ap
     assert object["id"] == 444
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -32601
+    assert object["error"]["code"] == RPCError.METHOD_NOT_FOUND
     assert object["error"]["message"] == "Method not found (wallet method is disabled because " \
         "no wallet is loaded"
 
@@ -183,7 +206,7 @@ def test_get_wallet_from_request_implicit_fail_ensure_many(app_state_nodeapi: Ap
     assert object["id"] == 444
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -19
+    assert object["error"]["code"] == RPCError.WALLET_NOT_SPECIFIED
     assert object["error"]["message"] == "Wallet file not specified (must request wallet RPC " \
         "through /wallet/<filename> uri-path)"
 
@@ -224,7 +247,7 @@ def test_get_wallet_from_request_explicit_fail_no_path(app_state_nodeapi: AppSta
     assert object["id"] == 444
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -18
+    assert object["error"]["code"] == RPCError.WALLET_NOT_FOUND
     assert object["error"]["message"] == "No preferred wallet path"
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
@@ -281,7 +304,7 @@ async def test_server_authentication_passwordless_success_async(server_tester: T
     assert object["id"] is None
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -32700
+    assert object["error"]["code"] == RPCError.PARSE_ERROR
     assert object["error"]["message"] == "Top-level object parse error"
 
 async def test_server_authentication_bad_password_async(server_tester: TestClient) -> None:
@@ -309,13 +332,14 @@ async def test_server_authentication_good_password_async(server_tester: TestClie
     assert object["id"] is None
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -32700
+    assert object["error"]["code"] == RPCError.PARSE_ERROR
     assert object["error"]["message"] == "Top-level object parse error"
 
 @pytest.mark.parametrize("id_value,expected_success", ((111, True), ("23232", True), (None, True),
     ({}, False)))
-async def test_server_authentication_call_id_types_async(id_value: nodeapi.RequestIdType,
-        expected_success: bool, server_tester: TestClient) -> None:
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_server_authentication_call_id_types_async(app_state_nodeapi: AppStateProxy,
+        id_value: nodeapi.RequestIdType, expected_success: bool, server_tester: TestClient) -> None:
     assert server_tester.app is not None
     mock_server = server_tester.app["server"]
     # Ensure the server does not require authorization to make a call.
@@ -329,7 +353,7 @@ async def test_server_authentication_call_id_types_async(id_value: nodeapi.Reque
     assert len(object) == 3
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -32600
+    assert object["error"]["code"] == RPCError.INVALID_REQUEST
     if expected_success:
         # Passed invalid id type guard.
         assert object["id"] == id_value
@@ -339,7 +363,9 @@ async def test_server_authentication_call_id_types_async(id_value: nodeapi.Reque
         assert object["id"] is None
         assert object["error"]["message"] == "Id must be int, string or null"
 
-async def test_server_authentication_method_type_fail_async(server_tester: TestClient) -> None:
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_server_authentication_method_type_fail_async(app_state_nodeapi: AppStateProxy,
+        server_tester: TestClient) -> None:
     assert server_tester.app is not None
     mock_server = server_tester.app["server"]
     # Ensure the server does not require authorization to make a call.
@@ -355,7 +381,7 @@ async def test_server_authentication_method_type_fail_async(server_tester: TestC
     assert object["id"] == 2323
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -32600
+    assert object["error"]["code"] == RPCError.INVALID_REQUEST
     assert object["error"]["message"] == "Method must be a string"
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
@@ -382,7 +408,7 @@ async def test_server_authentication_method_unknown_fail_async(app_state_nodeapi
     assert object["id"] == 2323
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -32601
+    assert object["error"]["code"] == RPCError.METHOD_NOT_FOUND
     assert object["error"]["message"] == "Method not found"
 
 @pytest.mark.parametrize("endpoint_name", ("getnewaddress","listunspent","sendtoaddress"))
@@ -416,7 +442,7 @@ async def test_call_endpoints_no_account_async(app_state_nodeapi: AppStateProxy,
     assert object["id"] == 232
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -4
+    assert object["error"]["code"] == RPCError.WALLET_ERROR
     assert object["error"]["message"] == "Ambiguous account (found 0, expected 1)"
 
 @pytest.mark.parametrize("endpoint_name", ("getnewaddress","listunspent","sendtoaddress"))
@@ -452,151 +478,191 @@ async def test_call_endpoints_too_many_accounts_async(app_state_nodeapi: AppStat
     assert object["id"] == 232
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -4
+    assert object["error"]["code"] == RPCError.WALLET_ERROR
     assert object["error"]["message"] == "Ambiguous account (found 2, expected 1)"
 
-# We are checking that methods check their parameters. We do not need to check every permutation of
-# every type check, as the unit testing of the type checking functions already does that.
-@pytest.mark.parametrize("endpoint_name,parameter_list,error_code,error_text", [
-    ## ``listunspent``: general parameters
+endpoint_error_parameter_list = [
+    ## ``createrawtransaction``: general parameters
     # Error case: RPC_INVALID_PARAMS / Need at least 2 parameters not 0.
-    ("createrawtransaction", [ ], -32602,
+    ("createrawtransaction", [ ], RPCError.INVALID_PARAMS,
         "Invalid parameters, see documentation for this call"),
     # Error case: RPC_INVALID_PARAMS / Need at least 2 parameters not 1.
-    ("createrawtransaction", [ "x" ], -32602,
+    ("createrawtransaction", [ "x" ], RPCError.INVALID_PARAMS,
         "Invalid parameters, see documentation for this call"),
     # Error case: RPC_INVALID_PARAMS / Need at most 3 parameters not more.
-    ("createrawtransaction", [ "x", "x", "x", "x" ], -32602,
+    ("createrawtransaction", [ "x", "x", "x", "x" ], RPCError.INVALID_PARAMS,
         "Invalid parameters, see documentation for this call"),
-    ## ``listunspent``: ``inputs`` parameter
+    ## ``createrawtransaction``: ``inputs`` parameter
     # Error case: RPC_INVALID_PARAMETER / Need a non-null for ``inputs``.
-    ("createrawtransaction", [ None, {}  ], -8,
+    ("createrawtransaction", [ None, {}  ], RPCError.INVALID_PARAMETER,
         "Invalid parameter, arguments 1 and 2 must be non-null"),
     # Error case: RPC_TYPE_ERROR / Need a list for ``inputs``.
-    ("createrawtransaction", [ 1, {}  ], -3,
+    ("createrawtransaction", [ 1, {}  ], RPCError.TYPE_ERROR,
         "Expected array, got int"),
     # Error case: RPC_PARSE_ERROR / Need dict entries for ``inputs``.
-    ("createrawtransaction", [ [ 1 ], {}  ], -32700,
+    ("createrawtransaction", [ [ 1 ], {}  ], RPCError.PARSE_ERROR,
         "JSON value is not an object as expected"),
     # Error case: RPC_INVALID_PARAMETER / Need a valid hex ``prev_hash`` for ``inputs``.
-    ("createrawtransaction", [ [ { "txid": "a" } ], {} ], -8,
+    ("createrawtransaction", [ [ { "txid": "a" } ], {} ], RPCError.INVALID_PARAMETER,
         "txid must be hexadecimal string (not 'a') and length of it must be divisible by 2"),
     # Error case: RPC_INVALID_PARAMETER / Need a valid hex ``prev_hash`` for ``inputs``.
-    ("createrawtransaction", [ [ { "txid": "aa" } ], {} ], -8,
+    ("createrawtransaction", [ [ { "txid": "aa" } ], {} ], RPCError.INVALID_PARAMETER,
         "txid must be of length 64 (not 2)"),
     # Error case: RPC_INVALID_PARAMETER / Need a valid hash length for ``inputs``.
     ("createrawtransaction", [ [ { "txid":
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } ], {} ], -8,
-        "Invalid parameter, missing vout key"),
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" } ], {} ],
+        RPCError.INVALID_PARAMETER, "Invalid parameter, missing vout key"),
     # Error case: RPC_INVALID_PARAMETER / Need a positive sequence for ``inputs``.
     ("createrawtransaction", [ [ { "txid":
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "vout": 10,
-        "sequence": -1 } ], {} ], -8,
+        "sequence": -1 } ], {} ], RPCError.INVALID_PARAMETER,
         "Invalid parameter, sequence number is out of range"),
     # Error case: RPC_INVALID_PARAMETER / Need a capped sequence for ``inputs``.
     ("createrawtransaction", [ [ { "txid":
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "vout": 10,
-        "sequence": 0xFFFFFFFF+1 } ], {} ], -8,
+        "sequence": 0xFFFFFFFF+1 } ], {} ], RPCError.INVALID_PARAMETER,
         "Invalid parameter, sequence number is out of range"),
-    ## ``listunspent``: ``outputs`` parameter
+    ## ``createrawtransaction``: ``outputs`` parameter
     # Error case: RPC_INVALID_PARAMETER / Need a non-null for ``outputs``.
-    ("createrawtransaction", [ [], None  ], -8,
+    ("createrawtransaction", [ [], None  ], RPCError.INVALID_PARAMETER,
         "Invalid parameter, arguments 1 and 2 must be non-null"),
     # Error case: RPC_TYPE_ERROR / Need a dict for ``outputs``.
-    ("createrawtransaction", [ [], "sds"  ], -3,
+    ("createrawtransaction", [ [], "sds"  ], RPCError.TYPE_ERROR,
         "Expected object, got str"),
     # Error case: RPC_INVALID_PARAMETER / Need a valid hex opreturn payload for ``outputs``.
-    ("createrawtransaction", [ [], { "data": "a" } ], -8,
+    ("createrawtransaction", [ [], { "data": "a" } ], RPCError.INVALID_PARAMETER,
         "Data must be hexadecimal string (not 'a') and length of it must be divisible by 2"),
     # Error case: RPC_INVALID_PARAMETER / Need a valid hex opreturn payload for ``outputs``.
-    ("createrawtransaction", [ [], { "data": "zz" } ], -8,
+    ("createrawtransaction", [ [], { "data": "zz" } ], RPCError.INVALID_PARAMETER,
         "Data must be hexadecimal string (not 'zz') and length of it must be divisible by 2"),
     # Error case: RPC_INVALID_PARAMETER / Need a valid address for ``outputs``.
-    ("createrawtransaction", [ [], { 1: 1 } ], -5,
+    ("createrawtransaction", [ [], { 1: 1 } ], RPCError.INVALID_ADDRESS_OR_KEY,
         "Invalid Bitcoin address: invalid base 58 checksum for 1"),
     # Error case: RPC_TYPE_ERROR / Invalid type.
-    ("createrawtransaction", [ [], { "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": [] } ], -3,
-        "Amount is not a number or string"),
+    ("createrawtransaction", [ [], { "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": [] } ],
+        RPCError.TYPE_ERROR, "Amount is not a number or string"),
     # Error case: RPC_TYPE_ERROR / Negative amount to send.
-    ("createrawtransaction", [ [], { "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": -100 } ], -3,
-        "Amount out of range"),
+    ("createrawtransaction", [ [], { "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": -100 } ],
+        RPCError.TYPE_ERROR, "Amount out of range"),
     # Error case: RPC_TYPE_ERROR / Too large amount to send.
-    ("createrawtransaction", [ [], { "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": 1e10 } ], -3,
-        "Amount out of range"),
-    ## ``listunspent``: ``locktime`` parameter
+    ("createrawtransaction", [ [], { "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2": 1e10 } ],
+        RPCError.TYPE_ERROR, "Amount out of range"),
+    ## ``createrawtransaction``: ``locktime`` parameter
     # Error case: RPC_INVALID_PARAMETER / Need a positive value.
-    ("createrawtransaction", [ [], {}, -3  ], -8,
+    ("createrawtransaction", [ [], {}, -3  ], RPCError.INVALID_PARAMETER,
         "Invalid parameter, locktime out of range"),
     # Error case: RPC_INVALID_PARAMETER / Need a value <= the limit.
-    ("createrawtransaction", [ [], {}, 0xFFFFFFFF+1  ], -8,
+    ("createrawtransaction", [ [], {}, 0xFFFFFFFF+1  ], RPCError.INVALID_PARAMETER,
         "Invalid parameter, locktime out of range"),
 
     ## ``listunspent``: ``minconf`` parameter
     # Error case: RPC_PARSE_ERROR / String in place of minimum confirmation count.
-    ("listunspent", [ "string" ], -32700,
+    ("listunspent", [ "string" ], RPCError.PARSE_ERROR,
         "JSON value is not an integer as expected"),
     # Error case: RPC_PARSE_ERROR / String in place of maximum confirmation count.
-    ("listunspent", [ 0, "string" ], -32700,
+    ("listunspent", [ 0, "string" ], RPCError.PARSE_ERROR,
         "JSON value is not an integer as expected"),
     # Error case: RPC_TYPE_ERROR / Non-list in place of filter address list.
-    ("listunspent", [ None, None, 1 ], -3,
+    ("listunspent", [ None, None, 1 ], RPCError.TYPE_ERROR,
         "Expected type list, got int"),
     # Error case: RPC_PARSE_ERROR / Non-string in filter address list.
-    ("listunspent", [ None, None, [ 1 ] ], -32700,
+    ("listunspent", [ None, None, [ 1 ] ], RPCError.PARSE_ERROR,
         "JSON value is not a string as expected"),
     # Error case: RPC_INVALID_ADDRESS_OR_KEY / Testnet address in filter address list.
-    ("listunspent", [ None, None, [ "mneqqWSAQCg6tTP4BUdnPDBRanFqaaryMM" ] ], -5,
+    ("listunspent", [ None, None, [ "mneqqWSAQCg6tTP4BUdnPDBRanFqaaryMM" ] ],
+        RPCError.INVALID_ADDRESS_OR_KEY,
         "Invalid Bitcoin address: unknown version byte 111 for network mainnet"),
     # Error case: RPC_INVALID_ADDRESS_OR_KEY / Non-address string in filter address list.
-    ("listunspent", [ None, None, [ "non-address" ] ], -5,
+    ("listunspent", [ None, None, [ "non-address" ] ], RPCError.INVALID_ADDRESS_OR_KEY,
         "Invalid Bitcoin address: invalid base 58 character \"-\""),
     # Error case: RPC_INVALID_ADDRESS_OR_KEY / Presumably base58 non-address instead of address.
-    ("listunspent", [ None, None, [ "test" ] ], -5,
+    ("listunspent", [ None, None, [ "test" ] ], RPCError.INVALID_ADDRESS_OR_KEY,
         "Invalid Bitcoin address: invalid base 58 checksum for test"),
     # Error case: RPC_INVALID_PARAMETER / Duplicate address in list.
     ("listunspent", [ None, None, [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2",
-            "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2" ] ], -8,
+            "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2" ] ], RPCError.INVALID_PARAMETER,
         "Invalid parameter, duplicated address: 1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2"),
     # Error case: RPC_INVALID_PARAMETER / Integer instead of boolean for `include_unsafe`.
-    ("listunspent", [ None, None, None, 1 ], -32700,
+    ("listunspent", [ None, None, None, 1 ], RPCError.PARSE_ERROR,
         "JSON value is not a boolean as expected"),
 
     ## ``sendtoaddress``: ``address`` parameter
     # Error case: RPC_INVALID_ADDRESS_OR_KEY / Testnet version byte in address.
-    ("sendtoaddress", [ "mneqqWSAQCg6tTP4BUdnPDBRanFqaaryMM", 10000 ], -5,
+    ("sendtoaddress", [ "mneqqWSAQCg6tTP4BUdnPDBRanFqaaryMM", 10000 ],
+        RPCError.INVALID_ADDRESS_OR_KEY,
         "Invalid address: unknown version byte 111 for network mainnet"),
     # Error case: RPC_INVALID_ADDRESS_OR_KEY / Non-base58 address text.
-    ("sendtoaddress", [ "non-address", 10000 ], -5,
+    ("sendtoaddress", [ "non-address", 10000 ], RPCError.INVALID_ADDRESS_OR_KEY,
         "Invalid address: invalid base 58 character \"-\""),
     # Error case: RPC_INVALID_ADDRESS_OR_KEY / Presumably base58 non-address instead of address.
-    ("sendtoaddress", [ "test", 10000 ], -5,
+    ("sendtoaddress", [ "test", 10000 ], RPCError.INVALID_ADDRESS_OR_KEY,
         "Invalid address: invalid base 58 checksum for test"),
     # Error case: RPC_PARSE_ERROR / Integer instead of string for address.
-    ("sendtoaddress", [ 1, 10000 ], -32700,
+    ("sendtoaddress", [ 1, 10000 ], RPCError.PARSE_ERROR,
         "JSON value is not a string as expected"),
     ## ``sendtoaddress``: ``amount`` parameter
     # Error case: RPC_TYPE_ERROR / Negative amount to send.
-    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", -100 ], -3,
+    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", -100 ], RPCError.TYPE_ERROR,
         "Amount out of range"),
     # Error case: RPC_TYPE_ERROR / Too large amount to send.
-    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 1e10 ], -3,
+    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 1e10 ], RPCError.TYPE_ERROR,
         "Amount out of range"),
     # Error case: RPC_TYPE_ERROR / Zero amount to send.
-    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 0 ], -3,
+    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 0 ], RPCError.TYPE_ERROR,
         "Invalid amount for send"),
     ## ``sendtoaddress``: ``comment`` parameter
     # Error case: RPC_PARSE_ERROR / Integer instead of string for comment.
-    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000, 1 ], -32700,
+    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000, 1 ], RPCError.PARSE_ERROR,
         "JSON value is not a string as expected"),
     ## ``sendtoaddress``: ``commentto`` parameter
     # Error case: RPC_PARSE_ERROR / Integer instead of string for comment to.
-    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000, "null", 1 ], -32700,
-        "JSON value is not a string as expected"),
+    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000, "null", 1 ],
+        RPCError.PARSE_ERROR, "JSON value is not a string as expected"),
     ## ``sendtoaddress``: ``subtract_fee_from_amount`` parameter
     # Error case: RPC_INVALID_PARAMETER / Enabled .
-    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000, None, None, True ], -8,
-        "Subtract fee from amount not currently supported"),
-])
+    ("sendtoaddress", [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000, None, None, True ],
+        RPCError.INVALID_PARAMETER, "Subtract fee from amount not currently supported"),
+
+    ## ``signrawtransaction``: general parameters
+    # Error case: RPC_INVALID_PARAMS / Need >= 1 and <= 4 parameters.
+    ("signrawtransaction", [ ], RPCError.INVALID_PARAMS,
+        "Invalid parameters, see documentation for this call"),
+    # Error case: RPC_INVALID_PARAMETER / First parameter needs to be a string.
+    ("signrawtransaction", [ None ], RPCError.INVALID_PARAMETER,
+        "argument 1 must be hexadecimal string (not 'None') and length of it must be divisible "
+        "by 2"),
+    # Error case: Second parameter needs to be a list.
+    ("signrawtransaction", [ "aa", "" ], RPCError.TYPE_ERROR,
+        "Expected type list, got str"),
+    # Error case: Third parameter needs to be a list.
+    ("signrawtransaction", [ "aa", [], "" ], RPCError.TYPE_ERROR,
+        "Expected type list, got str"),
+    # Error case: Fourth parameter needs to be a string.
+    ("signrawtransaction", [ "aa", [], [], [] ], RPCError.TYPE_ERROR,
+        "Expected type str, got list"),
+    # Error case: Fourth parameter needs to include SIGHASH_FORKID.
+    ("signrawtransaction", [ P2PKH_TRANSACTION_HEX, [], [], "ALL" ], RPCError.INVALID_PARAMETER,
+        "Signature must use SIGHASH_FORKID"),
+    ("signrawtransaction", [ P2PKH_TRANSACTION_HEX, [], [], "ALL|ANYONECANPAY" ],
+        RPCError.INVALID_PARAMETER, "Signature must use SIGHASH_FORKID"),
+    ("signrawtransaction", [ P2PKH_TRANSACTION_HEX, [], [], "NONE" ], RPCError.INVALID_PARAMETER,
+        "Signature must use SIGHASH_FORKID"),
+    ("signrawtransaction", [ P2PKH_TRANSACTION_HEX, [], [], "NONE|ANYONECANPAY" ],
+        RPCError.INVALID_PARAMETER, "Signature must use SIGHASH_FORKID"),
+    ("signrawtransaction", [ P2PKH_TRANSACTION_HEX, [], [], "SINGLE" ], RPCError.INVALID_PARAMETER,
+        "Signature must use SIGHASH_FORKID"),
+    ("signrawtransaction", [ P2PKH_TRANSACTION_HEX, [], [], "SINGLE|ANYONECANPAY" ],
+        RPCError.INVALID_PARAMETER, "Signature must use SIGHASH_FORKID"),
+    # Error case: Fourth parameter needs to be both FORKID and a valid known identifier.
+    ("signrawtransaction", [ P2PKH_TRANSACTION_HEX, [], [], "SIGHASH_FORKID" ],
+        RPCError.INVALID_PARAMETER, "Invalid sighash param"),
+]
+
+
+# We are checking that methods check their parameters. We do not need to check every permutation of
+# every type check, as the unit testing of the type checking functions already does that.
+@pytest.mark.parametrize("endpoint_name,parameter_list,error_code,error_text",
+    endpoint_error_parameter_list)
 @unittest.mock.patch('electrumsv.keystore.app_state', new_callable=_create_mock_app_state2)
 @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state2)
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
@@ -682,7 +748,8 @@ createrawtransaction_success_parameters: list[tuple[tuple[list[CreateInputDict],
         None
     ), "0100000002aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa0c00000000"
     "ffffffffbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb1800000000fffff"
-    "fff0200ab9041000000001976a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac000000000000000011006a0e546869732069732061207465737400000000")
+    "fff0200ab9041000000001976a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac00000000000000"
+    "0011006a0e546869732069732061207465737400000000")
 ]
 
 @pytest.mark.parametrize("parameter_list,resulting_hex", createrawtransaction_success_parameters)
@@ -748,7 +815,7 @@ async def test_call_getnewaddress_no_connected_blockchain_server_async(
     assert object["id"] == 232
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -4
+    assert object["error"]["code"] == RPCError.WALLET_ERROR
     assert object["error"]["message"] == "No connected blockchain server"
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
@@ -820,7 +887,7 @@ async def test_call_getnewaddress_remote_monitoring_failure_async(
     assert object["id"] == 232
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -4
+    assert object["error"]["code"] == RPCError.WALLET_ERROR
     assert object["error"]["message"] == \
         "Blockchain server address monitoring request not successful"
 
@@ -897,7 +964,7 @@ async def test_call_getnewaddress_monitor_server_error_async(app_state_nodeapi: 
     assert object["id"] == 232
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -4
+    assert object["error"]["code"] == RPCError.WALLET_ERROR
     assert object["error"]["message"] == job_data.failure_reason
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
@@ -1055,7 +1122,7 @@ async def test_call_listunspent_success_async(
         return [
             AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 1000, 1111111,
                 ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1, DerivationType.BIP32_SUBPATH,
-                FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED, FAKE_BLOCK_HASH)
+                FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED, FAKE_BLOCK_HASH, b"")
         ]
     account.get_transaction_outputs_with_key_and_tx_data.side_effect = \
         get_transaction_outputs_with_key_and_tx_data
@@ -1180,7 +1247,7 @@ async def test_call_sendtoaddress_walletpassphrase_required_async(app_state_node
     assert object["id"] == 232
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -13 # WALLET_UNLOCK_NEEDED
+    assert object["error"]["code"] == RPCError.WALLET_UNLOCK_NEEDED
     assert object["error"]["message"] == "Error: Please enter the wallet passphrase with " \
         "walletpassphrase first."
 
@@ -1220,47 +1287,266 @@ async def test_call_sendtoaddress_failure_no_configured_peer_channel_server_asyn
     assert object["id"] == 232
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -4 # WALLET_ERROR
+    assert object["error"]["code"] == RPCError.WALLET_ERROR # WALLET_ERROR
     assert object["error"]["message"] == "No configured peer channel server"
 
-# @unittest.mock.patch('electrumsv.keystore.app_state', new_callable=_create_mock_app_state2)
-# @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state2)
-# @unittest.mock.patch('electrumsv.nodeapi.app_state')
-# async def test_call_sendtoaddress_failure_invalid_parameters_async(
-#         app_state_nodeapi: AppStateProxy,app_state_wallet: AppStateProxy,
-#         app_state_keystore: AppStateProxy, server_tester: TestClient,
-#         funded_wallet_factory: Callable[[], Wallet]) -> None:
-#     assert server_tester.app is not None
-#     mock_server = server_tester.app["server"]
-#     # Ensure the server does not require authorization to make a call.
-#     mock_server._password = ""
+class SignRawTransactionMockDataDict(TypedDict):
+    # Mapping of compressed public key hex to signature hex.
+    signatures: dict[str, str]
 
-#     wallet_password = "123456"
-#     # The `funded_wallet_factory` fixture copies and opens the wallet and requires the password.
-#     app_state_wallet.credentials.get_wallet_password = lambda wallet_path: wallet_password
-#     app_state_keystore.credentials.get_wallet_password = lambda wallet_path: wallet_password
+with open(os.path.join(TEST_NODEAPI_PATH, "signrawtransaction_ok.json"), "r") as f:
+    signrawtransaction_parameters = json.load(f)
 
-#     wallet = funded_wallet_factory()
+@pytest.mark.parametrize("testcase_description,parameter_list,mock_data,response_payload_object",
+    signrawtransaction_parameters)
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_signrawtransaction_ok_async(
+        app_state_nodeapi: AppStateProxy, server_tester: TestClient,
+        testcase_description: str, parameter_list: list[Any],
+        mock_data: SignRawTransactionMockDataDict,
+        response_payload_object: nodeapi.SignRawTransactionResultDict) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
 
-#     wallets: dict[str, Wallet] = {}
-#     irrelevant_path = os.urandom(32).hex()
-#     wallets[irrelevant_path] = wallet
-#     app_state_nodeapi.daemon.wallets = wallets
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
 
-#     call_object = {
-#         "id": 232,
-#         "method": "sendtoaddress",
-#         "params": [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000 ],
-#     }
-#     response = await server_tester.request(path="/", method="POST", json=call_object)
-#     assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
-#     object = await response.json()
-#     assert len(object) == 3
-#     assert object["id"] == 232
-#     assert object["result"] is None
-#     assert len(object["error"]) == 2
-#     assert object["error"]["code"] == -4 # WALLET_ERROR
-#     assert object["error"]["message"] == "No configured peer channel server"
+    def get_tip_filter_server_state() -> None:
+        return None
+    wallet.get_tip_filter_server_state.side_effect = get_tip_filter_server_state
+
+    account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        nonlocal account
+        return [ account ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    x_public_keys_by_coin: dict[Outpoint, dict[bytes, XPublicKey]] = {}
+
+    def get_transaction_outputs_with_key_and_tx_data(exclude_frozen: bool=True,
+            confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None,
+            outpoints: list[Outpoint]|None=None) \
+                -> list[AccountTransactionOutputSpendableRowExtended]:
+        """
+        Convert the JSON pretend database coins to mocked database rows.
+        """
+        nonlocal mock_data, x_public_keys_by_coin
+        mock_coin_rows: list[AccountTransactionOutputSpendableRowExtended] = []
+        for mock_prevout in mock_data.get("prevouts", []):
+            mock_row = unittest.mock.Mock(spec=AccountTransactionOutputSpendableRowExtended)
+            mock_row.tx_hash = bitcoinx.hex_str_to_hash(mock_prevout["txid"])
+            mock_row.txo_index = mock_prevout["vout"]
+            mock_row.script_bytes = bytes.fromhex(mock_prevout["scriptPubKey"])
+            script = bitcoinx.Script(mock_row.script_bytes)
+            script_type, threshold, script_template = classify_transaction_output_script(script)
+            mock_row.script_type = script_type
+            mock_row.value = coins_to_satoshis(mock_prevout["amount"])
+            mock_row.block_hash = None
+            if mock_prevout.get("is_spent"):
+                mock_row.flags = TransactionOutputFlag.SPENT
+            else:
+                mock_row.flags = TransactionOutputFlag.NONE
+            mock_coin_rows.append(mock_row)
+
+            outpoint = Outpoint(mock_row.tx_hash, mock_row.txo_index)
+            x_public_keys_by_coin[outpoint] = {}
+            for public_key_hex in mock_prevout.get("public_keys_hex", []):
+                x_public_key = XPublicKey.from_hex(public_key_hex)
+                x_public_keys_by_coin[outpoint][x_public_key.to_bytes()] = x_public_key
+
+        return mock_coin_rows
+    account.get_transaction_outputs_with_key_and_tx_data = \
+        get_transaction_outputs_with_key_and_tx_data
+
+    def get_threshold() -> int:
+        return 1
+    account.get_threshold = get_threshold
+
+    def get_extended_input_for_spendable_output(row: TransactionOutputSpendableProtocol) \
+            -> XTxInput:
+        """
+        Propagate the mocked database rows to extended transaction input metadata.
+        """
+        extended_transaction_input = XTxInput(row.tx_hash, row.txo_index, bitcoinx.Script(),
+            0xFFFFFFFF)
+        extended_transaction_input.script_type = row.script_type
+        extended_transaction_input.value = row.value
+        outpoint = Outpoint(row.tx_hash, row.txo_index)
+        extended_transaction_input.x_pubkeys = x_public_keys_by_coin[outpoint]
+        return extended_transaction_input
+    account.get_extended_input_for_spendable_output = get_extended_input_for_spendable_output
+
+    def sign_transaction(tx: Transaction, password: str,
+            context: TransactionContext|None=None,
+            import_flags: TransactionImportFlag=TransactionImportFlag.UNSET) \
+                -> concurrent.futures.Future[TransactionLinkState] | None:
+        nonlocal mock_data
+        """
+        We are not testing that the wallet is signing correctly. We are taking JSON pretend
+        metadata and putting it in place and checking that the nodeapi endpoint is behaving
+        correctly.
+        """
+        assert isinstance(tx, Transaction)
+        # We're not actually signing here, we are injecting data that looks like signing.
+        future = concurrent.futures.Future()
+        future.set_result(False)
+
+        generated_signatures: dict[bytes, bytes] = {}
+        for public_key_hex, signature_hex in mock_data.get("signatures", {}).items():
+            generated_signatures[bytes.fromhex(public_key_hex)] = bytes.fromhex(signature_hex)
+        for transaction_input in tx.inputs:
+            # We do not sign inputs that are already signed.
+            if len(transaction_input.script_sig) > 0:
+                continue
+            # We need to have been given the public key metadata to know what public keys were
+            # used in signing this.
+            if len(transaction_input.x_pubkeys) == 0:
+                continue
+
+            # Sanity test our mocking has resulted in the correct data.
+            assert transaction_input.script_type != ScriptType.NONE
+            assert len(transaction_input.signatures) == 0
+
+            # We do not handle other script types at this time.
+            assert transaction_input.script_type == ScriptType.P2PKH
+
+            relevant_generated_signatures: dict[bytes, bytes] = {}
+            for public_key_bytes, signature_bytes in generated_signatures.items():
+                if public_key_bytes in transaction_input.x_pubkeys:
+                    relevant_generated_signatures[public_key_bytes] = signature_bytes
+
+            if len(relevant_generated_signatures) > 0:
+                script_sig = create_script_sig(transaction_input.script_type, 1,
+                    transaction_input.x_pubkeys, relevant_generated_signatures)
+                assert script_sig is not None
+                transaction_input.script_sig = script_sig
+
+        return future
+    account.sign_transaction = sign_transaction
+
+    call_object = {
+        "id": 232,
+        "method": "signrawtransaction",
+        "params": parameter_list,
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.OK
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["error"] is None
+    assert object["result"] == response_payload_object
+
+@pytest.mark.parametrize("transactions_hex,privkeys,sighashtype,mock_data,error_code,"
+    "error_message", (
+        ("0100000000000000000001000000000000000000", None, None, {},
+            RPCError.DESERIALIZATION_ERROR,
+            "Compatibility difference (multiple transactions not accepted)"),
+        ("01000000000000000000", [ "fakekey" ], None, {},
+            RPCError.INVALID_PARAMETER, "Compatibility difference (external keys not accepted)"),
+        ("01000000000000000000", None, "ALL|FORKID|ANYONECANPAY", {},
+            RPCError.INVALID_PARAMETER,
+            "Compatibility difference (only ALL|FORKID sighash accepted)"),
+        ("010000000141414141414141414141414141414141414141414141414141414141414141410a0000000500"
+            "00000000ffffffff0000000000", None, None, {
+                "prevouts": [
+                    {
+                        "txid": "4141414141414141414141414141414141414141414141414141414141414141",
+                        "vout": 10,
+                        # Multisig, 3 of 4.
+                        "scriptPubKey": '5321036aa35b68bdd1b27a0f74a36ccb92bfae30ae49c5d73271dd4a1c36c10710e0ba2102599b3edd084f0f03cf9fee18baeed1e0d888f21b07044599c477ed6806e919e82103b700b196d242dfd97491441765425f41097c61660c65d1e6f71f21f33659b292210210045649324d7a8bd6810b9025b2f411655c492c6885b7f1dd101b24582ae8cb54ae',
+                        "amount": 0.01,
+                    }
+                ]
+            },
+            RPCError.DESERIALIZATION_ERROR,
+            "Compatibility difference (non-P2PKH coins not accepted)"),
+    ))
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_signrawtransaction_incompatibility_async(
+        app_state_nodeapi: AppStateProxy, transactions_hex: str, privkeys: list[str],
+        sighashtype: str, mock_data: SignRawTransactionMockDataDict,
+        error_code: RPCError, error_message: str,
+        server_tester: TestClient) -> None:
+    """
+    While the `signrawtransaction` node API endpoint ...
+    """
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    def get_tip_filter_server_state() -> None:
+        return None
+    wallet.get_tip_filter_server_state.side_effect = get_tip_filter_server_state
+
+    account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        nonlocal account
+        return [ account ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    def get_transaction_outputs_with_key_and_tx_data(exclude_frozen: bool=True,
+            confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None,
+            outpoints: list[Outpoint]|None=None) \
+                -> list[AccountTransactionOutputSpendableRowExtended]:
+        nonlocal mock_data
+        mock_coin_rows: list[AccountTransactionOutputSpendableRowExtended] = []
+        for mock_prevout in mock_data.get("prevouts", []):
+            mock_row = unittest.mock.Mock(spec=AccountTransactionOutputSpendableRowExtended)
+            mock_row.tx_hash = bitcoinx.hex_str_to_hash(mock_prevout["txid"])
+            mock_row.txo_index = mock_prevout["vout"]
+            mock_row.script_bytes = bytes.fromhex(mock_prevout["scriptPubKey"])
+            script = bitcoinx.Script(mock_row.script_bytes)
+            script_type, threshold, script_template = classify_transaction_output_script(script)
+            mock_row.script_type = script_type
+            mock_row.value = coins_to_satoshis(mock_prevout["amount"])
+            mock_row.block_hash = None
+            if mock_prevout.get("is_spent"):
+                mock_row.flags = TransactionOutputFlag.SPENT
+            else:
+                mock_row.flags = TransactionOutputFlag.NONE
+            mock_coin_rows.append(mock_row)
+        return mock_coin_rows
+    account.get_transaction_outputs_with_key_and_tx_data = \
+        get_transaction_outputs_with_key_and_tx_data
+
+    def get_extended_input_for_spendable_output(row: TransactionOutputSpendableProtocol) \
+            -> XTxInput:
+        """
+        Propagate the mocked database rows to extended transaction input metadata.
+        """
+        extended_transaction_input = XTxInput(row.tx_hash, row.txo_index, bitcoinx.Script(),
+            0xFFFFFFFF)
+        extended_transaction_input.script_type = row.script_type
+        extended_transaction_input.value = row.value
+        return extended_transaction_input
+    account.get_extended_input_for_spendable_output = get_extended_input_for_spendable_output
+
+    call_object = {
+        "id": 232,
+        "method": "signrawtransaction",
+        "params": [ transactions_hex, None, privkeys, sighashtype ],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["error"] == { "code": error_code, "message": error_message }
+    assert object["result"] is None
+
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
 async def test_call_walletpassphrase_password_incorrect_async(app_state_nodeapi: AppStateProxy,
@@ -1325,7 +1611,7 @@ async def test_call_walletpassphrase_password_wrong_type_async(app_state_nodeapi
     assert object["id"] == 232
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -32700
+    assert object["error"]["code"] == RPCError.PARSE_ERROR
     assert object["error"]["message"] == "JSON value is not a string as expected"
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
@@ -1358,7 +1644,7 @@ async def test_call_walletpassphrase_password_too_short_async(app_state_nodeapi:
     assert object["id"] == 232
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -32700
+    assert object["error"]["code"] == RPCError.PARSE_ERROR
     assert object["error"]["message"] == "Invalid parameters, see documentation for this call"
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
@@ -1391,7 +1677,7 @@ async def test_call_walletpassphrase_duration_wrong_type_async(app_state_nodeapi
     assert object["id"] == 232
     assert object["result"] is None
     assert len(object["error"]) == 2
-    assert object["error"]["code"] == -32700
+    assert object["error"]["code"] == RPCError.PARSE_ERROR
     assert object["error"]["message"] == "JSON value is not an integer as expected"
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')

@@ -869,8 +869,7 @@ async def test_transaction_import_removal(mock_app_state, tmp_storage) -> None:
         future_1.result()
 
         # Verify that the transaction outputs are still linked to key usage (harmless).
-        txo_rows = db_functions.read_transaction_outputs_explicit(db_context,
-            [ Outpoint(tx_hash_1, 0) ])
+        txo_rows = db_functions.read_transaction_outputs(db_context,[ Outpoint(tx_hash_1, 0) ])
         assert len(txo_rows) == 1
         # This value is not cleared. It's not a link to anything that can clash.
         assert txo_rows[0].keyinstance_id == 1

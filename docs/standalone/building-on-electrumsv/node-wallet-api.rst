@@ -604,6 +604,7 @@ The ``outputs`` object has the following structure:
 - ``"<address>"`` (string, required). The address to send an amount to.
   - ``<amount>`` (numeric). The amount to send to the address.
 - ``"data"`` (literal string, optional). One optional "op return" data output.
+
   - ``<hexadecimally encoded data>`` (string). The bytes of data to put in the
     ``OP_FALSE OP_RETURN`` 0-value data output.
 
@@ -620,6 +621,18 @@ The ``outputs`` object has the following structure:
 
 The hexadecimally encoded serialised transaction bytes. ``scriptSig`` values in serialised inputs
 will be empty, represented by ``0`` which is a zero-length push.
+
+For example, we can force outputs that are considered to be unsafe to be returned:
+
+.. code-block:: console
+
+    curl --data-binary '{"jsonrpc": "1.0", "id":"curltest", "method": "createrawtransaction", "params": [[{ "txid": "f6a5a25e297a40aafec9ad948efda26597945adf93a4b726ad32a656d73743df", "vout": 1 }], { "mneqqWSAQCg6tTP4BUdnPDBRanFqaaryMM": 0.5 }] }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
+
+Returns a result similar to the following:
+
+.. code-block:: js
+
+    "0100000001df4337d756a632ad26b7a493df5a949765a2fd8e94adc9feaa407a295ea2a5f60100000000ffffffff0180f0fa02000000001976a9144e46d14cb7b049222f47ce498e61d7156c6f088f88ac00000000"
 
 **Error responses:**
 
@@ -760,7 +773,13 @@ fields:
 - ``safe``: Indicate if this coin is considered safe or not, if unsafe coins were included.
 - ``address``: Only present if this address was included in the ``addresses`` array and filtered on.
 
-For example, passing ``"params": { "addresses": ["mmne6bSrjwRZk16Y7TkwrrWysiUXZfd9ZY"] }`` returns:
+For example, we can filter for a specific address:
+
+.. code-block:: console
+
+    curl --data-binary '{"jsonrpc": "1.0", "id":"curltest", "method": "listunspent", params": { "addresses": ["mmne6bSrjwRZk16Y7TkwrrWysiUXZfd9ZY"] } }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
+
+Returns a result similar to the following:
 
 .. code-block:: js
 
@@ -779,6 +798,30 @@ For example, passing ``"params": { "addresses": ["mmne6bSrjwRZk16Y7TkwrrWysiUXZf
     ]
 
 Note that in this case the UTXO is an unspent immature coinbase output, and is not spendable.
+
+For example, we can force outputs that are considered to be unsafe to be returned:
+
+.. code-block:: console
+
+    curl --data-binary '{"jsonrpc": "1.0", "id":"curltest", "method": "listunspent", "params": [0,null,null,true] }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
+
+Returns a result similar to the following:
+
+.. code-block:: js
+
+    [
+      {
+          "txid":"f6a5a25e297a40aafec9ad948efda26597945adf93a4b726ad32a656d73743df",
+          "vout":1,
+          "address":"mrUu747bPcGuEgGqnRy7LwtWz9phNpTzgF",
+          "scriptPubKey":"76a9147845e39d07817a8415d5741893018e4204c2394388ac",
+          "amount":1.0,
+          "confirmations":0,
+          "spendable":true,
+          "solvable":true,
+          "safe":false
+      }
+    ]
 
 **Incompatibilities:**
 
@@ -936,6 +979,290 @@ call processing are described above.
                 | The type of the `comment` or `comment to` parameters are expected to be strings
                   and one or more were interpreted as another type.
 
+signrawtransaction
+~~~~~~~~~~~~~~~~~~
+
+Take a transaction serialised in hexadecimal encoding and sign it using the keys available to the
+account.
+
+**Parameters:**
+
+#. ``hexstring`` (string, required). The serialised incomplete transaction in hexadecimal encoding.
+   It is expected that this will have one or more absent signatures, that the account will be able
+   to sign as the purpose of this call. Multiple versions of this transaction can be concatenated
+   into the value passed as this parameter and the pre-existing signatures will be extracted from
+   each.
+#. ``prevtxs`` (array of objects, optional). An array of objects containing the relevant parts
+   of each parent transaction.
+#. ``privkeys`` (array of strings, optional). An array of private keys that are not currently used.
+   If we supported this, they would be used to sign instead of any of the keys available to the
+   account.
+#. ``sighashtype`` (string, optional, default="ALL|FORKID"). A specified sighash name out of
+   twelve possible options accepted by bitcoind. Only the default value is currently accepted,
+   see the Incompatibilities section.
+
+The ``hexstring`` parameter is expected to encode unsigned or partially signed inputs in the
+standard way accepted by bitcoind. ``scriptSig`` values in single signature serialised inputs will
+be empty, represented by ``OP_0`` which is in effect a zero-length push. Multi-signature serialised
+inputs are expected to have the correct ``scriptSig`` structure with absent signatures
+substituted with ``OP_0`` (multi-signature support is currently disabled).
+
+Each object in the ``prevtxs`` array has the following structure:
+
+- ``txid`` (string, required). The canonically hexadecimal encoded transaction hash of the
+  transaction being spent.
+- ``vout`` (numeric, required). The index of the given transaction output being spent.
+- ``scriptPubKey`` (string, required). The script from the given transaction output being spent.
+- ``redeemScript`` (string, optional). If the script from the output in the given transaction
+  being spent is an older P2SH script, then this is the redeem script of that P2SH script. See the
+  Incompatibilities section.
+- ``amount`` (numeric, required). The value stored in the given transaction output, denominated
+  in units of bitcoin as per bitcoind convention.
+
+.. code-block:: json
+    :caption: Example prevtx object.
+
+    {
+        "txid": "0df80206d8c30046d1fbf0f19959b81cef72a9d01fe4fe831520cfee361d2a8a",
+        "vout": 0,
+        "scriptPubKey": "",
+        "redeemScript": "",
+        "amount": 1.2
+    }
+
+The ``privkeys`` array can contain base 58 encoded private keys. If these are provided these will
+be the only keys used to sign the transaction and the keys in the wallet will not be used. These
+parameter is not currently supported, see the Incompatibilities section.
+
+The ``sighashtype`` value can in theory be one of twelve possible options accepted by bitcoind.
+Note that currently we only accept ``ALL|FORKID`` which is also the default, see the
+Incompatibilities section.
+
+- ``ALL``
+- ``ALL|ANYONECANPAY``
+- ``ALL|FORKID``
+- ``ALL|FORKID|ANYONECANPAY``
+- ``NONE``
+- ``NONE|ANYONECANPAY``
+- ``NONE|FORKID``
+- ``NONE|FORKID|ANYONECANPAY``
+- ``SINGLE``
+- ``SINGLE|ANYONECANPAY``
+- ``SINGLE|FORKID``
+- ``SINGLE|FORKID|ANYONECANPAY``
+
+**Returns:**
+
+The returned object has the following structure:
+
+- ``"hex"`` (string, required). The serialised processed transaction in hexadecimal encoding.
+- ``"complete"`` (boolean, required). Indicates whether the processed transaction is fully signed.
+  It is not a requirement of successful signing for the processed transaction to have all inputs
+  fully signed.
+- ``"errors"`` (list of objects, optional). This is only present if there are entries to include.
+
+  - ``"txid"`` (string, required). The canonically hexadecimal encoded hash of the transaction
+    being spent.
+  - ``"vout"`` (string, required). The index of the transaction output being spent.
+  - ``"scriptSig"`` (string, required). The hexadecimally encoded signature script.
+  - ``"sequence"`` (string, required). The sequence of the spending input.
+  - ``"error"`` (string, required). Any text describing why the verification or spend failed.
+
+.. code-block:: json
+    :caption: Example returned object with no errors.
+
+    {
+        "hex": "<serialised hexadecimally encoded transaction>",
+        "complete": true
+    }
+
+In theory this endpoint can return a variety of errors encountered. The returned transaction
+should be unchanged from the base transaction originally provided for signing.
+
+.. code-block:: json
+    :caption: Example returned object with inline errors.
+
+    {
+        "hex": "<serialised hexadecimally encoded transaction>",
+        "complete": false,
+        "errors": [
+            {
+                "error": "<some message>",
+                "scriptSig": "",
+                "sequence": 4294967295,
+                "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                "vout": 0
+            }
+        ]
+    }
+
+In reality the ``errors`` property only ever returns errors for one specific situation. This is
+where the wallet does not have the spent coin metadata for an input. Every input in the transaction
+must have matching spent coin metadata. This is normally automatically retrieved from the account
+database, but for inputs the wallet is not signing must be provided using the ``prevtxs`` parameter
+intended for this purpose. If any coin metadata obtained from the account database is known to
+be spent, this error entry will also be added for the given input for that reason.
+
+.. code-block:: json
+    :caption: Example returned object with inline errors.
+
+    {
+        "hex": "<serialised hexadecimally encoded transaction>",
+        "complete": false,
+        "errors": [
+            {
+                "error": "Input not found or already spent",
+                "scriptSig": "",
+                "sequence": 4294967295,
+                "txid": "2222222222222222222222222222222222222222222222222222222222222222",
+                "vout": 0
+            }
+        ]
+    }
+
+For example, here we are taking the result of ``createrawtransaction`` and using that as input:
+
+.. code-block:: console
+
+    curl --data-binary '{"jsonrpc": "1.0", "id":"curltest", "method": "signrawtransaction", "params": [ "0100000001df4337d756a632ad26b7a493df5a949765a2fd8e94adc9feaa407a295ea2a5f60100000000ffffffff0180f0fa02000000001976a9144e46d14cb7b049222f47ce498e61d7156c6f088f88ac00000000"] }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
+
+Returned the following result:
+
+.. code-block:: js
+
+  {
+    "hex":"0100000001df4337d756a632ad26b7a493df5a949765a2fd8e94adc9feaa407a295ea2a5f6010000006a47304402206d2e8a533d5a60cd2dc2f2c231b1d32b0bb7c9001130ffe1f165da8a7eb095f4022068e945a1adf75fb5d92be4d05fcfce417e853f123eeced54ab7e12c01301980d412103acb0f93ce0c3fa028226e6236f463150ba00eafb349bb221f5a9cf5cbe239cfaffffffff0180f0fa02000000001976a9144e46d14cb7b049222f47ce498e61d7156c6f088f88ac00000000",
+    "complete":true
+  }
+
+**Incompatibilities:**
+
+If a user requires any of these disabled functionalities, they should get in touch with their
+contact at the Bitcoin Association and request the ones they need.
+
+#. Only one transaction is currently accepted. If more than one transaction is provided then
+   a compatibility related error will be raised.
+#. Only spending of P2PKH coins is supported. While it is in theory to support P2PK, P2SH and
+   bare multi-signature, spending of these coins are not currently enabled. Any attempt to do so
+   will result in a compatibility related error.
+
+   #. Related to this: If any ``prevouts`` entry contains a ``redeemScript`` property, it will
+      be ignored as we do not currently handle P2SH spends.
+
+#. External private keys are not currently accepted. If any are provided a compatibility related
+   error will be raised.
+#. Only the ``ALL|FORKID`` sighash name is accepted. As with the bitcoind implementation sighash
+   names that do not include ``FORKID`` will result in a standard error. However, valid sighash
+   names other than ``ALL|FORKID`` will raise a compatibility related error.
+
+**Error responses:**
+
+These errors are the custom errors returned from within this call. Base errors that occur during
+call processing are described above.
+
+- 404 (Not found)
+
+    - :Code: -32601 ``RPC_METHOD_NOT_FOUND``
+      :Message: | ``Method not found (wallet method is disabled because no wallet is loaded)``
+                | The implicit wallet access failed because no wallets are loaded.
+
+- 500 (Internal server error)
+
+    - :Code: -3 ``RPC_TYPE_ERROR``
+      :Message: | ``Expected string, got <other type>``
+                | The ``hexstring`` argument is not the string type.
+      :Message: | ``Expected array, got <other type>``
+                | The ``prevtxs`` argument is not the array type.
+      :Message: | ``Expected array, got <other type>``
+                | The ``privkeys`` argument is not the array type.
+      :Message: | ``Expected string, got <other type>``
+                | The ``sighashtype`` argument is not the string type.
+      :Message: | ``Missing txid``
+                | The ``prevtxs`` array was found to contain at least one entry with a missing or
+                  ``null`` value in the ``txid`` field.
+      :Message: | ``Expected type string for txid, got <other type>``
+                | The ``prevtxs`` array was found to contain at least one entry with a non-string
+                  value for the ``txid`` field.
+      :Message: | ``Missing vout``
+                | The ``prevtxs`` array was found to contain at least one entry with a missing or
+                  ``null`` value in the ``vout`` field.
+      :Message: | ``Expected type integer for vout, got <other type>``
+                | The ``prevtxs`` array was found to contain at least one entry with a non-integer
+                  value for the ``vout`` field.
+      :Message: | ``Missing scriptPubKey``
+                | The ``prevtxs`` array was found to contain at least one entry with a missing or
+                  ``null`` value in the ``scriptPubKey`` field.
+      :Message: | ``Expected type string for scriptPubKey, got <other type>``
+                | The ``prevtxs`` array was found to contain at least one entry with a non-string
+                  value for the ``scriptPubKey`` field.
+      :Message: | ``Amount is not a number or string``
+                | The ``prevtxs`` array was found to contain at least one entry with a value for
+                  the ``amount`` property that was not a string or number.
+      :Message: | ``Invalid amount``
+                | The ``prevtxs`` array was found to contain at least one entry with a string value
+                  for the ``amount`` property that cannot be parsed as a value.
+      :Message: | ``Amount out of range``
+                | The ``prevtxs`` array was found to contain at least one entry with a string value
+                  for the ``amount`` property that was an invalid amount of satoshis.
+
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``Ambiguous account (found <count>, expected 1)``
+                | A wallet used by the JSON-RPC API must only have one account so that the
+                  API code knows which to make use of. The given wallet has either no accounts
+                  or more than one account (the current number indicated by the `count`).
+
+    - :Code: -8 ``RPC_INVALID_PARAMETER``
+      :Message: | ``hexstring must be hexadecimal string (not '<whatever it is>') and length of it must be divisible by 2``
+                | The ``hexstring`` parameter, was either ``null`` or not an string that was
+                  valid hexadecimal data.
+      :Message: | ``scriptPubKey must be hexadecimal string (not '<whatever it is>') and length of it must be divisible by 2``
+                | The ``prevtxs`` list was provided and had at least one object within it that had
+                  a ``scriptPubKey`` value of either ``null`` or not an string that was valid hexadecimal data.
+      :Message: | ``txid must be hexadecimal string (not '<whatever it is>') and length of it must be divisible by 2``
+                | The ``prevtxs`` list was provided and had at least one object within it that had
+                  a ``txid`` value of either ``null`` or not an string that was valid hexadecimal data.
+      :Message: | ``txid must be of length 64 (not <actual hexadecimal string length>)``
+                | The ``prevtxs`` list was provided and had at least one object within it that had
+                  a ``txid`` value that was a valid hexadecimal string but was not the required
+                  32 bytes in size.
+      :Message: | ``Missing amount``
+                | The ``prevtxs`` list was provided and had at least one object within it that had
+                  a missing ``amount`` property.
+      :Message: | ``Invalid sighash param``
+                | The provided ``sighashtype`` parameter value is not one of the twelve accepted by
+                  bitcoind.
+      :Message: | ``Signature must use SIGHASH_FORKID``
+                | The provided ``sighashtype`` parameter value is not one of the few that include
+                  ``FORKID``, and ``FORKID`` is currently required for valid Bitcoin SV signatures.
+      :Message: | ``Compatibility difference (only ALL|FORKID sighash accepted)``
+                | See the Incompatibilities section.
+
+    - :Code: -13 ``RPC_WALLET_UNLOCK_NEEDED``
+      :Message: | ``Error: Please enter the wallet passphrase with walletpassphrase first.``
+                | In order to send funds from this wallet to the provided address, access to the
+                  signing keys is required. This is given by unlocking the wallet, if it is not
+                  already unlocked.
+
+    - :Code: -22 ``DESERIALIZATION_ERROR``
+      :Message: | ``Tx decode failed``
+                | The ``hexstring`` argument value was successfully decoded to bytes, but the
+                  processing of it as a validly formed transaction failed.
+      :Message: | ``Missing transaction``
+                | The ``hexstring`` argument value is empty and contains no transaction to sign.
+      :Message: | ``Compatibility difference (multiple transactions not accepted)``
+                | See the Incompatibilities section.
+      :Message: | ``Compatibility difference (non-P2PKH spends not accepted)``
+                | See the Incompatibilities section.
+      :Message: | ``expected object with {"txid","vout","scriptPubKey"}``
+                | The ``prevtxs`` array was found to contain at least one non-object.
+      :Message: | ``vout must be positive``
+                | The ``prevtxs`` array was found to contain at least one object with a ``vout``
+                  property that was correctly an integer, but less than zero.
+      :Message: | ``Previous output scriptPubKey mismatch:\n<wallet asm>\nvs\n<prevtxs asm>``
+                | If a ``prevtxs`` entry is provided for a coin managed by the wallet, the provided
+                | ``scriptPubKey`` bytes must exactly match those the wallet has for that coin.
+                  The disassembled script text will be substituted for the ``<wallet asm>`` and
+                  ``<prevtxs asm>`` placeholders in the message text.
 
 walletpassphrase
 ~~~~~~~~~~~~~~~~

@@ -37,8 +37,9 @@ from ...i18n import _
 from ...keystore import Hardware_KeyStore
 from ...logs import logs
 from ...networks import Net
-from ...transaction import classify_transaction_output_script, HardwareSigningMetadata, \
-    Transaction, TransactionContext, XPublicKey, XTxInput
+from ...standards.script_templates import classify_transaction_output_script
+from ...transaction import HardwareSigningMetadata, Transaction, TransactionContext, XPublicKey, \
+    XTxInput
 from ...wallet import AbstractAccount
 from ...wallet_database.types import KeyListRow
 

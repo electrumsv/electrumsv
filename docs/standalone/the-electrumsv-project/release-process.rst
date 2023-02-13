@@ -114,7 +114,7 @@ Running pylint on Windows, Linux or MacOS:
 
 .. code:: doscon
 
-   pylint --rcfile=.pylintrc electrum-sv electrumsv
+   pylint --rcfile=.pylintrc electrum-sv electrumsv contrib/scripts
 
 Unit testing
 ~~~~~~~~~~~~

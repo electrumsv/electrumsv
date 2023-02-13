@@ -2,7 +2,8 @@ import pytest
 
 from electrumsv.constants import ScriptType
 from electrumsv.script import AccumulatorMultiSigOutput
-from electrumsv.transaction import create_script_sig, XPublicKey
+from electrumsv.transaction import XPublicKey
+from electrumsv.standards.script_templates import create_script_sig
 
 from bitcoinx import PrivateKey
 

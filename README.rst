@@ -294,7 +294,7 @@ Running unit tests (with the `pytest` package)::
 
 Running pylint::
 
-    pylint --rcfile=.pylintrc electrum-sv electrumsv
+    pylint --rcfile=.pylintrc electrum-sv electrumsv contrib/scripts
 
 Running mypy::
 

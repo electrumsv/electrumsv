@@ -31,7 +31,7 @@ from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
     MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestOutputRow,
     PaymentRequestRow, PaymentRequestUpdateRow, PeerChannelMessageRow, ServerPeerChannelRow,
-    TransactionInputAddRow, TransactionOutputShortRow, TransactionProofUpdateRow, TransactionRow,
+    TransactionInputAddRow, TransactionOutputAddRow, TransactionProofUpdateRow, TransactionRow,
     WalletBalance, WalletEventInsertRow)
 
 from .util import mock_headers, PasswordToken
@@ -755,12 +755,12 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
     future = db_functions.create_keyinstances(db_context, keyinstance_rows)
     future.result(timeout=5)
 
-    row1 = TransactionOutputShortRow(SPENT_TX_1_HASH, SPENT_TX_1_TXO_INDEX_1, 301,
-        KEYINSTANCE_ID_3, TXOUT_FLAGS, ScriptType.P2PKH, b'')
-    row2 = TransactionOutputShortRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_1, 100,
-        KEYINSTANCE_ID_2, TXOUT_FLAGS, ScriptType.P2PKH, b'')
-    row3 = TransactionOutputShortRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_2, 200,
-        KEYINSTANCE_ID_3, TXOUT_FLAGS, ScriptType.P2PKH, b'')
+    row1 = TransactionOutputAddRow(SPENT_TX_1_HASH, SPENT_TX_1_TXO_INDEX_1, 301,
+        KEYINSTANCE_ID_3, ScriptType.P2PKH, TXOUT_FLAGS, b'', 0, 0, 10, 10)
+    row2 = TransactionOutputAddRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_1, 100,
+        KEYINSTANCE_ID_2, ScriptType.P2PKH, TXOUT_FLAGS, b'', 0, 0, 10, 10)
+    row3 = TransactionOutputAddRow(FUNDED_TX_1_HASH, FUNDED_TX_1_TXO_INDEX_2, 200,
+        KEYINSTANCE_ID_3, ScriptType.P2PKH, TXOUT_FLAGS, b'', 0, 0, 10, 10)
 
     # Create some UTXOs for the funded transaction.
     future = db_functions.UNITTEST_create_transaction_outputs(db_context, [ row1, row2, row3 ])
@@ -827,9 +827,12 @@ def test_table_transactioninputs_CRUD(db_context: DatabaseContext) -> None:
 
 
 def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
-    TX_BYTES_COINBASE = os.urandom(100)
+    COINBASE_OUTPUT_DATA = b"_COINBASE_OUTPUT_DATA_"
+    OTHER_OUTPUT_DATA1 = b"_OTHER_OUTPUT_DATA1_"
+    OTHER_OUTPUT_DATA2 = b"_OTHER_OUTPUT_DATA2_"
+    TX_BYTES_COINBASE = b"This is the coinbase" + COINBASE_OUTPUT_DATA + b"This is the coinbase"
     TX_HASH_COINBASE = bitcoinx.double_sha256(TX_BYTES_COINBASE)
-    TX_BYTES = os.urandom(100)
+    TX_BYTES = b"Other transaction" + OTHER_OUTPUT_DATA1 + OTHER_OUTPUT_DATA2 + b"Other transaction"
     TX_HASH = bitcoinx.double_sha256(TX_BYTES)
     TX_INDEX = 1
     TXOUT_FLAGS = TransactionOutputFlag.NONE
@@ -844,12 +847,20 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     BLOCK_HASH=b'bab'
     BLOCK_HEIGHT=200
 
-    row1 = TransactionOutputShortRow(TX_HASH_COINBASE, TX_INDEX, 50, KEYINSTANCE_ID_1,
-        TXOUT_FLAGS | TransactionOutputFlag.COINBASE, ScriptType.P2PKH, b'')
-    row2 = TransactionOutputShortRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID_2, TXOUT_FLAGS,
-        ScriptType.P2PKH, b'')
-    row3 = TransactionOutputShortRow(TX_HASH, TX_INDEX+1, 200, KEYINSTANCE_ID_3, TXOUT_FLAGS,
-        ScriptType.P2PKH, b'')
+    COINBASE_SCRIPT_LENGTH = len(COINBASE_OUTPUT_DATA)
+    SCRIPT_OFFSET1 = TX_BYTES_COINBASE.index(COINBASE_OUTPUT_DATA)
+
+    OTHER_SCRIPT_LENGTH = len(OTHER_OUTPUT_DATA1)
+    SCRIPT_OFFSET2 = TX_BYTES.index(OTHER_OUTPUT_DATA1)
+    SCRIPT_OFFSET3 = TX_BYTES.index(OTHER_OUTPUT_DATA2)
+
+    row1 = TransactionOutputAddRow(TX_HASH_COINBASE, TX_INDEX, 50, KEYINSTANCE_ID_1,
+        ScriptType.P2PKH, TXOUT_FLAGS | TransactionOutputFlag.COINBASE, b'',
+        SCRIPT_OFFSET1, COINBASE_SCRIPT_LENGTH, 10, 10)
+    row2 = TransactionOutputAddRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID_2, ScriptType.P2PKH,
+        TXOUT_FLAGS, b'', SCRIPT_OFFSET2, OTHER_SCRIPT_LENGTH, 10, 10)
+    row3 = TransactionOutputAddRow(TX_HASH, TX_INDEX+1, 200, KEYINSTANCE_ID_3, ScriptType.P2PKH,
+        TXOUT_FLAGS, b'', SCRIPT_OFFSET3, OTHER_SCRIPT_LENGTH, 10, 10)
 
     # No effect: The transactionoutput foreign key constraint will fail as the transactionoutput
     # does not exist.
@@ -975,17 +986,40 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
 
     # Verify that the `confirmed_only` parameter works for this method.
+    # Verify that the transaction data script indexing for each output works correctly here.
     txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
         ACCOUNT_ID, confirmed_only=False)
     assert len(txos_rows) == 3
     txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
+    assert txos_rows[0].script_bytes == COINBASE_OUTPUT_DATA
     assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX
+    assert txos_rows[1].script_bytes == OTHER_OUTPUT_DATA1
     assert txos_rows[2].tx_hash == TX_HASH and txos_rows[2].txo_index == TX_INDEX+1
+    assert txos_rows[2].script_bytes == OTHER_OUTPUT_DATA2
+
     txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
         ACCOUNT_ID, confirmed_only=True)
     assert len(txos_rows) == 1
     assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
+
+    # Narrow down whether the outpoints filter works.
+    outpoints = [ Outpoint(TX_HASH_COINBASE, TX_INDEX), Outpoint(TX_HASH, TX_INDEX+1) ]
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
+        ACCOUNT_ID, confirmed_only=False, outpoints=outpoints)
+    assert len(txos_rows) == 2
+    txos_rows.sort(key=lambda r: r.derivation_data2 or b'')
+    assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
+    assert txos_rows[1].tx_hash == TX_HASH and txos_rows[1].txo_index == TX_INDEX+1
+    # Filter for confirmed, filter for the confirmed outpoint and more, should get the confirmed.
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
+        ACCOUNT_ID, confirmed_only=True, outpoints=outpoints)
+    assert len(txos_rows) == 1
+    assert txos_rows[0].tx_hash == TX_HASH_COINBASE and txos_rows[0].txo_index == TX_INDEX
+    # Filter for confirmed, but also only filter for the non-confirmed outpoint, should get none.
+    txos_rows = db_functions.read_account_transaction_outputs_with_key_and_tx_data(db_context,
+        ACCOUNT_ID, confirmed_only=True, outpoints=outpoints[1:])
+    assert len(txos_rows) == 0
 
     # Balances WRT mature_height.
     balance = db_functions.read_account_balance(db_context, ACCOUNT_ID, BLOCK_HEIGHT-1)
@@ -1141,21 +1175,20 @@ def test_table_transactionoutputs_CRUD(db_context: DatabaseContext) -> None:
         Outpoint(row2.tx_hash, row2.txo_index),
         Outpoint(row3.tx_hash, row3.txo_index),
     ]
-    db_rows = db_functions.read_transaction_outputs_explicit(db_context, txo_keys)
+    db_rows = db_functions.read_transaction_outputs(db_context, txo_keys)
     assert 2 == len(db_rows)
     db_row1 = db_rows[0]
     assert row2.flags == db_row1.flags
-    db_row1 = [ db_line for db_line in db_rows if db_line == row2 ][0]
-    assert row2 == db_row1
-    db_row2 = [ db_line for db_line in db_rows if db_line == row3 ][0]
-    assert row3 == db_row2
+    rows_without_update_field = [ db_line[:-1] for db_line in db_rows ]
+    assert row2[:-1] in rows_without_update_field
+    assert row3[:-1] in rows_without_update_field
 
     txo_keys = [ Outpoint(row3.tx_hash, row3.txo_index) ]
     future = db_functions.update_transaction_output_flags(db_context, txo_keys,
         TransactionOutputFlag.SPENT)
     future.result(5)
 
-    db_rows = db_functions.read_transaction_outputs_explicit(db_context, txo_keys)
+    db_rows = db_functions.read_transaction_outputs(db_context, txo_keys)
     assert len(db_rows) == 1
     assert db_rows[0].flags == TransactionOutputFlag.SPENT
 
@@ -1320,8 +1353,8 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     future = db_functions.create_transactions_UNITTEST(db_context, tx_rows)
     future.result(timeout=5)
 
-    txo_row1 = TransactionOutputShortRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID+1, TXOUT_FLAGS,
-        ScriptType.P2PKH, b'')
+    txo_row1 = TransactionOutputAddRow(TX_HASH, TX_INDEX, 100, KEYINSTANCE_ID+1,
+        ScriptType.P2PKH, TXOUT_FLAGS, b'', 0, 0, 10, 10)
 
     future = db_functions.UNITTEST_create_transaction_outputs(db_context, [ txo_row1 ])
     future.result(timeout=5)

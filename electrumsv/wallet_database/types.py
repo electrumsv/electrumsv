@@ -356,6 +356,7 @@ class AccountTransactionOutputSpendableRowExtended(NamedTuple):
     # Extension fields for this type.
     tx_flags: TxFlags
     block_hash: bytes | None
+    script_bytes: bytes
 
 
 class TransactionOutputSpendableRow(NamedTuple):
