@@ -1227,13 +1227,13 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     server_id = 1
     date_created = int(get_posix_timestamp())
     expiration = date_created + 60*60
-    create_request1_row = PaymentRequestRow(1, PaymentFlag.PAID, None, expiration, TX_DESC1,
-        server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
+    create_request1_row = PaymentRequestRow(1, PaymentFlag.STATE_PAID,
+        None, expiration, TX_DESC1, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
         dummy_encrypted_secure_key, date_created, date_created)
     create_request1_output_row = PaymentRequestOutputRow(1, 0, 0, ScriptType.P2PKH, b"SCRIPT",
         b"PUSHDATAHASH", 111, KEYINSTANCE_ID, date_created, date_created)
-    create_request2_row = PaymentRequestRow(2, PaymentFlag.UNPAID, 100, expiration, TX_DESC2,
-        server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
+    create_request2_row = PaymentRequestRow(2, PaymentFlag.STATE_UNPAID| PaymentFlag.TYPE_MONITORED,
+        100, expiration, TX_DESC2, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
         dummy_encrypted_secure_key, date_created, date_created)
     create_request2_output_row = PaymentRequestOutputRow(2, 0, 0, ScriptType.P2PKH, b"SCRIPT",
         b"PUSHDATAHASH", 100, KEYINSTANCE_ID+1, date_created, date_created)
@@ -1285,9 +1285,23 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
             create_request1_row, [ create_request1_output_row ])
         future.result()
 
+    # Test state update.
+    future = db_context.post_to_thread(db_functions.update_payment_request_flags_write,
+        2, PaymentFlag.STATE_PREPARING, PaymentFlag.CLEARED_MASK_STATE)
+    future.result()
+
+    db_request_row, db_request_output_rows = db_functions.read_payment_request(db_context, 2)
+    assert db_request_row is not None
+    assert db_request_row.request_flags == PaymentFlag.STATE_PREPARING | PaymentFlag.TYPE_MONITORED
+
+    # Restore to match the creation row for comparison below.
+    future = db_context.post_to_thread(db_functions.update_payment_request_flags_write,
+        2, PaymentFlag.STATE_UNPAID, PaymentFlag.CLEARED_MASK_STATE)
+    future.result()
+
     def compare_paymentrequest_rows(row1: PaymentRequestRow, row2: PaymentRequestRow) -> None:
         # assert row1.keyinstance_id == row2.keyinstance_id
-        assert row1.state == row2.state
+        assert row1.request_flags == row2.request_flags
         assert row1.requested_value == row2.requested_value
         assert row1.date_expires == row2.date_expires
         assert row1.description == row2.description
@@ -1296,18 +1310,15 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         assert -1 != row2.date_created
 
     # Read all rows in the table.
-    db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)
+    db_request_rows = sorted(db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID),
+        key=lambda lambda_row: lambda_row.paymentrequest_id)
     assert 2 == len(db_request_rows)
-    db_line1 = [ db_line for db_line in db_request_rows
-        if db_line.paymentrequest_id == create_request1_row.paymentrequest_id ][0]
-    compare_paymentrequest_rows(create_request1_row, db_line1)
-    db_line2 = [ db_line for db_line in db_request_rows
-        if db_line.paymentrequest_id == create_request2_row.paymentrequest_id ][0]
-    compare_paymentrequest_rows(create_request2_row, db_line2)
+    compare_paymentrequest_rows(create_request1_row, db_request_rows[0])
+    compare_paymentrequest_rows(create_request2_row, db_request_rows[1])
 
     # Read all PAID rows in the table.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID,
-        mask=PaymentFlag.PAID)
+        mask=PaymentFlag.STATE_PAID)
     assert 1 == len(db_request_rows)
     assert create_request1_row.paymentrequest_id == db_request_rows[0].paymentrequest_id
 
@@ -1317,7 +1328,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
 
     # Read all UNPAID rows in the table.
     db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID,
-        mask=PaymentFlag.UNPAID)
+        mask=PaymentFlag.STATE_UNPAID)
     assert 1 == len(db_request_rows)
     assert create_request2_row.paymentrequest_id == db_request_rows[0].paymentrequest_id
 
@@ -1378,7 +1389,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     ## Continue.
     assert create_request2_row.paymentrequest_id is not None
     future = db_context.post_to_thread(db_functions.update_payment_requests_write, [
-        PaymentRequestUpdateRow(PaymentFlag.UNKNOWN, 20, 999, "newdesc", "newmerchantref",
+        PaymentRequestUpdateRow(PaymentFlag.STATE_PAID, 20, 999, "newdesc", "newmerchantref",
         dpp_ack_json, create_request2_row.paymentrequest_id) ])
     future.result()
 
@@ -1388,7 +1399,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
     db_line2 = [ db_line for db_line in db_request_rows
         if db_line.paymentrequest_id == create_request2_row.paymentrequest_id ][0]
     assert db_line2.requested_value == 20
-    assert db_line2.state == PaymentFlag.UNKNOWN
+    assert db_line2.request_flags == PaymentFlag.STATE_PAID
     assert db_line2.description == "newdesc"
     assert db_line2.date_expires == 999
 
@@ -1398,15 +1409,19 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
 
     # Delete the first payment request associated with the account.
     assert create_request1_row.paymentrequest_id is not None
-    future3 = db_context.post_to_thread(db_functions.delete_payment_request_write,
-        create_request1_row.paymentrequest_id)
+    future3 = db_context.post_to_thread(db_functions._delete_payment_request_write,
+        create_request1_row.paymentrequest_id, PaymentFlag.DELETED)
     keyinstance_ids_by_account_id = future3.result()
     assert { ACCOUNT_ID: [ KEYINSTANCE_ID ] } == keyinstance_ids_by_account_id
 
     # Ensure that we find the non-deleted payment request associated with the account now.
-    db_request_rows = db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID)
-    assert 1 == len(db_request_rows)
-    assert db_request_rows[0].paymentrequest_id == create_request2_row.paymentrequest_id
+    db_request_rows = sorted(db_functions.read_payment_requests(db_context, account_id=ACCOUNT_ID),
+        key=lambda db_request_row: db_request_row.paymentrequest_id)
+    assert 2 == len(db_request_rows)
+    assert db_request_rows[0].paymentrequest_id == create_request1_row.paymentrequest_id
+    assert db_request_rows[0].request_flags & PaymentFlag.MASK_HIDDEN == PaymentFlag.DELETED
+    assert db_request_rows[1].paymentrequest_id == create_request2_row.paymentrequest_id
+    assert db_request_rows[1].request_flags & PaymentFlag.MASK_HIDDEN == PaymentFlag.NONE
 
     # Check that we get no matches for a transaction that does not exist.
     payment_request_ids = db_functions.read_payment_request_ids_for_transaction(db_context, b'12')
@@ -1495,11 +1510,11 @@ async def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: Database
     TX_HASH_3 = bitcoinx.double_sha256(TX_BYTES_3)
 
     # LINE_COUNT = 3
-    line1_1 = InvoiceRow(1, ACCOUNT_ID_1, None, "payment_uri1", "desc", PaymentFlag.UNPAID,
+    line1_1 = InvoiceRow(1, ACCOUNT_ID_1, None, "payment_uri1", "desc", PaymentFlag.STATE_UNPAID,
         1, b'{}', None, 111)
-    line2_1 = InvoiceRow(2, ACCOUNT_ID_1, TX_HASH_1, "payment_uri2", "desc", PaymentFlag.PAID,
+    line2_1 = InvoiceRow(2, ACCOUNT_ID_1, TX_HASH_1, "payment_uri2", "desc", PaymentFlag.STATE_PAID,
         2, b'{}', 10, 111)
-    line3_2 = InvoiceRow(3, ACCOUNT_ID_2, None, "payment_uri3", "desc", PaymentFlag.UNPAID,
+    line3_2 = InvoiceRow(3, ACCOUNT_ID_2, None, "payment_uri3", "desc", PaymentFlag.STATE_UNPAID,
         3, b'{}', None, 111)
 
     # No effect: The transactionoutput foreign key constraint will fail as the account
@@ -1562,13 +1577,13 @@ async def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: Database
 
     # Read all PAID rows in the table for the first account.
     db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
-        mask=PaymentFlag.PAID)
+        mask=PaymentFlag.STATE_PAID)
     assert 1 == len(db_lines)
     assert 2 == db_lines[0].invoice_id
 
     # Read all UNPAID rows in the table for the first account.
     db_lines = db_functions.read_invoices_for_account(db_context, ACCOUNT_ID_1,
-        mask=PaymentFlag.UNPAID)
+        mask=PaymentFlag.STATE_UNPAID)
     assert 1 == len(db_lines)
     assert 1 == db_lines[0].invoice_id
 
@@ -1629,7 +1644,7 @@ async def test_table_invoice_CRUD(mock_get_posix_timestamp, db_context: Database
     # Verify the invoice now has the new description.
     row = db_functions.read_invoice(db_context, invoice_id=line3_2.invoice_id)
     assert row is not None
-    assert row.flags == PaymentFlag.ARCHIVED | PaymentFlag.UNPAID
+    assert row.flags == PaymentFlag.ARCHIVED | PaymentFlag.STATE_UNPAID
 
     duplicate_row1 = db_functions.read_invoice_duplicate(db_context, 111, "ddd")
     assert duplicate_row1 is None

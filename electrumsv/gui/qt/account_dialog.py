@@ -50,7 +50,7 @@ class AccountDialog(QDialog):
         name_widget = QLineEdit()
         name_widget.setText(account.display_name())
         name_widget.setReadOnly(True)
-        form.add_row(_("Account name"), name_widget, True)
+        form.add_row(_("Account name"), name_widget)
 
         form.add_row(_("Account type"), QLabel(account.type().value))
         if keystore is not None:

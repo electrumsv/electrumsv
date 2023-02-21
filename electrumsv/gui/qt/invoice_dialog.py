@@ -38,8 +38,8 @@ class InvoiceDialog(WindowModalDialog):
 
         state = row.flags & PaymentFlag.MASK_STATE
         # `EXPIRED` is never stored and solely used for extra visual state.
-        if state & PaymentFlag.UNPAID and has_expired(row.date_expires):
-            state = PaymentFlag.EXPIRED
+        if state == PaymentFlag.STATE_UNPAID and has_expired(row.date_expires):
+            state = PaymentFlag.STATE_EXPIRED
 
         total_amount = 0
         for output in pr.outputs:

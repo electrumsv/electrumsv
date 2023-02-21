@@ -310,37 +310,41 @@ class TransactionOutputFlag(IntFlag):
 
 class PaymentFlag(IntFlag):
     NONE                        = 0
-    UNPAID                      = 1 << 0
-    EXPIRED                     = 1 << 1     # deprecated
-    UNKNOWN                     = 1 << 2     # sent but not propagated
-    PAID                        = 1 << 3     # send and propagated
-    ARCHIVED                    = 1 << 4     # unused until we have UI support for filtering
 
-    LEGACY                      = 0b00 << 10
-    INVOICE                     = 0b01 << 10
-    IMPORTED                    = 0b10 << 10
-    MONITORED                   = 0b11 << 10
+    # The state of the payment request. These states are atomic and are never combined.
+    STATE_UNPAID                = 0b0001     # The payment request is either pending payment or
+                                             # has expired (inferred from the expiry date).
+    STATE_EXPIRED               = 0b0010     # Deprecated for database storage. This is now only
+                                             # used at runtime as an in-memory substitution.
+    STATE_PREPARING             = 0b0011     # The payment request is not ready and has not been
+                                             # fully created.
+    STATE_UNKNOWN               = 0b0100     # Deprecated ????.
+    STATE_PAID                  = 0b1000     # We have received transactions that were adequate
+                                             # to satisfy this payment request.
+    MASK_STATE                  = 0b1111
+    CLEARED_MASK_STATE          = 0xFFFFFFFF & ~MASK_STATE
+
+    ARCHIVED                    = 1 << 4     # The user has selected and opted to hide this. Not
+                                             # currently used or implemented.
+    DELETED                     = 1 << 5     # The application has deleted this and is keeping it
+                                             # around in case a user requests support.
+    MASK_HIDDEN                 = ARCHIVED | DELETED
+
+    # The type of the payment request. These types are atomic and are never combined.
+    TYPE_LEGACY                 = 0b00 << 10
+    TYPE_INVOICE                = 0b01 << 10
+    TYPE_IMPORTED               = 0b10 << 10
+    TYPE_MONITORED              = 0b11 << 10
     MASK_TYPE                   = 0b11 << 10
 
-    # States of State Machine in `Wallet._consume_dpp_messages_async`
-    # must be in ascending order of progress for comparison as integer values
-    # See `_is_later_dpp_message_sequence` below.
+    # Sub-state of the `INVOICE` type payment requests.
+    # There is an expected order of these, see `is_later_dpp_message_sequence`.
+    DPP_TERMS_REQUESTED         = 0b00 << 12  # Payee: paymentterms.create -> paymentterms.response
+    DPP_PAYMENT_RECEIVED        = 0b01 << 12  # Payee: payment message received
+    DPP_TERMS_RECEIVED          = 0b10 << 12  # Payer: paymentrequest.response received
+    MASK_DPP_STATE              = 0b11 << 12
 
-    # States for when we are the Payee
-    PAYMENT_PENDING             = 0b0000 << 12  # this implies a ws:// for invoiceID is open
-    PAYMENT_REQUEST_REQUESTED   = 0b0001 << 12  # paymentterms.create -> paymentterms.response
-    PAYMENT_RECEIVED            = 0b0010 << 12  # payment message received
-
-    # States for when we are the Payer
-    PAYMENT_REQUEST_REQUESTING  = 0b0011 << 12  # paymentrequest.create send (attempting)
-    PAYMENT_REQUEST_RECEIVED    = 0b0100 << 12  # paymentrequest.response received
-
-    MASK_STATE              = UNPAID | EXPIRED | PAID | ARCHIVED
-    MASK_DPP_STATE_MACHINE  = PAYMENT_PENDING | PAYMENT_REQUEST_REQUESTED | \
-                              PAYMENT_RECEIVED
-    CLEARED_MASK_STATE  = ~MASK_STATE
-
-    NOT_ARCHIVED = ~ARCHIVED
+    NOT_ARCHIVED                = 0xFFFFFFFF ^ ARCHIVED
 
 
 # Transaction limits
@@ -669,3 +673,16 @@ DaemonSubcommands = ("load_wallet", "service_signup", "start", "status", "stop",
     "unload_wallet")
 DaemonSubcommandLiteral = Literal["load_wallet", "service_signup", "start", "status", "stop", \
     "unload_wallet"]
+
+
+class DPPMessageType(str, Enum):
+    # Note: Python enums order the values in order of definition. The order of these types are
+    #     the order we expect them to occur, and we use this in `is_later_dpp_message_sequence`.
+    JOIN_SUCCESS        = "join.success"
+    REQUEST_CREATE      = "paymentterms.create"
+    REQUEST_RESPONSE    = "paymentterms.response"
+    REQUEST_ERROR       = "paymentterms.error"
+    PAYMENT             = "payment"
+    PAYMENT_ACK         = "payment.ack"
+    PAYMENT_ERROR       = "payment.error"
+    CHANNEL_EXPIRED     = "channel.expired"

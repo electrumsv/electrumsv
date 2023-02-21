@@ -314,12 +314,24 @@ def delete_external_peer_channels(db_context: DatabaseContext,
     return db_context.post_to_thread(_write)
 
 
-def delete_payment_request_write(paymentrequest_id: int, db: sqlite3.Connection | None=None) \
-        -> dict[int, list[int]]:
+def delete_payment_requests_write(paymentrequest_ids: list[int], update_flag: PaymentFlag,
+        db: sqlite3.Connection | None=None) -> list[tuple[int, dict[int, list[int]]]]:
     assert db is not None and isinstance(db, sqlite3.Connection)
+    assert update_flag in { PaymentFlag.ARCHIVED, PaymentFlag.DELETED }
 
-    request_key_rows = db.execute("SELECT PRO.transaction_index, PRO.output_index, "
-        "PRO.keyinstance_id, KI.flags, KI.account_id FROM PaymentRequestOutputs PRO "
+    all_results: list[tuple[int, dict[int, list[int]]]] = []
+    for paymentrequest_id in paymentrequest_ids:
+        single_request_results = _delete_payment_request_write(paymentrequest_id, update_flag, db)
+        all_results.append((paymentrequest_id, single_request_results))
+    return all_results
+
+# TODO(technical-debt) Incorporate into `delete_payment_requests_write`.
+# This is not called by any other code and should not be. At the time of writing the intention
+# is that this function goes away.
+def _delete_payment_request_write(paymentrequest_id: int, update_flag: PaymentFlag,
+        db: sqlite3.Connection) -> dict[int, list[int]]:
+    request_key_rows = db.execute("SELECT PRO.keyinstance_id, KI.flags, KI.account_id "
+        "FROM PaymentRequestOutputs PRO "
         "INNER JOIN KeyInstances KI ON KI.keyinstance_id=PRO.keyinstance_id "
         "WHERE PRO.paymentrequest_id=?", (paymentrequest_id,)).fetchall()
     assert len(request_key_rows) > 0
@@ -328,7 +340,7 @@ def delete_payment_request_write(paymentrequest_id: int, db: sqlite3.Connection 
     keyinstance_updates: list[tuple[int, int, int]] = []
     account_keyinstance_ids: dict[int, list[int]] = {}
     expected_keyinstance_flags = KeyInstanceFlag.ACTIVE | KeyInstanceFlag.IS_PAYMENT_REQUEST
-    for _transaction_index, _output_index, keyinstance_id, flags, account_id in request_key_rows:
+    for keyinstance_id, flags, account_id in request_key_rows:
         assert flags & expected_keyinstance_flags == expected_keyinstance_flags
         if flags & KeyInstanceFlag.MASK_ACTIVE_REASON == KeyInstanceFlag.IS_PAYMENT_REQUEST:
             # There are no other reasons for the key to be left active, clear both flags.
@@ -346,8 +358,10 @@ def delete_payment_request_write(paymentrequest_id: int, db: sqlite3.Connection 
     assert cursor.rowcount == len(keyinstance_updates)
 
     db.execute("DELETE FROM DPPMessages WHERE paymentrequest_id=?", (paymentrequest_id,))
-    db.execute("DELETE FROM PaymentRequestOutputs WHERE paymentrequest_id=?", (paymentrequest_id,))
-    db.execute("DELETE FROM PaymentRequests WHERE paymentrequest_id=?", (paymentrequest_id,))
+    # PaymentRequestOutputs rows are expected to be mapped to PaymentRequests.state to detect
+    # deletion or archived state.
+    db.execute("UPDATE PaymentRequests SET state=state|?1 WHERE paymentrequest_id=?2",
+        (update_flag, paymentrequest_id))
 
     return account_keyinstance_ids
 
@@ -991,9 +1005,10 @@ def read_payment_request_ids_for_transaction(db: sqlite3.Connection,
     sql = \
     "SELECT DISTINCT PRO.paymentrequest_id " \
     "FROM PaymentRequestOutputs PRO " \
+    "INNER JOIN PaymentRequests PR ON PR.paymentrequest_id=PRO.paymentrequest_id " \
     "INNER JOIN TransactionOutputs TXO ON PRO.keyinstance_id=TXO.keyinstance_id " \
-        "AND TXO.tx_hash=?1"
-    sql_values: tuple[Any, ...] = (transaction_hash,)
+    "WHERE TXO.tx_hash=?1 AND PR.state&?2=0"
+    sql_values: tuple[Any, ...] = (transaction_hash, PaymentFlag.ARCHIVED|PaymentFlag.DELETED)
     cursor = db.execute(sql, sql_values)
     return [ cast(int, row[0]) for row in cursor.fetchall() ]
 
@@ -1186,36 +1201,6 @@ def read_tip_filter_pushdata_registrations(db: sqlite3.Connection, server_id: in
         sql += " AND date_created + duration_seconds >= ?"
         sql_values.append(expiry_timestamp)
     return [ PushDataHashRegistrationRow(*row) for row in db.execute(sql, sql_values).fetchall() ]
-
-
-@replace_db_context_with_connection
-def read_unregistered_tip_filter_pushdatas(db: sqlite3.Connection) -> list[tuple[bytes, int, int]]:
-    """
-    We have given out an output script or address for some other party to pay to, and we need
-    to watch for usage of it on the blockchain in order to identify which transaction it is used
-    in. This function identifies those we have given out, but do not have a record they are
-    monitored.
-
-    There are two use cases for this:
-    1. The user has forced a key to be flagged as active.
-    2. The user has created a payment request and given out an address or output script to another
-       party for them to pay to.
-
-    We are going to ignore the first case with key forced to active. That can be deferred, the main
-    case we want to support is the second one, where there is a payment request.
-    """
-    # TODO(forced-active-keys) We have deferred keys that have been forced active, and need to
-    #     disallow that for now. It is not likely we will ever support it.
-    # TODO(petty-cash) This should likely limit results to a given petty cash account
-    sql = """
-        SELECT PR.pushdata_hash, PR.date_expires, PR.keyinstance_id
-        FROM PaymentRequests PR
-        INNER JOIN KeyInstances KI ON KI.keyinstance_id=PR.keyinstance_id
-        LEFT JOIN ServerPushDataRegistrations PDR ON KI.keyinstance_id=PDR.keyinstance_id
-        WHERE PDR.keyinstance_id IS NULL AND KI.flags&?=?
-    """
-    sql_values = (KeyInstanceFlag.ACTIVE, KeyInstanceFlag.ACTIVE)
-    return [ cast(tuple[bytes, int, int], row) for row in db.execute(sql, sql_values).fetchall() ]
 
 
 @replace_db_context_with_connection
@@ -2528,7 +2513,7 @@ def close_paid_payment_request(request_id: int, db: sqlite3.Connection | None=No
     if read_row is None:
         raise DatabaseUpdateError("Payment request does not exist")
     current_state = cast(PaymentFlag, read_row[0])
-    if current_state & PaymentFlag.MASK_STATE != PaymentFlag.UNPAID:
+    if current_state & PaymentFlag.MASK_STATE != PaymentFlag.STATE_UNPAID:
         raise DatabaseUpdateError("Payment request not unpaid")
 
     request_expected_value = cast(int, read_row[1])
@@ -2562,7 +2547,7 @@ def close_paid_payment_request(request_id: int, db: sqlite3.Connection | None=No
 
     update_sql = "UPDATE PaymentRequests SET state=(state&?)|?, date_updated=? " \
         "WHERE paymentrequest_id=?"
-    cursor = db.execute(update_sql, (~PaymentFlag.MASK_STATE, PaymentFlag.PAID, date_updated,
+    cursor = db.execute(update_sql, (~PaymentFlag.MASK_STATE, PaymentFlag.STATE_PAID, date_updated,
         request_id))
     if cursor.rowcount != 1:
         raise DatabaseUpdateError("Update payment request failed")
@@ -2608,6 +2593,14 @@ def update_payment_requests_write(entries: Iterable[PaymentRequestUpdateRow],
     timestamp = get_posix_timestamp()
     rows = [ (timestamp, *entry) for entry in entries ]
     db.executemany(sql, rows)
+
+
+def update_payment_request_flags_write(request_id: int, flags: PaymentFlag, mask: PaymentFlag,
+        db: sqlite3.Connection|None=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+    timestamp = int(time.time())
+    db.execute("UPDATE PaymentRequests SET date_updated=?1, state=(state&?2)|?3 "
+        "WHERE paymentrequest_id=?", (timestamp, mask, flags, request_id))
 
 
 def update_wallet_event_flags(db_context: DatabaseContext,

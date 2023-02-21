@@ -163,49 +163,46 @@ class RequestList(MyTreeWidget):
 
         wallet = self._account._wallet
         rows = wallet.data.read_payment_requests(account_id=self._account_id,
-            flags=PaymentFlag.NONE, mask=PaymentFlag.ARCHIVED)
+            flags=PaymentFlag.NONE, mask=PaymentFlag.MASK_HIDDEN | PaymentFlag.STATE_PREPARING)
 
         # clear the list and fill it again
         self.clear()
         for row in rows:
-            flags = row.state & PaymentFlag.MASK_STATE
-            date = format_posix_timestamp(row.date_created, _("Unknown"))
-            requested_amount_str = app_state.format_amount(row.requested_value, whitespaces=True) \
-                if row.requested_value else ""
-
-            if flags == PaymentFlag.UNPAID and row.date_expires is not None:
+            request_state = row.request_flags & PaymentFlag.MASK_STATE
+            if request_state == PaymentFlag.STATE_UNPAID and row.date_expires is not None:
                 date_expires = row.date_expires
                 if current_time + 5 > date_expires:
                     # `EXPIRED` is never stored and solely used for extra visual state.
-                    flags = (flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
+                    request_state = PaymentFlag.STATE_EXPIRED
                 else:
                     nearest_expiry_time = min(nearest_expiry_time, date_expires)
 
-            state = flags & sum(pr_icons.keys())
+            date = format_posix_timestamp(row.date_created, _("Unknown"))
+            requested_amount_str = app_state.format_amount(row.requested_value, whitespaces=True) \
+                if row.requested_value else ""
             item = QTreeWidgetItem([
                 date,
                 row.description or "",
                 requested_amount_str,
                 "-",
-                pr_tooltips.get(state,'')
+                pr_tooltips.get(request_state,'')
             ])
 
-            request_type = row.state & PaymentFlag.MASK_TYPE
-            type_icon: Optional[QIcon] = None
-            if request_type == PaymentFlag.INVOICE:
+            type_icon: QIcon | None = None
+            request_type = row.request_flags & PaymentFlag.MASK_TYPE
+            if request_type == PaymentFlag.TYPE_INVOICE:
                 type_icon = read_QIcon("icons8-bill-80-blueui.png")
-            elif request_type == PaymentFlag.MONITORED:
+            elif request_type == PaymentFlag.TYPE_MONITORED:
                 type_icon = read_QIcon("icons8-signal-80-blueui.png")
-            elif request_type == PaymentFlag.IMPORTED:
+            elif request_type == PaymentFlag.TYPE_IMPORTED:
                 type_icon = read_QIcon("icons8-communication-80-blueui.png")
             if type_icon is not None:
                 item.setIcon(RequestColumn.DATE, type_icon)
 
             item.setData(RequestColumn.DATE, Qt.ItemDataRole.UserRole, row.paymentrequest_id)
-            if state != PaymentFlag.UNKNOWN:
-                icon_name = pr_icons.get(state)
-                if icon_name is not None:
-                    item.setIcon(RequestColumn.STATUS, read_QIcon(icon_name))
+            icon_name = pr_icons.get(request_state)
+            if icon_name is not None:
+                item.setIcon(RequestColumn.STATUS, read_QIcon(icon_name))
             item.setFont(RequestColumn.AMOUNT_REQUESTED, self._monospace_font)
             self.addTopLevelItem(item)
 
@@ -281,8 +278,8 @@ class RequestList(MyTreeWidget):
             return
         assert len(request_output_rows) == 1
 
-        request_type = request_row.state & PaymentFlag.MASK_TYPE
-        if app_state.daemon.network is None and request_type == PaymentFlag.MONITORED:
+        request_type = request_row.request_flags & PaymentFlag.MASK_TYPE
+        if app_state.daemon.network is None and request_type == PaymentFlag.TYPE_MONITORED:
             MessageBox.show_error(_("Blockchain monitored payments cannot be deleted while the "
                 "wallet is in offline mode. You can either open your wallet in online mode and "
                 "delete this expected payment, otherwise it will eventually expire and no longer "
@@ -292,17 +289,17 @@ class RequestList(MyTreeWidget):
         if not MessageBox.question(_("Are you sure you want to delete this payment request?")):
             return
 
-        if request_type == PaymentFlag.INVOICE:
+        if request_type == PaymentFlag.TYPE_INVOICE:
             app_state.async_.spawn_and_wait(self._account.delete_hosted_invoice_async(request_id))
-        elif request_type == PaymentFlag.MONITORED:
+        elif request_type == PaymentFlag.TYPE_MONITORED:
             async def task_code_async() -> None:
                 assert self._account is not None
                 await self._account.stop_monitoring_blockchain_payment_async(request_id)
-                await wallet.data.delete_payment_request_async(request_id)
+                await wallet.data.delete_payment_requests_async([request_id], PaymentFlag.ARCHIVED)
             app_state.async_.spawn_and_wait(task_code_async())
-        elif request_type == PaymentFlag.IMPORTED:
+        elif request_type == PaymentFlag.TYPE_IMPORTED:
             async def task_code_async() -> None:
-                await wallet.data.delete_payment_request_async(request_id)
+                await wallet.data.delete_payment_requests_async([request_id], PaymentFlag.ARCHIVED)
             app_state.async_.spawn_and_wait(task_code_async())
         else:
             raise NotImplementedError()

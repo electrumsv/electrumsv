@@ -10,37 +10,28 @@ from aiohttp import WSServerHandshakeError
 
 from .types import ServerConnectionState
 from ..app_state import app_state
-from ..constants import PaymentFlag
+from ..constants import DPPMessageType, PaymentFlag
 from ..logs import logs
 from ..wallet_database.types import DPPMessageRow, PaymentRequestRow
 
 logger = logs.get_logger("dpp-proxy")
 
-MSG_TYPE_JOIN_SUCCESS = "join.success"
-MSG_TYPE_PAYMENT = "payment"
-MSG_TYPE_PAYMENT_ACK = "payment.ack"
-MSG_TYPE_PAYMENT_ERROR = "payment.error"
-MSG_TYPE_PAYMENT_REQUEST_CREATE = "paymentterms.create"
-MSG_TYPE_PAYMENT_REQUEST_RESPONSE = "paymentterms.response"
-MSG_TYPE_PAYMENT_REQUEST_ERROR = "paymentterms.error"
-MSG_TYPE_CHANNEL_EXPIRY = "channel.expired"
-
-ALL_MSG_TYPES = {MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK,
-    MSG_TYPE_PAYMENT_ERROR,
-    MSG_TYPE_PAYMENT_REQUEST_CREATE, MSG_TYPE_PAYMENT_REQUEST_RESPONSE,
-    MSG_TYPE_PAYMENT_REQUEST_ERROR, MSG_TYPE_CHANNEL_EXPIRY}
-DPP_MESSAGE_SEQUENCE = [MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT_REQUEST_CREATE,
-    MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_ACK]
-
+MESSAGE_STATE_BY_TYPE = {
+    DPPMessageType.REQUEST_CREATE:      PaymentFlag.DPP_TERMS_REQUESTED,
+    DPPMessageType.REQUEST_RESPONSE:    PaymentFlag.DPP_TERMS_RECEIVED,
+    DPPMessageType.PAYMENT:             PaymentFlag.DPP_PAYMENT_RECEIVED,
+    DPPMessageType.PAYMENT_ACK:         PaymentFlag.STATE_PAID
+}
 
 RECONNECTION_INTERVAL = 10  # seconds
 
+# Note: Python enums order the values in order of definition. The order of these types are
+#     the order we expect them to occur, and we use this in `is_later_dpp_message_sequence`.
+DPP_MESSAGE_TYPES_ORDERED = list(entry for entry in DPPMessageType)
 
-def _is_later_dpp_message_sequence(prior: DPPMessageRow, later: DPPMessageRow) -> bool:
-    """Depends upon ascending ordering of these state machine flags when compared as an
-    integer"""
-    index_prior = DPP_MESSAGE_SEQUENCE.index(prior.type)
-    index_later = DPP_MESSAGE_SEQUENCE.index(later.type)
+def is_later_dpp_message_sequence(prior: DPPMessageRow, later: DPPMessageRow) -> bool:
+    index_prior = DPP_MESSAGE_TYPES_ORDERED.index(prior.type)
+    index_later = DPP_MESSAGE_TYPES_ORDERED.index(later.type)
     return index_later > index_prior
 
 
@@ -65,17 +56,14 @@ async def dpp_websocket_send(state: ServerConnectionState, message_row: DPPMessa
         state.dpp_messages_queue.put_nowait(message_row)
 
 
-MESSAGE_STATE_BY_TYPE = {
-    MSG_TYPE_PAYMENT_REQUEST_CREATE: PaymentFlag.PAYMENT_REQUEST_REQUESTED,
-    MSG_TYPE_PAYMENT: PaymentFlag.PAYMENT_RECEIVED,
-    MSG_TYPE_PAYMENT_REQUEST_RESPONSE: PaymentFlag.PAYMENT_REQUEST_RECEIVED,
-    MSG_TYPE_PAYMENT_ACK: PaymentFlag.PAID
-}
-
-
 def _validate_dpp_message_json(dpp_message_json: dict[Any, Any]) -> None:
-    """Generic checking of structure - doesn't check the body of the message - that check is
-    done elsewhere"""
+    """
+    Generic checking of structure. This doesn't check the body of the message, that check is
+    done elsewhere.
+
+    Raises `AssertionError` for most type check failures for fields.
+    Raises `ValueError` if the `type` field is not defined in `DPPMessageType`.
+    """
     assert isinstance(dpp_message_json["correlationId"], str)
     assert isinstance(dpp_message_json["appId"], str)
     assert isinstance(dpp_message_json["clientID"], str)
@@ -90,8 +78,8 @@ def _validate_dpp_message_json(dpp_message_json: dict[Any, Any]) -> None:
     assert isinstance(dpp_message_json["channelId"], str)
     assert isinstance(dpp_message_json["timestamp"], str)
     assert isinstance(dpp_message_json["type"], str)
-    assert dpp_message_json["type"] in ALL_MSG_TYPES, \
-        f"Unexpected dpp websocket message type={dpp_message_json['type']}"
+    # Raises `ValueError` if the enum value is not defined.
+    DPPMessageType(dpp_message_json["type"])
     assert isinstance(dpp_message_json["headers"], dict)
 
 
@@ -145,15 +133,15 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
                         timestamp=message_json["timestamp"],
                         type=message_json["type"]
                     )
-                    if message_json["type"] == MSG_TYPE_JOIN_SUCCESS:
+                    if message_json["type"] == DPPMessageType.JOIN_SUCCESS:
                         continue
-                    elif message_json["type"] == MSG_TYPE_CHANNEL_EXPIRY:
+                    elif message_json["type"] == DPPMessageType.CHANNEL_EXPIRED:
                         # By default dpp-proxy channels expire after 2 hours
                         # see: `EnvSocketChannelTimeoutSeconds` in the dpp-proxy server
                         logger.warning("DPP channel expired for payment request id : %s",
                             payment_request_row.paymentrequest_id)
                         return
-                    elif message_json["type"] != MSG_TYPE_JOIN_SUCCESS:
+                    elif message_json["type"] != DPPMessageType.JOIN_SUCCESS:
                         await state.wallet_data.create_invoice_proxy_message_async([dpp_message])
                         state.dpp_messages_queue.put_nowait(dpp_message)
                     else:
@@ -167,10 +155,12 @@ async def manage_dpp_connection_async(state: ServerConnectionState,
                 assert state.wallet_data is not None
                 assert payment_request_row.paymentrequest_id is not None
                 assert payment_request_row.dpp_invoice_id is not None
+                # TODO(1.4.0) DPP. Work out what this payment request DB lookup is for?
                 payment_request_row_from_db, _ = \
                     state.wallet_data.read_payment_request(payment_request_row.paymentrequest_id)
                 assert payment_request_row is not None
-                if payment_request_row.state & PaymentFlag.MASK_STATE == PaymentFlag.PAID:
+                if payment_request_row.request_flags & PaymentFlag.MASK_STATE \
+                        == PaymentFlag.STATE_PAID:
                     logger.debug("Closing DPP websocket for payment request: %r",
                         payment_request_row)
                     state.dpp_websockets.pop(payment_request_row.dpp_invoice_id, None)

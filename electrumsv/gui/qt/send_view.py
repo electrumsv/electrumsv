@@ -732,7 +732,7 @@ class SendView(QWidget):
             row = wallet.data.read_invoice_duplicate(pr.get_amount(), pr.get_payment_uri())
             if row is None:
                 row = InvoiceRow(0, account.get_id(), None, pr.get_payment_uri(), pr.get_memo(),
-                    PaymentFlag.UNPAID, pr.get_amount(), pr.to_json().encode(),
+                    PaymentFlag.STATE_UNPAID, pr.get_amount(), pr.to_json().encode(),
                     pr.get_expiration_date())
                 future = wallet.data.create_invoices([ row ])
                 future.add_done_callback(callback)
@@ -745,7 +745,7 @@ class SendView(QWidget):
         pr.set_id(row.invoice_id)
 
         # The invoice is already present. Populate it unless it's paid.
-        if row.flags & PaymentFlag.PAID:
+        if row.flags & PaymentFlag.STATE_PAID:
             self._main_window.show_message("invoice already paid")
             self._payment_request = None
             self.clear()

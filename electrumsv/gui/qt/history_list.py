@@ -412,7 +412,7 @@ class HistoryList(MyTreeWidget):
                 if row is None:
                     # The associated invoice has been deleted.
                     broadcast_action.setEnabled(False)
-                elif row.flags & PaymentFlag.UNPAID == 0:
+                elif row.flags & PaymentFlag.MASK_STATE == PaymentFlag.STATE_UNPAID:
                     # The associated invoice has already been paid.
                     broadcast_action.setEnabled(False)
                 elif has_expired(row.date_expires):

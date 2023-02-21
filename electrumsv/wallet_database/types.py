@@ -3,11 +3,11 @@ import dataclasses
 from datetime import datetime, timezone
 from typing import Any, NamedTuple, Protocol
 
-from ..constants import (AccountFlags, AccountTxFlags, DerivationType, KeyInstanceFlag,
-    MAPIBroadcastFlag, MasterKeyFlags, NetworkServerFlag, NetworkServerType, PaymentFlag,
-    PeerChannelAccessTokenFlag, PeerChannelMessageFlag, PushDataMatchFlag,
-    PushDataHashRegistrationFlag, ScriptType,
-    ServerPeerChannelFlag, TransactionOutputFlag, TxFlags, WalletEventFlag, WalletEventType)
+from ..constants import (AccountFlags, AccountTxFlags, DerivationType, DPPMessageType,
+    KeyInstanceFlag, MAPIBroadcastFlag, MasterKeyFlags, NetworkServerFlag, NetworkServerType,
+    PaymentFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag, PushDataMatchFlag,
+    PushDataHashRegistrationFlag, ScriptType, ServerPeerChannelFlag, TransactionOutputFlag,
+    TxFlags, WalletEventFlag, WalletEventType)
 from ..types import MasterKeyDataTypes
 
 
@@ -199,7 +199,8 @@ class PushDataRegistrationRow(NamedTuple):
 class PaymentRequestRow(NamedTuple):
     # This is `None` for the `INSERT` as this makes SQLite allocate the primary key value for us.
     paymentrequest_id: int | None
-    state: PaymentFlag
+    # This is badly named, should be `request_flags`.
+    request_flags: PaymentFlag
     requested_value: int | None
     date_expires: int | None
     # The local label we apply to transactions (seen in the history tab) received.
@@ -630,7 +631,7 @@ class DPPMessageRow(NamedTuple):
     expiration: int | None
     body: bytes
     timestamp: str
-    type: str
+    type: DPPMessageType
 
     def to_json(self, ) -> str:
         ts = datetime.now(tz=timezone.utc).isoformat().replace('+00:00', 'Z')

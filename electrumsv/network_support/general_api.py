@@ -1052,6 +1052,9 @@ async def _manage_tip_filter_registrations_async(state: ServerConnectionState) -
 async def create_tip_filter_registration_async(state: ServerConnectionState,
         pushdata_hash: bytes, date_expires: int, keyinstance_id: int,
         script_type: ScriptType) -> TipFilterRegistrationJob:
+    """
+    Raises nothing.
+    """
     # The reference server needs to be updated to take a UTC expiry date.
     expiry_seconds = date_expires - int(time.time())
     job = TipFilterRegistrationJob([
