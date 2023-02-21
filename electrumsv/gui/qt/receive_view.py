@@ -50,9 +50,10 @@ class ReceiveView(QWidget):
 
         is_offline = main_window.network is None
         invoice_action = QAction(read_QIcon("icons8-bill-80-blueui.png"),
-            _("Online invoice"), self)
+            _("Payment request (DPP)"), self)
         if is_offline:
-            invoice_action.setToolTip(_("Online invoice") +" ("+ _("disabled in offline mode") +")")
+            invoice_action.setToolTip(_("Payment request (DPP)") +" ("+
+                _("disabled in offline mode") +")")
         invoice_action.setEnabled(not is_offline)
         invoice_action.triggered.connect(self._event_action_triggered_invoice)
         toolbar.addAction(invoice_action)
@@ -63,9 +64,9 @@ class ReceiveView(QWidget):
         toolbar.addAction(handoff_action)
 
         blockchain_action = QAction(read_QIcon("icons8-signal-80-blueui.png"),
-            _("Watch blockchain"), self)
+            _("Legacy Bitcoin address"), self)
         if is_offline:
-            blockchain_action.setToolTip(_("Watch blockchain") +" ("+
+            blockchain_action.setToolTip(_("Legacy Bitcoin address") +" ("+
                 _("disabled in offline mode") +")")
         blockchain_action.setEnabled(not is_offline)
         blockchain_action.triggered.connect(self._event_action_triggered_blockchain)
