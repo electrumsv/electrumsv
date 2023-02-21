@@ -65,15 +65,16 @@ from bitcoinx import Address, hash_to_hex_str, Ops, pack_byte, push_item, Script
 from .app_state import app_state
 from .bitcoin import COIN, script_template_to_string
 from .constants import CHANGE_SUBPATH, CredentialPolicyFlag, DerivationType, KeyInstanceFlag, \
-    NetworkServerFlag, PaymentFlag, ScriptType, TransactionImportFlag, TransactionOutputFlag, \
-    TxFlags
-from .exceptions import BroadcastError, InvalidPassword, NotEnoughFunds
+    NetworkServerFlag, ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
+from .exceptions import BroadcastError, InvalidPassword, NotEnoughFunds, NoViableServersError, \
+    ServiceUnavailableError
 from .logs import logs
 from .networks import Net
 from .standards.node_transaction import transactions_from_node_bytes
 from .standards.script_templates import classify_transaction_output_script
 from .transaction import TransactionContext, TransactionFeeEstimator, XTxInput, XTxOutput
 from .types import Outpoint
+
 from .util import constant_time_compare
 
 
@@ -863,12 +864,11 @@ async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestI
     # payment request when the expected value to be received is met, ignores the payment for
     # this payment request. See @BlindPaymentRequests.
     date_expires = int(time.time()) + 24 * 60 * 60
-    request_row, request_output_rows = await account.create_payment_request_async(None,
-        None, merchant_reference=None, date_expires=date_expires, flags=PaymentFlag.MONITORED)
-    assert request_row.paymentrequest_id is not None
-
-    job_data = await account.monitor_blockchain_payment_async(request_row.paymentrequest_id)
-    if job_data is None:
+    future = app_state.async_.spawn(account.create_monitored_blockchain_payment_async(None, None,
+        merchant_reference=None, date_expires=date_expires))
+    try:
+        request_row, request_output_rows, job_data = await asyncio.wrap_future(future)
+    except (NoViableServersError, ServiceUnavailableError):
         # If we did not check for this case above before we created the payment request we
         # would probably clean up here. But the chance of this happening is so slight and
         # the unmonitored and never returned payment request should expire.
@@ -876,10 +876,6 @@ async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestI
             text=json.dumps(ResponseDict(id=request_id, result=None,
                 error=ErrorDict(code=RPCError.WALLET_ERROR,
                     message="Blockchain server address monitoring request not successful"))))
-
-    # We do not want to continue until the tip filter registration is successfully placed with
-    # the blockchain server.
-    await job_data.completed_event.wait()
 
     if job_data.date_registered is None:
         # The failure reason is the stringified text for the exception encountered. The details

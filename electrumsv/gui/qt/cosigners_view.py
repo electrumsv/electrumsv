@@ -125,8 +125,8 @@ class CosignerCard(FormSectionWidget):
             QSizePolicy.Policy.MinimumExpanding)
         self._signed_by_label = signed_by_label
 
-        self.add_row(_("Master public key"), key_edit, True)
-        self.add_row(_("Name"), cosigner_name_edit, True)
+        self.add_row(_("Master public key"), key_edit)
+        self.add_row(_("Name"), cosigner_name_edit)
         self.add_row(_("Signed by"), signed_by_label)
 
         self._update_keystore(state.keystore)

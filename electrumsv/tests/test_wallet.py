@@ -31,11 +31,12 @@ from electrumsv.transaction import Transaction, TransactionContext
 from electrumsv.types import DatabaseKeyDerivationData, MasterKeyDataBIP32, Outpoint, \
     TransactionKeyUsageMetadata
 from electrumsv.wallet import (DeterministicAccount, ImportedPrivkeyAccount,
-    ImportedAddressAccount, MissingTransactionEntry, MultisigAccount, Wallet, StandardAccount)
+    ImportedAddressAccount, MissingTransactionEntry, MultisigAccount, Wallet, StandardAccount,
+    WalletDataAccess)
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, MerkleProofRow, \
-    WalletBalance
+    PaymentRequestRow, WalletBalance
 from electrumsv.wallet_support.keys import get_pushdata_hash_for_keystore_key_data
 
 from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, \
@@ -1571,7 +1572,7 @@ async def test_close_paid_payment_request_async_notifies(app_state: AppStateProx
     mock_request_row = unittest.mock.Mock()
     mock_request_row.paymentrequest_id = 1
     mock_request_row.requested_value = 9999
-    mock_request_row.state = PaymentFlag.INVOICE
+    mock_request_row.state = PaymentFlag.TYPE_INVOICE
     mock_request_output_row = unittest.mock.Mock()
     mock_request_output_row.paymentrequest_id = 1
     mock_request_output_row.transaction_index = 0
@@ -1671,3 +1672,82 @@ async def test_transaction_double_spent_async(app_state: AppStateProxy, mock_val
         invoice_id=None, transaction_hash=None, header=None, tsc_proof=None,
         mapi_callback_response=mapi_callback_response,
         event_source="MAPI", event_payload=json.dumps(mapi_callback_response))
+
+
+INITIAL_TIMESTAMP = 1000000000
+INVOICE_PROCESS_ROW = PaymentRequestRow(1, PaymentFlag.TYPE_INVOICE, 100000, None,
+    "local reference 1", None, None, None, "merchant reference 1", None, INITIAL_TIMESTAMP-1,
+    INITIAL_TIMESTAMP-1)
+
+@pytest.mark.parametrize("prepare_requests,invoice_requests,expected_deletion_arguments,"
+        "expected_register_invoice_arguments",
+    (([
+        # Should be matched as it is the edge case of just expired.
+        PaymentRequestRow(1, PaymentFlag.STATE_PREPARING, 100000, None, "local reference 1",
+            None, None, None, "merchant reference 1", None, INITIAL_TIMESTAMP-1,
+            INITIAL_TIMESTAMP-1),
+        # Should be ignored as it is the edge case of not expired.
+        PaymentRequestRow(2, PaymentFlag.STATE_PREPARING, 100000, None, "local reference 2",
+            None, None, None, "merchant reference 2", None, INITIAL_TIMESTAMP,
+            INITIAL_TIMESTAMP),
+    ],
+    [],
+    ([1], PaymentFlag.DELETED), None),
+    ([], [ INVOICE_PROCESS_ROW ], None, (INVOICE_PROCESS_ROW, "123456"))
+    ))
+@unittest.mock.patch('electrumsv.wallet.time')
+@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
+async def test_process_payment_requests(app_state: AppStateProxy, time_module,
+        prepare_requests: list[PaymentRequestRow], invoice_requests: list[PaymentRequestRow],
+        expected_deletion_arguments: tuple[list[int], PaymentFlag]|None,
+        expected_register_invoice_arguments: tuple[PaymentRequestRow, str]|None) -> None:
+    app_state.credentials.get_wallet_password = lambda wallet_path: "password"
+    mock_storage = cast(WalletStorage, MockStorage("password"))
+    wallet = Wallet(mock_storage)
+
+    discard_seconds = 2 * 24 * 60 * 60
+
+    def read_payment_requests_preparing(*, account_id: int | None=None,
+            flags: PaymentFlag | None=None, mask: PaymentFlag | None=None,
+            server_id: int | None=None) -> list[PaymentRequestRow]:
+        if flags & PaymentFlag.MASK_STATE == PaymentFlag.STATE_PREPARING:
+            return prepare_requests
+        if flags & PaymentFlag.MASK_TYPE == PaymentFlag.TYPE_INVOICE:
+            return invoice_requests
+        assert False, "should never reach here"
+
+    current_timestamp = INITIAL_TIMESTAMP + discard_seconds
+
+    time_module.time = lambda: current_timestamp
+
+    wallet.data = unittest.mock.Mock(spec=WalletDataAccess)
+    wallet.data.read_payment_requests.side_effect = read_payment_requests_preparing
+    wallet.data.delete_payment_requests_async = unittest.mock.AsyncMock()
+    wallet.register_outstanding_invoice = unittest.mock.Mock()
+
+    # Normally unit testing logic kills spawned coroutines, but in this case we want this to
+    # run and have to interfere to get it to do so.
+    pending_coroutines: list[Coroutine[Any, Any, Any]] = []
+    def _spawn(coroutine: Coroutine[Any, Any, T1],
+            on_done: Callable[[concurrent.futures.Future[T1]], None] | None=None) \
+                -> Any:
+        nonlocal pending_coroutines
+        pending_coroutines.append(coroutine)
+    app_state.async_.spawn = _spawn
+
+    wallet._process_payment_requests("123456")
+
+    for pending_coroutine in pending_coroutines:
+        await pending_coroutine
+
+    if expected_deletion_arguments is None:
+        wallet.data.delete_payment_requests_async.assert_not_called()
+    else:
+        wallet.data.delete_payment_requests_async.assert_called_once_with(
+            *expected_deletion_arguments)
+
+    if expected_register_invoice_arguments is None:
+        wallet.register_outstanding_invoice.assert_not_called()
+    else:
+        wallet.register_outstanding_invoice.assert_called_once_with(
+            *expected_register_invoice_arguments)

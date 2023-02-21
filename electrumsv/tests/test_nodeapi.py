@@ -18,7 +18,7 @@ import pytest
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import AccountCreationType, DerivationType, KeystoreTextType, \
     PaymentFlag, ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
-from electrumsv.exceptions import InvalidPassword
+from electrumsv.exceptions import InvalidPassword, NoViableServersError
 from electrumsv.keystore import instantiate_keystore_from_text
 from electrumsv.network_support.types import ServerConnectionState, TipFilterRegistrationJobOutput
 from electrumsv import nodeapi
@@ -1052,7 +1052,7 @@ async def test_call_getnewaddress_no_connected_blockchain_server_async(
     assert object["error"]["code"] == RPCError.WALLET_ERROR
     assert object["error"]["message"] == "No connected blockchain server"
 
-@unittest.mock.patch('electrumsv.nodeapi.app_state')
+@unittest.mock.patch('electrumsv.nodeapi.app_state', new_callable=_create_mock_app_state2)
 async def test_call_getnewaddress_remote_monitoring_failure_async(
         app_state_nodeapi: AppStateProxy, server_tester: TestClient) -> None:
     assert server_tester.app is not None
@@ -1078,36 +1078,17 @@ async def test_call_getnewaddress_remote_monitoring_failure_async(
         return [ account ]
     wallet.get_visible_accounts.side_effect = get_visible_accounts
 
-    payment_request_row = unittest.mock.Mock(spec=PaymentRequestRow)
-    payment_request_output_row = unittest.mock.Mock(spec=PaymentRequestOutputRow)
-    payment_request_output_row.output_script_bytes = \
-        bytes.fromhex("76a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac")
-
-    async def create_payment_request_async(amount: int | None,
-            internal_description: str | None,
-            merchant_reference: str | None, date_expires: int | None = None,
-            server_id: int | None = None, dpp_invoice_id: str | None=None,
-            dpp_ack_json: str | None=None, encrypted_key_text: str | None=None,
-            flags: PaymentFlag=PaymentFlag.NONE) \
-                -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
-        # These are all expected values.
-        assert amount is None
+    async def create_monitored_blockchain_payment_async(
+            amount_satoshis: int | None, internal_description: str | None,
+            merchant_reference: str | None, date_expires: int | None = None) \
+                -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow],
+                    TipFilterRegistrationJobOutput]:
+        assert amount_satoshis is None
         assert internal_description is None
         assert merchant_reference is None
-        assert server_id is None
-        assert dpp_invoice_id is None
-        assert dpp_ack_json is None
-        assert  encrypted_key_text is None
-        assert flags & PaymentFlag.MASK_TYPE == PaymentFlag.MONITORED
-        nonlocal payment_request_row, payment_request_output_row
-        return payment_request_row, [ payment_request_output_row ]
-    account.create_payment_request_async = create_payment_request_async
-
-    # job_data = unittest.mock.Mock(spec=TipFilterRegistrationJobOutput)
-    async def monitor_blockchain_payment_async(request_id: int) \
-            -> TipFilterRegistrationJobOutput | None:
-        return None
-    account.monitor_blockchain_payment_async = monitor_blockchain_payment_async
+        raise NoViableServersError
+    account.create_monitored_blockchain_payment_async = \
+        create_monitored_blockchain_payment_async
 
     call_object = {
         "id": 232,
@@ -1125,7 +1106,7 @@ async def test_call_getnewaddress_remote_monitoring_failure_async(
     assert object["error"]["message"] == \
         "Blockchain server address monitoring request not successful"
 
-@unittest.mock.patch('electrumsv.nodeapi.app_state')
+@unittest.mock.patch('electrumsv.nodeapi.app_state', new_callable=_create_mock_app_state2)
 async def test_call_getnewaddress_monitor_server_error_async(app_state_nodeapi: AppStateProxy,
         server_tester: TestClient) -> None:
     assert server_tester.app is not None
@@ -1156,35 +1137,22 @@ async def test_call_getnewaddress_monitor_server_error_async(app_state_nodeapi: 
     payment_request_output_row.output_script_bytes = \
         bytes.fromhex("76a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac")
 
-    async def create_payment_request_async(amount: int | None,
-            internal_description: str | None,
-            merchant_reference: str | None, date_expires: int | None = None,
-            server_id: int | None = None, dpp_invoice_id: str | None=None,
-            dpp_ack_json: str | None=None, encrypted_key_text: str | None=None,
-            flags: PaymentFlag=PaymentFlag.NONE) \
-                -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
-        # These are all expected values.
-        assert amount is None
-        assert internal_description is None
-        assert merchant_reference is None
-        assert server_id is None
-        assert dpp_invoice_id is None
-        assert dpp_ack_json is None
-        assert  encrypted_key_text is None
-        assert flags & PaymentFlag.MASK_TYPE == PaymentFlag.MONITORED
-        nonlocal payment_request_row, payment_request_output_row
-        return payment_request_row, [ payment_request_output_row ]
-    account.create_payment_request_async = create_payment_request_async
-
     job_data = unittest.mock.Mock(spec=TipFilterRegistrationJobOutput)
     job_data.completed_event = unittest.mock.Mock(spec=asyncio.Event)
     job_data.date_registered = None
     job_data.failure_reason = "The server had a problem test message"
-    async def monitor_blockchain_payment_async(request_id: int) \
-            -> TipFilterRegistrationJobOutput | None:
-        nonlocal job_data
-        return job_data
-    account.monitor_blockchain_payment_async = monitor_blockchain_payment_async
+
+    async def create_monitored_blockchain_payment_async(
+            amount_satoshis: int | None, internal_description: str | None,
+            merchant_reference: str | None, date_expires: int | None = None) \
+                -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow],
+                    TipFilterRegistrationJobOutput]:
+        assert amount_satoshis is None
+        assert internal_description is None
+        assert merchant_reference is None
+        return payment_request_row, [ payment_request_output_row ], job_data
+    account.create_monitored_blockchain_payment_async = \
+        create_monitored_blockchain_payment_async
 
     call_object = {
         "id": 232,
@@ -1201,7 +1169,7 @@ async def test_call_getnewaddress_monitor_server_error_async(app_state_nodeapi: 
     assert object["error"]["code"] == RPCError.WALLET_ERROR
     assert object["error"]["message"] == job_data.failure_reason
 
-@unittest.mock.patch('electrumsv.nodeapi.app_state')
+@unittest.mock.patch('electrumsv.nodeapi.app_state', new_callable=_create_mock_app_state2)
 async def test_call_getnewaddress_success_async(app_state_nodeapi: AppStateProxy,
         server_tester: TestClient) -> None:
     assert server_tester.app is not None
@@ -1232,35 +1200,22 @@ async def test_call_getnewaddress_success_async(app_state_nodeapi: AppStateProxy
     payment_request_output_row.output_script_bytes = \
         bytes.fromhex("76a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac")
 
-    async def create_payment_request_async(amount: int | None,
-            internal_description: str | None,
-            merchant_reference: str | None, date_expires: int | None = None,
-            server_id: int | None = None, dpp_invoice_id: str | None=None,
-            dpp_ack_json: str | None=None, encrypted_key_text: str | None=None,
-            flags: PaymentFlag=PaymentFlag.NONE) \
-                -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
-        # These are all expected values.
-        assert amount is None
-        assert internal_description is None
-        assert merchant_reference is None
-        assert server_id is None
-        assert dpp_invoice_id is None
-        assert dpp_ack_json is None
-        assert  encrypted_key_text is None
-        assert flags & PaymentFlag.MASK_TYPE == PaymentFlag.MONITORED
-        nonlocal payment_request_row, payment_request_output_row
-        return payment_request_row, [ payment_request_output_row ]
-    account.create_payment_request_async = create_payment_request_async
-
     job_data = unittest.mock.Mock(spec=TipFilterRegistrationJobOutput)
     job_data.completed_event = unittest.mock.Mock(spec=asyncio.Event)
     job_data.date_registered = 11111
     job_data.failure_reason = None
-    async def monitor_blockchain_payment_async(request_id: int) \
-            -> TipFilterRegistrationJobOutput | None:
-        nonlocal job_data
-        return job_data
-    account.monitor_blockchain_payment_async = monitor_blockchain_payment_async
+
+    async def create_monitored_blockchain_payment_async(
+            amount_satoshis: int | None, internal_description: str | None,
+            merchant_reference: str | None, date_expires: int | None = None) \
+                -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow],
+                    TipFilterRegistrationJobOutput]:
+        assert amount_satoshis is None
+        assert internal_description is None
+        assert merchant_reference is None
+        return payment_request_row, [ payment_request_output_row ], job_data
+    account.create_monitored_blockchain_payment_async = \
+        create_monitored_blockchain_payment_async
 
     call_object = {
         "id": 232,

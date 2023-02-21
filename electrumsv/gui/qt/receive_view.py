@@ -125,7 +125,7 @@ class ReceiveView(QWidget):
         # The message box service is required to get mAPI merkle proof callbacks.
         required_flags = NetworkServerFlag.USE_MESSAGE_BOX
         if self._main_window_proxy._wallet.have_wallet_servers(required_flags):
-            self.show_dialog(None, PaymentFlag.INVOICE)
+            self.show_dialog(None, PaymentFlag.TYPE_INVOICE)
             return
 
         dialog_text = _("Receiving invoice payments requires signing up "
@@ -145,7 +145,7 @@ class ReceiveView(QWidget):
         #   selected and connected to.
         # - They chose "Manage servers" which selected and connected to servers and then on exit
         #   from that wizard this dialog auto-accepted.
-        dialog.accepted.connect(partial(self.show_dialog, None, PaymentFlag.INVOICE))
+        dialog.accepted.connect(partial(self.show_dialog, None, PaymentFlag.TYPE_INVOICE))
         dialog.show()
 
 
@@ -155,7 +155,7 @@ class ReceiveView(QWidget):
                 "payment. Please complete that one first."))
             return
 
-        self.show_dialog(None, PaymentFlag.IMPORTED)
+        self.show_dialog(None, PaymentFlag.TYPE_IMPORTED)
 
     def _event_action_triggered_blockchain(self) -> None:
         if None in self._dialogs:
@@ -194,7 +194,7 @@ class ReceiveView(QWidget):
         dialog.show()
 
     def _show_blockchain_payment_dialog(self) -> None:
-        self.show_dialog(None, PaymentFlag.MONITORED)
+        self.show_dialog(None, PaymentFlag.TYPE_MONITORED)
 
     def update_widgets(self) -> None:
         """
@@ -229,7 +229,8 @@ class ReceiveView(QWidget):
         # If the request is an existing one the type should be effectively unspecified.
         assert request_id is None or request_type & PaymentFlag.MASK_TYPE == PaymentFlag.NONE
         # If the request is not an existing one the flag should be a forward looking type.
-        assert request_id is not None or request_type & PaymentFlag.MASK_TYPE != PaymentFlag.LEGACY
+        assert request_id is not None or \
+            request_type & PaymentFlag.MASK_TYPE != PaymentFlag.TYPE_LEGACY
 
         dialog = self._dialogs.get(request_id)
         if dialog is None:

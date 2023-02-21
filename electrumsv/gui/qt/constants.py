@@ -8,17 +8,15 @@ ICON_NAME_INVOICE_PAYMENT = "seal"
 
 
 pr_icons = {
-    PaymentFlag.UNPAID: "unpaid.png",
-    PaymentFlag.PAID: "icons8-checkmark-green-52.png",
-    PaymentFlag.EXPIRED: "expired.png"
+    PaymentFlag.STATE_UNPAID: "unpaid.png",
+    PaymentFlag.STATE_PAID: "icons8-checkmark-green-52.png",
+    PaymentFlag.STATE_EXPIRED: "expired.png"
 }
 
 pr_tooltips = {
-    PaymentFlag.UNPAID:_('Unpaid'),
-    PaymentFlag.PAID:_('Paid'),
-    PaymentFlag.EXPIRED:_('Expired'),
-    PaymentFlag.UNKNOWN:_('Unknown'),
-    PaymentFlag.ARCHIVED:_('Archived'),
+    PaymentFlag.STATE_UNPAID:_('Unpaid'),
+    PaymentFlag.STATE_PAID:_('Paid'),
+    PaymentFlag.STATE_EXPIRED:_('Expired'),
 }
 
 

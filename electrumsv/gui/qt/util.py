@@ -1251,8 +1251,7 @@ class FormSectionWidget(QWidget):
         else:
             self._frame_layout.addRow(title_object)
 
-    def add_row(self, label_text: Union[str, QLabel], field_object: FieldType,
-            use_separator: bool=True) -> None:
+    def add_row(self, label_text: Union[str, QLabel], field_object: FieldType) -> None:
         """
         Add a row to the form section.
 
@@ -1260,9 +1259,6 @@ class FormSectionWidget(QWidget):
         caller can use that and helper functions to dynamically alter the form section display
         as needed (hide, show, ..).
         """
-        if use_separator and self._frame_layout.count() > 0:
-            self._frame_layout.addRow(FormSeparatorLine())
-
         if isinstance(label_text, QLabel):
             label = label_text
             label_text = label.text()
@@ -1274,6 +1270,11 @@ class FormSectionWidget(QWidget):
         label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
 
         self._frame_layout.addRow(label, field_object)
+
+    def set_row_visible_for_object(self, field_object: FieldType, flag: bool) -> None:
+        # NOTE(typing) We use the custom PyQt6-stubs project to provide type bindings for Qt6 and
+        #     it is rarely updated and does not seem to include this change added in Qt 6.4.
+        self._frame_layout.setRowVisible(field_object, flag) # type: ignore[attr-defined]
 
     def clear(self, have_layout: bool=True) -> None:
         if have_layout and self._frame_layout is not None:

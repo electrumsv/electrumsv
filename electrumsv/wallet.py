@@ -56,7 +56,8 @@ from .bitcoin import  scripthash_bytes, ScriptTemplate
 from .constants import (ACCOUNT_SCRIPT_TYPES, AccountCreationType, AccountFlags, AccountType,
     API_SERVER_TYPES, BlockHeight, ChainManagementKind, ChainWorkerToken, CHANGE_SUBPATH,
     DatabaseKeyDerivationType, DEFAULT_TXDATA_CACHE_SIZE_MB, DerivationType, DerivationPath,
-    KeyInstanceFlag, KeystoreTextType, KeystoreType, MAPIBroadcastFlag, MasterKeyFlags, MAX_VALUE,
+    DPPMessageType, KeyInstanceFlag, KeystoreTextType, KeystoreType, MAPIBroadcastFlag,
+    MasterKeyFlags, MAX_VALUE,
     MAXIMUM_TXDATA_CACHE_SIZE_MB, MINIMUM_TXDATA_CACHE_SIZE_MB, NetworkEventNames,
     NetworkServerFlag, NetworkServerType, PaymentFlag, PeerChannelAccessTokenFlag,
     PeerChannelMessageFlag, PushDataHashRegistrationFlag, PushDataMatchFlag,
@@ -70,8 +71,8 @@ from .crypto import pw_decode, pw_encode
 from .dpp_messages import Payment, PaymentACK, PaymentACKDict
 from .exceptions import (BadServerError, Bip270Exception, BroadcastError, ExcessiveFee,
     InvalidPassword, NotEnoughFunds, NoViableServersError, PreviousTransactionsMissingException,
-    ServerConnectionError, ServerError, UnsupportedAccountTypeError, UnsupportedScriptTypeError,
-    UserCancelled, WalletLoadError)
+    ServerConnectionError, ServerError, ServiceUnavailableError, UnsupportedAccountTypeError,
+    UnsupportedScriptTypeError, UserCancelled, WalletLoadError)
 from .i18n import _
 from .keystore import BIP32_KeyStore, Deterministic_KeyStore, Hardware_KeyStore, \
     Imported_KeyStore, instantiate_keystore, KeyStore, Multisig_KeyStore, Old_KeyStore, \
@@ -81,10 +82,10 @@ from .network_support.api_server import APIServerDefinition, NewServer
 from .network_support.direct_payments import dpp_make_ack, dpp_make_payment_error, \
     dpp_make_payment_request_response, send_outgoing_direct_payment_async, \
     dpp_make_payment_request_error
-from .network_support.dpp_proxy import _is_later_dpp_message_sequence, \
+from .network_support.dpp_proxy import is_later_dpp_message_sequence, \
     close_dpp_server_connection_async, create_dpp_server_connection_async, \
     create_dpp_server_connections_async, dpp_websocket_send, find_connectable_dpp_server, \
-    MESSAGE_STATE_BY_TYPE, MSG_TYPE_JOIN_SUCCESS, MSG_TYPE_PAYMENT, MSG_TYPE_PAYMENT_REQUEST_CREATE
+    MESSAGE_STATE_BY_TYPE
 from .network_support.exceptions import GeneralAPIError, FilterResponseInvalidError, \
     IndexerResponseMissingError, TransactionNotFoundError
 from .network_support.general_api import create_reference_server_account_async, \
@@ -1104,10 +1105,12 @@ class AbstractAccount:
             dpp_ack_json: str | None=None, encrypted_key_text: str | None=None,
             flags: PaymentFlag=PaymentFlag.NONE) \
                 -> tuple[PaymentRequestRow, list[PaymentRequestOutputRow]]:
+        payment_type = flags & PaymentFlag.MASK_TYPE
+
         # We do not allow setting the state flags.
-        assert flags & PaymentFlag.MASK_STATE == 0
+        assert flags & PaymentFlag.MASK_STATE == PaymentFlag.NONE
         # The request and output amount can only be blank for @BlindPaymentRequests.
-        assert isinstance(amount, int) or flags & PaymentFlag.MONITORED
+        assert isinstance(amount, int) or payment_type == PaymentFlag.TYPE_MONITORED
 
         # We set `KeyInstanceFlag.ACTIVE` here with the understanding that we are responsible for
         # removing it when the payment request is deleted, expires or whatever.
@@ -1126,11 +1129,17 @@ class AbstractAccount:
                 key_data.derivation_type, key_data.derivation_data2)
             assert key_script_type == script_type
 
+        if payment_type == PaymentFlag.TYPE_MONITORED:
+            # This will transition to `STATE_UNPAID` when known to be remotely registered.
+            flags |= PaymentFlag.STATE_PREPARING
+        else:
+            flags |= PaymentFlag.STATE_UNPAID
+
         date_created = int(time.time())
         # This will get the payment request id assigned on insert.
-        request_row = PaymentRequestRow(None, flags | PaymentFlag.UNPAID, amount, date_expires,
-            internal_description, server_id, dpp_invoice_id, dpp_ack_json, merchant_reference,
-            encrypted_key_text, date_created, date_created)
+        request_row = PaymentRequestRow(None, flags, amount, date_expires, internal_description,
+            server_id, dpp_invoice_id, dpp_ack_json, merchant_reference, encrypted_key_text,
+            date_created, date_created)
         request_output_rows: list[PaymentRequestOutputRow] = [
             PaymentRequestOutputRow(None, 0, 0, script_type, script_template.to_script_bytes(),
                 pushdata_hash, amount, key_data.keyinstance_id, date_created, date_created),
@@ -1146,8 +1155,8 @@ class AbstractAccount:
             description: str | None, merchant_reference: str | None) \
                 -> HostedInvoiceCreationResult:
         """
-        Raises `UserCancelled` if the user cancels some dialog they need to use correctly in order
-            to complete this process.
+        Raises `UserCancelled` if the user cancels a dialog they need to use correctly in order
+            to complete this process (like the password input dialog).
         Raises `NoViableServersError` if there are no servers available to use.
         """
         server_state = await find_connectable_dpp_server(self._wallet.dpp_proxy_server_states)
@@ -1167,7 +1176,7 @@ class AbstractAccount:
         request_row, request_output_rows = await self.create_payment_request_async(amount_satoshis,
             description, merchant_reference, server_id=server_state.server.server_id,
             date_expires=date_expires, dpp_invoice_id=dpp_invoice_id,
-            encrypted_key_text=encrypted_key_text, flags=PaymentFlag.INVOICE)
+            encrypted_key_text=encrypted_key_text, flags=PaymentFlag.TYPE_INVOICE)
         # We need to convert it to a "read row" to pass to the web socket.
         assert request_row.paymentrequest_id is not None
         self._wallet.register_outstanding_invoice(request_row, password)
@@ -1203,25 +1212,54 @@ class AbstractAccount:
             request_id=request_id)
         assert request_row is not None
         await close_dpp_server_connection_async(self._wallet.dpp_proxy_server_states, request_row)
-        await self._wallet.data.delete_payment_request_async(request_id)
+        await self._wallet.data.delete_payment_requests_async([request_id], PaymentFlag.ARCHIVED)
 
-    async def monitor_blockchain_payment_async(self, request_id: int) \
-            -> TipFilterRegistrationJobOutput | None:
-        request_row, request_output_rows = self._wallet.data.read_payment_request(
-            request_id=request_id)
-        assert request_row is not None
-        assert request_row.date_expires is not None
-        # We only accept one output row for monitored blockchain payments.
-        assert len(request_output_rows) == 1
+    async def create_monitored_blockchain_payment_async(self, amount_satoshis: int | None,
+            internal_description: str | None, merchant_reference: str | None,
+            date_expires: int | None = None) -> tuple[PaymentRequestRow|None,
+                list[PaymentRequestOutputRow], TipFilterRegistrationJobOutput]:
+        """
+        Raises `NoViableServersError` if there is no blockchain server available to use.
+        Raises `ServiceUnavailableError` if there is a blockchain server and it is not ready
+            to take our tip filter registrations.
+        """
+        assert date_expires is not None
 
-        server_state = self._wallet.get_tip_filter_server_state()
+        server_state = self._wallet.get_connection_state_for_usage(NetworkServerFlag.USE_BLOCKCHAIN)
         if server_state is None:
-            return None
+            raise NoViableServersError()
+        if server_state.connection_flags & ServerConnectionFlag.TIP_FILTER_READY == 0:
+            raise ServiceUnavailableError()
 
+        request_row, request_output_rows = await self.create_payment_request_async(amount_satoshis,
+            internal_description, merchant_reference, date_expires=date_expires,
+            flags=PaymentFlag.TYPE_MONITORED)
+        assert request_row.paymentrequest_id is not None
+        assert request_row.date_expires is not None
+
+        # We only accept one output row for monitored blockchain payments at this time.
+        assert len(request_output_rows) == 1
         job = await create_tip_filter_registration_async(server_state,
             request_output_rows[0].pushdata_hash, request_row.date_expires,
             request_output_rows[0].keyinstance_id, request_output_rows[0].output_script_type)
-        return job.output
+
+        # We need to do some post-processing when the queued registration completes.
+        await job.output.completed_event.wait()
+
+        if job.output.date_registered is None:
+            # A failed monitoring registration is a failed creation. Delete the request.
+            await self._wallet.data.delete_payment_requests_async([ request_row.paymentrequest_id ],
+                PaymentFlag.DELETED)
+            return None, [], job.output
+
+        # Formally promote the payment request from temporary to pending payment.
+        await self._wallet.data.update_payment_request_state_async(
+            request_row.paymentrequest_id, PaymentFlag.STATE_UNPAID,
+            PaymentFlag.CLEARED_MASK_STATE)
+        new_flags = (request_row.request_flags & PaymentFlag.CLEARED_MASK_STATE) | \
+            PaymentFlag.STATE_UNPAID
+        request_row = request_row._replace(request_flags=new_flags)
+        return request_row, request_output_rows, job.output
 
     async def stop_monitoring_blockchain_payment_async(self, request_id: int) -> bool:
         """
@@ -2034,6 +2072,10 @@ class WalletDataAccess:
     def read_payment_requests(self, *, account_id: int | None=None, flags: PaymentFlag | None=None,
             mask: PaymentFlag | None=None, server_id: int | None=None) \
                 -> list[PaymentRequestRow]:
+        """
+        Warning: This database function does not filter out deleted or archived payment requests
+            unless the caller specifies `PaymentFlag.MASK_HIDDEN` in the `mask` parameter.
+        """
         return db_functions.read_payment_requests(self._db_context, account_id=account_id,
             flags=flags, mask=mask, server_id=server_id)
 
@@ -2065,6 +2107,11 @@ class WalletDataAccess:
         await self._db_context.run_in_thread_async(
             db_functions.update_payment_requests_write, entries)
 
+    async def update_payment_request_state_async(self, request_id: int, flags: PaymentFlag,
+            mask: PaymentFlag) -> None:
+        await self._db_context.run_in_thread_async(
+            db_functions.update_payment_request_flags_write, request_id, flags, mask)
+
     async def close_paid_payment_request_async(self, request_id: int) \
             -> list[tuple[str, int, bytes]]:
         """
@@ -2076,15 +2123,13 @@ class WalletDataAccess:
         return await self._db_context.run_in_thread_async(db_functions.close_paid_payment_request,
             request_id)
 
-    async def delete_payment_request_async(self, paymentrequest_id: int) -> None:
-        """
-        Deletes a payment request and clears any flags on the key as appropriate.
-        """
-        keyinstance_ids_by_account_id = await self._db_context.run_in_thread_async(
-            db_functions.delete_payment_request_write, paymentrequest_id)
-        for account_id, keyinstance_ids in keyinstance_ids_by_account_id.items():
-            self.events.trigger_callback(WalletEvent.KEYS_UPDATE, account_id, keyinstance_ids)
-
+    async def delete_payment_requests_async(self, paymentrequest_ids: list[int],
+            update_flag: PaymentFlag) -> None:
+        for _paymentrequest_id, keyinstance_ids_by_account_id in \
+                await self._db_context.run_in_thread_async(
+                    db_functions.delete_payment_requests_write, paymentrequest_ids, update_flag):
+            for account_id, keyinstance_ids in keyinstance_ids_by_account_id.items():
+                self.events.trigger_callback(WalletEvent.KEYS_UPDATE, account_id, keyinstance_ids)
 
     # Peer channels.
 
@@ -2226,12 +2271,6 @@ class WalletDataAccess:
             mask: PushDataHashRegistrationFlag | None=None) -> list[PushDataHashRegistrationRow]:
         return db_functions.read_tip_filter_pushdata_registrations(self._db_context, server_id,
             expiry_timestamp, flags, mask)
-
-    def read_unregistered_tip_filter_pushdatas(self) -> list[tuple[bytes, int, int]]:
-        """
-        Returns [ (pushdata_hash, duration_seconds, keyinstance_id), ... ]
-        """
-        return db_functions.read_unregistered_tip_filter_pushdatas(self._db_context)
 
     async def update_registered_tip_filter_pushdatas_async(self,
             rows: list[tuple[int, int, int, int, int, int]]) -> None:
@@ -2568,7 +2607,7 @@ class Wallet:
 
         self._cache_identity_keys(password)
         self._load_servers(password)
-        self._process_outstanding_invoices(password)
+        self._process_payment_requests(password)
 
     def __str__(self) -> str:
         return f"wallet(path='{self._storage.get_path()}')"
@@ -4169,7 +4208,7 @@ class Wallet:
             pre_existing_channel=False)
 
         await self.data.update_invoice_flags_async(
-            [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.PAID, invoice_id) ])
+            [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.STATE_PAID, invoice_id) ])
         await self.notify_external_listeners_async("outgoing-payment-delivered",
             invoice_id=invoice_id)
         return payment_ack
@@ -4214,16 +4253,44 @@ class Wallet:
                 tsc_proof=tsc_proof, mapi_callback_response=mapi_callback_response,
                 event_source=event_source, event_payload=event_payload)
 
-    def _process_outstanding_invoices(self, password: str) -> None:
+    def _process_payment_requests(self, password: str) -> None:
+        """
+        Read in any outstanding payment requests and reconcile them or cache any runtime state.
+
+        Raises nothing.
+        """
+        # Legacy payments. Delete interrupted requests.
+        # The user will not have been given any way to give out the payment details for this
+        # payment request. We should abandon everything related to it, including any peer channels
+        # that were mid-creation.
+        # TODO(1.4.0) Peer channels. Make sure we delete any peer channels that were created for
+        #     this on reconnection to the server, and drop any messages.
+        paymentrequest_ids: list[int] = []
+        for paymentrequest_row in self.data.read_payment_requests(
+                flags=PaymentFlag.STATE_PREPARING | PaymentFlag.TYPE_MONITORED,
+                mask=PaymentFlag.MASK_STATE | PaymentFlag.MASK_TYPE | PaymentFlag.MASK_HIDDEN):
+            assert paymentrequest_row.paymentrequest_id is not None
+            if paymentrequest_row.date_created + 2 * 24 * 60 * 60 < time.time():
+                paymentrequest_ids.append(paymentrequest_row.paymentrequest_id)
+        if len(paymentrequest_ids) > 0:
+            app_state.async_.spawn(
+                self.data.delete_payment_requests_async(paymentrequest_ids, PaymentFlag.DELETED))
+
+        # DPP invoices. Cache runtime state.
         self._dpp_invoice_credentials: dict[str, tuple[IndefiniteCredentialId, PublicKey]] = {}
-        payment_request_rows = self.data.read_payment_requests(
-            flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID,
-            mask=PaymentFlag.MASK_TYPE | PaymentFlag.MASK_STATE)
-        for payment_request_row in payment_request_rows:
-            self.register_outstanding_invoice(payment_request_row, password)
+        for paymentrequest_row in self.data.read_payment_requests(
+                flags=PaymentFlag.STATE_UNPAID | PaymentFlag.TYPE_INVOICE,
+                mask=PaymentFlag.MASK_STATE | PaymentFlag.MASK_TYPE | PaymentFlag.MASK_HIDDEN):
+            self.register_outstanding_invoice(paymentrequest_row, password)
 
     def register_outstanding_invoice(self, payment_request_row: PaymentRequestRow,
             password: str) -> None:
+        """
+        Cache the credential and public key for an outstanding DPP invoice the wallet has hosted
+        externally.
+
+        Raises nothing.
+        """
         assert payment_request_row.dpp_invoice_id is not None
         assert payment_request_row.encrypted_key_text is not None
         secure_key_text = pw_decode(payment_request_row.encrypted_key_text, password)
@@ -4737,7 +4804,7 @@ class Wallet:
             else:
                 msg_prior = latest_dpp_messages[dpp_message.dpp_invoice_id]
                 msg_later = dpp_message
-                if _is_later_dpp_message_sequence(msg_prior, msg_later):
+                if is_later_dpp_message_sequence(msg_prior, msg_later):
                     latest_dpp_messages[dpp_message.dpp_invoice_id] = msg_later
         return [msg for msg in latest_dpp_messages.values()]
 
@@ -4765,8 +4832,9 @@ class Wallet:
         from any state in the sequence if needed.
         """
         payment_request_rows = self.data.read_payment_requests(
-            flags=PaymentFlag.INVOICE | PaymentFlag.UNPAID,
-            mask=PaymentFlag.MASK_TYPE | PaymentFlag.MASK_STATE, server_id=state.server.server_id)
+            flags=PaymentFlag.TYPE_INVOICE | PaymentFlag.STATE_UNPAID,
+            mask=PaymentFlag.MASK_TYPE | PaymentFlag.MASK_STATE | PaymentFlag.MASK_HIDDEN,
+            server_id=state.server.server_id)
 
         # Initialize ws:// connections for pre-existing active invoice records from the database
         assert len(state.dpp_websockets) == 0
@@ -4782,7 +4850,7 @@ class Wallet:
         while not (self._stopping or self._stopped):
             message_row: DPPMessageRow
             message_row = await state.dpp_messages_queue.get()
-            if message_row.type == MSG_TYPE_JOIN_SUCCESS:
+            if message_row.type == DPPMessageType.JOIN_SUCCESS:
                 continue
 
             request_row, request_output_rows = self.data.read_payment_request(
@@ -4792,8 +4860,8 @@ class Wallet:
                     "DPPMessageRow data: %s", message_row.paymentrequest_id, message_row)
                 continue
 
-            if request_row.state & PaymentFlag.MASK_STATE == PaymentFlag.PAID:
-                if message_row.type == MSG_TYPE_PAYMENT:
+            if request_row.request_flags & PaymentFlag.MASK_STATE == PaymentFlag.STATE_PAID:
+                if message_row.type == DPPMessageType.PAYMENT:
                     # Defensive code in the case that the payer tries to pay an invoice that is
                     # already paid.
                     assert request_row.dpp_ack_json is not None
@@ -4803,43 +4871,38 @@ class Wallet:
                         peer_channel=dpp_ack_dict["peerChannel"], message_row_received=message_row)
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
                     continue
-                elif message_row.type == MSG_TYPE_PAYMENT_REQUEST_CREATE:
+                elif message_row.type == DPPMessageType.REQUEST_CREATE:
                     error_reason = "Requested payment terms for an already paid invoice. " \
                         f"Invoice id: {request_row.dpp_invoice_id}"
                     self.logger.warning(error_reason)
                     dpp_err_message = dpp_make_payment_request_error(message_row, error_reason)
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
                     continue
-                else:
-                    raise NotImplementedError("Unexpected message type")
+                raise NotImplementedError("Unexpected message type")
 
             assert request_row.paymentrequest_id is not None
-            assert request_row.state & PaymentFlag.MASK_TYPE == PaymentFlag.INVOICE, \
-                request_row.state
-            if request_row.state & PaymentFlag.UNPAID != 0:
-                assert request_row.state & PaymentFlag.PAID == 0, request_row.state
-            if request_row.state & PaymentFlag.PAID != 0:
-                assert request_row.state & PaymentFlag.UNPAID == 0, request_row.state
+            assert request_row.request_flags & PaymentFlag.MASK_TYPE == PaymentFlag.TYPE_INVOICE, \
+                request_row.request_flags
 
             # Update flag to new state & write to database
-            assert message_row.type in MESSAGE_STATE_BY_TYPE
-            new_state_flag = MESSAGE_STATE_BY_TYPE[message_row.type]
-            if request_row.state & new_state_flag != new_state_flag:
-                new_state = request_row.state & ~PaymentFlag.MASK_DPP_STATE_MACHINE | new_state_flag
-                request_row = request_row._replace(state=new_state)
+            assert message_row.type in MESSAGE_STATE_BY_TYPE, message_row.type
+            new_state = MESSAGE_STATE_BY_TYPE[message_row.type]
+            if request_row.request_flags & PaymentFlag.MASK_DPP_STATE != new_state:
+                new_flags = request_row.request_flags & ~PaymentFlag.MASK_DPP_STATE | new_state
+                request_row = request_row._replace(request_flags=new_flags)
                 assert request_row.paymentrequest_id is not None
-                update_row = PaymentRequestUpdateRow(new_state, request_row.requested_value,
+                update_row = PaymentRequestUpdateRow(new_flags, request_row.requested_value,
                     request_row.date_expires, request_row.description,
                     request_row.merchant_reference, request_row.dpp_ack_json,
                     request_row.paymentrequest_id)
                 await self.data.update_payment_requests_async([ update_row ])
 
             self.logger.debug("State machine processing DPPMessageRow: %s for state: %s",
-                message_row, request_row.state)
+                message_row, request_row.request_flags)
 
             # ----- States for when we are the Payee ----- #
-            if request_row.state & PaymentFlag.PAYMENT_REQUEST_REQUESTED == \
-                    PaymentFlag.PAYMENT_REQUEST_REQUESTED:
+            if request_row.request_flags & PaymentFlag.MASK_DPP_STATE == \
+                    PaymentFlag.DPP_TERMS_REQUESTED:
                 assert request_row.server_id is not None
                 assert request_row.dpp_invoice_id is not None
                 server_url = self.get_dpp_server_url(request_row.server_id)
@@ -4849,7 +4912,8 @@ class Wallet:
                     request_row, request_output_rows, message_row)
                 app_state.async_.spawn(dpp_websocket_send(state, dpp_response_message))
 
-            elif request_row.state & PaymentFlag.PAYMENT_RECEIVED == PaymentFlag.PAYMENT_RECEIVED:
+            elif request_row.request_flags & PaymentFlag.MASK_DPP_STATE == \
+                    PaymentFlag.DPP_PAYMENT_RECEIVED:
                 # This parsing step also validates the received `Payment` message
                 try:
                     payment_obj = Payment.from_json(message_row.body.decode('utf-8'))
@@ -4928,7 +4992,7 @@ class Wallet:
                     # re-attempt payment for the same invoice.
                     dpp_ack_message = dpp_make_ack(tx.txid(), mapi_result.peer_channel_data,
                         message_row)
-                    update_row = PaymentRequestUpdateRow(request_row.state,
+                    update_row = PaymentRequestUpdateRow(request_row.request_flags,
                         request_row.requested_value, request_row.date_expires,
                         request_row.description, request_row.merchant_reference,
                         dpp_ack_message.body.decode('utf-8'),

@@ -131,11 +131,11 @@ class InvoiceList(MyTreeWidget):
             PaymentFlag.NONE, PaymentFlag.ARCHIVED)
 
         for row in invoice_rows:
-            flags = row.flags & PaymentFlag.MASK_STATE
-            if flags & PaymentFlag.UNPAID and row.date_expires:
+            invoice_state = row.flags & PaymentFlag.MASK_STATE
+            if invoice_state == PaymentFlag.STATE_UNPAID and row.date_expires:
                 if current_time + 5 > row.date_expires:
                     # `EXPIRED` is never stored and solely used for extra visual state.
-                    flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
+                    invoice_state = PaymentFlag.STATE_EXPIRED
                 else:
                     nearest_expiry_time = min(nearest_expiry_time, row.date_expires)
 
@@ -148,8 +148,8 @@ class InvoiceList(MyTreeWidget):
             item = QTreeWidgetItem([received_text, expires_text, requestor_text, description,
                 app_state.format_amount(row.value, whitespaces=True),
                 # The tooltip text should be None to ensure the icon does not have extra RHS space.
-                pr_tooltips.get(flags, "")])
-            icon_entry = pr_icons.get(flags)
+                pr_tooltips.get(invoice_state, "")])
+            icon_entry = pr_icons.get(invoice_state)
             if icon_entry:
                 item.setIcon(COL_STATUS, read_QIcon(icon_entry))
             if row.invoice_id == current_id:
@@ -214,16 +214,16 @@ class InvoiceList(MyTreeWidget):
         assert row is not None, f"invoice {invoice_id} not found"
 
         flags = row.flags & PaymentFlag.MASK_STATE
-        if flags & PaymentFlag.UNPAID and row.date_expires:
+        if flags == PaymentFlag.STATE_UNPAID and row.date_expires:
             if time.time() + 5 > row.date_expires:
                 # `EXPIRED` is never stored and solely used for extra visual state.
-                flags = (row.flags & ~PaymentFlag.UNPAID) | PaymentFlag.EXPIRED
+                flags = (row.flags & PaymentFlag.CLEARED_MASK_STATE) | PaymentFlag.STATE_EXPIRED
 
         if column_data:
             menu.addAction(_("Copy {}").format(column_title),
                 lambda: self._main_window.app.clipboard().setText(column_data))
         menu.addAction(_("Details"), partial(self._show_invoice_window, row))
-        if flags & PaymentFlag.UNPAID:
+        if flags == PaymentFlag.STATE_UNPAID:
             menu.addAction(_("Pay Now"), partial(self.pay_invoice, row.invoice_id))
         menu.addAction(_("Delete"), lambda: self._delete_invoice(invoice_id))
         menu.exec(self.viewport().mapToGlobal(position))

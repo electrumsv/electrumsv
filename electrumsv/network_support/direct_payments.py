@@ -8,10 +8,9 @@ import json
 from typing import TypedDict
 
 from ..app_state import app_state
+from ..constants import DPPMessageType
 from ..dpp_messages import HPMPaymentACK, HYBRID_PAYMENT_MODE_BRFCID, Payment, PaymentACK, \
     PeerChannelDict, PaymentACKDict
-from .dpp_proxy import MSG_TYPE_PAYMENT_REQUEST_RESPONSE, MSG_TYPE_PAYMENT_ACK, \
-    MSG_TYPE_PAYMENT_REQUEST_ERROR, MSG_TYPE_PAYMENT_ERROR
 from ..exceptions import Bip270Exception
 from ..logs import logs
 from ..networks import Net
@@ -134,7 +133,7 @@ def dpp_make_payment_request_response(server_url: str, credential_id: Indefinite
         expiration=message_row_received.expiration,
         body=json.dumps(response_json).encode('utf-8'),
         timestamp=datetime.now(tz=timezone.utc).isoformat(),
-        type=MSG_TYPE_PAYMENT_REQUEST_RESPONSE
+        type=DPPMessageType.REQUEST_RESPONSE
     )
     return message_row_response
 
@@ -156,7 +155,7 @@ def dpp_make_ack(txid: str, peer_channel: PeerChannelDict,
         expiration=message_row_received.expiration,
         body=json.dumps(payment_ack_data).encode('utf-8'),
         timestamp=datetime.now(tz=timezone.utc).isoformat(),
-        type=MSG_TYPE_PAYMENT_ACK)
+        type=DPPMessageType.PAYMENT_ACK)
     return message_row_response
 
 
@@ -176,7 +175,7 @@ def dpp_make_payment_request_error(message_row_received: DPPMessageRow, error_re
         expiration=message_row_received.expiration,
         body=json.dumps(client_error).encode('utf-8'),
         timestamp=datetime.now(tz=timezone.utc).isoformat(),
-        type=MSG_TYPE_PAYMENT_REQUEST_ERROR)
+        type=DPPMessageType.REQUEST_ERROR)
     return message_row_response
 
 
@@ -196,6 +195,6 @@ def dpp_make_payment_error(message_row_received: DPPMessageRow, error_reason: st
         expiration=message_row_received.expiration,
         body=json.dumps(client_error).encode('utf-8'),
         timestamp=datetime.now(tz=timezone.utc).isoformat(),
-        type=MSG_TYPE_PAYMENT_ERROR)
+        type=DPPMessageType.PAYMENT_ERROR)
     return message_row_response
 
