@@ -754,8 +754,9 @@ confirmations or specific addresses.
    or less confirmations.
 #. ``addresses`` (array of strings, optional, default=null). Limit the results to the UTXOs locked
    to the provided addresses.
-#. ``include_unsafe`` (bool, optional, default=false). Safe coins are confirmed or unconfirmed and
-   fully funded by ourselves. By default they are not included in the set of returned coins.
+#. ``include_unsafe`` (bool, optional, default=false). Safe coins are either confirmed, or
+   unconfirmed and fully funded by ourselves. By default they are not included in the set of
+   returned coins.
 
 **Returns:**
 
@@ -777,7 +778,7 @@ For example, we can filter for a specific address:
 
 .. code-block:: console
 
-    curl --data-binary '{"jsonrpc": "1.0", "id":"curltest", "method": "listunspent", params": { "addresses": ["mmne6bSrjwRZk16Y7TkwrrWysiUXZfd9ZY"] } }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
+    curl --data-binary '{"jsonrpc": "1.0", "id":"curltest", "method": "listunspent", "params": { "addresses": ["mmne6bSrjwRZk16Y7TkwrrWysiUXZfd9ZY"] } }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
 
 Returns a result similar to the following:
 
@@ -822,6 +823,13 @@ Returns a result similar to the following:
           "safe":false
       }
     ]
+
+**Common problems:**
+
+* If you are not seeing an incoming payment from another wallet or another party, this will likely
+  be because you are not passing the ``"include_unsafe"=true`` parameter. For a unspent output to
+  be included without this flag, the transaction it is in has to be confirmed or both unconfirmed
+  and for all funding to come from this wallet.
 
 **Incompatibilities:**
 
