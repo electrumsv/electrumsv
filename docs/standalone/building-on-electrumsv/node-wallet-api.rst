@@ -685,6 +685,81 @@ call processing are described above.
       :Message: | ``JSON value is not an object as expected``
                 | The type of an entry in the ``inputs`` parameter was not an object.
 
+getbalance
+~~~~~~~~~~
+
+Get the balance of the default account in the loaded wallet.
+
+**Parameters:**
+
+#. ``account`` (string, optional). Not supported. Use `null` placeholder if necessary.
+#. ``minconf`` (integer, optional, default=1). Limit the results to the UTXOs with this number or
+   more confirmations.
+#. ``include_watchonly`` (bool, optional, default=false). Not supported. Use `null` placeholder
+   if necessary.
+
+**Returns:**
+
+A numeric value representing how many unspent Bitcoin there are in the wallet.
+
+.. code-block:: console
+
+    curl --data-binary '{"jsonrpc": "1.0", "id":"curltest", "method": "getbalance", "params": {} }' -H 'content-type: text/plain;' http://127.0.0.1:8332/
+
+Returns a result similar to the following:
+
+.. code-block:: js
+
+    4.00001000
+
+**Incompatibilities:**
+
+#. Parameter The ``account`` parameter is ignored as the node wallet API only operates on one
+   account. If the user has interfered with the wallet and created more accounts, the API call will
+   error. Specifying a non-null value will raise an error.
+#. Parameter: The ``include_watchonly`` parameter is ignored as the node wallet API does not
+   support watch-only accounts at this time. Specifying a non-null value will raise an error.
+#. Error: The ``RPC_PARSE_ERROR`` for ``account`` is customised and reflects that we do not accept
+   non-null values.
+#. Error: The ``RPC_PARSE_ERROR`` for ``include_watchonly`` is customised and reflects that we
+   do not accept non-null values.
+
+**Error responses:**
+
+These errors are the custom errors returned from within this call. Base errors that occur during
+call processing are described above.
+
+- 404 (Not found)
+
+    - :Code: -32601 ``RPC_METHOD_NOT_FOUND``
+      :Message: | ``Method not found (wallet method is disabled because no wallet is loaded)``
+                | The implicit wallet access failed because no wallets are loaded.
+
+- 500 (Internal server error)
+
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``Ambiguous account (found <count>, expected 1)``
+                | A wallet used by the JSON-RPC API must only have one account so that the
+                  API code knows which to make use of. The given wallet has either no accounts
+                  or more than one account (the current number indicated by "<count>").
+
+    - :Code: -32602 ``RPC_INVALID_PARAMS``
+      :Message: | ``Invalid parameters, see documentation for this call``
+                | Either too few or too many parameters were provided.
+
+    - :Code: -32700 ``RPC_PARSE_ERROR``
+      :Message: | ``JSON value is not a null as expected``
+                | This is an intentional incompatibility as we do not support this parameter. The
+                  type of the entries in the ``account`` parameter are expected to be strings and
+                  one or more were interpreted as another type.
+      :Message: | ``JSON value is not an integer as expected``
+                | The type of the ``minconf`` parameters are expected to be integers
+                  and one or more were interpreted as another type.
+      :Message: | ``JSON value is not a null as expected``
+                | This is an intentional incompatibility as we do not support this parameter. The
+                  type of the entries in the ``include_watchonly`` parameter are expected to be
+                  strings and one or more were interpreted as another type.
+
 getnewaddress
 ~~~~~~~~~~~~~
 
@@ -739,6 +814,229 @@ call processing are described above.
                 | An error occurred attempting to register the address with the blockchain server
                   to be monitored for incoming payments. The error message provides some indication
                   of what happened, but the wallet logs will be needed to diagnose further.
+
+getrawchangeaddress
+~~~~~~~~~~~~~
+
+Reserve the next unused change address (otherwise known as external key) and return it as a
+P2PKH address.
+
+**Parameters:**
+
+None.
+
+**Returns:**
+
+The base58 encoded address for the reserved key (string).
+
+**Error responses:**
+
+These errors are the custom errors returned from within this call. Base errors that occur during
+call processing are described above.
+
+- 404 (Not found)
+
+    - :Code: -32601 ``RPC_METHOD_NOT_FOUND``
+      :Message: | ``Method not found (wallet method is disabled because no wallet is loaded)``
+                | The implicit wallet access failed because no wallets are loaded.
+
+- 500 (Internal server error)
+
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``Ambiguous account (found <count>, expected 1)``
+                | A wallet used by the JSON-RPC API must only have one account so that the
+                  API code knows which to make use of. The given wallet has either no accounts
+                  or more than one account (the current number indicated by the `count`).
+
+gettransaction
+~~~~~~~~~~~~~~
+
+Get detailed information about a transaction in the wallet.
+
+**Parameters:**
+
+#. ``txid`` (string, required). The transaction id.
+#. ``include_watchonly`` (bool, optional, default=false). Not supported. Use `null` placeholder
+   if necessary.
+
+**Returns:**
+
+An object detailing the matched transaction. The object has the following fields:
+
+- ``account``: (string, required). The account name associated with the transaction. As we do not
+  support this feature the value will always be ``""``.
+- ``address``: (string, required). The address of this transaction.
+- ``category``: (string, required). ``"send"`` for an outgoing funds, ``"receive"`` for incoming
+  funds.
+- ``amount``: (numeric, required). The number of bitcoin sent (negative value) or received
+  (positive value).
+- ``label``: (string, required). A comment for the address/transaction. As we do not support this
+  feature the value will always be ``""``.
+- ``vout``: (integer, required). The index of the output with the given amount in the transaction.
+- ``fee``: (numeric, optional). The number of bitcoin paid as a fee will be present for sent
+  funds (negative value).
+- ``confirmations``: (integer, required). Number of mined blocks including the transaction and on
+  top of it.
+- ``trusted``: (bool, required). Indicate if this coin is considered safe or not.
+- ``blockhash``: (string, required). The block hash containing the transaction.
+- ``blockindex``: (numeric, required). The index of the transaction in the block that includes it.
+- ``blocktime``: (numeric, required). The block time in seconds since epoch (1 Jan 1970 GMT).
+- ``txid``: (string, required). The transaction id.
+- ``time``: (numeric, required). The transaction time in seconds since epoch
+  (midnight Jan 1 1970 GMT).
+- ``timereceived``: (numeric, required). The time received in seconds since epoch
+  (midnight Jan 1 1970 GMT).
+- ``comment``: (string, required). If a comment is associated with the transaction. As we do not
+  support this feature the value will always be ``""``.
+- ``abandoned``: (bool, required). ``true`` if the transaction has been abandoned (inputs are
+  respendable). Only relevant for the send category of transactions.
+
+**Incompatibilities:**
+
+#. Parameter: The ``include_watchonly`` parameter is ignored as the node wallet API does not
+   support watch-only accounts at this time. Specifying a non-null value will raise an error.
+#. Error: The ``RPC_PARSE_ERROR`` for ``include_watchonly`` is customised and reflects that we
+   do not accept non-null values.
+
+**Error responses:**
+
+These errors are the custom errors returned from within this call. Base errors that occur during
+call processing are described above.
+
+- 404 (Not found)
+
+    - :Code: -32601 ``RPC_METHOD_NOT_FOUND``
+      :Message: | ``Method not found (wallet method is disabled because no wallet is loaded)``
+                | The implicit wallet access failed because no wallets are loaded.
+
+- 500 (Internal server error)
+
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``Ambiguous account (found <count>, expected 1)``
+                | A wallet used by the JSON-RPC API must only have one account so that the
+                  API code knows which to make use of. The given wallet has either no accounts
+                  or more than one account (the current number indicated by "<count>").
+
+    - :Code: -5 ``RPC_INVALID_ADDRESS_OR_KEY``
+      :Message: | ``Invalid or non-wallet transaction id``
+                | The ``txid`` parameter value is not recognised as the id of a transaction
+                  in the wallet database.
+
+    - :Code: -32602 ``RPC_INVALID_PARAMS``
+      :Message: | ``Invalid parameters, see documentation for this call``
+                | Either too few or too many parameters were provided.
+
+    - :Code: -32700 ``RPC_PARSE_ERROR``
+      :Message: | ``JSON value is not a string as expected``
+                | The type of the ``txid`` parameter is expected to be a string and was interpreted
+                  as another type.
+      :Message: | ``JSON value is not a null as expected``
+                | This is an intentional incompatibility as we do not support this parameter. The
+                  type of the entries in the ``include_watchonly`` parameter are expected to be
+                  strings and one or more were interpreted as another type.
+
+listtransactions
+~~~~~~~~~~~~~~~~
+
+Return a selection of the most recent transactions from the wallet.
+
+**Parameters:**
+
+#. ``account`` (string, optional). Not supported. Use `null` placeholder if necessary.
+#. ``count`` (integer, optional, default=10). Limit the results to this number of transactions.
+#. ``skip`` (integer, optional, default=0). Skip this many transactions before starting the list.
+#. ``include_watchonly`` (bool, optional, default=false). Not supported. Use `null` placeholder
+   if necessary.
+
+**Returns:**
+
+An array of objects, where each object details a matched transaction. Each object has the following
+fields:
+
+- ``account``: (string, required). The account name associated with the transaction. As we do not
+  support this feature the value will always be ``""``.
+- ``address``: (string, required). The address of this transaction.
+- ``category``: (string, required). ``"send"`` for an outgoing funds, ``"receive"`` for incoming
+  funds.
+- ``amount``: (numeric, required). The number of bitcoin sent (negative value) or received
+  (positive value).
+- ``label``: (string, required). A comment for the address/transaction. As we do not support this
+  feature the value will always be ``""``.
+- ``vout``: (integer, required). The index of the output with the given amount in the transaction.
+- ``fee``: (numeric, optional). The number of bitcoin paid as a fee will be present for sent
+  funds (negative value).
+- ``confirmations``: (integer, required). Number of mined blocks including the transaction and on
+  top of it.
+- ``trusted``: (bool, required). Indicate if this coin is considered safe or not.
+- ``blockhash``: (string, required). The block hash containing the transaction.
+- ``blockindex``: (numeric, required). The index of the transaction in the block that includes it.
+- ``blocktime``: (numeric, required). The block time in seconds since epoch (1 Jan 1970 GMT).
+- ``txid``: (string, required). The transaction id.
+- ``time``: (numeric, required). The transaction time in seconds since epoch
+  (midnight Jan 1 1970 GMT).
+- ``timereceived``: (numeric, required). The time received in seconds since epoch
+  (midnight Jan 1 1970 GMT).
+- ``comment``: (string, required). If a comment is associated with the transaction. As we do not
+  support this feature the value will always be ``""``.
+- ``abandoned``: (bool, required). ``true`` if the transaction has been abandoned (inputs are
+  respendable). Only relevant for the send category of transactions.
+
+**Incompatibilities:**
+
+#. Parameter The ``account`` parameter is ignored as the node wallet API only operates on one
+   account. If the user has interfered with the wallet and created more accounts, the API call will
+   error. Specifying a non-null value will raise an error.
+#. Parameter: The ``include_watchonly`` parameter is ignored as the node wallet API does not
+   support watch-only accounts at this time. Specifying a non-null value will raise an error.
+#. Error: The ``RPC_PARSE_ERROR`` for ``account`` is customised and reflects that we do not accept
+   non-null values.
+#. Error: The ``RPC_PARSE_ERROR`` for ``include_watchonly`` is customised and reflects that we
+   do not accept non-null values.
+
+**Error responses:**
+
+These errors are the custom errors returned from within this call. Base errors that occur during
+call processing are described above.
+
+- 404 (Not found)
+
+    - :Code: -32601 ``RPC_METHOD_NOT_FOUND``
+      :Message: | ``Method not found (wallet method is disabled because no wallet is loaded)``
+                | The implicit wallet access failed because no wallets are loaded.
+
+- 500 (Internal server error)
+
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``Ambiguous account (found <count>, expected 1)``
+                | A wallet used by the JSON-RPC API must only have one account so that the
+                  API code knows which to make use of. The given wallet has either no accounts
+                  or more than one account (the current number indicated by "<count>").
+
+    - :Code: -8 ``RPC_INVALID_PARAMETER``
+      :Message: | ``Negative count``
+                | The ``count`` parameter was less than zero.
+      :Message: | ``Negative from``
+                | The ``skip`` parameter was less than zero.
+
+    - :Code: -32602 ``RPC_INVALID_PARAMS``
+      :Message: | ``Invalid parameters, see documentation for this call``
+                | Either too few or too many parameters were provided.
+
+    - :Code: -32700 ``RPC_PARSE_ERROR``
+      :Message: | ``JSON value is not a null as expected``
+                | This is an intentional incompatibility as we do not support this parameter. The
+                  type of the entries in the ``account`` parameter are expected to be strings and
+                  one or more were interpreted as another type.
+      :Message: | ``JSON value is not an integer as expected``
+                | The type of the ``count`` parameter is expected to be an integer and was
+                  interpreted as another type.
+      :Message: | ``JSON value is not an integer as expected``
+                | The type of the ``skip`` parameter is expected to be an integer and was
+                  interpreted as another type.
+      :Message: | ``JSON value is not a null as expected``
+                | This is an intentional incompatibility as we do not support this parameter. The
+                  type of the entries in the ``include_watchonly`` parameter are expected to be
+                  strings and one or more were interpreted as another type.
 
 listunspent
 ~~~~~~~~~~~
@@ -833,10 +1131,10 @@ Returns a result similar to the following:
 
 **Incompatibilities:**
 
-#. The node wallet does redundant type checking on the ``minconf`` and ``maxconf`` parameters
-   which would otherwise override the ``RPC_PARSE_ERROR`` with a ``RPC_TYPE_ERROR``. As existing
-   API usage should not be erroring with incorrectly typed parameters, this should not be
-   an important point of compatibility.
+#. Parameter: The node wallet does redundant type checking on the ``minconf`` and ``maxconf``
+   parameters which would otherwise override the ``RPC_PARSE_ERROR`` with a ``RPC_TYPE_ERROR``.
+   As existing API usage should not be erroring with incorrectly typed parameters, this should
+   not be an important point of compatibility.
 
 **Error responses:**
 
@@ -892,6 +1190,86 @@ call processing are described above.
                 | The type of the ``include_unsafe`` parameter is expected to be a boolean
                   and was interpreted as another type.
 
+sendrawtransaction
+~~~~~~~~~~~~~~~~~~
+
+Broadcast the given transaction via a MAPI server. This will not add a related but unknown
+transaction to the wallet, and it is at this time assumed that any related transactions should
+be created using this wallet.
+
+**Parameters:**
+
+#. ``hexstring`` (string, required). The serialised complete transaction in hexadecimal encoding.
+#. ``allowhighfees`` (bool, optional, default=``false``). Allow the transaction to have a fee
+   higher than the wallet's designated reasonable fee level.
+#. ``dontcheckfee`` (bool, optional, default=``false``).  TODO
+
+**Returns:**
+
+The transaction id of the broadcast transaction (string).
+
+**Incompatibilities:**
+
+#. Parameter: We do not currently support the ``subtractfeefromamount`` parameter, which the node
+   accepts as an indication the caller wishes the fee to be subtracted from the payment amount.
+   This is an executive decision in order to limit the scope of work to the necessary parts.
+
+**Error responses:**
+
+These errors are the custom errors returned from within this call. Base errors that occur during
+call processing are described above.
+
+- 404 (Not found)
+
+    - :Code: -32601 ``RPC_METHOD_NOT_FOUND``
+      :Message: | ``Method not found (wallet method is disabled because no wallet is loaded)``
+                | The implicit wallet access failed because no wallets are loaded.
+
+- 500 (Internal server error)
+
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``Ambiguous account (found <count>, expected 1)``
+                | A wallet used by the JSON-RPC API must only have one account so that the
+                  API code knows which to make use of. The given wallet has either no accounts
+                  or more than one account (the current number indicated by the `count`).
+
+    - :Code: -4 ``RPC_WALLET_ERROR``
+      :Message: | ``No suitable MAPI server for broadcast``
+                | The wallet tried to obtain fee quotes from MAPI servers and failed.
+                  As it chooses the fee for the payment you are askign it to make based on
+                  available MAPI server quotes, this means it cannot proceed.
+
+    - :Code: -22 ``DESERIALIZATION_ERROR``
+      :Message: | ``Tx decode failed``
+                | The ``hexstring`` argument value was successfully decoded to bytes, but the
+                  processing of it as a validly formed transaction failed.
+
+    - :Code: -26 ``VERIFY_REJECTED``
+      :Message: | ``<whatever error MAPI returned>``
+                | There may be a range of reasons for why the MAPI broadcast of the signed
+                  transaction failed. We aggregate these into this error.
+
+    - :Code: -27 ``VERIFY_ALREADY_IN_CHAIN``
+      :Message: | ``Transaction already in the mempool``
+                | The transaction is already known to have been broadcast.
+
+    - :Code: -32602 ``RPC_INVALID_PARAMS``
+      :Message: | ``Invalid parameters, see documentation for this call``
+                | Either too few or too many parameters were provided.
+
+    - :Code: -32700 ``RPC_PARSE_ERROR``
+      :Message: | ``JSON value is not a string as expected``
+                | The type of the ``hexstring`` parameter was expected to be a string but was
+                  interpreted as another type.
+    - :Code: -32700 ``RPC_PARSE_ERROR``
+      :Message: | ``JSON value is not a boolean as expected``
+                | The type of the ``allowhighfees`` parameter was expected to be a boolean but was
+                  interpreted as another type.
+    - :Code: -32700 ``RPC_PARSE_ERROR``
+      :Message: | ``JSON value is not a string as expected``
+                | The type of the ``dontcheckfee`` parameter was expected to be a boolean but was
+                  interpreted as another type.
+
 sendtoaddress
 ~~~~~~~~~~~~~
 
@@ -920,8 +1298,9 @@ The transaction id of the broadcast transaction (string).
 
 **Incompatibilities:**
 
-#. We do not currently support the fifth parameter, which the node accepts as an indication the
-   caller wishes the fee to be subtracted from the payment amount.
+#. Parameter: We do not currently support the ``subtractfeefromamount`` parameter, which the node
+   accepts as an indication the caller wishes the fee to be subtracted from the payment amount.
+   This is an executive decision in order to limit the scope of work to the necessary parts.
 
 **Error responses:**
 
@@ -1148,20 +1527,20 @@ Returned the following result:
 If a user requires any of these disabled functionalities, they should get in touch with their
 contact at the Bitcoin Association and request the ones they need.
 
-#. Only one transaction is currently accepted. If more than one transaction is provided then
-   a compatibility related error will be raised.
-#. Only spending of P2PKH coins is supported. While it is in theory to support P2PK, P2SH and
-   bare multi-signature, spending of these coins are not currently enabled. Any attempt to do so
-   will result in a compatibility related error.
+#. Parameter: Only one transaction is currently accepted in the ``hexstring`` parameter. If more
+   than one transaction is provided then a compatibility related error will be raised.
+#. Parameter: Only spending of P2PKH coins is supported. While it is in theory to support P2PK,
+   P2SH and bare multi-signature, spending of these coins are not currently enabled. Any attempt to
+   do so will result in a compatibility related error.
 
    #. Related to this: If any ``prevouts`` entry contains a ``redeemScript`` property, it will
       be ignored as we do not currently handle P2SH spends.
 
-#. External private keys are not currently accepted. If any are provided a compatibility related
-   error will be raised.
-#. Only the ``ALL|FORKID`` sighash name is accepted. As with the bitcoind implementation sighash
-   names that do not include ``FORKID`` will result in a standard error. However, valid sighash
-   names other than ``ALL|FORKID`` will raise a compatibility related error.
+#. Parameter: External private keys are not currently accepted. If any are provided a compatibility
+   related error will be raised.
+#. Parameter: Only the ``ALL|FORKID`` sighash name is accepted. As with the bitcoind implementation
+   sighash names that do not include ``FORKID`` will result in a standard error. However, valid
+   sighash names other than ``ALL|FORKID`` will raise a compatibility related error.
 
 **Error responses:**
 

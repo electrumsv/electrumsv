@@ -126,6 +126,8 @@ class RPCError(IntEnum):
     WALLET_NOT_FOUND                = -18   # Internal server error (500) status code.
     WALLET_NOT_SPECIFIED            = -19   # Internal server error (500) status code.
     DESERIALIZATION_ERROR           = -22   # Internal server error (500) status code.
+    VERIFY_REJECTED                 = -26   # Internal server error (500) status code.
+    VERIFY_ALREADY_IN_CHAIN         = -27   # Internal server error (500) status code.
 
 
 SIGHASH_MAPPING: dict[str, int] = {
@@ -1101,8 +1103,6 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
 
     # The only mechanism we have to know if the transaction ends up in a block is the peer
     # channel registration.
-    # TODO we will get a merkle proof for the payments we send but not the ones we receive?
-    # TODO we will get the merkle proof for the payments we recieve ...
     mapi_server_hint = wallet.get_mapi_broadcast_context(account.get_id(), transaction)
     if mapi_server_hint is None:
         raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
