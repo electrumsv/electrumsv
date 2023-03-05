@@ -20,6 +20,16 @@ class AccountRow(NamedTuple):
     blockchain_server_id: int | None
     peer_channel_server_id: int | None
 
+class AccountHistoryOutputRow(NamedTuple):
+    tx_hash: bytes
+    txo_index: int
+    script_pubkey_bytes: bytes|None
+    is_mine: bool
+    value: int
+    block_hash: bytes|None
+    block_height: int|None
+    block_position: int|None
+    date_created: int
 
 class AccountTransactionDescriptionRow(NamedTuple):
     account_id: int

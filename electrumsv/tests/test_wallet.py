@@ -38,8 +38,8 @@ from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, MerkleP
     WalletBalance
 from electrumsv.wallet_support.keys import get_pushdata_hash_for_keystore_key_data
 
-from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, setup_async, \
-    tear_down_async, TEST_WALLET_PATH
+from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, \
+    read_testdata_for_wallet, setup_async, tear_down_async, TEST_WALLET_PATH
 from ..network_support.types import ServerConnectionState
 
 T1 = TypeVar("T1")
@@ -488,7 +488,7 @@ class TestLegacyWalletCreation:
 
 
 @pytest.mark.parametrize("storage_info",
-    get_categorised_files2(TEST_WALLET_PATH, exclude_suffix="_testdata.json"))
+    get_categorised_files2(TEST_WALLET_PATH, exclude_suffix=".json"))
 @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
 def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorageInfo,
         caplog) -> None:
@@ -629,9 +629,6 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
     but we'll check them all just to be sure, and should consider varying the stored data
     to ensure more migration cases are checked.
     """
-    testdata_filename = storage_info.wallet_filepath +"_testdata.json"
-    assert os.path.exists(testdata_filename)
-
     transaction_rows = db_functions.UNITTEST_read_transactions(wallet.data._db_context)
     testdata_transactions: list[dict] = []
     transaction_hashes: list[bytes] = []
@@ -717,13 +714,8 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
         "transactions": sorted(testdata_transactions, key=lambda t3: t3["transaction_id"]),
     }
 
-    if True:
-        with open(testdata_filename, "r") as f:
-            existing_testdata_object = json.load(f)
-        assert existing_testdata_object == testdata_object
-    else:
-        with open(testdata_filename, "w") as f:
-            json.dump(testdata_object, f, indent=4)
+    existing_testdata_object = read_testdata_for_wallet(storage_info.wallet_filepath, "testdata")
+    assert existing_testdata_object == testdata_object
 
 
 # class TestImportedPrivkeyAccount:
