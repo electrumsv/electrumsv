@@ -36,8 +36,8 @@ from typing import Any, cast, Iterable, Optional, Sequence
 from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, execute_sql_by_id, \
     read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
 
-from ..constants import (BlockHeight, DerivationType, DerivationPath, KeyInstanceFlag,
-    MAPIBroadcastFlag, NetworkServerFlag, pack_derivation_path, PaymentFlag,
+from ..constants import (BlockHeight, DerivationType, DerivationPath,
+    KeyInstanceFlag, MAPIBroadcastFlag, NetworkServerFlag, pack_derivation_path, PaymentFlag,
     PeerChannelAccessTokenFlag, PeerChannelMessageFlag, PushDataHashRegistrationFlag, ScriptType,
     ServerPeerChannelFlag, TransactionOutputFlag, TxFlags, unpack_derivation_path, WalletEventFlag)
 from ..crypto import pw_decode, pw_encode
@@ -49,8 +49,9 @@ from ..types import KeyInstanceDataPrivateKey, MasterKeyDataBIP32, MasterKeyData
 from ..util import get_posix_timestamp
 from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     IncompleteProofDataSubmittedError, TransactionAlreadyExistsError, TransactionRemovalError)
-from .types import (AccountRow, AccountTransactionRow, AccountTransactionDescriptionRow,
-    AccountTransactionOutputSpendableRow, AccountTransactionOutputSpendableRowExtended,
+from .types import (AccountRow, AccountHistoryOutputRow, AccountTransactionRow,
+    AccountTransactionDescriptionRow, AccountTransactionOutputSpendableRow,
+    AccountTransactionOutputSpendableRowExtended,
     DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceAccountRow, InvoiceRow,
     KeyInstanceFlagRow, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, MasterKeyRow,
     MAPIBroadcastRow, NetworkServerRow, PasswordUpdateResult, PaymentRequestRow,
@@ -569,6 +570,76 @@ def read_history_list(db: sqlite3.Connection, account_id: int,
     rows = cursor.fetchall()
     cursor.close()
     return [ HistoryListRow(*t) for t in rows ]
+
+
+@replace_db_context_with_connection
+def read_history_for_outputs(db: sqlite3.Connection, account_id: int, *,
+        transaction_hash: bytes|None=None, limit_count: int=10, skip_count: int=0) \
+            -> list[AccountHistoryOutputRow]:
+    sql = """
+    WITH _AccountSpends(tx_hash, spent_value) AS (
+        SELECT TX.tx_hash, SUM(PTXO.value)
+        FROM Transactions TX
+        INNER JOIN AccountTransactions ATX ON ATX.tx_hash=TX.tx_hash AND ATX.account_id=?1
+        INNER JOIN TransactionInputs TXI ON TXI.tx_hash=ATX.tx_hash
+        INNER JOIN TransactionOutputs PTXO ON PTXO.tx_hash=TXI.spent_tx_hash
+            AND PTXO.txo_index=TXI.spent_txo_index
+        INNER JOIN KeyInstances KI ON KI.keyinstance_id=PTXO.keyinstance_id
+        WHERE PTXO.keyinstance_id IS NOT NULL AND KI.account_id=ATX.account_id
+        GROUP BY TX.tx_hash
+    )
+    """
+    # Filter criteria: If there are any funding spends we include all outputs in a transaction.
+    #     Otherwise we just include those that we are ours (have a key from this account).
+    # - `KI.account_id IS NOT NULL AND KI.account_id=ATX.account_id`: This account only.
+    # - `_AS.spent_value IS NULL`: Only if we funded this transaction. This lacks nuance and in the
+    #   longer term will not necessarily be clear for cofunded transactions or smart contracts.
+    # - `x'00000000'`: The serialised BIP32 byte prefix for receiving addresses. We do not use
+    #     `LIKE` as that is text specific and fails on blobs in some cases. In theory the range
+    #     comparison is indexable. (Stack Overflow: https://stackoverflow.com/a/24011877)
+    # - `NULLS FIRST`: SQLite places NULLS at the start of an ascending sequence. As we are using
+    #   descending sequences, we override this so unconfirmed and local transactions come first.
+    transaction_clause_and = ""
+    if transaction_hash is not None:
+        transaction_clause_and = "TX.tx_hash=?2 AND"
+    sql += f"""
+    SELECT TX.tx_hash, TXO.txo_index,
+        SUBSTRING(TX.tx_data, TXO.script_offset+1, TXO.script_length),
+        (CASE WHEN KI.account_id IS NOT NULL
+        AND KI.account_id=ATX.account_id THEN 1 ELSE 0 END) AS is_mine,
+        CASE WHEN _AS.spent_value IS NULL OR KI.account_id IS NOT NULL
+        AND KI.account_id=ATX.account_id THEN TXO.value ELSE -TXO.value END,
+        TX.block_hash, TX.block_height, TX.block_position, TX.date_created
+    FROM Transactions TX
+    INNER JOIN AccountTransactions ATX ON ATX.tx_hash=TX.tx_hash AND ATX.account_id=?1
+    INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash
+    LEFT JOIN _AccountSpends _AS ON _AS.tx_hash=ATX.tx_hash
+    LEFT JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id
+    WHERE {transaction_clause_and} (_AS.spent_value>0 OR
+        KI.derivation_type=={DerivationType.BIP32_SUBPATH} AND KI.derivation_data2>=x'00000000'
+        AND KI.derivation_data2<x'00000001')
+    ORDER BY TX.block_height DESC NULLS FIRST, TX.block_position DESC NULLS FIRST
+    LIMIT ?3 OFFSET ?4
+    """
+    row_tx_hash: bytes
+    row_txo_index: int
+    row_script_pubkey_bytes: bytes|None
+    row_is_mine: int
+    row_value: int
+    row_block_hash: bytes|None
+    row_block_height: int|None
+    row_block_position: int|None
+    row_date_created: int
+    rows: list[AccountHistoryOutputRow] = []
+    cursor = db.execute(sql, (account_id, transaction_hash, limit_count, skip_count))
+    for (row_tx_hash, row_txo_index, row_script_pubkey_bytes, row_is_mine,
+            row_value, row_block_hash, row_block_height, row_block_position, row_date_created) \
+                in cursor.fetchall():
+        rows.append(AccountHistoryOutputRow(row_tx_hash, row_txo_index,
+            row_script_pubkey_bytes, bool(row_is_mine), row_value, row_block_hash, row_block_height,
+            row_block_position, row_date_created))
+    cursor.close()
+    return rows
 
 
 @replace_db_context_with_connection

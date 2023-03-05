@@ -856,40 +856,56 @@ Get detailed information about a transaction in the wallet.
 **Parameters:**
 
 #. ``txid`` (string, required). The transaction id.
-#. ``include_watchonly`` (bool, optional, default=false). Not supported. Use `null` placeholder
+#. ``include_watchonly`` (bool, optional, default=``false``). Not supported. Use `null` placeholder
    if necessary.
 
 **Returns:**
 
-An object detailing the matched transaction. The object has the following fields:
+The gettransaction method returns an object detailing the matched transaction. The returned
+transaction object has the following fields:
 
-- ``account``: (string, required). The account name associated with the transaction. As we do not
-  support this feature the value will always be ``""``.
-- ``address``: (string, required). The address of this transaction.
-- ``category``: (string, required). ``"send"`` for an outgoing funds, ``"receive"`` for incoming
-  funds.
-- ``amount``: (numeric, required). The number of bitcoin sent (negative value) or received
+- ``amount``: (numeric). The number of bitcoin sent (negative value) or received
   (positive value).
-- ``label``: (string, required). A comment for the address/transaction. As we do not support this
-  feature the value will always be ``""``.
-- ``vout``: (integer, required). The index of the output with the given amount in the transaction.
-- ``fee``: (numeric, optional). The number of bitcoin paid as a fee will be present for sent
-  funds (negative value).
-- ``confirmations``: (integer, required). Number of mined blocks including the transaction and on
+- ``blockhash``: (string, only present if ``confirmations`` > 0). The block hash containing the
+  transaction.
+- ``blockindex``: (numeric, only present if ``confirmations`` > 0). The index of the transaction
+  in the block that includes it.
+- ``blocktime``: (numeric, only present if ``confirmations`` > 0). The block time in seconds
+  since epoch (1 Jan 1970 GMT).
+- ``confirmations``: (integer). Number of mined blocks including the transaction and on
   top of it.
-- ``trusted``: (bool, required). Indicate if this coin is considered safe or not.
-- ``blockhash``: (string, required). The block hash containing the transaction.
-- ``blockindex``: (numeric, required). The index of the transaction in the block that includes it.
-- ``blocktime``: (numeric, required). The block time in seconds since epoch (1 Jan 1970 GMT).
-- ``txid``: (string, required). The transaction id.
-- ``time``: (numeric, required). The transaction time in seconds since epoch
+- ``details``: (array of objects). The sends and receives associated with the transaction.
+- ``fee``: (numeric, only present for send). The total number of bitcoin paid as a fee (negative
+  value).
+- ``generated``: (bool, always ``true``, only present if transaction is coinbase).
+- ``hex``: (string). The transaction bytes encoded as a hexadecimal representation.
+- ``time``: (numeric). The transaction time in seconds since epoch
+  (midnight Jan 1 1970 GMT). Intentionally incompatible, and the same as ``timereceived`` for now.
+- ``timereceived``: (numeric). The time received in seconds since epoch
   (midnight Jan 1 1970 GMT).
-- ``timereceived``: (numeric, required). The time received in seconds since epoch
-  (midnight Jan 1 1970 GMT).
-- ``comment``: (string, required). If a comment is associated with the transaction. As we do not
+- ``trusted``: (bool, only present if ``confirmations`` == 0). Indicates if this coin is considered
+  safe or not.
+- ``txid``: (string). The transaction id.
+- ``walletconflicts``: (array of strings, always ``[]``).
+
+Each object in the ``details`` array reflects any coins received (inputs) or coins spent (outputs)
+in the transaction and has the following fields.
+
+- ``abandoned``: (bool, only present for send). ``true`` if the transaction has been abandoned
+  (inputs are respendable). Currently will always be ``false``.
+- ``account``: (string). The account name associated with the transaction. As we do not
   support this feature the value will always be ``""``.
-- ``abandoned``: (bool, required). ``true`` if the transaction has been abandoned (inputs are
-  respendable). Only relevant for the send category of transactions.
+- ``address``: (string, only present if P2PKH). The address of this transaction.
+- ``amount``: (numeric). The number of bitcoin sent (negative value) or received
+  (positive value).
+- ``category``: (string).
+  - For outgoing funds this will always be ``send``.
+  - For incoming funds this will be ``receive`` unless the transaction is a coinbase transaction.
+    In which case, it might be ``immature`` (standard heuristic), ``orphan`` (in a block not on
+    the wallet's chain) or otherwise it will be ``generate``.
+- ``fee``: (numeric, only present for send). The number of bitcoin paid as a fee (negative
+  value). Will be the same for all send detail objects.
+- ``vout``: (integer). The index of the output with the given amount in the transaction.
 
 **Incompatibilities:**
 
@@ -897,6 +913,21 @@ An object detailing the matched transaction. The object has the following fields
    support watch-only accounts at this time. Specifying a non-null value will raise an error.
 #. Error: The ``RPC_PARSE_ERROR`` for ``include_watchonly`` is customised and reflects that we
    do not accept non-null values.
+#. Returned value: The ``abandoned`` field in the main transaction object is always ``false`` as
+   we always exclude deleted transactions from results in the wallet proper.
+#. Returned value: The ``account`` field in details objects is always ``""`` as
+   we do not support this feature in any way. Node API wallets explicitly must only ever have
+   one account to be allowed for use.
+#. Returned value: The ``involvesWatchonly`` field in details objects is never included as the
+   node wallet API does not support watch-only accounts at this time.
+#. Returned value: The ``label`` field in details objects is never included as node API wallets
+   do not support setting this field, and the original bitcoind API does not add this property
+   for vouts with no label/comment.
+#. Returned value: The ``time`` field in the main transaction object is always the same as the
+   ``timereceived`` value. bitcoind computes a "smart time" but we do not support that at this
+   time.
+#. Returned value: The ``walletconflicts`` field in the main transaction object is always ``[]`` as
+   we do not currently support this field.
 
 **Error responses:**
 
@@ -938,7 +969,9 @@ call processing are described above.
 listtransactions
 ~~~~~~~~~~~~~~~~
 
-Return a selection of the most recent transactions from the wallet.
+Return a selection of the most recent transactions from the wallet ordered from the oldest of
+these to the most recent of these. Unconfirmed and local transactions are considered most
+recent and beyond that ordering is by descending block height and block position of transactions.
 
 **Parameters:**
 
@@ -950,36 +983,44 @@ Return a selection of the most recent transactions from the wallet.
 
 **Returns:**
 
-An array of objects, where each object details a matched transaction. Each object has the following
-fields:
+An array is returned listing the requested number (as modified by the ``count`` and ``skip``
+parameters) of the newest spends or receipts by the wallet. These are returned in order of the
+newest to the oldest.
 
-- ``account``: (string, required). The account name associated with the transaction. As we do not
+The structure of each entry in the array is as follows:
+
+- ``abandoned``: (bool, only present for send). ``true`` if the transaction has been abandoned
+  (inputs are respendable). Currently will always be ``false``.
+- ``account``: (string). The account name associated with the transaction. As we do not
   support this feature the value will always be ``""``.
-- ``address``: (string, required). The address of this transaction.
-- ``category``: (string, required). ``"send"`` for an outgoing funds, ``"receive"`` for incoming
-  funds.
-- ``amount``: (numeric, required). The number of bitcoin sent (negative value) or received
+- ``address``: (string, only present if P2PKH). The address of this transaction.
+- ``amount``: (numeric). The number of bitcoin sent (negative value) or received
   (positive value).
-- ``label``: (string, required). A comment for the address/transaction. As we do not support this
-  feature the value will always be ``""``.
-- ``vout``: (integer, required). The index of the output with the given amount in the transaction.
-- ``fee``: (numeric, optional). The number of bitcoin paid as a fee will be present for sent
-  funds (negative value).
-- ``confirmations``: (integer, required). Number of mined blocks including the transaction and on
+- ``blockhash``: (string, only present if ``confirmations`` > 0). The block hash containing the
+  transaction.
+- ``blockindex``: (numeric, only present if ``confirmations`` > 0). The index of the transaction
+  in the block that includes it.
+- ``blocktime``: (numeric, only present if ``confirmations`` > 0). The block time in seconds
+  since epoch (1 Jan 1970 GMT).
+- ``category``: (string).
+  - For outgoing funds this will always be ``send``.
+  - For incoming funds this will be ``receive`` unless the transaction is a coinbase transaction.
+    In which case, it might be ``immature`` (standard heuristic), ``orphan`` (in a block not on
+    the wallet's chain) or otherwise it will be ``generate``.
+- ``confirmations``: (integer). Number of mined blocks including the transaction and on
   top of it.
-- ``trusted``: (bool, required). Indicate if this coin is considered safe or not.
-- ``blockhash``: (string, required). The block hash containing the transaction.
-- ``blockindex``: (numeric, required). The index of the transaction in the block that includes it.
-- ``blocktime``: (numeric, required). The block time in seconds since epoch (1 Jan 1970 GMT).
-- ``txid``: (string, required). The transaction id.
-- ``time``: (numeric, required). The transaction time in seconds since epoch
+- ``fee``: (numeric, only present for send). The number of bitcoin paid as a fee (negative
+  value). Will be the same for all send detail objects.
+- ``generated``: (bool, always ``true``, only present if transaction is coinbase).
+- ``time``: (numeric). The transaction time in seconds since epoch
+  (midnight Jan 1 1970 GMT). Intentionally incompatible, and the same as ``timereceived`` for now.
+- ``timereceived``: (numeric). The time received in seconds since epoch
   (midnight Jan 1 1970 GMT).
-- ``timereceived``: (numeric, required). The time received in seconds since epoch
-  (midnight Jan 1 1970 GMT).
-- ``comment``: (string, required). If a comment is associated with the transaction. As we do not
-  support this feature the value will always be ``""``.
-- ``abandoned``: (bool, required). ``true`` if the transaction has been abandoned (inputs are
-  respendable). Only relevant for the send category of transactions.
+- ``trusted``: (bool, only present if ``confirmations`` == 0). Indicates if this coin is considered
+  safe or not.
+- ``txid``: (string). The transaction id.
+- ``vout``: (integer). The index of the output with the given amount in the transaction.
+- ``walletconflicts``: (array of strings, always ``[]``).
 
 **Incompatibilities:**
 

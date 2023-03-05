@@ -1,6 +1,6 @@
-
 from __future__ import annotations
 import asyncio
+import json
 import os
 from typing import Any, Coroutine, NoReturn, TypeVar
 import unittest.mock
@@ -140,3 +140,25 @@ def _create_mock_app_state2() -> unittest.mock.MagicMock:
     mock.async_.spawn_and_wait = _spawn_and_wait
     return mock
 
+def read_testdata_for_wallet(wallet_path: str, context_text: str, *,
+        testdata_object_for_write: dict|None=None) -> dict:
+    """
+    Parameters:
+        - `wallet_path`: The full path of the wallet. The test data file will be alongside it.
+        - `context_text`: Used in the custom suffix for the test data file name. If `"history_full"`
+          would result in a suffix of `"_history_full.json"`.
+        - `testdata_object_for_write`: The new test data to overwrite the existing test data with.
+    Raises nothing.
+    """
+    testdata_folder_path, testdata_wallet_filename = os.path.split(wallet_path)
+    wallet_basename, _wallet_suffix = os.path.splitext(testdata_wallet_filename)
+    testdata_path = os.path.join(testdata_folder_path, f"{wallet_basename}_{context_text}.json")
+
+    if testdata_object_for_write is not None:
+        with open(testdata_path, "w") as f:
+            json.dump(testdata_object_for_write, f, indent=4)
+
+    assert os.path.exists(testdata_path)
+
+    with open(testdata_path, "r") as f:
+        return json.load(f)
