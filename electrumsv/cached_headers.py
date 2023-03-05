@@ -5,6 +5,7 @@ from typing import cast
 
 from bitcoinx import CheckPoint, Headers, Network
 
+from .constants import EMPTY_HASH
 from .logs import logs
 
 
@@ -63,14 +64,11 @@ def read_cached_headers(coin: Network, file_path: str, checkpoint: CheckPoint) -
                         #     attributes are missing. This data works for the same deterministic
                         #     Python version and dependency installation, just not on my computer.
                         #     This is very likely a bug in pickle that is trigged by my arch.
-                        logger.error("Error deserialising chain tip header (chain first height: "
-                            "%d); forceably replacing it as a workaround", chain.first_height)
-                        header_index = chain._header_indices[-1]
-                        chain.tip = headers.network.deserialized_header(
-                            headers._storage[header_index], -1)
-                        prev_header, prev_chain = headers.lookup(chain.tip.prev_hash)
-                        chain.tip.height = prev_header.height + 1
-                    else:
+                        logger.error("Error deserialising tip header (chain first height: %d)",
+                            chain.first_height)
+                        raise
+
+                    if chain.tip.prev_hash != EMPTY_HASH:
                         # Validate that the tip deserialised well enough to have the right height.
                         prev_header, prev_chain = headers.lookup(chain.tip.prev_hash)
                         assert chain.tip.height == prev_header.height + 1

@@ -299,10 +299,25 @@ class AppStateProxy(object):
             return header, chain
 
     def on_stop(self) -> None:
-        self._write_header_cache()
-
-    def _write_header_cache(self) -> None:
+        # The headers object may not be created for command-line invocations that do not require it.
         if self.headers is not None:
+            logger.debug("flushing headers")
+            # `mmap.flush` exceptions (The Python developers do not document these):
+            # Raises `ValueError` for invalid offset and size arguments relating to type and range,
+            #     and if `flush` is not supported on `UNIX` (MacOS inclusive) or `MS_WINDOWS`
+            #     operating systems.
+            # Raises `OSError` for specific OS-related Unix and Windows errors.
+            # We do not catch `ValueError` as we do not pass arguments and we do not support
+            # operating systems without `mmap.flush` support. We do not catch `OSError` as this
+            # is representative of problems that are so severe the user's wallet (at the least
+            # the headers file) is likely corrupted and we should never hide this.
+            self.headers.flush()
+            # We close the header storage to prevent further writes. These should never happen but
+            # we want to avoid past problems which seem to be where unflushed writes are lost
+            # and the header file corrupted.
+            # rt12: 20230306 bitcoinx does not currently expose this.
+            self.headers._storage.close()
+
             logger.debug("writing header cache")
             write_cached_headers(self.headers)
 
