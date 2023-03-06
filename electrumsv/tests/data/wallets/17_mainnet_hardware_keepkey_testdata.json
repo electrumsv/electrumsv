@@ -1,21 +1,98 @@
 {
-    "expected_labels": {
-        "44e14e2eef1482bc803d1a32d9348b4914922990dbb730fe70b8a40753aeea03": "Return funding to 'mainnet_cash'",
-        "eeb535883c1bb2ed39295788eb9aca03623c97fa45ca4473175ff1bdca95201c": "return funding"
-    },
-    "settled_tx_hashes": [
-        "06dfbe445332eeb619f13536eb0a0aeea49c5dfcaa2bb95804280a61678c4fd9",
-        "3c4c7cb854ed4dd36a87c5e6c34431ebcae61a6f293a833f4ffa6f2f7c7141ff",
-        "c647772ba6e767ec45b643c16d154b85c43d008bafad84384f16096e13617762",
-        "eeb535883c1bb2ed39295788eb9aca03623c97fa45ca4473175ff1bdca95201c"
+    "account_descriptions": [
+        [
+            1,
+            "44e14e2eef1482bc803d1a32d9348b4914922990dbb730fe70b8a40753aeea03",
+            "Return funding to 'mainnet_cash'"
+        ],
+        [
+            1,
+            "eeb535883c1bb2ed39295788eb9aca03623c97fa45ca4473175ff1bdca95201c",
+            "return funding"
+        ]
     ],
-    "derivation_datas": [
+    "derivation_datas": {
+        "1": [
+            [
+                [
+                    "derivation",
+                    "m/44'/0'/0'"
+                ],
+                [
+                    "hw_type",
+                    "keepkey"
+                ],
+                [
+                    "label",
+                    ""
+                ],
+                [
+                    "xpub",
+                    "xpub6CuhvA6VGL9YP9A8VWUiuRv4f5qtLQ3uWUSLxnZ8i4qbLQ7F12jVisqkNtNZLKT6qm2QUgSG9Zjy7B4SW1Nnp6Ga98GbEcX7QsDGrK6WADS"
+                ]
+            ]
+        ]
+    },
+    "transactions": [
         {
-            "derivation": "m/44'/0'/0'",
-            "hw_type": "keepkey",
-            "label": "",
-            "xpub": "xpub6CuhvA6VGL9YP9A8VWUiuRv4f5qtLQ3uWUSLxnZ8i4qbLQ7F12jVisqkNtNZLKT6qm2QUgSG9Zjy7B4SW1Nnp6Ga98GbEcX7QsDGrK6WADS",
-            "cfg": null
+            "transaction_id": "06dfbe445332eeb619f13536eb0a0aeea49c5dfcaa2bb95804280a61678c4fd9",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 574424,
+            "block_position": 6,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 574423
+        },
+        {
+            "transaction_id": "260aea84bce29a4d5dc3c40a49521fe8afce357d133af9b7704d013998a95b7a",
+            "flags": "cleared",
+            "block_hash": null,
+            "block_height": 0,
+            "block_position": null,
+            "fee_value": 226,
+            "version": 1,
+            "locktime": 591759
+        },
+        {
+            "transaction_id": "3c4c7cb854ed4dd36a87c5e6c34431ebcae61a6f293a833f4ffa6f2f7c7141ff",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 579835,
+            "block_position": 9,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 579834
+        },
+        {
+            "transaction_id": "44e14e2eef1482bc803d1a32d9348b4914922990dbb730fe70b8a40753aeea03",
+            "flags": "cleared",
+            "block_hash": null,
+            "block_height": -1,
+            "block_position": null,
+            "fee_value": 192,
+            "version": 1,
+            "locktime": 591759
+        },
+        {
+            "transaction_id": "c647772ba6e767ec45b643c16d154b85c43d008bafad84384f16096e13617762",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 579837,
+            "block_position": 300,
+            "fee_value": 192,
+            "version": 1,
+            "locktime": 579835
+        },
+        {
+            "transaction_id": "eeb535883c1bb2ed39295788eb9aca03623c97fa45ca4473175ff1bdca95201c",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 574424,
+            "block_position": 21,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 574423
         }
     ]
 }

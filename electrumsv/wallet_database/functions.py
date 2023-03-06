@@ -237,6 +237,14 @@ def read_transaction(db: sqlite3.Connection, tx_hash: bytes) -> TransactionRow |
         row[8], row[9], row[10], row[11])
 
 
+@replace_db_context_with_connection
+def UNITTEST_read_transactions(db: sqlite3.Connection) -> list[TransactionRow]:
+    sql = "SELECT tx_hash, tx_data, flags, block_hash, block_height, block_position, fee_value, " \
+        "description, version, locktime, date_created, date_updated FROM Transactions "
+    return [ TransactionRow(row[0], row[1], TxFlags(row[2]), row[3], row[4], row[5], row[6],
+        row[7], row[8], row[9], row[10], row[11]) for row in db.execute(sql).fetchall() ]
+
+
 def create_wallet_datas(db_context: DatabaseContext, entries: Iterable[WalletDataRow]) \
         -> concurrent.futures.Future[None]:
     sql = ("INSERT INTO WalletData (key, value, date_created, date_updated) "

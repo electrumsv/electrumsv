@@ -1,23 +1,67 @@
 {
-    "expected_labels": {
+    "account_descriptions": [],
+    "derivation_datas": {
+        "1": [
+            [
+                [
+                    "label",
+                    "Cosigner01"
+                ],
+                [
+                    "seed",
+                    "junk mass virtual water mixture achieve alarm lounge across husband please since"
+                ],
+                [
+                    "xprv",
+                    "tprv8ZgxMBicQKsPeANf1KtvhkBZJ3xo7diPxG9LjPiNr3v4zbegF94pVAT9gTv4xuEDynJGwkKDVTsJZM8Wi3h87uYXpxw3kT3dZFgczkZwRe7"
+                ],
+                [
+                    "xpub",
+                    "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8"
+                ]
+            ],
+            [
+                [
+                    "label",
+                    "Cosigner02"
+                ],
+                [
+                    "xpub",
+                    "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC"
+                ]
+            ]
+        ]
     },
-    "settled_tx_hashes": [
-    ],
-    "derivation_datas": [
+    "transactions": [
         {
-            "seed": "junk mass virtual water mixture achieve alarm lounge across husband please since",
-            "derivation": null,
-            "passphrase": null,
-            "label": "Cosigner01",
-            "xpub": "tpubD6NzVbkrYhZ4XdQStyZX79qfs5UjGxuJXZk81ukgGKiTq5uSsXtQff51rccS85WUW4ft9fQe3ytfHrViJ1dB1z8tFCzVktD5uxLRUzZ1hD8",
-            "xprv": "tprv8ZgxMBicQKsPeANf1KtvhkBZJ3xo7diPxG9LjPiNr3v4zbegF94pVAT9gTv4xuEDynJGwkKDVTsJZM8Wi3h87uYXpxw3kT3dZFgczkZwRe7"
-        }, {
-            "seed": null,
-            "derivation": null,
-            "passphrase": null,
-            "label": "Cosigner02",
-            "xpub": "tpubD6NzVbkrYhZ4XshEBN7ots6WCazhf7hz97GEWnyP5DqSfQEXyyPHzaqfGbNsPie25JdxjmBT6GpZhaMdnrZvtdSzepXM2JSrNrRWDUrjvnC",
-            "xprv": null
+            "transaction_id": "00d88ce6448fcdd36251a1b84d1c68b4d70bbf32bb9ed09a2b07cc0817fc3e8e",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 114,
+            "block_position": 1,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 113
+        },
+        {
+            "transaction_id": "543c44b37df893ecc8dfbb163d1402ae004ed8849cf8614caf5bb710026a50c2",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 114,
+            "block_position": 2,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 113
+        },
+        {
+            "transaction_id": "fe00cc3be1343abf7d4e9c5e09e8abeb3c69f94f638db62d29f3b720067acf28",
+            "flags": "cleared",
+            "block_hash": null,
+            "block_height": 0,
+            "block_position": null,
+            "fee_value": 300,
+            "version": 1,
+            "locktime": 114
         }
     ]
 }

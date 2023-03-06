@@ -1,16 +1,22 @@
 {
-    "expected_labels": {
+    "account_descriptions": [],
+    "derivation_datas": {
+        "1": [
+            [
+                [
+                    "seed",
+                    "target few lock grape horror deer salmon super office blind slender lunar"
+                ],
+                [
+                    "xprv",
+                    "tprv8ZgxMBicQKsPdvzWTkt4iSHz78VUExgVAQ7fYcBUfHz1Yc9dkqA4JfXhN3VWEriXaayJdrE3fXmJPHntsQjfgeiBsRSofHg8f7A8qzNvkUX"
+                ],
+                [
+                    "xpub",
+                    "tpubD6NzVbkrYhZ4XQ2JMQYf7qx6gA1QQHsPjhiSq8Dn5ZnQP6QQPDyeVA9ZYAg76BiRQwk6TfLzCbc7RBL7mhqTk5NtbbQ2yaxjBwK7JRkwGMq"
+                ]
+            ]
+        ]
     },
-    "settled_tx_hashes": [
-    ],
-    "derivation_datas": [
-        {
-            "seed": "target few lock grape horror deer salmon super office blind slender lunar",
-            "derivation": null,
-            "passphrase": null,
-            "label": null,
-            "xpub": "tpubD6NzVbkrYhZ4XQ2JMQYf7qx6gA1QQHsPjhiSq8Dn5ZnQP6QQPDyeVA9ZYAg76BiRQwk6TfLzCbc7RBL7mhqTk5NtbbQ2yaxjBwK7JRkwGMq",
-            "xprv": "tprv8ZgxMBicQKsPdvzWTkt4iSHz78VUExgVAQ7fYcBUfHz1Yc9dkqA4JfXhN3VWEriXaayJdrE3fXmJPHntsQjfgeiBsRSofHg8f7A8qzNvkUX"
-        }
-    ]
+    "transactions": []
 }

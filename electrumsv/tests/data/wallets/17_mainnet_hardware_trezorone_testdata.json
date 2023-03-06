@@ -1,20 +1,93 @@
 {
-    "expected_labels": {
-        "c616a3f8bc9a6dd462f0165a287988406ba06332fdf39866355fbb9d9cf72610": "refund test"
-    },
-    "settled_tx_hashes": [
-        "15bf6a11ba2be6afa90e3c9e2044e077ce4603b041d58de2379dd1bf83d2d515",
-        "398a7d03be0e1834f03d7b848a749209cdcd5cc3456822b736ec84c3b813c954",
-        "6f6bae30d43a63c0d12e43ba4869f3e92acde6adedf8138f11e0334f95065409",
-        "c616a3f8bc9a6dd462f0165a287988406ba06332fdf39866355fbb9d9cf72610"
+    "account_descriptions": [
+        [
+            1,
+            "c616a3f8bc9a6dd462f0165a287988406ba06332fdf39866355fbb9d9cf72610",
+            "refund test"
+        ]
     ],
-    "derivation_datas": [
+    "derivation_datas": {
+        "1": [
+            [
+                [
+                    "derivation",
+                    "m/44'/145'/0'"
+                ],
+                [
+                    "hw_type",
+                    "trezor"
+                ],
+                [
+                    "label",
+                    "trezortest"
+                ],
+                [
+                    "xpub",
+                    "xpub6CzEqW3MvRMV3e6AhHSyRCJN2cBNRxjPmsCEwjrwYrHtnfC3ndDpg2ZkZevcFK5VuzBU9hvPXe4e62xrj3cXP2ZbQXenv2cfRHYSdiXTotR"
+                ]
+            ]
+        ]
+    },
+    "transactions": [
         {
-            "derivation": "m/44'/145'/0'",
-            "hw_type": "trezor",
-            "label": "trezortest",
-            "xpub": "xpub6CzEqW3MvRMV3e6AhHSyRCJN2cBNRxjPmsCEwjrwYrHtnfC3ndDpg2ZkZevcFK5VuzBU9hvPXe4e62xrj3cXP2ZbQXenv2cfRHYSdiXTotR",
-            "cfg": null
+            "transaction_id": "15bf6a11ba2be6afa90e3c9e2044e077ce4603b041d58de2379dd1bf83d2d515",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 568708,
+            "block_position": 17,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 568707
+        },
+        {
+            "transaction_id": "398a7d03be0e1834f03d7b848a749209cdcd5cc3456822b736ec84c3b813c954",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 568708,
+            "block_position": 22,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 568707
+        },
+        {
+            "transaction_id": "51906c9afe1495348c2b190a12921a13b005c51eda237359137c2de4ae4adede",
+            "flags": "cleared",
+            "block_hash": null,
+            "block_height": -1,
+            "block_position": null,
+            "fee_value": 192,
+            "version": 1,
+            "locktime": 579842
+        },
+        {
+            "transaction_id": "6f6bae30d43a63c0d12e43ba4869f3e92acde6adedf8138f11e0334f95065409",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 574438,
+            "block_position": 4,
+            "fee_value": 258,
+            "version": 1,
+            "locktime": 574437
+        },
+        {
+            "transaction_id": "c616a3f8bc9a6dd462f0165a287988406ba06332fdf39866355fbb9d9cf72610",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 574438,
+            "block_position": 29,
+            "fee_value": 192,
+            "version": 1,
+            "locktime": 574437
+        },
+        {
+            "transaction_id": "fce04c491d026efb2899463e088ce7e595c66c281047e0161ff6439134d1900f",
+            "flags": "cleared",
+            "block_hash": null,
+            "block_height": 0,
+            "block_position": null,
+            "fee_value": 374,
+            "version": 1,
+            "locktime": 579842
         }
     ]
 }

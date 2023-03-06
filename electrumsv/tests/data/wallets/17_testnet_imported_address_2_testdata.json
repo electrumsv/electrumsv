@@ -1,8 +1,16 @@
 {
-    "expected_labels": {
-    },
-    "settled_tx_hashes": [
-        "2d04beb35232461d9eb27cd7bf2375e86a1e8e396ce6842a09549ed58ceddc93"
-    ],
-    "derivation_datas": null
+    "account_descriptions": [],
+    "derivation_datas": {},
+    "transactions": [
+        {
+            "transaction_id": "2d04beb35232461d9eb27cd7bf2375e86a1e8e396ce6842a09549ed58ceddc93",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 1335356,
+            "block_position": 2,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 1335354
+        }
+    ]
 }
