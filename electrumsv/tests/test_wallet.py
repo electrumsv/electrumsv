@@ -9,14 +9,15 @@ from typing import Any, Callable, cast, Coroutine, TypeVar
 import unittest
 import unittest.mock
 
-from bitcoinx import Chain, double_sha256, Header, hex_str_to_hash, MissingHeader, Ops, Script
+from bitcoinx import Chain, double_sha256, hash_to_hex_str, Header, hex_str_to_hash, \
+    MissingHeader, Ops, Script
 import pytest
 
 from electrumsv.app_state import AppStateProxy
-from electrumsv.constants import (AccountFlags, BlockHeight, CHANGE_SUBPATH, DATABASE_EXT,
-    DerivationType, DatabaseKeyDerivationType, KeystoreTextType, MasterKeyFlags, PaymentFlag,
-    RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag,
-    TxFlags, unpack_derivation_path)
+from electrumsv.constants import (AccountFlags, AccountType, BlockHeight, CHANGE_SUBPATH,
+    DATABASE_EXT, DerivationType, DatabaseKeyDerivationType, KeystoreTextType, MasterKeyFlags,
+    PaymentFlag, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag, TxFlags,
+    unpack_derivation_path)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import Bip270Exception, InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
@@ -631,55 +632,98 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
     testdata_filename = storage_info.wallet_filepath +"_testdata.json"
     assert os.path.exists(testdata_filename)
 
-    with open(testdata_filename, "r") as f:
-        testdata = json.load(f)
+    transaction_rows = db_functions.UNITTEST_read_transactions(wallet.data._db_context)
+    testdata_transactions: list[dict] = []
+    transaction_hashes: list[bytes] = []
+    for transaction_row in transaction_rows:
+        transaction_hashes.append(transaction_row.tx_hash)
 
-    expected_labels: dict[bytes, str] = {
-        hex_str_to_hash(k): v for (k, v) in testdata["expected_labels"].items()
-    }
-    settled_tx_hashes: set[bytes] = {
-        hex_str_to_hash(k) for k in testdata["settled_tx_hashes"]
-    }
-    expected_derivation_datas: list[dict[str, Any]] | None = testdata["derivation_datas"]
+        flag_text: str|None = None
+        if transaction_row.flags & TxFlags.STATE_CLEARED:
+            flag_text = "cleared"
+        elif transaction_row.flags & TxFlags.STATE_SETTLED:
+            flag_text = "settled"
+        elif transaction_row.flags & TxFlags.STATE_RECEIVED:
+            flag_text = "received"
+        elif transaction_row.flags & TxFlags.STATE_SIGNED:
+            flag_text = "signed"
+        elif transaction_row.flags & TxFlags.STATE_DISPATCHED:
+            flag_text = "dispatched"
 
-    if len(expected_labels):
-        rows1 = wallet.data.read_transaction_descriptions(tx_hashes=list(expected_labels.keys()))
-        assert { row1.tx_hash: row1.description  for row1 in rows1 } == expected_labels
+        # For regtest wallets the migrated state will have holes as it will depend on a custom
+        # blockchain. We should support that, but currently do not. i.e. block height but no hash.
+        testdata_transactions.append({
+            "transaction_id": hash_to_hex_str(transaction_row.tx_hash),
+            "flags": flag_text,
+            "block_hash": hash_to_hex_str(transaction_row.block_hash) \
+                if transaction_row.block_hash is not None else None,
+            "block_height": transaction_row.block_height,
+            "block_position": transaction_row.block_position,
+            "fee_value": transaction_row.fee_value,
+            "version": transaction_row.version,
+            "locktime": transaction_row.locktime,
+        })
 
-    rows2 = wallet.data.read_transactions_exist(list(settled_tx_hashes))
-    assert settled_tx_hashes == { row2.tx_hash for row2 in rows2 }
+    account_descriptions: list[list[int, bytes, str]] = []
+    for account_description_row in wallet.data.read_transaction_descriptions(
+            tx_hashes=transaction_hashes):
+        account_descriptions.append([account_description_row.account_id,
+            hash_to_hex_str(account_description_row.tx_hash), account_description_row.description])
 
-    # Account 1 is the pre-existing account (and predates the petty cash account).
+   # Account 1 is the pre-existing account (and predates the petty cash account).
     account = wallet.get_account(1)
     assert account is not None
 
-    if account.is_petty_cash():
-        assert not expected_derivation_datas
-    elif expected_derivation_datas is not None:
-        actual_derivation_datas: list[dict[str, Any]] = []
-        for keystore in account.get_keystores():
-            data1 = keystore.to_derivation_data()
-            if "seed" in data1:
-                data1_typed = cast(MasterKeyDataBIP32, data1)
-                if data1_typed["seed"] is not None:
-                    data1_typed["seed"] = pw_decode(data1_typed["seed"], password)
-                if data1_typed["xprv"] is not None:
-                    data1_typed["xprv"] = pw_decode(data1_typed["xprv"], password)
-                data1 = cast(dict[str, Any], data1_typed)
-            actual_derivation_datas.append(data1)
-        assert expected_derivation_datas == actual_derivation_datas
-    else:
-        for keystore in account.get_keystores():
-            with pytest.raises(IncompatibleWalletError):
+    account_derivation_datas: dict[int, list[dict[str, Any]]] = {}
+    if not account.is_petty_cash():
+        if account.type() in { AccountType.IMPORTED_PRIVATE_KEY, AccountType.IMPORTED_ADDRESS }:
+            # Imported accounts of course have no derivation data.
+            pass
+        else:
+            all_derivation_datas: list[list[str, Any]] = []
+            for keystore in account.get_keystores():
+                derivation_datas: list[str, Any] = []
                 data1 = keystore.to_derivation_data()
-                # if "seed" in data1:
-                #     data1_typed = cast(MasterKeyDataBIP32, data1)
-                #     if data1_typed["seed"] is not None:
-                #         data1_typed["seed"] = pw_decode(data1_typed["seed"], password)
-                #     if data1_typed["xprv"] is not None:
-                #         data1_typed["xprv"] = pw_decode(data1_typed["xprv"], password)
-                #     data1 = cast(dict[str, Any], data1_typed)
-                # print("expected_derivation_data", data1)
+                if "seed" in data1:
+                    data1_typed = cast(MasterKeyDataBIP32, data1)
+                    if data1_typed["seed"] is not None:
+                        data1_typed["seed"] = pw_decode(data1_typed["seed"], password)
+                    if data1_typed["xprv"] is not None:
+                        data1_typed["xprv"] = pw_decode(data1_typed["xprv"], password)
+                    data1 = cast(dict[str, Any], data1_typed)
+                derivation_datas = sorted([ [k, v] for (k, v) in data1.items() if v is not None ],
+                    key=lambda t: t[0])
+                all_derivation_datas.append(derivation_datas)
+            if len(all_derivation_datas) > 0:
+                # JSON comparison, all objects have property names as strings.
+                account_derivation_datas[str(account.get_id())] = sorted(all_derivation_datas)
+
+    # else:
+    #     for keystore in account.get_keystores():
+    #         with pytest.raises(IncompatibleWalletError):
+    #             data1 = keystore.to_derivation_data()
+    #             # if "seed" in data1:
+    #             #     data1_typed = cast(MasterKeyDataBIP32, data1)
+    #             #     if data1_typed["seed"] is not None:
+    #             #         data1_typed["seed"] = pw_decode(data1_typed["seed"], password)
+    #             #     if data1_typed["xprv"] is not None:
+    #             #         data1_typed["xprv"] = pw_decode(data1_typed["xprv"], password)
+    #             #     data1 = cast(dict[str, Any], data1_typed)
+    #             # print("expected_derivation_data", data1)
+
+    testdata_object = {
+        "account_descriptions": sorted(account_descriptions),
+        "derivation_datas": account_derivation_datas,
+        "transactions": sorted(testdata_transactions, key=lambda t3: t3["transaction_id"]),
+    }
+
+    if True:
+        with open(testdata_filename, "r") as f:
+            existing_testdata_object = json.load(f)
+        assert existing_testdata_object == testdata_object
+    else:
+        with open(testdata_filename, "w") as f:
+            json.dump(testdata_object, f, indent=4)
 
 
 # class TestImportedPrivkeyAccount:

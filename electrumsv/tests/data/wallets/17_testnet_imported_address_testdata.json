@@ -1,7 +1,5 @@
 {
-    "expected_labels": {
-    },
-    "settled_tx_hashes": [
-    ],
-    "derivation_datas": null
+    "account_descriptions": [],
+    "derivation_datas": {},
+    "transactions": []
 }

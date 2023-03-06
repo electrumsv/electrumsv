@@ -1,22 +1,74 @@
 {
-    "expected_labels": {
-        "23f46fde26d1676f55ae81aafe844618dd7abe7e7bf081ae99146f28a816b002": "Created from BIP270 Server",
-        "3b6c64b30c0b3be3a49e4e03daaf946004cc84ca510ae9b191868f9d81eab549": "Invoice created from this wallet - paid by mining wallet"
-    },
-    "settled_tx_hashes": [
-        "23f46fde26d1676f55ae81aafe844618dd7abe7e7bf081ae99146f28a816b002",
-        "3b6c64b30c0b3be3a49e4e03daaf946004cc84ca510ae9b191868f9d81eab549",
-        "47f3f47a256d70950ff5690ea377c24464310489e3f54d01b817dd0088f0a095",
-        "d53a9ebfac748561132e49254c42dbe518080c2a5956822d5d3914d47324e842"
+    "account_descriptions": [
+        [
+            1,
+            "23f46fde26d1676f55ae81aafe844618dd7abe7e7bf081ae99146f28a816b002",
+            "Created from BIP270 Server"
+        ],
+        [
+            1,
+            "3b6c64b30c0b3be3a49e4e03daaf946004cc84ca510ae9b191868f9d81eab549",
+            "Invoice created from this wallet - paid by mining wallet"
+        ]
     ],
-    "derivation_datas": [
+    "derivation_datas": {
+        "1": [
+            [
+                [
+                    "seed",
+                    "neutral cash ozone buyer cook match exhaust usual purse transfer evil believe"
+                ],
+                [
+                    "xprv",
+                    "tprv8ZgxMBicQKsPemjXnjnsoqmiFhA5rZkRHphxDWsFA1nfd6CCk6pmP4CgxBW5xDoVynRHWeb49B1BL8SVyW7ujiP2sJiW4qSeTQCERdFkzo3"
+                ],
+                [
+                    "xpub",
+                    "tpubD6NzVbkrYhZ4YEmKgPTUDFRppig21twKs8JjW2uYaHb4TaSyNVeMZYpZ8JPn9H5XvcbTg1u8CkamsEfsWNCzp2v4ADJEDhvymiV81Kmns8W"
+                ]
+            ]
+        ]
+    },
+    "transactions": [
         {
-            "seed": "neutral cash ozone buyer cook match exhaust usual purse transfer evil believe",
-            "derivation": null,
-            "passphrase": null,
-            "label": null,
-            "xpub": "tpubD6NzVbkrYhZ4YEmKgPTUDFRppig21twKs8JjW2uYaHb4TaSyNVeMZYpZ8JPn9H5XvcbTg1u8CkamsEfsWNCzp2v4ADJEDhvymiV81Kmns8W",
-            "xprv": "tprv8ZgxMBicQKsPemjXnjnsoqmiFhA5rZkRHphxDWsFA1nfd6CCk6pmP4CgxBW5xDoVynRHWeb49B1BL8SVyW7ujiP2sJiW4qSeTQCERdFkzo3"
+            "transaction_id": "23f46fde26d1676f55ae81aafe844618dd7abe7e7bf081ae99146f28a816b002",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 117,
+            "block_position": 1,
+            "fee_value": 200,
+            "version": 1,
+            "locktime": 116
+        },
+        {
+            "transaction_id": "3b6c64b30c0b3be3a49e4e03daaf946004cc84ca510ae9b191868f9d81eab549",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 116,
+            "block_position": 1,
+            "fee_value": 184,
+            "version": 1,
+            "locktime": 115
+        },
+        {
+            "transaction_id": "47f3f47a256d70950ff5690ea377c24464310489e3f54d01b817dd0088f0a095",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 115,
+            "block_position": 1,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 0
+        },
+        {
+            "transaction_id": "d53a9ebfac748561132e49254c42dbe518080c2a5956822d5d3914d47324e842",
+            "flags": "settled",
+            "block_hash": null,
+            "block_height": 111,
+            "block_position": 1,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 0
         }
     ]
 }
