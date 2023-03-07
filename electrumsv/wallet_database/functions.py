@@ -589,12 +589,12 @@ def read_history_for_outputs(db: sqlite3.Connection, account_id: int, *,
         GROUP BY TX.tx_hash
     )
     """
-    # Filter criteria: If there are any funding spends we include all outputs in a transaction.
-    #     Otherwise we just include those that we are ours (have a key from this account).
+    # Filter criteria: If there are any funding spends we include all non-change outputs in a
+    #     transaction.  Otherwise we include those that we are ours (have a key from this account).
     # - `KI.account_id IS NOT NULL AND KI.account_id=ATX.account_id`: This account only.
     # - `_AS.spent_value IS NULL`: Only if we funded this transaction. This lacks nuance and in the
     #   longer term will not necessarily be clear for cofunded transactions or smart contracts.
-    # - `x'00000000'`: The serialised BIP32 byte prefix for receiving addresses. We do not use
+    # - `x'00000001'`: The serialised BIP32 byte prefix for change addresses. We do not use
     #     `LIKE` as that is text specific and fails on blobs in some cases. In theory the range
     #     comparison is indexable. (Stack Overflow: https://stackoverflow.com/a/24011877)
     # - `NULLS FIRST`: SQLite places NULLS at the start of an ascending sequence. As we are using
@@ -615,9 +615,10 @@ def read_history_for_outputs(db: sqlite3.Connection, account_id: int, *,
     INNER JOIN TransactionOutputs TXO ON TXO.tx_hash=ATX.tx_hash
     LEFT JOIN _AccountSpends _AS ON _AS.tx_hash=ATX.tx_hash
     LEFT JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id
-    WHERE {transaction_clause_and} (_AS.spent_value>0 OR
-        KI.derivation_type=={DerivationType.BIP32_SUBPATH} AND KI.derivation_data2>=x'00000000'
-        AND KI.derivation_data2<x'00000001')
+    WHERE {transaction_clause_and} ((_AS.spent_value>0 AND (TXO.keyinstance_id IS NULL OR
+        KI.derivation_type=={DerivationType.BIP32_SUBPATH} AND KI.derivation_data2<x'00000001'
+        AND KI.derivation_data2>=x'00000002'))
+        OR (_AS.spent_value IS NULL AND TXO.keyinstance_id IS NOT NULL))
     ORDER BY TX.block_height DESC NULLS FIRST, TX.block_position DESC NULLS FIRST
     LIMIT ?3 OFFSET ?4
     """
