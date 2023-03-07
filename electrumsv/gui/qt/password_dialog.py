@@ -102,7 +102,7 @@ class PasswordLineEdit(QWidget):
         # Pass-throughs
         self.key_event_signal = self.pw.key_event_signal
         self.returnPressed = self.pw.returnPressed
-        self.setFocus = self.pw.setFocus # type: ignore[assignment]
+        self.setFocus = self.pw.setFocus # type: ignore[method-assign]
         self.setMaxLength = self.pw.setMaxLength
         self.setPlaceholderText = self.pw.setPlaceholderText
         self.setText = self.pw.setText
