@@ -247,10 +247,10 @@ class SVApplication(QApplication):
 
     def _register_wallet_events(self, wallet: Wallet) -> None:
         # NOTE(typing) Some typing nonsense about not being able to assign to a method.
-        wallet.contacts._on_contact_added = self._on_contact_added # type: ignore[assignment]
-        wallet.contacts._on_contact_removed = self._on_contact_removed # type: ignore[assignment]
-        wallet.contacts._on_identity_added = self._on_identity_added # type: ignore[assignment]
-        wallet.contacts._on_identity_removed = self._on_identity_removed # type: ignore[assignment]
+        wallet.contacts._on_contact_added = self._on_contact_added # type: ignore[method-assign]
+        wallet.contacts._on_contact_removed = self._on_contact_removed # type: ignore[method-assign]
+        wallet.contacts._on_identity_added = self._on_identity_added # type: ignore[method-assign]
+        wallet.contacts._on_identity_removed=self._on_identity_removed # type: ignore[method-assign]
 
     def _on_identity_added(self, contact: ContactEntry, identity: ContactIdentity) -> None:
         self.identity_added_signal.emit(contact, identity)
