@@ -126,6 +126,7 @@ class RPCError(IntEnum):
     WALLET_NOT_FOUND                = -18   # Internal server error (500) status code.
     WALLET_NOT_SPECIFIED            = -19   # Internal server error (500) status code.
     DESERIALIZATION_ERROR           = -22   # Internal server error (500) status code.
+    VERIFY_ERROR                    = -25   # Internal server error (500) status code.
     VERIFY_REJECTED                 = -26   # Internal server error (500) status code.
     VERIFY_ALREADY_IN_CHAIN         = -27   # Internal server error (500) status code.
 
