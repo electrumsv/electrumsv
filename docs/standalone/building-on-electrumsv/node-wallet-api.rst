@@ -911,6 +911,12 @@ in the transaction and has the following fields.
 
 #. Parameter: The ``include_watchonly`` parameter is ignored as the node wallet API does not
    support watch-only accounts at this time. Specifying a non-null value will raise an error.
+#. Response: The details ``account`` property has no meaning in wallets created for use with the
+   node API.
+#. Response: The details ``comment`` property relates to data that cannot be modified. There are
+   therefore no plans to support this property.
+#. Response: The details ``label`` property relates to data that cannot be modified. There are
+   therefore no plans to support this property.
 #. Error: The ``RPC_PARSE_ERROR`` for ``include_watchonly`` is customised and reflects that we
    do not accept non-null values.
 #. Returned value: The ``abandoned`` field in the main transaction object is always ``false`` as
@@ -1029,6 +1035,11 @@ The structure of each entry in the array is as follows:
    error. Specifying a non-null value will raise an error.
 #. Parameter: The ``include_watchonly`` parameter is ignored as the node wallet API does not
    support watch-only accounts at this time. Specifying a non-null value will raise an error.
+#. Response: The ``comment`` property is not going to be supported.
+#. Response: The ``fee`` property will never be present as it is not supported in this initial
+   implementation. If the fee for a transaction is wanted, the ``gettransaction`` method should
+   be used.
+#. Response: The ``label`` property is not going to be supported.
 #. Error: The ``RPC_PARSE_ERROR`` for ``account`` is customised and reflects that we do not accept
    non-null values.
 #. Error: The ``RPC_PARSE_ERROR`` for ``include_watchonly`` is customised and reflects that we
@@ -1236,24 +1247,34 @@ sendrawtransaction
 
 Broadcast the given transaction via a MAPI server. This will not add a related but unknown
 transaction to the wallet, and it is at this time assumed that any related transactions should
-be created using this wallet.
+be created using the other API methods this API provides.
+
+The Payd wallet is different from a node and the bitcoind wallet is built into a node.
+When you submit a transaction to bitcoind, it can validate the transaction directly and
+then add it to the mempool and maybe propagate it if other nodes have compatible settings for
+transaction acceptance and propagation. Payd instead has to submit the transaction to a remote MAPI
+server to get direct acceptance from a miner, and the it is running on has no connectivity issues
+relays the response from there.
 
 **Parameters:**
 
 #. ``hexstring`` (string, required). The serialised complete transaction in hexadecimal encoding.
-#. ``allowhighfees`` (bool, optional, default=``false``). Allow the transaction to have a fee
+#. ``allowhighfees`` (bool, optional, default=false). Allow the transaction to have a fee
    higher than the wallet's designated reasonable fee level.
-#. ``dontcheckfee`` (bool, optional, default=``false``).  TODO
+#. ``dontcheckfee`` (bool, optional, default=false).  Not supported. This would prioritise the
+   transaction in the mempool.
 
 **Returns:**
 
-The transaction id of the broadcast transaction (string).
+The canonically encoded hexadecimal id of the broadcast transaction (string).
 
 **Incompatibilities:**
 
-#. Parameter: We do not currently support the ``subtractfeefromamount`` parameter, which the node
-   accepts as an indication the caller wishes the fee to be subtracted from the payment amount.
-   This is an executive decision in order to limit the scope of work to the necessary parts.
+#. Parameter: We cannot support the ``dontcheckfee`` parameter. A node accepts this as an
+   indication the caller wishes the fee to be ignored and for the transaction to be prioritised
+   in it's local mempool.
+#. Error: Payd returns ``RPC_INVALID_PARAMETER`` if a ``true`` value is given for the
+   ``dontcheckfee`` parameter.
 
 **Error responses:**
 
@@ -1280,6 +1301,13 @@ call processing are described above.
                   As it chooses the fee for the payment you are askign it to make based on
                   available MAPI server quotes, this means it cannot proceed.
 
+    - :Code: -8 ``RPC_INVALID_PARAMETER``
+      :Message: | ``dontcheckfee parameter not currently supported``
+                | This is an intentional incompatibility. Payd is not a node and has no way to
+                  implement the feature of prioritsing a transaction in the mempool. We only return
+                  this error if a value of ``true`` is provided by the caller in order to maximise
+                  compatibility with existing applications.
+
     - :Code: -22 ``DESERIALIZATION_ERROR``
       :Message: | ``Tx decode failed``
                 | The ``hexstring`` argument value was successfully decoded to bytes, but the
@@ -1287,8 +1315,8 @@ call processing are described above.
 
     - :Code: -26 ``VERIFY_REJECTED``
       :Message: | ``<whatever error MAPI returned>``
-                | There may be a range of reasons for why the MAPI broadcast of the signed
-                  transaction failed. We aggregate these into this error.
+                | Any of a range of reasons for why the MAPI broadcast of the signed transaction
+                  failed.
 
     - :Code: -27 ``VERIFY_ALREADY_IN_CHAIN``
       :Message: | ``Transaction already in the mempool``
@@ -1302,12 +1330,14 @@ call processing are described above.
       :Message: | ``JSON value is not a string as expected``
                 | The type of the ``hexstring`` parameter was expected to be a string but was
                   interpreted as another type.
+
     - :Code: -32700 ``RPC_PARSE_ERROR``
       :Message: | ``JSON value is not a boolean as expected``
                 | The type of the ``allowhighfees`` parameter was expected to be a boolean but was
                   interpreted as another type.
+
     - :Code: -32700 ``RPC_PARSE_ERROR``
-      :Message: | ``JSON value is not a string as expected``
+      :Message: | ``JSON value is not a boolean as expected``
                 | The type of the ``dontcheckfee`` parameter was expected to be a boolean but was
                   interpreted as another type.
 
@@ -1330,8 +1360,7 @@ quote returned by that selected endpoint.
 #. ``commentto`` (string, optional). The node wallet used this to allow the user to specify the name
    of a person or organisation who is the recipient. If provided this will be appended to the
    preceding comment parameter.
-#. ``subtractfeefromamount`` (bool, optional). This is not supported and if passed with a ``true``
-   value will give a ``RPC_INVALID_PARAMETER`` error.
+#. ``subtractfeefromamount`` (bool, optional). Not supported.
 
 **Returns:**
 
@@ -1388,7 +1417,7 @@ call processing are described above.
                   amount.
 
     - :Code: -8 ``RPC_INVALID_PARAMETER``
-      :Message: | ``Subtract fee from amount not currently supported``
+      :Message: | ``subtractfeefromamount not currently supported``
                 | This is an intentional incompatibility. The wallet application does not currently
                   support deducting the fee from the payment amount.
 
