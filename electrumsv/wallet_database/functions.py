@@ -33,6 +33,7 @@ except ModuleNotFoundError:
 import time
 from typing import Any, cast, Iterable, Optional, Sequence
 
+from bitcoinx import hash_to_hex_str
 from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, execute_sql_by_id, \
     read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
 
@@ -1098,7 +1099,16 @@ def create_pushdata_matches_write(rows: list[PushDataMatchRow], processed_messag
         transaction_index, block_hash, match_flags, date_created)
     VALUES (?,?,?,?,?,?,?)
     """
-    db.executemany(sql, rows)
+    for row in rows:
+        try:
+            db.execute(sql, row)
+        except sqlite3.IntegrityError:
+            # We intentionally swallow this constraint violation exception. This exception implies
+            # that this pushdata notification is not the first for the given (pushdata/tx_hash)
+            # clustered index. Any subsequent state changes are handled via output spend
+            # notifications.
+            logger.debug("Ignoring redundant pushdata notification for transaction: %s",
+                hash_to_hex_str(row.transaction_hash))
 
     if len(processed_message_ids) > 0:
         update_server_peer_channel_message_flags_write(processed_message_ids, db)
@@ -1109,8 +1119,6 @@ def read_pushdata_match_metadata(db: sqlite3.Connection) -> list[PushDataMatchMe
     """
     WARNING: This only returns pushdata matches where we do not have the associated transaction.
     """
-    # TODO(1.4.0) Tip filters, issue#904. There should be some flag which filters out processed
-    #     entries and the tx import should toggle that flag accordingly.
     sql = \
         "SELECT KI.account_id, SPDR.pushdata_hash, SPDR.keyinstance_id, SPDR.script_type, " \
             "SPDM.transaction_hash, SPDM.block_hash " \

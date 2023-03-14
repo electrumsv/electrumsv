@@ -633,9 +633,6 @@ class PushDataMatchFlag(IntFlag):
     OUTPUT                                      = 1 << 0
     INPUT                                       = 1 << 1
 
-    # Local flags we set.
-    UNPROCESSED                                 = 1 << 31
-
 
 class ChainWorkerToken(IntEnum):
     MAPI_MESSAGE_CONSUMER                       = 1
