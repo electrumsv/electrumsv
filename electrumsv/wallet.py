@@ -5023,6 +5023,8 @@ class Wallet:
         """
         Process tip filter messages received from a server.
 
+        NOTE: We ignore tip filter events for the same pushdata/tx in the database function.
+
         This will either receive messages directly from the server message loop, or it will
         process backlogged unprocessed messages on startup.
 
@@ -5087,8 +5089,6 @@ class Wallet:
                     transaction_hash = hex_str_to_hash(tip_filter_match["transactionId"])
                     transaction_index = tip_filter_match["transactionIndex"]
                     match_flags = PushDataMatchFlag(tip_filter_match["flags"])
-                    # TODO(1.4.0) Tip filters, issue#904. See `read_pushdata_match_metadata`
-                    match_flags |= PushDataMatchFlag.UNPROCESSED
                     creation_pushdata_match_row = PushDataMatchRow(state.server.server_id,
                         pushdata_hash, transaction_hash, transaction_index, block_hash, match_flags,
                         date_created)
@@ -5096,8 +5096,11 @@ class Wallet:
 
             self.logger.debug("Writing %d pushdata matches to the database",
                 len(creation_pushdata_match_rows))
-            # The processed messages will have their `UNPROCESSED` flag removed here as part of an
-            # atomic update, that also inserts their extracted pushdata matches.
+            # The processed messages will have their `PeerChannelMessageFlag.UNPROCESSED` flag
+            # removed here as part of an atomic update, that also inserts their extracted
+            # pushdata matches.
+            # Subsequent pushdata events for the same pushdata/tx combination are ignored by this
+            # function as they are redundant for achieving an initial import of the transaction.
             await self.data.create_pushdata_matches_async(creation_pushdata_match_rows,
                 processed_message_ids)
 
