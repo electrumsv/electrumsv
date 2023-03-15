@@ -379,6 +379,8 @@ async def execute_jsonrpc_call_async(request: web.Request, object_data: Any) \
     # able to just read the code and understand it without layers of abstraction.
     if method_name == "createrawtransaction":
         return request_id, await jsonrpc_createrawtransaction_async(request, request_id, params)
+    elif method_name == "getbalance":
+        return request_id, await jsonrpc_getbalance_async(request, request_id, params)
     elif method_name == "getnewaddress":
         return request_id, await jsonrpc_getnewaddress_async(request, request_id, params)
     elif method_name == "listunspent":
@@ -702,6 +704,64 @@ async def jsonrpc_createrawtransaction_async(request: web.Request, request_id: R
         transaction_outputs.append(TxOutput(value, script))
 
     return Tx(1, transaction_inputs, transaction_outputs, locktime).to_hex()
+
+
+async def jsonrpc_getbalance_async(request: web.Request, request_id: RequestIdType,
+        parameters: RequestParametersType) -> Any:
+    """
+    Get the balance of the default account in the loaded wallet filtered for the desired number
+    of confirmations.
+
+    Raises `HTTPInternalServerError` for related errors to return to the API using application.
+    """
+    # Ensure the user is accessing either an explicit or implicit wallet.
+    wallet = get_wallet_from_request(request, request_id)
+    assert wallet is not None
+
+    # Similarly the user must only have one account (and we will ignore any
+    # automatically created petty cash accounts which we do not use yet).
+    accounts = wallet.get_visible_accounts()
+    if len(accounts) != 1:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=RPCError.WALLET_ERROR,
+                    message=f"Ambiguous account (found {len(accounts)}, expected 1)"))))
+    account = accounts[0]
+
+    # Compatibility: Raises RPC_INVALID_PARAMETER if we were given unlisted named parameters.
+    parameter_values = transform_parameters(request_id, [ "account", "minconf",
+        "include_watchonly" ], parameters)
+
+    # INCOMPATIBILITY: Raises RPC_INVALID_PARAMETER to indicate current lack of support for the
+    # "account" parameter - it should always be null.
+    if len(parameter_values) > 0 and parameter_values[0] is not None:
+        raise web.HTTPInternalServerError(headers={"Content-Type": "application/json"},
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+            error=ErrorDict(code=RPCError.PARSE_ERROR,
+            message="JSON value is not a null as expected"))))
+
+    # TODO - Currently minconf parameter is not actually used. Handling for this will be
+    #  implemented next.
+    minconf = 1
+    if len(parameter_values) > 1 and parameter_values[1] is not None:
+        # INCOMPATIBILITY: It is not necessary to do a `node_RPCTypeCheckArgument` as the node does.
+        minconf = get_integer_parameter(request_id, parameter_values[1])
+
+    # INCOMPATIBILITY: Raises RPC_INVALID_PARAMETER to indicate current lack of support for the
+    # "include_watchonly" parameter - it should always be null.
+    if len(parameter_values) > 2 and parameter_values[2] is not None:
+        raise web.HTTPInternalServerError(headers={"Content-Type": "application/json"},
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+            error=ErrorDict(code=RPCError.PARSE_ERROR,
+            message="JSON value is not a null as expected"))))
+
+    # Compatibility: Unmatured coins should be excluded from the final balance
+    # see GetLegacyBalance: `https://github.com/bitcoin-sv/bitcoin-sv/
+    # blob/b489c32ef55d428c5c3825d5526de018031a20af/src/wallet/wallet.cpp#L2238`
+    balance = account.get_balance()
+    total_balance = balance.confirmed
+    return total_balance/COIN
+
 
 async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestIdType,
         parameters: RequestParametersType) -> Any:
