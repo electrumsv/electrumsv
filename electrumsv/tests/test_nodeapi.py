@@ -31,7 +31,7 @@ from electrumsv.types import KeyStoreResult, Outpoint
 from electrumsv.wallet import StandardAccount, Wallet
 from electrumsv.wallet_database.types import AccountTransactionOutputSpendableRowExtended, \
     PaymentRequestOutputRow, PaymentRequestRow, TransactionLinkState, \
-    TransactionOutputSpendableProtocol
+    TransactionOutputSpendableProtocol, WalletBalance
 
 from .util import _create_mock_app_state2, MockStorage, TEST_DATA_PATH
 
@@ -783,6 +783,58 @@ async def test_call_createrawtransaction_success_async(
     assert len(object) == 3
     assert object["id"] == 232
     assert object["result"] == resulting_hex
+    assert object["error"] is None
+
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_getbalance_success_async(
+        app_state_nodeapi: AppStateProxy, server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        nonlocal account
+        return [ account ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    account.get_balance.side_effect = lambda *args, **kwargs: WalletBalance(0, 0, 0, 0)
+
+    # Params as an empty list
+    call_object = {
+        "id": 343,
+        "method": "getbalance",
+        "params": [],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.OK
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 343
+    assert object["result"] == 0
+    assert isinstance(object["result"], float)
+    assert object["error"] is None
+
+    # Params as jsonrpc v2.0 dictionary
+    call_object = {
+        "id": 343,
+        "method": "getbalance",
+        "params": {"account": None, "minconf": 1, "include_watchonly": None},
+        "jsonrpc": 2.0
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.OK
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 343
+    assert object["result"] == 0
     assert object["error"] is None
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')

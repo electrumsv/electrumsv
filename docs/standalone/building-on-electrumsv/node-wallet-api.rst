@@ -749,16 +749,12 @@ call processing are described above.
 
     - :Code: -32700 ``RPC_PARSE_ERROR``
       :Message: | ``JSON value is not a null as expected``
-                | This is an intentional incompatibility as we do not support this parameter. The
-                  type of the entries in the ``account`` parameter are expected to be strings and
-                  one or more were interpreted as another type.
+                | This is an intentional incompatibility as we do not support this parameter.
       :Message: | ``JSON value is not an integer as expected``
                 | The type of the ``minconf`` parameters are expected to be integers
                   and one or more were interpreted as another type.
       :Message: | ``JSON value is not a null as expected``
-                | This is an intentional incompatibility as we do not support this parameter. The
-                  type of the entries in the ``include_watchonly`` parameter are expected to be
-                  strings and one or more were interpreted as another type.
+                | This is an intentional incompatibility as we do not support this parameter.
 
 getnewaddress
 ~~~~~~~~~~~~~
