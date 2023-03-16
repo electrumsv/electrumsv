@@ -52,6 +52,7 @@ PUBLIC_KEY_1 = bitcoinx.PublicKey.from_hex(PUBLIC_KEY_1_HEX)
 P2PKH_ADDRESS_1 = PUBLIC_KEY_1.to_address()
 FAKE_DERIVATION_DATA2 = b"sdsdsd"
 FAKE_BLOCK_HASH = b"block hash"
+FAKE_BLOCK_HASH2 = b"block hash 2"
 FAKE_TRANSACTION_HASH = b"txhash"
 
 P2PKH_TRANSACTION_HEX = \
@@ -785,9 +786,18 @@ async def test_call_createrawtransaction_success_async(
     assert object["result"] == resulting_hex
     assert object["error"] is None
 
+@pytest.mark.parametrize("local_height,block_height,parameters,results", [
+    # Empty parameters array.
+    (101, 100, [], 1.0),
+    # Params as jsonrpc v2.0 dictionary
+    (101, 100, {"account": None, "minconf": 1, "include_watchonly": None}, 1.0),
+    # Miniconf=0 should include the unconfirmed UTXO
+    (101, 100, {"account": None, "minconf": 0, "include_watchonly": None}, 3.0),
+])
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
-async def test_call_getbalance_success_async(
-        app_state_nodeapi: AppStateProxy, server_tester: TestClient) -> None:
+async def test_call_getbalance_success_async(app_state_nodeapi: AppStateProxy, local_height: int,
+        block_height: int, parameters: list[Any], results: list[dict[str, Any]],
+        server_tester: TestClient) -> None:
     assert server_tester.app is not None
     mock_server = server_tester.app["server"]
     # Ensure the server does not require authorization to make a call.
@@ -805,36 +815,86 @@ async def test_call_getbalance_success_async(
         return [ account ]
     wallet.get_visible_accounts.side_effect = get_visible_accounts
 
-    account.get_balance.side_effect = lambda *args, **kwargs: WalletBalance(0, 0, 0, 0)
+    confirmed: int = 100000000
+    unconfirmed: int = 200000000
+    unmatured: int = 300000000
+    allocated: int = 0
+    account.get_balance.side_effect = lambda *args, **kwargs: WalletBalance(confirmed, unconfirmed,
+        unmatured, allocated)
+
+    def get_transaction_outputs_with_key_and_tx_data(exclude_frozen: bool=True,
+            confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None) \
+                -> list[AccountTransactionOutputSpendableRowExtended]:
+        assert exclude_frozen is True
+        assert keyinstance_ids is None
+        utxos = []
+        if not confirmed_only:
+            # Unconfirmed UTXO
+            utxos.append(
+            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 200000000,
+                1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
+                DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                None, b""),)
+        utxos.extend([
+            # Confirmed UTXO
+            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
+                1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
+                DerivationType.BIP32_SUBPATH,
+                FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED, FAKE_BLOCK_HASH, b""),
+            # Unmatured UTXO
+            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 300000000,
+                1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
+                DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                FAKE_BLOCK_HASH, b""),
+            # Matured UTXO (coinbase that has matured) - FAKE_BLOCK_HASH2 has height == 1
+            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
+                1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
+                DerivationType.BIP32_SUBPATH, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                FAKE_BLOCK_HASH2, b""),
+        ])
+        return utxos
+
+    account.get_transaction_outputs_with_key_and_tx_data.side_effect = \
+        get_transaction_outputs_with_key_and_tx_data
+
+    # Prepare the state so we can fake confirmations.
+    wallet.get_local_height = lambda: local_height
+    def lookup_header_for_hash(block_hash: bytes) -> tuple[bitcoinx.Header, bitcoinx.Chain]|None:
+        if block_hash == FAKE_BLOCK_HASH:
+            header = unittest.mock.Mock(spec=bitcoinx.Header)
+            header.height = block_height
+            chain = unittest.mock.Mock(spec=bitcoinx.Chain)
+            return header, chain
+        # FAKE_BLOCK_HASH2 is used to put this utxo in an early block to mature the coinbase UTXO
+        elif block_hash == FAKE_BLOCK_HASH2:
+            header = unittest.mock.Mock(spec=bitcoinx.Header)
+            header.height = 1
+            chain = unittest.mock.Mock(spec=bitcoinx.Chain)
+            return header, chain
+    wallet.lookup_header_for_hash = lookup_header_for_hash
+
+    # Inject the public key / address for the row (we ignore its derivation data).
+    def get_public_keys_for_derivation(derivation_type: DerivationType,
+            derivation_data2: bytes|None) -> list[bitcoinx.PublicKey]:
+        assert derivation_type == DerivationType.BIP32_SUBPATH
+        assert derivation_data2 == FAKE_DERIVATION_DATA2
+        return [ PUBLIC_KEY_1 ]
+    account.get_public_keys_for_derivation.side_effect = \
+        get_public_keys_for_derivation
 
     # Params as an empty list
     call_object = {
         "id": 343,
         "method": "getbalance",
-        "params": [],
+        "params": parameters,
     }
     response = await server_tester.request(path="/", method="POST", json=call_object)
     assert response.status == HTTPStatus.OK
     object = await response.json()
     assert len(object) == 3
     assert object["id"] == 343
-    assert object["result"] == 0
+    assert object["result"] == results
     assert isinstance(object["result"], float)
-    assert object["error"] is None
-
-    # Params as jsonrpc v2.0 dictionary
-    call_object = {
-        "id": 343,
-        "method": "getbalance",
-        "params": {"account": None, "minconf": 1, "include_watchonly": None},
-        "jsonrpc": 2.0
-    }
-    response = await server_tester.request(path="/", method="POST", json=call_object)
-    assert response.status == HTTPStatus.OK
-    object = await response.json()
-    assert len(object) == 3
-    assert object["id"] == 343
-    assert object["result"] == 0
     assert object["error"] is None
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
