@@ -740,8 +740,6 @@ async def jsonrpc_getbalance_async(request: web.Request, request_id: RequestIdTy
             error=ErrorDict(code=RPCError.PARSE_ERROR,
             message="JSON value is not a null as expected"))))
 
-    # TODO - Currently minconf parameter is not actually used. Handling for this will be
-    #  implemented next.
     minconf = 1
     if len(parameter_values) > 1 and parameter_values[1] is not None:
         # INCOMPATIBILITY: It is not necessary to do a `node_RPCTypeCheckArgument` as the node does.
@@ -758,10 +756,69 @@ async def jsonrpc_getbalance_async(request: web.Request, request_id: RequestIdTy
     # Compatibility: Unmatured coins should be excluded from the final balance
     # see GetLegacyBalance: `https://github.com/bitcoin-sv/bitcoin-sv/
     # blob/b489c32ef55d428c5c3825d5526de018031a20af/src/wallet/wallet.cpp#L2238`
-    balance = account.get_balance()
-    total_balance = balance.confirmed
-    return total_balance/COIN
+    if len(parameter_values) == 0:
+        balance = account.get_balance()
+        total_balance = balance.confirmed
+        return total_balance/COIN
 
+    confirmed_only = minconf > 0
+    wallet_height = wallet.get_local_height()
+    total_balance = 0
+    # NOTE: This code block is replicated from the listunspent endpoint
+    for utxo_data in account.get_transaction_outputs_with_key_and_tx_data(
+            exclude_frozen=True, confirmed_only=confirmed_only):
+        assert utxo_data.derivation_data2 is not None
+        if utxo_data.derivation_type != DerivationType.BIP32_SUBPATH:
+            raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                    error=ErrorDict(code=RPCError.INVALID_PARAMETER,
+                        message="Invalid parameter, unexpected utxo type: "+
+                            str(utxo_data.derivation_type)))))
+
+        public_keys = account.get_public_keys_for_derivation(utxo_data.derivation_type,
+            utxo_data.derivation_data2)
+        assert len(public_keys) == 1, "not a single-signature account"
+
+        confirmations = 0
+        if utxo_data.block_hash is not None and wallet_height > 0:
+            lookup_result = wallet.lookup_header_for_hash(utxo_data.block_hash)
+            if lookup_result is not None:
+                header, _chain = lookup_result
+                confirmations = wallet_height - header.height
+
+        if confirmations < minconf:
+            continue
+
+        # Condition 1:
+        # - Not if the given transaction is non-final.
+        #   ElectrumSV take: All transactions in the database as of 2022-12 are final.
+
+        # Condition 2:
+        # - Not if the given transaction is an immature coinbase transaction.
+        if utxo_data.flags & TransactionOutputFlag.COINBASE != 0 and confirmations < 100:
+            continue
+
+        # Condition 3 / 4:
+        # - Not if the given transaction's depth in the main chain less than zero.
+        #   wallet.cpp:GetDepthInMainChain
+        #   - If there is no block hash the height is the MEMPOOL_HEIGHT constant.
+        #     - Any local signed transaction is presumably broadcastable or abandoned.
+        #   - If the transaction is on a block on the wallet's chain, then the depth is
+        #     the positive height of that anointed as legitimate block.
+        #   - If the transaction is on a block on a fork, then the depth is the negative height
+        #     of that forked block.
+        # - Not if the given transaction's depth is 0 but it's not in our mempool.
+
+        # ElectrumSV take: We only set `block_hash` (and `STATE_SETTLED`) on transactions on the
+        #     wallet's main chain. We can only know if a transaction is in a mempool if
+        #     we have broadcast it (and set `STATE_CLEARED`). Our best equivalent to this is
+        #     `MASK_STATE_BROADCAST` which is just both those flags.
+        if utxo_data.tx_flags & TxFlags.MASK_STATE_BROADCAST == 0:
+            continue
+
+        total_balance += utxo_data.value
+
+    return total_balance/COIN
 
 async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestIdType,
         parameters: RequestParametersType) -> Any:
@@ -921,6 +978,7 @@ async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdT
     confirmed_only = minimum_confirmations > 0
     wallet_height = wallet.get_local_height()
     results: list[NodeUnspentOutputDict] = []
+    # NOTE: This code block is replicated in the getbalance endpoint (but without Condition 5 check)
     for utxo_data in account.get_transaction_outputs_with_key_and_tx_data(
             exclude_frozen=True, confirmed_only=confirmed_only):
         assert utxo_data.derivation_data2 is not None
