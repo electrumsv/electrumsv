@@ -64,8 +64,9 @@ from bitcoinx import Address, hash_to_hex_str, Ops, pack_byte, push_item, Script
 
 from .app_state import app_state
 from .bitcoin import COIN, script_template_to_string
-from .constants import CredentialPolicyFlag, DerivationType, NetworkServerFlag, PaymentFlag, \
-    ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
+from .constants import CHANGE_SUBPATH, CredentialPolicyFlag, DerivationType, KeyInstanceFlag, \
+    NetworkServerFlag, PaymentFlag, ScriptType, TransactionImportFlag, TransactionOutputFlag, \
+    TxFlags
 from .exceptions import BroadcastError, InvalidPassword, NotEnoughFunds
 from .logs import logs
 from .networks import Net
@@ -74,6 +75,7 @@ from .standards.script_templates import classify_transaction_output_script
 from .transaction import TransactionContext, TransactionFeeEstimator, XTxInput, XTxOutput
 from .types import Outpoint
 from .util import constant_time_compare
+from .wallet_database.exceptions import DatabaseUpdateError
 
 if TYPE_CHECKING:
     from .wallet import Wallet
@@ -383,6 +385,8 @@ async def execute_jsonrpc_call_async(request: web.Request, object_data: Any) \
         return request_id, await jsonrpc_getbalance_async(request, request_id, params)
     elif method_name == "getnewaddress":
         return request_id, await jsonrpc_getnewaddress_async(request, request_id, params)
+    elif method_name == "getrawchangeaddress":
+        return request_id, await jsonrpc_getrawchangeaddress_async(request, request_id, params)
     elif method_name == "listunspent":
         return request_id, await jsonrpc_listunspent_async(request, request_id, params)
     elif method_name == "sendtoaddress":
@@ -891,6 +895,50 @@ async def jsonrpc_getnewaddress_async(request: web.Request, request_id: RequestI
     script_type, threshold, script_template = classify_transaction_output_script(
         output_script)
     return script_template_to_string(script_template)
+
+
+async def jsonrpc_getrawchangeaddress_async(request: web.Request, request_id: RequestIdType,
+        parameters: RequestParametersType) -> Any:
+    """
+    Reserve the next unused change address (otherwise known as external key) and return it as
+    a P2PKH address. This differs from the getnewaddress endpoint in that there is no blockchain
+    monitoring for this address.
+
+    Raises `HTTPInternalServerError` for related errors to return to the API using application.
+    """
+    # Ensure the user is accessing either an explicit or implicit wallet.
+    wallet = get_wallet_from_request(request, request_id)
+    assert wallet is not None
+
+    # Similarly the user must only have one account (and we will ignore any
+    # automatically created petty cash accounts which we do not use yet).
+    accounts = wallet.get_visible_accounts()
+    if len(accounts) != 1:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=RPCError.WALLET_ERROR,
+                    message=f"Ambiguous account (found {len(accounts)}, expected 1)"))))
+    account = accounts[0]
+    try:
+        key_data = account.reserve_unassigned_key(CHANGE_SUBPATH,
+            KeyInstanceFlag.IS_RAW_CHANGE_ADDRESS)
+    except DatabaseUpdateError:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=RPCError.WALLET_ERROR,
+                    message="Database update error - The key was allocated by something else "
+                        "between the read and the write. Failed to reserve a key"))))
+
+    # Strictly speaking we return the address of whatever this is. It is almost guaranteed to be
+    # a base58 encoded P2PKH address that we return.
+    script_type: ScriptType | None = account.get_default_script_type()
+    assert script_type is not None
+    output_script = account.get_script_for_derivation(script_type, key_data.derivation_type,
+        key_data.derivation_data2)
+    script_type, threshold, script_template = classify_transaction_output_script(
+        output_script)
+    return script_template_to_string(script_template)
+
 
 async def jsonrpc_listunspent_async(request: web.Request, request_id: RequestIdType,
         parameters: RequestParametersType) -> Any:

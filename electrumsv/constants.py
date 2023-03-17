@@ -262,11 +262,14 @@ class KeyInstanceFlag(IntFlag):
     # This key was reserved to pay an invoice received from an external party.
     # TODO(1.4.0) Technical debt. We do not set this flag.
     IS_INVOICE = 1 << 10
+    # This is for acquiring a change address via the `getrawchangeaddress` Node API endpoint
+    # it will *not* be actively monitored by a blockchain monitoring service
+    IS_RAW_CHANGE_ADDRESS = 1 << 11
 
     FROZEN = 1 << 15
 
-    MASK_RESERVATION = IS_PAYMENT_REQUEST | IS_INVOICE
-    MASK_ACTIVE_REASON = MASK_RESERVATION | USER_SET_ACTIVE
+    MASK_RESERVATION = IS_PAYMENT_REQUEST | IS_INVOICE | IS_RAW_CHANGE_ADDRESS
+    MASK_ACTIVE_REASON = IS_PAYMENT_REQUEST | IS_INVOICE | USER_SET_ACTIVE
 
 
 class TransactionImportFlag(IntFlag):
