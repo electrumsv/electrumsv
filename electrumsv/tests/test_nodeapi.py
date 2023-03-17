@@ -556,6 +556,21 @@ endpoint_error_parameter_list = [
     ("createrawtransaction", [ [], {}, 0xFFFFFFFF+1  ], RPCError.INVALID_PARAMETER,
         "Invalid parameter, locktime out of range"),
 
+    ## ``getbalance``: ``minconf`` parameter
+    # Error case: RPC_PARSE_ERROR / String in place of account - not supported.
+    ("getbalance", ["string"], RPCError.PARSE_ERROR, "JSON value is not a null as expected"),
+    # Error case: RPC_PARSE_ERROR / String in place of include_watchonly - not supported.
+    ("getbalance", [None, 1, "string"], RPCError.PARSE_ERROR,
+        "JSON value is not a null as expected"),
+    # Error case: RPC_PARSE_ERROR / String in place of minconf - should be an integer.
+    ("getbalance", [None, "string", None], RPCError.PARSE_ERROR,
+        "JSON value is not an integer as expected"),
+    # Error case: RPC_PARSE_ERROR / Invalid minconf value - cannot be negative
+    ("getbalance", [None, -1, None], RPCError.INVALID_PARAMETER,
+        "'minconf' cannot be a negative integer value"),
+    # TODO - check for number of arguments and likely should return RPC_MISC_ERROR to match the
+    #  node. There is a backlog task for this and needs checking for all other endpoints.
+
     ## ``listunspent``: ``minconf`` parameter
     # Error case: RPC_PARSE_ERROR / String in place of minimum confirmation count.
     ("listunspent", [ "string" ], RPCError.PARSE_ERROR,
