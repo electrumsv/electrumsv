@@ -744,6 +744,13 @@ async def jsonrpc_getbalance_async(request: web.Request, request_id: RequestIdTy
     if len(parameter_values) > 1 and parameter_values[1] is not None:
         # INCOMPATIBILITY: It is not necessary to do a `node_RPCTypeCheckArgument` as the node does.
         minconf = get_integer_parameter(request_id, parameter_values[1])
+        # INCOMPATIBILITY: The node doesn't actually check for negative values but in our case,
+        # we should because it affects which utxos are included in the final balance.
+        if minconf < 0:
+            raise web.HTTPInternalServerError(headers={"Content-Type": "application/json"},
+                text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=RPCError.INVALID_PARAMETER,
+                message="'minconf' cannot be a negative integer value"))))
 
     # INCOMPATIBILITY: Raises RPC_INVALID_PARAMETER to indicate current lack of support for the
     # "include_watchonly" parameter - it should always be null.
