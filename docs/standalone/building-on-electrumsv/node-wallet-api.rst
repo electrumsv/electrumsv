@@ -849,6 +849,9 @@ call processing are described above.
                 | A wallet used by the JSON-RPC API must only have one account so that the
                   API code knows which to make use of. The given wallet has either no accounts
                   or more than one account (the current number indicated by the `count`).
+      :Message: | ``Database update error - The key was allocated by something else between the read and the write. Failed to reserve a key``
+                | This error is only theoretical and would result from a race of the key being
+                | already allocated by another task.
 
 gettransaction
 ~~~~~~~~~~~~~~

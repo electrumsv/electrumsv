@@ -16,20 +16,20 @@ import bitcoinx
 import pytest
 
 from electrumsv.app_state import AppStateProxy
-from electrumsv.constants import AccountCreationType, KeystoreTextType, DerivationType, \
+from electrumsv.constants import AccountCreationType, DerivationType, KeystoreTextType, \
     PaymentFlag, ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
 from electrumsv.exceptions import InvalidPassword
 from electrumsv.keystore import instantiate_keystore_from_text
 from electrumsv.network_support.types import ServerConnectionState, TipFilterRegistrationJobOutput
 from electrumsv import nodeapi
-from electrumsv.nodeapi import RPCError, SIGHASH_MAPPING
+from electrumsv.nodeapi import RPCError
 from electrumsv.standards.script_templates import classify_transaction_output_script, \
     create_script_sig
 from electrumsv.storage import WalletStorage
 from electrumsv.transaction import Transaction, TransactionContext, XTxInput, XPublicKey
 from electrumsv.types import KeyStoreResult, Outpoint
 from electrumsv.wallet import StandardAccount, Wallet
-from electrumsv.wallet_database.types import AccountTransactionOutputSpendableRowExtended, \
+from electrumsv.wallet_database.types import AccountTransactionOutputSpendableRowExtended, KeyData, \
     PaymentRequestOutputRow, PaymentRequestRow, TransactionLinkState, \
     TransactionOutputSpendableProtocol, WalletBalance
 
@@ -1274,6 +1274,53 @@ async def test_call_getnewaddress_success_async(app_state_nodeapi: AppStateProxy
     assert object["id"] == 232
     assert object["result"] == "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2"
     assert object["error"] is None
+
+
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_getrawchangeaddress_success_async(app_state_nodeapi: AppStateProxy,
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    server_state = unittest.mock.Mock(spec=ServerConnectionState)
+    def get_tip_filter_server_state() -> ServerConnectionState:
+        nonlocal server_state
+        return server_state
+    wallet.get_tip_filter_server_state.side_effect = get_tip_filter_server_state
+
+    account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        nonlocal account
+        return [ account ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    account.reserve_unassigned_key.side_effect = lambda *args, **kwargs: \
+        KeyData(1, 0, 1, DerivationType.PUBLIC_KEY_HASH, FAKE_DERIVATION_DATA2)
+    account.get_default_script_type.side_effect = lambda *args, **kwargs: ScriptType.P2PKH
+    account.get_script_for_derivation.side_effect = lambda *args, **kwargs: \
+        bitcoinx.Script(bytes.fromhex("76a9149935f2eaa7bb881c1cf728e940bcc0fda408f01b88ac"))
+
+    call_object = {
+        "id": 232,
+        "method": "getrawchangeaddress",
+        "params": [],
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.OK
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 232
+    assert object["result"] == "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2"
+    assert object["error"] is None
+
 
 @pytest.mark.parametrize("local_height,block_height,parameters,results", [
     # Filter for an address and match it.
