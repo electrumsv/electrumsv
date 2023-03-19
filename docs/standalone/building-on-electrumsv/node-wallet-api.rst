@@ -743,6 +743,12 @@ call processing are described above.
                   API code knows which to make use of. The given wallet has either no accounts
                   or more than one account (the current number indicated by "<count>").
 
+    - :Code: -8 ``RPC_INVALID_PARAMETER``
+      :Message: | ``Invalid parameter, unexpected utxo type: <number>``
+                | An unspent output was encountered that does not have a supported key type for
+                  the JSON-RPC API. This would be if the user is accessing an externally created
+                  account with this API.
+
     - :Code: -32602 ``RPC_INVALID_PARAMS``
       :Message: | ``Invalid parameters, see documentation for this call``
                 | Either too few or too many parameters were provided.
