@@ -565,11 +565,6 @@ endpoint_error_parameter_list = [
     # Error case: RPC_PARSE_ERROR / String in place of minconf - should be an integer.
     ("getbalance", [None, "string", None], RPCError.PARSE_ERROR,
         "JSON value is not an integer as expected"),
-    # Error case: RPC_PARSE_ERROR / Invalid minconf value - cannot be negative
-    ("getbalance", [None, -1, None], RPCError.INVALID_PARAMETER,
-        "'minconf' cannot be a negative integer value"),
-    # TODO - check for number of arguments and likely should return RPC_MISC_ERROR to match the
-    #  node. There is a backlog task for this and needs checking for all other endpoints.
 
     ## ``listunspent``: ``minconf`` parameter
     # Error case: RPC_PARSE_ERROR / String in place of minimum confirmation count.
@@ -911,6 +906,118 @@ async def test_call_getbalance_success_async(app_state_nodeapi: AppStateProxy, l
     assert object["result"] == results
     assert isinstance(object["result"], float)
     assert object["error"] is None
+
+
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_getbalance_unsupported_derivation_type_async(app_state_nodeapi: AppStateProxy,
+        server_tester: TestClient) -> None:
+    local_height = 100
+    block_height = 10
+    parameters = {"account": None, "minconf": 1, "include_watchonly": None}
+    results = 0.0
+
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        nonlocal account
+        return [ account ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    confirmed: int = 100000000
+    unconfirmed: int = 200000000
+    unmatured: int = 300000000
+    allocated: int = 0
+    account.get_balance.side_effect = lambda *args, **kwargs: WalletBalance(confirmed, unconfirmed,
+        unmatured, allocated)
+
+    def get_transaction_outputs_with_key_and_tx_data(exclude_frozen: bool=True,
+            confirmed_only: bool|None=None, keyinstance_ids: list[int]|None=None) \
+                -> list[AccountTransactionOutputSpendableRowExtended]:
+        assert exclude_frozen is True
+        assert keyinstance_ids is None
+        utxos = []
+        if not confirmed_only:
+            # Unconfirmed UTXO
+            utxos.append(
+            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 200000000,
+                1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
+                DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                None, b""),)
+        utxos.extend([
+            # Confirmed UTXO
+            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
+                1111111, ScriptType.P2PKH, TransactionOutputFlag.NONE, 1, 1,
+                DerivationType.ELECTRUM_OLD,
+                FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED, FAKE_BLOCK_HASH, b""),
+            # Unmatured UTXO
+            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 300000000,
+                1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
+                DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                FAKE_BLOCK_HASH, b""),
+            # Matured UTXO (coinbase that has matured) - FAKE_BLOCK_HASH2 has height == 1
+            AccountTransactionOutputSpendableRowExtended(FAKE_TRANSACTION_HASH, 0, 50000000,
+                1111111, ScriptType.P2PKH, TransactionOutputFlag.COINBASE, 1, 1,
+                DerivationType.ELECTRUM_OLD, FAKE_DERIVATION_DATA2, TxFlags.STATE_SETTLED,
+                FAKE_BLOCK_HASH2, b""),
+        ])
+        return utxos
+
+    account.get_transaction_outputs_with_key_and_tx_data.side_effect = \
+        get_transaction_outputs_with_key_and_tx_data
+
+    # Prepare the state so we can fake confirmations.
+    wallet.get_local_height = lambda: local_height
+    def lookup_header_for_hash(block_hash: bytes) -> tuple[bitcoinx.Header, bitcoinx.Chain]|None:
+        if block_hash == FAKE_BLOCK_HASH:
+            header = unittest.mock.Mock(spec=bitcoinx.Header)
+            header.height = block_height
+            chain = unittest.mock.Mock(spec=bitcoinx.Chain)
+            return header, chain
+        # FAKE_BLOCK_HASH2 is used to put this utxo in an early block to mature the coinbase UTXO
+        elif block_hash == FAKE_BLOCK_HASH2:
+            header = unittest.mock.Mock(spec=bitcoinx.Header)
+            header.height = 1
+            chain = unittest.mock.Mock(spec=bitcoinx.Chain)
+            return header, chain
+    wallet.lookup_header_for_hash = lookup_header_for_hash
+
+    # Inject the public key / address for the row (we ignore its derivation data).
+    def get_public_keys_for_derivation(derivation_type: DerivationType,
+            derivation_data2: bytes|None) -> list[bitcoinx.PublicKey]:
+        assert derivation_type == DerivationType.BIP32_SUBPATH
+        assert derivation_data2 == FAKE_DERIVATION_DATA2
+        return [ PUBLIC_KEY_1 ]
+    account.get_public_keys_for_derivation.side_effect = \
+        get_public_keys_for_derivation
+
+    # Params as an empty list
+    call_object = {
+        "id": 343,
+        "method": "getbalance",
+        "params": parameters,
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 343
+    assert object['result'] is None
+    assert isinstance(object["error"], dict)
+    assert object['error'] == {
+        'code': -8,
+        'message': 'Invalid parameter, unexpected utxo type: DerivationType.ELECTRUM_OLD'
+    }
+
 
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
 async def test_call_getnewaddress_no_connected_blockchain_server_async(
