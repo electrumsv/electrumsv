@@ -1908,7 +1908,7 @@ class WalletDataAccess:
         Returns a future.
         The result of the future is the allocated `keyinstance_id` if successful.
         Raises `KeyInstanceNotFoundError` if there are no available key instances.
-        Raises `DatabaseUpdateError` if something else allocated the selected keyinstance first.
+        Raises `DatabaseUpdateError` should only happen if the sqlite or python bindings are broken.
         """
         return db_functions.reserve_keyinstance(self._db_context, account_id,
             masterkey_id, derivation_path, allocation_flags)

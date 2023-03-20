@@ -2058,7 +2058,7 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
 
     Returns the allocated `keyinstance_id` if successful.
     Raises `KeyInstanceNotFoundError` if there are no available key instances.
-    Raises `DatabaseUpdateError` if something else allocated the selected keyinstance first.
+    Raises `DatabaseUpdateError` should only happen if the sqlite or python bindings are broken.
     """
     assert allocation_flags & KeyInstanceFlag.USED == 0
     # The derivation path is the relative parent path from the master key.
@@ -2089,7 +2089,7 @@ def reserve_keyinstance(db_context: DatabaseContext, account_id: int, masterkey_
         # The result of the read operation just happens to be the parameters we need for the write.
         cursor = db.execute(sql_write, (allocation_flags, keyinstance_row[0], KeyInstanceFlag.USED))
         if cursor.rowcount != 1:
-            # The key was allocated by something else between the read and the write.
+            # This should only happen if the sqlite or python bindings are broken.
             raise DatabaseUpdateError()
 
         return cast(int, keyinstance_row[0]), DerivationType(keyinstance_row[1]), \
