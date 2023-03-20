@@ -75,7 +75,7 @@ from .standards.script_templates import classify_transaction_output_script
 from .transaction import TransactionContext, TransactionFeeEstimator, XTxInput, XTxOutput
 from .types import Outpoint
 from .util import constant_time_compare
-from .wallet_database.exceptions import DatabaseUpdateError
+
 
 if TYPE_CHECKING:
     from .wallet import Wallet
@@ -919,15 +919,8 @@ async def jsonrpc_getrawchangeaddress_async(request: web.Request, request_id: Re
                 error=ErrorDict(code=RPCError.WALLET_ERROR,
                     message=f"Ambiguous account (found {len(accounts)}, expected 1)"))))
     account = accounts[0]
-    try:
-        key_data = account.reserve_unassigned_key(CHANGE_SUBPATH,
-            KeyInstanceFlag.IS_RAW_CHANGE_ADDRESS)
-    except DatabaseUpdateError:
-        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
-            text=json.dumps(ResponseDict(id=request_id, result=None,
-                error=ErrorDict(code=RPCError.WALLET_ERROR,
-                    message="Database update error - The key was allocated by something else "
-                        "between the read and the write. Failed to reserve a key"))))
+    key_data = account.reserve_unassigned_key(CHANGE_SUBPATH,
+        KeyInstanceFlag.IS_RAW_CHANGE_ADDRESS)
 
     # Strictly speaking we return the address of whatever this is. It is almost guaranteed to be
     # a base58 encoded P2PKH address that we return.
