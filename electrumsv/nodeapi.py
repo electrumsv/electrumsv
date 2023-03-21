@@ -65,7 +65,7 @@ from bitcoinx import Address, hash_to_hex_str, Ops, pack_byte, push_item, Script
 from .app_state import app_state
 from .bitcoin import COIN, script_template_to_string
 from .constants import CHANGE_SUBPATH, CredentialPolicyFlag, DerivationType, KeyInstanceFlag, \
-    NetworkServerFlag, ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
+    ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
 from .exceptions import BroadcastError, InvalidPassword, NotEnoughFunds, NoViableServersError, \
     ServiceUnavailableError
 from .logs import logs
@@ -1216,14 +1216,6 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
                     error=ErrorDict(code=RPCError.INVALID_PARAMETER,
                         message="Subtract fee from amount not currently supported"))))
 
-    peer_channel_server_state = wallet.get_connection_state_for_usage(
-        NetworkServerFlag.USE_MESSAGE_BOX)
-    if peer_channel_server_state is None:
-        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
-            text=json.dumps(ResponseDict(id=request_id, result=None,
-                error=ErrorDict(code=RPCError.WALLET_ERROR,
-                    message="No configured peer channel server"))))
-
     # @MAPIFeeQuote @TechnicalDebt Non-ideal way to ensure the fee quotes are cached.
     viable_fee_contexts = await wallet.update_mapi_fee_quotes_async(account.get_id())
     if len(viable_fee_contexts) == 0:
@@ -1275,11 +1267,7 @@ async def jsonrpc_sendtoaddress_async(request: web.Request, request_id: RequestI
             text=json.dumps(ResponseDict(id=request_id, result=None,
                 error=ErrorDict(code=RPCError.WALLET_ERROR, message=str(broadcast_error)))))
 
-    mapi_result = broadcast_result.mapi
-    assert mapi_result is not None
-
     # At this point the transaction should be signed.
-
     transaction_id = transaction.txid()
     assert transaction_id is not None
     return transaction_id

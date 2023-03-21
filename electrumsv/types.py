@@ -15,10 +15,8 @@ from .constants import AccountCreationType, DatabaseKeyDerivationType, Derivatio
 
 
 if TYPE_CHECKING:
-    from .dpp_messages import PeerChannelDict
     from .keystore import KeyStore
     from .network_support.api_server import NewServer
-    from .network_support.types import ServerConnectionState
     from .standards.mapi import MAPIBroadcastResponse
     from .standards.tsc_merkle_proof import TSCMerkleProof
     from .wallet_database.types import KeyDataProtocol, NetworkServerRow, MerkleProofRow
@@ -286,16 +284,11 @@ class TransactionBroadcastContext:
     credential_id: int | None
     fee_quote_json: str | None
 
-@dataclasses.dataclass
-class MAPIBroadcastResult:
-    response: MAPIBroadcastResponse
-    peer_channel_data: PeerChannelDict | None
-    server_state: ServerConnectionState | None
 
 @dataclasses.dataclass
 class BroadcastResult:
     success: bool
-    mapi: MAPIBroadcastResult | None
+    mapi_response: MAPIBroadcastResponse
 
 
 class FeeQuoteCommon(TypedDict):

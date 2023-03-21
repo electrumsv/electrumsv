@@ -9,8 +9,8 @@ from typing import TypedDict
 
 from ..app_state import app_state
 from ..constants import DPPMessageType
-from ..dpp_messages import HPMPaymentACK, HYBRID_PAYMENT_MODE_BRFCID, Payment, PaymentACK, \
-    PeerChannelDict, PaymentACKDict
+from ..dpp_messages import HybridModePaymentACKDict, HYBRID_PAYMENT_MODE_BRFCID, Payment, \
+    PaymentACK, PaymentACKDict
 from ..exceptions import Bip270Exception
 from ..logs import logs
 from ..networks import Net
@@ -138,11 +138,10 @@ def dpp_make_payment_request_response(server_url: str, credential_id: Indefinite
     return message_row_response
 
 
-def dpp_make_ack(txid: str, peer_channel: PeerChannelDict,
-        message_row_received: DPPMessageRow) -> DPPMessageRow:
-    mode = HPMPaymentACK(transactionIds=[txid], peerChannel=peer_channel)
+def dpp_make_ack(txid: str, message_row_received: DPPMessageRow) -> DPPMessageRow:
+    mode = HybridModePaymentACKDict(transactionIds=[txid])
     payment_ack_data = PaymentACKDict(modeId=HYBRID_PAYMENT_MODE_BRFCID, mode=mode,
-        peerChannel=peer_channel, redirectUrl=None)
+        peerChannel=None, redirectUrl=None)
 
     message_row_response = DPPMessageRow(
         message_id=str(uuid.uuid4()),

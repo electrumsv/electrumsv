@@ -177,12 +177,7 @@ all_boxes: List[BoxBase] = [
     WarningBox("think-before-sending",
             _("Avoid Coin Loss"),
             take_care_notice,
-            frequency=DisplayFrequency.OncePerRun),
-    YesNoBox('mapi-broadcast-servers', _("This broadcast uses a MAPI server, and in order to "
-        "be notified when your transaction is mined or double-spent, you need to provide it "
-        "with a way to notify you. This is done through the use of a message box server, and "
-        "you do not currently have one selected."), _("Do you wish to select a message box "
-        "server to use before you broadcast this transaction?"), _("Yes"), _("No"), True),
+            frequency=DisplayFrequency.OncePerRun)
 ]
 
 all_boxes_by_name: Dict[str, BoxBase] = {box.name: box for box in all_boxes}

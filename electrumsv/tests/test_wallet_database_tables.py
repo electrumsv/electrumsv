@@ -8,7 +8,7 @@ import bitcoinx
 from electrumsv_database.sqlite import DatabaseContext, LeakedSQLiteConnectionError
 import pytest
 
-from ..dpp_messages import HYBRID_PAYMENT_MODE_BRFCID, PeerChannelDict
+from ..dpp_messages import HYBRID_PAYMENT_MODE_BRFCID
 from ..util import get_posix_timestamp
 
 try:
@@ -1218,9 +1218,7 @@ async def test_table_paymentrequests_CRUD(db_context: DatabaseContext) -> None:
         "mode": {
             "transactionIds": ["txid1"]
         },
-        "peerChannel":
-            json.dumps(PeerChannelDict(host="someurl",
-                token="sometoken", channel_id="somechannelid"))
+        "peerChannel": None
     })
     merchant_reference = "merchant_reference"
     dummy_encrypted_secure_key = "KEY"
@@ -1725,7 +1723,7 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
 
     # CHANNEL: Check that a valid insert succeeds.
     create_channel_row1 = ServerPeerChannelRow(None, server_id, "remote id", None,
-        ServerPeerChannelFlag.TIP_FILTER_DELIVERY, date_created,
+        ServerPeerChannelFlag.PURPOSE_TIP_FILTER_DELIVERY, date_created,
         date_created)
     create_channel_future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
         create_channel_row1, server_id)
@@ -1749,7 +1747,7 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
 
     # CHANNEL: Create a second channel to aid in testing filtering.
     create_channel_row2 = ServerPeerChannelRow(None, server_id, None, None,
-        ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK | ServerPeerChannelFlag.ALLOCATING,
+        ServerPeerChannelFlag.PURPOSE_TEST_ALTERNATIVE | ServerPeerChannelFlag.ALLOCATING,
         date_created, date_created)
     create_channel_future = db_context.post_to_thread(db_functions.create_server_peer_channel_write,
         create_channel_row2)
@@ -1777,7 +1775,7 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
     # MESSAGES: Filter by server peer channel flag.
     read_rows = db_functions.read_server_peer_channel_messages(db_context, server_id,
         PeerChannelMessageFlag.NONE, PeerChannelMessageFlag.NONE,
-        ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, ServerPeerChannelFlag.MASK_PURPOSE)
+        ServerPeerChannelFlag.PURPOSE_TEST_ALTERNATIVE, ServerPeerChannelFlag.MASK_PURPOSE)
     assert len(read_rows) == 2
     assert { message_row.message_id for message_row in read_rows } == \
         { created_message_rows2[0].message_id, created_message_rows2[1].message_id }

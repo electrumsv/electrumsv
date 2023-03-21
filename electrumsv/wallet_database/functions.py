@@ -765,17 +765,12 @@ def read_spent_outputs_to_monitor(db: sqlite3.Connection) -> list[OutputSpend]:
     SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index, TX.block_hash
     FROM TransactionInputs TXI
     INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash AND TX.flags&?1!=0 AND TX.flags&?2=0
-    LEFT JOIN MAPIBroadcasts MBC ON MBC.tx_hash=TXI.tx_hash AND MBC.mapi_broadcast_flags&?3=?4
-    WHERE MBC.tx_hash IS NULL
     """
     sql_values = [
         # There must be a state set on the transaction.
         TxFlags.MASK_STATE,
         # We want to monitor non-settled transactions, as long as they haven't been "deleted".
         TxFlags.STATE_SETTLED|TxFlags.REMOVED,
-        # If there is already a valid broadcast result we are done, and do not need to.
-        MAPIBroadcastFlag.BROADCAST|MAPIBroadcastFlag.DELETED,
-        MAPIBroadcastFlag.BROADCAST
     ]
     rows = db.execute(sql, sql_values).fetchall()
     return [ OutputSpend(*row) for row in rows ]
@@ -789,14 +784,12 @@ def read_existing_output_spends(db: sqlite3.Connection, outpoints: list[Outpoint
     """
     sql = """
     SELECT TXI.spent_tx_hash, TXI.spent_txo_index, TXI.tx_hash, TXI.txi_index, TX.block_hash,
-        TX.flags, MBC.mapi_broadcast_flags
+        TX.flags
     FROM TransactionInputs TXI
     INNER JOIN Transactions TX ON TX.tx_hash=TXI.tx_hash
-    LEFT JOIN MAPIBroadcasts MBC ON MBC.tx_hash=TXI.tx_hash AND MBC.mapi_broadcast_flags&?=?
     """
     sql_condition = "TXI.spent_tx_hash=? AND TXI.spent_txo_index=?"
-    sql_values = [ MAPIBroadcastFlag.BROADCAST|MAPIBroadcastFlag.DELETED,
-        MAPIBroadcastFlag.BROADCAST ]
+    sql_values: list[Any] = []
     return read_rows_by_ids(SpentOutputRow, db, sql, sql_condition, sql_values, outpoints)
 
 
@@ -1578,7 +1571,8 @@ def create_server_peer_channel_write(row: ServerPeerChannelRow,
     # TODO(1.4.0) Tip filters, issue#904. Can we get delete the `tip_filter_peer_channel_id` field?
     #     We should just be able to do a preread based on the flags and enforce it.
     peer_channel_id = cast(int, insert_result_1[0])
-    if row.peer_channel_flags & ServerPeerChannelFlag.TIP_FILTER_DELIVERY:
+    if row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE == \
+            ServerPeerChannelFlag.PURPOSE_TIP_FILTER_DELIVERY:
         assert tip_filter_server_id is not None
         sql = """
             UPDATE Servers

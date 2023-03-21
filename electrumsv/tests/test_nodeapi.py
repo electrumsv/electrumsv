@@ -1487,45 +1487,6 @@ async def test_call_sendtoaddress_walletpassphrase_required_async(app_state_node
     assert object["error"]["message"] == "Error: Please enter the wallet passphrase with " \
         "walletpassphrase first."
 
-@unittest.mock.patch('electrumsv.keystore.app_state', new_callable=_create_mock_app_state2)
-@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state2)
-@unittest.mock.patch('electrumsv.nodeapi.app_state')
-async def test_call_sendtoaddress_failure_no_configured_peer_channel_server_async(
-        app_state_nodeapi: AppStateProxy,app_state_wallet: AppStateProxy,
-        app_state_keystore: AppStateProxy, server_tester: TestClient,
-        funded_wallet_factory: Callable[[], Wallet]) -> None:
-    assert server_tester.app is not None
-    mock_server = server_tester.app["server"]
-    # Ensure the server does not require authorization to make a call.
-    mock_server._password = ""
-
-    wallet_password = "123456"
-    # The `funded_wallet_factory` fixture copies and opens the wallet and requires the password.
-    app_state_wallet.credentials.get_wallet_password = lambda wallet_path: wallet_password
-    app_state_keystore.credentials.get_wallet_password = lambda wallet_path: wallet_password
-
-    wallet = funded_wallet_factory()
-
-    wallets: dict[str, Wallet] = {}
-    irrelevant_path = os.urandom(32).hex()
-    wallets[irrelevant_path] = wallet
-    app_state_nodeapi.daemon.wallets = wallets
-
-    call_object = {
-        "id": 232,
-        "method": "sendtoaddress",
-        "params": [ "1Ey71nXGETcEvzpQyhwEaPn7UdGmDyrGF2", 10000 ],
-    }
-    response = await server_tester.request(path="/", method="POST", json=call_object)
-    assert response.status == HTTPStatus.INTERNAL_SERVER_ERROR
-    object = await response.json()
-    assert len(object) == 3
-    assert object["id"] == 232
-    assert object["result"] is None
-    assert len(object["error"]) == 2
-    assert object["error"]["code"] == RPCError.WALLET_ERROR # WALLET_ERROR
-    assert object["error"]["message"] == "No configured peer channel server"
-
 class SignRawTransactionMockDataDict(TypedDict):
     # Mapping of compressed public key hex to signature hex.
     signatures: dict[str, str]

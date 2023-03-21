@@ -804,11 +804,8 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
         assert peer_channel_row.peer_channel_flags is not None
         peer_channel_purpose = \
             peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE
-        if peer_channel_purpose == ServerPeerChannelFlag.TIP_FILTER_DELIVERY:
+        if peer_channel_purpose == ServerPeerChannelFlag.PURPOSE_TIP_FILTER_DELIVERY:
             await state.tip_filter_matches_queue.put(message_entries)
-        elif peer_channel_purpose == ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
-            state.mapi_callback_response_queue.put_nowait(message_entries)
-            state.mapi_callback_response_event.set()
         else:
             # TODO(1.4.0) Unreliable server, issue#841. Peer channel message is not expected.
             logger.error("Wallet: '%s' received peer channel %d messages of unhandled purpose '%s'",
@@ -1245,7 +1242,8 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
             raise InvalidStateError(f"Peer channel {peer_channel_id} lacks matching row")
         # The indexing server tip filter peer channel is not flagged correctly. There is
         # nothing we can do in this case as it is completely unexpected (database corruption?).
-        if peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.TIP_FILTER_DELIVERY == 0:
+        if peer_channel_row.peer_channel_flags & \
+                ServerPeerChannelFlag.PURPOSE_TIP_FILTER_DELIVERY == 0:
             raise InvalidStateError(f"Peer channel {peer_channel_id} lacks tip filter flag")
 
     tip_filter_callback_url = indexing_server_state.indexer_settings.get("tipFilterCallbackUrl")
@@ -1286,7 +1284,7 @@ async def prepare_server_tip_filter_peer_channel(indexing_server_state: ServerCo
     else:
         peer_channel_row, tip_filter_access_token, read_only_access_token = \
             await create_peer_channel_locally_and_remotely_async(
-                peer_channel_server_state, ServerPeerChannelFlag.TIP_FILTER_DELIVERY,
+                peer_channel_server_state, ServerPeerChannelFlag.PURPOSE_TIP_FILTER_DELIVERY,
                 PeerChannelAccessTokenFlag.FOR_TIP_FILTER_SERVER,
                 indexing_server_id=indexing_server_id)
         assert peer_channel_row.peer_channel_id is not None

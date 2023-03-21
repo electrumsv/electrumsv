@@ -102,10 +102,8 @@ from .networks import Net
 from .restapi_websocket import broadcast_restapi_event_async, BroadcastEventNames, \
     BroadcastEventPayloadNames, close_restapi_connection_async
 from .standards.electrum_transaction_extended import transaction_from_electrumsv_dict
-from .standards.json_envelope import JSONEnvelope, validate_json_envelope
-from .standards.mapi import MAPICallbackResponse, validate_mapi_callback_response
 from .standards.tsc_merkle_proof import separate_proof_and_embedded_transaction, TSCMerkleProof, \
-    TSCMerkleProofError, TSCMerkleProofJson, verify_proof
+    TSCMerkleProofError, verify_proof
 from .storage import WalletStorage
 from .transaction import (HardwareSigningMetadata, Transaction,
     TransactionContext, TransactionFeeEstimator, tx_dict_from_text, TxSerialisationFormat,
@@ -113,7 +111,7 @@ from .transaction import (HardwareSigningMetadata, Transaction,
 from .types import (BroadcastResult, ConnectHeaderlessProofWorkerState, DatabaseKeyDerivationData,
     FeeEstimatorProtocol, FeeQuoteCommon, IndefiniteCredentialId,
     KeyInstanceDataBIP32SubPath, KeyInstanceDataHash, KeyInstanceDataPrivateKey, KeyStoreResult,
-    MAPIBroadcastResult, MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld,
+    MasterKeyDataTypes, MasterKeyDataBIP32, MasterKeyDataElectrumOld,
     MasterKeyDataMultiSignature, MissingTransactionMetadata, Outpoint, OutputSpend,
     ServerAccountKey, ServerAndCredential, TransactionFeeContext, TransactionKeyUsageMetadata,
     WaitingUpdateCallback, WalletStatusDict)
@@ -2133,16 +2131,19 @@ class WalletDataAccess:
 
     # Peer channels.
 
-    async def create_external_peer_channel_async(self,
-            remote_channel_id: str, remote_url: str, token: str, invoice_id: int) \
+    async def create_external_peer_channel_async(self, remote_channel_id: str, remote_url: str,
+            peer_channel_flags: ServerPeerChannelFlag,
+            token: str, token_flags: PeerChannelAccessTokenFlag, invoice_id: int) \
                 -> tuple[ExternalPeerChannelRow, PeerChannelAccessTokenRow]:
         """
-        This is similar in function to the `create_peer_channel_locally_and_remotely_async` except
-        that we are not the creator of the remote peer channel (the payee already created it)
+        An external party created a peer channel and gave us access. We are creating the records
+        for their channel in the database.
+
+        NOTE(technical-debt): This was previously focused on receiving merkle proofs via DPP. It
+        may still have some code that expects that and makes decisions based on it.
         """
-        date_created = get_posix_timestamp()
+        date_created = int(time.time())
         remote_peer_channel_id = remote_channel_id
-        peer_channel_flags = ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK
         peer_channel_row = ExternalPeerChannelRow(None, invoice_id, remote_peer_channel_id,
             remote_url, peer_channel_flags, date_created, date_created)
         peer_channel_id = await self._db_context.run_in_thread_async(
@@ -2153,8 +2154,7 @@ class WalletDataAccess:
 
         # Record peer channel token in the database if it doesn't exist there already
         assert peer_channel_row.peer_channel_id is not None
-        read_only_access_token_flag = PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE | \
-                                      PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE
+        read_only_access_token_flag = PeerChannelAccessTokenFlag.FOR_LOCAL_USAGE | token_flags
         read_only_access_token = PeerChannelAccessTokenRow(peer_channel_row.peer_channel_id,
             read_only_access_token_flag, TokenPermissions.READ_ACCESS, token)
 
@@ -3575,12 +3575,8 @@ class Wallet:
             # We do not monitor transactions that have proof and are pending verification.
             monitor_spent_outputs = True
             if flags & TxFlags.STATE_SIGNED:
-                if import_flags & TransactionImportFlag.EXPLICIT_BROADCAST:
-                    # The user has used the "Send" UI button which covers signing and broadcasting.
-                    broadcast_type = import_flags & TransactionImportFlag.MASK_BROADCAST_TYPE
-                    if broadcast_type == TransactionImportFlag.BROADCAST_MAPI:
-                        # We do not need to monitor MAPI broadcasts as we use the callback instead.
-                        monitor_spent_outputs = False
+                # We use the spent output monitoring for all transactions in our wallet.
+                pass
             elif flags & TxFlags.STATE_CLEARED:
                 if proof_row is not None:
                     # We do not need to monitor this broadcast as we already have the proof for
@@ -3740,18 +3736,10 @@ class Wallet:
         result: BroadcastResult | None = None
 
         if transaction_context is not None and transaction_context.mapi_server_hint is not None:
-            # For now we expect to be connected to a peer channel server.
-            peer_channel_server_state = self.get_connection_state_for_usage(
-                NetworkServerFlag.USE_MESSAGE_BOX)
-            assert peer_channel_server_state is not None
-
-            broadcast_response, peer_channel_info = await mapi_transaction_broadcast_async(
-                self.data, peer_channel_server_state, transaction_context.mapi_server_hint,
-                transaction, True, True)
-            result = BroadcastResult(
-                broadcast_response["returnResult"] == "success",
-                MAPIBroadcastResult(broadcast_response, peer_channel_info,
-                    peer_channel_server_state))
+            broadcast_response = await mapi_transaction_broadcast_async(
+                self.data, transaction_context.mapi_server_hint, transaction)
+            result = BroadcastResult(broadcast_response["returnResult"] == "success",
+                broadcast_response)
 
         if result is None:
             raise BroadcastError("P2P broadcast is not currently supported")
@@ -4136,7 +4124,8 @@ class Wallet:
                 await close_restapi_connection_async(websocket_state1)
 
     async def subscribe_to_external_peer_channel(self, remote_url: str,
-            remote_channel_id: str, token: str, invoice_id: int,
+            remote_channel_id: str, peer_channel_flag: ServerPeerChannelFlag,
+            token: str, token_flag: PeerChannelAccessTokenFlag, invoice_id: int,
             pre_existing_channel: bool=False) -> None:
         """Calling this must be idempotent - i.e. it will only perform database writes if
         there is not already an entry, otherwise it only updates in-memory caches and re-establishes
@@ -4147,7 +4136,8 @@ class Wallet:
         # Add Peer Channel information to the database if it has not already been added
         if not pre_existing_channel:
             peer_channel_row, read_token = await self.data.create_external_peer_channel_async(
-                remote_channel_id, remote_url, token, invoice_id=invoice_id)
+                remote_channel_id, remote_url, peer_channel_flag, token, token_flag,
+                invoice_id=invoice_id)
         else:
             channel_rows = self.data.read_external_peer_channels(
                 remote_channel_id=remote_channel_id)
@@ -4164,8 +4154,6 @@ class Wallet:
         )
 
         assert peer_channel_row.remote_channel_id is not None
-        peer_channel_server_state.mapi_callback_consumer_future = app_state.async_.spawn(
-            self._consume_mapi_callback_messages_async(peer_channel_server_state))
 
         # Connect to the peer channel and actively listen on the websocket for messages
         peer_channel_server_state.connection_future = app_state.async_.spawn(
@@ -4180,7 +4168,6 @@ class Wallet:
         else:
             self._worker_tasks_external_peer_channel_connections[account_id] = \
                 [(peer_channel_server_state)]
-
 
     async def send_outgoing_direct_payment_async(self, invoice_id: int,
             transaction: Transaction) -> PaymentACK:
@@ -4199,14 +4186,6 @@ class Wallet:
             invoice_row.payment_uri, transaction.to_hex())
         await self.data.set_transaction_state_async(transaction_hash, TxFlags.STATE_DISPATCHED,
             TxFlags.MASK_STATE_BROADCAST)
-        assert payment_ack.peer_channel_info is not None
-        remote_url = payment_ack.peer_channel_info['host']
-        remote_channel_id = payment_ack.peer_channel_info['channel_id']
-        token = payment_ack.peer_channel_info['token']
-        await self.subscribe_to_external_peer_channel(remote_url=remote_url,
-            remote_channel_id=remote_channel_id, token=token, invoice_id=invoice_id,
-            pre_existing_channel=False)
-
         await self.data.update_invoice_flags_async(
             [ (PaymentFlag.CLEARED_MASK_STATE, PaymentFlag.STATE_PAID, invoice_id) ])
         await self.notify_external_listeners_async("outgoing-payment-delivered",
@@ -4238,7 +4217,6 @@ class Wallet:
             request_payment_hashes: list[tuple[int, list[bytes]]] | None = None,
             invoice_id: int | None = None, transaction_hash: bytes | None = None,
             header: Header | None = None, tsc_proof: TSCMerkleProof | None = None,
-            mapi_callback_response: MAPICallbackResponse | None = None,
             event_source: BroadcastEventPayloadNames | None = None,
             event_payload: str | None = None) -> None:
         """
@@ -4250,8 +4228,7 @@ class Wallet:
             await broadcast_restapi_event_async(websocket_state, event_name,
                 paid_request_hashes=request_payment_hashes,
                 invoice_id=invoice_id, transaction_hash=transaction_hash, header=header,
-                tsc_proof=tsc_proof, mapi_callback_response=mapi_callback_response,
-                event_source=event_source, event_payload=event_payload)
+                tsc_proof=tsc_proof, event_source=event_source, event_payload=event_payload)
 
     def _process_payment_requests(self, password: str) -> None:
         """
@@ -4361,11 +4338,13 @@ class Wallet:
 
             assert external_peer_channel_row.remote_url is not None
             assert external_peer_channel_row.remote_channel_id is not None
-            remote_url = external_peer_channel_row.remote_url
-            remote_channel_id = external_peer_channel_row.remote_channel_id
-            token = access_tokens[0].access_token
-            await self.subscribe_to_external_peer_channel(remote_url=remote_url,
-                remote_channel_id=remote_channel_id, token=token,
+            await self.subscribe_to_external_peer_channel(
+                remote_url=external_peer_channel_row.remote_url,
+                remote_channel_id=external_peer_channel_row.remote_channel_id,
+                peer_channel_flag=external_peer_channel_row.peer_channel_flags \
+                    & ServerPeerChannelFlag.MASK_PURPOSE,
+                token=access_tokens[0].access_token,
+                token_flag=access_tokens[0].token_flags & PeerChannelAccessTokenFlag.MASK_FOR,
                 invoice_id=external_peer_channel_row.invoice_id, pre_existing_channel=True)
 
     def _maintain_server_connection_done(self, state: ServerStateProtocol,
@@ -4496,14 +4475,6 @@ class Wallet:
 
         def start_use_case_specific_worker_tasks(server_state: ServerConnectionState,
                 added_usage_flags: NetworkServerFlag) -> None:
-
-            # In theory this consumer could be started only for servers that actually will
-            # be receiving mapi callbacks but this is a future problem. We should aim to only
-            # run code where it is relevant.
-            if added_usage_flags & NetworkServerFlag.USE_MESSAGE_BOX:
-                server_state.mapi_callback_consumer_future = app_state.async_.spawn(
-                    self._consume_mapi_callback_messages_async(server_state))
-
             # If the server was created only for "message box" usage, then we still need to
             # start the mapi callback consumer task
             if added_usage_flags & NetworkServerFlag.USE_BLOCKCHAIN:
@@ -4603,197 +4574,100 @@ class Wallet:
             server_state = self.get_connection_state_for_usage(usage_flags)
         return server_state
 
-    async def _consume_mapi_callback_messages_async(self, state: ServerStateProtocol) -> None:
-        """
-        Process MAPI callback messages received from a server.
+    # async def _consume_mapi_callback_messages_async(self, state: ServerStateProtocol) -> None:
+    #         tx_update_rows :list[TransactionProofUpdateRow] = []
+    #         proof_rows: list[MerkleProofRow] = []
+    #         processed_message_ids: list[int] = []
+    #         processed_message_ids_externally_owned: list[int] = []
+    #         headerless_proofs = list[tuple[TSCMerkleProof, MerkleProofRow]]()
+    #         verified_entries = list[tuple[bytes, Header, TSCMerkleProof]]()
+    #         date_updated = get_posix_timestamp()
 
-        This will either receive messages directly from the server message loop, or it will
-        process backlogged unprocessed messages on startup.
-        """
-        message_entries = list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]()
-        if isinstance(state, ServerConnectionState):
-            for message_row in await self.data.read_server_peer_channel_messages_async(
-                    state.server.server_id,
-                    PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
-                    ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
-                    ServerPeerChannelFlag.MASK_PURPOSE):
-                message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
-                message_entries.append((message_row, message))
-        elif isinstance(state, PeerChannelServerState):
-            for message_row in await self.data.read_external_peer_channel_messages_async(
-                    PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
-                    ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
-                    ServerPeerChannelFlag.MASK_PURPOSE):
-                message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
-                message_entries.append((message_row, message))
-        else:
-            raise NotImplementedError("Server connection state type not recognized")
+    #         for message_row, message in message_entries:
+    #             if response["callbackReason"] == "merkleProof":
+    #                 proof_json = cast(TSCMerkleProofJson, response["callbackPayload"])
+    #                 # TODO(1.4.0) Unreliable server, issue#841. Validate the response
+    #                 #'targetType'.
+    #                 #     We should verify it in `validate_mapi_callback_response` or we should
+    #                 #     handle all target types.
+    #                 assert proof_json["targetType"] == "header"
+    #                 proof = TSCMerkleProof.from_json(proof_json)
 
-        # Iterate loop and get from queue
-        state.mapi_callback_response_queue.put_nowait(message_entries)
-        state.mapi_callback_response_event.set()
+    #                 # TODO(mapi) The MAPI server may send updates if the transaction is reorged,
+    #                 #      this means the lifetime of the channel has to be long enough to catch
+    #                 #      these.
 
-        while not (self._stopping or self._stopped):
-            # This blocks until there is pending work and it is safe to perform it.
-            self.logger.debug("Waiting for more MAPI callback messages")
-            await self._wait_for_chain_related_work_async(
-                ChainWorkerToken.MAPI_MESSAGE_CONSUMER, [ state.mapi_callback_response_event.wait ])
-            if self._stopping or self._stopped:
-                return
+    #                 if not verify_proof(proof):
+    #                     # TODO(1.4.0) Unreliable server, issue#841. The MAPI proof is standalone
+    #                     #     with embedded header, no failure! If we do get a dud proof then we
+    #                     #     throw it away.
+    #                     self.logger.error("Peer channel MAPI proof invalid: '%s'", message)
+    #                     continue
 
-            if state.mapi_callback_response_queue.qsize() == 0:
-                state.mapi_callback_response_event.clear()
-                continue
+    #                 assert proof.block_header_bytes is not None
+    #                 assert proof.transaction_hash is not None
 
-            # We can now process the next batch of messages.
-            message_entries = state.mapi_callback_response_queue.get_nowait()
+    #                 block_hash = double_sha256(proof.block_header_bytes)
+    #                 header_match = self.lookup_header_for_hash(block_hash)
+    #                 if header_match is None:
+    #                     self.logger.debug(
+    # "Missing header for merkle proof with block hash: '%s'.",
+    #                         hash_to_hex_str(block_hash))
+    #                     # Reasons why we are here:
+    #                     # - This header is on the wallet's current chain but it is on the
+    #                     #   unprocessed tip. This falls to the headerless proof worker to resolve
+    #                     #   when the tip is connected.
+    #                     # - This header is for a different chain/fork which the MAPI server is
+    #                     #   apparently following and we are not (yet?). It will be present if we
+    #                     #   reorg to the MAPI server's fork.
 
-            tx_update_rows :list[TransactionProofUpdateRow] = []
-            proof_rows: list[MerkleProofRow] = []
-            processed_message_ids: list[int] = []
-            processed_message_ids_externally_owned: list[int] = []
-            headerless_proofs = list[tuple[TSCMerkleProof, MerkleProofRow]]()
-            verified_entries = list[tuple[bytes, Header, TSCMerkleProof]]()
-            date_updated = get_posix_timestamp()
+    #                     # Connecting out of band headers (or trying to) does not necessarily help
+    #                     # this wallet as the wallet follows a specific header source and not
+    #                     # necessarily the longest chain.
+    #                     header, _chain = app_state.connect_out_of_band_header(
+    #                         proof.block_header_bytes)
 
-            for message_row, message in message_entries:
-                self.logger.debug("Got mAPI callback message: %s", message)
-                assert message_row.message_id is not None
-                if isinstance(state, ServerConnectionState):
-                    processed_message_ids.append(message_row.message_id)
-                elif isinstance(state, PeerChannelServerState):
-                    processed_message_ids_externally_owned.append(message_row.message_id)
+    #                     block_height: int = BlockHeight.MEMPOOL
+    #                     if header is not None:
+    #                         block_height = cast(int, header.height)
 
-                if not isinstance(message["payload"], str):
-                    # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
-                    self.logger.error("Peer channel message (MAPI) payload invalid: '%s'",
-                        message)
-                    continue
+    #                     tx_update_rows.append(TransactionProofUpdateRow(block_hash,
+    #                         BlockHeight.MEMPOOL, proof.transaction_index, TxFlags.STATE_CLEARED,
+    #                         date_updated, proof.transaction_hash))
+    #                     proof_row = MerkleProofRow(block_hash, proof.transaction_index,
+    #                         block_height, proof.to_bytes(), proof.transaction_hash)
+    #                     proof_rows.append(proof_row)
+    #                     headerless_proofs.append((proof, proof_row))
+    #                 else:
+    #                     header, _common_chain = header_match
+    #                     block_height = cast(int, header.height)
+    #                     tx_update_rows.append(TransactionProofUpdateRow(block_hash, block_height,
+    #                         proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
+    #                         proof.transaction_hash))
+    #                     proof_rows.append(MerkleProofRow(block_hash, proof.transaction_index,
+    #                         block_height, proof.to_bytes(), proof.transaction_hash))
+    #                     verified_entries.append((proof.transaction_hash, header, proof))
+    #                     logger.debug("MCB Storing verified merkle proof for transaction %s",
+    #                         hash_to_hex_str(proof.transaction_hash))
 
-                try:
-                    payload_bytes = base64.b64decode(message["payload"])
-                except binascii.Error:
-                    self.logger.error("Peer channel message (MAPI) payload invalid base64: '%s'",
-                        message)
-                    continue
+    #         # Set the given merkle proof as the one for the active chain on the given transaction
+    #         # also creating it in the merkle proof table if it is not already there.
+    #         if len(tx_update_rows) > 0 or len(proof_rows) > 0:
+    #             await self.data.update_transaction_proof_async(tx_update_rows, proof_rows, [],
+    #                 processed_message_ids, processed_message_ids_externally_owned,
+    #                 { TxFlags.STATE_SETTLED })
 
-                try:
-                    payload_object = json.loads(payload_bytes)
-                except json.JSONDecodeError:
-                    self.logger.error("Peer channel message (MAPI) payload invalid JSON: '%s'",
-                        message)
-                    continue
+    #         # These are detached proofs, which we do not have a header or chain for. We register
+    #         # them so that when the header comes in, they can be considered for use.
+    #         for headerless_proof in headerless_proofs:
+    #             self._connect_headerless_proof_worker_state.proof_queue.put_nowait(
+    # headerless_proof)
+    #         if headerless_proofs:
+    #             self._connect_headerless_proof_worker_state.proof_event.set()
 
-                envelope = cast(JSONEnvelope, payload_object)
-                try:
-                    validate_json_envelope(envelope)
-                except ValueError as e:
-                    # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
-                    self.logger.error("Peer channel MAPI callback envelope invalid: %s '%s'",
-                        e.args[0], message)
-                    continue
-
-                response = cast(MAPICallbackResponse, json.loads(envelope["payload"]))
-                try:
-                    validate_mapi_callback_response(response)
-                except ValueError as e:
-                    # TODO(1.4.0) Unreliable server, issue#841. WRT peer channel message, show user.
-                    self.logger.exception("Peer channel MAPI callback response invalid: %s '%s'",
-                        e.args[0], message)
-                    continue
-
-                if response["callbackReason"] == "merkleProof":
-                    proof_json = cast(TSCMerkleProofJson, response["callbackPayload"])
-                    # TODO(1.4.0) Unreliable server, issue#841. Validate the response 'targetType'.
-                    #     We should verify it in `validate_mapi_callback_response` or we should
-                    #     handle all target types.
-                    assert proof_json["targetType"] == "header"
-                    proof = TSCMerkleProof.from_json(proof_json)
-
-                    # TODO(mapi) The MAPI server may send updates if the transaction is reorged,
-                    #      this means the lifetime of the channel has to be long enough to catch
-                    #      these.
-
-                    if not verify_proof(proof):
-                        # TODO(1.4.0) Unreliable server, issue#841. The MAPI proof is standalone
-                        #     with embedded header, no failure! If we do get a dud proof then we
-                        #     throw it away.
-                        self.logger.error("Peer channel MAPI proof invalid: '%s'", message)
-                        continue
-
-                    assert proof.block_header_bytes is not None
-                    assert proof.transaction_hash is not None
-
-                    block_hash = double_sha256(proof.block_header_bytes)
-                    header_match = self.lookup_header_for_hash(block_hash)
-                    if header_match is None:
-                        self.logger.debug("Missing header for merkle proof with block hash: '%s'.",
-                            hash_to_hex_str(block_hash))
-                        # Reasons why we are here:
-                        # - This header is on the wallet's current chain but it is on the
-                        #   unprocessed tip. This falls to the headerless proof worker to resolve
-                        #   when the tip is connected.
-                        # - This header is for a different chain/fork which the MAPI server is
-                        #   apparently following and we are not (yet?). It will be present if we
-                        #   reorg to the MAPI server's fork.
-
-                        # Connecting out of band headers (or trying to) does not necessarily help
-                        # this wallet as the wallet follows a specific header source and not
-                        # necessarily the longest chain.
-                        header, _chain = app_state.connect_out_of_band_header(
-                            proof.block_header_bytes)
-
-                        block_height: int = BlockHeight.MEMPOOL
-                        if header is not None:
-                            block_height = cast(int, header.height)
-
-                        tx_update_rows.append(TransactionProofUpdateRow(block_hash,
-                            BlockHeight.MEMPOOL, proof.transaction_index, TxFlags.STATE_CLEARED,
-                            date_updated, proof.transaction_hash))
-                        proof_row = MerkleProofRow(block_hash, proof.transaction_index,
-                            block_height, proof.to_bytes(), proof.transaction_hash)
-                        proof_rows.append(proof_row)
-                        headerless_proofs.append((proof, proof_row))
-                    else:
-                        header, _common_chain = header_match
-                        block_height = cast(int, header.height)
-                        tx_update_rows.append(TransactionProofUpdateRow(block_hash, block_height,
-                            proof.transaction_index, TxFlags.STATE_SETTLED, date_updated,
-                            proof.transaction_hash))
-                        proof_rows.append(MerkleProofRow(block_hash, proof.transaction_index,
-                            block_height, proof.to_bytes(), proof.transaction_hash))
-                        verified_entries.append((proof.transaction_hash, header, proof))
-                        logger.debug("MCB Storing verified merkle proof for transaction %s",
-                            hash_to_hex_str(proof.transaction_hash))
-                elif response["callbackReason"] in ("doubleSpend", "doubleSpendAttempt"):
-                    event_name: BroadcastEventNames = "transaction-double-spend"
-                    # Double spend detected in a new block or an attempt arrived in the mempool.
-                    app_state.async_.spawn(
-                        self.notify_external_listeners_async(event_name,
-                            mapi_callback_response=response, event_source="MAPI",
-                            event_payload=envelope["payload"]))
-                else:
-                    self.logger.error("Peer channel MAPI message not yet supported %s '%s'",
-                        response["callbackReason"], message)
-                    continue
-
-            # Set the given merkle proof as the one for the active chain on the given transaction
-            # also creating it in the merkle proof table if it is not already there.
-            if len(tx_update_rows) > 0 or len(proof_rows) > 0:
-                await self.data.update_transaction_proof_async(tx_update_rows, proof_rows, [],
-                    processed_message_ids, processed_message_ids_externally_owned,
-                    { TxFlags.STATE_SETTLED })
-
-            # These are detached proofs, which we do not have a header or chain for. We register
-            # them so that when the header comes in, they can be considered for use.
-            for headerless_proof in headerless_proofs:
-                self._connect_headerless_proof_worker_state.proof_queue.put_nowait(headerless_proof)
-            if headerless_proofs:
-                self._connect_headerless_proof_worker_state.proof_event.set()
-
-            # We set these proofs on transactions which makes the transactions verified.
-            for verified_entry in verified_entries:
-                self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, *verified_entry)
+    #         # We set these proofs on transactions which makes the transactions verified.
+    #         for verified_entry in verified_entries:
+    #             self.events.trigger_callback(WalletEvent.TRANSACTION_VERIFIED, *verified_entry)
 
     def _filter_out_earlier_dpp_message_states(self, dpp_messages: list[DPPMessageRow]) -> \
             list[DPPMessageRow]:
@@ -4868,7 +4742,7 @@ class Wallet:
                     self.logger.warning("Peer attempted to pay for an already paid invoice")
                     dpp_ack_dict = cast(PaymentACKDict, json.loads(request_row.dpp_ack_json))
                     dpp_ack_message = dpp_make_ack(txid=dpp_ack_dict["mode"]["transactionIds"][0],
-                        peer_channel=dpp_ack_dict["peerChannel"], message_row_received=message_row)
+                        message_row_received=message_row)
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
                     continue
                 elif message_row.type == DPPMessageType.REQUEST_CREATE:
@@ -4958,8 +4832,6 @@ class Wallet:
                 except (GeneralAPIError, ServerConnectionError, ServerError, BadServerError):
                     self.logger.exception("Unexpected exception broadcasting to mAPI")
                     continue
-                mapi_result = broadcast_result.mapi
-                assert mapi_result is not None
 
                 if broadcast_result.success:
                     try:
@@ -4986,12 +4858,10 @@ class Wallet:
                         request_id=message_row.paymentrequest_id)
                     assert request_row is not None
                     assert request_row.paymentrequest_id is not None
-                    assert mapi_result.peer_channel_data is not None
 
                     # Add dpp_ack_json to payment_request_row in case the Payer tries to
                     # re-attempt payment for the same invoice.
-                    dpp_ack_message = dpp_make_ack(tx.txid(), mapi_result.peer_channel_data,
-                        message_row)
+                    dpp_ack_message = dpp_make_ack(tx.txid(), message_row)
                     update_row = PaymentRequestUpdateRow(request_row.request_flags,
                         request_row.requested_value, request_row.date_expires,
                         request_row.description, request_row.merchant_reference,
@@ -5003,29 +4873,12 @@ class Wallet:
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_ack_message))
                 else:
                     self.logger.error("mAPI broadcast for txid: %s failed with reason: %s",
-                        tx.txid(), mapi_result.response['resultDescription'])
+                        tx.txid(), broadcast_result.mapi_response['resultDescription'])
 
                     # Inform the *Payer* of the reason we rejected their `Payment`
-                    error_reason = mapi_result.response['resultDescription']
+                    error_reason = broadcast_result.mapi_response['resultDescription']
                     dpp_err_message = dpp_make_payment_error(message_row, error_reason)
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
-
-                    # Mark the now unused peer channel with deactivated state
-                    # NOTE: This is an "Owned" peer channel type (not externally owned)
-                    if mapi_result.server_state is not None:
-                        assert mapi_result.peer_channel_data is not None
-                        assert mapi_result.server_state.cached_peer_channel_rows is not None
-                        remote_channel_id = mapi_result.peer_channel_data['channel_id']
-                        peer_channel_row = mapi_result.server_state.\
-                            cached_peer_channel_rows[remote_channel_id]
-                        new_channel_flags = peer_channel_row.peer_channel_flags | \
-                            ServerPeerChannelFlag.DEACTIVATED
-                        assert peer_channel_row.peer_channel_id is not None
-                        await self.data.update_server_peer_channel_async(
-                            peer_channel_row.remote_channel_id,
-                            peer_channel_row.remote_url, new_channel_flags,
-                            peer_channel_row.peer_channel_id,
-                            addable_access_tokens=[])
 
             # ----- States for when we are the Payer ----- #
             # NOTE: Not included because when we are the ** Payer **, we use the simplified
@@ -5074,9 +4927,7 @@ class Wallet:
             await asyncio.sleep(60)
             # Get all externally owned peer channels that are NOT in the deactivated state
             for external_peer_channel_row in self.data.read_external_peer_channels(
-                    flags=ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK,
-                    mask=ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK |
-                         ServerPeerChannelFlag.DEACTIVATED):
+                    flags=ServerPeerChannelFlag.NONE, mask=ServerPeerChannelFlag.DEACTIVATED):
                 # If we do not yet have an established connection, there might still be more
                 # messages to come
                 assert external_peer_channel_row.remote_channel_id is not None
@@ -5104,7 +4955,8 @@ class Wallet:
         for message_row in await self.data.read_server_peer_channel_messages_async(
                 state.server.server_id,
                 PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
-                ServerPeerChannelFlag.TIP_FILTER_DELIVERY, ServerPeerChannelFlag.MASK_PURPOSE):
+                ServerPeerChannelFlag.PURPOSE_TIP_FILTER_DELIVERY,
+                ServerPeerChannelFlag.MASK_PURPOSE):
             message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
             message_entries.append((message_row, message))
         state.tip_filter_matches_queue.put_nowait(message_entries)
@@ -5204,8 +5056,9 @@ class Wallet:
 
         state = self.get_connection_state_for_usage(NetworkServerFlag.USE_BLOCKCHAIN)
         if state is None:
-            # The server has not started yet.
-            self.logger.debug("Skipping premature output spend registrations")
+            # The server has not started yet?
+            self.logger.debug("Unable to register for output spend notifications as there is no "
+                "server or perhaps the server is not available")
             return
         state.output_spend_registration_queue.put_nowait(spent_outpoints)
 
@@ -5285,7 +5138,8 @@ class Wallet:
                             # block. We should never apply this change here, it should be
                             # applied by the processing of updates from our header source.
 
-                            # TODO(reorgs) Consider using this output spend to check consistency.
+                            # TODO(technical-debt) Reorg related. Consider using this output spend
+                            #     to check consistency.
                             self.logger.debug("Unspent output event, transaction is back in "
                                 "mempool %r ~ %r", spent_output, row)
                         elif row.block_hash is None:
@@ -5317,14 +5171,9 @@ class Wallet:
                         # TODO(1.4.0) User experience, issue#909. Notify the user that this local
                         #     transaction has been broadcast unexpectedly.
 
-                        if row.mapi_broadcast_flags is None:
-                            self.logger.debug("Unspent output event, local transaction has been "
-                                "broadcast %r ~ %r", spent_output, row)
-                            mempool_transactions[spent_output.in_tx_hash] = row.flags
-                        else:
-                            self.logger.warning("Unspent output event, local transaction has "
-                                "been broadcast with unwanted output spend notification "
-                                "%r ~ %r", spent_output, row)
+                        self.logger.debug("Unspent output event, local transaction has been "
+                            "broadcast %r ~ %r", spent_output, row)
+                        mempool_transactions[spent_output.in_tx_hash] = row.flags
                     else:
                         # Nothing is different than what we already have. Ignore the result. It
                         # probably came in during the registration as the initial state.
@@ -5711,9 +5560,6 @@ class Wallet:
 
         for petty_cash_account_id in list(self._worker_tasks_maintain_server_connection):
             for state in self._worker_tasks_maintain_server_connection.pop(petty_cash_account_id):
-                # This was signalled to exit by the chain management interrupt event.
-                if state.mapi_callback_consumer_future is not None:
-                    pending_futures.add(state.mapi_callback_consumer_future)
                 # These are manually cancelled and it should be safe to do so.
                 if state.stage_change_pipeline_future is not None:
                     state.stage_change_pipeline_future.cancel()
@@ -5732,8 +5578,6 @@ class Wallet:
         for account_id in list(self._worker_tasks_external_peer_channel_connections):
             for externally_owned_state in \
                     self._worker_tasks_external_peer_channel_connections.pop(account_id):
-                if externally_owned_state.mapi_callback_consumer_future is not None:
-                    pending_futures.add(externally_owned_state.mapi_callback_consumer_future)
                 if externally_owned_state.connection_future is not None:
                     externally_owned_state.connection_future.cancel()
                     pending_futures.add(externally_owned_state.connection_future)
@@ -5848,8 +5692,8 @@ class Wallet:
 
         # These are the chain-related worker tasks this management task needs to coordinate with.
         expected_worker_tokens = {
-            ChainWorkerToken.CONNECT_PROOF_CONSUMER, ChainWorkerToken.MAPI_MESSAGE_CONSUMER,
-            ChainWorkerToken.OBTAIN_PROOF_WORKER, ChainWorkerToken.OBTAIN_TRANSACTION_WORKER,
+            ChainWorkerToken.CONNECT_PROOF_CONSUMER, ChainWorkerToken.OBTAIN_PROOF_WORKER,
+            ChainWorkerToken.OBTAIN_TRANSACTION_WORKER,
         }
 
         self.logger.debug("Entered chain management task")
@@ -6536,7 +6380,8 @@ class Wallet:
                     lookup_result = self.lookup_header_for_hash(block_hash)
                     if lookup_result is None:
                         logger.debug("Backlogged transaction %s verification waiting for missing "
-                            "header", hash_to_hex_str(proof.transaction_hash))
+                            "header (block %s)", hash_to_hex_str(proof.transaction_hash),
+                            hash_to_hex_str(block_hash))
                         if state.block_transactions.get(block_hash) is None:
                             state.block_transactions[block_hash] = []
                         state.block_transactions[block_hash].append(proof_entry)

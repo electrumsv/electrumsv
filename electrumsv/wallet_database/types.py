@@ -53,7 +53,6 @@ class SpentOutputRow(NamedTuple):
     spending_txi_index: int
     block_hash: bytes | None
     flags: TxFlags
-    mapi_broadcast_flags: MAPIBroadcastFlag
 
 
 class HistoryListRow(NamedTuple):
