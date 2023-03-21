@@ -27,8 +27,9 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any, cast, Dict, List, Literal, Optional, TypedDict, Union
 import types
+from typing import Any, cast, Literal
+from typing_extensions import NotRequired, TypedDict
 import urllib.parse
 
 from bitcoinx import Address, PublicKey, Script
@@ -58,7 +59,7 @@ REQUEST_HEADERS = {
 # BIP 270 - Simplified Payment Protocol
 # https://github.com/electrumsv/bips/blob/master/bip-0270.mediawiki
 
-def has_expired(expiration_timestamp: Optional[int]=None) -> bool:
+def has_expired(expiration_timestamp: int | None) -> bool:
     return expiration_timestamp is not None and expiration_timestamp < time.time()
 
 
@@ -66,14 +67,12 @@ HYBRID_PAYMENT_MODE_BRFCID = "ef63d9775da5"
 
 
 # DPP Message Types as per the TSC spec.
+# NOTE(rt12) We keep this around in case we need to put a dummy entry with
+#     fake values to keep the DPP proxy working.
 class PeerChannelDict(TypedDict):
     host: str
     token: str
     channel_id: str
-
-
-class PeerChannelsDict(TypedDict):
-    peerChannel: dict[str, Any]
 
 
 class Policies(TypedDict):
@@ -97,7 +96,7 @@ class DPPNativeOutput(TypedDict):
 
 
 # HPM == "HybridPaymentMode"
-class HPMTransactionTermsDict(TypedDict):
+class HybridModeTransactionTermsDict(TypedDict):
     outputs: dict[Literal["native"], list[DPPNativeOutput]]        # {"native": list[Output]}
     inputs: dict[Literal["native"], list[DPPNativeInput]] | None  # {"native": list[DPPNativeInput]}
     policies: Policies | None
@@ -113,15 +112,14 @@ class PaymentTermsModes(TypedDict):
     #               }
     #           }
     #      }
-    ef63d9775da5: dict[str, dict[str, list[HPMTransactionTermsDict]]]
+    ef63d9775da5: dict[str, dict[str, list[HybridModeTransactionTermsDict]]]
 
 
-class HPMPaymentACK(TypedDict):
+class HybridModePaymentACKDict(TypedDict):
     transactionIds: list[str]
-    peerChannel: PeerChannelDict | None
 
 
-class HPMPayment(TypedDict):
+class HybridModePaymentDict(TypedDict):
     optionId: str
     transactions: list[str]  # hex raw transactions
     ancestors: dict[str, Any] | None
@@ -143,16 +141,16 @@ class PaymentTermsDict(TypedDict):
 
 class PaymentDict(TypedDict):
     modeId: str  # i.e. HYBRID_PAYMENT_MODE_BRFCID
-    mode: HPMPayment
+    mode: HybridModePaymentDict
     originator: dict[str, Any] | None
-    transaction: Optional[str]  # DEPRECATED as per TSC spec.
-    memo: Optional[str]  # Optional
+    transaction: str | None  # DEPRECATED as per TSC spec.
+    memo: str | None
 
 
 class PaymentACKDict(TypedDict):
     modeId: str
-    mode: HPMPaymentACK
-    peerChannel: PeerChannelDict
+    mode: HybridModePaymentACKDict
+    peerChannel: NotRequired[PeerChannelDict | None]
     redirectUrl: str | None
 
 
@@ -233,14 +231,14 @@ def get_dpp_network_string() -> NETWORK_NAMES:
 class PaymentTerms:
     MAXIMUM_JSON_LENGTH = 10 * 1000 * 1000
 
-    def __init__(self, outputs: List[Output], network: str, version: str,
-            creation_timestamp: Optional[int]=None, expiration_timestamp: int | None=None,
+    def __init__(self, outputs: list[Output], network: str, version: str, *,
+            creation_timestamp: int | None, expiration_timestamp: int | None=None,
             memo: str | None=None, beneficiary: dict[str, Any] | None=None,
             payment_url: str | None=None, merchant_data: str | None=None,
-            hybrid_payment_data: dict[str, dict[str, list[HPMTransactionTermsDict]]] | None=None) \
-                -> None:
+            hybrid_payment_data: \
+                dict[str, dict[str, list[HybridModeTransactionTermsDict]]] | None=None) -> None:
         # This is only used if there is a requestor identity (old openalias, needs rewrite).
-        self._id: Optional[int] = None
+        self._id: int | None = None
         self.tx = None
 
         self.network = network
@@ -273,7 +271,7 @@ class PaymentTerms:
             expiration_timestamp=request_row.date_expires, memo=request_row.merchant_reference)
 
     @classmethod
-    def from_json(cls, s: Union[bytes, str]) -> PaymentTerms:
+    def from_json(cls, s: bytes | str) -> PaymentTerms:
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception(_("Payment request oversized"))
 
@@ -333,38 +331,34 @@ class PaymentTerms:
         for ui_dict in transactions[0]['outputs']['native']:
             outputs.append(Output.from_dict(ui_dict))
 
-        pr = cls(outputs=outputs, version=payment_terms['version'], network=network,
-            hybrid_payment_data=hybrid_payment_mode)
-
         if 'creationTimestamp' not in payment_terms:
             raise Bip270Exception(_("Creation time missing"))
         creation_timestamp = payment_terms['creationTimestamp']
         if type(creation_timestamp) is not int:
             raise Bip270Exception(_("Corrupt creation time"))
-        pr.creation_timestamp = creation_timestamp
+
         expiration_timestamp = payment_terms.get('expirationTimestamp')
         if expiration_timestamp is not None and type(expiration_timestamp) is not int:
             raise Bip270Exception(_("Corrupt expiration time"))
-        pr.expiration_timestamp = expiration_timestamp
 
         memo = payment_terms.get('memo')
         if memo is not None and type(memo) is not str:
             raise Bip270Exception(_("Corrupt memo"))
-        pr.memo = memo
 
         payment_url = payment_terms.get('paymentUrl')
         if payment_url is not None and type(payment_url) is not str:
             raise Bip270Exception(_("Corrupt payment URL"))
-        pr.payment_url = payment_url
 
         # NOTE: payd wallet returns a nested json dictionary but technically the BIP270 spec.
         # states this must be a string up to 10000 characters long.
         merchant_data = payment_terms.get('merchantData')
         if not isinstance(merchant_data, (str, types.NoneType)):
             raise Bip270Exception(_("Corrupt merchant data"))
-        pr.merchant_data = merchant_data
 
-        return pr
+        return cls(outputs, network, payment_terms['version'],
+            creation_timestamp=creation_timestamp, expiration_timestamp=expiration_timestamp,
+            memo=memo, payment_url=payment_url, hybrid_payment_data=hybrid_payment_mode,
+            merchant_data=merchant_data)
 
     def to_json(self) -> str:
         # TODO: This should be a TypedDict.
@@ -391,7 +385,7 @@ class PaymentTerms:
     def has_expired(self) -> bool:
         return has_expired(self.expiration_timestamp)
 
-    def get_expiration_date(self) -> Optional[int]:
+    def get_expiration_date(self) -> int | None:
         return self.expiration_timestamp
 
     def get_amount(self) -> int:
@@ -414,16 +408,16 @@ class PaymentTerms:
         assert self.payment_url is not None
         return self.payment_url
 
-    def get_memo(self) -> Optional[str]:
+    def get_memo(self) -> str | None:
         return self.memo
 
-    def get_id(self) -> Optional[int]:
+    def get_id(self) -> int | None:
         return self._id
 
     def set_id(self, invoice_id: int) -> None:
         self._id = invoice_id
 
-    def get_outputs(self) -> List[XTxOutput]:
+    def get_outputs(self) -> list[XTxOutput]:
         return [output.to_tx_output() for output in self.outputs]
 
 
@@ -439,7 +433,7 @@ class Payment:
         self.memo = memo
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'Payment':
+    def from_dict(cls, data: dict[str, Any]) -> 'Payment':
         if "modeId" in data:
             mode_id = data['modeId']
             if type(mode_id) is not str:
@@ -506,18 +500,16 @@ class Payment:
 class PaymentACK:
     MAXIMUM_JSON_LENGTH = 11 * 1000 * 1000
 
-    def __init__(self, mode_id: str, mode: HPMPaymentACK, peer_channel_info: PeerChannelDict,
+    def __init__(self, mode_id: str, mode: HybridModePaymentACKDict,
             redirect_url: str | None = None) -> None:
         self.mode_id = mode_id
         self.mode = mode
-        self.peer_channel_info = peer_channel_info
         self.redirect_url = redirect_url
 
     def to_dict(self) -> PaymentACKDict:
         return PaymentACKDict(
             modeId=self.mode_id,
             mode=self.mode,
-            peerChannel=self.peer_channel_info,
             redirectUrl=self.redirect_url
         )
 
@@ -537,27 +529,20 @@ class PaymentACK:
         if mode is not None and type(mode) is not dict:
             raise Bip270Exception("Invalid json 'mode' field")
 
-        peer_channel_info = data.get('peerChannel')
-        if peer_channel_info is None:
-            raise Bip270Exception("'peerChannel' field is required")
-        if mode_id is not None and type(peer_channel_info) is not dict:
-            raise Bip270Exception("Invalid json 'peerChannel' field")
-
         redirect_url = data.get('redirectUrl')
         if redirect_url is not None and type(redirect_url) is not str:
             raise Bip270Exception("Invalid json 'redirectUrl' field")
 
         assert mode_id is not None
         assert mode is not None
-        assert peer_channel_info is not None
-        return cls(mode_id, mode, peer_channel_info, redirect_url=redirect_url)
+        return cls(mode_id, mode, redirect_url=redirect_url)
 
     def to_json(self) -> str:
         data = self.to_dict()
         return json.dumps(data)
 
     @classmethod
-    def from_json(cls, s: Union[bytes, str]) -> PaymentACK:
+    def from_json(cls, s: bytes | str) -> PaymentACK:
         if len(s) > cls.MAXIMUM_JSON_LENGTH:
             raise Bip270Exception("Invalid payment ACK, too large")
         data = cast(PaymentACKDict, json.loads(s))

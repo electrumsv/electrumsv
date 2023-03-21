@@ -122,8 +122,8 @@ class ReceiveView(QWidget):
                 "payment. Please complete that one first."))
             return
 
-        # The message box service is required to get mAPI merkle proof callbacks.
-        required_flags = NetworkServerFlag.USE_MESSAGE_BOX
+        # The blockchain service is required to get output spend notifications.
+        required_flags = NetworkServerFlag.USE_BLOCKCHAIN
         if self._main_window_proxy._wallet.have_wallet_servers(required_flags):
             self.show_dialog(None, PaymentFlag.TYPE_INVOICE)
             return
@@ -139,7 +139,7 @@ class ReceiveView(QWidget):
         reload(server_required_dialog)
 
         dialog = server_required_dialog.ServerRequiredDialog(self, self._main_window_proxy._wallet,
-            NetworkServerFlag.USE_MESSAGE_BOX, dialog_text)
+            NetworkServerFlag.USE_BLOCKCHAIN, dialog_text)
         # There are two paths to the user accepting this dialog:
         # - They checked "select servers on my behalf" then the OK buton and then servers were
         #   selected and connected to.

@@ -467,14 +467,18 @@ async def process_externally_owned_peer_channel_messages_async(state: PeerChanne
 
         peer_channel_purpose = \
             external_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE
-        if peer_channel_purpose == ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK:
-            state.mapi_callback_response_queue.put_nowait(message_entries)
-            state.mapi_callback_response_event.set()
-        else:
-            # TODO(1.4.0) Unreliable server, issue#841. Peer channel message is not expected.
-            logger.error("Wallet: '%s' received peer channel %d messages of unhandled purpose '%s'",
-                state.wallet_proxy.name(), external_channel_row.peer_channel_id,
-                peer_channel_purpose)
+        # NOTE(rt12) We do not currently have uses for external peer channels. We used to use them
+        #     for accessing the DPP invoice payee's channel to get the merkle proof, but now we
+        #     fetch all our own proofs ala the output spends path.
+        # if peer_channel_purpose == ServerPeerChannelFlag.PURPOSE_...:
+        #     pass
+        #     state.mapi_callback_response_queue.put_nowait(message_entries)
+        #     state.mapi_callback_response_event.set()
+        # else:
+        # TODO(1.4.0) Unreliable server, issue#841. Peer channel message is not expected.
+        logger.error("Wallet: '%s' received peer channel %d messages of unhandled purpose '%s'",
+            state.wallet_proxy.name(), external_channel_row.peer_channel_id,
+            peer_channel_purpose)
 
     logger.debug("Exiting process_externally_owned_peer_channel_messages_async, server_url=%s",
         state.server_url)

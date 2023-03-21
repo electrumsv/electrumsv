@@ -46,10 +46,9 @@ import aiohttp
 from aiohttp import ClientConnectorError
 from bitcoinx import hash_to_hex_str
 
-from ..dpp_messages import PeerChannelDict
 from ..exceptions import BadServerError, ServerAuthorizationError, ServerConnectionError, \
     ServerError
-from ..constants import MAPIBroadcastFlag, PeerChannelAccessTokenFlag, ServerPeerChannelFlag
+from ..constants import MAPIBroadcastFlag
 from ..logs import logs
 from ..standards.mapi import MAPIBroadcastResponse, validate_mapi_broadcast_response
 from ..standards.json_envelope import JSONEnvelope, validate_json_envelope
@@ -58,7 +57,6 @@ from ..types import ServerAndCredential
 from ..wallet_database.types import MAPIBroadcastRow, PeerChannelAccessTokenRow
 
 from .api_server import RequestFeeQuoteResult
-from .general_api import create_peer_channel_locally_and_remotely_async
 
 if TYPE_CHECKING:
     from ..types import IndefiniteCredentialId
@@ -191,10 +189,7 @@ async def _get_mapi_fee_quote_async(server: NewServer,
 
 
 async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
-        peer_channel_server_state: ServerConnectionState | None,
-        server_and_credential: ServerAndCredential, tx: Transaction, /,
-        merkle_proof: bool = False, double_spend_check: bool = False) \
-            -> tuple[MAPIBroadcastResponse, PeerChannelDict | None]:
+        server_and_credential: ServerAndCredential, tx: Transaction) -> MAPIBroadcastResponse:
     """
     Via `create_peer_channel_locally_and_remotely_async`:
         Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
@@ -205,40 +200,17 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
         Raises `ServerConnectionError` if the server could not be connected to.
         Raises `BadServerError` if the response from the server is invalid in some way.
     """
-    peer_channel_id: int | None = None
-    peer_channel_callback: PeerChannelCallback | None = None
-    peer_channel_info: PeerChannelDict | None = None
-    if peer_channel_server_state is not None:
-        third_party_token_flags = PeerChannelAccessTokenFlag.FOR_THIRD_PARTY_USAGE | \
-            PeerChannelAccessTokenFlag.FOR_MAPI_CALLBACK_USAGE
-        peer_channel_row, mapi_write_token, read_only_token = \
-            await create_peer_channel_locally_and_remotely_async(
-                peer_channel_server_state,
-                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, third_party_token_flags,
-                ServerPeerChannelFlag.MAPI_BROADCAST_CALLBACK, third_party_token_flags)
-        assert peer_channel_row.remote_channel_id is not None
-        assert peer_channel_row.remote_url is not None
-
-        peer_channel_id = peer_channel_row.peer_channel_id
-        peer_channel_callback = PeerChannelCallback(peer_channel_row.remote_url,
-            mapi_write_token, merkle_proof=merkle_proof,
-            double_spend_check=double_spend_check)
-        # Peer Channel Info to provide to the Payer via DPP protocol
-        assert read_only_token is not None
-        peer_channel_info = PeerChannelDict(host=peer_channel_server_state.server_url,
-            token=read_only_token.access_token, channel_id=peer_channel_row.remote_channel_id)
-
     tx_hash = tx.hash()
     date_created = int(time.time())
     mapi_broadcast_rows = await wallet_data.create_mapi_broadcasts_async([
         MAPIBroadcastRow(None, tx_hash, server_and_credential.server.server_id,
-        MAPIBroadcastFlag.NONE, peer_channel_id, date_created, date_created) ])
+        MAPIBroadcastFlag.NONE, None, date_created, date_created) ])
     mapi_broadcast_row = mapi_broadcast_rows[0]
     assert mapi_broadcast_row.broadcast_id is not None
 
     try:
         mapi_broadcast_result, json_envelope_bytes = await post_mapi_transaction_broadcast_async(
-            tx.to_bytes(), server_and_credential, peer_channel_callback)
+            tx.to_bytes(), server_and_credential)
     except ServerError as server_error:
         wallet_data.delete_mapi_broadcasts(broadcast_ids=[mapi_broadcast_row.broadcast_id])
         logger.error("Error broadcasting to mAPI for tx: %s. Error: %s",
@@ -248,7 +220,7 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
     if mapi_broadcast_result['returnResult'] == 'failure':
         logger.error("Transaction broadcast via MAPI server failed : %s (%s)",
             server_and_credential.server.url, mapi_broadcast_result)
-        return mapi_broadcast_result, peer_channel_info
+        return mapi_broadcast_result
 
     logger.debug("Transaction broadcast via MAPI server succeeded: %s",
         server_and_credential.server.url)
@@ -257,16 +229,11 @@ async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
     updates = [(MAPIBroadcastFlag.BROADCAST, json_envelope_bytes, date_updated,
         mapi_broadcast_row.broadcast_id)]
     wallet_data.update_mapi_broadcasts(updates)
-
-    # Todo - when the merkle proof callback is successfully processed,
-    #  delete the MAPIBroadcastRow
-    return mapi_broadcast_result, peer_channel_info
+    return mapi_broadcast_result
 
 
 async def post_mapi_transaction_broadcast_async(transaction_bytes: bytes,
-        server_and_credential: ServerAndCredential,
-        peer_channel_callback: PeerChannelCallback | None = None) \
-            -> tuple[MAPIBroadcastResponse, bytes]:
+        server_and_credential: ServerAndCredential) -> tuple[MAPIBroadcastResponse, bytes]:
     """
     Do an HTTP POST delivering a transaction to a MAPI endpoint.
 
@@ -282,16 +249,7 @@ async def post_mapi_transaction_broadcast_async(transaction_bytes: bytes,
     server.api_key_state[credential_id].record_attempt()
 
     url = f"{server.url}tx"
-    params = dict[str, str]()
-    if peer_channel_callback is not None:
-        params.update({
-            'merkleProof': 'true' if peer_channel_callback.merkle_proof else 'false',
-            'merkleFormat': "TSC",
-            'dsCheck': 'true' if peer_channel_callback.double_spend_check else 'false',
-            'callbackURL': peer_channel_callback.callback_url,
-            'callbackToken': f"Bearer {peer_channel_callback.callback_access_token.access_token}",
-            # 'callbackEncryption': None  # Todo: add libsodium encryption
-        })
+    params: dict[str, str] = {}
     headers = { "Content-Type": "application/octet-stream" }
     # This will not add an Authorization header if there are no credentials.
     headers.update(server.get_authorization_headers(credential_id))

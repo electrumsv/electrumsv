@@ -25,7 +25,6 @@ from electrumsv.network_support.peer_channel import create_peer_channel_async, \
     delete_peer_channel_async, get_peer_channel_max_sequence_number_async, \
     get_peer_channel_async, list_peer_channels_async, list_peer_channel_api_tokens_async, \
     list_peer_channel_messages_async
-from electrumsv.standards.mapi import MAPICallbackResponse
 from electrumsv.types import ServerAccountKey
 
 from .data.reference_server.headers_data import GENESIS_TIP_NOTIFICATION_BINARY, GENESIS_HEADER
@@ -65,33 +64,18 @@ MOCK_CREATE_TOKEN_REQUEST = {
   "can_write": True
 }
 
-MERKLE_PROOF_CALLBACK_PAYLOAD = '{"flags":2,"index":1,"txOrId":' \
-    '"acad8d40b3a17117026ace82ef56d269283753d310ddaeabe7b5d226e8dbe973","target":{"hash":' \
-    '"0e9a2af27919b30a066383d512d64d4569590f935007198dacad9824af643177","confirmations":1,'\
-    '"height":152,"version":536870912,"versionHex":"20000000","merkleroot":'\
-    '"0298acf415976238163cd82b9aab9826fb8fbfbbf438e55185a668d97bf721a8","num_tx":2,'\
-    '"time":1604409778,"mediantime":1604409777,"nonce":0,"bits":"207fffff","difficulty"'\
-    ':4.656542373906925e-10,"chainwork":'\
-    '"0000000000000000000000000000000000000000000000000000000000000132","previousblockhash":'\
-    '"62ae67b463764d045f4cbe54f1f7eb63ccf70d52647981ffdfde43ca4979a8ee"},"nodes":['\
-    '"5b537f8fba7b4057971f7e904794c59913d9a9038e6900669d08c1cf0cc48133"]}'
-MERKLE_PROOF_CALLBACK: MAPICallbackResponse = {
-    "callbackPayload": MERKLE_PROOF_CALLBACK_PAYLOAD,
-    "apiVersion": "1.4.0",
-    "timestamp": "2021-11-03T13:22:42.1341243Z",
-    "minerId": "030d1fe5c1b560efe196ba40540ce9017c20daa9504c4c4cec6184fc702d9f274e",
-    "blockHash": "0e9a2af27919b30a066383d512d64d4569590f935007198dacad9824af643177",
-    "blockHeight": 152,
-    "callbackTxId": "acad8d40b3a17117026ace82ef56d269283753d310ddaeabe7b5d226e8dbe973",
-    "callbackReason": "merkleProof"
+PEER_CHANNEL_OBJECT = {
+    # It does not really matter what is in here.
+    "placeholderNumber": 111,
+    "placeholderText": "will this error?",
 }
+
 MOCK_MESSAGE = {
     "sequence": 1,
     "received": "2021-12-30T06:33:40.374Z",
     "content_type": "application/json",
-    "payload": MERKLE_PROOF_CALLBACK
+    "payload": PEER_CHANNEL_OBJECT
 }
-
 
 
 def _make_mock_channel_json(channel_id: str, host: str, port: int, access_token: str):
@@ -293,13 +277,13 @@ async def mock_write_message(request: web.Request) -> web.Response:
         assert channel_id == mock_channel_id
 
         request_body = await request.text()
-        assert request_body == json.dumps(MERKLE_PROOF_CALLBACK, separators=(",", ":"))
+        assert request_body == json.dumps(PEER_CHANNEL_OBJECT, separators=(",", ":"))
 
         response_json = {
             "sequence": 1,
             "received": "2021-12-30T07:02:15.159Z",
             "content_type": "application/json",
-            "payload": MERKLE_PROOF_CALLBACK
+            "payload": PEER_CHANNEL_OBJECT
         }
         return web.json_response(response_json)
     except AssertionError as e:
@@ -480,7 +464,7 @@ async def test_list_peer_channel_messages_async(mock_app_state: AppStateProxy, a
     assert message_datas[0]['sequence'] == 1
     assert message_datas[0]['received'] == '2021-12-30T06:33:40.374Z'
     assert message_datas[0]['content_type'] == 'application/json'
-    assert message_datas[0]['payload'] == MERKLE_PROOF_CALLBACK
+    assert message_datas[0]['payload'] == PEER_CHANNEL_OBJECT
     logger.debug("messages=%s", message_datas)
 
 
@@ -507,12 +491,12 @@ async def test_create_peer_channel_message_json_async(mock_app_state1: AppStateP
     peer_channel_data = await create_peer_channel_async(state)
     message = await create_peer_channel_message_json_async(state, peer_channel_data["id"],
         peer_channel_data["access_tokens"][0]["token"],
-        message=cast(dict[str, Any], MERKLE_PROOF_CALLBACK))
+        message=cast(dict[str, Any], PEER_CHANNEL_OBJECT))
     assert isinstance(message, dict)
     assert message['sequence'] == 1
     # assert message['received']  # datetime.now()
     assert message['content_type'] == 'application/json'
-    assert message['payload'] == MERKLE_PROOF_CALLBACK
+    assert message['payload'] == PEER_CHANNEL_OBJECT
     logger.debug("written message info=%s", message)
 
 

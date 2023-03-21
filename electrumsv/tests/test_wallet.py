@@ -5,7 +5,7 @@ import os
 import shutil
 import sys
 import tempfile
-from typing import Any, Callable, cast, Coroutine, TypeVar
+from typing import Any, cast, Callable, Coroutine, TypeVar
 import unittest
 import unittest.mock
 
@@ -26,7 +26,6 @@ from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
 from electrumsv.networks import Net, SVMainnet, SVRegTestnet, SVTestnet
 from electrumsv.storage import get_categorised_files, WalletStorage, WalletStorageInfo
 from electrumsv.standards.electrum_transaction_extended import transaction_from_electrumsv_dict
-from electrumsv.standards.mapi import MAPICallbackResponse
 from electrumsv.transaction import Transaction, TransactionContext
 from electrumsv.types import DatabaseKeyDerivationData, MasterKeyDataBIP32, Outpoint, \
     TransactionKeyUsageMetadata
@@ -41,7 +40,6 @@ from electrumsv.wallet_support.keys import get_pushdata_hash_for_keystore_key_da
 
 from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, \
     read_testdata_for_wallet, setup_async, tear_down_async, TEST_WALLET_PATH
-from ..network_support.types import ServerConnectionState
 
 T1 = TypeVar("T1")
 
@@ -1603,76 +1601,6 @@ async def test_close_paid_payment_request_async_notifies(app_state: AppStateProx
     mock_transaction.outputs = [ mock_transaction_output ]
     await wallet.close_payment_request_async(1, [ (mock_transaction, None) ])
     wallet._event_payment_requests_paid_async.assert_called_once_with([ 1 ])
-
-
-def _create_mock_async_function() -> unittest.mock.AsyncMock:
-    return unittest.mock.AsyncMock()
-
-
-@pytest.mark.parametrize("callback_reason,broadcast_name", (("doubleSpend",
-    "transaction-double-spend"), ("doubleSpendAttempt", "transaction-double-spend")))
-@unittest.mock.patch('electrumsv.wallet.broadcast_restapi_event_async',
-    new_callable=_create_mock_async_function)
-@unittest.mock.patch('electrumsv.wallet.validate_mapi_callback_response')
-@unittest.mock.patch('electrumsv.wallet.validate_json_envelope')
-@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
-async def test_transaction_double_spent_async(app_state: AppStateProxy, mock_validate_json_envelope,
-        mock_validate_mapi_callback_response, mock_broadcast_restapi_event_async,
-        callback_reason: str, broadcast_name: str) -> None:
-    app_state.credentials.get_wallet_password = lambda wallet_path: "password"
-    mock_storage = cast(WalletStorage, MockStorage("password"))
-    wallet = Wallet(mock_storage)
-    wallet.data = unittest.mock.Mock()
-    wallet.data.read_server_peer_channel_messages_async = unittest.mock.AsyncMock()
-    wallet.data.read_external_peer_channel_messages_async = unittest.mock.AsyncMock()
-    server_state = unittest.mock.Mock(spec=ServerConnectionState)
-    server_state.server = unittest.mock.Mock()
-    server_state.server.server_id = 1
-    server_state.mapi_callback_response_event = unittest.mock.Mock()
-    server_state.mapi_callback_response_queue = unittest.mock.Mock()
-    fake_message_row = unittest.mock.Mock()
-    fake_message_row.message_id = 12121
-    mapi_callback_response: MAPICallbackResponse = {
-        "callbackReason": callback_reason,
-        "callbackPayload": {
-        }
-    }
-    def get_nowait() -> list:
-        # Make sure we exit the consumer loop after this set of events is processed.
-        wallet._stopping = True
-        return [ (fake_message_row, {
-                "sequence": 10010,
-                "received": "not a real date",
-                "content_type": "not a real content type",
-                "payload": base64.b64encode(json.dumps({
-                    "payload": json.dumps(mapi_callback_response),
-                }).encode()).decode(), }) ]
-    server_state.mapi_callback_response_queue.get_nowait.side_effect = get_nowait
-    wallet._wait_for_chain_related_work_async = unittest.mock.AsyncMock()
-    # Ensure `broadcast_restapi_event_async` thinks it has a connection to broadcast to.
-    wallet._restapi_connections["xxx"] = "not really a websocket state"
-
-    # Normally unit testing logic kills spawned coroutines, but in this case we want this to
-    # run and have to interfere to get it to do so.
-    pending_coroutines: list[Coroutine[Any, Any, Any]] = []
-    def _spawn(coroutine: Coroutine[Any, Any, T1],
-            on_done: Callable[[concurrent.futures.Future[T1]], None] | None=None) \
-                -> Any:
-        nonlocal pending_coroutines
-        pending_coroutines.append(coroutine)
-    app_state.async_.spawn = _spawn
-    await wallet._consume_mapi_callback_messages_async(server_state)
-
-    # Dispatch the `broadcast_restapi_event_async` call.
-    for pending_coroutine in pending_coroutines:
-        await pending_coroutine
-
-    mock_broadcast_restapi_event_async.assert_called_once_with(
-        wallet._restapi_connections["xxx"], broadcast_name, paid_request_hashes=None,
-        invoice_id=None, transaction_hash=None, header=None, tsc_proof=None,
-        mapi_callback_response=mapi_callback_response,
-        event_source="MAPI", event_payload=json.dumps(mapi_callback_response))
-
 
 INITIAL_TIMESTAMP = 1000000000
 INVOICE_PROCESS_ROW = PaymentRequestRow(1, PaymentFlag.TYPE_INVOICE, 100000, None,

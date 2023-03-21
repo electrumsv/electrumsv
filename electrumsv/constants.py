@@ -572,13 +572,14 @@ class ServerPeerChannelFlag(IntFlag):
     NONE                                        = 0
     # This gets set immediately before we create the actual peer channel remotely.
     ALLOCATING                                  = 1 << 0
+    DEACTIVATED                                 = 1 << 19
 
     # Bits 16-18: Isolated purposes that the channels are used for.
-    TIP_FILTER_DELIVERY                         = 0b001 << 16
-    MAPI_BROADCAST_CALLBACK                     = 0b010 << 16
-
-    DEACTIVATED                                 = 0b010 << 18
-
+    PURPOSE_TIP_FILTER_DELIVERY                 = 0b001 << 16
+    # NOTE(rt12) This is not persisted and can be dropped when there is
+    #     an alternative purpose that can be used in the tests (at this time
+    #     there is only the tip filter option).
+    PURPOSE_TEST_ALTERNATIVE                    = 0b111 << 16
     MASK_PURPOSE                                = 0b111 << 16
 
 
@@ -591,18 +592,16 @@ class PeerChannelMessageFlag(IntFlag):
 class PeerChannelAccessTokenFlag(IntFlag):
     NONE                                        = 0
 
-    # Local vs third party are opposites.
-    # Third party tokens should not be used for marking
-    # messages as read because this will cause the third party to miss these messages.
-    # Only tokens that are `FOR_LOCAL_USAGE` should be used for reading / marking messages read
+    # This token is for use by this wallet.
     FOR_LOCAL_USAGE                             = 1 << 0
+    # This token was given out to a third party for them to use accessing the given channel.
     FOR_THIRD_PARTY_USAGE                       = 1 << 1
 
     # Use cases
     FOR_TIP_FILTER_SERVER                       = 1 << 2
-    FOR_MAPI_CALLBACK_USAGE                     = 1 << 3
 
-    USAGE_MASK = FOR_TIP_FILTER_SERVER | FOR_LOCAL_USAGE | FOR_MAPI_CALLBACK_USAGE
+    # This should include all use case masks.
+    MASK_FOR                                    = FOR_TIP_FILTER_SERVER
 
 
 class PushDataHashRegistrationFlag(IntFlag):
@@ -642,10 +641,9 @@ class PushDataMatchFlag(IntFlag):
 
 
 class ChainWorkerToken(IntEnum):
-    MAPI_MESSAGE_CONSUMER                       = 1
-    CONNECT_PROOF_CONSUMER                      = 2
-    OBTAIN_PROOF_WORKER                         = 3
-    OBTAIN_TRANSACTION_WORKER                   = 4
+    CONNECT_PROOF_CONSUMER                      = 1
+    OBTAIN_PROOF_WORKER                         = 2
+    OBTAIN_TRANSACTION_WORKER                   = 3
 
 
 class ChainManagementKind(IntEnum):
