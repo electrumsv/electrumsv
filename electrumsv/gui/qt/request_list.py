@@ -161,14 +161,22 @@ class RequestList(MyTreeWidget):
         current_time = get_posix_timestamp()
         nearest_expiry_time = float('inf')
 
+        # NOTE(rt12) @InvoiceDisplayAndRetention It is envisioned that the user will create lots
+        #     of invoices and we will allow them to be PaymentFlag.ARCHIVED (currently covered in
+        #     PaymentFlag.MASK_HIDDEN). A user might have some way of selecting which invoices
+        #     are shown and filtering and toggling the flag. The difference between
+        #     PaymentFlag.DELETED and PaymentFlag.ARCHIVED is we will either automatically or
+        #     manually prune those that have PaymentFlag.DELETED.
         wallet = self._account._wallet
         rows = wallet.data.read_payment_requests(account_id=self._account_id,
-            flags=PaymentFlag.NONE, mask=PaymentFlag.MASK_HIDDEN | PaymentFlag.STATE_PREPARING)
+            flags=PaymentFlag.NONE, mask=PaymentFlag.MASK_HIDDEN)
 
-        # clear the list and fill it again
         self.clear()
         for row in rows:
             request_state = row.request_flags & PaymentFlag.MASK_STATE
+            if request_state not in { PaymentFlag.STATE_UNPAID, PaymentFlag.STATE_PAID }:
+                continue
+
             if request_state == PaymentFlag.STATE_UNPAID and row.date_expires is not None:
                 date_expires = row.date_expires
                 if current_time + 5 > date_expires:
