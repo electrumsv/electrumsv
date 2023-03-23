@@ -607,6 +607,13 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     # server hoops.
     conn.execute("ALTER TABLE Transactions DROP COLUMN proof_data")
 
+    # Add the NOT NULL constraint to block_height column. SQLite doesn't allow ADD CONSTRAINT
+    # see: https://www.sqlite.org/omitted.html, so it has to be done this way as a workaround.
+    conn.execute("ALTER TABLE Transactions ADD COLUMN block_height2 NOT NULL DEFAULT 0")
+    conn.execute("UPDATE Transactions SET block_height2=block_height WHERE tx_hash=tx_hash;")
+    conn.execute("ALTER TABLE Transactions DROP COLUMN block_height")
+    conn.execute("ALTER TABLE Transactions RENAME COLUMN block_height2 TO block_height")
+
     # Remove vestigial traces of `HasProofData` transaction flag (we cleared others in migration
     # 22).
     clear_bits_args = (~TxFlags_22.HasProofData, TxFlags_22.HasProofData)
