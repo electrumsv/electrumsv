@@ -1,5 +1,16 @@
 {
-    "account_descriptions": [],
+    "account_descriptions": [
+        [
+            1,
+            "c7c39130809b5d0b2c180a7d031797ae215a95d7f3f29798b2c7627d85bf9eb8",
+            "local signed but not broadcast tx"
+        ],
+        [
+            1,
+            "e8f82a7cc22c2bc57aa5bff165e3d4ab643898089aa346c1c831e1333c189449",
+            "unconfirmed transaction"
+        ]
+    ],
     "derivation_datas": {
         "1": [
             [
@@ -970,6 +981,16 @@
             "locktime": 0
         },
         {
+            "transaction_id": "c7c39130809b5d0b2c180a7d031797ae215a95d7f3f29798b2c7627d85bf9eb8",
+            "flags": "signed",
+            "block_hash": null,
+            "block_height": -2,
+            "block_position": null,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 115
+        },
+        {
             "transaction_id": "c9292b6fc6d3341b3453a1885734b1c08d4757c3db354433dd32945aadb44e8c",
             "flags": "settled",
             "block_hash": null,
@@ -1088,6 +1109,16 @@
             "fee_value": null,
             "version": 2,
             "locktime": 0
+        },
+        {
+            "transaction_id": "e8f82a7cc22c2bc57aa5bff165e3d4ab643898089aa346c1c831e1333c189449",
+            "flags": "cleared",
+            "block_hash": null,
+            "block_height": 0,
+            "block_position": null,
+            "fee_value": 147,
+            "version": 1,
+            "locktime": 115
         },
         {
             "transaction_id": "ea00b8e2d9453293f5e514752b9a16a14b0d34bc43fa8f27e2a0a8c382677f51",

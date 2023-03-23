@@ -141,7 +141,7 @@ def _create_mock_app_state2() -> unittest.mock.MagicMock:
     return mock
 
 def read_testdata_for_wallet(wallet_path: str, context_text: str, *,
-        testdata_object_for_write: dict|None=None) -> dict:
+        testdata_object_for_write: dict|list[dict]|None=None) -> dict:
     """
     Parameters:
         - `wallet_path`: The full path of the wallet. The test data file will be alongside it.

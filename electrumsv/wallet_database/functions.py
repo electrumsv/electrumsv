@@ -591,6 +591,15 @@ def read_history_list(db: sqlite3.Connection, account_id: int,
 def read_history_for_outputs(db: sqlite3.Connection, account_id: int, *,
         transaction_hash: bytes|None=None, limit_count: int=10, skip_count: int=0) \
             -> list[AccountHistoryOutputRow]:
+    """
+    NOTE: The expected values of TX.block_height if <= 0 represent respectively:
+        A locally signed transaction = -2
+        A mempool transaction with an unconfirmed parent = -1
+        A mempool transaction with a confiremd parent = 0
+
+    The final ORDER BY CASE clause ensures locally signed and unconfirmed transactions are returned
+    first.
+    """
     sql = """
     WITH _AccountSpends(tx_hash, spent_value) AS (
         SELECT TX.tx_hash, SUM(PTXO.value)
@@ -634,7 +643,10 @@ def read_history_for_outputs(db: sqlite3.Connection, account_id: int, *,
         KI.derivation_type=={DerivationType.BIP32_SUBPATH} AND KI.derivation_data2<x'00000001'
         AND KI.derivation_data2>=x'00000002'))
         OR (_AS.spent_value IS NULL AND TXO.keyinstance_id IS NOT NULL))
-    ORDER BY TX.block_height DESC NULLS FIRST, TX.block_position DESC NULLS FIRST
+    ORDER BY CASE
+            WHEN TX.block_height <=0 THEN 999999998 - TX.block_height
+            ELSE TX.block_height
+        END DESC, TX.block_position DESC
     LIMIT ?3 OFFSET ?4
     """
     row_tx_hash: bytes
