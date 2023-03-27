@@ -25,6 +25,7 @@ class AccountHistoryOutputRow(NamedTuple):
     txo_index: int
     script_pubkey_bytes: bytes|None
     is_mine: bool
+    is_coinbase: bool
     value: int
     block_hash: bytes|None
     block_height: int|None
