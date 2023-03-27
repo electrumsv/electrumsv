@@ -2,6 +2,7 @@
     {
         "txo_index": 1,
         "is_mine": false,
+        "is_coinbase": false,
         "value": -100000000,
         "block_height": -2,
         "block_position": null,
@@ -13,6 +14,7 @@
     {
         "txo_index": 1,
         "is_mine": false,
+        "is_coinbase": false,
         "value": -200000000,
         "block_height": 0,
         "block_position": null,
@@ -24,6 +26,7 @@
     {
         "txo_index": 1,
         "is_mine": true,
+        "is_coinbase": false,
         "value": 25000000,
         "block_height": 115,
         "block_position": 3,
@@ -35,6 +38,7 @@
     {
         "txo_index": 1,
         "is_mine": false,
+        "is_coinbase": false,
         "value": -112121000,
         "block_height": 115,
         "block_position": 2,
@@ -46,6 +50,7 @@
     {
         "txo_index": 0,
         "is_mine": true,
+        "is_coinbase": false,
         "value": 259999847,
         "block_height": 115,
         "block_position": 1,
@@ -57,6 +62,7 @@
     {
         "txo_index": 0,
         "is_mine": true,
+        "is_coinbase": true,
         "value": 5000000553,
         "block_height": 115,
         "block_position": 0,
@@ -68,6 +74,7 @@
     {
         "txo_index": 0,
         "is_mine": true,
+        "is_coinbase": true,
         "value": 5000000000,
         "block_height": 114,
         "block_position": 0,
@@ -79,6 +86,7 @@
     {
         "txo_index": 0,
         "is_mine": true,
+        "is_coinbase": false,
         "value": 130999884,
         "block_height": 113,
         "block_position": 2,
@@ -90,6 +98,7 @@
     {
         "txo_index": 2,
         "is_mine": false,
+        "is_coinbase": false,
         "value": -131000000,
         "block_height": 113,
         "block_position": 1,
@@ -101,6 +110,7 @@
     {
         "txo_index": 0,
         "is_mine": true,
+        "is_coinbase": true,
         "value": 5000000316,
         "block_height": 113,
         "block_position": 0,

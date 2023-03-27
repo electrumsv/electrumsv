@@ -631,6 +631,7 @@ def read_history_for_outputs(db: sqlite3.Connection, account_id: int, *,
         SUBSTRING(TX.tx_data, TXO.script_offset+1, TXO.script_length),
         (CASE WHEN KI.account_id IS NOT NULL
         AND KI.account_id=ATX.account_id THEN 1 ELSE 0 END) AS is_mine,
+        TXO.flags,
         CASE WHEN _AS.spent_value IS NULL OR KI.account_id IS NOT NULL
         AND KI.account_id=ATX.account_id THEN TXO.value ELSE -TXO.value END,
         TX.block_hash, TX.block_height, TX.block_position, TX.date_created
@@ -653,6 +654,7 @@ def read_history_for_outputs(db: sqlite3.Connection, account_id: int, *,
     row_txo_index: int
     row_script_pubkey_bytes: bytes|None
     row_is_mine: int
+    row_txo_flags: int
     row_value: int
     row_block_hash: bytes|None
     row_block_height: int|None
@@ -660,12 +662,13 @@ def read_history_for_outputs(db: sqlite3.Connection, account_id: int, *,
     row_date_created: int
     rows: list[AccountHistoryOutputRow] = []
     cursor = db.execute(sql, (account_id, transaction_hash, limit_count, skip_count))
-    for (row_tx_hash, row_txo_index, row_script_pubkey_bytes, row_is_mine,
+    for (row_tx_hash, row_txo_index, row_script_pubkey_bytes, row_is_mine, row_txo_flags,
             row_value, row_block_hash, row_block_height, row_block_position, row_date_created) \
                 in cursor.fetchall():
+        is_coinbase = row_txo_flags & TransactionOutputFlag.COINBASE!=0
         rows.append(AccountHistoryOutputRow(row_tx_hash, row_txo_index,
-            row_script_pubkey_bytes, bool(row_is_mine), row_value, row_block_hash, row_block_height,
-            row_block_position, row_date_created))
+            row_script_pubkey_bytes, bool(row_is_mine), is_coinbase, row_value,
+            row_block_hash, row_block_height, row_block_position, row_date_created))
     cursor.close()
     return rows
 
