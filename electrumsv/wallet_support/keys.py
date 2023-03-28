@@ -140,7 +140,7 @@ def map_transaction_output_key_usage(transaction: Transaction,
                 script_template.public_keys }
         elif isinstance(script_template, P2PK_Output):
             script_type = ScriptType.P2PK
-            pushdata_hashes = { script_template.hash160() }
+            pushdata_hashes = { sha256(script_template.public_key.to_bytes()) }
         elif isinstance(script_template, P2PKH_Address):
             script_type = ScriptType.P2PKH
             pushdata_hashes = { sha256(script_template.hash160()) }
