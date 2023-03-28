@@ -1,0 +1,14 @@
+[
+    {
+        "txo_index": 1,
+        "is_mine": false,
+        "is_coinbase": false,
+        "value": -100000000,
+        "block_height": -2,
+        "block_position": null,
+        "date_created": 1679577047,
+        "tx_id": "c7c39130809b5d0b2c180a7d031797ae215a95d7f3f29798b2c7627d85bf9eb8",
+        "block_id": null,
+        "script_pubkey_hex": "76a91431b039dabfcc60f57a8e9b8693c8af442818347488ac"
+    }
+]

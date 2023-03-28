@@ -1,0 +1,122 @@
+[
+    {
+        "txo_index": 1,
+        "is_mine": false,
+        "is_coinbase": false,
+        "value": -200000000,
+        "block_height": 0,
+        "block_position": null,
+        "date_created": 1679577109,
+        "tx_id": "e8f82a7cc22c2bc57aa5bff165e3d4ab643898089aa346c1c831e1333c189449",
+        "block_id": null,
+        "script_pubkey_hex": "76a91431b039dabfcc60f57a8e9b8693c8af442818347488ac"
+    },
+    {
+        "txo_index": 1,
+        "is_mine": true,
+        "is_coinbase": false,
+        "value": 25000000,
+        "block_height": 115,
+        "block_position": 3,
+        "date_created": 1666735879,
+        "tx_id": "1afaa1c87ca193480c9aa176f08af78e457e8b8415c71697eded1297ed953db6",
+        "block_id": null,
+        "script_pubkey_hex": "76a914b4ebd9eecb9097eb9cf56c25ce84aa8bf9abcf1888ac"
+    },
+    {
+        "txo_index": 1,
+        "is_mine": false,
+        "is_coinbase": false,
+        "value": -112121000,
+        "block_height": 115,
+        "block_position": 2,
+        "date_created": 1666735880,
+        "tx_id": "49250a55f59e2bbf1b0615508c2d586c1336d7c0c6d493f02bc82349fabe6609",
+        "block_id": null,
+        "script_pubkey_hex": "a9148153746f08c792c37267b01524d227bd39741ebf87"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": false,
+        "value": 259999847,
+        "block_height": 115,
+        "block_position": 1,
+        "date_created": 1666735880,
+        "tx_id": "47f3f47a256d70950ff5690ea377c24464310489e3f54d01b817dd0088f0a095",
+        "block_id": null,
+        "script_pubkey_hex": "76a9141a88fa0d13121861c8f06af6f15fdb72c242b18f88ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": true,
+        "value": 5000000553,
+        "block_height": 115,
+        "block_position": 0,
+        "date_created": 1666735880,
+        "tx_id": "023d74ad33de138ef8b98cfd9950dc1b69c5855146e6a64f502a5be92fd626af",
+        "block_id": null,
+        "script_pubkey_hex": "76a91444c838328b3b9ab6e0ee1f021e281c46fb2804ca88ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": true,
+        "value": 5000000000,
+        "block_height": 114,
+        "block_position": 0,
+        "date_created": 1666735880,
+        "tx_id": "7776689d6d8528d9e55d7cf4b6b037fbeb3163b4a537fe82ebf417003f7f5db2",
+        "block_id": null,
+        "script_pubkey_hex": "76a914a4b822c41dfea4375686a1a42e4c7555177b68aa88ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": false,
+        "value": 130999884,
+        "block_height": 113,
+        "block_position": 2,
+        "date_created": 1666735880,
+        "tx_id": "0120eae6dc11459fe79fbad26f998f4f8c5b75fa6f0fff5b0beca4f35ea7d721",
+        "block_id": null,
+        "script_pubkey_hex": "76a914b09fd19a150e770833bd4970ab53f3a01a60c2ce88ac"
+    },
+    {
+        "txo_index": 2,
+        "is_mine": false,
+        "is_coinbase": false,
+        "value": -131000000,
+        "block_height": 113,
+        "block_position": 1,
+        "date_created": 1666735879,
+        "tx_id": "479833ff49d1000cd6f9d23a88924d22eaeae8b9d543e773d7420c2bbfd73fe2",
+        "block_id": null,
+        "script_pubkey_hex": "52210310274914ab9e07b507eb13cde158320450e4f6d6508645b1e06069976802a9332103308c167165296c5253c798fe11820a8c3b4245e2d252c9d8c25f6bbf98a9bfa052ae"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": true,
+        "value": 5000000316,
+        "block_height": 113,
+        "block_position": 0,
+        "date_created": 1666735880,
+        "tx_id": "b50efbc7b29d1943ca54f90213845c9bf29543f176be52df73d4eefcdd658c53",
+        "block_id": null,
+        "script_pubkey_hex": "76a91411e4d512620a42f4c3e376dfaf695bd11d71011488ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": false,
+        "is_coinbase": false,
+        "value": -110000000,
+        "block_height": 112,
+        "block_position": 1,
+        "date_created": 1666735879,
+        "tx_id": "88c92bb09626c7d505ed861ae8fa7e7aaab5b816fc517eac7a8a6c7f28b1b210",
+        "block_id": null,
+        "script_pubkey_hex": "21032fcb2fa3280cfdc0ffd527b40f592f5ae80556f2c9f98a649f1b1af13f332fdbac"
+    }
+]
