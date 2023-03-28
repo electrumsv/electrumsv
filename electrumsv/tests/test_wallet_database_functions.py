@@ -21,18 +21,19 @@ from .util import _create_mock_app_state, mock_headers, PasswordToken, read_test
 # stored them somewhere and just copied the files, we'd be able to just open it with SQLite
 # directory and without the layers of abstraction and the boilerplate.
 
-@pytest.mark.parametrize("count,skip,context_text", [
-    (1, 0, "history_1_0"),
-    (1, 1, "history_1_1"),
-    (1, 10, "history_1_10"),
-    (10, 0, "history_10_0"),
-    (10, 1, "history_10_1"),
-    (10, 10, "history_10_10"),
-    (100000, 0, "history_100000_0"),
-    (100000, 1, "history_100000_1"),
+@pytest.mark.parametrize("limit_count,skip,expected_count,context_text", [
+    (1, 0, 1, "history_1_0"),
+    (1, 1, 1, "history_1_1"),
+    (1, 10, 1, "history_1_10"),
+    (10, 0, 10, "history_10_0"),
+    (10, 1, 10, "history_10_1"),
+    (10, 10, 10, "history_10_10"),
+    (124, 0, 124, "history_124_0"),
+    (124, 1, 123, "history_124_1"),
 ])
 @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
-def test_read_history_for_outputs(mock_wallet_app_state, count, skip, context_text) -> None:
+def test_read_history_for_outputs(mock_wallet_app_state, limit_count, skip, expected_count,
+        context_text) -> None:
     """
     Verify that the SQL for the `read_history_for_outputs` database function is correct.
     """
@@ -71,7 +72,7 @@ def test_read_history_for_outputs(mock_wallet_app_state, count, skip, context_te
         # SECTION: The actual test code.
         testdata_object: list[dict] = []
         for db_row in db_functions.read_history_for_outputs(db_context, account_id,
-                limit_count=count, skip_count=skip):
+                limit_count=limit_count, skip_count=skip):
             entry_dict = db_row._asdict()
             # JSON does not support embedded byte data so we convert to hexl; canonical hex
             # byte order in the case of transaction and block hashes.
@@ -83,5 +84,6 @@ def test_read_history_for_outputs(mock_wallet_app_state, count, skip, context_te
 
         existing_testdata_object = read_testdata_for_wallet(source_wallet_path, context_text)
         assert testdata_object == existing_testdata_object
+        assert len(testdata_object) == expected_count
     finally:
         Net.set_to(SVMainnet)
