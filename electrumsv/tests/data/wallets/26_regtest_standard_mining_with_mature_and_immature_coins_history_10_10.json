@@ -1,0 +1,122 @@
+[
+    {
+        "txo_index": 0,
+        "is_mine": false,
+        "is_coinbase": false,
+        "value": -110000000,
+        "block_height": 112,
+        "block_position": 1,
+        "date_created": 1666735879,
+        "tx_id": "88c92bb09626c7d505ed861ae8fa7e7aaab5b816fc517eac7a8a6c7f28b1b210",
+        "block_id": null,
+        "script_pubkey_hex": "21032fcb2fa3280cfdc0ffd527b40f592f5ae80556f2c9f98a649f1b1af13f332fdbac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": true,
+        "value": 5000000300,
+        "block_height": 112,
+        "block_position": 0,
+        "date_created": 1666735880,
+        "tx_id": "79c512b6c62056227a3ebbda40011c8ac262a34987525d41932ecb668e5c8f26",
+        "block_id": null,
+        "script_pubkey_hex": "76a914dd5f97d12400d71ce6dd570449688ecb2e7d70cc88ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": false,
+        "is_coinbase": false,
+        "value": -150000000,
+        "block_height": 111,
+        "block_position": 1,
+        "date_created": 1666735879,
+        "tx_id": "d53a9ebfac748561132e49254c42dbe518080c2a5956822d5d3914d47324e842",
+        "block_id": null,
+        "script_pubkey_hex": "76a91417aa9ecb9e38b91bddcc5e8d2d26154be90d899688ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": true,
+        "value": 5000001000,
+        "block_height": 111,
+        "block_position": 0,
+        "date_created": 1666735880,
+        "tx_id": "26d13d9e4d259e9db77452f69d7dd3dfb2756d14989ceed694da26c9646888e6",
+        "block_id": null,
+        "script_pubkey_hex": "76a914f8076c8766d1abd88b3856e95c1b035fade9ae6f88ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": true,
+        "value": 5000000000,
+        "block_height": 110,
+        "block_position": 0,
+        "date_created": 1666735879,
+        "tx_id": "cf1c0746e6a128e25a32703c1972129f4899121eed10e1b6b4df30208f304692",
+        "block_id": null,
+        "script_pubkey_hex": "76a914e7d468699f0f2acbca887376739551053866617d88ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": true,
+        "value": 5000000000,
+        "block_height": 109,
+        "block_position": 0,
+        "date_created": 1666735879,
+        "tx_id": "465db8518ca2efb5a57e5f943cfe4661ac14c2f7639603b4e9384d9ceb7c3846",
+        "block_id": null,
+        "script_pubkey_hex": "76a914e7d468699f0f2acbca887376739551053866617d88ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": true,
+        "value": 5000000000,
+        "block_height": 108,
+        "block_position": 0,
+        "date_created": 1666735879,
+        "tx_id": "1f53590d2706d1da5c1733e8cb2b63c581480dfa82875e3abcd4fd4d15069464",
+        "block_id": null,
+        "script_pubkey_hex": "76a914e7d468699f0f2acbca887376739551053866617d88ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": true,
+        "value": 5000000000,
+        "block_height": 107,
+        "block_position": 0,
+        "date_created": 1666735879,
+        "tx_id": "ea00b8e2d9453293f5e514752b9a16a14b0d34bc43fa8f27e2a0a8c382677f51",
+        "block_id": null,
+        "script_pubkey_hex": "76a914e7d468699f0f2acbca887376739551053866617d88ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": true,
+        "value": 5000000000,
+        "block_height": 106,
+        "block_position": 0,
+        "date_created": 1666735879,
+        "tx_id": "0f0134605ef24d0b3729a0d8f83a1682d230626b0f530fc50f63f8591077f79f",
+        "block_id": null,
+        "script_pubkey_hex": "76a914e7d468699f0f2acbca887376739551053866617d88ac"
+    },
+    {
+        "txo_index": 0,
+        "is_mine": true,
+        "is_coinbase": true,
+        "value": 5000000000,
+        "block_height": 105,
+        "block_position": 0,
+        "date_created": 1666735879,
+        "tx_id": "a9a2626cdbc399336231ca2e5e2f949120baedc0ca9062ccd7015d35720c5fca",
+        "block_id": null,
+        "script_pubkey_hex": "76a914e7d468699f0f2acbca887376739551053866617d88ac"
+    }
+]
