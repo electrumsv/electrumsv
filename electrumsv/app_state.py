@@ -135,10 +135,6 @@ class AppStateProxy(object):
         if os.path.exists(checkpointed_headers_filepath):
             os.remove(checkpointed_headers_filepath)
 
-        # NOTE(rt12) It takes me 50 minutes and gets me continually disconnected from every
-        #   server for excessive resource usage, to download the 697505 headers in the initial
-        #   version of this file. From 1.4.0 and beyond, we provide and facilitate keeping
-        #   a copy of all headers in the wallet.
         headers2_filepath = os.path.join(self.config.path, "headers2")
         if Net.is_mainnet() and not os.path.exists(headers2_filepath):
             base_headers2_filepath = os.path.join(package_dir, "data", "headers_mainnet")
