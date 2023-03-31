@@ -45,7 +45,8 @@ from typing import Any, Callable, cast, Coroutine, Type, TYPE_CHECKING, TypeVar
 from bitcoinx import Chain, Header, MissingHeader
 
 from .async_ import ASync
-from .cached_headers import read_cached_headers, write_cached_headers
+from .cached_headers import close_headers_object, flush_headers_object, read_cached_headers, \
+    write_cached_headers
 from .credentials import CredentialCache
 from .logs import logs
 from .networks import Net
@@ -140,8 +141,9 @@ class AppStateProxy(object):
             base_headers2_filepath = os.path.join(package_dir, "data", "headers_mainnet")
             shutil.copyfile(base_headers2_filepath, headers2_filepath)
 
-            base_headers2_filepath = os.path.join(package_dir, "data", "headers_mainnet")
-            shutil.copyfile(base_headers2_filepath +".chain_data", headers2_filepath +".chain_data")
+            if os.path.exists(base_headers2_filepath +".chain_data"):
+                shutil.copyfile(base_headers2_filepath +".chain_data",
+                    headers2_filepath +".chain_data")
 
     def shutdown(self) -> None:
         self.credentials.close()
@@ -297,25 +299,12 @@ class AppStateProxy(object):
     def on_stop(self) -> None:
         # The headers object may not be created for command-line invocations that do not require it.
         if self.headers is not None:
-            logger.debug("flushing headers")
-            # `mmap.flush` exceptions (The Python developers do not document these):
-            # Raises `ValueError` for invalid offset and size arguments relating to type and range,
-            #     and if `flush` is not supported on `UNIX` (MacOS inclusive) or `MS_WINDOWS`
-            #     operating systems.
-            # Raises `OSError` for specific OS-related Unix and Windows errors.
-            # We do not catch `ValueError` as we do not pass arguments and we do not support
-            # operating systems without `mmap.flush` support. We do not catch `OSError` as this
-            # is representative of problems that are so severe the user's wallet (at the least
-            # the headers file) is likely corrupted and we should never hide this.
-            self.headers.flush()
-            # We close the header storage to prevent further writes. These should never happen but
-            # we want to avoid past problems which seem to be where unflushed writes are lost
-            # and the header file corrupted.
-            # rt12: 20230306 bitcoinx does not currently expose this.
-            self.headers._storage.close()
-
-            logger.debug("writing header cache")
+            logger.debug("Flushing headers store")
+            flush_headers_object(self.headers)
+            logger.debug("Writing cached headers state")
             write_cached_headers(self.headers)
+            logger.debug("Closing headers store")
+            close_headers_object(self.headers)
 
     def base_unit(self) -> str:
         index = self.decimal_points.index(self.decimal_point)
