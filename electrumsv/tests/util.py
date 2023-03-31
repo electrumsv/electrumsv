@@ -44,6 +44,8 @@ def tear_down_async():
     proxy = None
 
 TEST_DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+TEST_BLOCKCHAINS_PATH = os.path.join(TEST_DATA_PATH, "blockchains")
+TEST_HEADERS_PATH = os.path.join(TEST_DATA_PATH, "headers")
 TEST_WALLET_PATH = os.path.join(TEST_DATA_PATH, "wallets")
 TEST_TRANSACTION_PATH = os.path.join(TEST_DATA_PATH, "transactions")
 
