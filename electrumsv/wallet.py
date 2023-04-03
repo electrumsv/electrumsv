@@ -2768,6 +2768,17 @@ class Wallet:
             keystore_by_masterkey_id = { keystore_id: keystore for keystore_id, keystore
                 in self._keystores.items() if keystore.can_change_password() }
 
+            # Update cached server `encrypted_api_key` values. This is especially important given
+            # that when the wallet shuts down, `update_network_servers_transaction` flushes any
+            # server updates which would revert the change in the database.
+            for cached_server in self._servers.values():
+                cached_row = cached_server.database_rows[None]
+                old_encrypted_api_key = cached_row.encrypted_api_key
+                if old_encrypted_api_key is not None:
+                    cached_server.database_rows[None] = cached_row._replace(
+                        encrypted_api_key=pw_encode(pw_decode(old_encrypted_api_key, old_password),
+                            new_password))
+
             def set_encrypted_values(derivation_type: DerivationType,
                     derivation_data: MasterKeyDataTypes, keystore: KeyStore) -> None:
                 if derivation_type == DerivationType.BIP32:

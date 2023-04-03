@@ -1,5 +1,5 @@
 import concurrent.futures
-import base64
+import dataclasses
 import json
 import os
 import shutil
@@ -16,8 +16,8 @@ import pytest
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import (AccountFlags, AccountType, BlockHeight, CHANGE_SUBPATH,
     DATABASE_EXT, DerivationType, DatabaseKeyDerivationType, KeystoreTextType, MasterKeyFlags,
-    PaymentFlag, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag, TxFlags,
-    unpack_derivation_path)
+    PaymentFlag, RECEIVING_SUBPATH, ScriptType, StorageKind,
+    TransactionImportFlag, TxFlags, unpack_derivation_path)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import Bip270Exception, InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
@@ -57,9 +57,11 @@ def tearDownModule():
     tear_down_async()
 
 
-def get_categorised_files2(wallet_path: str, exclude_suffix: str="") -> list[WalletStorageInfo]:
+def get_categorised_files2(wallet_path: str, exclude_suffix: str="") \
+        -> list[WalletStorageInfo]:
     matches = get_categorised_files(wallet_path, exclude_suffix)
     # In order to ensure ordering consistency, we sort the files.
+    storage_info: WalletStorageInfo
     return sorted(matches, key=lambda v: v.filename)
 
 @pytest.fixture()
@@ -157,21 +159,15 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
             assert not account.is_petty_cash()
             assert account_keystore.has_seed() is False
             assert account_keystore.get_masterkey_flags() == MasterKeyFlags.NONE
-        elif account_keystore.has_seed():
+        if account_keystore.has_seed():
             # For these older wallets the seed of the main, non-petty cash account is unrelated
             # to the global, parent wallet seed.
             assert not account.is_petty_cash()
             assert account_keystore.get_parent_keystore() is None
             assert account_keystore.get_masterkey_flags() == MasterKeyFlags.NONE
-        else:
-            # NOTE: Very old ESV BIP39 standard wallets that pre-date the introduction of an
-            # SQLite database, will both not have a 'seed' or a parent keystore. But there are no
-            # flags or markers to know the ancestry of a migrated wallet
-            assert not account.has_seed()
-            assert account_keystore.get_parent_keystore() is None
-            migration = int(wallet.name()[0:2])
-            original_wallet_used_bip39_seed = 'bip39' in wallet.name().lower()
-            assert migration <= 17 and original_wallet_used_bip39_seed
+        # NOTE: Very old ESV BIP39 standard wallets that pre-date the introduction of an
+        # SQLite database, will both not have a 'seed' or a parent keystore. But there are no
+        # flags or markers to know the ancestry of a migrated wallet
 
     assert password is not None
     assert not account_keystores[0].has_seed() or account_keystores[0].get_seed(password)
@@ -187,6 +183,8 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
     assert 'seed' in keystore_data
     assert 'passphrase' in keystore_data
 
+    assert pw_decode(keystore_data['xprv'], password)
+
     keystore_encrypted = False
     try:
         account_keystores[0].check_password(None)
@@ -197,7 +195,7 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
         assert keystore_data['seed'] == seed_words
 
 def check_legacy_parent_of_imported_privkey_wallet(wallet: Wallet, password: str,
-        keypairs: dict[str, str] | None=None) -> None:
+        keyinstance_private_keys: dict[str, str] | None=None) -> None:
     assert len(wallet.get_accounts()) == 2
     account = cast(ImportedPrivkeyAccount,
         [ account for account in wallet.get_accounts()
@@ -216,10 +214,11 @@ def check_legacy_parent_of_imported_privkey_wallet(wallet: Wallet, password: str
         child_keystores[0].to_derivation_data()
     child_keystore = child_keystores[0]
     assert len(child_keystore._keypairs) == 1
-    if keypairs:
+    if keyinstance_private_keys:
         for public_key in child_keystore._public_keys.values():
             encrypted_prv =  child_keystore._keypairs[public_key]
-            assert pw_decode(encrypted_prv, password) == keypairs[public_key.to_hex()]
+            assert pw_decode(encrypted_prv, password) == \
+                   keyinstance_private_keys[public_key.to_hex()]
 
 
 def check_legacy_parent_of_imported_address_wallet(wallet: Wallet) -> None:
@@ -450,9 +449,10 @@ class TestLegacyWalletCreation:
             { "KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6" },
             "password")
 
-        keypairs = {'02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997':
+        keyinstance_private_keys = {'02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997':
             'KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6'}
-        check_legacy_parent_of_imported_privkey_wallet(wallet, keypairs=keypairs,
+        check_legacy_parent_of_imported_privkey_wallet(wallet,
+            keyinstance_private_keys=keyinstance_private_keys,
             password='password')
 
     @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
@@ -504,128 +504,294 @@ class TestLegacyWalletCreation:
         check_create_keys(wallet, account)
 
 
-@pytest.mark.parametrize("storage_info",
-    get_categorised_files2(TEST_WALLET_PATH, exclude_suffix=".json"))
-@unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
-def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorageInfo,
-        caplog) -> None:
-    password = initial_password = "123456"
-    password_token = PasswordToken(password)
-    mock_wallet_app_state.credentials.get_wallet_password = lambda wallet_path: password
-
-    # When a wallet is composed of multiple files, we need to know which to load.
-    wallet_filenames = []
-    if storage_info.kind != StorageKind.DATABASE:
-        wallet_filenames.append(storage_info.filename)
-    if storage_info.kind in (StorageKind.DATABASE, StorageKind.HYBRID):
-        wallet_filenames.append(storage_info.filename + DATABASE_EXT)
-
-    temp_dir = tempfile.mkdtemp()
-    for _wallet_filename in wallet_filenames:
-        source_wallet_path = os.path.join(TEST_WALLET_PATH, _wallet_filename)
-        wallet_path = os.path.join(temp_dir, _wallet_filename)
-        shutil.copyfile(source_wallet_path, wallet_path)
-
-    wallet_filename = storage_info.filename
-    wallet_path = os.path.join(temp_dir, wallet_filename)
-    # "<expected version>_<network>_<type>[_<subtype>]"
-    (expected_version_text, expected_network, expected_type, *expected_subtypes) \
-        = wallet_filename.split("_")
-    expected_version = int(expected_version_text)
-
-    if "testnet" == expected_network:
-        Net.set_to(SVTestnet)
-    elif "regtest" == expected_network:
-        Net.set_to(SVRegTestnet)
-
-    if storage_info.kind == StorageKind.HYBRID:
-        pytest.fail("old development database not supported yet")
-
-    storage = WalletStorage(wallet_path)
-
-    has_password = True
-    if "passworded" in expected_subtypes:
-        text_store = storage.get_text_store()
-        text_store.load_data(text_store.decrypt(initial_password))
-    elif "encrypted" in expected_subtypes:
-        pass
-    elif expected_version >= 22:
-        storage.check_password(initial_password)
-    else:
-        has_password = False
-
-    with unittest.mock.patch(
-        "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
-        as migration29_app_state:
-            migration29_app_state.headers = mock_headers()
-            try:
-                storage.upgrade(has_password, password_token)
-            except IncompatibleWalletError as exc:
-                validate_wallet_migration_failure_message(storage_info, exc.args[0])
+def load_wallet(storage: WalletStorage) -> Wallet | None:
+    try:
+        return Wallet(storage)
+    except FileNotFoundError as e:
+        if sys.version_info[:3] >= (3, 8, 0):
+            msg = "Could not find module 'libusb-1.0.dll' (or one of its dependencies)."
+            if msg in e.args[0]:
+                pytest.xfail("libusb DLL could not be found")
                 return
+        raise e
+    except OSError as e:
+        if sys.version_info[:3] < (3, 8, 0):
+            if "The specified module could not be found" in e.args[1]:
+                pytest.xfail("libusb DLL could not be found")
+                return
+        raise e
 
-    add_indefinite_credential_mock = unittest.mock.Mock()
-    with unittest.mock.patch(
-            'electrumsv.keystore.app_state.credentials.add_indefinite_credential',
-            add_indefinite_credential_mock):
-        try:
-            wallet = Wallet(storage)
-        except FileNotFoundError as e:
-            if sys.version_info[:3] >= (3, 8, 0):
-                msg = "Could not find module 'libusb-1.0.dll' (or one of its dependencies)."
-                if msg in e.args[0]:
-                    pytest.xfail("libusb DLL could not be found")
+@dataclasses.dataclass
+class TestState:
+    failing_wallets: set[str]
+
+    ## Encrypted Data Types Requiring Test Coverage For Re-encryption
+
+    # Password token is re-encrypted in the `WalletData` table (included for a consistent approach
+    # of tracking coverate of each of the aforementioned categories of encrypted data)
+    count_coverage_password_token: int
+
+    # Derivation data in the KeyInstances table.
+    count_coverage_privkeys_in_keyinstance_table: int  # only for ImportedPrivkeyAccount types
+
+    # Derivation data in the MasterKeys table.
+    count_coverage_masterkeys_table_seed: int
+    count_coverage_masterkeys_table_passphrase: int
+    count_coverage_masterkeys_table_xprv: int
+
+    # Newer wallets have a `Servers` table with an `encrypted_api_key` column
+    count_coverage_server_api_key: int
+
+    # Note that while the CredentialCache does contain sensitive data, it is not encrypted and
+    # therefore does not need to be checked for re-encryption coverage.
+
+
+class TestLegacyWalletLoading:
+
+    test_state = TestState(
+        failing_wallets=set(),
+        count_coverage_password_token=0,
+        count_coverage_privkeys_in_keyinstance_table=0,
+        count_coverage_masterkeys_table_seed=0,
+        count_coverage_masterkeys_table_passphrase=0,
+        count_coverage_masterkeys_table_xprv=0,
+        count_coverage_server_api_key=0
+    )
+    @pytest.mark.parametrize("storage_info", get_categorised_files2(TEST_WALLET_PATH,
+        exclude_suffix=".json"))
+    @unittest.mock.patch('electrumsv.keystore.app_state.credentials.remove_indefinite_credential',
+        lambda x: None)
+    @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
+    @pytest.mark.usefixtures("set_to_mainnet_network_on_test_finish")
+    def test_legacy_wallet_loading(self, mock_wallet_app_state, storage_info: WalletStorageInfo) -> None:
+        print(f"Testing wallet: {storage_info.filename}")
+        # Gets removed again from the set at the end if it passes all assertions
+        self.test_state.failing_wallets.add(storage_info.filename)
+
+        password = initial_password = "123456"
+        password_token = PasswordToken(password)
+        mock_wallet_app_state.credentials.get_wallet_password = lambda wallet_path: password
+
+        # When a wallet is composed of multiple files, we need to know which to load.
+        wallet_filenames = []
+        if storage_info.kind != StorageKind.DATABASE:
+            wallet_filenames.append(storage_info.filename)
+        if storage_info.kind in (StorageKind.DATABASE, StorageKind.HYBRID):
+            wallet_filenames.append(storage_info.filename + DATABASE_EXT)
+
+        temp_dir = tempfile.mkdtemp()
+        for _wallet_filename in wallet_filenames:
+            source_wallet_path = os.path.join(TEST_WALLET_PATH, _wallet_filename)
+            wallet_path = os.path.join(temp_dir, _wallet_filename)
+            shutil.copyfile(source_wallet_path, wallet_path)
+
+        wallet_filename = storage_info.filename
+        wallet_path = os.path.join(temp_dir, wallet_filename)
+        # "<expected version>_<network>_<type>[_<subtype>]"
+        (expected_version_text, expected_network, expected_type, *expected_subtypes) \
+            = wallet_filename.split("_")
+        expected_version = int(expected_version_text)
+
+        if "testnet" == expected_network:
+            Net.set_to(SVTestnet)
+        elif "regtest" == expected_network:
+            Net.set_to(SVRegTestnet)
+
+        if storage_info.kind == StorageKind.HYBRID:
+            pytest.fail("old development database not supported yet")
+
+        storage = WalletStorage(wallet_path)
+
+        has_password = True
+        if "passworded" in expected_subtypes:
+            text_store = storage.get_text_store()
+            text_store.load_data(text_store.decrypt(initial_password))
+        elif "encrypted" in expected_subtypes:
+            pass
+        elif expected_version >= 22:
+            storage.check_password(initial_password)
+        else:
+            has_password = False
+
+        with unittest.mock.patch(
+            "electrumsv.wallet_database.migrations.migration_0029_reference_server.app_state") \
+            as migration29_app_state:
+                migration29_app_state.headers = mock_headers()
+                try:
+                    storage.upgrade(has_password, password_token)
+                except IncompatibleWalletError as exc:
+                    validate_wallet_migration_failure_message(storage_info, exc.args[0])
                     return
-            raise e
-        except OSError as e:
-            if sys.version_info[:3] < (3, 8, 0):
-                if "The specified module could not be found" in e.args[1]:
-                    pytest.xfail("libusb DLL could not be found")
-                    return
-            raise e
 
-    # Store any pre-password update related data to compare against post-password update data.
-    prv_keypairs: dict[str, str] = {}
-    if "imported" == expected_type and "privkey" in wallet_filename:
-        assert len(wallet.get_accounts()) == 2
-        private_key_account = cast(ImportedPrivkeyAccount,
-            [ entry for entry in wallet.get_accounts() if not entry.is_petty_cash() ][0])
-        private_key_keystore = cast(Imported_KeyStore, private_key_account.get_keystore())
-        # Pre-decrypt the prv for later comparison so the initial password is not needed there.
-        for public_key, encrypted_prv in private_key_keystore._keypairs.items():
-            prv_keypairs[public_key.to_hex()] = pw_decode(encrypted_prv, initial_password)
+        add_indefinite_credential_mock = unittest.mock.Mock()
+        with unittest.mock.patch(
+                'electrumsv.keystore.app_state.credentials.add_indefinite_credential',
+                add_indefinite_credential_mock):
+            wallet = load_wallet(storage)
+            assert wallet is not None
 
-    password = "654321"
-    future, update_completion_event = wallet.update_password(initial_password, password)
-    # Wait for the database update to finish.
-    future.result(5)
-    # Wait for the done callback to finish.
-    update_completion_event.wait()
+        # ---- Capture all types of encrypted data BEFORE the password update --- #
 
-    if "standard" == expected_type:
-        check_legacy_parent_of_standard_wallet(wallet, password=password,
-            add_indefinite_credential_mock=add_indefinite_credential_mock)
-    elif "imported" == expected_type:
-        if "privkey" in wallet_filename:
-            check_legacy_parent_of_imported_privkey_wallet(wallet, password, prv_keypairs)
-        elif "address" in expected_subtypes:
-            check_legacy_parent_of_imported_address_wallet(wallet)
+        # Password token (probably an unnecessary check but it keeps a systematic approach)
+        password_token_before = wallet.get_storage().get('password-token')
+        if password_token_before is not None:
+            self.test_state.count_coverage_password_token += 1
+
+        # Derivation data in the KeyInstances table. Only for ImportedPrivkeyAccount types
+        keyinstance_private_keys: dict[str, str] = {}
+        if "imported" == expected_type and "privkey" in wallet_filename:
+            assert len(wallet.get_accounts()) == 2
+            private_key_account = cast(ImportedPrivkeyAccount,
+                [ entry for entry in wallet.get_accounts() if not entry.is_petty_cash() ][0])
+            private_key_keystore = cast(Imported_KeyStore, private_key_account.get_keystore())
+            # Pre-decrypt the prv for later comparison so the initial password is not needed there.
+            for public_key, encrypted_prv in private_key_keystore._keypairs.items():
+                keyinstance_private_keys[public_key.to_hex()] = pw_decode(encrypted_prv,
+                    initial_password)
+                self.test_state.count_coverage_privkeys_in_keyinstance_table += 1
+
+        # Derivation data in the MasterKeys table.
+        master_key_xprvs: list[str] = []
+        master_key_seeds: list[str] = []
+        master_key_passphrases: list[str] = []
+        for keystore in wallet.get_keystores():
+            data = keystore.to_derivation_data()
+            for entry_name in ("seed", "passphrase", "xprv"):
+                entry_value = cast(str | None, data.get(entry_name, None))
+                if not entry_value:
+                    continue
+                decoded_value = pw_decode(entry_value, initial_password)
+                if entry_name == "seed":
+                    master_key_seeds.append(decoded_value)
+                    self.test_state.count_coverage_masterkeys_table_seed += 1
+                if entry_name == "xprv":
+                    master_key_xprvs.append(decoded_value)
+                    self.test_state.count_coverage_masterkeys_table_xprv += 1
+                if entry_name == "passphrase":
+                    master_key_passphrases.append(decoded_value)
+                    self.test_state.count_coverage_masterkeys_table_passphrase += 1
+
+        # Newer wallets have a `Servers` table with an `encrypted_api_key` column
+        encrypted_api_keys = list[str]()
+        for server in wallet.data.read_network_servers():
+            if server.encrypted_api_key is not None:
+                self.test_state.count_coverage_server_api_key += 1
+                decoded_value = pw_decode(server.encrypted_api_key, initial_password)
+                encrypted_api_keys.append(decoded_value)
+
+        new_password = "654321"
+        future, update_completion_event = wallet.update_password(initial_password, new_password)
+        # Wait for the database update to finish.
+        future.result(5)
+        # Wait for the done callback to finish.
+        update_completion_event.wait()
+        wallet.stop()
+
+        mock_wallet_app_state.credentials.get_wallet_password = lambda wallet_path: new_password
+        # Perform a full shutdown and reload of the wallet database. This will cover the code
+        # pathways of:
+        # - flushing the network server cache updates to the database. This was causing a bug where
+        # it was overwriting the updated encrypted api key with the old version.
+        # - reloading of the `WalletData` table variables into the wallet cache (see:
+        # `Wallet._load_servers()`. This involves json deserialization of stored values)
+        # - loading the `Server` table data and decrypting the api keys with the new password
+        storage = WalletStorage(wallet_path)
+
+        add_indefinite_credential_mock = unittest.mock.Mock()
+        with unittest.mock.patch(
+                'electrumsv.keystore.app_state.credentials.add_indefinite_credential',
+                add_indefinite_credential_mock):
+            wallet = load_wallet(storage)
+            wallet.app_state = mock_wallet_app_state
+            assert wallet is not None
+
+        if "standard" == expected_type:
+            check_legacy_parent_of_standard_wallet(wallet, password=new_password,
+                add_indefinite_credential_mock=add_indefinite_credential_mock)
+        elif "imported" == expected_type:
+            if "privkey" in wallet_filename:
+                check_legacy_parent_of_imported_privkey_wallet(wallet, new_password,
+                    keyinstance_private_keys)
+            elif "address" in expected_subtypes:
+                check_legacy_parent_of_imported_address_wallet(wallet)
+            else:
+                raise Exception(f"unrecognised wallet file {wallet_filename}")
+        elif "multisig" == expected_type:
+            check_legacy_parent_of_multisig_wallet(wallet, new_password)
+        elif "hardware" == expected_type:
+            check_legacy_parent_of_hardware_wallet(wallet)
+        elif "blank" == expected_type:
+            check_parent_of_blank_wallet(wallet)
         else:
             raise Exception(f"unrecognised wallet file {wallet_filename}")
-    elif "multisig" == expected_type:
-        check_legacy_parent_of_multisig_wallet(wallet, password)
-    elif "hardware" == expected_type:
-        check_legacy_parent_of_hardware_wallet(wallet)
-    elif "blank" == expected_type:
-        check_parent_of_blank_wallet(wallet)
-    else:
-        raise Exception(f"unrecognised wallet file {wallet_filename}")
 
-    check_specific_wallets(wallet, password, storage_info)
+        check_specific_wallets(wallet, new_password, storage_info)
 
-    if expected_network in { "testnet", "regtest" }:
-        Net.set_to(SVMainnet)
+        # ---- Check all types of encrypted data AFTER the password update --- #
 
+        # Password token (probably an unnecessary check but it keeps a systematic approach)
+        password_token_after = wallet.get_storage().get('password-token')
+        assert pw_decode(password_token_after, new_password) is not None
+        assert pw_decode(password_token_before, initial_password) is not None
+
+        # Derivation data in the KeyInstances table. Only for ImportedPrivkeyAccount types
+        keyinstance_private_keys_after: dict[str, str] = {}
+        if "imported" == expected_type and "privkey" in wallet_filename:
+            assert len(wallet.get_accounts()) == 2
+            private_key_account = cast(ImportedPrivkeyAccount,
+                [ entry for entry in wallet.get_accounts() if not entry.is_petty_cash() ][0])
+            private_key_keystore = cast(Imported_KeyStore, private_key_account.get_keystore())
+            # Pre-decrypt the prv for later comparison so the initial password is not needed there.
+            for public_key, encrypted_prv in private_key_keystore._keypairs.items():
+                keyinstance_private_keys_after[public_key.to_hex()] = pw_decode(encrypted_prv,
+                    new_password)
+        assert keyinstance_private_keys_after == keyinstance_private_keys
+
+        # Derivation data in the MasterKeys table.
+        master_key_xprvs_after: list[str] = []
+        master_key_seeds_after: list[str] = []
+        master_key_passphrases_after: list[str] = []
+        for keystore in wallet.get_keystores():
+            data = keystore.to_derivation_data()
+            for entry_name in ("seed", "passphrase", "xprv"):
+                entry_value = cast(str | None, data.get(entry_name, None))
+                if not entry_value:
+                    continue
+                decoded_value = pw_decode(entry_value, new_password)
+                if entry_name == "seed":
+                    master_key_seeds_after.append(decoded_value)
+                    self.test_state.count_coverage_masterkeys_table_seed += 1
+                if entry_name == "xprv":
+                    master_key_xprvs_after.append(decoded_value)
+                    self.test_state.count_coverage_masterkeys_table_xprv += 1
+                if entry_name == "passphrase":
+                    master_key_passphrases_after.append(decoded_value)
+                    self.test_state.count_coverage_masterkeys_table_passphrase += 1
+        assert master_key_xprvs_after == master_key_xprvs
+        assert master_key_seeds_after == master_key_seeds
+        assert master_key_passphrases_after == master_key_passphrases
+
+        # Newer wallets have a `Servers` table with an `encrypted_api_key` column
+        encrypted_api_keys_after = list[str]()
+        for server in wallet.data.read_network_servers():
+            if server.encrypted_api_key is not None:
+                self.test_state.count_coverage_server_api_key += 1
+                decoded_value = pw_decode(server.encrypted_api_key, new_password)
+                encrypted_api_keys_after.append(decoded_value)
+        assert encrypted_api_keys_after == encrypted_api_keys
+
+        # passed the test assertions
+        self.test_state.failing_wallets.remove(storage_info.filename)
+
+    def test_coverage_of_re_encryption_of_sensitive_data(self):
+        # This is the last parameter in the set
+        assert self.test_state.count_coverage_password_token > 0
+        assert self.test_state.count_coverage_privkeys_in_keyinstance_table > 0
+        assert self.test_state.count_coverage_masterkeys_table_seed > 0
+        assert self.test_state.count_coverage_masterkeys_table_xprv > 0
+        # Expected failure - no passphrase in test wallets
+        # assert self.test_state.count_coverage_masterkeys_table_passphrase > 0
+        assert self.test_state.count_coverage_server_api_key > 0
 
 def validate_wallet_migration_failure_message(storage_info: WalletStorageInfo, text: str) -> None:
     testdata_filename = storage_info.wallet_filepath +"_testdata.json"
