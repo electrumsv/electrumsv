@@ -1,3 +1,27 @@
+"""
+When bitcoinx loads a headers file, it processes all headers on startup and builds a picture of
+the chain state for those headers. What forks there are and at what heights. Unfortunately at the
+time of writing this, this can take up to 40 seconds to do and is an unacceptable and perplexing
+user experience. Either bitcoinx has to write the chain state to avoid recalculating it or we do.
+It makes little difference so we do it for now.
+
+We need to know which headers in the headers file the chain data applies to. As the headers file is
+only ever appended to we can associate the chain data with a partial hash covering the headers that
+have been factored into the chain data. We also know the index of the last header processed and can
+process the headers after that point which should only be a few blocks at most and incur no
+noticeable startup delay.
+
+Additional notes:
+
+* bitcoinx processes all headers above a hard-coded checkpoint. We used to set a checkpoint and
+  fetch headers on demand. We stopped because this was a poor user experience and it is much simpler
+  to bundle the full headers and have them ready to use immediately. Now our checkpoint is always
+  the Genesis block. The checkpoint mechanic could be removed from our perspective.
+
+* The headers file has a leading reserved space with values like the header count. We exclude that
+  from the hashing to ensure that the hash is deterministic even with additional appended headers.
+"""
+
 from __future__ import annotations
 import array
 from hashlib import sha256
