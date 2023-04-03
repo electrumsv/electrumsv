@@ -227,47 +227,47 @@ def test_incremental_update(make_regtest_headers_copy: Callable[[str|None], Head
 
     original_read_cached_chains_data = cached_headers.read_cached_chains_data
     original_read_unprocessed_headers = cached_headers.read_unprocessed_headers
-    with unittest.mock.patch("electrumsv.cached_headers.read_cached_chains_data") as mock_read:
-        with unittest.mock.patch(
-                "electrumsv.cached_headers.read_unprocessed_headers") as mock_read_file:
-            def mocked_read_cached_chains_data(f: io.BufferedReader, headers: ElectrumSVHeaders) \
-                    -> None:
-                original_read_cached_chains_data(f, headers)
-                # Verify that the restored state at this point matches the chain data we saved.
-                assert len(headers._chains) == 1
-                assert headers._chains[0].tip == original_headers1_tip
-            mock_read.side_effect = mocked_read_cached_chains_data
+    with unittest.mock.patch("electrumsv.cached_headers.read_cached_chains_data") as mock_read, \
+            unittest.mock.patch("electrumsv.cached_headers.read_unprocessed_headers") \
+                as mock_read_file:
+        def mocked_read_cached_chains_data(f: io.BufferedReader, headers: ElectrumSVHeaders) \
+                -> None:
+            original_read_cached_chains_data(f, headers)
+            # Verify that the restored state at this point matches the chain data we saved.
+            assert len(headers._chains) == 1
+            assert headers._chains[0].tip == original_headers1_tip
+        mock_read.side_effect = mocked_read_cached_chains_data
 
-            def mocked_read_unprocessed_headers(local_headers2: Headers, last_index: int) -> None:
-                # Verify that the extended headers are present, but the chain data knows it's
-                # state is only up to the pre-extension header index. The incremental read that
-                # we are intercepting will process the outstanding headers.
-                assert local_headers2._storage.header_count == 1 + 115 + 10
-                assert last_index == 115
-                original_read_unprocessed_headers(local_headers2, last_index)
-                assert local_headers2._storage.header_count == 1 + 115 + 10
-            mock_read_file.side_effect = mocked_read_unprocessed_headers
+        def mocked_read_unprocessed_headers(local_headers2: Headers, last_index: int) -> None:
+            # Verify that the extended headers are present, but the chain data knows it's
+            # state is only up to the pre-extension header index. The incremental read that
+            # we are intercepting will process the outstanding headers.
+            assert local_headers2._storage.header_count == 1 + 115 + 10
+            assert last_index == 115
+            original_read_unprocessed_headers(local_headers2, last_index)
+            assert local_headers2._storage.header_count == 1 + 115 + 10
+        mock_read_file.side_effect = mocked_read_unprocessed_headers
 
-            # This should be a full processed copy of the double chain headers store.
-            headers2 = make_regtest_headers_copy(headers1._storage.filename)
+        # This should be a full processed copy of the double chain headers store.
+        headers2 = make_regtest_headers_copy(headers1._storage.filename)
 
-            mock_read.assert_called_once()
-            mock_read_file.assert_called_once()
+        mock_read.assert_called_once()
+        mock_read_file.assert_called_once()
 
-            # These should be all the internal data structures in a headers object.
-            assert headers1._short_hashes == headers2._short_hashes
-            assert headers1._heights == headers2._heights
-            assert headers1._chain_indices == headers2._chain_indices
+        # These should be all the internal data structures in a headers object.
+        assert headers1._short_hashes == headers2._short_hashes
+        assert headers1._heights == headers2._heights
+        assert headers1._chain_indices == headers2._chain_indices
 
-            # Verify that the unextended chain data was used as a base and the extra headers
-            # connected to give the same result as the original extended headers object.
-            assert len(headers2._chains) == 2
-            for chain_index, chain in enumerate(headers1._chains):
-                chain_copy = headers2._chains[chain_index]
-                if chain.parent is not None or chain_copy.parent is not None:
-                    assert chain.parent.index == chain_copy.parent.index
-                assert chain.tip == chain_copy.tip
-                assert chain.work == chain_copy.work
-                assert chain.first_height == chain_copy.first_height
-                assert chain._header_indices == chain_copy._header_indices
-                assert chain.index == chain_copy.index
+        # Verify that the unextended chain data was used as a base and the extra headers
+        # connected to give the same result as the original extended headers object.
+        assert len(headers2._chains) == 2
+        for chain_index, chain in enumerate(headers1._chains):
+            chain_copy = headers2._chains[chain_index]
+            if chain.parent is not None or chain_copy.parent is not None:
+                assert chain.parent.index == chain_copy.parent.index
+            assert chain.tip == chain_copy.tip
+            assert chain.work == chain_copy.work
+            assert chain.first_height == chain_copy.first_height
+            assert chain._header_indices == chain_copy._header_indices
+            assert chain.index == chain_copy.index
