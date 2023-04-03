@@ -45,8 +45,7 @@ from typing import Any, Callable, cast, Coroutine, Type, TYPE_CHECKING, TypeVar
 from bitcoinx import Chain, Header, MissingHeader
 
 from .async_ import ASync
-from .cached_headers import close_headers_object, flush_headers_object, read_cached_headers, \
-    write_cached_headers
+from .cached_headers import close_headers_object, read_cached_headers, write_cached_headers
 from .credentials import CredentialCache
 from .logs import logs
 from .networks import Net
@@ -116,7 +115,7 @@ class AppStateProxy(object):
         self.device_manager = DeviceMgr()
         self.credentials = CredentialCache()
         self.headers: Headers | None = None
-        self.headers_lock = threading.RLock()
+        self._headers_lock = threading.RLock()
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get_explicit_type(int, 'decimal_point', 8)
         self.num_zeros = config.get_explicit_type(int, 'num_zeros', 0)
@@ -203,7 +202,7 @@ class AppStateProxy(object):
         3. This may need some optimisation at some point if acquiring the lock is heavyweight.
         """
         assert self.headers is not None
-        with self.headers_lock:
+        with self._headers_lock:
             return cast(tuple[Header, Chain], self.headers.lookup(block_hash))
 
     def header_at_height(self, chain: Chain, block_height: int) -> Header:
@@ -213,7 +212,7 @@ class AppStateProxy(object):
         Raises `MissingHeader` if there is no header for the given chain at the given height.
         """
         assert self.headers is not None
-        with self.headers_lock:
+        with self._headers_lock:
             return cast(Header, self.headers.header_at_height(chain, block_height))
 
     def raw_header_at_height(self, chain: Chain, block_height: int) -> bytes:
@@ -223,7 +222,7 @@ class AppStateProxy(object):
         Raises `MissingHeader` if there is no header for the given chain at the given height.
         """
         assert self.headers is not None
-        with self.headers_lock:
+        with self._headers_lock:
             return cast(bytes, self.headers.raw_header_at_height(chain, block_height))
 
     def connect_header(self, header_bytes: bytes) -> tuple[Header, Chain]:
@@ -241,8 +240,17 @@ class AppStateProxy(object):
         3. This may need some optimisation at some point if acquiring the lock is heavyweight.
         """
         assert self.headers is not None
-        with self.headers_lock:
-            return cast(tuple[Header, Chain], self.headers.connect(header_bytes))
+        with self._headers_lock:
+            header_and_chain = cast(tuple[Header, Chain], self.headers.connect(header_bytes))
+            return header_and_chain
+
+    def _write_cached_headers_state(self) -> None:
+        """
+        Raises no exception (that we care to catch, see `flush_headers_object`).
+        """
+        with self._headers_lock:
+            logger.debug("Writing cached headers state")
+            write_cached_headers(self.headers)
 
     async def _follow_longest_valid_chain(self) -> None:
         """
@@ -299,12 +307,10 @@ class AppStateProxy(object):
     def on_stop(self) -> None:
         # The headers object may not be created for command-line invocations that do not require it.
         if self.headers is not None:
-            logger.debug("Flushing headers store")
-            flush_headers_object(self.headers)
-            logger.debug("Writing cached headers state")
-            write_cached_headers(self.headers)
-            logger.debug("Closing headers store")
-            close_headers_object(self.headers)
+            with self._headers_lock:
+                self._write_cached_headers_state()
+                logger.debug("Closing headers store")
+                close_headers_object(self.headers)
 
     def base_unit(self) -> str:
         index = self.decimal_points.index(self.decimal_point)

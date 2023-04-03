@@ -16,6 +16,9 @@ logger = logs.get_logger("app_state")
 
 
 def flush_headers_object(headers: Headers) -> None:
+    """
+    Raises no exception (that we care to catch).
+    """
     # `mmap.flush` exceptions (The Python developers do not document these):
     # Raises `ValueError` for invalid offset and size arguments relating to type and range,
     #     and if `flush` is not supported on `UNIX` (MacOS inclusive) or `MS_WINDOWS`
@@ -29,6 +32,9 @@ def flush_headers_object(headers: Headers) -> None:
 
 
 def close_headers_object(headers: Headers) -> None:
+    """
+    Raises no exception (that we care to catch, see `flush_headers_object`).
+    """
     flush_headers_object(headers)
     # We close the header storage to prevent further writes. These should never happen but
     # we want to avoid past problems which seem to be where unflushed writes are lost
@@ -201,7 +207,7 @@ def write_cached_headers(headers: Headers) -> None:
     # Ensure all mmap modifications are written to disk. We can do this after the headers object
     # is closed down, and should only use runtime state.
     if not headers._storage.mmap.closed:
-        headers.flush()
+        flush_headers_object(headers)
 
     headers_path = headers._storage.filename
     headerfile_size = headers._storage.reserved_size + headers._storage.header_count * 80
@@ -210,8 +216,8 @@ def write_cached_headers(headers: Headers) -> None:
     chaindata_filename = headers_path +".chain_data"
     if os.path.exists(chaindata_filename):
         with open(chaindata_filename, "rb") as f:
-            expected_headerfile_hash = f.read(32)
-        if headerfile_hash == expected_headerfile_hash:
+            metadata = read_cached_headers_metadata(f)
+        if headerfile_hash == metadata.headerfile_hash:
             logger.debug("header file is unchanged; skipping write")
             return
 
