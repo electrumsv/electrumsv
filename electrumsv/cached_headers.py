@@ -241,7 +241,7 @@ def write_cached_headers(headers: Headers) -> None:
         flush_headers_object(headers)
 
     headers_path = headers._storage.filename
-    headerfile_size = headers._storage.reserved_size + headers._storage.header_count * 80
+    headerfile_size = headers._storage.reserved_size + len(headers._storage) * 80
     headerfile_hash = hash_headerfile(headers_path, headerfile_size)
 
     chaindata_filename = headers_path +".chain_data"
