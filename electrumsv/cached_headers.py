@@ -2,7 +2,7 @@
 When bitcoinx loads a headers file, it processes all headers on startup and builds a picture of
 the chain state for those headers. What forks there are and at what heights. Unfortunately at the
 time of writing this, this can take up to 40 seconds to do and is an unacceptable and perplexing
-user experience. Either bitcoinx has to write the chain state to avoid recalculating it or we do.
+user experience. Either bitcoinx has to persist the chain state to avoid recalculating it or we do.
 It makes little difference so we do it for now.
 
 We need to know which headers in the headers file the chain data applies to. As the headers file is
@@ -20,6 +20,13 @@ Additional notes:
 
 * The headers file has a leading reserved space with values like the header count. We exclude that
   from the hashing to ensure that the hash is deterministic even with additional appended headers.
+
+ElectrumSV decisions:
+
+* We try and write out the chain data on two different events. On application shutdown and after
+  completing initial header synchronisation with a header server. The former is what we normally
+  expect, and the latter is the minimum we can possibly do to make the user experience for users
+  who decide to kill the process less painful.
 """
 
 from __future__ import annotations
