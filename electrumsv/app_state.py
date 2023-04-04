@@ -39,6 +39,7 @@ import concurrent.futures
 import os
 import shutil
 import threading
+import time
 from types import TracebackType
 from typing import Any, Callable, cast, Coroutine, Type, TYPE_CHECKING, TypeVar
 
@@ -116,6 +117,7 @@ class AppStateProxy(object):
         self.credentials = CredentialCache()
         self.headers: Headers | None = None
         self._headers_lock = threading.RLock()
+        self._last_headers_save: float|None = time.time()
         # Not entirely sure these are worth caching, but preserving existing method for now
         self.decimal_point = config.get_explicit_type(int, 'decimal_point', 8)
         self.num_zeros = config.get_explicit_type(int, 'num_zeros', 0)
@@ -241,16 +243,16 @@ class AppStateProxy(object):
         """
         assert self.headers is not None
         with self._headers_lock:
-            header_and_chain = cast(tuple[Header, Chain], self.headers.connect(header_bytes))
-            return header_and_chain
+            return cast(tuple[Header, Chain], self.headers.connect(header_bytes))
 
-    def _write_cached_headers_state(self) -> None:
+    def write_cached_headers_state(self) -> None:
         """
         Raises no exception (that we care to catch, see `flush_headers_object`).
         """
         with self._headers_lock:
             logger.debug("Writing cached headers state")
             write_cached_headers(self.headers)
+            self._last_headers_save = time.time()
 
     async def _follow_longest_valid_chain(self) -> None:
         """
@@ -308,7 +310,7 @@ class AppStateProxy(object):
         # The headers object may not be created for command-line invocations that do not require it.
         if self.headers is not None:
             with self._headers_lock:
-                self._write_cached_headers_state()
+                self.write_cached_headers_state()
                 logger.debug("Closing headers store")
                 close_headers_object(self.headers)
 

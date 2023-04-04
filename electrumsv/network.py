@@ -472,6 +472,9 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         server_state.synchronisation_update_event.set()
         server_state.synchronisation_update_event.clear()
 
+        logger.debug("Post connect header batch state write attempt")
+        app_state.write_cached_headers_state()
+
     def status(self) -> NetworkStatusDict:
         return {
             "blockchain_height": self.get_local_height(),
