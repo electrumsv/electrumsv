@@ -242,10 +242,10 @@ def test_incremental_update(make_regtest_headers_copy: Callable[[str|None], Head
             # Verify that the extended headers are present, but the chain data knows it's
             # state is only up to the pre-extension header index. The incremental read that
             # we are intercepting will process the outstanding headers.
-            assert local_headers2._storage.header_count == 1 + 115 + 10
+            assert len(local_headers2._storage) == 1 + 115 + 10
             assert last_index == 115
             original_read_unprocessed_headers(local_headers2, last_index)
-            assert local_headers2._storage.header_count == 1 + 115 + 10
+            assert len(local_headers2._storage) == 1 + 115 + 10
         mock_read_file.side_effect = mocked_read_unprocessed_headers
 
         # This should be a full processed copy of the double chain headers store.
