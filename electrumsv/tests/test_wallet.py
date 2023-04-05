@@ -159,15 +159,21 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
             assert not account.is_petty_cash()
             assert account_keystore.has_seed() is False
             assert account_keystore.get_masterkey_flags() == MasterKeyFlags.NONE
-        if account_keystore.has_seed():
+        elif account_keystore.has_seed():
             # For these older wallets the seed of the main, non-petty cash account is unrelated
             # to the global, parent wallet seed.
             assert not account.is_petty_cash()
             assert account_keystore.get_parent_keystore() is None
             assert account_keystore.get_masterkey_flags() == MasterKeyFlags.NONE
-        # NOTE: Very old ESV BIP39 standard wallets that pre-date the introduction of an
-        # SQLite database, will both not have a 'seed' or a parent keystore. But there are no
-        # flags or markers to know the ancestry of a migrated wallet
+        else:
+            # NOTE: Very old ESV BIP39 standard wallets that pre-date the introduction of an
+            # SQLite database, will both not have a 'seed' or a parent keystore. But there are no
+            # flags or markers to know the ancestry of a migrated wallet
+            assert not account.has_seed()
+            assert account_keystore.get_parent_keystore() is None
+            migration = int(wallet.name()[0:2])
+            original_wallet_used_bip39_seed = 'bip39' in wallet.name().lower()
+            assert migration <= 17 and original_wallet_used_bip39_seed
 
     assert password is not None
     assert not account_keystores[0].has_seed() or account_keystores[0].get_seed(password)
