@@ -922,7 +922,7 @@ in the transaction and has the following fields.
    therefore no plans to support this property.
 #. Error: The ``RPC_PARSE_ERROR`` for ``include_watchonly`` is customised and reflects that we
    do not accept non-null values.
-#. Returned value: The ``abandoned`` field in the main transaction object is always ``false`` as
+#. Returned value: The ``abandoned`` field in details objects object is always ``false`` as
    we always exclude deleted transactions from results in the wallet proper.
 #. Returned value: The ``account`` field in details objects is always ``""`` as
    we do not support this feature in any way. Node API wallets explicitly must only ever have

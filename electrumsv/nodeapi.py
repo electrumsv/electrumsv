@@ -59,8 +59,8 @@ from typing_extensions import NotRequired, TypedDict
 from aiohttp import web
 # NOTE(typing) `cors_middleware` is not explicitly exported, so mypy strict fails. No idea.
 from aiohttp_middlewares import cors_middleware # type: ignore
-from bitcoinx import Address, hash_to_hex_str, Ops, pack_byte, push_item, Script, SigHash, Tx, \
-    TxInput, TxInputContext, TxOutput
+from bitcoinx import Address, hash_to_hex_str, hex_str_to_hash, Ops, pack_byte, push_item, Script, \
+    SigHash, Tx, TxInput, TxInputContext, TxOutput
 
 from .app_state import app_state
 from .bitcoin import COIN, script_template_to_string
@@ -76,7 +76,7 @@ from .transaction import TransactionContext, TransactionFeeEstimator, XTxInput, 
 from .types import Outpoint
 
 from .util import constant_time_compare
-
+from .wallet_database.types import AccountHistoryOutputRow
 
 if TYPE_CHECKING:
     from .wallet import Wallet
@@ -382,6 +382,8 @@ async def execute_jsonrpc_call_async(request: web.Request, object_data: Any) \
     # able to just read the code and understand it without layers of abstraction.
     if method_name == "createrawtransaction":
         return request_id, await jsonrpc_createrawtransaction_async(request, request_id, params)
+    elif method_name == "gettransaction":
+        return request_id, await jsonrpc_gettransaction_async(request, request_id, params)
     elif method_name == "getbalance":
         return request_id, await jsonrpc_getbalance_async(request, request_id, params)
     elif method_name == "getnewaddress":
@@ -709,6 +711,143 @@ async def jsonrpc_createrawtransaction_async(request: web.Request, request_id: R
         transaction_outputs.append(TxOutput(value, script))
 
     return Tx(1, transaction_inputs, transaction_outputs, locktime).to_hex()
+
+
+class TransactionInfo(TypedDict, total=False):
+    amount: float
+    blockhash: str | None
+    blockindex: int | None
+    blocktime: int | None
+    confirmations: int
+    details: list[TransactionDetails]
+    fee: float | None
+    generated: bool | None
+    hex: str
+    time: int
+    timereceived: int
+    trusted: bool | None
+    txid: str
+    walletconflicts: list[str]
+
+
+class TransactionDetails(TypedDict, total=False):
+    account: str
+    address: str | None
+    amount: float
+    category: str
+    fee: float | None
+    vout: int
+
+
+async def jsonrpc_gettransaction_async(request: web.Request, request_id: RequestIdType,
+        parameters: RequestParametersType) -> Any:
+    """
+    Get detailed information about a transaction in the wallet.
+    """
+    # Ensure the user is accessing either an explicit or implicit wallet.
+    wallet = get_wallet_from_request(request, request_id)
+    assert wallet is not None
+    # Similarly the user must only have one account (and we will ignore any
+    # automatically created petty cash accounts which we do not use yet).
+    accounts = wallet.get_visible_accounts()
+    if len(accounts) != 1:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=RPCError.WALLET_ERROR,
+                    message=f"Ambiguous account (found {len(accounts)}, expected 1)"))))
+
+    account = accounts[0]
+    # Compatibility: Raises RPC_INVALID_PARAMETER if we were given unlisted named parameters.
+    parameter_values = transform_parameters(request_id, [ "txid", "include_watchonly" ],
+        parameters)
+
+    txid = parameter_values[0]
+    if parameter_values[0] is not None:
+        node_RPCTypeCheckArgument(request_id, txid, str)
+        node_ParseHexV(request_id, "txid", txid)
+    # INCOMPATIBILITY: Raises RPC_INVALID_PARAMETER to indicate current lack of support for the
+    # "include_watchonly" parameter - it should always be null.
+    if len(parameter_values) > 1 and parameter_values[1] is not None:
+        raise web.HTTPInternalServerError(headers={"Content-Type": "application/json"},
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+            error=ErrorDict(code=RPCError.PARSE_ERROR,
+            message="JSON value is not a null as expected"))))
+
+    account_history_output_rows: list[AccountHistoryOutputRow] = \
+        wallet.data.read_history_for_outputs(account.get_id(),
+            transaction_hash=hex_str_to_hash(txid))
+
+    transaction_info_obj: dict[bytes, TransactionInfo] = {}
+
+    def build_transaction_details() -> TransactionDetails:
+        # "immature", "orphan", "generate" not implemented yet
+        category = "receive" if row.value > 0 else "send"
+
+        # INCOMPATIBILITY: The 'account' field is always "" as we do not support this feature in
+        # any way
+        # INCOMPATIBILITY: The 'comment' field relates to data that cannot be modified. There are
+        # therefore no plans to support this property.
+        # INCOMPATIBILITY: The 'label' field relates to data that cannot be modified and the
+        # original bitcoind API does not add this property for vouts with no label/comment.
+        # There are therefore no plans to support this
+        # property.
+        # INCOMPATIBILITY: The 'abandoned' is always false as we always exclude deleted
+        # transactions from results  in the wallet proper.
+        # INCOMPATIBILITY: The involvesWatchonly field in details objects is never included as
+        # the node wallet API does not support watch-only accounts at this time.
+        transaction_details = TransactionDetails(
+            # address  # not implemented yet
+            # abandoned=None,  # not implemented yet
+            account="",
+            amount=row.value / COIN,  # Convert from satoshis to bitcoins
+            category=category,
+            # fee=None,  # not implemented yet
+            vout=row.txo_index,
+        )
+        return transaction_details
+
+    details: list[TransactionDetails] = []
+    for row in account_history_output_rows:
+        if txid != hash_to_hex_str(row.tx_hash):
+            continue
+
+        transaction_details = build_transaction_details()
+        details.append(transaction_details)
+
+        # INCOMPATIBILITY: The time field in the main transaction object is always the same as the
+        # timereceived value. bitcoind computes a “smart time” but we do not support that at this
+        # time.
+        # INCOMPATIBILITY: The walletconflicts field in the main transaction object is always []
+        # as we do not
+        # currently support this field.
+        transaction_info = TransactionInfo(
+            amount=row.value / COIN,
+            blockhash=hash_to_hex_str(row.block_hash) if row.block_hash else None,
+            blockindex=row.block_position if row.block_hash else None,
+            # blocktime=None,  # not implemented yet
+            # confirmations=None,  # not implemented yet
+            details=details,
+            # fee=None,  # not implemented yet
+            # generated=None  # no implemented yet
+            hex="",
+            time=row.date_created,
+            timereceived=row.date_created,
+            trusted=None,
+            txid=hash_to_hex_str(row.tx_hash),
+            walletconflicts=[],
+        )
+        if row.is_coinbase:
+            transaction_info['generated'] = True
+
+        transaction_info_already_added = transaction_info_obj.get(row.tx_hash, None)
+        # If there are multiple rows for a single tx_hash, overwrite the previous entry after
+        # updating the amount
+        if transaction_info_already_added:
+            transaction_info['amount'] = transaction_info_already_added['amount'] + \
+                (row.value / COIN)
+        transaction_info_obj[row.tx_hash] = transaction_info
+
+    return list(transaction_info_obj.values())
 
 
 async def jsonrpc_getbalance_async(request: web.Request, request_id: RequestIdType,

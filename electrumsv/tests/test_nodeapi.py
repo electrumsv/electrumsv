@@ -5,6 +5,7 @@ from decimal import Decimal
 from http import HTTPStatus
 import json
 import os
+from pathlib import Path
 from typing import Any, Callable, cast
 from typing_extensions import NotRequired, TypedDict
 import unittest.mock
@@ -13,11 +14,12 @@ import aiohttp
 from aiohttp.test_utils import TestClient
 from aiohttp import web
 import bitcoinx
+from bitcoinx import hex_str_to_hash
 import pytest
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import AccountCreationType, DerivationType, KeystoreTextType, \
-    PaymentFlag, ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
+    ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
 from electrumsv.exceptions import InvalidPassword, NoViableServersError
 from electrumsv.keystore import instantiate_keystore_from_text
 from electrumsv.network_support.types import ServerConnectionState, TipFilterRegistrationJobOutput
@@ -29,13 +31,14 @@ from electrumsv.storage import WalletStorage
 from electrumsv.transaction import Transaction, TransactionContext, XTxInput, XPublicKey
 from electrumsv.types import KeyStoreResult, Outpoint
 from electrumsv.wallet import StandardAccount, Wallet
-from electrumsv.wallet_database.types import AccountTransactionOutputSpendableRowExtended, KeyData, \
-    PaymentRequestOutputRow, PaymentRequestRow, TransactionLinkState, \
-    TransactionOutputSpendableProtocol, WalletBalance
+from electrumsv.wallet_database.types import AccountHistoryOutputRow, \
+    AccountTransactionOutputSpendableRowExtended, KeyData, PaymentRequestOutputRow, \
+    PaymentRequestRow, TransactionLinkState, TransactionOutputSpendableProtocol, WalletBalance
 
 from .util import _create_mock_app_state2, MockStorage, TEST_DATA_PATH
 
 TEST_NODEAPI_PATH = os.path.join(TEST_DATA_PATH, "node_api")
+TEST_WALLET_PATH = os.path.join(TEST_DATA_PATH, "wallets")
 
 
 def coins_to_satoshis(value: float) -> int:
@@ -795,6 +798,113 @@ async def test_call_createrawtransaction_success_async(
     assert object["id"] == 232
     assert object["result"] == resulting_hex
     assert object["error"] is None
+
+
+result = [
+    {
+        'amount': -5.5,
+        'blockhash': '6c5ecfe2277cd134a5f9dadaa556bb322cbd89c3c6b144794ae3d3b3e0d47101',
+        'blockindex': 1,
+        # 'blocktime': None,
+        # 'confirmations': 114,
+        'details': [
+            {
+                'account': '',
+                'amount': -0.5,
+                'category': 'send',
+                # 'fee': None,
+                'vout': 1
+             },
+            {
+                'account': '',
+                'amount': -2.0,
+                'category': 'send',
+                # 'fee': None,
+                'vout': 2
+            },
+            {
+                'account': '',
+                'amount': -3.0,
+                'category': 'send',
+                # 'fee': None,
+                'vout': 3
+            },
+        ],
+        # 'fee': None,
+        'hex': '',
+        'time': 1680047951,
+        'timereceived': 1680047951,
+        'trusted': None,
+        'txid': 'e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063',
+        'walletconflicts': []
+    }
+]
+@pytest.mark.parametrize("parameters,result", [
+    # Empty parameters array.
+    (["e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063"], result),
+])
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_gettransaction_success_async(app_state_nodeapi: AppStateProxy,
+        parameters: list[Any], result: dict[str, Any],
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        nonlocal account
+        return [ account ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    # TODO, use the test wallet with multiple rows for a single transaction
+    #  this will allow testing of the multiple details array
+    file_path = os.path.join(TEST_WALLET_PATH,
+        "29_regtest_standard_spending_wallet_paytomany_count_N.json")
+
+    def convert_json_to_row(json_data: list[dict[str, Any]]) -> list[AccountHistoryOutputRow]:
+        rows: list[AccountHistoryOutputRow] = []
+        for x in json_data:
+            row = AccountHistoryOutputRow(
+                tx_hash=hex_str_to_hash(x["tx_id"]),
+                txo_index=x["txo_index"],
+                script_pubkey_bytes=bytes.fromhex(x["script_pubkey_hex"]),
+                is_mine=x["is_mine"],
+                is_coinbase=x["is_coinbase"],
+                value=x["value"],
+                block_hash=hex_str_to_hash(x["block_id"]),
+                block_height=x["block_height"],
+                block_position=x["block_position"],
+                date_created=x["date_created"],
+            )
+            rows.append(row)
+        return rows
+
+    wallet.data.read_history_for_outputs.side_effect = lambda *args, **kwargs: \
+        convert_json_to_row(json.loads(open(file_path, "r").read()))
+
+    # Params as an empty list
+    call_object = {
+        "id": 343,
+        "method": "gettransaction",
+        "params": parameters,
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.OK
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 343
+    assert object["result"] == result
+    assert isinstance(object["result"], list)
+    assert object["error"] is None
+
 
 @pytest.mark.parametrize("local_height,block_height,parameters,results", [
     # Empty parameters array.
