@@ -59,11 +59,11 @@ from typing_extensions import NotRequired, TypedDict
 from aiohttp import web
 # NOTE(typing) `cors_middleware` is not explicitly exported, so mypy strict fails. No idea.
 from aiohttp_middlewares import cors_middleware # type: ignore
-from bitcoinx import Address, hash_to_hex_str, hex_str_to_hash, Ops, pack_byte, push_item, Script, \
-    SigHash, Tx, TxInput, TxInputContext, TxOutput
+from bitcoinx import Address, hash_to_hex_str, hex_str_to_hash, Ops, pack_byte, \
+    push_item, Script, SigHash, Tx, TxInput, TxInputContext, TxOutput, MissingHeader
 
 from .app_state import app_state
-from .bitcoin import COIN, script_template_to_string
+from .bitcoin import COIN, COINBASE_MATURITY, script_template_to_string
 from .constants import CHANGE_SUBPATH, CredentialPolicyFlag, DerivationType, KeyInstanceFlag, \
     ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
 from .exceptions import BroadcastError, InvalidPassword, NotEnoughFunds, NoViableServersError, \
@@ -760,7 +760,6 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
     # Compatibility: Raises RPC_INVALID_PARAMETER if we were given unlisted named parameters.
     parameter_values = transform_parameters(request_id, [ "txid", "include_watchonly" ],
         parameters)
-
     txid = parameter_values[0]
     node_RPCTypeCheckArgument(request_id, txid, str)
     node_ParseHexV(request_id, "txid", txid)
@@ -779,8 +778,28 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
     transaction_info_obj: dict[bytes, TransactionInfo] = {}
 
     def build_transaction_details(row: AccountHistoryOutputRow) -> TransactionDetails:
+        assert wallet is not None
         # "immature", "orphan", "generate" not implemented yet
         category = "receive" if row.value > 0 else "send"
+        if row.is_coinbase:
+            wallet_height = wallet.get_local_height()
+            if row.block_hash is not None and wallet_height > 0:
+                try:
+                    lookup_result = wallet.lookup_header_for_hash(row.block_hash)
+                except MissingHeader:
+                    category = "orphan"
+                else:
+                    assert lookup_result is not None
+                    header, chain = lookup_result
+                    confirmations = wallet_height - header.height
+                    if chain != wallet.get_current_chain():
+                        category = "orphan"
+                    elif confirmations < COINBASE_MATURITY:
+                        category = "immature"
+                    else:
+                        category = "generate"
+            else:
+                category = "immature"
 
         # INCOMPATIBILITY: The 'account' field is always "" as we do not support this feature in
         # any way
@@ -794,8 +813,14 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
         # transactions from results  in the wallet proper.
         # INCOMPATIBILITY: The involvesWatchonly field in details objects is never included as
         # the node wallet API does not support watch-only accounts at this time.
+        address = ""
+        script_type, _threshold, script_template = classify_transaction_output_script(
+            Script(row.script_pubkey_bytes))
+        if script_type == ScriptType.P2PKH:
+            address = script_template.to_string()
+
         transaction_details = TransactionDetails(
-            # address  # not implemented yet
+            address=address,
             # abandoned=None,  # not implemented yet
             account="",
             amount=row.value / COIN,  # Convert from satoshis to bitcoins
@@ -813,6 +838,7 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
         transaction_details = build_transaction_details(row)
         details.append(transaction_details)
 
+
         # INCOMPATIBILITY: The time field in the main transaction object is always the same as the
         # timereceived value. bitcoind computes a “smart time” but we do not support that at this
         # time.
@@ -827,11 +853,10 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
             # confirmations=None,  # not implemented yet
             details=details,
             # fee=None,  # not implemented yet
-            # generated=None  # no implemented yet
             hex="",
             time=row.date_created,
             timereceived=row.date_created,
-            trusted=None,
+            # trusted=None,  # not implemented yet
             txid=hash_to_hex_str(row.tx_hash),
             walletconflicts=[],
         )

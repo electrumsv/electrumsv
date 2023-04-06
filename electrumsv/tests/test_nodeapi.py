@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path
 from typing import Any, Callable, cast
+from unittest import mock
+
 from typing_extensions import NotRequired, TypedDict
 import unittest.mock
 
@@ -14,7 +16,7 @@ import aiohttp
 from aiohttp.test_utils import TestClient
 from aiohttp import web
 import bitcoinx
-from bitcoinx import hex_str_to_hash
+from bitcoinx import Chain, Header, hash_to_hex_str, hex_str_to_hash
 import pytest
 
 from electrumsv.app_state import AppStateProxy
@@ -22,6 +24,7 @@ from electrumsv.constants import AccountCreationType, DerivationType, KeystoreTe
     ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
 from electrumsv.exceptions import InvalidPassword, NoViableServersError
 from electrumsv.keystore import instantiate_keystore_from_text
+from electrumsv.networks import SVRegTestnet
 from electrumsv.network_support.types import ServerConnectionState, TipFilterRegistrationJobOutput
 from electrumsv import nodeapi
 from electrumsv.nodeapi import RPCError
@@ -799,49 +802,109 @@ async def test_call_createrawtransaction_success_async(
     assert object["result"] == resulting_hex
     assert object["error"] is None
 
-
-result = [
-    {
-        'amount': -5.5,
-        'blockhash': '6c5ecfe2277cd134a5f9dadaa556bb322cbd89c3c6b144794ae3d3b3e0d47101',
-        'blockindex': 1,
-        # 'blocktime': None,
-        # 'confirmations': 114,
-        'details': [
-            {
-                'account': '',
-                'amount': -0.5,
-                'category': 'send',
-                # 'fee': None,
-                'vout': 1
-             },
-            {
-                'account': '',
-                'amount': -2.0,
-                'category': 'send',
-                # 'fee': None,
-                'vout': 2
-            },
-            {
-                'account': '',
-                'amount': -3.0,
-                'category': 'send',
-                # 'fee': None,
-                'vout': 3
-            },
-        ],
-        # 'fee': None,
-        'hex': '',
-        'time': 1680047951,
-        'timereceived': 1680047951,
-        'trusted': None,
-        'txid': 'e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063',
-        'walletconflicts': []
-    }
-]
 @pytest.mark.parametrize("parameters,result", [
     # Empty parameters array.
-    (["e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063"], result),
+    (["e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063"], [{
+            'amount': -5.5,
+            'blockhash': '6c5ecfe2277cd134a5f9dadaa556bb322cbd89c3c6b144794ae3d3b3e0d47101',
+            'blockindex': 1,
+            # 'blocktime': None,
+            # 'confirmations': 114,
+            'details': [{'account': '',
+                         'address': '152bd5gLonDrPbCwncG2JH7XBcni4JRBeo',
+                         'amount': -0.5,
+                         'category': 'send',
+                         'vout': 1},
+                        {'account': '',
+                         'address': '1AC2b7ALEF5jvVDBi6zQit42NrSC4nLkmo',
+                         'amount': -2.0,
+                         'category': 'send',
+                         'vout': 2},
+                        {'account': '',
+                         'address': '1CYJd9bHUD4tsjCpcoAgjcw15ZWbVnuwky',
+                         'amount': -3.0,
+                         'category': 'send',
+                         'vout': 3}],
+            # 'fee': None,
+            'hex': '',
+            'time': 1680047951,
+            'timereceived': 1680047951,
+            # 'trusted': None,
+            'txid': 'e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063',
+            'walletconflicts': []
+        }],
+    ),
+    # Note: Block hash 425a970f3375ef9bf31a2486ff7d7e0332834363c765861fceabb8a02e319db8 is known
+    # to be on the longest chain at height 13 for headers2_paytomany bitcoinx.Headers store
+    (['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], [
+            {
+                'amount': 0.5,
+                'blockhash': '425a970f3375ef9bf31a2486ff7d7e0332834363c765861fceabb8a02e319db8',
+                'blockindex': 1,
+                # 'blocktime': None,
+                # 'confirmations': 101,
+                'details': [{'account': '',
+                    'address': '152bd5gLonDrPbCwncG2JH7XBcni4JRBeo',
+                    'amount': 0.5,
+                    'category': 'generate',
+                    'vout': 1}],
+                # 'fee': None,
+                'hex': '',
+                'time': 1680047951,
+                'timereceived': 1680047951,
+                # 'trusted': None,
+                'txid': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                'walletconflicts': [],
+                'generated': True
+            },
+        ]
+    ),
+    (["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"], [
+        {
+            'amount': 2.0,
+            'blockhash': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            'blockindex': 1,
+            # 'blocktime': None,
+            # 'confirmations': 114,
+            'details': [{'account': '',
+                'address': '1AC2b7ALEF5jvVDBi6zQit42NrSC4nLkmo',
+                'amount': 2.0,
+                'category': 'orphan',
+                'vout': 2}],
+            # 'fee': None,
+            'hex': '',
+            'time': 1680047951,
+            'timereceived': 1680047951,
+            # 'trusted': None,
+            'txid': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            'walletconflicts': [],
+            'generated': True
+        },
+    ]),
+    # Note: Block hash 639709e003c203e8bf9aad26bdaa7415c8a1ec06ae3405cb67d5a9d8059ba58f is known
+    # to be on the longest chain at height 50 for headers2_paytomany bitcoinx.Headers store
+    (["cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"], [
+        {
+            'amount': 3.0,
+            'blockhash': '639709e003c203e8bf9aad26bdaa7415c8a1ec06ae3405cb67d5a9d8059ba58f',
+            'blockindex': 1,
+            # 'blocktime': None,
+            # 'confirmations': 114,
+            'details': [{'account': '',
+                'address': '1CYJd9bHUD4tsjCpcoAgjcw15ZWbVnuwky',
+                'amount': 3.0,
+                'category': 'immature',
+                'vout': 3}],
+            # 'fee': None,
+            'hex': '',
+            'time': 1680047951,
+            'timereceived': 1680047951,
+            # 'trusted': None,
+            'txid': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+            'walletconflicts': [],
+            'generated': True
+        },
+    ])
 ])
 @unittest.mock.patch('electrumsv.nodeapi.app_state')
 async def test_call_gettransaction_success_async(app_state_nodeapi: AppStateProxy,
@@ -864,10 +927,27 @@ async def test_call_gettransaction_success_async(app_state_nodeapi: AppStateProx
         return [ account ]
     wallet.get_visible_accounts.side_effect = get_visible_accounts
 
+    def get_local_height() -> int:
+        return 114
+
+    wallet.get_local_height.side_effect = get_local_height
+
+    MODULE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+    headers = bitcoinx.Headers(network=bitcoinx.BitcoinRegtest,
+        file_path=str(MODULE_DIR / "data" / "headers" / "headers2_paytomany"),
+        checkpoint=SVRegTestnet.CHECKPOINT)
+
+    # This is not mocking and I don't know why!
+    wallet.get_current_chain.side_effect = headers.longest_chain
+
+    def lookup_header_for_hash(block_hash: bytes) -> tuple[Header, Chain] | None:
+        return headers.lookup(block_hash)
+
+    wallet.lookup_header_for_hash = lookup_header_for_hash
+
     # TODO, use the test wallet with multiple rows for a single transaction
     #  this will allow testing of the multiple details array
-    file_path = os.path.join(TEST_WALLET_PATH,
-        "29_regtest_standard_spending_wallet_paytomany_count_N.json")
+    file_path = os.path.join(TEST_WALLET_PATH, "node_api_gettransaction_mock_data.json")
 
     def convert_json_to_row(json_data: list[dict[str, Any]]) -> list[AccountHistoryOutputRow]:
         rows: list[AccountHistoryOutputRow] = []
@@ -888,7 +968,8 @@ async def test_call_gettransaction_success_async(app_state_nodeapi: AppStateProx
         return rows
 
     wallet.data.read_history_for_outputs.side_effect = lambda *args, **kwargs: \
-        convert_json_to_row(json.loads(open(file_path, "r").read()))
+        [x for x in convert_json_to_row(json.loads(open(file_path, "r").read()))
+            if hash_to_hex_str(x.tx_hash) == parameters[0]]
 
     # Params as an empty list
     call_object = {
