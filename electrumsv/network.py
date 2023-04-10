@@ -190,7 +190,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
 
     async def _monitor_chain_tip_task_async(self, server_key: ServerAccountKey) -> None:
         """
-        All chosen servers (up to a limit of 10) will run an independent instance this task.
+        All servers will run an independent instance this task.
         Only the main server results in mutated wallet state (e.g. only reorgs on the main server
         will affect wallet state).
 
@@ -324,7 +324,7 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
                 self._known_header_server_keys.add(server_key)
                 self._server_connectivity_metadata[server_key] = ServerConnectivityMetadata()
 
-                assert self._connect_to_server_async(context, server_key)
+                self._connect_to_server(context, server_key)
         finally:
             logger.debug("Network maintain connections task exiting.")
             for future in context.futures:
@@ -371,20 +371,18 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
         server_state = self.connected_header_server_states[server_key]
         await server_state.connection_event.wait()
 
-    def _connect_to_server_async(self, context: MainLoopContext, server_key: ServerAccountKey) \
-            -> bool:
+    def _connect_to_server(self, context: MainLoopContext, server_key: ServerAccountKey) -> None:
         """
         The decision has been made that this server must be connected to at this point. Either
         we are already connected or we will have started establishing a connection.
         """
-        if server_key not in self.connected_header_server_states:
-            future = app_state.async_.spawn(self._maintain_connection(context, server_key))
-            self.connected_header_server_states[server_key] = HeaderServerState(server_key,
-                future)
-            self.new_server_connection_event.set()
-            self.new_server_connection_event.clear()
-            return True
-        return False
+        assert server_key not in self.connected_header_server_states
+
+        future = app_state.async_.spawn(self._maintain_connection(context, server_key))
+        self.connected_header_server_states[server_key] = HeaderServerState(server_key,
+            future)
+        self.new_server_connection_event.set()
+        self.new_server_connection_event.clear()
 
     async def _maintain_connection(self, context: MainLoopContext, server_key: ServerAccountKey) \
             -> None:
