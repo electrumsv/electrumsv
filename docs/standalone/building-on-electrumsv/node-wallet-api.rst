@@ -818,7 +818,7 @@ call processing are described above.
                   of what happened, but the wallet logs will be needed to diagnose further.
 
 getrawchangeaddress
-~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~
 
 Reserve the next unused change address (otherwise known as external key) and return it as a
 P2PKH address.
@@ -902,6 +902,7 @@ in the transaction and has the following fields.
   (positive value).
 - ``category``: (string).
   - For outgoing funds this will always be ``send``.
+
   - For incoming funds this will be ``receive`` unless the transaction is a coinbase transaction.
     In which case, it might be ``immature`` (standard heuristic), ``orphan`` (in a block not on
     the wallet's chain) or otherwise it will be ``generate``.
@@ -1012,6 +1013,7 @@ The structure of each entry in the array is as follows:
   since epoch (1 Jan 1970 GMT).
 - ``category``: (string).
   - For outgoing funds this will always be ``send``.
+
   - For incoming funds this will be ``receive`` unless the transaction is a coinbase transaction.
     In which case, it might be ``immature`` (standard heuristic), ``orphan`` (in a block not on
     the wallet's chain) or otherwise it will be ``generate``.
