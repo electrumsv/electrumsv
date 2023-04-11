@@ -939,7 +939,7 @@ class ButtonsTextEdit(QPlainTextEdit, ButtonsWidget):
     def __init__(self, text: Optional[str]=None) -> None:
         QPlainTextEdit.__init__(self, text)
         self.setText = self.setPlainText
-        self.text = self.toPlainText # type: ignore[method-assign]
+        self.text = self.toPlainText # type: ignore[assignment]
         self.buttons: List[QAbstractButton] = []
 
     def resizeEvent(self, event: QResizeEvent) -> None:
