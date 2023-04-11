@@ -6,7 +6,7 @@ from bitcoinx import (
 )
 
 from electrumsv.bitcoin import address_from_string, is_address_valid, scripthash_hex
-from electrumsv.constants import SEED_PREFIX
+from electrumsv.constants import SEED_PREFIX_ACCOUNT, SEED_PREFIX_WALLET
 from electrumsv.crypto import sha256d
 from electrumsv import crypto
 from electrumsv.exceptions import InvalidPassword
@@ -288,12 +288,18 @@ class Test_seeds(SequentialTestCase):
         ('science dawn member doll dutch real ca brick knife deny drive list', ''),
     }
 
-    def test_new_seed(self):
+    def test_new_seed_ESV13(self):
         seed = "cram swing cover prefer miss modify ritual silly deliver chunk behind inform able"
-        self.assertTrue(ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX))
+        self.assertTrue(ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX_ACCOUNT))
+        self.assertFalse(ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX_WALLET))
 
         seed = "cram swing cover prefer miss modify ritual silly deliver chunk behind inform"
-        self.assertFalse(ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX))
+        self.assertFalse(ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX_ACCOUNT))
+
+    def test_new_seed_ESV14_wallet(self) -> None:
+        seed = "total reform unable cannon ranch reopen raccoon utility assault occur right action"
+        self.assertTrue(ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX_WALLET))
+        self.assertFalse(ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX_ACCOUNT))
 
     def test_old_seed(self):
         self.assertTrue(ElectrumMnemonic.is_valid_old(" ".join(["like"] * 12)))

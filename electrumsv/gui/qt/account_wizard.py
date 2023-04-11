@@ -57,7 +57,7 @@ from PyQt6.QtWidgets import (
 from ...app_state import app_state
 from ...constants import (AccountCreationType, DEFAULT_COSIGNER_COUNT, CSS_LABEL_WARNING,
     DerivationType, DerivationPath, KEYSTORE_TEXT_ALLOW_WATCH_ONLY, KEYSTORE_TEXT_FORCE_WATCH_ONLY,
-    KeystoreTextType, MAXIMUM_COSIGNER_COUNT, SEED_PREFIX)
+    KeystoreTextType, MAXIMUM_COSIGNER_COUNT, SEED_PREFIX_ACCOUNT)
 from ...device import DeviceInfo
 from ...i18n import _
 from ...keystore import (bip44_derivation_cointype, instantiate_keystore,
@@ -635,7 +635,7 @@ class ImportWalletTextPage(QWizardPage):
         # First try the matches that match the entire text.
         if ElectrumMnemonic.is_valid_old(text):
             matches[KeystoreTextType.ELECTRUM_OLD_SEED_WORDS] = text
-        if ElectrumMnemonic.is_valid_new(text, SEED_PREFIX):
+        if ElectrumMnemonic.is_valid_new(text, SEED_PREFIX_ACCOUNT):
             matches[KeystoreTextType.ELECTRUM_SEED_WORDS] = text
 
         is_bip39_valid = False
