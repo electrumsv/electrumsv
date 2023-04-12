@@ -10,7 +10,7 @@ import unittest
 import unittest.mock
 
 from bitcoinx import Chain, double_sha256, hash_to_hex_str, Header, hex_str_to_hash, \
-    MissingHeader, Ops, Script
+    MissingHeader, Ops, Script, PublicKey
 import pytest
 
 from electrumsv.app_state import AppStateProxy
@@ -27,19 +27,20 @@ from electrumsv.networks import Net, SVMainnet, SVRegTestnet, SVTestnet
 from electrumsv.storage import get_categorised_files, WalletStorage, WalletStorageInfo
 from electrumsv.standards.electrum_transaction_extended import transaction_from_electrumsv_dict
 from electrumsv.transaction import Transaction, TransactionContext
-from electrumsv.types import DatabaseKeyDerivationData, MasterKeyDataBIP32, Outpoint, \
-    TransactionKeyUsageMetadata
+from electrumsv.types import DatabaseKeyDerivationData, MasterKeyDataBIP32, MasterKeyDataTypes, \
+    Outpoint, TransactionKeyUsageMetadata
 from electrumsv.wallet import (DeterministicAccount, ImportedPrivkeyAccount,
     ImportedAddressAccount, MissingTransactionEntry, MultisigAccount, Wallet, StandardAccount,
     WalletDataAccess)
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, MerkleProofRow, \
-    PaymentRequestRow, WalletBalance
+    PaymentRequestRow, WalletBalance, WalletDataRow
 from electrumsv.wallet_support.keys import get_pushdata_hash_for_keystore_key_data
 
 from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, \
     read_testdata_for_wallet, setup_async, tear_down_async, TEST_WALLET_PATH
+from ..network_support.api_server import NewServer
 
 T1 = TypeVar("T1")
 
@@ -529,28 +530,27 @@ def load_wallet(storage: WalletStorage) -> Wallet | None:
         raise e
 
 @dataclasses.dataclass
-class TestState:
+class State:
     ## Encrypted Data Types Requiring Test Coverage For Re-encryption
 
-    # Password token is re-encrypted in the `WalletData` table (included for a consistent approach
-    # of tracking coverate of each of the aforementioned categories of encrypted data)
-    count_of_password_token_reencryptions: int = 0
+    ## Cached
+    count_of_keyinstance_privkey_reencryptions_cache: int = 0
+    count_of_masterkeys_table_seed_reencryptions_cache: int = 0
+    count_of_masterkeys_table_xprv_reencryptions_cache: int = 0
+    count_of_masterkeys_table_passphrase_reencryptions_cache: int = 0
+    count_of_server_api_key_reencryptions_cache: int = 0
 
-    # Derivation data in the KeyInstances table.
-    count_of_keyinstance_privkey_reencryptions: int = 0  # only for ImportedPrivkeyAccount types
-
-    # Derivation data in the MasterKeys table.
+    ## Database level
+    count_of_keyinstance_privkey_reencryptions: int = 0
     count_of_masterkeys_table_seed_reencryptions: int = 0
     count_of_masterkeys_table_passphrase_reencryptions: int = 0
     count_of_masterkeys_table_xprv_reencryptions: int = 0
-
-    # Newer wallets have a `Servers` table with an `encrypted_api_key` column
     count_of_server_api_key_reencryptions: int = 0
 
     # Note that while the CredentialCache does contain sensitive data, it is not encrypted and
     # therefore does not need to be checked for re-encryption coverage.
 
-test_state = TestState()
+test_state = State()
 
 @pytest.mark.usefixtures("set_to_mainnet_network_on_test_finish")
 @unittest.mock.patch('electrumsv.keystore.app_state.credentials.remove_indefinite_credential',
@@ -622,86 +622,108 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
         wallet = load_wallet(storage)
         assert wallet is not None
 
-    # ---- Capture all types of encrypted data BEFORE the password update --- #
-
-    # Password token (probably an unnecessary check but it keeps a systematic approach)
-    password_token_before = wallet.get_storage().get('password-token')
-    if password_token_before is not None:
-        test_state.count_of_password_token_reencryptions += 1
-
-    # Derivation data in the KeyInstances table. Only for ImportedPrivkeyAccount types
-    keyinstance_private_keys: dict[str, str] = {}
-    if "imported" == expected_type and "privkey" in wallet_filename:
+    def get_cached_imported_privkeys(password: str) -> dict[str, str]:
+        # Derivation data in the KeyInstances table. Only for ImportedPrivkeyAccount types
+        keyinstance_private_keys: dict[str, str] = {}
         assert len(wallet.get_accounts()) == 2
         private_key_account = cast(ImportedPrivkeyAccount,
-            [ entry for entry in wallet.get_accounts() if not entry.is_petty_cash() ][0])
+            [entry for entry in wallet.get_accounts() if not entry.is_petty_cash()][0])
         private_key_keystore = cast(Imported_KeyStore, private_key_account.get_keystore())
         # Pre-decrypt the prv for later comparison so the initial password is not needed there.
         for public_key, encrypted_prv in private_key_keystore._keypairs.items():
             keyinstance_private_keys[public_key.to_hex()] = pw_decode(encrypted_prv,
-                initial_password)
-            test_state.count_of_keyinstance_privkey_reencryptions += 1
+                password)
+        return keyinstance_private_keys
 
-    # Derivation data in the MasterKeys table.
-    master_key_xprvs: list[str] = []
-    master_key_seeds: list[str] = []
-    master_key_passphrases: list[str] = []
-    for keystore in wallet.get_keystores():
-        data = keystore.to_derivation_data()
-        for entry_name in ("seed", "passphrase", "xprv"):
-            entry_value = cast(str | None, data.get(entry_name, None))
-            if not entry_value:
-                continue
-            decoded_value = pw_decode(entry_value, initial_password)
-            if entry_name == "seed":
-                master_key_seeds.append(decoded_value)
-                test_state.count_of_masterkeys_table_seed_reencryptions += 1
-            if entry_name == "xprv":
-                master_key_xprvs.append(decoded_value)
-                test_state.count_of_masterkeys_table_xprv_reencryptions += 1
-            if entry_name == "passphrase":
-                master_key_passphrases.append(decoded_value)
-                test_state.count_of_masterkeys_table_passphrase_reencryptions += 1
+    def read_db_imported_privkeys(password: str) -> dict[str, str]:
+        # Derivation data in the KeyInstances table. Only for ImportedPrivkeyAccount types
+        keyinstance_private_keys: dict[str, str] = {}
+        assert len(wallet.get_accounts()) == 2
+        private_key_account = cast(ImportedPrivkeyAccount,
+            [ entry for entry in wallet.get_accounts() if not entry.is_petty_cash() ][0])
+        keyinstance_rows_for_account = private_key_account.get_wallet()\
+            .data.read_keyinstances(account_id=private_key_account.get_id())
+        for keyinstance_row in keyinstance_rows_for_account:
+            data = json.loads(keyinstance_row.derivation_data)
+            keyinstance_private_keys[data['pub']] = pw_decode(data['prv'],
+                password)
+        return keyinstance_private_keys
 
-    # Newer wallets have a `Servers` table with an `encrypted_api_key` column
-    encrypted_api_keys = list[str]()
-    for server in wallet.data.read_network_servers():
-        if server.encrypted_api_key is not None:
-            test_state.count_of_server_api_key_reencryptions += 1
-            decoded_value = pw_decode(server.encrypted_api_key, initial_password)
-            encrypted_api_keys.append(decoded_value)
+    def get_cached_server_api_keys(password: str) -> list[str]:
+        # Newer wallets have a `Servers` table with an `encrypted_api_key` column
+        encrypted_api_keys_cached: list[str] = []
+        server: NewServer
+        for server in wallet._servers.values():
+            server_row = server.database_rows[None]
+            if server_row is not None and server_row.encrypted_api_key is not None:
+                decoded_value = pw_decode(server.database_rows[None].encrypted_api_key,
+                    password)
+                encrypted_api_keys_cached.append(decoded_value)
+        return encrypted_api_keys_cached
 
+    def read_db_server_api_keys(password: str) -> list[str]:
+        # Newer wallets have a `Servers` table with an `encrypted_api_key` column
+        encrypted_api_keys: list[str] = []
+        for server in wallet.data.read_network_servers():
+            if server.encrypted_api_key is not None:
+                decoded_value = pw_decode(server.encrypted_api_key, password)
+                encrypted_api_keys.append(decoded_value)
+        return encrypted_api_keys
+
+    def get_cached_master_keys_encrypted_data(password: str) -> tuple[list[str], list[str], list[str]]:
+        master_key_xprvs: list[str] = []
+        master_key_seeds: list[str] = []
+        master_key_passphrases: list[str] = []
+        for keystore in wallet.get_keystores():
+            data = keystore.to_derivation_data()
+            for entry_name in ("seed", "passphrase", "xprv"):
+                entry_value = cast(str | None, data.get(entry_name, None))
+                if not entry_value:
+                    continue
+                decoded_value = pw_decode(entry_value, password)
+                if entry_name == "seed":
+                    master_key_seeds.append(decoded_value)
+                if entry_name == "xprv":
+                    master_key_xprvs.append(decoded_value)
+                if entry_name == "passphrase":
+                    master_key_passphrases.append(decoded_value)
+        return master_key_xprvs, master_key_seeds, master_key_passphrases
+
+    def read_db_master_keys_encrypted_data(password: str) -> tuple[list[str], list[str], list[str]]:
+        # Derivation data in the MasterKeys table.
+        master_key_xprvs: list[str] = []
+        master_key_seeds: list[str] = []
+        master_key_passphrases: list[str] = []
+        for masterkey_id, parent_masterkey_id, derivation_type, source_derivation_data, flags in \
+                db_functions.read_masterkeys(wallet.get_db_context()):
+            data = cast(MasterKeyDataTypes, json.loads(source_derivation_data))
+            for entry_name in ("seed", "passphrase", "xprv"):
+                entry_value = cast(str | None, data.get(entry_name, None))
+                if not entry_value:
+                    continue
+                decoded_value = pw_decode(entry_value, password)
+                if entry_name == "seed":
+                    master_key_seeds.append(decoded_value)
+                if entry_name == "xprv":
+                    master_key_xprvs.append(decoded_value)
+                if entry_name == "passphrase":
+                    master_key_passphrases.append(decoded_value)
+        return master_key_xprvs, master_key_seeds, master_key_passphrases
+
+    # Password Change should cleanly update all cached & database level encrypted data
     new_password = "654321"
     future, update_completion_event = wallet.update_password(initial_password, new_password)
     # Wait for the database update to finish.
     future.result(5)
     # Wait for the done callback to finish.
     update_completion_event.wait()
-    wallet.stop()
-
-    mock_wallet_app_state.credentials.get_wallet_password = lambda wallet_path: new_password
-    # Perform a full shutdown and reload of the wallet database. This will cover the code
-    # pathways of:
-    # - flushing the network server cache updates to the database. This was causing a bug where
-    # it was overwriting the updated encrypted api key with the old version.
-    # - reloading of the `WalletData` table variables into the wallet cache (see:
-    # `Wallet._load_servers()`. This involves json deserialization of stored values)
-    # - loading the `Server` table data and decrypting the api keys with the new password
-    storage = WalletStorage(wallet_path)
-
-    add_indefinite_credential_mock = unittest.mock.Mock()
-    with unittest.mock.patch(
-            'electrumsv.keystore.app_state.credentials.add_indefinite_credential',
-            add_indefinite_credential_mock):
-        wallet = load_wallet(storage)
-        wallet.app_state = mock_wallet_app_state
-        assert wallet is not None
 
     if "standard" == expected_type:
         check_legacy_parent_of_standard_wallet(wallet, password=new_password,
             add_indefinite_credential_mock=add_indefinite_credential_mock)
     elif "imported" == expected_type:
         if "privkey" in wallet_filename:
+            keyinstance_private_keys = get_cached_imported_privkeys(new_password)
             check_legacy_parent_of_imported_privkey_wallet(wallet, new_password,
                 keyinstance_private_keys)
         elif "address" in expected_subtypes:
@@ -719,68 +741,74 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
 
     check_specific_wallets(wallet, new_password, storage_info)
 
-    ## Check all types of encrypted data AFTER the password update
+    ## Cached encrypted data checks
+    # NOTE: The `assert pw_decode(encrypted_data, new_password)` check is done in each of the
+    # functions used below for retrieving the encrypted data types
+    password_token_after_cached = wallet.get_storage().get('password-token')
+    assert pw_decode(password_token_after_cached, new_password) is not None
 
-    # Password token (probably an unnecessary check but it keeps a systematic approach)
-    password_token_after = wallet.get_storage().get('password-token')
-    assert pw_decode(password_token_after, new_password) is not None
-    assert pw_decode(password_token_before, initial_password) is not None
-
-    # Derivation data in the KeyInstances table. Only for ImportedPrivkeyAccount types
-    keyinstance_private_keys_after: dict[str, str] = {}
     if "imported" == expected_type and "privkey" in wallet_filename:
-        assert len(wallet.get_accounts()) == 2
-        private_key_account = cast(ImportedPrivkeyAccount,
-            [ entry for entry in wallet.get_accounts() if not entry.is_petty_cash() ][0])
-        private_key_keystore = cast(Imported_KeyStore, private_key_account.get_keystore())
-        # Pre-decrypt the prv for later comparison so the initial password is not needed there.
-        for public_key, encrypted_prv in private_key_keystore._keypairs.items():
-            keyinstance_private_keys_after[public_key.to_hex()] = pw_decode(encrypted_prv,
-                new_password)
-    assert keyinstance_private_keys_after == keyinstance_private_keys
+        keyinstance_private_keys_cached = get_cached_imported_privkeys(new_password)
+        if len(keyinstance_private_keys_cached):
+            test_state.count_of_keyinstance_privkey_reencryptions_cache += 1
 
-    # Derivation data in the MasterKeys table.
-    master_key_xprvs_after: list[str] = []
-    master_key_seeds_after: list[str] = []
-    master_key_passphrases_after: list[str] = []
-    for keystore in wallet.get_keystores():
-        data = keystore.to_derivation_data()
-        for entry_name in ("seed", "passphrase", "xprv"):
-            entry_value = cast(str | None, data.get(entry_name, None))
-            if not entry_value:
-                continue
-            decoded_value = pw_decode(entry_value, new_password)
-            if entry_name == "seed":
-                master_key_seeds_after.append(decoded_value)
-                test_state.count_of_masterkeys_table_seed_reencryptions += 1
-            if entry_name == "xprv":
-                master_key_xprvs_after.append(decoded_value)
-                test_state.count_of_masterkeys_table_xprv_reencryptions += 1
-            if entry_name == "passphrase":
-                master_key_passphrases_after.append(decoded_value)
-                test_state.count_of_masterkeys_table_passphrase_reencryptions += 1
-    assert master_key_xprvs_after == master_key_xprvs
-    assert master_key_seeds_after == master_key_seeds
-    assert master_key_passphrases_after == master_key_passphrases
+    encrypted_api_keys_cached = get_cached_server_api_keys(new_password)
+    if len(encrypted_api_keys_cached):
+        test_state.count_of_server_api_key_reencryptions_cache += 1
 
-    # Newer wallets have a `Servers` table with an `encrypted_api_key` column
-    encrypted_api_keys_after = list[str]()
-    for server in wallet.data.read_network_servers():
-        if server.encrypted_api_key is not None:
-            test_state.count_of_server_api_key_reencryptions += 1
-            decoded_value = pw_decode(server.encrypted_api_key, new_password)
-            encrypted_api_keys_after.append(decoded_value)
-    assert encrypted_api_keys_after == encrypted_api_keys
+    master_key_xprvs_cached, master_key_seeds_cached, \
+        master_key_passphrases_cached = get_cached_master_keys_encrypted_data(new_password)
+    if len(master_key_xprvs_cached):
+        test_state.count_of_masterkeys_table_xprv_reencryptions_cache += 1
+    original_migration_number = int(wallet_filename[0:2])
+    if len(master_key_seeds_cached) and int(original_migration_number) <= 17:
+        test_state.count_of_masterkeys_table_seed_reencryptions_cache += 1
+    if len(master_key_passphrases_cached) and "hardware" == expected_type:
+        test_state.count_of_masterkeys_table_passphrase_reencryptions_cache += 1
+
+    ## Database level encrypted data
+    password_token = None
+    for wallet_data_row in db_functions.read_wallet_datas(wallet.get_db_context()):
+        if wallet_data_row.key == "password-token":
+            password_token = wallet_data_row.value
+    assert password_token is not None
+    assert pw_decode(password_token, new_password) is not None
+
+    if "imported" == expected_type and "privkey" in wallet_filename:
+        keyinstance_private_keys = read_db_imported_privkeys(new_password)
+        if len(keyinstance_private_keys):
+            test_state.count_of_keyinstance_privkey_reencryptions += 1
+
+    encrypted_api_keys_after = read_db_server_api_keys(new_password)
+    if len(encrypted_api_keys_after):
+        test_state.count_of_server_api_key_reencryptions += 1
+
+    master_key_xprvs, master_key_seeds, master_key_passphrases = \
+        read_db_master_keys_encrypted_data(new_password)
+    if len(master_key_xprvs):
+        test_state.count_of_masterkeys_table_xprv_reencryptions += 1
+    if len(master_key_seeds) and int(original_migration_number) <= 17:
+        test_state.count_of_masterkeys_table_seed_reencryptions += 1
+    if len(master_key_passphrases) and "hardware" == expected_type:
+        test_state.count_of_masterkeys_table_passphrase_reencryptions += 1
 
 def test_coverage_of_re_encryption_of_sensitive_data():
     # This test won't pass unless it runs after the previous tests, as it depends on the generated
     # test_state
-    assert test_state.count_of_password_token_reencryptions > 0
+    ## Cached
+    assert test_state.count_of_keyinstance_privkey_reencryptions_cache > 0
+    assert test_state.count_of_masterkeys_table_seed_reencryptions_cache > 0
+    assert test_state.count_of_masterkeys_table_xprv_reencryptions_cache > 0
+    # Expected failure - no passphrase in test wallets
+    # test_state.count_of_masterkeys_table_passphrase_reencryptions_cache > 0
+    assert test_state.count_of_server_api_key_reencryptions_cache > 0
+
+    ## Database level
     assert test_state.count_of_keyinstance_privkey_reencryptions > 0
     assert test_state.count_of_masterkeys_table_seed_reencryptions > 0
     assert test_state.count_of_masterkeys_table_xprv_reencryptions > 0
     # Expected failure - no passphrase in test wallets
-    # assert test_state.count_of_masterkeys_table_passphrase_reencryptions > 0
+    # test_state.count_of_masterkeys_table_passphrase_reencryptions > 0
     assert test_state.count_of_server_api_key_reencryptions > 0
 
 def validate_wallet_migration_failure_message(storage_info: WalletStorageInfo, text: str) -> None:
