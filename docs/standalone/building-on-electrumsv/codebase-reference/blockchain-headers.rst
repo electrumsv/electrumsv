@@ -20,12 +20,13 @@ Header sources
 
 The current policy is:
 
-- Connect to up to 5 different header APIs, preferring blockchain service providers.
-
-The ideal longer term policy is:
-
 - If a blockchain service provider is used, use it as the authoritative source of a longest chain
   to ensure that acquired blockchain state is relevant to the any fork the wallet may be following.
+- Connect to all known header servers.
+
+Longer term option we think will be employed:
+
+- Limit connections to perhaps ten concurrent header servers.
 - If the Bitcoin P2P network is connectable, use it as a possible source of a longest chain, as
   long as there is no blockchain server. The user should be able to override it in order to rule
   out invalid malicious chains, and to ensure they are following a valid chain. If the blockchain

@@ -39,8 +39,8 @@ directly to another person's ElectrumSV application. This is due to restrictive 
 environments, privacy and security related concerns and the impracticality of expecting ElectrumSV
 to be online 24/7. The peer channel API acts as a relaying service, a message box and a privacy aid.
 
-Spent output API (forwarded)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Output spends API (forwarded)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. note::
    The ElectrumSV project has neither the manpower or the interest in providing a non-regtest
@@ -60,12 +60,9 @@ ElectrumSV uses this API to accomplish the following:
 - Get notified if a transaction gets mined.
 - Get notified if a transaction gets malleated.
 
-There is some overlap with the merchant API here where we can use the act of successful
-broadcasting as a trustworthy indication that the given transaction is in the mempool. It's
-broadcast and double-spend callback will also serve as trustworthy way to get notified if the
-transaction is either mined or double spent. We do not use the spent output API for transactions
-that have been broadcast through the merchant API, unless something has gone wrong and we
-cannot expect the merchant API callbacks to provide us with the data we need.
+As we rely on output spends for events related to transactions we did not broadcast ourselves, we
+just use output spends consistently for the transactions we do as well. We do not use the merchant
+API for MAPI callbacks.
 
 Restoration API (forwarded)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -110,14 +107,15 @@ Merkle proof API (forwarded)
    open source implementation of this API. Commercial services can if they choose, offer it,
    as an optional enabled API provided by their servers.
 
-If possible all transactions will be broadcast through a merchant API server, and a callback
-from that server will notify if the transaction is mined and provide the merkle proof. In the real
-world, not all transactions related to an ElectrumSV user's wallet are broadcast by that user
-through MAPI. Other parties may broadcast the transaction, and this may not be desirable, expected
-or have any channel through which the ElectrumSV user can hear about either the merkle proof.
+While we currently broadcast all transactions through a merchant API server, and a callback
+from that server can notify if the transaction is mined and provide the merkle proof. Not all
+transactions related to an ElectrumSV user's wallet are broadcast by that user through MAPI.
+Other parties may broadcast the transaction, and this may not be desirable, expected or have any
+channel through which the ElectrumSV user can hear about the merkle proofs availability.
 
 It is necessary to have the ability to request arbitrary merkle proofs, and the merkle proof
-API is used for this purpose.
+API is used for this purpose. We use it for both the broadcaster who uses MAPI and for the party
+who has received an event notifying a transaction of interest was included in a block.
 
 Merchant API
 ------------
@@ -155,10 +153,9 @@ Spent outputs:
 - We monitor local transactions that we may not expect to be broadcast. These have the
   :ref:`transaction state <transaction-state>` values of ``STATE_SIGNED``,
   ``STATE_RECEIVED`` or ``STATE_DISPATCHED``.
-- We monitor transactions that we know have been broadcast but we do not know if they are mined,
-  with the exception of those that were broadcast using MAPI where the managing MAPI logic has
-  not flagged a problem. These have the :ref:`transaction state <transaction-state>`
-  value of ``STATE_CLEARED`` with no associated block.
+- We monitor transactions that we know have been broadcast but we do not know if they are mined.
+  These have the :ref:`transaction state <transaction-state>` value of ``STATE_CLEARED`` with no
+  associated block.
 
 Merkle proofs:
 
@@ -170,7 +167,9 @@ Merkle proofs:
 - If we have transactions from before ElectrumSV 1.4.0 they may not have a TSC standardised
   merkle proof. We pass these to a worker task to take care of obtaining them. These have the
   :ref:`transaction state <transaction-state>` value of ``STATE_SETTLED`` with no
-  associated block.
+  associated block. Wallets that were created in ElectrumSV and not earlier versions of the
+  Electrum wallet will most likely have non-TSC proofs which will get converted to the TSC form
+  as part of the wallet file upgrade.
 
 Account restoration
 -------------------
@@ -189,11 +188,10 @@ Merkle proof:
 New payment
 -----------
 
-This is a little complicated due to the fact that there are two steps, signing a transaction
-and broadcasting a transaction. The user can construct a transaction and sign it, then it
-gets added to their account history. In this case, we would want to treat it as a local transaction
-and monitor it using the spent output API.  If however it gets signed, then broadcast, we would
-want to leave management up to the MAPI broadcast management.
+There are two steps, signing a transaction and broadcasting it. The user can construct a
+transaction and sign it, then it gets added to their account history. In this case, we want to
+treat it as a local transaction and monitor it using the spent output API.  If it gets signed and
+then broadcast, we would also monitor it using the spent output API.
 
 Spent outputs:
 
@@ -237,18 +235,6 @@ These are the various ways that wallet transactions might be broadcast:
 - Background petty cash payments by the wallet that the user might not even know are happening
   and will not be involved in approving. These may not even be broadcast via MAPI, and the
   service being paid might take care of the broadcast and merkle proof delivery.
-
-A transaction that has successfully been broadcast using MAPI is excluded from spent output
-monitoring and the arbitrary merkle proof fetching. It is expected that there is some processing
-that happens that checks these transactions, perhaps periodically, and gives up on the MAPI
-callbacks and reclassifies the transaction and introduces it to the spent output
-monitoring and the arbitrary merkle proof fetching.
-
-Peer channels:
-
-- Before a transaction is broadcast using MAPI, a peer channel is created on a designated server.
-  A custom peer channel URL is provided to the MAPI server and this is used for the merkle proof
-  and double spend notifications.
 
 Reliable server usage
 !!!!!!!!!!!!!!!!!!!!!
