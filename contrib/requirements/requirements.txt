@@ -8,7 +8,6 @@ electrumsv-database>=1.7
 electrumsv-secp256k1>=0.9.1
 mypy-extensions         # This is an import that the code will not run without.
 psutil-wheels; platform_system=="Windows"
-PyQt6>=6.3.0
 requests
 python-dateutil>=2.8.0
 qrcode

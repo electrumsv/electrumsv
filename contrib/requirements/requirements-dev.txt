@@ -13,4 +13,4 @@ types-pkg_resources
 # Required for mypy to pass as of 3.11.0.
 types-python-dateutil
 types-requests
-git+https://github.com/python-qt-tools/PyQt6-stubs.git@f623a641cd5cdff53342177e4fbbf9cae8172336#egg=PyQt6-stubs
+https://github.com/python-qt-tools/PyQt6-stubs/archive/f623a641cd5cdff53342177e4fbbf9cae8172336.zip#egg=PyQt6-stubs
