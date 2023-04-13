@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import dataclasses
 import os
 import platform
 import shutil
@@ -40,19 +41,53 @@ subprocess.run([ python_exe, "-m", "pip", "install", "setuptools==65.5.0" ])
 print("Installing pip-tools")
 subprocess.run([ python_exe, "-m", "pip", "install", "pip-tools" ])
 
-for r_suffix in [ '-pyinstaller', '',  '-hw' ]:
-    requirements_filename = f"requirements{r_suffix}.txt"
-    r_path = os.path.join(CONTRIB_PATH, "requirements", requirements_filename)
-    dr_path = os.path.join(CONTRIB_PATH, "deterministic-build",
-        f"{platform_name}-py3.10-requirements{r_suffix}.txt")
 
-    """  Quote from documentation of pip-tools:
-    In future versions, the ``--allow-unsafe`` behavior will be used by default
-    and the option will be removed. It is recommended to pass the argument now to
-    adapt projects to the upcoming change.
-    """
-    # The only affected dependency for ElectrumSV is setuptools which we pin to 51.0.0 currently
-    command_args = [ executable_name, "--allow-unsafe", "--generate-hashes", f"--output-file={dr_path}", r_path ]
+@dataclasses.dataclass
+class OutputFileMetadata:
+    output_suffix: str
+    ordered_input_filenames: list[str]
+    for_platforms: set[str] = dataclasses.field(default_factory=set)
+
+output_file_metadatas = [
+    OutputFileMetadata("-electrumsv-lite", [
+        "requirements.txt",
+        "requirements-electrumsv.txt",
+    ]),
+    OutputFileMetadata("-electrumsv", [
+        "requirements.txt",
+        "requirements-electrumsv.txt",
+        "requirements-hw.txt",
+    ]),
+    OutputFileMetadata("-payd", [
+        "requirements.txt",
+        "requirements-hw.txt",
+    ]),
+    OutputFileMetadata("-dev", [
+        "requirements.txt",
+        "requirements-electrumsv.txt",
+        "requirements-hw.txt",
+        "requirements-dev.txt",
+    ]),
+    OutputFileMetadata("-pyinstaller", [
+        "requirements-pyinstaller.txt"
+    ], { "win64"}),
+]
+
+for metadata in output_file_metadatas:
+    if metadata.for_platforms and platform_name not in metadata.for_platforms:
+        continue
+
+    input_paths = [ os.path.join(CONTRIB_PATH, "requirements", input_filename)
+        for input_filename in metadata.ordered_input_filenames ]
+    output_path = os.path.join(CONTRIB_PATH, "deterministic-build",
+        f"{platform_name}-py3.10-requirements{metadata.output_suffix}.txt")
+
+    # Quote from documentation of pip-tools:
+    # In future versions, the ``--allow-unsafe`` behavior will be used by default
+    # and the option will be removed. It is recommended to pass the argument now to
+    # adapt projects to the upcoming change.
+    command_args = [ executable_name, "--allow-unsafe", "--generate-hashes", "--no-reuse-hashes", f"--output-file={output_path}" ]
+    command_args.extend(input_paths)
     ret = subprocess.check_call(command_args, executable=compiler_path)
     if ret != 0:
         print("Failed running command")

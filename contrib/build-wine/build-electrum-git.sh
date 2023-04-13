@@ -40,8 +40,8 @@ popd # $WINEPREFIX/drive_c/electrum
 cp $WINEPREFIX/drive_c/electrum/LICENCE .
 
 # Install frozen dependencies
-$PYTHON -m pip install -r ../../deterministic-build/win64-py3.10-requirements.txt
-$PYTHON -m pip install -r ../../deterministic-build/win64-py3.10-requirements-hw.txt
+$PYTHON -m pip install setuptools==65.5.0
+$PYTHON -m pip install -r ../../deterministic-build/win64-py3.10-requirements-electrumsv.txt
 
 pushd $WINEPREFIX/drive_c/electrum
 $PYTHON -m pip install .

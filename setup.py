@@ -72,7 +72,7 @@ if platform.system() in ['Linux', 'FreeBSD', 'DragonFly']:
 setup(
     name="ElectrumSV",
     version=version.PACKAGE_VERSION,
-    install_requires=requirements + ['pyqt5'],
+    install_requires=requirements,
     extras_require={
         'hardware': requirements_hw,
     },
@@ -86,6 +86,6 @@ setup(
     author="Roger Taylor",
     author_email="roger.taylor.email@gmail.com",
     license="MIT Licence",
-    url="http://electrumsv.io",
+    url="https://electrumsv.io",
     long_description="""Lightweight Bitcoin SV Wallet"""
 )
