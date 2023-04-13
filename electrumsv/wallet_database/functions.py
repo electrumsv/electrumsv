@@ -621,8 +621,8 @@ def read_history_for_outputs(db: sqlite3.Connection, account_id: int, *,
     # - `x'00000001'`: The serialised BIP32 byte prefix for change addresses. We do not use
     #     `LIKE` as that is text specific and fails on blobs in some cases. In theory the range
     #     comparison is indexable. (Stack Overflow: https://stackoverflow.com/a/24011877)
-    # - `NULLS FIRST`: SQLite places NULLS at the start of an ascending sequence. As we are using
-    #   descending sequences, we override this so unconfirmed and local transactions come first.
+    # - `ORDER BY CASE`: Ensure that unconfirmed and local transactions come first.
+    #    See `BlockHeight` enum struct.
     transaction_clause_and = ""
     if transaction_hash is not None:
         transaction_clause_and = "TX.tx_hash=?2 AND"
@@ -642,7 +642,7 @@ def read_history_for_outputs(db: sqlite3.Connection, account_id: int, *,
     LEFT JOIN KeyInstances KI ON KI.keyinstance_id=TXO.keyinstance_id
     WHERE {transaction_clause_and} ((_AS.spent_value>0 AND (TXO.keyinstance_id IS NULL OR
         KI.derivation_type=={DerivationType.BIP32_SUBPATH} AND KI.derivation_data2<x'00000001'
-        AND KI.derivation_data2>=x'00000002'))
+        OR KI.derivation_data2>=x'00000002'))
         OR (_AS.spent_value IS NULL AND TXO.keyinstance_id IS NOT NULL))
     ORDER BY CASE
             WHEN TX.block_height <=0 THEN 999999998 - TX.block_height
@@ -2411,7 +2411,8 @@ def update_password(db_context: DatabaseContext, old_password: str, new_password
         assert db is not None and isinstance(db, sqlite3.Connection)
         password_token = pw_encode(os.urandom(32).hex(), new_password)
 
-        cursor = db.execute(token_update_sql, (date_updated, password_token, "password-token"))
+        cursor = db.execute(token_update_sql, (date_updated, json.dumps(password_token),
+            "password-token"))
         assert cursor.rowcount == 1
 
         # This tracks the updated encrypted values for the wallet to replace cached versions of
