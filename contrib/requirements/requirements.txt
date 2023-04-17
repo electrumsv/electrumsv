@@ -13,8 +13,3 @@ python-dateutil>=2.8.0
 qrcode
 typing-extensions
 websocket-client
-
-# NOTE(rt12) 2023-01-30 The latest setuptools 67.0.0 errors when processing the
-#     egg for btchip-python. 65.5.0 is known not to have this problem. Pinning
-#     it in all dependencies.
-setuptools==65.5.0

@@ -33,10 +33,6 @@ if sys.platform == "win32":
     compiler_path = os.path.join(scripts_path, "pip-compile.exe")
     assert os.path.exists(compiler_path)
 
-# NOTE(rt12) 2023-01-30 The latest version of Setuptools is 67.0.0 and it
-#     errors rejecting the (unused) `extras_require` section of the
-#     `btchip-python` dependency. This section is parsed correctly in 65.5.0.
-subprocess.run([ python_exe, "-m", "pip", "install", "setuptools==65.5.0" ])
 
 print("Installing pip-tools")
 subprocess.run([ python_exe, "-m", "pip", "install", "pip-tools" ])
@@ -70,7 +66,7 @@ output_file_metadatas = [
     ]),
     OutputFileMetadata("-pyinstaller", [
         "requirements-pyinstaller.txt"
-    ], { "win64"}),
+    ], { "win64" }),
 ]
 
 for metadata in output_file_metadatas:
