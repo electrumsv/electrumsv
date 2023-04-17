@@ -1549,7 +1549,7 @@ def read_bip32_keys_gap_size(db: sqlite3.Connection, account_id: int,
 def read_network_servers(db: sqlite3.Connection,
         server_key: Optional[ServerAccountKey]=None) -> list[NetworkServerRow]:
     read_server_row_sql = "SELECT server_id, server_type, url, account_id, server_flags, " \
-        "api_key_template, encrypted_api_key, payment_key_bytes, fee_quote_json, " \
+        "api_key_template, encrypted_api_key, fee_quote_json, " \
         "tip_filter_peer_channel_id, date_last_tried, date_last_connected, date_created, " \
         "date_updated FROM Servers"
     params: Sequence[Any] = ()
@@ -2624,13 +2624,13 @@ def update_wallet_event_flags(db_context: DatabaseContext,
 
 
 def update_network_server_credentials_write(server_id: int, encrypted_api_key: Optional[str],
-        payment_key_bytes: Optional[bytes], updated_flags: NetworkServerFlag,
-        updated_flags_mask: NetworkServerFlag, db: Optional[sqlite3.Connection]=None) -> None:
+        updated_flags: NetworkServerFlag, updated_flags_mask: NetworkServerFlag,
+        db: Optional[sqlite3.Connection]=None) -> None:
     assert db is not None and isinstance(db, sqlite3.Connection)
-    update_sql = "UPDATE Servers SET date_updated=?, encrypted_api_key=?, payment_key_bytes=?, " \
-        "server_flags=(server_flags&?)|? WHERE server_id=?"
-    sql_values = (int(get_posix_timestamp()), encrypted_api_key, payment_key_bytes,
-        updated_flags_mask, updated_flags, server_id)
+    update_sql = "UPDATE Servers SET date_updated=?1, encrypted_api_key=?2, " \
+        "server_flags=(server_flags&?3)|?4 WHERE server_id=?5"
+    sql_values = (int(get_posix_timestamp()), encrypted_api_key, updated_flags_mask, updated_flags,
+        server_id)
     cursor = db.execute(update_sql, sql_values)
     assert cursor.rowcount == 1
 
@@ -2662,11 +2662,11 @@ def update_network_servers_transaction(db_context: DatabaseContext,
     """
     # These columns should be in the same order as the `NetworkServerRow` tuple.
     insert_prefix_sql = "INSERT INTO Servers (server_id, server_type, url, account_id, " \
-        "server_flags, api_key_template, encrypted_api_key, payment_key_bytes, fee_quote_json, " \
+        "server_flags, api_key_template, encrypted_api_key, fee_quote_json, " \
         "tip_filter_peer_channel_id, date_last_connected, date_last_tried, date_created, " \
         "date_updated) VALUES"
     insert_suffix_sql = "RETURNING server_id, server_type, url, account_id, " \
-        "server_flags, api_key_template, encrypted_api_key, payment_key_bytes, fee_quote_json, " \
+        "server_flags, api_key_template, encrypted_api_key, fee_quote_json, " \
         "tip_filter_peer_channel_id, date_last_connected, date_last_tried, " \
         "date_created, date_updated"
     update_sql = "UPDATE Servers SET date_updated=?, api_key_template=?, encrypted_api_key=?, " \

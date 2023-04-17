@@ -173,7 +173,6 @@ class NetworkServerRow(NamedTuple):
     server_flags: NetworkServerFlag
     api_key_template: str | None
     encrypted_api_key: str | None
-    payment_key_bytes: bytes | None
     # MAPI specific: used for JSONEnvelope serialised transaction fee quotes.
     mapi_fee_quote_json: str | None
     # Indexer server specific: used for tip filter notifications.

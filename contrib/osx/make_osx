@@ -150,6 +150,9 @@ PYINSTALLER_COMMIT="3940e5fc5f9e02bce9f1af53c70a42db81071381"
     popd
 ) || fail "PyInstaller build failed"
 
+python3 -m pip install setuptools==51.0.0 || \
+fail "Could not install electrumsv prerequirements (setuptools)"
+
 info "Installing PyInstaller requirements."
 python3 -m pip install --no-build-isolation --no-dependencies --no-warn-script-location \
     -Ir "$BUILDDIR/pyinstaller/requirements.txt" || fail "Could not install requirements"
@@ -164,8 +167,8 @@ sw_vers
 python3 --version
 python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
 
-info "Installing hardware wallet requirements..."
-python3 -m pip install setuptools==65.5.0 || \
+info "Installing ElectrumSV requirements..."
+python3 -m pip install setuptools==51.0.0 || \
 fail "Could not install electrumsv prerequirements (setuptools)"
 python3 -m pip install -Ir $CONTRIB/deterministic-build/macos-py3.10-requirements-electrumsv.txt || \
 fail "Could not install electrumsv requirements"

@@ -1662,7 +1662,7 @@ def test_table_peer_channels_CRUD(db_context: DatabaseContext) -> None:
 
     # Ensure that the foreign key requirement for an existing server is met.
     server_row = NetworkServerRow(None, NetworkServerType.GENERAL, "url", None,
-        NetworkServerFlag.NONE, None, None, None, None, None, 0, 0, date_created, date_created)
+        NetworkServerFlag.NONE, None, None, None, None, 0, 0, date_created, date_created)
     future = db_functions.update_network_servers_transaction(db_context, [ server_row ], [], [], [])
     created_server_rows = future.result()
     assert len(created_server_rows) == 1
@@ -1714,7 +1714,7 @@ def test_table_peer_channel_messages_CRUD(db_context: DatabaseContext) -> None:
 
     # Ensure that the foreign key requirement for an existing server is met.
     server_row = NetworkServerRow(None, NetworkServerType.GENERAL, "url", None,
-        NetworkServerFlag.NONE, None, None, None, None, None, 0, 0, date_created, date_created)
+        NetworkServerFlag.NONE, None, None, None, None, 0, 0, date_created, date_created)
     future = db_functions.update_network_servers_transaction(db_context, [ server_row ], [], [], [])
     created_server_rows = future.result()
     assert len(created_server_rows) == 1
@@ -1953,11 +1953,11 @@ def test_table_servers_CRUD(db_context: DatabaseContext) -> None:
     URL = "..."
     server_rows = [
         NetworkServerRow(SERVER_ID+1, SERVER_TYPE, URL*1, None, NetworkServerFlag.NONE,
-            None, None, None, None, None, 0, 0, date_updated, date_updated),
+            None, None, None, None, 0, 0, date_updated, date_updated),
     ]
     server_account_rows = [
         NetworkServerRow(SERVER_ID+2, SERVER_TYPE, URL*1, ACCOUNT_ID, NetworkServerFlag.NONE,
-            None, None, None, None, None, 0, 0, date_updated, date_updated)
+            None, None, None, None, 0, 0, date_updated, date_updated)
     ]
 
     ## Server row creation.
@@ -2193,7 +2193,7 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
         URL = "..."
         server_rows = [
             NetworkServerRow(SERVER_ID, SERVER_TYPE, URL*1, None, NetworkServerFlag.NONE,
-                None, None, None, None, None, 0, 0, date_updated, date_updated),
+                None, None, None, None, 0, 0, date_updated, date_updated),
         ]
         update_future = db_functions.update_network_servers_transaction(db_context, server_rows, [],
             [], [])

@@ -959,7 +959,7 @@ class EditServerDialog(WindowModalDialog):
                 added_servers.append(NetworkServerRow(server_id=None, server_type=server_type,
                     url=server_url, account_id=account_id, server_flags=server_flags,
                     api_key_template=None, encrypted_api_key=encrypted_api_key,
-                    payment_key_bytes=None, mapi_fee_quote_json=None,
+                    mapi_fee_quote_json=None,
                     tip_filter_peer_channel_id=None, date_last_try=0, date_last_good=0,
                     date_created=date_now_utc, date_updated=date_now_utc))
 
