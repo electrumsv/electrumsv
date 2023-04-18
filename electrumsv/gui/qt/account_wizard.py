@@ -46,6 +46,7 @@ from electrumsv.bitcoin import compose_chain_string, is_new_seed, is_old_seed
 from electrumsv.constants import (DEFAULT_COSIGNER_COUNT, DerivationType, IntFlag,
     KeystoreTextType, MAXIMUM_COSIGNER_COUNT, ScriptType)
 from electrumsv.device import DeviceInfo
+from electrumsv.exceptions import UserCancelled
 from electrumsv.i18n import _
 from electrumsv.keystore import (bip39_is_checksum_valid, bip44_derivation_cointype, from_seed,
     instantiate_keystore_from_text, KeyStore, Multisig_KeyStore)
@@ -1242,6 +1243,8 @@ class SetupHardwareWalletAccountPage(QWizardPage):
         self._plugin = app_state.device_manager.get_plugin(name)
         try:
             self._plugin.setup_device(device_info, wizard)
+        except UserCancelled:
+            return
         except OSError as e:
             self._plugin_debug_message = (_('We encountered an error while connecting to your '
                 'device:') +'\n'+ str(e) +'\n'+
@@ -1274,6 +1277,8 @@ class SetupHardwareWalletAccountPage(QWizardPage):
             mpk = self._plugin.get_master_public_key(device_info.device.id_, derivation_text,
                 wizard)
         except Exception as e:
+            logger.exception("Failed getting master public key for hardware wallet (%s, %s)",
+                self._derivation_user, derivation_text)
             MessageBox.show_error(str(e))
             return False
 

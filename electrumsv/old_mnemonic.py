@@ -1668,7 +1668,7 @@ def mn_encode( message ):
     for i in range(len(message)//8):
         word = message[8*i:8*i+8]
         x = int(word, 16)
-        w1 = (x%n)
+        w1 = x%n
         w2 = ((x//n) + w1)%n
         w3 = ((x//n//n) + w2)%n
         out += [ words[w1], words[w2], words[w3] ]

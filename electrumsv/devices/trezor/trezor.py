@@ -31,8 +31,8 @@ try:
         InputScriptType, OutputScriptType, MultisigRedeemScriptType,
         TxInputType, TxOutputBinType, TxOutputType, TransactionType, SignTx)
 
-    RECOVERY_TYPE_SCRAMBLED_WORDS = RecoveryDeviceType.ScrambledWords
-    RECOVERY_TYPE_MATRIX = RecoveryDeviceType.Matrix
+    RECOVERY_TYPE_SCRAMBLED_WORDS = int(RecoveryDeviceType.ScrambledWords)
+    RECOVERY_TYPE_MATRIX = int(RecoveryDeviceType.Matrix)
 
     TREZORLIB = True
 except Exception as e:
@@ -99,7 +99,7 @@ class TrezorPlugin(HW_PluginBase):
     minimum_firmware = (1, 5, 2)
     keystore_class = TrezorKeyStore
     minimum_library = (0, 12, 0)
-    maximum_library = (0, 13)
+    maximum_library = (0, 13, 5)
     DEVICE_IDS = (TREZOR_PRODUCT_KEY,)
 
     MAX_LABEL_LEN = 32
@@ -197,7 +197,7 @@ class TrezorPlugin(HW_PluginBase):
         except UserCancelled:
             exit_code = 1
         except Exception as e:
-            self.logger.exception("")
+            self.logger.exception("Error initialising device")
             handler.show_error(str(e))
             exit_code = 1
         finally:
@@ -291,7 +291,8 @@ class TrezorPlugin(HW_PluginBase):
         client = self.get_client(keystore)
         inputs = self.tx_inputs(tx, xpub_path)
         outputs = self.tx_outputs(keystore, keystore.get_derivation(), tx)
-        details = SignTx(lock_time=tx.locktime)
+        details = SignTx(lock_time=tx.locktime, inputs_count=len(inputs),
+            outputs_count=len(outputs))
         signatures, _ = client.sign_tx(self.get_coin_name(), inputs, outputs, details=details,
             prev_txes=prev_txtypes)
         tx.update_signatures(signatures)
@@ -325,12 +326,9 @@ class TrezorPlugin(HW_PluginBase):
             is_prev_tx: bool=False) -> List[TxInputType]:
         inputs = []
         for txin in tx.inputs:
-            txinputtype = TxInputType()
             # Trezor tx hashes are same byte order as the reversed hex tx id.
-            txinputtype.prev_hash = bytes(reversed(txin.prev_hash))
-            txinputtype.prev_index = txin.prev_idx
-            txinputtype.sequence = txin.sequence
-            txinputtype.amount = txin.value
+            txinputtype = TxInputType(prev_hash=bytes(reversed(txin.prev_hash)),
+                prev_index=txin.prev_idx, amount=txin.value, sequence=txin.sequence)
             if txin.script_sig:
                 txinputtype.script_sig = bytes(txin.script_sig)
             if not is_prev_tx:
@@ -386,8 +384,7 @@ class TrezorPlugin(HW_PluginBase):
             )
 
         def create_output_by_address(tx_output: XTxOutput) -> TxOutputType:
-            txoutputtype = TxOutputType()
-            txoutputtype.amount = tx_output.value
+            txoutputtype = TxOutputType(amount=tx_output.value)
             address = classify_tx_output(tx_output)
             if isinstance(address, Address):
                 txoutputtype.script_type = OutputScriptType.PAYTOADDRESS

@@ -25,6 +25,10 @@
             built-in checkpointing so that we can fetch the headers we need on demand, and not require
             that long startup time. In order to make this release more user-friendly, we have updated
             the mainnet and testnet header checkpoints.</li>
+            <li><b>Reliability:</b> There is an occasional bug where the file headers are stored in does not get
+            written correctly. This mainly happens on Windows, but has been observed on Linux. We have
+            included a fix that flushes and closes the file storage on exit, and should hopefully fix
+            this rare but continuing problem.</li>
             <li><b>Documentation:</b> The documentation covering how to verify your download with our PGP signatures
             referred to a different file suffix ".sig" for the file signatures rather than ".asc" which
             the tooling appears to have switched to, causing user confusion. This has now been aligned

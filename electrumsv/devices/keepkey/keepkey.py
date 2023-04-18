@@ -266,6 +266,7 @@ class KeepKeyPlugin(HW_PluginBase):
         except UserCancelled:
             exit_code = 1
         except Exception as e:
+            logger.exception("Error initialising device")
             handler.show_error(str(e))
             exit_code = 1
         finally:

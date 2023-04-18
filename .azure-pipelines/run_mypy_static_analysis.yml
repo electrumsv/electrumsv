@@ -5,7 +5,5 @@ steps:
     addToPath: true
     architecture: x64
 - script: |
-    python3 -m pip install mypy
-    python3 -m pip install types-certifi types-pkg_resources types-python-dateutil types-requests
     python3 -m mypy --config-file mypy.ini --python-version ${{ parameters.pythonVersion }}
   displayName: 'Mypy static analysis'

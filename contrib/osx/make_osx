@@ -79,14 +79,9 @@ sw_vers
 python3 --version
 python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
 
-info "Installing requirements..."
-python3 -m pip install -Ir ./contrib/deterministic-build/requirements.txt && \
-python3 -m pip install -Ir ./contrib/deterministic-build/requirements-binaries.txt || \
-fail "Could not install requirements"
-
-info "Installing hardware wallet requirements..."
-python3 -m pip install -Ir ./contrib/deterministic-build/requirements-hw.txt || \
-fail "Could not install hardware wallet requirements"
+info "Installing ElectrumSV requirements..."
+python3 -m pip install -Ir ./contrib/deterministic-build/macos-py3.7-requirements-electrumsv.txt || \
+fail "Could not install ElectrumSV requirements"
 
 info "Extracting libusb..."
 tar xzf ./contrib/osx/binaries/libusb-1.0.21.el_capitan.bottle.tar.gz --directory=$BUILDDIR || fail "Could not extract libusb"

@@ -68,6 +68,13 @@ class QtHandlerBase(QObject):
     _choice: Optional[int] = None
     _ok: int = 0
 
+    word: Optional[str]
+
+    # Copied over from QtPlugin below when `replace_gui_handler` is called.
+    icon_paired: str
+    icon_unpaired: str
+    action: QAction
+
     def __init__(self, win: HandlerWindow, device):
         super(QtHandlerBase, self).__init__()
         self.clear_signal.connect(self.clear_dialog)
@@ -243,6 +250,7 @@ class QtPluginBase(object):
             keystore))
         action.setToolTip(_("Hardware Wallet"))
         window.add_toolbar_action(action)
+
         handler.action = action
         handler.icon_unpaired = self.icon_unpaired
         handler.icon_paired = self.icon_paired

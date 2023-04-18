@@ -105,6 +105,13 @@ class AppStateProxy(object):
         for n, chain in enumerate(self.headers.chains(), start=1):  # type: ignore
             logger.info(f'chain #{n}: {chain.desc()}')
 
+    def on_stop(self) -> None:
+        # The headers object may not be created for command-line invocations that do not require it.
+        if self.headers is not None:
+            logger.debug("Closing headers store")
+            # self.headers.flush()
+            # self.headers._storage.close()
+
     def base_unit(self) -> str:
         index = self.decimal_points.index(self.decimal_point)
         return self.base_units[index]

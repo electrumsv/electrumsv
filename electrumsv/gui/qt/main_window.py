@@ -1000,7 +1000,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.tx_notify_timer = QTimer(self)
             self.tx_notify_timer.setSingleShot(True)
             self.tx_notify_timer.timeout.connect(self._notify_tx_cb)
-            when = (self.notify_tx_rate - elapsed)
+            when = self.notify_tx_rate - elapsed
             self._logger.debug("Notify spam control: will notify GUI of %d new tx's in %f seconds",
                               len(self.tx_notifications), when)
             self.tx_notify_timer.start(when * 1e3) # time in ms
@@ -1055,7 +1055,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             if edit.in_event:
                 return
             edit.setStyleSheet(ColorScheme.DEFAULT.as_stylesheet())
-            fiat_e.is_last_edited = (edit == fiat_e)
+            fiat_e.is_last_edited = edit == fiat_e
             amount = edit.get_amount()
             rate = app_state.fx.exchange_rate() if app_state.fx else None
             if rate is None or amount is None:

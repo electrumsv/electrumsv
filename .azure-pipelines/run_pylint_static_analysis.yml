@@ -18,7 +18,6 @@ steps:
       eq(variables['Build.Reason'], 'PullRequest')
     )
 - script: |
-    python3 -m pip install -U pylint
     python3 -m pylint --rcfile .pylintrc electrum-sv electrumsv
     if [ $? -gt 0 ]
     then

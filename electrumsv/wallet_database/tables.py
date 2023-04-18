@@ -131,7 +131,7 @@ class WalletDataTable(BaseWalletStore):
     CREATE_SQL = ("INSERT INTO WalletData (key, value, date_created, date_updated) "
         "VALUES (?, ?, ?, ?)")
     READ_SQL = "SELECT key, value FROM WalletData"
-    UPDATE_SQL = ("UPDATE WalletData SET value=?, date_updated=? WHERE key=?")
+    UPDATE_SQL = "UPDATE WalletData SET value=?, date_updated=? WHERE key=?"
     UPSERT_SQL = (CREATE_SQL +" ON CONFLICT(key) DO UPDATE "
         "SET value=excluded.value, date_updated=excluded.date_updated")
     DELETE_SQL = "DELETE FROM WalletData WHERE key=?"
@@ -813,7 +813,7 @@ class TransactionOutputTable(BaseWalletStore):
             for batch_entry in batch:
                 batch_values.extend(batch_entry)
             conditions = [ condition_section ] * len(batch)
-            batch_query = (self.READ_SQL +" WHERE "+ " OR ".join(conditions))
+            batch_query = self.READ_SQL +" WHERE "+ " OR ".join(conditions)
             cursor = self._db.execute(batch_query, batch_values)
             collect_results(TransactionOutputRow, cursor, results)
             txo_keys = txo_keys[batch_size:]
@@ -939,7 +939,7 @@ class TransactionDeltaTable(BaseWalletStore):
         "INNER JOIN KeyInstances AS KI ON TD.keyinstance_id = KI.keyinstance_id AND "
             "KI.account_id = ?"
         "GROUP BY TD.tx_hash, TD.keyinstance_id")
-    READ_CANDIDATE_USED_KEYS = (f"""
+    READ_CANDIDATE_USED_KEYS = f"""
         WITH active_keys AS (
                 SELECT keyinstance_id
                 FROM KeyInstances
@@ -959,11 +959,11 @@ class TransactionDeltaTable(BaseWalletStore):
 
             SELECT keyinstance_id
             FROM settled_history
-            GROUP BY keyinstance_id HAVING SUM(value_delta) == 0;""")
-    DEACTIVATE_KEYINSTANCE_FLAGS = (f"""
+            GROUP BY keyinstance_id HAVING SUM(value_delta) == 0;"""
+    DEACTIVATE_KEYINSTANCE_FLAGS = f"""
         UPDATE KeyInstances
         SET date_updated=?, flags=flags&{KeyInstanceFlag.INACTIVE_MASK}
-        """ + "WHERE keyinstance_id IN ({0})")
+        """ + "WHERE keyinstance_id IN ({0})"
     READ_ALL_SQL = "SELECT tx_hash, keyinstance_id, value_delta FROM TransactionDeltas"
     UPDATE_SQL = ("UPDATE TransactionDeltas SET date_updated=?, value_delta=? "
         "WHERE tx_hash=? AND keyinstance_id=?")
@@ -1158,8 +1158,8 @@ class PaymentRequestTable(BaseWalletStore):
         "WHERE K.account_id=?")
     UPDATE_SQL = ("UPDATE PaymentRequests SET date_updated=?, state=?, value=?, expiration=?, "
         "description=? WHERE paymentrequest_id=?")
-    UPDATE_STATE_SQL = (f"""UPDATE PaymentRequests SET date_updated=?,
-        state=(state&{~PaymentFlag.STATE_MASK})|? WHERE keyinstance_id=?""")
+    UPDATE_STATE_SQL = f"""UPDATE PaymentRequests SET date_updated=?,
+        state=(state&{~PaymentFlag.STATE_MASK})|? WHERE keyinstance_id=?"""
     DELETE_SQL = "DELETE FROM PaymentRequests WHERE paymentrequest_id=?"
 
     def create(self, entries: Iterable[PaymentRequestRow],

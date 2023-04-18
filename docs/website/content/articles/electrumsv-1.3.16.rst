@@ -91,6 +91,13 @@ built-in checkpointing so that we can fetch the headers we need on demand, and n
 that long startup time. In order to make this release more user-friendly, we have updated
 the mainnet and testnet header checkpoints.
 
+Header bug fix
+==============
+
+There is an occasional bug where the file headers are stored in does not get written correctly.
+This mainly happens on Windows, but has been observed on Linux. We have included a fix that flushes
+and closes the file storage on exit, and should hopefully fix this rare but continuing problem.
+
 Documentation correctness
 =========================
 

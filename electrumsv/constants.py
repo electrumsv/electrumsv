@@ -55,10 +55,10 @@ class TxFlags(IntFlag):
 
     PaysInvoice = 1 << 30
 
-    METADATA_FIELD_MASK = (HasFee | HasHeight | HasPosition)
-    STATE_MASK = (StateSettled | StateDispatched | StateReceived | StateCleared | StateSigned)
-    STATE_UNCLEARED_MASK = (StateDispatched | StateReceived | StateSigned)
-    STATE_BROADCAST_MASK = (StateSettled | StateCleared)
+    METADATA_FIELD_MASK = HasFee | HasHeight | HasPosition
+    STATE_MASK = StateSettled | StateDispatched | StateReceived | StateCleared | StateSigned
+    STATE_UNCLEARED_MASK = StateDispatched | StateReceived | StateSigned
+    STATE_BROADCAST_MASK = StateSettled | StateCleared
     MASK = 0xFFFFFFFF
 
     def __repr__(self):
@@ -183,7 +183,7 @@ class PaymentFlag(IntFlag):
     PAID    =  1 << 3     # send and propagated
     ARCHIVED = 1 << 4     # unused until we have ui support for filtering
 
-    STATE_MASK = (UNPAID | EXPIRED | PAID | ARCHIVED)
+    STATE_MASK = UNPAID | EXPIRED | PAID | ARCHIVED
     UNPAID_MASK = ~(PAID | ARCHIVED)
 
     CLEARED_STATE_MASK = ~STATE_MASK

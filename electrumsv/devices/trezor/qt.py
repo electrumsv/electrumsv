@@ -370,7 +370,7 @@ class SettingsDialog(WindowModalDialog):
                 for j in range(64):
                     for i in range(128):
                         if pix[i, j]:
-                            o = (i + j * 128)
+                            o = i + j * 128
                             img[o // 8] |= (1 << (7 - o % 8))
                 img = bytes(img)
             invoke_client('change_homescreen', img)
@@ -493,7 +493,8 @@ class SettingsDialog(WindowModalDialog):
         # Settings tab - Session Timeout
         timeout_label = QLabel(_("Session Timeout"))
         timeout_minutes = QLabel()
-        timeout_slider = QSlider(Qt.Horizontal)
+        # NOTE(typing) `Qt.Horizontal` exists, so we override this.
+        timeout_slider = QSlider(Qt.Horizontal) # type: ignore[attr-defined]
         timeout_slider.setRange(1, 60)
         timeout_slider.setSingleStep(1)
         timeout_slider.setTickInterval(5)
