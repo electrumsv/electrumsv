@@ -2031,11 +2031,11 @@ class WalletDataAccess:
         return db_functions.update_network_servers(self._db_context, rows)
 
     async def update_network_server_credentials_async(self, server_id: int,
-            encrypted_api_key: str|None, payment_key_bytes: bytes|None,
-            updated_flags: NetworkServerFlag, updated_flags_mask: NetworkServerFlag) -> None:
+            encrypted_api_key: str|None, updated_flags: NetworkServerFlag,
+            updated_flags_mask: NetworkServerFlag) -> None:
         await self._db_context.run_in_thread_async(
             db_functions.update_network_server_credentials_write, server_id, encrypted_api_key,
-                payment_key_bytes, updated_flags, updated_flags_mask)
+                updated_flags, updated_flags_mask)
 
     def update_network_server_peer_channel_id(self, server_id: int, server_peer_channel_id: int) \
             -> None:
@@ -4090,7 +4090,7 @@ class Wallet:
                 encrypted_api_key: str|None = None
                 credential_id = None
                 row = NetworkServerRow(None, server_key.server_type, server_key.url, None,
-                    server_flags, hardcoded_api_key_template, encrypted_api_key, None, None, None,
+                    server_flags, hardcoded_api_key_template, encrypted_api_key, None, None,
                     0, 0, date_now_utc, date_now_utc)
                 future = self.data.update_network_servers_transaction([ row ], [], [], [])
                 created_rows = future.result()
@@ -4395,7 +4395,7 @@ class Wallet:
                     raise InvalidPassword("Unable to access password to connect")
 
             # Side effect: Remotely creates an account on the given server or raises an exception.
-            api_key, payment_key_bytes = await create_reference_server_account_async(server.url,
+            api_key = await create_reference_server_account_async(server.url,
                 self._network.aiohttp_session, self._identity_public_key,
                 self.identity_private_key_credential_id)
 
@@ -4408,12 +4408,11 @@ class Wallet:
             server_flags = (existing_server_row.server_flags & updated_flags_mask) | updated_flags
             # This gets persisted on wallet exit so we need to update the cached row.
             existing_server_row = existing_server_row._replace(
-                encrypted_api_key=encrypted_api_key, payment_key_bytes=payment_key_bytes,
-                server_flags=server_flags)
+                encrypted_api_key=encrypted_api_key, server_flags=server_flags)
             server.set_server_account_usage(existing_server_row, credential_id)
 
             await self.data.update_network_server_credentials_async(server.server_id,
-                encrypted_api_key, payment_key_bytes, updated_flags, updated_flags_mask)
+                encrypted_api_key, updated_flags, updated_flags_mask)
             logger.debug("Obtained new credentials for server %s", server.server_id)
         else:
             server_flags = existing_server_row.server_flags | usage_flags

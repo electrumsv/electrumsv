@@ -21,7 +21,6 @@ steps:
     # broken CI builds. The update check also writes more errors to the log if you install an
     # older version so we are forced to disable that too.
     python3 -m pip install pip==22.2.2 --disable-pip-version-check
-    python3 -m pip install setuptools==65.5.0 --disable-pip-version-check
     python3 -m pip install -r contrib/deterministic-build/linux-py3.10-requirements-electrumsv.txt --disable-pip-version-check
   displayName: Prepare general environment
   condition: |

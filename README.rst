@@ -106,17 +106,14 @@ explicit version of setuptools to be in use, in order to ensure.
 
 Windows::
 
-    pip3 install --user setuptools==65.5.0
     pip3 install --user -r contrib\deterministic-build\win64-py3.10-requirements-electrumsv.txt
 
 MacOS::
 
-    pip3 install --user setuptools==65.5.0
     pip3 install --user -r contrib/deterministic-build/macos-py3.10-requirements-electrumsv.txt
 
 Linux::
 
-    pip3 install --user setuptools==65.5.0
     pip3 install --user -r contrib/deterministic-build/linux-py3.10-requirements-electrumsv.txt
 
 
@@ -205,7 +202,6 @@ To run ElectrumSV from its top-level directory..
 
 First, install the core dependencies::
 
-    pip3 install --user setuptools==65.5.0
     pip3 install --user -r contrib\deterministic-build\win64-py3.10-requirements-electrumsv.txt
 
 Then invoke it as so::

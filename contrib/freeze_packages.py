@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 CONTRIB_PATH = os.path.dirname(os.path.realpath(__file__))
+PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}"
 
 python_exe = shutil.which("python3")
 if sys.platform == "win32":
@@ -27,19 +28,17 @@ compiler_path = None
 if sys.platform == "win32":
     executable_name = "ignored-first-argument"
     python_exe = sys.executable
+
+print("Installing pip-tools")
+subprocess.run([ python_exe, "-m", "pip", "install", "pip-tools" ])
+
+compiler_path = None
+if sys.platform == "win32":
     python_path = os.path.dirname(sys.executable)
     scripts_path = os.path.join(python_path, "scripts")
     assert os.path.exists(scripts_path)
     compiler_path = os.path.join(scripts_path, "pip-compile.exe")
     assert os.path.exists(compiler_path)
-
-# NOTE(rt12) 2023-01-30 The latest version of Setuptools is 67.0.0 and it
-#     errors rejecting the (unused) `extras_require` section of the
-#     `btchip-python` dependency. This section is parsed correctly in 65.5.0.
-subprocess.run([ python_exe, "-m", "pip", "install", "setuptools==65.5.0" ])
-
-print("Installing pip-tools")
-subprocess.run([ python_exe, "-m", "pip", "install", "pip-tools" ])
 
 
 @dataclasses.dataclass
@@ -70,7 +69,7 @@ output_file_metadatas = [
     ]),
     OutputFileMetadata("-pyinstaller", [
         "requirements-pyinstaller.txt"
-    ], { "win64"}),
+    ], { "win64" }),
 ]
 
 for metadata in output_file_metadatas:
@@ -80,7 +79,7 @@ for metadata in output_file_metadatas:
     input_paths = [ os.path.join(CONTRIB_PATH, "requirements", input_filename)
         for input_filename in metadata.ordered_input_filenames ]
     output_path = os.path.join(CONTRIB_PATH, "deterministic-build",
-        f"{platform_name}-py3.10-requirements{metadata.output_suffix}.txt")
+        f"{platform_name}-py{PYTHON_VERSION}-requirements{metadata.output_suffix}.txt")
 
     # Quote from documentation of pip-tools:
     # In future versions, the ``--allow-unsafe`` behavior will be used by default

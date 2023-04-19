@@ -71,10 +71,10 @@ from .exceptions import AuthenticationError, FilterResponseInvalidError, \
 from .peer_channel import create_peer_channel_api_token_async, create_peer_channel_async, \
     delete_peer_channel_message_async, get_permissions_from_peer_channel_token, \
     list_peer_channels_async, list_peer_channel_messages_async
-from .types import AccountMessageKind, ChannelNotification, GenericPeerChannelMessage, \
-    IndexerServerSettings, ServerConnectionState, ServerConnectionProblems, \
-    TipFilterRegistrationJob, TipFilterRegistrationJobEntry, TipFilterRegistrationJobOutput, \
-    TipFilterRegistrationResponse, VerifiableKeyData
+from .types import AccountMessageKind, AccountRegisteredDict, ChannelNotification, \
+    GenericPeerChannelMessage, IndexerServerSettings, ServerConnectionState, \
+    ServerConnectionProblems, TipFilterRegistrationJob, TipFilterRegistrationJobEntry, \
+    TipFilterRegistrationJobOutput, TipFilterRegistrationResponse, VerifiableKeyData
 
 logger = logs.get_logger("general-api")
 
@@ -449,16 +449,16 @@ async def verify_reference_server_credentials_async(state: ServerConnectionState
 
 async def create_reference_server_account_async(server_url: str, session: aiohttp.ClientSession,
         identity_public_key: PublicKey,
-        identity_private_key_credential_id: IndefiniteCredentialId) -> tuple[str, bytes]:
+        identity_private_key_credential_id: IndefiniteCredentialId) -> str:
     """
-    Returns `tuple[str, bytes]`, a tuple of API key and the server's payment key bytes.
+    Returns the newly created API key (str).
     Raises `AuthenticationError` if response does not give valid payment keys or api keys.
     Raises `GeneralAPIError` if non-successful response encountered.
     Raises `InvalidPassword` if wallet password is not provided by the user.
     Raises `ServerConnectionError` if the server could not be reliably connected to.
     """
     # TODO(1.4.0) Server connection, issue#912. Review and finalise account creation.
-    obtain_server_key_url = f"{server_url}api/v1/account/key"
+    obtain_server_key_url = f"{server_url}api/v1/account/register"
 
     timestamp_text = datetime.utcnow().isoformat()
     message_text = f"{obtain_server_key_url} {timestamp_text}"
@@ -470,9 +470,6 @@ async def create_reference_server_account_async(server_url: str, session: aiohtt
         "signature_hex": signature_bytes.hex(),
         "message_hex": message_text.encode().hex(),
     }
-
-    payment_key_bytes: bytes | None = None
-    api_key: str | None = None
     # TODO(technical-debt) aiohttp exceptions. What aiohttp exceptions are raised here??
     try:
         async with session.post(obtain_server_key_url, json=key_data) as response:
@@ -482,28 +479,19 @@ async def create_reference_server_account_async(server_url: str, session: aiohtt
                 raise GeneralAPIError(
                     f"Bad response status code: {response.status}, reason: {response.reason}")
 
-            # TODO(technical-debt) aiohttp exceptions. What aiohttp exceptions are raised here??
-            reader = aiohttp.MultipartReader.from_response(response)
-            while True:
-                part = cast(aiohttp.BodyPartReader | None, await reader.next())
-                if part is None:
-                    break
-                elif part.name == "key":
-                    payment_key_bytes = bytes(await part.read(decode=True))
-                elif part.name == "api-key":
-                    api_key = await part.text()
+            response_value =  await response.json()
     except aiohttp.ClientError as client_error:
         raise ServerConnectionError("Unable to establish server connection") from client_error
 
-    # TODO(1.4.0) Unreliable server, issue#841. Server account creation response lacks payment key.
-    if payment_key_bytes is None:
-        raise AuthenticationError("No payment key received for server")
+    if not isinstance(response_value, dict) or len(response_value) != 2 or \
+            set(response_value) != { "public_key_hex", "api_key" }:
+        raise AuthenticationError("Invalid authentication response")
 
-    # TODO(1.4.0) Unreliable server, issue#841. Server account creation response lacks API key.
-    if api_key is None:
-        raise AuthenticationError("No api key received for server")
+    register_dict = cast(AccountRegisteredDict, response_value)
+    if register_dict["public_key_hex"] != key_data["public_key_hex"]:
+        raise AuthenticationError("Invalid authentication response")
 
-    return api_key, payment_key_bytes
+    return register_dict["api_key"]
 
 
 async def _manage_server_connection_async(state: ServerConnectionState) -> None:

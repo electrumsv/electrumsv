@@ -164,11 +164,9 @@ sw_vers
 python3 --version
 python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
 
-info "Installing hardware wallet requirements..."
-python3 -m pip install setuptools==65.5.0 || \
-fail "Could not install electrumsv prerequirements (setuptools)"
+info "Installing ElectrumSV requirements..."
 python3 -m pip install -Ir $CONTRIB/deterministic-build/macos-py3.10-requirements-electrumsv.txt || \
-fail "Could not install electrumsv requirements"
+fail "Could not install ElectrumSV requirements"
 
 pushd .
 if [ ! -f "$PROJECT_ROOT"/electrumsv/libzbar.0.dylib ]; then

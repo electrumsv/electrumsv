@@ -350,3 +350,7 @@ class VerifiableKeyData(TypedDict):
     public_key_hex: str
     signature_hex: str
     message_hex: str
+
+class AccountRegisteredDict(TypedDict):
+    public_key_hex: str
+    api_key: str
