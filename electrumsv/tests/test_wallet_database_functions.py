@@ -102,7 +102,7 @@ def test_read_history_for_outputs_specified_transaction(mock_wallet_app_state) -
     wallet_filename = "29_regtest_standard_spending_wallet_paytomany.sqlite"
     temp_dir = tempfile.mkdtemp()
     # A subdirectory is used to avoid being picked up by the `test_legacy_wallet_loading` test
-    source_wallet_path = str(Path(TEST_WALLET_PATH) / wallet_filename)
+    source_wallet_path = os.path.join(TEST_WALLET_PATH, wallet_filename)
     wallet_path = os.path.join(temp_dir, wallet_filename)
     shutil.copyfile(source_wallet_path, wallet_path)
 
