@@ -1,0 +1,39 @@
+{
+    "account_descriptions": [
+        [
+            2,
+            "e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063",
+            "funding tx"
+        ]
+    ],
+    "derivation_datas": {
+        "2": [
+            [
+                [
+                    "derivation",
+                    "m/50'/2'"
+                ],
+                [
+                    "xprv",
+                    "tprv8eFKRNmKVDcUnexoTtewbRsJ5wJrmSQqPuHPXXsMT4ebZ38a3gYfkCdE2LFjt2WbV6gykppK82veDRA2gHgq9bTYKzytQex5U5hAdf3G18t"
+                ],
+                [
+                    "xpub",
+                    "tpubDAwMZnoZdbJ9g7zbMYKXzqXQexpnvmbjyCtAp3uesLSzPXPLg5NFvhF6CTFwPLPVjHzqMqSRk9URME4VvqdUGF5VPH1jfnoWxt7ydPSM9ah"
+                ]
+            ]
+        ]
+    },
+    "transactions": [
+        {
+            "transaction_id": "e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063",
+            "flags": "settled",
+            "block_hash": "6c5ecfe2277cd134a5f9dadaa556bb322cbd89c3c6b144794ae3d3b3e0d47101",
+            "block_height": 114,
+            "block_position": 1,
+            "fee_value": null,
+            "version": 1,
+            "locktime": 0
+        }
+    ]
+}

@@ -151,9 +151,27 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
         # This account was created for the test and gets the correct flag
         assert account_keystore.get_masterkey_flags() == MasterKeyFlags.ELECTRUM_SEED
     else:
-        assert account_keystore.get_parent_keystore() is None
-        # These are pre-existing imported accounts and the information was never set and lost.
-        assert account_keystore.get_masterkey_flags() == MasterKeyFlags.NONE
+        if account_keystore.get_parent_keystore() is not None:
+            # For accounts created with a newer wallet, the account xprv is derived from the
+            # global, parent keystore.
+            assert not account.is_petty_cash()
+            assert account_keystore.has_seed() is False
+            assert account_keystore.get_masterkey_flags() == MasterKeyFlags.NONE
+        elif account_keystore.has_seed():
+            # For these older wallets the seed of the main, non-petty cash account is unrelated
+            # to the global, parent wallet seed.
+            assert not account.is_petty_cash()
+            assert account_keystore.get_parent_keystore() is None
+            assert account_keystore.get_masterkey_flags() == MasterKeyFlags.NONE
+        else:
+            # NOTE: Very old ESV BIP39 standard wallets that pre-date the introduction of an
+            # SQLite database, will both not have a 'seed' or a parent keystore. But there are no
+            # flags or markers to know the ancestry of a migrated wallet
+            assert not account.has_seed()
+            assert account_keystore.get_parent_keystore() is None
+            migration = int(wallet.name()[0:2])
+            original_wallet_used_bip39_seed = 'bip39' in wallet.name().lower()
+            assert migration <= 17 and original_wallet_used_bip39_seed
 
     assert password is not None
     assert not account_keystores[0].has_seed() or account_keystores[0].get_seed(password)
@@ -666,8 +684,12 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
         account_descriptions.append([account_description_row.account_id,
             hash_to_hex_str(account_description_row.tx_hash), account_description_row.description])
 
-   # Account 1 is the pre-existing account (and predates the petty cash account).
-    account = wallet.get_account(1)
+    accounts = [account for account in wallet.get_accounts() if not account.is_petty_cash()]
+    if len(accounts) == 0:
+        assert storage_info.filename in {'22_testnet_blank'}
+        return
+
+    account = accounts[0]
     assert account is not None
 
     account_derivation_datas: dict[int, list[dict[str, Any]]] = {}
