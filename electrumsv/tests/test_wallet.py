@@ -532,10 +532,10 @@ def load_wallet(storage: WalletStorage) -> Wallet | None:
 @dataclasses.dataclass
 class State:
     count_of_imported_privkey_account_reencryptions: int = 0
-    count_of_early_bip39_reencryptions: int = 0
-    count_of_later_bip39_reencryptions: int = 0
-    count_of_pre_1_4_electrum_account_reencryptions: int = 0
-    count_of_post_1_4_electrum_account_reencryptions: int = 0
+    count_of_bip39_with_lost_seed_reencryptions: int = 0
+    count_of_bip39_with_saved_seed_reencryptions: int = 0
+    count_of_electrum_seed_per_account_reencryptions: int = 0
+    count_of_electrum_seed_per_wallet_reencryptions: int = 0
     count_of_old_electrum_account_reencryptions: int = 0
     count_of_multisig_account_reencryptions: int = 0
 
@@ -553,17 +553,18 @@ class AccountCategory(IntEnum):
     # properly after db migration and password updates.
     IMPORTED_PRIVKEY = 1
     OLD = 2
-    POST_1_4_ELECTRUM = 3
-    PRE_1_4_ELECTRUM = 4
-    BIP39_LATER = 5
-    BIP39_EARLIER = 6
+    ELECTRUM_SEED_PER_WALLET = 3
+    ELECTRUM_SEED_PER_ACCOUNT = 4
+    BIP39_WITH_SAVED_SEED = 5
+    BIP39_WITH_LOST_SEED = 6
     MULTISIG = 7
     HARDWARE = 8
     IMPORTED_ADDRESS = 9
     BLANK = 10  # i.e. This wallet does not have an account yet
 
 
-def classify_account_category(wallet: Wallet, storage_info: WalletStorageInfo, new_password: str) -> AccountCategory:
+def classify_account_category(wallet: Wallet, storage_info: WalletStorageInfo, new_password: str) \
+        -> AccountCategory:
     original_migration_number = int(storage_info.filename[0:2])
     accounts = [account for account in wallet.get_accounts() if not account.is_petty_cash()]
     account_type: AccountCategory | None = None
@@ -596,24 +597,24 @@ def classify_account_category(wallet: Wallet, storage_info: WalletStorageInfo, n
             seed = pw_decode(derivation_data.get('seed'), new_password)
 
         if not seed and derivation:
-            # The most recent ESV accounts are child derivations from a single parent seed
-            if derivation.startswith(WALLET_ACCOUNT_PATH_TEXT):
-                account_type = AccountCategory.POST_1_4_ELECTRUM
+            # The accounts created from 1.4.0 ESV are child derivations from a single parent seed
+            assert derivation.startswith(WALLET_ACCOUNT_PATH_TEXT)
+            account_type = AccountCategory.ELECTRUM_SEED_PER_WALLET
         elif seed and not derivation:
             # There is no derivation path for these because it pre-dates usage of
             # a parent seed that child accounts are derived from.
             if ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX_ACCOUNT):
-                account_type = AccountCategory.PRE_1_4_ELECTRUM
+                account_type = AccountCategory.ELECTRUM_SEED_PER_ACCOUNT
             elif BIP39Mnemonic.is_valid(seed, Wordlists.bip39_wordlist("english.txt")):
                 # migration 23, 1.3.0, was the move to sqlite databases and where we started
                 # adding seed and passphrase for bip39 (bip44) accounts.
                 # Prior to this the seed was not stored (only xprv).
-                if original_migration_number >= 23:
-                    assert derivation_data.get('seed') is not None
-                account_type = AccountCategory.BIP39_LATER
+                assert original_migration_number >= 23
+                account_type = AccountCategory.BIP39_WITH_SAVED_SEED
         elif not seed and not derivation and "bip39" in wallet.name().lower():
-            # json file storage and 'seed' not stored (only xprv)
-            account_type = AccountCategory.BIP39_EARLIER
+            # json file storage. We never used to retain the seed for BIP39 accounts before the
+            # 1.3.0 release..
+            account_type = AccountCategory.BIP39_WITH_LOST_SEED
             assert original_migration_number < 22
     elif keystore.type() == KeystoreType.MULTISIG:
         account_type = AccountCategory.MULTISIG
@@ -628,10 +629,12 @@ def classify_account_category(wallet: Wallet, storage_info: WalletStorageInfo, n
 account_type_to_counter: dict[AccountCategory, int] = {
     AccountCategory.IMPORTED_PRIVKEY: test_state.count_of_imported_privkey_account_reencryptions,
     AccountCategory.OLD: test_state.count_of_old_electrum_account_reencryptions,
-    AccountCategory.POST_1_4_ELECTRUM: test_state.count_of_post_1_4_electrum_account_reencryptions,
-    AccountCategory.PRE_1_4_ELECTRUM: test_state.count_of_pre_1_4_electrum_account_reencryptions,
-    AccountCategory.BIP39_LATER: test_state.count_of_later_bip39_reencryptions,
-    AccountCategory.BIP39_EARLIER: test_state.count_of_early_bip39_reencryptions,
+    AccountCategory.ELECTRUM_SEED_PER_WALLET:
+        test_state.count_of_electrum_seed_per_wallet_reencryptions,
+    AccountCategory.ELECTRUM_SEED_PER_ACCOUNT:
+        test_state.count_of_electrum_seed_per_account_reencryptions,
+    AccountCategory.BIP39_WITH_SAVED_SEED: test_state.count_of_bip39_with_saved_seed_reencryptions,
+    AccountCategory.BIP39_WITH_LOST_SEED: test_state.count_of_bip39_with_lost_seed_reencryptions,
     AccountCategory.MULTISIG: test_state.count_of_multisig_account_reencryptions
 }
 
@@ -795,10 +798,9 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
 # These tests won't pass unless it runs after the previous tests, as it depends on the generated
 # `test_state`
 def test_at_least_one_reencryption_for_account_type_old():
-    try:
+    # No test wallets with old type keystores
+    with pytest.raises(AssertionError):
         assert test_state.count_of_old_electrum_account_reencryptions > 0
-    except AssertionError:
-        raise pytest.xfail("No test wallets with old type keystores")
 
 def test_at_least_one_reencryption_for_account_type_multisig():
     assert account_type_to_counter[AccountCategory.MULTISIG] > 0
@@ -807,19 +809,18 @@ def test_at_least_one_reencryption_for_account_type_imported_privkey():
     assert account_type_to_counter[AccountCategory.IMPORTED_PRIVKEY] > 0
 
 def test_at_least_one_reencryption_for_account_type_pre_1_4_electrum():
-    assert account_type_to_counter[AccountCategory.PRE_1_4_ELECTRUM] > 0
+    assert account_type_to_counter[AccountCategory.ELECTRUM_SEED_PER_ACCOUNT] > 0
 
 def test_at_least_one_reencryption_for_account_type_post_1_4_electrum():
-    assert account_type_to_counter[AccountCategory.POST_1_4_ELECTRUM] > 0
+    assert account_type_to_counter[AccountCategory.ELECTRUM_SEED_PER_WALLET] > 0
 
 def test_at_least_one_reencryption_for_account_type_later_bip39():
-    try:
-        assert account_type_to_counter[AccountCategory.BIP39_LATER] > 0
-    except AssertionError:
-        raise pytest.xfail("No 'later' bip39 test wallets (that store the 'seed' in derivation_data)")
+    # No bip39 with saved seed test wallets
+    with pytest.raises(AssertionError):
+        assert account_type_to_counter[AccountCategory.BIP39_WITH_SAVED_SEED] > 0
 
 def test_at_least_one_reencryption_for_account_type_early_bip39():
-    assert account_type_to_counter[AccountCategory.BIP39_EARLIER] > 0
+    assert account_type_to_counter[AccountCategory.BIP39_WITH_LOST_SEED] > 0
 
 
 def validate_wallet_migration_failure_message(storage_info: WalletStorageInfo, text: str) -> None:
