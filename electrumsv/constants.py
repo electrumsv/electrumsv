@@ -40,11 +40,18 @@ DATABASE_EXT = SQLITE_DATABASE_EXT
 MIGRATION_FIRST = 22
 MIGRATION_CURRENT = 29
 
-
-# The hash of the mnemonic seed must begin with this
-SEED_PREFIX      = '01'      # Standard wallet
-
-TOKEN_PASSWORD = "631a0b30bf8ee0f4e33e915954c8ee8ffac32d77af5e89302a4ee7dd3ecd99da"
+# Electrum Core has reconcepted the version prefix to have an embedded length. The first nibble is
+# the number of extra nibbles over the two initial ones in the original seed prefix ("01"). So
+# they use "100" for segwit, which is 4*(1+2) bits or three nibbles. The original seed prefix is
+# 4*(0+2). If we have a case for additional seed versions we should consider following their
+# lead.
+#
+# The hash of mnemonic seeds used for accounts must begin with this. This is the original Electrum
+# Core prefix. As we have migrated from a single account wallet to a multi-account wallet, this is
+# analogous to legacy single account wallets.
+SEED_PREFIX_ACCOUNT      = "01"      # Pre-1.4.0 standard wallet
+# The hash of mnemonic seeds used for 1.4.0 wallet master seeds must begin with this.
+SEED_PREFIX_WALLET       = "02"
 
 
 # TODO Add an UNRELATED flag? used for external transactions that have been added

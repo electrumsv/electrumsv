@@ -52,8 +52,8 @@ except ModuleNotFoundError:
 
 from ...app_state import app_state
 from ...constants import AccountFlags, ADDRESS_DERIVATION_TYPES, DerivationType, KeystoreType, \
-    MasterKeyFlags, MULTI_SIGNER_SCRIPT_TYPES, ScriptType, unpack_derivation_path, \
-    WALLET_ACCOUNT_PATH_TEXT
+    MasterKeyFlags, MULTI_SIGNER_SCRIPT_TYPES, ScriptType, SEED_PREFIX_WALLET, \
+    unpack_derivation_path, WALLET_ACCOUNT_PATH_TEXT
 from ...credentials import PasswordTokenProtocol
 from ...i18n import _
 from ...logs import logs
@@ -95,7 +95,8 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
 
     # Create the new wallet definitive seed words and the masterkey that stores them.
     derivation_text = "m"
-    seed_phrase = ElectrumMnemonic.generate_new(Wordlists.bip39_wordlist("english.txt"))
+    seed_phrase = ElectrumMnemonic.generate_new(Wordlists.bip39_wordlist("english.txt"),
+        prefix=SEED_PREFIX_WALLET)
     bip32_seed = ElectrumMnemonic.new_to_seed(seed_phrase, "", compatible=True)
     derivation_data_latest = bip32_master_key_data_from_seed(seed_phrase, "", bip32_seed,
         derivation_text, password_token.password)

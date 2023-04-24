@@ -8,7 +8,7 @@ from electrumsv_database.sqlite import DatabaseContext
 
 from electrumsv.bitcoin import address_from_string
 from electrumsv.constants import AccountFlags, DerivationType, KeystoreTextType, MasterKeyFlags, \
-    ScriptType, SEED_PREFIX
+    ScriptType, SEED_PREFIX_ACCOUNT
 from electrumsv.crypto import pw_decode
 from electrumsv import keystore
 from electrumsv.keystore import BIP32_KeyStore, instantiate_keystore_from_text, Multisig_KeyStore,\
@@ -78,7 +78,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
     def test_electrum_seed_standard(self) -> None:
         password = "zzz"
         seed_words = 'cycle rocket west magnet parrot shuffle foot correct salt library feed song'
-        self.assertTrue(ElectrumMnemonic.is_valid_new(seed_words, SEED_PREFIX))
+        self.assertTrue(ElectrumMnemonic.is_valid_new(seed_words, SEED_PREFIX_ACCOUNT))
 
         ks = cast(BIP32_KeyStore, instantiate_keystore_from_text(
             KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))
@@ -174,7 +174,7 @@ class TestWalletKeystoreAddressIntegrity(unittest.TestCase):
         password = "rrrr"
         seed_words = ('blast uniform dragon fiscal ensure vast young utility dinosaur '
             'abandon rookie sure')
-        self.assertTrue(ElectrumMnemonic.is_valid_new(seed_words, SEED_PREFIX))
+        self.assertTrue(ElectrumMnemonic.is_valid_new(seed_words, SEED_PREFIX_ACCOUNT))
 
         ks1 = cast(BIP32_KeyStore, instantiate_keystore_from_text(
             KeystoreTextType.ELECTRUM_SEED_WORDS, seed_words, password))

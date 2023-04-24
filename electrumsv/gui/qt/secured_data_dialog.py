@@ -45,7 +45,7 @@ from bitcoinx import bip32_key_from_string, BIP39Mnemonic, ElectrumMnemonic, Wor
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QDialog, QLabel, QVBoxLayout, QWidget
 
-from ...constants import DerivationType, SEED_PREFIX
+from ...constants import DerivationType, SEED_PREFIX_ACCOUNT, SEED_PREFIX_WALLET
 from ...i18n import _
 from ...keystore import BIP32_KeyStore, Deterministic_KeyStore, KeyStore
 
@@ -80,8 +80,10 @@ class SecuredDataDialog(QDialog):
                 seed_type_text = _("BIP32")
 
                 possible_seed_types = []
-                if ElectrumMnemonic.is_valid_new(seed_text, SEED_PREFIX):
-                    possible_seed_types.append(_("Electrum"))
+                if ElectrumMnemonic.is_valid_new(seed_text, SEED_PREFIX_ACCOUNT):
+                    possible_seed_types.append(_("Electrum (single account)"))
+                if ElectrumMnemonic.is_valid_new(seed_text, SEED_PREFIX_WALLET):
+                    possible_seed_types.append(_("Electrum (multi-account)"))
 
                 is_bip39_valid = False
                 try:
