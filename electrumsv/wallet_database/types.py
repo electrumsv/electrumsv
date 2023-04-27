@@ -188,7 +188,6 @@ class PasswordUpdateResult(NamedTuple):
     account_private_key_updates: dict[int, list[tuple[int, str]]]
     masterkey_updates: list[tuple[int, DerivationType, MasterKeyDataTypes]]
 
-
 class PushDataRegistrationRow(NamedTuple):
     pushdata_flags: int
     date_created: int

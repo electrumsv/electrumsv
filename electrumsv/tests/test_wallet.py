@@ -1,5 +1,6 @@
 import concurrent.futures
-import base64
+import dataclasses
+from enum import IntEnum
 import json
 import os
 import shutil
@@ -9,15 +10,15 @@ from typing import Any, cast, Callable, Coroutine, TypeVar
 import unittest
 import unittest.mock
 
-from bitcoinx import Chain, double_sha256, hash_to_hex_str, Header, hex_str_to_hash, \
-    MissingHeader, Ops, Script
+from bitcoinx import BIP39Mnemonic, Chain, double_sha256, ElectrumMnemonic, hash_to_hex_str, \
+    Header, hex_str_to_hash, MissingHeader, Ops, Script, Wordlists
 import pytest
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import (AccountFlags, AccountType, BlockHeight, CHANGE_SUBPATH,
     DATABASE_EXT, DerivationType, DatabaseKeyDerivationType, KeystoreTextType, MasterKeyFlags,
     PaymentFlag, RECEIVING_SUBPATH, ScriptType, StorageKind, TransactionImportFlag, TxFlags,
-    unpack_derivation_path)
+    unpack_derivation_path, KeystoreType, WALLET_ACCOUNT_PATH_TEXT, SEED_PREFIX_ACCOUNT)
 from electrumsv.crypto import pw_decode
 from electrumsv.exceptions import Bip270Exception, InvalidPassword, IncompatibleWalletError
 from electrumsv.keystore import (BIP32_KeyStore, Hardware_KeyStore,
@@ -28,10 +29,9 @@ from electrumsv.storage import get_categorised_files, WalletStorage, WalletStora
 from electrumsv.standards.electrum_transaction_extended import transaction_from_electrumsv_dict
 from electrumsv.transaction import Transaction, TransactionContext
 from electrumsv.types import DatabaseKeyDerivationData, MasterKeyDataBIP32, Outpoint, \
-    TransactionKeyUsageMetadata
-from electrumsv.wallet import (DeterministicAccount, ImportedPrivkeyAccount,
-    ImportedAddressAccount, MissingTransactionEntry, MultisigAccount, Wallet, StandardAccount,
-    WalletDataAccess)
+    TransactionKeyUsageMetadata, MasterKeyDataElectrumOld
+from electrumsv.wallet import (DeterministicAccount, ImportedPrivkeyAccount, ImportedAddressAccount,
+    MissingTransactionEntry, MultisigAccount, Wallet, StandardAccount, WalletDataAccess)
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database.exceptions import TransactionRemovalError
 from electrumsv.wallet_database.types import AccountRow, KeyInstanceRow, MerkleProofRow, \
@@ -40,6 +40,7 @@ from electrumsv.wallet_support.keys import get_pushdata_hash_for_keystore_key_da
 
 from .util import _create_mock_app_state, mock_headers, MockStorage, PasswordToken, \
     read_testdata_for_wallet, setup_async, tear_down_async, TEST_WALLET_PATH
+from ..network_support.api_server import NewServer
 
 T1 = TypeVar("T1")
 
@@ -57,7 +58,8 @@ def tearDownModule():
     tear_down_async()
 
 
-def get_categorised_files2(wallet_path: str, exclude_suffix: str="") -> list[WalletStorageInfo]:
+def get_categorised_files2(wallet_path: str, exclude_suffix: str="") \
+        -> list[WalletStorageInfo]:
     matches = get_categorised_files(wallet_path, exclude_suffix)
     # In order to ensure ordering consistency, we sort the files.
     return sorted(matches, key=lambda v: v.filename)
@@ -134,6 +136,8 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
     petty_cash_keystore = [ ks for ks in wallet_keystores
         if ks.get_parent_keystore() is wallet_keystore ][0]
     assert petty_cash_keystore.get_masterkey_flags() == MasterKeyFlags.NONE
+    assert petty_cash_keystore.get_parent_keystore() is wallet_keystore
+    assert petty_cash_keystore.has_seed() is False
     # Check that the petty cash keystore cached it's credential.
     assert petty_cash_keystore._xprv_credential_id is not None
     if add_indefinite_credential_mock is not None and petty_cash_keystore.xprv is not None:
@@ -187,6 +191,8 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
     assert 'seed' in keystore_data
     assert 'passphrase' in keystore_data
 
+    assert pw_decode(keystore_data['xprv'], password)
+
     keystore_encrypted = False
     try:
         account_keystores[0].check_password(None)
@@ -197,7 +203,7 @@ def check_legacy_parent_of_standard_wallet(wallet: Wallet,
         assert keystore_data['seed'] == seed_words
 
 def check_legacy_parent_of_imported_privkey_wallet(wallet: Wallet, password: str,
-        keypairs: dict[str, str] | None=None) -> None:
+        keyinstance_private_keys: dict[str, str] | None=None) -> None:
     assert len(wallet.get_accounts()) == 2
     account = cast(ImportedPrivkeyAccount,
         [ account for account in wallet.get_accounts()
@@ -216,10 +222,11 @@ def check_legacy_parent_of_imported_privkey_wallet(wallet: Wallet, password: str
         child_keystores[0].to_derivation_data()
     child_keystore = child_keystores[0]
     assert len(child_keystore._keypairs) == 1
-    if keypairs:
+    if keyinstance_private_keys:
         for public_key in child_keystore._public_keys.values():
             encrypted_prv =  child_keystore._keypairs[public_key]
-            assert pw_decode(encrypted_prv, password) == keypairs[public_key.to_hex()]
+            assert pw_decode(encrypted_prv, password) == \
+                   keyinstance_private_keys[public_key.to_hex()]
 
 
 def check_legacy_parent_of_imported_address_wallet(wallet: Wallet) -> None:
@@ -450,9 +457,10 @@ class TestLegacyWalletCreation:
             { "KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6" },
             "password")
 
-        keypairs = {'02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997':
+        keyinstance_private_keys = {'02c6467b7e621144105ed3e4835b0b4ab7e35266a2ae1c4f8baa19e9ca93452997':
             'KzMFjMC2MPadjvX5Cd7b8AKKjjpBSoRKUTpoAtN6B3J9ezWYyXS6'}
-        check_legacy_parent_of_imported_privkey_wallet(wallet, keypairs=keypairs,
+        check_legacy_parent_of_imported_privkey_wallet(wallet,
+            keyinstance_private_keys=keyinstance_private_keys,
             password='password')
 
     @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
@@ -504,11 +512,162 @@ class TestLegacyWalletCreation:
         check_create_keys(wallet, account)
 
 
+def load_wallet(storage: WalletStorage) -> Wallet | None:
+    try:
+        return Wallet(storage)
+    except FileNotFoundError as e:
+        if sys.version_info[:3] >= (3, 8, 0):
+            msg = "Could not find module 'libusb-1.0.dll' (or one of its dependencies)."
+            if msg in e.args[0]:
+                pytest.xfail("libusb DLL could not be found")
+                return
+        raise e
+    except OSError as e:
+        if sys.version_info[:3] < (3, 8, 0):
+            if "The specified module could not be found" in e.args[1]:
+                pytest.xfail("libusb DLL could not be found")
+                return
+        raise e
+
+@dataclasses.dataclass
+class State:
+    count_of_imported_privkey_account_reencryptions: int = 0
+    count_of_bip39_with_lost_seed_reencryptions: int = 0
+    count_of_bip39_with_saved_seed_reencryptions: int = 0
+    count_of_electrum_seed_per_account_reencryptions: int = 0
+    count_of_account_imported_from_electrum_seed_post_1_4_0: int = 0  # derivation is saved
+    count_of_account_imported_from_bip39_seed_post_1_4_0: int = 0  # derivation is saved
+    count_of_electrum_seed_per_wallet_reencryptions: int = 0
+    count_of_old_electrum_account_reencryptions: int = 0
+    count_of_multisig_account_reencryptions: int = 0
+
+    # Note that while the CredentialCache does contain sensitive data, it is not encrypted and
+    # therefore does not need to be checked for re-encryption coverage.
+
+
+test_state = State()
+
+
+class AccountCategory(IntEnum):
+    # Not all of these categories are formally represented in the ElectrumSV code
+    # base (i.e. with a dedicated class) but are used here for testing purposes to
+    # include all different permutations of historic accounts that need to work
+    # properly after db migration and password updates.
+    IMPORTED_PRIVKEY = 1
+    OLD = 2
+    ELECTRUM_SEED_PER_WALLET = 3
+    ELECTRUM_SEED_PER_ACCOUNT = 4
+    IMPORTED_ELECTRUM_SEED_POST_1_4_0 = 5
+    IMPORTED_BIP39_SEED_POST_1_4_0 = 6
+    BIP39_WITH_SAVED_SEED = 7
+    BIP39_WITH_LOST_SEED = 8
+    MULTISIG = 9
+    HARDWARE = 10
+    IMPORTED_ADDRESS = 11
+    BLANK = 12  # i.e. This wallet does not have an account yet
+
+
+def classify_account_category(wallet: Wallet, storage_info: WalletStorageInfo, new_password: str) \
+        -> AccountCategory:
+    original_migration_number = int(storage_info.filename[0:2])
+    accounts = [account for account in wallet.get_accounts() if not account.is_petty_cash()]
+    account_type: AccountCategory | None = None
+    if len(accounts) == 0:
+        assert storage_info.filename in {'22_testnet_blank'}
+        return AccountCategory.BLANK
+
+    assert len(accounts) == 1
+    account = accounts[0]
+    assert account is not None
+    if account.type() == AccountType.IMPORTED_ADDRESS:
+        return AccountCategory.IMPORTED_ADDRESS
+    if account.type() == AccountType.IMPORTED_PRIVATE_KEY:
+        return AccountCategory.IMPORTED_PRIVKEY
+
+    keystore = account.get_keystore()
+    derivation_data = keystore.to_derivation_data()
+    if keystore.type() == KeystoreType.OLD:
+        assert isinstance(MasterKeyDataElectrumOld, derivation_data)
+        assert derivation_data.get('mpk') is not None
+        assert not derivation_data.get('derivation')
+        assert not derivation_data.get('xpub')
+        account_type = AccountCategory.OLD
+    elif keystore.type() == KeystoreType.BIP32:
+        # can be BIP39/44 ("early" or "late") or Electrum seed (pre or post 1.4 release)
+        derivation = derivation_data.get('derivation')
+        encrypted_seed = derivation_data.get('seed')
+        seed: str | None = None
+        if encrypted_seed:
+            seed = pw_decode(derivation_data.get('seed'), new_password)
+
+        # Only post-1.4.0 accounts, imported from text have both a seed and derivation
+        # 1.3.0 accounts unfortunately did not store the derivation information.
+        if seed and derivation:
+            if ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX_ACCOUNT):
+                account_type = AccountCategory.IMPORTED_ELECTRUM_SEED_POST_1_4_0
+                assert "bip39" not in storage_info.filename.lower()
+            elif BIP39Mnemonic.is_valid(seed, Wordlists.bip39_wordlist("english.txt")):
+                # migration 23, 1.3.0, was the move to sqlite databases and where we started
+                # adding seed and passphrase for bip39 (bip44) accounts.
+                # Prior to this the seed was not stored (only xprv).
+                assert original_migration_number >= 23
+                assert "bip39" in storage_info.filename.lower()
+                account_type = AccountCategory.IMPORTED_BIP39_SEED_POST_1_4_0
+        elif not seed and derivation:
+            # The accounts created from 1.4.0 ESV are child derivations from a single parent seed
+            assert derivation.startswith(WALLET_ACCOUNT_PATH_TEXT)
+            account_type = AccountCategory.ELECTRUM_SEED_PER_WALLET
+        elif seed and not derivation:
+            # There is no derivation path for these because the derivation path was not saved
+            # prior to 1.4.0
+            if ElectrumMnemonic.is_valid_new(seed, SEED_PREFIX_ACCOUNT):
+                account_type = AccountCategory.ELECTRUM_SEED_PER_ACCOUNT
+                assert "bip39" not in storage_info.filename.lower()
+            elif BIP39Mnemonic.is_valid(seed, Wordlists.bip39_wordlist("english.txt")):
+                # migration 23, 1.3.0, was the move to sqlite databases and where we started
+                # adding seed and passphrase for bip39 (bip44) accounts.
+                # Prior to this the seed was not stored (only xprv).
+                assert original_migration_number >= 23
+                assert "bip39" in storage_info.filename.lower()
+                account_type = AccountCategory.BIP39_WITH_SAVED_SEED
+        elif not seed and not derivation and "bip39" in wallet.name().lower():
+            # json file storage. We never used to retain the seed for BIP39 accounts before the
+            # 1.3.0 release..
+            account_type = AccountCategory.BIP39_WITH_LOST_SEED
+            assert original_migration_number < 22
+    elif keystore.type() == KeystoreType.MULTISIG:
+        account_type = AccountCategory.MULTISIG
+        assert derivation_data.get('cosigner-keys') is not None
+    elif keystore.type() == KeystoreType.HARDWARE:
+        account_type = AccountCategory.HARDWARE
+
+    assert account_type is not None, "Was unable to classify the account type"
+    return account_type
+
+
+account_type_to_counter: dict[AccountCategory, int] = {
+    AccountCategory.IMPORTED_PRIVKEY: test_state.count_of_imported_privkey_account_reencryptions,
+    AccountCategory.OLD: test_state.count_of_old_electrum_account_reencryptions,
+    AccountCategory.ELECTRUM_SEED_PER_WALLET:
+        test_state.count_of_electrum_seed_per_wallet_reencryptions,
+    AccountCategory.ELECTRUM_SEED_PER_ACCOUNT:
+        test_state.count_of_electrum_seed_per_account_reencryptions,
+    AccountCategory.IMPORTED_ELECTRUM_SEED_POST_1_4_0:
+        test_state.count_of_account_imported_from_electrum_seed_post_1_4_0,
+    AccountCategory.IMPORTED_BIP39_SEED_POST_1_4_0:
+        test_state.count_of_account_imported_from_bip39_seed_post_1_4_0,
+    AccountCategory.BIP39_WITH_SAVED_SEED: test_state.count_of_bip39_with_saved_seed_reencryptions,
+    AccountCategory.BIP39_WITH_LOST_SEED: test_state.count_of_bip39_with_lost_seed_reencryptions,
+    AccountCategory.MULTISIG: test_state.count_of_multisig_account_reencryptions
+}
+
+@pytest.mark.usefixtures("set_to_mainnet_network_on_test_finish")
+@unittest.mock.patch('electrumsv.keystore.app_state.credentials.remove_indefinite_credential',
+    lambda x: None)
 @pytest.mark.parametrize("storage_info",
     get_categorised_files2(TEST_WALLET_PATH, exclude_suffix=".json"))
 @unittest.mock.patch('electrumsv.wallet.app_state', new_callable=_create_mock_app_state)
-def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorageInfo,
-        caplog) -> None:
+def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorageInfo) -> None:
     password = initial_password = "123456"
     password_token = PasswordToken(password)
     mock_wallet_app_state.credentials.get_wallet_password = lambda wallet_path: password
@@ -568,52 +727,87 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
     with unittest.mock.patch(
             'electrumsv.keystore.app_state.credentials.add_indefinite_credential',
             add_indefinite_credential_mock):
-        try:
-            wallet = Wallet(storage)
-        except FileNotFoundError as e:
-            if sys.version_info[:3] >= (3, 8, 0):
-                msg = "Could not find module 'libusb-1.0.dll' (or one of its dependencies)."
-                if msg in e.args[0]:
-                    pytest.xfail("libusb DLL could not be found")
-                    return
-            raise e
-        except OSError as e:
-            if sys.version_info[:3] < (3, 8, 0):
-                if "The specified module could not be found" in e.args[1]:
-                    pytest.xfail("libusb DLL could not be found")
-                    return
-            raise e
+        wallet = load_wallet(storage)
+        assert wallet is not None
 
-    # Store any pre-password update related data to compare against post-password update data.
-    prv_keypairs: dict[str, str] = {}
-    if "imported" == expected_type and "privkey" in wallet_filename:
-        assert len(wallet.get_accounts()) == 2
-        private_key_account = cast(ImportedPrivkeyAccount,
-            [ entry for entry in wallet.get_accounts() if not entry.is_petty_cash() ][0])
-        private_key_keystore = cast(Imported_KeyStore, private_key_account.get_keystore())
-        # Pre-decrypt the prv for later comparison so the initial password is not needed there.
-        for public_key, encrypted_prv in private_key_keystore._keypairs.items():
-            prv_keypairs[public_key.to_hex()] = pw_decode(encrypted_prv, initial_password)
-
-    password = "654321"
-    future, update_completion_event = wallet.update_password(initial_password, password)
+    # Password Change should cleanly update all cached & database level encrypted data
+    new_password = "654321"
+    future, update_completion_event = wallet.update_password(initial_password, new_password)
     # Wait for the database update to finish.
     future.result(5)
     # Wait for the done callback to finish.
     update_completion_event.wait()
 
+    password_token = wallet.get_storage().get('password-token')
+    assert pw_decode(password_token, new_password) is not None
+
+    encrypted_api_keys: list[str] = []
+    server: NewServer
+    for server in wallet._servers.values():
+        server_row = server.database_rows[None]
+        if server_row is not None and server_row.encrypted_api_key is not None:
+            decoded_value = pw_decode(server.database_rows[None].encrypted_api_key,
+                new_password)
+            encrypted_api_keys.append(decoded_value)
+
+    account_type = classify_account_category(wallet, storage_info, new_password)
+
+    # Capture any and all encrypted data types for any account type
+    master_key_xprvs: list[str] = []
+    master_key_seeds: list[str] = []
+    master_key_passphrases: list[str] = []
+    old_type_mpk: list[str] = []
+    for keystore in wallet.get_keystores():
+        data = keystore.to_derivation_data()
+        for entry_name in ("seed", "passphrase", "xprv", "mpk"):
+            entry_value = cast(str | None, data.get(entry_name, None))
+            if not entry_value:
+                continue
+            # Throws InvalidPassword
+            decoded_value = pw_decode(entry_value, new_password)
+            if entry_name == "seed":
+                master_key_seeds.append(decoded_value)
+            if entry_name == "xprv":
+                master_key_xprvs.append(decoded_value)
+            if entry_name == "passphrase":
+                master_key_passphrases.append(decoded_value)
+            if entry_name == "mpk":
+                old_type_mpk.append(decoded_value)
+
+    keyinstance_private_keys: dict[str, str] = {}
+    if account_type == AccountCategory.IMPORTED_PRIVKEY:
+        assert len(wallet.get_accounts()) == 2
+        private_key_account = cast(ImportedPrivkeyAccount,
+            [entry for entry in wallet.get_accounts() if not entry.is_petty_cash()][0])
+        private_key_keystore = cast(Imported_KeyStore, private_key_account.get_keystore())
+        # Pre-decrypt the prv for later comparison so the initial password is not needed there.
+        for public_key, encrypted_prv in private_key_keystore._keypairs.items():
+            keyinstance_private_keys[public_key.to_hex()] = pw_decode(encrypted_prv,
+                new_password)
+
+    data_was_reencrypted = len(master_key_xprvs) != 0 or \
+                           len(master_key_seeds) != 0 or \
+                           len(master_key_passphrases) != 0 or \
+                           len(old_type_mpk) != 0 or \
+                           len(keyinstance_private_keys) != 0
+
+    if data_was_reencrypted and account_type not in {AccountCategory.HARDWARE,
+            AccountCategory.IMPORTED_ADDRESS, AccountCategory.BLANK}:
+        account_type_to_counter[account_type] += 1
+
     if "standard" == expected_type:
-        check_legacy_parent_of_standard_wallet(wallet, password=password,
+        check_legacy_parent_of_standard_wallet(wallet, password=new_password,
             add_indefinite_credential_mock=add_indefinite_credential_mock)
     elif "imported" == expected_type:
         if "privkey" in wallet_filename:
-            check_legacy_parent_of_imported_privkey_wallet(wallet, password, prv_keypairs)
+            check_legacy_parent_of_imported_privkey_wallet(wallet, new_password,
+                keyinstance_private_keys)
         elif "address" in expected_subtypes:
             check_legacy_parent_of_imported_address_wallet(wallet)
         else:
             raise Exception(f"unrecognised wallet file {wallet_filename}")
     elif "multisig" == expected_type:
-        check_legacy_parent_of_multisig_wallet(wallet, password)
+        check_legacy_parent_of_multisig_wallet(wallet, new_password)
     elif "hardware" == expected_type:
         check_legacy_parent_of_hardware_wallet(wallet)
     elif "blank" == expected_type:
@@ -621,10 +815,43 @@ def test_legacy_wallet_loading(mock_wallet_app_state, storage_info: WalletStorag
     else:
         raise Exception(f"unrecognised wallet file {wallet_filename}")
 
-    check_specific_wallets(wallet, password, storage_info)
+    check_specific_wallets(wallet, new_password, storage_info)
 
-    if expected_network in { "testnet", "regtest" }:
-        Net.set_to(SVMainnet)
+
+# These tests won't pass unless it runs after the previous tests, as it depends on the generated
+# `test_state`
+def test_at_least_one_reencryption_for_account_type_old():
+    # No test wallets with old type keystores
+    with pytest.raises(AssertionError):
+        assert test_state.count_of_old_electrum_account_reencryptions > 0
+
+def test_at_least_one_reencryption_for_account_type_multisig():
+    assert account_type_to_counter[AccountCategory.MULTISIG] > 0
+
+def test_at_least_one_reencryption_for_account_type_imported_privkey():
+    assert account_type_to_counter[AccountCategory.IMPORTED_PRIVKEY] > 0
+
+def test_at_least_one_reencryption_for_account_type_pre_1_4_electrum():
+    assert account_type_to_counter[AccountCategory.ELECTRUM_SEED_PER_ACCOUNT] > 0
+
+def test_at_least_one_reencryption_for_account_type_post_1_4_electrum():
+    assert account_type_to_counter[AccountCategory.ELECTRUM_SEED_PER_WALLET] > 0
+
+def test_at_least_one_reencryption_for_account_type_imported_electrum_seed_post_1_4_0():
+    with pytest.raises(AssertionError):
+        assert account_type_to_counter[AccountCategory.IMPORTED_ELECTRUM_SEED_POST_1_4_0] > 0
+
+def test_at_least_one_reencryption_for_account_type_imported_bip39_seed_post_1_4_0():
+    with pytest.raises(AssertionError):
+        assert account_type_to_counter[AccountCategory.IMPORTED_BIP39_SEED_POST_1_4_0] > 0
+
+def test_at_least_one_reencryption_for_account_type_later_bip39():
+    # No bip39 with saved seed test wallets
+    with pytest.raises(AssertionError):
+        assert account_type_to_counter[AccountCategory.BIP39_WITH_SAVED_SEED] > 0
+
+def test_at_least_one_reencryption_for_account_type_early_bip39():
+    assert account_type_to_counter[AccountCategory.BIP39_WITH_LOST_SEED] > 0
 
 
 def validate_wallet_migration_failure_message(storage_info: WalletStorageInfo, text: str) -> None:
@@ -689,6 +916,7 @@ def check_specific_wallets(wallet: Wallet, password: str, storage_info: WalletSt
         assert storage_info.filename in {'22_testnet_blank'}
         return
 
+    assert len(accounts) == 1
     account = accounts[0]
     assert account is not None
 

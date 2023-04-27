@@ -28,6 +28,15 @@ def coin(request):
     finally:
         Net.set_to(SVMainnet)
 
+
+@pytest.fixture
+def set_to_mainnet_network_on_test_finish():
+    try:
+        yield
+    finally:
+        if Net.is_regtest() or Net.is_testnet() or Net.is_scaling_testnet():
+            Net.set_to(SVMainnet)
+
 def get_datacarrier_tx() -> Transaction:
     """datacarrier tx with one op_return output >6000 bytes and an xpubkey in the
     input - only for testing obj size calculation"""
