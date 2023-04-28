@@ -762,9 +762,8 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
         parameters)
 
     txid = parameter_values[0]
-    if parameter_values[0] is not None:
-        node_RPCTypeCheckArgument(request_id, txid, str)
-        node_ParseHexV(request_id, "txid", txid)
+    node_RPCTypeCheckArgument(request_id, txid, str)
+    node_ParseHexV(request_id, "txid", txid)
     # INCOMPATIBILITY: Raises RPC_INVALID_PARAMETER to indicate current lack of support for the
     # "include_watchonly" parameter - it should always be null.
     if len(parameter_values) > 1 and parameter_values[1] is not None:
@@ -779,7 +778,7 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
 
     transaction_info_obj: dict[bytes, TransactionInfo] = {}
 
-    def build_transaction_details() -> TransactionDetails:
+    def build_transaction_details(row: AccountHistoryOutputRow) -> TransactionDetails:
         # "immature", "orphan", "generate" not implemented yet
         category = "receive" if row.value > 0 else "send"
 
@@ -811,7 +810,7 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
         if txid != hash_to_hex_str(row.tx_hash):
             continue
 
-        transaction_details = build_transaction_details()
+        transaction_details = build_transaction_details(row)
         details.append(transaction_details)
 
         # INCOMPATIBILITY: The time field in the main transaction object is always the same as the
