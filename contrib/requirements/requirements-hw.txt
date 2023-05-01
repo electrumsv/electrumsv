@@ -15,4 +15,4 @@ electrumsv-btchip-python==0.1.32
 # protobuf==3.20.1  # Protobuf 4.0 errors and tells us to pin to 3.20 (required by at least Keepkey).
 # 2024-04-26 RT: Reverted to old reliable 3.18.0 as 3.20.0-3.20.3 produce corrupt values in the
 #   win32 pyinstaller builds. But they worked fine in win64 running from source.
-protobuf==3.20.3
+protobuf==3.18.0
