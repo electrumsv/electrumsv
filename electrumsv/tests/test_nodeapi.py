@@ -5,7 +5,10 @@ from decimal import Decimal
 from http import HTTPStatus
 import json
 import os
+from pathlib import Path
 from typing import Any, Callable, cast
+from unittest import mock
+
 from typing_extensions import NotRequired, TypedDict
 import unittest.mock
 
@@ -13,13 +16,15 @@ import aiohttp
 from aiohttp.test_utils import TestClient
 from aiohttp import web
 import bitcoinx
+from bitcoinx import Chain, Header, hash_to_hex_str, hex_str_to_hash
 import pytest
 
 from electrumsv.app_state import AppStateProxy
 from electrumsv.constants import AccountCreationType, DerivationType, KeystoreTextType, \
-    PaymentFlag, ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
+    ScriptType, TransactionImportFlag, TransactionOutputFlag, TxFlags
 from electrumsv.exceptions import InvalidPassword, NoViableServersError
 from electrumsv.keystore import instantiate_keystore_from_text
+from electrumsv.networks import SVRegTestnet
 from electrumsv.network_support.types import ServerConnectionState, TipFilterRegistrationJobOutput
 from electrumsv import nodeapi
 from electrumsv.nodeapi import RPCError
@@ -29,13 +34,16 @@ from electrumsv.storage import WalletStorage
 from electrumsv.transaction import Transaction, TransactionContext, XTxInput, XPublicKey
 from electrumsv.types import KeyStoreResult, Outpoint
 from electrumsv.wallet import StandardAccount, Wallet
-from electrumsv.wallet_database.types import AccountTransactionOutputSpendableRowExtended, KeyData, \
-    PaymentRequestOutputRow, PaymentRequestRow, TransactionLinkState, \
-    TransactionOutputSpendableProtocol, WalletBalance
+from electrumsv.wallet_database.types import AccountHistoryOutputRow, \
+    AccountTransactionOutputSpendableRowExtended, KeyData, PaymentRequestOutputRow, \
+    PaymentRequestRow, TransactionLinkState, TransactionOutputSpendableProtocol, WalletBalance, \
+    TransactionOutputSpendRow
+from .conftest import get_small_tx
 
 from .util import _create_mock_app_state2, MockStorage, TEST_DATA_PATH
 
 TEST_NODEAPI_PATH = os.path.join(TEST_DATA_PATH, "node_api")
+TEST_WALLET_PATH = os.path.join(TEST_DATA_PATH, "wallets")
 
 
 def coins_to_satoshis(value: float) -> int:
@@ -795,6 +803,255 @@ async def test_call_createrawtransaction_success_async(
     assert object["id"] == 232
     assert object["result"] == resulting_hex
     assert object["error"] is None
+
+TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56034713b602000000" \
+             "6a47304402200c9b6cd76a27f21739ef9c06c8e241f54b2614448da650590bb45b43167e7279022052" \
+             "9fc7ea40616c0a2807e734c430d878a111c87ce3dcd9abf93d4292adf432b8412103cbcade5f584e63" \
+             "08211224afe817c1995a0ce29fcc6d58b0042c19c527e03572ffffffff447322a683361f9af624847c" \
+             "5646928f745bca2e7cc3427025ddb77b4d39e036010000006a473044022020404cfffbe14e14154bd1" \
+             "5402d071db805d793ddc7e597f84bfd6cfaf0b2d0402206ff51625db1d50e5332dc8a54031e4277027" \
+             "afc7d3b849a1f21e4d1ff3e5bcdc412102a2943c7929d4fda0ce9a4094fc496342c683dfaa19e6c31c" \
+             "b9b77ea6f459ae44ffffffff0310270000000000001976a914635fa798e35ab0aa2289684129ff61d3" \
+             "d26ec17588ac10270000000000001976a914a71d74f7bacad8f1626cf44680114b9170d3397b88ac3b" \
+             "300000000000001976a914e92f00553d65610200efecceffb26c2b286eb81488ac00000000"
+
+@pytest.mark.parametrize("parameters,result", [
+    # Empty parameters array.
+    (["e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063"], {
+            'amount': -5.5,
+            'blockhash': '6c5ecfe2277cd134a5f9dadaa556bb322cbd89c3c6b144794ae3d3b3e0d47101',
+            'blockindex': 1,
+            'blocktime': 1680047960,
+            'confirmations': 1,
+            'details': [
+                {
+                    'account': '',
+                    'address': '152bd5gLonDrPbCwncG2JH7XBcni4JRBeo',
+                    'abandoned': False,
+                    'amount': -0.5,
+                    'category': 'send',
+                    'vout': 1,
+                    'label': '',
+                },
+                {
+                    'account': '',
+                    'address': '1AC2b7ALEF5jvVDBi6zQit42NrSC4nLkmo',
+                    'abandoned': False,
+                    'amount': -2.0,
+                    'category': 'send',
+                    'vout': 2,
+                    'label': '',
+                },
+                {
+                    'account': '',
+                    'address': '1CYJd9bHUD4tsjCpcoAgjcw15ZWbVnuwky',
+                    'abandoned': False,
+                    'amount': -3.0,
+                    'category': 'send',
+                    'vout': 3,
+                    'label': '',
+                }
+            ],
+            # 'fee': None,
+            'hex': TEST_RAWTX,
+            'time': 1680047951,
+            'timereceived': 1680047951,
+            'trusted': True,
+            'txid': 'e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063',
+            'walletconflicts': []
+        },
+    ),
+    # Note: Block hash 425a970f3375ef9bf31a2486ff7d7e0332834363c765861fceabb8a02e319db8 is known
+    # to be on the longest chain at height 13 for headers2_paytomany bitcoinx.Headers store
+    (['aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'], {
+                'amount': 0.5,
+                'blockhash': '425a970f3375ef9bf31a2486ff7d7e0332834363c765861fceabb8a02e319db8',
+                'blockindex': 1,
+                'blocktime': 1680045772,
+                'confirmations': 102,
+                'details': [
+                    {
+                        'account': '',
+                        'address': '152bd5gLonDrPbCwncG2JH7XBcni4JRBeo',
+                        'abandoned': False,
+                        'amount': 0.5,
+                        'category': 'generate',
+                        'vout': 1,
+                        'label': '',
+                    }
+                ],
+                # 'fee': None,
+                'hex': get_small_tx().to_hex(),
+                'time': 1680047951,
+                'timereceived': 1680047951,
+                'trusted': True,
+                'txid': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+                'walletconflicts': [],
+                'generated': True
+        },
+    ),
+    (["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"], {
+            'amount': 2.0,
+            # 'blockhash': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+            # 'blockindex': 1,
+            # 'blocktime': None,
+            'confirmations': 0,
+            'details': [
+                {
+                    'account': '',
+                    'address': '1AC2b7ALEF5jvVDBi6zQit42NrSC4nLkmo',
+                    'abandoned': False,
+                    'amount': 2.0,
+                    'category': 'orphan',
+                    'vout': 2,
+                    'label': '',
+                }
+            ],
+            # 'fee': None,
+            'hex': get_small_tx().to_hex(),
+            'time': 1680047951,
+            'timereceived': 1680047951,
+            'trusted': True,
+            'txid': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+            'walletconflicts': [],
+            'generated': True
+        },
+    ),
+    # Note: Block hash 639709e003c203e8bf9aad26bdaa7415c8a1ec06ae3405cb67d5a9d8059ba58f is known
+    # to be on the longest chain at height 50 for headers2_paytomany bitcoinx.Headers store
+    (["cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"], {
+            'amount': 3.0,
+            'blockhash': '639709e003c203e8bf9aad26bdaa7415c8a1ec06ae3405cb67d5a9d8059ba58f',
+            'blockindex': 1,
+            'blocktime': 1680045779,
+            'confirmations': 65,
+            'details': [
+                {
+                    'account': '',
+                    'address': '1CYJd9bHUD4tsjCpcoAgjcw15ZWbVnuwky',
+                    'abandoned': False,
+                    'amount': 3.0,
+                    'category': 'immature',
+                    'vout': 3,
+                    'label': '',
+                }
+            ],
+            # 'fee': None,
+            'hex': get_small_tx().to_hex(),
+            'time': 1680047951,
+            'timereceived': 1680047951,
+            'trusted': True,
+            'txid': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+            'walletconflicts': [],
+            'generated': True
+        },
+    )
+])
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_gettransaction_success_async(app_state_nodeapi: AppStateProxy,
+        parameters: list[Any], result: dict[str, Any],
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        nonlocal account
+        return [ account ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    def get_local_height() -> int:
+        return 114
+
+    wallet.get_local_height.side_effect = get_local_height
+
+    MODULE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+    headers = bitcoinx.Headers(network=bitcoinx.BitcoinRegtest,
+        file_path=str(MODULE_DIR / "data" / "headers" / "headers2_paytomany"),
+        checkpoint=SVRegTestnet.CHECKPOINT)
+
+    # This is not mocking and I don't know why!
+    wallet.get_current_chain.side_effect = headers.longest_chain
+
+    def lookup_header_for_hash(block_hash: bytes) -> tuple[Header, Chain] | None:
+        return headers.lookup(block_hash)
+
+    wallet.lookup_header_for_hash = lookup_header_for_hash
+
+    def get_transaction(transaction_hash: bytes) -> Transaction:
+        if transaction_hash == \
+                hex_str_to_hash("e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063"):
+            return Transaction.from_hex(TEST_RAWTX)
+        return get_small_tx()
+
+    wallet.get_transaction.side_effect = get_transaction
+
+    # TODO, use the test wallet with multiple rows for a single transaction
+    #  this will allow testing of the multiple details array
+    file_path = os.path.join(TEST_WALLET_PATH, "node_api_gettransaction_mock_data.json")
+
+    def convert_json_to_row(json_data: list[dict[str, Any]]) -> list[AccountHistoryOutputRow]:
+        rows: list[AccountHistoryOutputRow] = []
+        for x in json_data:
+            row = AccountHistoryOutputRow(
+                tx_hash=hex_str_to_hash(x["tx_id"]),
+                txo_index=x["txo_index"],
+                script_pubkey_bytes=bytes.fromhex(x["script_pubkey_hex"]),
+                is_mine=x["is_mine"],
+                is_coinbase=x["is_coinbase"],
+                value=x["value"],
+                block_hash=hex_str_to_hash(x["block_id"]),
+                block_height=x["block_height"],
+                block_position=x["block_position"],
+                date_created=x["date_created"],
+            )
+            rows.append(row)
+        return rows
+
+    wallet.data.read_history_for_outputs.side_effect = lambda *args, **kwargs: \
+        [x for x in convert_json_to_row(json.loads(open(file_path, "r").read()))
+            if hash_to_hex_str(x.tx_hash) == parameters[0]]
+
+    # Return a mock list[TransactionOutputSpendRow] - the only field that is used is the `tx_hash`
+    wallet.data.read_parent_transaction_outputs_with_key_data.side_effect = \
+        lambda *args, **kwargs: [
+            TransactionOutputSpendRow(
+                txi_index=0,
+                tx_hash=parameters[0],
+                txo_index=0,
+                value=0,
+                keyinstance_id=1,
+                script_type=ScriptType.P2PKH,
+                flags=TransactionOutputFlag.SPENT,
+                account_id=2,
+                masterkey_id=2,
+                derivation_type=DerivationType.BIP32,
+                derivation_data2=b"aaaaaaaa"
+            )]
+
+    # Params as an empty list
+    call_object = {
+        "id": 343,
+        "method": "gettransaction",
+        "params": parameters,
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.OK
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 343
+    assert object["result"] == result
+    assert isinstance(object["result"], dict)
+    assert object["error"] is None
+
 
 @pytest.mark.parametrize("local_height,block_height,parameters,results", [
     # Empty parameters array.
