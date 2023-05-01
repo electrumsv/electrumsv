@@ -59,8 +59,8 @@ from typing_extensions import NotRequired, TypedDict
 from aiohttp import web
 # NOTE(typing) `cors_middleware` is not explicitly exported, so mypy strict fails. No idea.
 from aiohttp_middlewares import cors_middleware # type: ignore
-from bitcoinx import Address, hash_to_hex_str, hex_str_to_hash, Ops, pack_byte, \
-    push_item, Script, SigHash, Tx, TxInput, TxInputContext, TxOutput, MissingHeader
+from bitcoinx import Address, hash_to_hex_str, hex_str_to_hash, MissingHeader, Ops, pack_byte, \
+    push_item, Script, SigHash, Tx, TxInput, TxInputContext, TxOutput
 
 from .app_state import app_state
 from .bitcoin import COIN, COINBASE_MATURITY, script_template_to_string
@@ -733,10 +733,12 @@ class TransactionInfo(TypedDict, total=False):
 class TransactionDetails(TypedDict, total=False):
     account: str
     address: str | None
+    abandoned: bool
     amount: float
     category: str
     fee: float | None
     vout: int
+    label: str
 
 
 async def jsonrpc_gettransaction_async(request: web.Request, request_id: RequestIdType,
@@ -775,30 +777,34 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
         wallet.data.read_history_for_outputs(account.get_id(),
             transaction_hash=hex_str_to_hash(txid))
 
-    transaction_info_obj: dict[bytes, TransactionInfo] = {}
-
-    def build_transaction_details(row: AccountHistoryOutputRow) -> TransactionDetails:
-        assert wallet is not None
+    transaction_info: TransactionInfo = {}
+    details: list[TransactionDetails] = []
+    blocktime: int | None = None
+    confirmations: int = 0
+    for row in account_history_output_rows:
         # "immature", "orphan", "generate" not implemented yet
         category = "receive" if row.value > 0 else "send"
-        if row.is_coinbase:
-            wallet_height = wallet.get_local_height()
-            if row.block_hash is not None and wallet_height > 0:
-                try:
-                    lookup_result = wallet.lookup_header_for_hash(row.block_hash)
-                except MissingHeader:
+        wallet_height = wallet.get_local_height()
+        if row.block_hash is not None and wallet_height > 0:
+            try:
+                lookup_result = wallet.lookup_header_for_hash(row.block_hash)
+            except MissingHeader:
+                if row.is_coinbase:
                     category = "orphan"
-                else:
-                    assert lookup_result is not None
-                    header, chain = lookup_result
-                    confirmations = wallet_height - header.height
+            else:
+                assert lookup_result is not None
+                header, chain = lookup_result
+                confirmations = wallet_height - header.height + 1
+                blocktime = header.timestamp
+                if row.is_coinbase:
                     if chain != wallet.get_current_chain():
                         category = "orphan"
                     elif confirmations < COINBASE_MATURITY:
                         category = "immature"
                     else:
                         category = "generate"
-            else:
+        else:
+            if row.is_coinbase:
                 category = "immature"
 
         # INCOMPATIBILITY: The 'account' field is always "" as we do not support this feature in
@@ -821,23 +827,49 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
 
         transaction_details = TransactionDetails(
             address=address,
-            # abandoned=None,  # not implemented yet
+            abandoned=False,
             account="",
             amount=row.value / COIN,  # Convert from satoshis to bitcoins
             category=category,
             # fee=None,  # not implemented yet
             vout=row.txo_index,
+            label=''
         )
-        return transaction_details
-
-    details: list[TransactionDetails] = []
-    for row in account_history_output_rows:
-        if txid != hash_to_hex_str(row.tx_hash):
-            continue
-
-        transaction_details = build_transaction_details(row)
         details.append(transaction_details)
 
+        # Is the given transaction trusted? (wallet.cpp:CWalletTx::IsTrusted)
+        # - Not if the given transaction is non-final.
+        # - Yes if the given transaction has at least one confirmation.
+        # - Not if the given transaction is in a block on another fork.
+        # - Not if the wallet is configured to not spend "zero confirmation change" (which the node
+        #   wallet defaults to setting to spend).
+        # - Not if the given transaction is not funded by ourselves (note that this is not tied to
+        #   the use of a change derivation path).
+        # - Not if the given known to be unconfirmed transaction is not in "this node's"  mempool.
+        # - Not if any of the funding does not come from us.
+        # - Not if our funding is not spendable by us (we can produce a signature / have the key).
+
+        # ElectrumSV take:
+        # - We do not get non-final transactions here.
+        # - We have already filtered out non-broadcast/non-mined transactions.
+        # - We do not have a setting for whether to spend "zero confirmation change" or not but we
+        #   do have a setting for "only spend confirmed coins" (we default this to no). These are
+        #   not the same thing.
+        #   - Read all the funding TXOs, if we have them all and they have keys, then we are
+        #     meeting this constraint.
+        # - Basically it comes down to the latter. A trusted coin is one from any confirmed
+        #   transaction or one that comes from a coin in an unconfirmed transaction that we
+        #   completely funded ourselves. We treat "zero confirmation change" as true and do not
+        #   provide a way to disable it.
+        trusted = True
+        if confirmations == 0:
+            for funding_row in wallet.data.read_parent_transaction_outputs_with_key_data(
+                    row.tx_hash, include_absent=True):
+                # This will exit on funding by unknown transactions and also on funding by external
+                # transactions we do not have the keys for.
+                if funding_row.keyinstance_id is None:
+                    trusted = False
+                    break
 
         # INCOMPATIBILITY: The time field in the main transaction object is always the same as the
         # timereceived value. bitcoind computes a “smart time” but we do not support that at this
@@ -845,33 +877,29 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
         # INCOMPATIBILITY: The walletconflicts field in the main transaction object is always []
         # as we do not
         # currently support this field.
+        rawtx = wallet.get_transaction(row.tx_hash)
+        assert rawtx is not None
         transaction_info = TransactionInfo(
-            amount=row.value / COIN,
-            blockhash=hash_to_hex_str(row.block_hash) if row.block_hash else None,
-            blockindex=row.block_position if row.block_hash else None,
-            # blocktime=None,  # not implemented yet
-            # confirmations=None,  # not implemented yet
+            confirmations=confirmations,
             details=details,
+            amount=(transaction_info.get('amount', 0.0) + (row.value / COIN)),
             # fee=None,  # not implemented yet
-            hex="",
+            hex=rawtx.to_hex(),
             time=row.date_created,
             timereceived=row.date_created,
-            # trusted=None,  # not implemented yet
+            trusted=trusted,
             txid=hash_to_hex_str(row.tx_hash),
             walletconflicts=[],
         )
+        if confirmations > 0:
+            transaction_info['blockhash'] = hash_to_hex_str(row.block_hash) if row.block_hash \
+                else None
+            transaction_info['blockindex'] = row.block_position if row.block_hash else None
+            transaction_info['blocktime'] = blocktime
         if row.is_coinbase:
             transaction_info['generated'] = True
 
-        transaction_info_already_added = transaction_info_obj.get(row.tx_hash, None)
-        # If there are multiple rows for a single tx_hash, overwrite the previous entry after
-        # updating the amount
-        if transaction_info_already_added:
-            transaction_info['amount'] = transaction_info_already_added['amount'] + \
-                (row.value / COIN)
-        transaction_info_obj[row.tx_hash] = transaction_info
-
-    return list(transaction_info_obj.values())
+    return transaction_info
 
 
 async def jsonrpc_getbalance_async(request: web.Request, request_id: RequestIdType,
