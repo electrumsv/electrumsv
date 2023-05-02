@@ -72,7 +72,8 @@ from .logs import logs
 from .networks import Net
 from .standards.node_transaction import transactions_from_node_bytes
 from .standards.script_templates import classify_transaction_output_script
-from .transaction import TransactionContext, TransactionFeeEstimator, XTxInput, XTxOutput
+from .transaction import TransactionContext, TransactionFeeEstimator, XTxInput, XTxOutput, \
+    Transaction
 from .types import Outpoint
 
 from .util import constant_time_compare
@@ -762,9 +763,14 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
     # Compatibility: Raises RPC_INVALID_PARAMETER if we were given unlisted named parameters.
     parameter_values = transform_parameters(request_id, [ "txid", "include_watchonly" ],
         parameters)
-    txid = parameter_values[0]
-    node_RPCTypeCheckArgument(request_id, txid, str)
-    node_ParseHexV(request_id, "txid", txid)
+    if len(parameter_values) < 1 or len(parameter_values) > 2:
+        raise web.HTTPInternalServerError(headers={"Content-Type": "application/json"},
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+            error=ErrorDict(code=RPCError.INVALID_PARAMS,
+            message="Invalid parameters, see documentation for this call"))))
+
+    txid = get_string_parameter(request_id, parameter_values[0])
+
     # INCOMPATIBILITY: Raises RPC_INVALID_PARAMETER to indicate current lack of support for the
     # "include_watchonly" parameter - it should always be null.
     if len(parameter_values) > 1 and parameter_values[1] is not None:
@@ -773,9 +779,20 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
             error=ErrorDict(code=RPCError.PARSE_ERROR,
             message="JSON value is not a null as expected"))))
 
+    tx: Transaction | None = None
+    tx_hash: bytes | None = None
+    if len(txid) == 64:
+        tx_hash = hex_str_to_hash(txid)
+        tx = wallet.get_transaction(hex_str_to_hash(txid))
+    if not tx:
+        raise web.HTTPInternalServerError(headers={"Content-Type": "application/json"},
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=RPCError.INVALID_ADDRESS_OR_KEY,
+                    message="Invalid or non-wallet transaction id"))))
+    assert tx is not None
+    assert tx_hash is not None
     account_history_output_rows: list[AccountHistoryOutputRow] = \
-        wallet.data.read_history_for_outputs(account.get_id(),
-            transaction_hash=hex_str_to_hash(txid))
+        wallet.data.read_history_for_outputs(account.get_id(), tx_hash)
 
     if not account_history_output_rows:
         return {}
@@ -843,25 +860,23 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
     trusted = True
     if confirmations == 0:
         for funding_row in wallet.data.read_parent_transaction_outputs_with_key_data(
-                row.tx_hash, include_absent=True):
+                tx_hash, include_absent=True):
             # This will exit on funding by unknown transactions and also on funding by external
             # transactions we do not have the keys for.
             if funding_row.keyinstance_id is None:
                 trusted = False
                 break
 
-    rawtx = wallet.get_transaction(row.tx_hash)
-    fee = wallet.data.read_transaction_fee(row.tx_hash)
-    assert rawtx is not None
+    fee = wallet.data.read_transaction_fee(tx_hash)
     transaction_info = TransactionInfo(
         confirmations=confirmations,
         details=[],
         fee=fee,
-        hex=rawtx.to_hex(),
+        hex=tx.to_hex(),
         time=row.date_created,
         timereceived=row.date_created,
         trusted=trusted,
-        txid=hash_to_hex_str(row.tx_hash),
+        txid=txid,
         walletconflicts=[],
     )
     if row.is_coinbase:

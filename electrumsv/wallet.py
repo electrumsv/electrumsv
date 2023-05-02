@@ -2292,7 +2292,7 @@ class WalletDataAccess:
 
     # Transactions.
 
-    def read_transaction_fee(self, transaction_hash: bytes) -> float:
+    def read_transaction_fee(self, transaction_hash: bytes) -> float | None:
         return db_functions.read_transaction_fee(self._db_context, transaction_hash)
 
     def get_transaction_deltas(self, tx_hash: bytes, account_id: int | None=None) \

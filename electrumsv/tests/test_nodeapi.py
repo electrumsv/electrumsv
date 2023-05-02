@@ -565,6 +565,26 @@ endpoint_error_parameter_list = [
     ("createrawtransaction", [ [], {}, 0xFFFFFFFF+1  ], RPCError.INVALID_PARAMETER,
         "Invalid parameter, locktime out of range"),
 
+    ## ``gettransaction``: ``txid`` general parameters
+    # Error case: RPC_INVALID_PARAMS / Need at 1 argument.
+    ("gettransaction", [], RPCError.INVALID_PARAMS,
+        "Invalid parameters, see documentation for this call"),
+    # Error case: RPC_INVALID_PARAMS / Cannot have more than 2 arguments.
+    ("gettransaction", ["string", None, None], RPCError.INVALID_PARAMS,
+        "Invalid parameters, see documentation for this call"),
+    # Error case: RPC_PARSE_ERROR / txid needs to be a string
+    ("gettransaction", [12345], RPCError.PARSE_ERROR,
+        "JSON value is not a string as expected"),
+    # Error case: RPC_PARSE_ERROR / second argument needs to be null
+    ("gettransaction", ["string", "string"], RPCError.PARSE_ERROR,
+        "JSON value is not a null as expected"),
+    # Error case: RPC_PARSE_ERROR / txid needs to match with an existing wallet transaction
+    ("gettransaction", ["aaaa"], RPCError.INVALID_ADDRESS_OR_KEY,
+        "Invalid or non-wallet transaction id"),
+    # Error case: RPC_PARSE_ERROR / invalid hex txids give this error on the node
+    ("gettransaction", ["----"], RPCError.INVALID_ADDRESS_OR_KEY,
+        "Invalid or non-wallet transaction id"),
+
     ## ``getbalance``: ``minconf`` parameter
     # Error case: RPC_PARSE_ERROR / String in place of account - not supported.
     ("getbalance", ["string"], RPCError.PARSE_ERROR, "JSON value is not a null as expected"),
