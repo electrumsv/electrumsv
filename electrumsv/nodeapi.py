@@ -851,11 +851,12 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
                 break
 
     rawtx = wallet.get_transaction(row.tx_hash)
+    fee = wallet.data.read_transaction_fee(row.tx_hash)
     assert rawtx is not None
     transaction_info = TransactionInfo(
         confirmations=confirmations,
         details=[],
-        # fee=None,  # not implemented yet
+        fee=fee,
         hex=rawtx.to_hex(),
         time=row.date_created,
         timereceived=row.date_created,
@@ -899,7 +900,7 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
             account="",
             amount=row.value / COIN,  # Convert from satoshis to bitcoins
             category=category,
-            # fee=None,  # not implemented yet
+            fee=fee,
             vout=row.txo_index,
             label=''
         )

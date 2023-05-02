@@ -2292,6 +2292,9 @@ class WalletDataAccess:
 
     # Transactions.
 
+    def read_transaction_fee(self, transaction_hash: bytes) -> float:
+        return db_functions.read_transaction_fee(self._db_context, transaction_hash)
+
     def get_transaction_deltas(self, tx_hash: bytes, account_id: int | None=None) \
             -> list[TransactionDeltaSumRow]:
         return db_functions.read_transaction_values(self._db_context, tx_hash, account_id)
