@@ -41,6 +41,7 @@ from electrumsv.wallet_database.types import AccountHistoryOutputRow, \
 from .conftest import get_small_tx
 
 from .util import _create_mock_app_state2, MockStorage, TEST_DATA_PATH
+from ..bitcoin import COIN
 
 TEST_NODEAPI_PATH = os.path.join(TEST_DATA_PATH, "node_api")
 TEST_WALLET_PATH = os.path.join(TEST_DATA_PATH, "wallets")
@@ -830,6 +831,7 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                     'abandoned': False,
                     'amount': -0.5,
                     'category': 'send',
+                    'fee': 3e-06,
                     'vout': 1,
                     'label': '',
                 },
@@ -839,6 +841,7 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                     'abandoned': False,
                     'amount': -2.0,
                     'category': 'send',
+                    'fee': 3e-06,
                     'vout': 2,
                     'label': '',
                 },
@@ -848,11 +851,12 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                     'abandoned': False,
                     'amount': -3.0,
                     'category': 'send',
+                    'fee': 3e-06,
                     'vout': 3,
                     'label': '',
                 }
             ],
-            # 'fee': None,
+            'fee': 300 / COIN,
             'hex': TEST_RAWTX,
             'time': 1680047951,
             'timereceived': 1680047951,
@@ -876,11 +880,12 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                         'abandoned': False,
                         'amount': 0.5,
                         'category': 'generate',
+                        'fee': None,
                         'vout': 1,
                         'label': '',
                     }
                 ],
-                # 'fee': None,
+                'fee': None,
                 'hex': get_small_tx().to_hex(),
                 'time': 1680047951,
                 'timereceived': 1680047951,
@@ -903,11 +908,12 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                     'abandoned': False,
                     'amount': 2.0,
                     'category': 'orphan',
+                    'fee': None,
                     'vout': 2,
                     'label': '',
                 }
             ],
-            # 'fee': None,
+            'fee': None,
             'hex': get_small_tx().to_hex(),
             'time': 1680047951,
             'timereceived': 1680047951,
@@ -932,11 +938,12 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                     'abandoned': False,
                     'amount': 3.0,
                     'category': 'immature',
+                    'fee': None,
                     'vout': 3,
                     'label': '',
                 }
             ],
-            # 'fee': None,
+            'fee': None,
             'hex': get_small_tx().to_hex(),
             'time': 1680047951,
             'timereceived': 1680047951,
@@ -993,6 +1000,14 @@ async def test_call_gettransaction_success_async(app_state_nodeapi: AppStateProx
         return get_small_tx()
 
     wallet.get_transaction.side_effect = get_transaction
+
+    def read_transaction_fee(tx_hash: bytes) -> float | None:
+        if tx_hash == \
+                hex_str_to_hash("e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063"):
+            return 300 / COIN
+        return
+
+    wallet.data.read_transaction_fee.side_effect = read_transaction_fee
 
     # TODO, use the test wallet with multiple rows for a single transaction
     #  this will allow testing of the multiple details array

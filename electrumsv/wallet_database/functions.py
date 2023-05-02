@@ -37,6 +37,7 @@ from bitcoinx import hash_to_hex_str
 from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, execute_sql_by_id, \
     read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
 
+from ..bitcoin import COIN
 from ..constants import (BlockHeight, DerivationType, DerivationPath,
     KeyInstanceFlag, MAPIBroadcastFlag, NetworkServerFlag, pack_derivation_path, PaymentFlag,
     PeerChannelAccessTokenFlag, PeerChannelMessageFlag, PushDataHashRegistrationFlag, ScriptType,
@@ -44,6 +45,7 @@ from ..constants import (BlockHeight, DerivationType, DerivationPath,
 from ..crypto import pw_decode, pw_encode
 from ..i18n import _
 from ..logs import logs
+from ..transaction import Transaction
 from ..types import KeyInstanceDataPrivateKey, MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
     MasterKeyDataMultiSignature, MasterKeyDataTypes, Outpoint, OutputSpend, \
     ServerAccountKey
@@ -52,8 +54,8 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     IncompleteProofDataSubmittedError, TransactionAlreadyExistsError, TransactionRemovalError)
 from .types import (AccountRow, AccountHistoryOutputRow, AccountTransactionRow,
     AccountTransactionDescriptionRow, AccountTransactionOutputSpendableRow,
-    AccountTransactionOutputSpendableRowExtended,
-    DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceAccountRow, InvoiceRow,
+    AccountTransactionOutputSpendableRowExtended, DPPMessageRow, ExternalPeerChannelRow,
+    HistoryListRow, InputSpendValueRow, InvoiceAccountRow, InvoiceRow,
     KeyInstanceFlagRow, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, MasterKeyRow,
     MAPIBroadcastRow, NetworkServerRow, PasswordUpdateResult, PaymentRequestRow,
     PaymentRequestOutputRow, PaymentRequestTransactionHashRow, PaymentRequestUpdateRow,
@@ -1323,6 +1325,42 @@ def read_transaction_outputs(db: sqlite3.Connection, output_ids: list[Outpoint])
         "FROM TransactionOutputs")
     sql_condition = "tx_hash=? AND txo_index=?"
     return read_rows_by_ids(TransactionOutputAddRow, db, sql, sql_condition, [], output_ids)
+
+
+@replace_db_context_with_connection
+def read_transaction_fee(db: sqlite3.Connection, tx_hash: bytes) -> float | None:
+    sql_read_input_values = """
+        SELECT TXIN.tx_hash, TXIN.txi_index, TXIN.spent_tx_hash, TXIN.spent_txo_index, 
+               TXOUT.value
+        FROM TransactionInputs TXIN
+        -- join on outpoint to get the value of the inputs
+        JOIN TransactionOutputs TXOUT
+            ON TXIN.spent_tx_hash = TXOUT.tx_hash AND
+               TXIN.spent_txo_index = TXOUT.txo_index
+        WHERE TXIN.tx_hash = ?1
+          """
+    sql_read_tx_data = "SELECT tx_data FROM Transactions WHERE tx_hash=?1"
+
+    row = db.execute(sql_read_tx_data, (tx_hash,)).fetchone()
+    if row is None:
+        return None
+    tx = Transaction.from_bytes(row[0])
+
+    rows = db.execute(sql_read_input_values, (tx_hash,)).fetchall()
+    if len(tx.inputs) != len(rows):
+        # If we do not have the value of all inputs, then we cannot calculate the tx fee
+        return None
+
+    total_input_value = 0
+    row: InputSpendValueRow
+    for row in rows:
+        total_input_value += row.value
+
+    total_output_value = 0
+    for output in tx.outputs:
+        total_output_value += output.value
+
+    return (total_input_value - total_output_value) / COIN
 
 
 @replace_db_context_with_connection
@@ -3124,4 +3162,3 @@ def _reconcile_transaction_output_spends(db: sqlite3.Connection, tx_hash: bytes)
         return False
 
     return True
-
