@@ -193,13 +193,12 @@ class QtHandlerBase(QObject):
         self.clear_dialog()
         title = _('Please check your {} device').format(self.device)
         self.dialog = dialog = WindowModalDialog(self.top_level_window(), title)
-        vbox = QVBoxLayout()
+        vbox = QVBoxLayout(dialog)
         vbox.addWidget(QLabel(msg))
         if on_cancel:
             dialog.rejected.connect(on_cancel)
             vbox.addLayout(Buttons(CancelButton(dialog)))
-        dialog.setLayout(vbox)
-        dialog.exec_()
+        dialog.show()
 
     def error_dialog(self, msg):
         self.win.show_error(msg, parent=self.top_level_window())

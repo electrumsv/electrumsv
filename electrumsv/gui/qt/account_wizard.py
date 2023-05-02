@@ -1129,6 +1129,19 @@ class SetupHardwareWalletAccountPage(QWizardPage):
 
     def _initiate_setup(self) -> None:
         self._setup_device()
+
+        # 2023-05-03 RT: There are issues with Qt and hardware wallets. This comment explains why
+        #     we choose to live with them given they seem to just be a poor experience, but work,
+        #     where the larger fix requires a lot of rewriting.
+
+        # There's a thing where the trezor password "confirm on device" dialog is blank. This is
+        # because the hardware wallet setup code is running in the GUI thread and the hardware
+        # wallet blocks the GUI thread. But it works. The proper fix is to move the hardware wallet
+        # setup code to the a worker thread, but this is not as easy as it seems because the
+        # signals on the hardware wallet objects likely need to be created on the GUI thread and
+        # that requires restructuring the code (otherwise they seem to bind to the thread they are
+        # created on?).
+
     #     app_state.app.run_in_thread(self._setup_device, on_done=self._on_setup_complete)
 
     # def _on_setup_complete(self, future: concurrent.futures.Future) -> None:
