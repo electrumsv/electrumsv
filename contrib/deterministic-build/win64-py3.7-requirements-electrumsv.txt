@@ -139,24 +139,18 @@ chardet==3.0.4 \
     # via
     #   aiohttp
     #   requests
-click==8.1.3 \
-    --hash=sha256:7682dc8afb30297001674575ea00d1814d808d6a36af415a82bd481d37ba7b8e \
-    --hash=sha256:bb4d8133cb15a609f44e8213d9b391b0809795062913b383c62be0ee95b1db48
-    # via trezor
+click==7.1.2 \
+    --hash=sha256:d2b5255c7c6349bc1bd1e59e08cd12acbbd63ce649f2588755783aa94dfb6b1a \
+    --hash=sha256:dacca89f4bfadd5de3d7489b7c8a566eee0d3676333fbb50030263894c38c0dc
+    # via
+    #   -r C:\Data\R\git\electrumsv\contrib\requirements\requirements-hw.txt
+    #   trezor
 colorama==0.4.6 \
     --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
     --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
-    # via
-    #   click
-    #   qrcode
+    # via qrcode
 construct==2.10.68 \
     --hash=sha256:7b2a3fd8e5f597a5aa1d614c3bd516fa065db01704c72a1efaaeec6ef23d8b45
-    # via
-    #   construct-classes
-    #   trezor
-construct-classes==0.1.2 \
-    --hash=sha256:72ac1abbae5bddb4918688713f991f5a7fb6c9b593646a82f4bf3ac53de7eeb5 \
-    --hash=sha256:e82437261790758bda41e45fb3d5622b54cfbf044ceb14774af68346faf5e08e
     # via trezor
 dmgbuild==1.6.1 \
     --hash=sha256:45dba6af4a64872c6a91eb335ebeaf5e1f4f4f39c89fd77cf40e841bd1226166 \
@@ -254,9 +248,7 @@ idna==2.10 \
 importlib-metadata==6.6.0 \
     --hash=sha256:43dd286a2cd8995d5eaef7fee2066340423b818ed3fd70adf0bad5f1fac53fed \
     --hash=sha256:92501cdf9cc66ebd3e612f1b4f0c0765dfa42f0fa38ffb319b6bd84dd675d705
-    # via
-    #   attrs
-    #   click
+    # via attrs
 importlib-resources==5.9 \
     --hash=sha256:5481e97fb45af8dcf2f798952625591c58fe599d0735d86b10f54de086a61681 \
     --hash=sha256:f78a8df21a79bcc30cfd400bdc38f314333de7c0fb619763f6b9dabab8268bb7
@@ -506,18 +498,15 @@ requests==2.25.0 \
     # via
     #   -r C:\Data\R\git\electrumsv\contrib\requirements\requirements.txt
     #   trezor
-simple-rlp==0.1.3 \
-    --hash=sha256:2df1d2b769f0a0177d26231ab8be16e65e3546b17bb0a9a490efd3517c082876
-    # via trezor
 six==1.16.0 \
     --hash=sha256:1e61c37477a1626458e36f7b1d82aa5c9b094fa4802892072e49de9c60c4c926 \
     --hash=sha256:8abb2f1d86890a2dfb989f9a77cfcfd3e47c2a354b01111771326f8aa26e0254
     # via
     #   ecdsa
     #   python-dateutil
-trezor==0.13.5 \
-    --hash=sha256:8e150171affeac381efdb14782929084d6414ec77cccdc871d6f0d644ff57bd8 \
-    --hash=sha256:e8c7f3cc10a588766ae6c97eb6297c4730963a0a491595faee534f6213627c88
+trezor==0.12.0 \
+    --hash=sha256:da5b750ada03830fd1f0b9010f7d5d30e77ec3e1458230e3d08fe4588a0741b2 \
+    --hash=sha256:f6bc821bddec06e67a1abd0be1d9fbc61c59b08272c736522ae2f6b225bf9579
     # via -r C:\Data\R\git\electrumsv\contrib\requirements\requirements-hw.txt
 typing-extensions==4.5.0 \
     --hash=sha256:5cb5f4a79139d699607b3ef622a1dedafa84e115ab0024e0d9c044a9479ca7cb \
@@ -627,4 +616,6 @@ zipp==3.15.0 \
 setuptools==67.7.2 \
     --hash=sha256:23aaf86b85ca52ceb801d32703f12d77517b2556af839621c641fca11287952b \
     --hash=sha256:f104fa03692a2602fa0fec6c6a9e63b6c8a968de13e17c026957dd1f53d80990
-    # via hidapi
+    # via
+    #   hidapi
+    #   trezor

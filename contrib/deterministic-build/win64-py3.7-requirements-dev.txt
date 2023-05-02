@@ -67,10 +67,6 @@ bitcoinx==0.2.4 \
     --hash=sha256:576908b4641cad8c33afe44f092811e59d9ee304cccb637d3515dec5007fcce6 \
     --hash=sha256:dc4caf363f5cc427dcbc18811f7a9c132a689f5cdf0ed16feb3902d4ed1bff58
     # via -r C:\Data\R\git\electrumsv\contrib\requirements\requirements.txt
-build==0.10.0 \
-    --hash=sha256:af266720050a66c893a6096a2f410989eeac74ff9a68ba194b3f6473e8e26171 \
-    --hash=sha256:d5b71264afdb5951d6704482aac78de887c80691c52b88a9ad195983ca2c9269
-    # via pip-tools
 certifi==2022.12.7 \
     --hash=sha256:35824b4c3a97115964b408844d64aa14db1cc518f6562e8d7261699d1350a9e3 \
     --hash=sha256:4ad3232f5e926d6718ec31cfc1fcadfde020920e278684144551c91769c7bc18
@@ -149,29 +145,21 @@ chardet==3.0.4 \
     # via
     #   aiohttp
     #   requests
-click==8.1.3 \
-    --hash=sha256:7682dc8afb30297001674575ea00d1814d808d6a36af415a82bd481d37ba7b8e \
-    --hash=sha256:bb4d8133cb15a609f44e8213d9b391b0809795062913b383c62be0ee95b1db48
+click==7.1.2 \
+    --hash=sha256:d2b5255c7c6349bc1bd1e59e08cd12acbbd63ce649f2588755783aa94dfb6b1a \
+    --hash=sha256:dacca89f4bfadd5de3d7489b7c8a566eee0d3676333fbb50030263894c38c0dc
     # via
-    #   pip-tools
+    #   -r C:\Data\R\git\electrumsv\contrib\requirements\requirements-hw.txt
     #   trezor
 colorama==0.4.6 \
     --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
     --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
     # via
-    #   build
-    #   click
     #   pylint
     #   pytest
     #   qrcode
 construct==2.10.68 \
     --hash=sha256:7b2a3fd8e5f597a5aa1d614c3bd516fa065db01704c72a1efaaeec6ef23d8b45
-    # via
-    #   construct-classes
-    #   trezor
-construct-classes==0.1.2 \
-    --hash=sha256:72ac1abbae5bddb4918688713f991f5a7fb6c9b593646a82f4bf3ac53de7eeb5 \
-    --hash=sha256:e82437261790758bda41e45fb3d5622b54cfbf044ceb14774af68346faf5e08e
     # via trezor
 coverage[toml]==7.2.5 \
     --hash=sha256:0342a28617e63ad15d96dca0f7ae9479a37b7d8a295f749c14f3436ea59fdcb3 \
@@ -332,8 +320,6 @@ importlib-metadata==6.6.0 \
     --hash=sha256:92501cdf9cc66ebd3e612f1b4f0c0765dfa42f0fa38ffb319b6bd84dd675d705
     # via
     #   attrs
-    #   build
-    #   click
     #   pluggy
     #   pytest
 importlib-resources==5.9 \
@@ -529,13 +515,7 @@ mypy-extensions==1.0.0 \
 packaging==23.1 \
     --hash=sha256:994793af429502c4ea2ebf6bf664629d07c1a9fe974af92966e4b8d2df7edc61 \
     --hash=sha256:a392980d2b6cffa644431898be54b0045151319d1e7ec34f0cfed48767dd334f
-    # via
-    #   build
-    #   pytest
-pip-tools==6.13.0 \
-    --hash=sha256:50943f151d87e752abddec8158622c34ad7f292e193836e90e30d87da60b19d9 \
-    --hash=sha256:61d46bd2eb8016ed4a924e196e6e5b0a268cd3babd79e593048720db23522bb1
-    # via -r C:\Data\R\git\electrumsv\contrib\requirements\requirements-dev.txt
+    # via pytest
 platformdirs==3.5.0 \
     --hash=sha256:47692bc24c1958e8b0f13dd727307cff1db103fca36399f457da8e05f222fdc4 \
     --hash=sha256:7954a68d0ba23558d753f73437c55f89027cf8f5108c19844d4b82e5af396335
@@ -637,10 +617,6 @@ pypng==0.20220715.0 \
     --hash=sha256:4a43e969b8f5aaafb2a415536c1a8ec7e341cd6a3f957fd5b5f32a4cfeed902c \
     --hash=sha256:739c433ba96f078315de54c0db975aee537cbc3e1d0ae4ed9aab0ca1e427e2c1
     # via qrcode
-pyproject-hooks==1.0.0 \
-    --hash=sha256:283c11acd6b928d2f6a7c73fa0d01cb2bdc5f07c57a2eeb6e83d5e56b97976f8 \
-    --hash=sha256:f271b298b97f5955d53fb12b72c1fb1948c22c1a6b70b315c54cedaca0264ef5
-    # via build
 pyqt5==5.15.9 \
     --hash=sha256:883ba5c8a348be78c8be6a3d3ba014c798e679503bce00d76c666c2dc6afe828 \
     --hash=sha256:dc41e8401a90dc3e2b692b411bd5492ab559ae27a27424eed4bd3915564ec4c0 \
@@ -721,9 +697,6 @@ requests==2.25.0 \
     # via
     #   -r C:\Data\R\git\electrumsv\contrib\requirements\requirements.txt
     #   trezor
-simple-rlp==0.1.3 \
-    --hash=sha256:2df1d2b769f0a0177d26231ab8be16e65e3546b17bb0a9a490efd3517c082876
-    # via trezor
 six==1.16.0 \
     --hash=sha256:1e61c37477a1626458e36f7b1d82aa5c9b094fa4802892072e49de9c60c4c926 \
     --hash=sha256:8abb2f1d86890a2dfb989f9a77cfcfd3e47c2a354b01111771326f8aa26e0254
@@ -734,7 +707,6 @@ tomli==2.0.1 \
     --hash=sha256:939de3e7a6161af0c887ef91b7d41a53e7c5a1ca976325f429cb46ea9bc30ecc \
     --hash=sha256:de526c12914f0c550d15924c62d72abc48d6fe7364aa87328337a31007fe8a4f
     # via
-    #   build
     #   coverage
     #   mypy
     #   pylint
@@ -743,9 +715,9 @@ tomlkit==0.11.8 \
     --hash=sha256:8c726c4c202bdb148667835f68d68780b9a003a9ec34167b6c673b38eff2a171 \
     --hash=sha256:9330fc7faa1db67b541b28e62018c17d20be733177d290a13b24c62d1614e0c3
     # via pylint
-trezor==0.13.5 \
-    --hash=sha256:8e150171affeac381efdb14782929084d6414ec77cccdc871d6f0d644ff57bd8 \
-    --hash=sha256:e8c7f3cc10a588766ae6c97eb6297c4730963a0a491595faee534f6213627c88
+trezor==0.12.0 \
+    --hash=sha256:da5b750ada03830fd1f0b9010f7d5d30e77ec3e1458230e3d08fe4588a0741b2 \
+    --hash=sha256:f6bc821bddec06e67a1abd0be1d9fbc61c59b08272c736522ae2f6b225bf9579
     # via -r C:\Data\R\git\electrumsv\contrib\requirements\requirements-hw.txt
 typed-ast==1.5.4 \
     --hash=sha256:0261195c2062caf107831e92a76764c81227dae162c4f75192c0d489faf751a2 \
@@ -791,9 +763,9 @@ types-requests==2.29.0.0 \
     --hash=sha256:4cf6e323e856c779fbe8815bb977a5bf5d6c5034713e4c17ff2a9a20610f5b27 \
     --hash=sha256:c86f4a955d943d2457120dbe719df24ef0924e11177164d10a0373cf311d7b4d
     # via -r C:\Data\R\git\electrumsv\contrib\requirements\requirements-dev.txt
-types-setuptools==67.7.0.0 \
-    --hash=sha256:02ee794d41c282ecfc99e09d8115ca4c3c4395a9747d1a35fa4a6f243d7585e6 \
-    --hash=sha256:f59b03c786510176c7601578d84d5e6c58e985de331f08036b2fe008408a63c1
+types-setuptools==67.7.0.1 \
+    --hash=sha256:471a4ecf6984ffada63ffcfa884bfcb62718bd2d1a1acf8ee5513ec99789ed5e \
+    --hash=sha256:980a2651b2b019809817e1585071596b87fbafcb54433ff3b12445461db23790
     # via -r C:\Data\R\git\electrumsv\contrib\requirements\requirements-dev.txt
 types-urllib3==1.26.25.12 \
     --hash=sha256:3ba3d3a8ee46e0d5512c6bd0594da4f10b2584b47a470f8422044a2ab462f1df \
@@ -823,10 +795,6 @@ websocket-client==1.5.1 \
     --hash=sha256:3f09e6d8230892547132177f575a4e3e73cfdf06526e20cc02aa1c3b47184d40 \
     --hash=sha256:cdf5877568b7e83aa7cf2244ab56a3213de587bbe0ce9d8b9600fc77b455d89e
     # via -r C:\Data\R\git\electrumsv\contrib\requirements\requirements.txt
-wheel==0.40.0 \
-    --hash=sha256:cd1196f3faee2b31968d626e1731c94f99cbdb67cf5a46e4f5656cbee7738873 \
-    --hash=sha256:d236b20e7cb522daf2390fa84c55eea81c5c30190f90f29ae2ca1ad8355bf247
-    # via pip-tools
 wrapt==1.15.0 \
     --hash=sha256:02fce1852f755f44f95af51f69d22e45080102e9d00258053b79367d07af39c0 \
     --hash=sha256:077ff0d1f9d9e4ce6476c1a924a3332452c1406e59d90a2cf24aeb29eeac9420 \
@@ -990,13 +958,9 @@ zipp==3.15.0 \
     #   importlib-resources
 
 # The following packages are considered to be unsafe in a requirements file:
-pip==23.1.2 \
-    --hash=sha256:0e7c86f486935893c708287b30bd050a36ac827ec7fe5e43fe7cb198dd835fba \
-    --hash=sha256:3ef6ac33239e4027d9a5598a381b9d30880a1477e50039db2eac6e8a8f6d1b18
-    # via pip-tools
 setuptools==67.7.2 \
     --hash=sha256:23aaf86b85ca52ceb801d32703f12d77517b2556af839621c641fca11287952b \
     --hash=sha256:f104fa03692a2602fa0fec6c6a9e63b6c8a968de13e17c026957dd1f53d80990
     # via
     #   hidapi
-    #   pip-tools
+    #   trezor
