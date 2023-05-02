@@ -55,7 +55,7 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
 from .types import (AccountRow, AccountHistoryOutputRow, AccountTransactionRow,
     AccountTransactionDescriptionRow, AccountTransactionOutputSpendableRow,
     AccountTransactionOutputSpendableRowExtended, DPPMessageRow, ExternalPeerChannelRow,
-    HistoryListRow, InputSpendValueRow, InvoiceAccountRow, InvoiceRow,
+    HistoryListRow, InvoiceAccountRow, InvoiceRow,
     KeyInstanceFlagRow, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, MasterKeyRow,
     MAPIBroadcastRow, NetworkServerRow, PasswordUpdateResult, PaymentRequestRow,
     PaymentRequestOutputRow, PaymentRequestTransactionHashRow, PaymentRequestUpdateRow,
@@ -1341,10 +1341,10 @@ def read_transaction_fee(db: sqlite3.Connection, tx_hash: bytes) -> float | None
           """
     sql_read_tx_data = "SELECT tx_data FROM Transactions WHERE tx_hash=?1"
 
-    row = db.execute(sql_read_tx_data, (tx_hash,)).fetchone()
-    if row is None:
+    tx_row = db.execute(sql_read_tx_data, (tx_hash,)).fetchone()
+    if tx_row is None:
         return None
-    tx = Transaction.from_bytes(row[0])
+    tx = Transaction.from_bytes(tx_row[0])
 
     rows = db.execute(sql_read_input_values, (tx_hash,)).fetchall()
     if len(tx.inputs) != len(rows):
@@ -1352,9 +1352,8 @@ def read_transaction_fee(db: sqlite3.Connection, tx_hash: bytes) -> float | None
         return None
 
     total_input_value = 0
-    row: InputSpendValueRow
-    for row in rows:
-        total_input_value += row.value
+    for in_row in rows:
+        total_input_value += in_row.value
 
     total_output_value = 0
     for output in tx.outputs:
