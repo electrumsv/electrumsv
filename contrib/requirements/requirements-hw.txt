@@ -1,6 +1,10 @@
-trezor==0.13.5
+# 2023-05-01 RT: tried 0.13.5 but the API has changed and it errors on passed callback values.
+trezor==0.12.0
 electrumsv-keepkey==6.1.0
 electrumsv-btchip-python==0.1.32
+
+# piptools clashes with trezor 0.12.0. We do not know or care why pip tools is requiring >8
+click==7.1.2
 
 # Keepkey uses an unpinned protobuf version, but has older definitions. We need to pin protobuf to
 # a compatible version to work without issue.
@@ -13,6 +17,6 @@ electrumsv-btchip-python==0.1.32
 #   It does not core dump on MacOS and testing including signing on Windows does not trigger the
 #   broken API path.
 # protobuf==3.20.1  # Protobuf 4.0 errors and tells us to pin to 3.20 (required by at least Keepkey).
-# 2024-04-26 RT: Reverted to old reliable 3.18.0 as 3.20.0-3.20.3 produce corrupt values in the
+# 2023-04-26 RT: Reverted to old reliable 3.18.0 as 3.20.0-3.20.3 produce corrupt values in the
 #   win32 pyinstaller builds. But they worked fine in win64 running from source.
 protobuf==3.18.0
