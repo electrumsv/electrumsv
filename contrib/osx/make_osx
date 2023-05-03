@@ -10,7 +10,7 @@ cd $build_dir/../..
 export PYTHONHASHSEED=22
 
 # Paramterize
-PYTHON_VERSION=3.7.9
+PYTHON_VERSION=3.7.16
 BUILDDIR=/tmp/electrum-sv-build
 PACKAGE=ElectrumSV
 GIT_REPO_ACCT=https://github.com/electrumsv
