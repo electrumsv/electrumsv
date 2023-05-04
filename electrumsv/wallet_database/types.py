@@ -271,15 +271,6 @@ class TransactionInputAddRow(NamedTuple):
     date_updated: int
 
 
-class InputSpendValueRow(NamedTuple):
-    tx_hash: bytes
-    txi_index: int
-    spent_tx_hash: bytes
-    spent_txo_index: int
-    value: int
-    tx_data: bytes
-
-
 @dataclasses.dataclass
 class TransactionLinkState:
     # Parameters.

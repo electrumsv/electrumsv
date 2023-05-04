@@ -1302,14 +1302,24 @@ def read_transaction_flags(db: sqlite3.Connection, tx_hash: bytes) -> Optional[T
 
 
 @replace_db_context_with_connection
-def read_transaction_hashes(db: sqlite3.Connection, account_id: Optional[int]=None) -> list[bytes]:
+def read_transaction_hashes(db: sqlite3.Connection, account_id: int | None=None,
+        limit_count: int | None=None, skip_count: int=0) -> list[bytes]:
+    sql_values = []
     if account_id is None:
         sql = "SELECT tx_hash FROM Transactions"
-        cursor = db.execute(sql)
+        if limit_count:
+            sql += " LIMIT ?1 OFFSET ?2"
+            sql_values.extend([limit_count, skip_count])
+        cursor = db.execute(sql, sql_values)
     else:
         sql = "SELECT tx_hash FROM AccountTransactions WHERE account_id=?"
-        cursor = db.execute(sql, (account_id,))
+        sql_values.append(account_id)
+        if limit_count:
+            sql += " LIMIT ?1 OFFSET ?2"
+            sql_values.extend([limit_count, skip_count])
+        cursor = db.execute(sql, sql_values)
     return [ tx_hash for (tx_hash,) in cursor.fetchall() ]
+
 
 
 @replace_db_context_with_connection
@@ -1351,7 +1361,7 @@ def read_transaction_fee(db: sqlite3.Connection, tx_hash: bytes) -> float | None
     row = db.execute(sql_sum_output_values, (tx_hash,)).fetchone()
     output_value = row[0]
 
-    return float(((input_value - output_value) / COIN) * -1)
+    return float((input_value - output_value) / COIN) * -1
 
 
 @replace_db_context_with_connection

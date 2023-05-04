@@ -1,6 +1,7 @@
 from __future__ import annotations
 import asyncio
 import concurrent
+import sqlite3
 from decimal import Decimal
 from http import HTTPStatus
 import json
@@ -36,8 +37,8 @@ from electrumsv.types import KeyStoreResult, Outpoint
 from electrumsv.wallet import StandardAccount, Wallet
 from electrumsv.wallet_database.types import AccountHistoryOutputRow, \
     AccountTransactionOutputSpendableRowExtended, KeyData, PaymentRequestOutputRow, \
-    PaymentRequestRow, TransactionLinkState, TransactionOutputSpendableProtocol, WalletBalance, \
-    TransactionOutputSpendRow
+    PaymentRequestRow, TransactionLinkState, TransactionOutputSpendableProtocol, \
+    TransactionOutputSpendRow, TransactionRow, WalletBalance
 from .conftest import get_small_tx
 
 from .util import _create_mock_app_state2, MockStorage, TEST_DATA_PATH
@@ -1073,6 +1074,151 @@ async def test_call_gettransaction_success_async(app_state_nodeapi: AppStateProx
     assert object["result"] == result
     assert isinstance(object["result"], dict)
     assert object["error"] is None
+
+
+@pytest.mark.parametrize("parameters,result", [
+    ([], [
+        {
+            'abandoned': False,
+            'account': '',
+            'amount': -5.5,
+            'blockhash': '6c5ecfe2277cd134a5f9dadaa556bb322cbd89c3c6b144794ae3d3b3e0d47101',
+            'blockindex': 1,
+            'blocktime': 1680047960,
+            'category': 'send',
+            'confirmations': 1,
+            'fee': -3e-06,
+            'time': 1680047951,
+            'timereceived': 1680047951,
+            'txid': 'e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063',
+            'walletconflicts': []
+            # These fields are omitted as expected - see readthedocs page:
+            # - generated
+            # - trusted
+            # - address
+            # - vout
+        }
+    ])
+])
+@unittest.mock.patch('electrumsv.nodeapi.app_state')
+async def test_call_listtransaction_success_async(app_state_nodeapi: AppStateProxy,
+        parameters: list[Any], result: dict[str, Any],
+        server_tester: TestClient) -> None:
+    assert server_tester.app is not None
+    mock_server = server_tester.app["server"]
+    # Ensure the server does not require authorization to make a call.
+    mock_server._password = ""
+
+    wallets: dict[str, Wallet] = {}
+    irrelevant_path = os.urandom(32).hex()
+    wallet = unittest.mock.Mock()
+    wallets[irrelevant_path] = wallet
+    app_state_nodeapi.daemon.wallets = wallets
+
+    account = unittest.mock.Mock(spec=StandardAccount)
+    def get_visible_accounts() -> list[StandardAccount]:
+        nonlocal account
+        return [ account ]
+    wallet.get_visible_accounts.side_effect = get_visible_accounts
+
+    def read_transaction_hashes(account_id: int | None = None, limit_count: int | None = None,
+            skip_count: int = 0) -> list[TransactionRow]:
+        return [
+            hex_str_to_hash("e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063")
+        ]
+    wallet.data.read_transaction_hashes.side_effect = read_transaction_hashes
+
+    def get_local_height() -> int:
+        return 114
+
+    wallet.get_local_height.side_effect = get_local_height
+
+    MODULE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
+    headers = bitcoinx.Headers(network=bitcoinx.BitcoinRegtest,
+        file_path=str(MODULE_DIR / "data" / "headers" / "headers2_paytomany"),
+        checkpoint=SVRegTestnet.CHECKPOINT)
+
+    # This is not mocking and I don't know why!
+    wallet.get_current_chain.side_effect = headers.longest_chain
+
+    def lookup_header_for_hash(block_hash: bytes) -> tuple[Header, Chain] | None:
+        return headers.lookup(block_hash)
+
+    wallet.lookup_header_for_hash = lookup_header_for_hash
+
+    def get_transaction(transaction_hash: bytes) -> Transaction:
+        if transaction_hash == \
+                hex_str_to_hash("e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063"):
+            return Transaction.from_hex(TEST_RAWTX)
+        return get_small_tx()
+
+    wallet.get_transaction.side_effect = get_transaction
+
+    def read_transaction_fee(tx_hash: bytes) -> float | None:
+        if tx_hash == \
+                hex_str_to_hash("e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063"):
+            return -300 / COIN
+        return
+
+    wallet.data.read_transaction_fee.side_effect = read_transaction_fee
+
+    file_path = os.path.join(TEST_WALLET_PATH, "node_api_gettransaction_mock_data.json")
+
+    def convert_json_to_row(json_data: list[dict[str, Any]]) -> list[AccountHistoryOutputRow]:
+        rows: list[AccountHistoryOutputRow] = []
+        for x in json_data:
+            row = AccountHistoryOutputRow(
+                tx_hash=hex_str_to_hash(x["tx_id"]),
+                txo_index=x["txo_index"],
+                script_pubkey_bytes=bytes.fromhex(x["script_pubkey_hex"]),
+                is_mine=x["is_mine"],
+                is_coinbase=x["is_coinbase"],
+                value=x["value"],
+                block_hash=hex_str_to_hash(x["block_id"]),
+                block_height=x["block_height"],
+                block_position=x["block_position"],
+                date_created=x["date_created"],
+            )
+            rows.append(row)
+        return rows
+
+    wallet.data.read_history_for_outputs.side_effect = lambda *args, **kwargs: \
+        [x for x in convert_json_to_row(json.loads(open(file_path, "r").read()))
+            if hash_to_hex_str(x.tx_hash) ==
+               "e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063"]
+
+    # Return a mock list[TransactionOutputSpendRow] - the only field that is used is the `tx_hash`
+    wallet.data.read_parent_transaction_outputs_with_key_data.side_effect = \
+        lambda *args, **kwargs: [
+            TransactionOutputSpendRow(
+                txi_index=0,
+                tx_hash=parameters[0],
+                txo_index=0,
+                value=0,
+                keyinstance_id=1,
+                script_type=ScriptType.P2PKH,
+                flags=TransactionOutputFlag.SPENT,
+                account_id=2,
+                masterkey_id=2,
+                derivation_type=DerivationType.BIP32,
+                derivation_data2=b"aaaaaaaa"
+            )]
+
+    # Params as an empty list
+    call_object = {
+        "id": 343,
+        "method": "listtransaction",
+        "params": parameters,
+    }
+    response = await server_tester.request(path="/", method="POST", json=call_object)
+    assert response.status == HTTPStatus.OK
+    object = await response.json()
+    assert len(object) == 3
+    assert object["id"] == 343
+    assert object["result"] == result
+    assert isinstance(object["result"], list)
+    assert object["error"] is None
+
 
 @pytest.mark.parametrize("local_height,block_height,parameters,results", [
     # Empty parameters array.
