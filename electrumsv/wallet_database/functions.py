@@ -45,7 +45,6 @@ from ..constants import (BlockHeight, DerivationType, DerivationPath,
 from ..crypto import pw_decode, pw_encode
 from ..i18n import _
 from ..logs import logs
-from ..transaction import Transaction
 from ..types import KeyInstanceDataPrivateKey, MasterKeyDataBIP32, MasterKeyDataElectrumOld, \
     MasterKeyDataMultiSignature, MasterKeyDataTypes, Outpoint, OutputSpend, \
     ServerAccountKey
@@ -1329,37 +1328,30 @@ def read_transaction_outputs(db: sqlite3.Connection, output_ids: list[Outpoint])
 
 @replace_db_context_with_connection
 def read_transaction_fee(db: sqlite3.Connection, tx_hash: bytes) -> float | None:
-    sql_read_input_values = """
-        SELECT TXIN.tx_hash, TXIN.txi_index, TXIN.spent_tx_hash, TXIN.spent_txo_index, 
-               TXOUT.value
+    # The CASE statement is a safeguard against reporting an incorrect fee for a transaction
+    # if we were to extend a transaction that already had inputs from a 3rd party that we (for
+    # some reason do not possess locally). Better to return a fee of None than have it be incorrect
+    sql_sum_input_values = """
+        SELECT CASE WHEN VALUE IS NULL THEN NULL ELSE SUM(TXOUT.value) END AS value
         FROM TransactionInputs TXIN
         -- join on outpoint to get the value of the inputs
-        JOIN TransactionOutputs TXOUT
+        LEFT JOIN TransactionOutputs TXOUT
             ON TXIN.spent_tx_hash = TXOUT.tx_hash AND
                TXIN.spent_txo_index = TXOUT.txo_index
         WHERE TXIN.tx_hash = ?1
           """
-    sql_read_tx_data = "SELECT tx_data FROM Transactions WHERE tx_hash=?1"
-
-    tx_row = db.execute(sql_read_tx_data, (tx_hash,)).fetchone()
-    if tx_row is None:
-        return None
-    tx = Transaction.from_bytes(tx_row[0])
-
-    rows = db.execute(sql_read_input_values, (tx_hash,)).fetchall()
-    if len(tx.inputs) != len(rows):
-        # If we do not have the value of all inputs, then we cannot calculate the tx fee
+    row = db.execute(sql_sum_input_values, (tx_hash,)).fetchone()
+    input_value = row[0]
+    if not input_value:
         return None
 
-    total_input_value = 0
-    for in_row in rows:
-        total_input_value += in_row.value
+    sql_sum_output_values = """
+        SELECT SUM(TXOUT.value) FROM TransactionOutputs TXOUT WHERE TXIN.tx_hash = ?1
+    """
+    row = db.execute(sql_sum_output_values, (tx_hash,)).fetchone()
+    output_value = row[0]
 
-    total_output_value = 0
-    for output in tx.outputs:
-        total_output_value += output.value
-
-    return (total_input_value - total_output_value) / COIN
+    return float(((input_value - output_value) / COIN) * -1)
 
 
 @replace_db_context_with_connection
