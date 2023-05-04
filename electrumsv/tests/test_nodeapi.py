@@ -837,7 +837,6 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
              "300000000000001976a914e92f00553d65610200efecceffb26c2b286eb81488ac00000000"
 
 @pytest.mark.parametrize("parameters,result", [
-    # Empty parameters array.
     (["e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063"], {
             'amount': -5.5,
             'blockhash': '6c5ecfe2277cd134a5f9dadaa556bb322cbd89c3c6b144794ae3d3b3e0d47101',
@@ -851,7 +850,7 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                     'abandoned': False,
                     'amount': -0.5,
                     'category': 'send',
-                    'fee': 3e-06,
+                    'fee': -3e-06,
                     'vout': 1,
                     'label': '',
                 },
@@ -861,7 +860,7 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                     'abandoned': False,
                     'amount': -2.0,
                     'category': 'send',
-                    'fee': 3e-06,
+                    'fee': -3e-06,
                     'vout': 2,
                     'label': '',
                 },
@@ -871,16 +870,15 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                     'abandoned': False,
                     'amount': -3.0,
                     'category': 'send',
-                    'fee': 3e-06,
+                    'fee': -3e-06,
                     'vout': 3,
                     'label': '',
                 }
             ],
-            'fee': 300 / COIN,
+            'fee': -300 / COIN,
             'hex': TEST_RAWTX,
             'time': 1680047951,
             'timereceived': 1680047951,
-            'trusted': True,
             'txid': 'e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063',
             'walletconflicts': []
         },
@@ -897,19 +895,15 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                     {
                         'account': '',
                         'address': '152bd5gLonDrPbCwncG2JH7XBcni4JRBeo',
-                        'abandoned': False,
                         'amount': 0.5,
                         'category': 'generate',
-                        'fee': None,
                         'vout': 1,
                         'label': '',
                     }
                 ],
-                'fee': None,
                 'hex': get_small_tx().to_hex(),
                 'time': 1680047951,
                 'timereceived': 1680047951,
-                'trusted': True,
                 'txid': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 'walletconflicts': [],
                 'generated': True
@@ -925,19 +919,16 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                 {
                     'account': '',
                     'address': '1AC2b7ALEF5jvVDBi6zQit42NrSC4nLkmo',
-                    'abandoned': False,
                     'amount': 2.0,
                     'category': 'orphan',
-                    'fee': None,
                     'vout': 2,
                     'label': '',
                 }
             ],
-            'fee': None,
             'hex': get_small_tx().to_hex(),
             'time': 1680047951,
-            'timereceived': 1680047951,
             'trusted': True,
+            'timereceived': 1680047951,
             'txid': 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
             'walletconflicts': [],
             'generated': True
@@ -955,19 +946,15 @@ TEST_RAWTX = "0100000002adac3845690644e6519ba5bdf1f449431f28dae28091304a63458f56
                 {
                     'account': '',
                     'address': '1CYJd9bHUD4tsjCpcoAgjcw15ZWbVnuwky',
-                    'abandoned': False,
                     'amount': 3.0,
                     'category': 'immature',
-                    'fee': None,
                     'vout': 3,
                     'label': '',
                 }
             ],
-            'fee': None,
             'hex': get_small_tx().to_hex(),
             'time': 1680047951,
             'timereceived': 1680047951,
-            'trusted': True,
             'txid': 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
             'walletconflicts': [],
             'generated': True
@@ -1024,7 +1011,7 @@ async def test_call_gettransaction_success_async(app_state_nodeapi: AppStateProx
     def read_transaction_fee(tx_hash: bytes) -> float | None:
         if tx_hash == \
                 hex_str_to_hash("e0e1e9abbf418f1b1dfc68b65221df411abfbcca2f95b281a911a2aff8a74063"):
-            return 300 / COIN
+            return -300 / COIN
         return
 
     wallet.data.read_transaction_fee.side_effect = read_transaction_fee
@@ -1086,7 +1073,6 @@ async def test_call_gettransaction_success_async(app_state_nodeapi: AppStateProx
     assert object["result"] == result
     assert isinstance(object["result"], dict)
     assert object["error"] is None
-
 
 @pytest.mark.parametrize("local_height,block_height,parameters,results", [
     # Empty parameters array.

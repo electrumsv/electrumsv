@@ -2463,10 +2463,10 @@ class WalletDataAccess:
     def read_transaction_outputs(self, l: list[Outpoint]) -> list[TransactionOutputAddRow]:
         return db_functions.read_transaction_outputs(self._db_context, l)
 
-    def read_history_for_outputs(self, account_id: int, transaction_hash: bytes) \
-            -> list[AccountHistoryOutputRow]:
+    def read_history_for_outputs(self, account_id: int, transaction_hash: bytes,
+            limit_count: int=10, skip_count: int=0) -> list[AccountHistoryOutputRow]:
         return db_functions.read_history_for_outputs(self._db_context, account_id,
-            transaction_hash=transaction_hash)
+            transaction_hash=transaction_hash, limit_count=limit_count, skip_count=skip_count)
 
     def update_transaction_output_flags(self, txo_keys: list[Outpoint],
             flags: TransactionOutputFlag, mask: TransactionOutputFlag|None=None) \

@@ -792,7 +792,8 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
     assert tx is not None
     assert tx_hash is not None
     account_history_output_rows: list[AccountHistoryOutputRow] = \
-        wallet.data.read_history_for_outputs(account.get_id(), tx_hash)
+        wallet.data.read_history_for_outputs(account.get_id(), tx_hash,
+            limit_count=len(tx.outputs), skip_count=0)
 
     if not account_history_output_rows:
         return {}
@@ -867,20 +868,24 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
                 trusted = False
                 break
 
-    fee = wallet.data.read_transaction_fee(tx_hash)
     transaction_info = TransactionInfo(
         confirmations=confirmations,
         details=[],
-        fee=fee,
         hex=tx.to_hex(),
         time=row.date_created,
         timereceived=row.date_created,
-        trusted=trusted,
         txid=txid,
         walletconflicts=[],
     )
+    fee = None
+    if category == 'send':
+        fee = wallet.data.read_transaction_fee(tx_hash)
+        transaction_info['fee'] = fee
     if row.is_coinbase:
         transaction_info['generated'] = True
+
+    if confirmations == 0:
+        transaction_info['trusted'] = trusted
 
     if confirmations > 0:
         transaction_info['blockhash'] = hash_to_hex_str(row.block_hash) if row.block_hash \
@@ -889,7 +894,7 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
         transaction_info['blocktime'] = blocktime
 
     details: list[TransactionDetails] = []
-    net_amount: float = 0
+    net_amount: float = 0.0
     for row in account_history_output_rows:
         # INCOMPATIBILITY: The 'account' field is always "" as we do not support this feature in
         # any way
@@ -911,14 +916,15 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
 
         transaction_details = TransactionDetails(
             address=address,
-            abandoned=False,
             account="",
             amount=row.value / COIN,  # Convert from satoshis to bitcoins
             category=category,
-            fee=fee,
             vout=row.txo_index,
             label=''
         )
+        if category == 'send':
+            transaction_details['fee'] = fee
+            transaction_details['abandoned'] = False
         details.append(transaction_details)
         net_amount += transaction_details['amount']
 
