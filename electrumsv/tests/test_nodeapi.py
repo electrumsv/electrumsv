@@ -567,7 +567,7 @@ endpoint_error_parameter_list = [
         "Invalid parameter, locktime out of range"),
 
     ## ``gettransaction``: ``txid`` general parameters
-    # Error case: RPC_INVALID_PARAMS / Need at 1 argument.
+    # Error case: RPC_INVALID_PARAMS / Need at least 1 argument.
     ("gettransaction", [], RPCError.INVALID_PARAMS,
         "Invalid parameters, see documentation for this call"),
     # Error case: RPC_INVALID_PARAMS / Cannot have more than 2 arguments.
@@ -579,12 +579,29 @@ endpoint_error_parameter_list = [
     # Error case: RPC_PARSE_ERROR / second argument needs to be null
     ("gettransaction", ["string", "string"], RPCError.PARSE_ERROR,
         "JSON value is not a null as expected"),
-    # Error case: RPC_PARSE_ERROR / txid needs to match with an existing wallet transaction
+    # Error case: INVALID_ADDRESS_OR_KEY / txid needs to match with an existing wallet transaction
     ("gettransaction", ["aaaa"], RPCError.INVALID_ADDRESS_OR_KEY,
         "Invalid or non-wallet transaction id"),
-    # Error case: RPC_PARSE_ERROR / invalid hex txids give this error on the node
+    # Error case: INVALID_ADDRESS_OR_KEY / invalid hex txids give this error on the node
     ("gettransaction", ["----"], RPCError.INVALID_ADDRESS_OR_KEY,
         "Invalid or non-wallet transaction id"),
+
+    ## ``listtransaction``: ``txid`` general parameters
+    # Error case: PARSE_ERROR / account param must be null as a placeholder
+    ("listtransaction", ["string",], RPCError.PARSE_ERROR,
+        "JSON value is not a null as expected"),
+    # Error case: PARSE_ERROR / account param must be null as a placeholder
+    ("listtransaction", ["",], RPCError.PARSE_ERROR,
+        "JSON value is not a null as expected"),
+    # Error case: PARSE_ERROR / count param must be an integer
+    ("listtransaction", [None, "string"], RPCError.PARSE_ERROR,
+        "JSON value is not an integer as expected"),
+    # Error case: PARSE_ERROR / skip param must be an integer
+    ("listtransaction", [None, 10, "string"], RPCError.PARSE_ERROR,
+        "JSON value is not an integer as expected"),
+    # Error case: PARSE_ERROR / include_watchonly param must be null as a placeholder
+    ("listtransaction", [None, 10, "string"], RPCError.PARSE_ERROR,
+    "JSON value is not an integer as expected"),
 
     ## ``getbalance``: ``minconf`` parameter
     # Error case: RPC_PARSE_ERROR / String in place of account - not supported.
