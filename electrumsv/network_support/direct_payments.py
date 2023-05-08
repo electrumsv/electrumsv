@@ -9,11 +9,10 @@ from typing import TypedDict
 
 from ..app_state import app_state
 from ..constants import DPPMessageType
-from ..dpp_messages import HybridModePaymentACKDict, HYBRID_PAYMENT_MODE_BRFCID, Payment, \
-    PaymentACK, PaymentACKDict
+from ..dpp_messages import get_dpp_network_string, HybridModePaymentACKDict, \
+    HYBRID_PAYMENT_MODE_BRFCID, Payment, PaymentACK, PaymentACKDict
 from ..exceptions import Bip270Exception
 from ..logs import logs
-from ..networks import Net
 from ..standards.json_envelope import pack_json_envelope
 from ..types import IndefiniteCredentialId
 from ..wallet_database.types import DPPMessageRow, PaymentRequestRow, PaymentRequestOutputRow
@@ -81,7 +80,7 @@ def dpp_make_payment_request_response(server_url: str, credential_id: Indefinite
     payment_url = f"{server_url}api/v1/payment/{request_row.dpp_invoice_id}"
 
     payment_terms_data = {
-        "network": Net.COIN.name,
+        "network": get_dpp_network_string(),
         "version": "1.0",
         "creationTimestamp": request_row.date_created,
         "paymentUrl": payment_url,

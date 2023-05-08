@@ -3801,15 +3801,17 @@ class Wallet:
         for server_and_credential in self.get_servers_for_account_id(account_id,
                 NetworkServerType.MERCHANT_API):
             server, credential_id = server_and_credential
-            if transaction_fee is None:
-                servers_with_credentials.append(server_and_credential)
-            else:
-                fee_quote = server.get_fee_quote(credential_id)
-                if fee_quote is not None:
-                    server_fee_estimator = TransactionFeeEstimator(fee_quote, server_and_credential)
-                    server_fee = server_fee_estimator.estimate_fee(transaction_size)
-                    if server_fee <= transaction_fee:
-                        servers_with_credentials.append(server_and_credential)
+            fee_quote = server.get_fee_quote(credential_id)
+            if fee_quote is not None:
+                server_fee_estimator = TransactionFeeEstimator(fee_quote, server_and_credential)
+                server_fee = server_fee_estimator.estimate_fee(transaction_size)
+                if transaction_fee is None:
+                    logger.error("Transaction fee for '%s' not calculated due to missing parent "
+                        "transactions. Adding mAPI server: %s as a broadcast candidate anyway.",
+                        tx.txid(), server.url)
+                    servers_with_credentials.append(server_and_credential)
+                elif server_fee <= transaction_fee:
+                    servers_with_credentials.append(server_and_credential)
         if len(servers_with_credentials) > 0:
             return random.choice(servers_with_credentials)
 
@@ -4833,6 +4835,13 @@ class Wallet:
                     dpp_err_message = dpp_make_payment_error(message_row, error_reason, 500,
                         "Internal Server Error")
                     app_state.async_.spawn(dpp_websocket_send(state, dpp_err_message))
+                    continue
+
+                # @MAPIFeeQuote @TechnicalDebt Non-ideal way to ensure the fee quotes are cached.
+                viable_fee_contexts = await self.update_mapi_fee_quotes_async(
+                    state.petty_cash_account_id)
+                if len(viable_fee_contexts) == 0:
+                    self.logger.exception("No available mAPI servers with fee quotes")
                     continue
 
                 # @pettycash @accountkeys ??
