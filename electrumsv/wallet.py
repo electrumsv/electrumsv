@@ -3810,10 +3810,6 @@ class Wallet:
                         "transactions. Adding mAPI server: %s as a broadcast candidate anyway.",
                         tx.txid(), server.url)
                     servers_with_credentials.append(server_and_credential)
-                elif server_fee >= transaction_fee:
-                    logger.warning("Transaction fee: %s is insufficient for mapi server fee: %s "
-                        "(%s) server filtered out for txid : %s", transaction_fee, server_fee,
-                        server.url, tx.txid())
                 elif server_fee <= transaction_fee:
                     servers_with_credentials.append(server_and_credential)
         if len(servers_with_credentials) > 0:
@@ -4854,7 +4850,7 @@ class Wallet:
                 # right choice to use here? Is there any other option?
                 mapi_server_hint = \
                     self.get_mapi_broadcast_context(state.petty_cash_account_id, tx)
-
+                assert mapi_server_hint is not None
                 tx_context = TransactionContext(mapi_server_hint=mapi_server_hint)
                 try:
                     broadcast_result = await self.broadcast_transaction_async(tx, tx_context)
