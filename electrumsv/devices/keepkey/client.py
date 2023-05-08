@@ -25,9 +25,7 @@
 import time
 
 from bitcoinx import (
-    bip32_decompose_chain_string, BIP32Derivation, BIP32PublicKey, PublicKey,
-    pack_be_uint32, _version_str
-)
+    bip32_decompose_chain_string, BIP32Derivation, BIP32PublicKey, PublicKey, pack_be_uint32)
 
 from keepkeylib.client import proto, BaseClient, ProtocolMixin, types
 
