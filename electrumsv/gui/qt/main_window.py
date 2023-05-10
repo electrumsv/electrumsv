@@ -941,6 +941,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
               _("Uses icons from the Icons8 icon pack (icons8.com).")))
 
     def show_update_check(self):
+        if self.network is None:
+            self.show_message(_("Unable to check for updates in offline mode."))
+            return
+
         from . import update_check
         update_check.UpdateCheckDialog(self)
 
