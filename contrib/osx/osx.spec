@@ -75,6 +75,7 @@ app = BUNDLE(
     bundle_identifier=BUNDLE_IDENTIFIER,
     info_plist={
         'NSHighResolutionCapable': 'True',
-        'NSSupportsAutomaticGraphicsSwitching': 'True'
+        'NSSupportsAutomaticGraphicsSwitching': 'True',
+        'NSCameraUsageDescription': 'Need to use camera to read QR Codes'
     }
 )
