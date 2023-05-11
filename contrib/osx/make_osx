@@ -10,7 +10,7 @@ cd $build_dir/../..
 export PYTHONHASHSEED=22
 
 # Paramterize
-PYTHON_VERSION=3.7.16
+PYTHON_VERSION=3.9.16
 BUILDDIR=/tmp/electrum-sv-build
 PACKAGE=ElectrumSV
 GIT_REPO_ACCT=https://github.com/electrumsv
@@ -80,7 +80,7 @@ python3 --version
 python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
 
 info "Installing ElectrumSV requirements..."
-python3 -m pip install -Ir ./contrib/deterministic-build/macos-py3.7-requirements-electrumsv.txt || \
+python3 -m pip install -Ir ./contrib/deterministic-build/macos-py3.9-requirements-electrumsv.txt || \
 fail "Could not install ElectrumSV requirements"
 
 info "Extracting libusb..."
