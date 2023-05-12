@@ -514,6 +514,21 @@ def execute(conn: sqlite3.Connection, password_token: PasswordTokenProtocol,
     )""")
     conn.execute("CREATE UNIQUE INDEX idx_tx_proofs ON TransactionProofs (tx_hash, block_hash)")
 
+    conn.execute("""CREATE TABLE Contacts (
+        contact_id                              INTEGER     PRIMARY KEY,
+        contact_name                            TEXT        NOT NULL,
+        direct_declared_name                    TEXT        DEFAULT NULL,
+        local_peer_channel_id                   INTEGER     DEFAULT NULL,
+        remote_peer_channel_url                 TEXT        DEFAULT NULL,
+        remote_peer_channel_token               TEXT        DEFAULT NULL,
+        direct_identity_key_bytes               BLOB        DEFAULT NULL,
+        date_created                            INTEGER     NOT NULL,
+        date_updated                            INTEGER     NOT NULL,
+        FOREIGN KEY (local_peer_channel_id)     REFERENCES ServerPeerChannels (peer_channel_id)
+    )""")
+    conn.execute("CREATE UNIQUE INDEX idx_contacts ON Contacts (direct_identity_key_bytes) "
+        "WHERE direct_identity_key_bytes IS NOT NULL")
+
     # We need to persist the updated next primary key value for the `Accounts` table.
     # We need to persist the updated next identifier for the `Accounts` table.
     conn.executemany("UPDATE WalletData SET value=? WHERE key=?",

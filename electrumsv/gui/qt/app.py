@@ -41,7 +41,6 @@ from PyQt6.QtGui import QFileOpenEvent, QGuiApplication, QIcon
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QWidget, QDialog
 
 from ...app_state import app_state, ExceptionHandlerABC
-from ...contacts import ContactEntry, ContactIdentity
 from ...i18n import _
 from ...logs import logs
 from ...types import ExceptionInfoType
@@ -99,11 +98,6 @@ class SVApplication(QApplication):
     fiat_history_changed = pyqtSignal()
     fiat_balance_changed = pyqtSignal()
     update_check_signal = pyqtSignal(bool, object)
-    # Contact events
-    contact_added_signal = pyqtSignal(object, object)
-    contact_removed_signal = pyqtSignal(object)
-    identity_added_signal = pyqtSignal(object, object)
-    identity_removed_signal = pyqtSignal(object, object)
 
     def __init__(self, argv: List[str]) -> None:
         if hasattr(QtCore.Qt, "AA_ShareOpenGLContexts"):
@@ -241,28 +235,8 @@ class SVApplication(QApplication):
         w = ElectrumWindow(wallet)
         self.windows.append(w)
         self._build_tray_menu()
-        self._register_wallet_events(wallet)
         self.window_opened_signal.emit(w)
         return w
-
-    def _register_wallet_events(self, wallet: Wallet) -> None:
-        # NOTE(typing) Some typing nonsense about not being able to assign to a method.
-        wallet.contacts._on_contact_added = self._on_contact_added # type: ignore[method-assign]
-        wallet.contacts._on_contact_removed = self._on_contact_removed # type: ignore[method-assign]
-        wallet.contacts._on_identity_added = self._on_identity_added # type: ignore[method-assign]
-        wallet.contacts._on_identity_removed=self._on_identity_removed # type: ignore[method-assign]
-
-    def _on_identity_added(self, contact: ContactEntry, identity: ContactIdentity) -> None:
-        self.identity_added_signal.emit(contact, identity)
-
-    def _on_identity_removed(self, contact: ContactEntry, identity: ContactIdentity) -> None:
-        self.identity_removed_signal.emit(contact, identity)
-
-    def _on_contact_added(self, contact: ContactEntry, identity: ContactIdentity) -> None:
-        self.contact_added_signal.emit(contact, identity)
-
-    def _on_contact_removed(self, contact: ContactEntry) -> None:
-        self.contact_removed_signal.emit(contact)
 
     def get_wallets(self) -> Iterable[Wallet]:
         return [ window._wallet for window in self.windows ]

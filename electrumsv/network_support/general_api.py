@@ -36,6 +36,8 @@
 
 from __future__ import annotations
 import asyncio
+import base64
+import binascii
 from concurrent.futures import Future
 from datetime import datetime, timezone
 import enum
@@ -48,20 +50,20 @@ from typing import AsyncIterable, cast, NamedTuple, TypedDict
 
 import aiohttp
 from aiohttp import WSServerHandshakeError
-from bitcoinx import hash_to_hex_str, PrivateKey, PublicKey
+from bitcoinx import hash_to_hex_str, hex_str_to_hash, PrivateKey, PublicKey
 
 from ..app_state import app_state
 from ..constants import NetworkServerFlag, PeerChannelAccessTokenFlag, PeerChannelMessageFlag, \
-    PushDataHashRegistrationFlag, ScriptType, ServerConnectionFlag, \
-    ServerPeerChannelFlag
+    PushDataHashRegistrationFlag, PushDataMatchFlag, ScriptType, ServerConnectionFlag, \
+    ServerPeerChannelFlag, TransactionImportFlag
 from ..exceptions import BadServerError, ServerConnectionError
 from ..logs import logs
-from ..types import IndefiniteCredentialId, Outpoint, outpoint_struct, output_spend_struct, \
-    OutputSpend, tip_filter_list_struct, tip_filter_registration_struct, \
-    tip_filter_unregistration_struct, TipFilterListEntry
+from ..types import IndefiniteCredentialId, MissingTransactionMetadata, Outpoint, outpoint_struct, \
+    output_spend_struct, OutputSpend, tip_filter_list_struct, tip_filter_registration_struct, \
+    tip_filter_unregistration_struct, TipFilterListEntry, TransactionKeyUsageMetadata
 from ..util import get_posix_timestamp
 from ..wallet_database.types import PeerChannelAccessTokenRow, PeerChannelMessageRow, \
-    PushDataHashRegistrationRow, ServerPeerChannelRow
+    PushDataHashRegistrationRow, PushDataMatchMetadataRow, PushDataMatchRow, ServerPeerChannelRow
 
 from .constants import ServerProblemKind
 from .disconnection import _on_server_connection_worker_task_done
@@ -73,8 +75,9 @@ from .peer_channel import create_peer_channel_api_token_async, create_peer_chann
     list_peer_channels_async, list_peer_channel_messages_async
 from .types import AccountMessageKind, AccountRegisteredDict, ChannelNotification, \
     GenericPeerChannelMessage, IndexerServerSettings, ServerConnectionState, \
-    ServerConnectionProblems, TipFilterRegistrationJob, TipFilterRegistrationJobEntry, \
-    TipFilterRegistrationJobOutput, TipFilterRegistrationResponse, VerifiableKeyData
+    ServerConnectionProblems, TipFilterPushDataMatchesData, TipFilterRegistrationJob, \
+    TipFilterRegistrationJobEntry, TipFilterRegistrationJobOutput, TipFilterRegistrationResponse, \
+    VerifiableKeyData
 
 logger = logs.get_logger("general-api")
 
@@ -794,6 +797,8 @@ async def process_incoming_peer_channel_messages_async(state: ServerConnectionSt
             peer_channel_row.peer_channel_flags & ServerPeerChannelFlag.MASK_PURPOSE
         if peer_channel_purpose == ServerPeerChannelFlag.PURPOSE_TIP_FILTER_DELIVERY:
             await state.tip_filter_matches_queue.put(message_entries)
+        elif peer_channel_purpose == ServerPeerChannelFlag.PURPOSE_CONTACT_CONNECTION:
+            await state.direct_connection_matches_queue.put(message_entries)
         else:
             # TODO(1.4.0) Unreliable server, issue#841. Peer channel message is not expected.
             logger.error("Wallet: '%s' received peer channel %d messages of unhandled purpose '%s'",
@@ -1380,6 +1385,9 @@ async def create_peer_channel_locally_and_remotely_async(
         peer_channel_url, write_only_peer_channel_flag, peer_channel_id,
         addable_access_tokens=addable_access_tokens)
 
+    logger.debug("Finalised created peer channel %s for %r", remote_peer_channel_id,
+        peer_channel_row.peer_channel_flags)
+
     return peer_channel_row, writeonly_access_token, read_only_access_token
 
 
@@ -1554,3 +1562,120 @@ async def list_tip_filter_registrations_async(state: ServerConnectionState) \
             entry_index * tip_filter_list_struct.size))
         list_entries.append(entry)
     return list_entries
+
+
+async def consume_tip_filter_matches_async(state: ServerConnectionState) -> None:
+    """
+    Process tip filter messages received from a server.
+
+    NOTE: We ignore tip filter events for the same pushdata/tx in the database function.
+
+    This will either receive messages directly from the server message loop, or it will
+    process backlogged unprocessed messages on startup.
+
+    * It is safe to cancel this task rather than tell it to exit.
+        * It queues all outstanding messages as an initial batch on startup.
+        * It will do a first loop which may or may not process any messages, but will start the
+        process of obtaining all message-related missing transactions.
+        * The update is atomic so:
+        * If the batch is processed then it is no longer valid.
+        * If the batch is processed (task cancelled) then it will be picked up next restart.
+    """
+    assert state.wallet_data is not None
+
+    message_entries: list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]] = []
+    for message_row in await state.wallet_data.read_server_peer_channel_messages_async(
+            state.server.server_id,
+            PeerChannelMessageFlag.UNPROCESSED, PeerChannelMessageFlag.UNPROCESSED,
+            ServerPeerChannelFlag.PURPOSE_TIP_FILTER_DELIVERY,
+            ServerPeerChannelFlag.MASK_PURPOSE):
+        message = cast(GenericPeerChannelMessage, json.loads(message_row.message_data))
+        message_entries.append((message_row, message))
+    state.tip_filter_matches_queue.put_nowait(message_entries)
+
+    assert state.wallet_proxy is not None
+    while state.wallet_proxy.is_running():
+        rows_by_account_id: dict[int, list[PushDataMatchMetadataRow]] = {}
+        creation_pushdata_match_rows: list[PushDataMatchRow] = []
+        processed_message_ids: list[int] = []
+        for message_row, message in await state.tip_filter_matches_queue.get():
+            assert message_row.message_id is not None
+            processed_message_ids.append(message_row.message_id)
+
+            # We are getting JSON peer channel notifications. These are encoded as base64.
+            if not isinstance(message["payload"], str):
+                # TODO(1.4.0) Unreliable server, issue#841. WRT tip filter match, show user.
+                logger.error("Peer channel message (filter) payload invalid: '%s'",
+                    message)
+                continue
+
+            try:
+                payload_bytes = base64.b64decode(message["payload"])
+            except binascii.Error:
+                logger.error("Peer channel message (filter) payload invalid base64: '%s'",
+                    message)
+                continue
+
+            try:
+                payload_object = json.loads(payload_bytes)
+            except json.JSONDecodeError:
+                logger.error("Peer channel message (filter) payload invalid JSON: '%s'",
+                    message)
+                continue
+
+            pushdata_matches = cast(TipFilterPushDataMatchesData, payload_object)
+            if "blockId" not in pushdata_matches or "matches" not in pushdata_matches:
+                # TODO(1.4.0) Unreliable server, issue#841. WRT tip filter match, show user.
+                logger.error("Peer channel message payload invalid: '%s'", message)
+                continue
+
+            date_created = int(time.time())
+            block_hash: bytes|None = None
+            if pushdata_matches["blockId"] is not None:
+                block_hash = hex_str_to_hash(pushdata_matches["blockId"])
+            for tip_filter_match in pushdata_matches["matches"]:
+                pushdata_hash = bytes.fromhex(tip_filter_match["pushDataHashHex"])
+                transaction_hash = hex_str_to_hash(tip_filter_match["transactionId"])
+                transaction_index = tip_filter_match["transactionIndex"]
+                match_flags = PushDataMatchFlag(tip_filter_match["flags"])
+                creation_pushdata_match_row = PushDataMatchRow(state.server.server_id,
+                    pushdata_hash, transaction_hash, transaction_index, block_hash, match_flags,
+                    date_created)
+                creation_pushdata_match_rows.append(creation_pushdata_match_row)
+
+        logger.debug("Writing %d pushdata matches to the database",
+            len(creation_pushdata_match_rows))
+        # The processed messages will have their `PeerChannelMessageFlag.UNPROCESSED` flag
+        # removed here as part of an atomic update, that also inserts their extracted
+        # pushdata matches.
+        # Subsequent pushdata events for the same pushdata/tx combination are ignored by this
+        # function as they are redundant for achieving an initial import of the transaction.
+        await state.wallet_data.create_pushdata_matches_async(creation_pushdata_match_rows,
+            processed_message_ids)
+
+        # We have to go to the database to find out:
+        # - What account a push data match is associated with.
+        # - Which matches do not already have the associated transaction imported.
+        # We could do this in the `create_pushdata_matches_async` call and return it, but
+        # this double-dipping in the database is good enough for now.
+        match_metadata_rows = state.wallet_data.read_pushdata_match_metadata()
+        for metadata_row in match_metadata_rows:
+            if metadata_row.account_id in rows_by_account_id:
+                rows_by_account_id[metadata_row.account_id].append(metadata_row)
+            else:
+                rows_by_account_id[metadata_row.account_id] = [ metadata_row ]
+
+        logger.debug("Wallet processing %d tip filter matches", len(match_metadata_rows))
+
+        for account_id, match_metadata_rows in rows_by_account_id.items():
+            obtain_transaction_keys: list[MissingTransactionMetadata] = []
+            for metadata_row in match_metadata_rows:
+                obtain_transaction_keys.append(MissingTransactionMetadata(
+                    metadata_row.transaction_hash,
+                    { TransactionKeyUsageMetadata(metadata_row.pushdata_hash,
+                        metadata_row.keyinstance_id, metadata_row.script_type) },
+                    metadata_row.block_hash is not None))
+            logger.debug("Obtaining %d transactions for account %d, %s",
+                len(obtain_transaction_keys), account_id, obtain_transaction_keys)
+            await state.wallet_proxy.obtain_transactions_async(account_id, obtain_transaction_keys,
+                TransactionImportFlag.TIP_FILTER_MATCH)

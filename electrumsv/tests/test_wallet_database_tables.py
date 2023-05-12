@@ -27,7 +27,8 @@ from electrumsv.types import Outpoint, ServerAccountKey
 from electrumsv.wallet_database.exceptions import DatabaseUpdateError
 from electrumsv.wallet_database import functions as db_functions
 from electrumsv.wallet_database import migration
-from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, InvoiceAccountRow,
+from electrumsv.wallet_database.types import (AccountRow, AccountTransactionRow, ContactAddRow,
+    ContactRow, InvoiceAccountRow,
     InvoiceRow, KeyInstanceRow, MAPIBroadcastRow, MasterKeyRow,
     MerkleProofRow, MerkleProofUpdateRow, NetworkServerRow, PaymentRequestOutputRow,
     PaymentRequestRow, PaymentRequestUpdateRow, PeerChannelMessageRow, ServerPeerChannelRow,
@@ -2303,3 +2304,109 @@ def test_table_mapi_broadcast_callbacks_CRUD(db_context: DatabaseContext) -> Non
         rows_after_update = db_functions.read_mapi_broadcasts(db_context)
         assert rows_after_update[0].mapi_broadcast_flags == MAPIBroadcastFlag.BROADCAST
 
+
+@unittest.mock.patch("electrumsv.wallet_database.functions.time")
+def test_table_contacts_CRUD(mock_time, db_context: DatabaseContext) -> None:
+    current_time = 1
+    mock_time.time.side_effect = lambda: current_time
+
+    contact_rows = db_functions.read_contacts(db_context)
+    assert len(contact_rows) == 0
+
+    contact1 = ContactAddRow("contact1")
+    contact2 = ContactAddRow("contact2", "url2", "token2")
+    contact3 = ContactAddRow("contact3")
+
+    db_connection = db_context.acquire_connection()
+    try:
+        contact_rows = db_functions.create_contacts_write([ contact1 ], db_connection)
+        assert len(contact_rows) == 1
+        contact_row1 = ContactRow(1, "contact1", None, None, None, None, None, 1, 1)
+        assert contact_rows == [ contact_row1 ]
+
+        # Test that we find all the matches and it's our one contact.
+        contact_rows = db_functions.read_contacts(db_context)
+        assert len(contact_rows) == 1
+        assert contact_rows == [ contact_row1 ]
+
+        # Test that we don't find an non-existent match.
+        contact_rows = db_functions.read_contacts(db_context, [ 12121 ])
+        assert len(contact_rows) == 0
+
+        # Test we find the one existing match.
+        contact_rows = db_functions.read_contacts(db_context, [ contact_row1.contact_id ])
+        assert len(contact_rows) == 1
+        assert contact_rows == [ contact_row1 ]
+
+        # Create additional rows.
+        current_time = 1001
+        contact_rows = db_functions.create_contacts_write([ contact2, contact3 ], db_connection)
+        assert len(contact_rows) == 2
+        contact_row2 = ContactRow(2, "contact2", None, None, "url2", "token2", None,
+            1001, 1001)
+        contact_row3 = ContactRow(3, "contact3", None, None, None, None, None, 1001, 1001)
+        assert contact_rows == [ contact_row2, contact_row3 ]
+
+        # Ensure we get all the new matches.
+        contact_rows = db_functions.read_contacts(db_context)
+        assert len(contact_rows) == 3
+        assert contact_rows == [ contact_row1, contact_row2, contact_row3 ]
+
+        # Ensure we get one specific match out of three.
+        contact_rows = db_functions.read_contacts(db_context, [ contact_row2.contact_id ])
+        assert len(contact_rows) == 1
+        assert contact_rows == [ contact_row2 ]
+
+        # RT: Skip hierarchical creation of table rows. Will this be a good idea?
+        db_connection.execute("PRAGMA foreign_keys = 0;")
+        db_connection.execute("INSERT INTO ServerPeerChannels (peer_channel_id, server_id, "
+            "peer_channel_flags, date_created, date_updated) VALUES (111, 111, 111, 111, 111)")
+        db_connection.execute("PRAGMA foreign_keys = 1;")
+
+        # Set peer channel 33 (does not exist and will error) on contact3.
+        # NOTE(pysqlite3-binary) Different errors on Linux and Windows.
+        #     Windows: "sqlite3.IntegrityError: FOREIGN KEY constraint failed"
+        #     Linux:   "pysqlite3.dbapi2.OperationalError: FOREIGN KEY constraint failed"
+        with pytest.raises((sqlite3.IntegrityError, sqlite3.OperationalError)):
+            db_functions.update_contact_for_local_peer_channel_write(contact_row3.contact_id, 33,
+                db_connection)
+
+        # Set peer channel 111 (inserted above) on contact3.
+        current_time = 2001
+        new_contact_row3 = db_functions.update_contact_for_local_peer_channel_write(
+            contact_row3.contact_id, 111, db_connection)
+        contact_row3 = contact_row3._replace(local_peer_channel_id=111, date_updated=2001)
+        assert new_contact_row3 == contact_row3
+
+        # Ensure we get one specific match out of three.
+        contact_rows = db_functions.read_contacts(db_context, [ contact_row3.contact_id ])
+        assert len(contact_rows) == 1
+        assert contact_rows == [ contact_row3 ]
+
+        current_time = 3001
+        new_contact_row1 = db_functions.update_contact_for_invitation_response_write(
+            contact_row1.contact_id, "callmebob", "url1", "token1", b"fakepubkey", db_connection)
+        contact_row1 = contact_row1._replace(direct_declared_name="callmebob",
+            remote_peer_channel_url="url1", remote_peer_channel_token="token1",
+            direct_identity_key_bytes=b"fakepubkey", date_updated=current_time)
+        assert new_contact_row1 == contact_row1
+
+        # Ensure the read matches.
+        contact_rows = db_functions.read_contacts(db_context, [ contact_row1.contact_id ])
+        assert len(contact_rows) == 1
+        assert contact_rows == [ contact_row1 ]
+
+        current_time = 4001
+        new_contact_row2 = ContactRow(contact_row2.contact_id, "contact2b", "zcontact2b",
+            111, "url2b", "token2b", b"key2", 91919191, 19191919)
+        new_contact_rows = db_functions.update_contacts_write([ new_contact_row2 ], db_connection)
+        assert len(new_contact_rows) == 1
+        contact_row2 = new_contact_row2._replace(date_created=contact_row2.date_created,
+            date_updated=4001)
+        assert new_contact_rows == [ contact_row2 ]
+
+        contact_rows = db_functions.read_contacts(db_context)
+        assert len(contact_rows) == 3
+        assert contact_rows == [ contact_row1, contact_row2, contact_row3 ]
+    finally:
+        db_context.release_connection(db_connection)

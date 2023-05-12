@@ -148,7 +148,7 @@ class CachedHeadersData(NamedTuple):
 
 def read_cached_headers_metadata(f: io.BufferedReader) -> CachedHeadersMetadata:
     chaindata_version = read_le_uint16(f.read)
-    assert chaindata_version == 1
+    assert chaindata_version == 1, f"Incompatible chaindata version {chaindata_version}"
     headerfile_length = read_le_uint32(f.read)
     headerfile_hash = f.read(32)
     assert len(headerfile_hash) == 32

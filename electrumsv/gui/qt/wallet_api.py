@@ -1,13 +1,11 @@
 
 from decimal import Decimal
-from typing import Any, cast, Optional, Iterable, List, Tuple, TYPE_CHECKING
+from typing import cast, List, Tuple, TYPE_CHECKING
 import weakref
 
 from PyQt6.QtCore import pyqtSignal, QObject
 
-from electrumsv.app_state import app_state
 from electrumsv.constants import WalletEventFlag
-from electrumsv.contacts import ContactEntry, ContactIdentity, IdentitySystem, IdentityCheckResult
 from electrumsv.wallet_database.types import WalletEventRow
 
 
@@ -21,108 +19,26 @@ class WalletAPI(QObject):
     # TODO: ...
     fiat_currency_changed = pyqtSignal(str)
 
-    contact_changed = pyqtSignal(bool, object, object)
     new_notification = pyqtSignal(object)
 
     def __init__(self, wallet_window: 'ElectrumWindow') -> None:
         super().__init__(wallet_window)
 
         self.wallet_window = cast("ElectrumWindow", weakref.proxy(wallet_window))
-
-        app_state.app_qt.identity_added_signal.connect(self._on_contact_added)
-        app_state.app_qt.identity_removed_signal.connect(self._on_contact_removed)
-        app_state.app_qt.contact_added_signal.connect(self._on_contact_added)
-        app_state.app_qt.contact_removed_signal.connect(self._on_contact_removed)
-
         self.wallet_window.notifications_created_signal.connect(self._on_new_notifications)
 
     def clean_up(self) -> None:
         self.wallet_window.notifications_created_signal.disconnect(self._on_new_notifications)
-
-        app_state.app_qt.identity_added_signal.disconnect(self._on_contact_added)
-        app_state.app_qt.identity_removed_signal.disconnect(self._on_contact_removed)
-        app_state.app_qt.contact_added_signal.disconnect(self._on_contact_added)
-        app_state.app_qt.contact_removed_signal.disconnect(self._on_contact_removed)
 
     # def __del__(self) -> None:
     #     print(f"Wallet API {self!r} was garbage collected")
 
     # Contact related:
 
-    def add_identity(self, contact_id: int, system_id: IdentitySystem, system_data: str) -> None:
-        self.wallet_window.contacts.add_identity(contact_id, system_id, system_data)
-
-    def add_contact(self, system_id: IdentitySystem, label: str,
-            identity_data: Any) -> ContactEntry:
-        return self.wallet_window.contacts.add_contact(system_id, label, identity_data)
-
-    def remove_contacts(self, contact_ids: Iterable[int]) -> None:
-        self.wallet_window.contacts.remove_contacts(contact_ids)
-
-    def remove_identity(self, contact_id: int, identity_id: bytes) -> None:
-        self.wallet_window.contacts.remove_identity(contact_id, identity_id)
-
-    def set_label(self, contact_id: int, label: str) -> None:
-        self.wallet_window.contacts.set_label(contact_id, label)
-
-    def get_contact(self, contact_id: int) -> Optional[ContactEntry]:
-        return self.wallet_window.contacts.get_contact(contact_id)
-
-    def get_identities(self) -> List[Tuple[ContactEntry, ContactIdentity]]:
-        return self.wallet_window.contacts.get_contact_identities()
-
-    def check_label(self, label: str) -> IdentityCheckResult:
-        return self.wallet_window.contacts.check_label(label)
-
-    def check_identity_valid(self, system_id: IdentitySystem, system_data: Any,
-            skip_exists: Optional[bool]=False) -> IdentityCheckResult:
-        return self.wallet_window.contacts.check_identity_valid(system_id, system_data, skip_exists)
-
     def get_account_name(self, account_id: int) -> str:
         account = self.wallet_window._wallet.get_account(account_id)
         assert account is not None
         return account.display_name()
-
-    # Balance related.
-
-    def get_balance(self, account_id: Optional[int]=None) -> int:
-        balance = 0
-        for account in self.wallet_window._wallet.get_accounts():
-            if account_id is None or account_id == account.get_id():
-                c, u, x, a = account.get_balance()
-                balance += c + u
-        return balance
-
-    def get_fiat_unit(self) -> Optional[str]:
-        fx = app_state.fx
-        if fx and fx.is_enabled():
-            return fx.get_currency()
-        return None
-
-    def get_amount_and_units(self, amount: int) -> Tuple[str, str]:
-        return app_state.get_amount_and_units(amount)
-
-    # Fiat related.
-
-    def get_fiat_amount(self, sv_value: int) -> Optional[str]:
-        fx = app_state.fx
-        if fx and fx.is_enabled():
-            return fx.format_amount(sv_value)
-        return None
-
-    def get_base_unit(self) -> str:
-        return app_state.base_unit()
-
-    def get_base_amount(self, sv_value: int) -> str:
-        return app_state.format_amount(sv_value)
-
-    def _on_contact_added(self, contact: ContactEntry,
-            identity: Optional[ContactIdentity]=None) -> None:
-        self.contact_changed.emit(True, contact, identity)
-
-    def _on_contact_removed(self, contact: ContactEntry,
-            identity: Optional[ContactIdentity]=None) -> None:
-        self.contact_changed.emit(False, contact, identity)
 
     # Notification related.
 

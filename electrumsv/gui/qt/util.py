@@ -1200,13 +1200,16 @@ class FormSectionWidget(QWidget):
     can be used to do something that looks the same with less custom code to achieve it.
     """
     show_help_label: bool = True
-    # minimum_label_width: int = 80
+    minimum_label_width: int|None = 80
 
     _frame_layout: QFormLayout
 
     def __init__(self, parent: Optional[QWidget]=None,
-            minimum_label_width: Optional[int]=None) -> None:
+            minimum_label_width: int|None=None) -> None:
         super().__init__(parent)
+
+        if minimum_label_width is not None:
+            self.minimum_label_width = minimum_label_width
 
         frame = self._frame = QFrame()
         frame.setObjectName("FormFrame")
@@ -1266,6 +1269,8 @@ class FormSectionWidget(QWidget):
             if not label_text.endswith(":"):
                 label_text += ":"
             label = QLabel(label_text)
+        if self.minimum_label_width is not None:
+            label.setMinimumWidth(self.minimum_label_width)
         label.setObjectName("FormSectionLabel")
         label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Maximum)
 

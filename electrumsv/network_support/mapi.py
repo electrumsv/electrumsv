@@ -191,9 +191,6 @@ async def _get_mapi_fee_quote_async(server: NewServer,
 async def mapi_transaction_broadcast_async(wallet_data: WalletDataAccess,
         server_and_credential: ServerAndCredential, tx: Transaction) -> MAPIBroadcastResponse:
     """
-    Via `create_peer_channel_locally_and_remotely_async`:
-        Raises `GeneralAPIError` if a connection was established but the request was unsuccessful.
-        Raises `ServerConnectionError` if the remote computer does not accept the connection.
     Via `post_mapi_transaction_broadcast_async`:
         Raises `ServerError` if it connects but there is some other problem with the
             broadcast attempt.

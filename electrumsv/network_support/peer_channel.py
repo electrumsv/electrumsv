@@ -63,7 +63,6 @@ from .types import GenericPeerChannelMessage, MessageViewModelGetBinary, \
 
 logger = logs.get_logger("peer-channels")
 
-
 def get_permissions_from_peer_channel_token(json_token: PeerChannelAPITokenViewModelGet) \
         -> TokenPermissions:
     permissions: TokenPermissions = TokenPermissions.NONE

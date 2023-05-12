@@ -390,13 +390,13 @@ class Network(TriggeredCallbacks[NetworkEventNames]):
             while context is self._main_loop_context:
                 try:
                     await self._monitor_chain_tip_task_async(server_key)
-                except ServiceUnavailableError:
+                except ServiceUnavailableError as exc:
                     server_metadata = self._server_connectivity_metadata.get(server_key, None)
                     if server_metadata is not None:
                         server_metadata.consecutive_failed_attempts += 1
                         # We only log the unavailability for the first failed attempt.
                         if server_metadata.consecutive_failed_attempts == 1:
-                           logger.error("Server unavailable: %s", server_key)
+                           logger.warning("Server unavailable: %s. %s", server_key, str(exc))
                 await asyncio.sleep(20)
         finally:
             self.lost_server_connection_event.set()

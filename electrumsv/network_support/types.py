@@ -288,6 +288,12 @@ class ServerConnectionState(ServerStateProtocol):
             list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
         dataclasses.field(default_factory=asyncio.Queue[
             list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
+    # Wallet consuming: Post direct connection matches here to get them registered with the server.
+    direct_connection_matches_queue: \
+        asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]] = \
+        dataclasses.field(default_factory=asyncio.Queue[
+            list[tuple[PeerChannelMessageRow, GenericPeerChannelMessage]]])
     # Wallet consuming: Direct payment protocol-related messages from the DPP server
     dpp_messages_queue: asyncio.Queue[DPPMessageRow] = dataclasses.field(
         default_factory=asyncio.Queue[DPPMessageRow])
@@ -309,6 +315,7 @@ class ServerConnectionState(ServerStateProtocol):
     # Wallet individual futures (servers used for blockchain services only).
     output_spends_consumer_future: Optional[concurrent.futures.Future[None]] = None
     tip_filter_consumer_future: Optional[concurrent.futures.Future[None]] = None
+    contact_message_consumer_future: concurrent.futures.Future[None] | None = None
     # For each DPP Proxy server there is a manager task to create ws:// connections and
     # a corresponding consumer task associated with the `Wallet` instance (which uses a shared
     # queue)

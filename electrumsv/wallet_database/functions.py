@@ -52,7 +52,7 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     IncompleteProofDataSubmittedError, TransactionAlreadyExistsError, TransactionRemovalError)
 from .types import (AccountRow, AccountHistoryOutputRow, AccountTransactionRow,
     AccountTransactionDescriptionRow, AccountTransactionOutputSpendableRow,
-    AccountTransactionOutputSpendableRowExtended,
+    AccountTransactionOutputSpendableRowExtended, ContactAddRow, ContactRow,
     DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceAccountRow, InvoiceRow,
     KeyInstanceFlagRow, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, MasterKeyRow,
     MAPIBroadcastRow, NetworkServerRow, PasswordUpdateResult, PaymentRequestRow,
@@ -81,6 +81,99 @@ def create_accounts(db_context: DatabaseContext, entries: Iterable[AccountRow]) 
         assert db is not None and isinstance(db, sqlite3.Connection)
         db.executemany(query, datas)
     return db_context.post_to_thread(_write)
+
+
+def create_contacts_write(add_rows: list[ContactAddRow], db: sqlite3.Connection|None=None) \
+        -> list[ContactRow]:
+    assert db is not None
+
+    timestamp = int(time.time())
+    create_rows = [ (add_row.contact_name, add_row.remote_peer_channel_url,
+        add_row.remote_peer_channel_token, add_row.direct_identity_key_bytes, timestamp, timestamp)
+        for add_row in add_rows ]
+
+    insert_prefix_sql = "INSERT INTO Contacts (contact_name, remote_peer_channel_url, " \
+        "remote_peer_channel_token, direct_identity_key_bytes, date_created, date_updated) VALUES "
+    insert_suffix_sql = "RETURNING contact_id, contact_name, NULL, NULL, " \
+        "remote_peer_channel_url, remote_peer_channel_token, direct_identity_key_bytes, " \
+        "date_created, date_updated"
+    # Remember we cannot just return the `contact_id` and substitute it into the source row
+    # because SQLite cannot guarantee the row order matches the returned assigned id order.
+    return bulk_insert_returning(ContactRow, db, insert_prefix_sql,
+        insert_suffix_sql, create_rows)
+
+
+CONTACT_ROW_COLUMNS = "contact_id, contact_name, direct_declared_name, local_peer_channel_id, " \
+    "remote_peer_channel_url, remote_peer_channel_token, direct_identity_key_bytes, " \
+    "date_created, date_updated"
+CONTACT_READ_SQL = f"SELECT {CONTACT_ROW_COLUMNS} FROM Contacts"
+
+@replace_db_context_with_connection
+def read_contacts(db: sqlite3.Connection, contact_ids: list[int]|None=None) -> list[ContactRow]:
+    if contact_ids is not None:
+        sql = CONTACT_READ_SQL +" WHERE contact_id IN ({})"
+        return read_rows_by_id(ContactRow, db, sql, [], contact_ids)
+    return [ ContactRow(*row) for row in db.execute(CONTACT_READ_SQL).fetchall() ]
+
+@replace_db_context_with_connection
+def read_contact_for_peer_channel(db: sqlite3.Connection, peer_channel_id: int) \
+        -> ContactRow | None:
+    sql = CONTACT_READ_SQL +" WHERE local_peer_channel_id=?1"
+    cursor = db.execute(sql, (peer_channel_id,))
+    row = cursor.fetchone()
+    if row is not None:
+        return ContactRow(*row)
+    return None
+
+def update_contacts_write(update_rows: list[ContactRow], db: sqlite3.Connection|None=None) \
+        -> list[ContactRow]:
+    assert db is not None
+
+    timestamp = int(time.time())
+    update_rows = [ update_row._replace(date_updated=timestamp) for update_row in update_rows ]
+    sql = "UPDATE Contacts SET contact_name=?2, direct_declared_name=?3, " \
+        "local_peer_channel_id=?4, remote_peer_channel_url=?5, remote_peer_channel_token=?6, " \
+        "direct_identity_key_bytes=?7, date_updated=?9 WHERE contact_id=?1 " \
+        "RETURNING "+ CONTACT_ROW_COLUMNS
+
+    updated_rows: list[ContactRow] = []
+    for update_row in update_rows:
+        updated_row = db.execute(sql, update_row).fetchone()
+        assert updated_row is not None
+        updated_rows.append(updated_row)
+    return updated_rows
+
+def update_contact_for_local_peer_channel_write(contact_id: int, peer_channel_id: int,
+        db: sqlite3.Connection|None=None) -> ContactRow:
+    assert db is not None
+
+    timestamp = int(time.time())
+    sql = "UPDATE Contacts SET local_peer_channel_id=?1, date_updated=?2 WHERE contact_id=?3 " \
+        "RETURNING "+ CONTACT_ROW_COLUMNS
+    cursor = db.execute(sql, (peer_channel_id, timestamp, contact_id))
+    row = cursor.fetchone()
+    assert row is not None
+
+    # Mark the peer channel as in use now, so it does not get cleaned up as lost and unused.
+    update_server_peer_channel_flags_write(peer_channel_id, ServerPeerChannelFlag.NONE,
+        ~ServerPeerChannelFlag.ALLOCATING, db)
+
+    return ContactRow(*row)
+
+def update_contact_for_invitation_response_write(contact_id: int, stated_name: str, url: str,
+        token: str, identity_key_bytes: bytes, db: sqlite3.Connection|None=None) -> ContactRow:
+    assert db is not None
+
+    timestamp = int(time.time())
+    sql = "UPDATE Contacts SET direct_declared_name=?1, remote_peer_channel_url=?2, " \
+        "remote_peer_channel_token=?3, direct_identity_key_bytes=?4, date_updated=?5 " \
+        "WHERE contact_id=?6" \
+        "RETURNING "+ CONTACT_ROW_COLUMNS
+    cursor = db.execute(sql, (stated_name, url, token, identity_key_bytes, timestamp, contact_id))
+    row = cursor.fetchone()
+    assert row is not None
+
+    return ContactRow(*row)
 
 
 def create_invoices(db_context: DatabaseContext, entries: Iterable[InvoiceRow]) \
@@ -1737,6 +1830,18 @@ def update_server_peer_channel_write(remote_channel_id: Optional[str],
         assert cursor.rowcount == len(addable_access_tokens)
 
     return result_row
+
+def update_server_peer_channel_flags_write(peer_channel_id: int, flags: int, mask: int,
+        db: Optional[sqlite3.Connection]=None) -> None:
+    assert db is not None and isinstance(db, sqlite3.Connection)
+
+    timestamp = int(time.time())
+    sql = """
+    UPDATE ServerPeerChannels SET peer_channel_flags=(peer_channel_flags&?1)|?2, date_updated=?3
+    WHERE peer_channel_id=?4
+    """
+    cursor = db.execute(sql, (mask, flags, timestamp, peer_channel_id))
+    assert cursor.rowcount == 1
 
 
 def update_external_peer_channel_message_flags_write(processed_message_ids: list[int],
