@@ -16,8 +16,6 @@ PACKAGE=ElectrumSV
 GIT_REPO_ACCT=https://github.com/electrumsv
 GIT_REPO=$GIT_REPO_ACCT/electrumsv
 
-python3 -c "import sys; assert sys.version_info >= (${PYTHON_VERSION//./,})" > /dev/null 2>&1 || fail "Please ensure Python 3.9 is the default 'python3' command and it is later than Python $PYTHON_VERSION"
-
 which xcodebuild > /dev/null 2>&1 || fail "Please install Xcode and xcode command line tools to continue"
 
 which msgfmt > /dev/null 2>&1 || fail "Please install xgettext.  For brew users: brew install gettext && brew link gettext --force"
@@ -54,8 +52,8 @@ fi
 # -I$(xcrun --show-sdk-path)/usr/include
 CFLAGS="-I$(brew --prefix sqlite3)/include" \
 LDFLAGS="-L$(brew --prefix sqlite3)/lib" \
-SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX10.15.sdk MACOSX_DEPLOYMENT_TARGET=10.15 \
-PYTHON_CONFIGURE_OPTS="--enable-framework" pyenv install -s $PYTHON_VERSION && \
+SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX13.1.sdk MACOSX_DEPLOYMENT_TARGET=11.1 \
+PYTHON_CONFIGURE_OPTS="--enable-framework" pyenv install -f $PYTHON_VERSION && \
 pyenv global $PYTHON_VERSION || \
 fail "Unable to use Python $PYTHON_VERSION"
 
@@ -78,10 +76,10 @@ info "Using these versions for building $PACKAGE:"
 sw_vers
 python3 --version
 python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
-
+#python3 -m pip install wheel
 info "Installing ElectrumSV requirements..."
 python3 -m pip install -Ir ./contrib/deterministic-build/macos-py3.9-requirements-electrumsv.txt || \
-fail "Could not install ElectrumSV requirements"
+    fail "Could not install ElectrumSV requirements"
 
 info "Extracting libusb..."
 tar xzf ./contrib/osx/binaries/libusb-1.0.21.el_capitan.bottle.tar.gz --directory=$BUILDDIR || fail "Could not extract libusb"
