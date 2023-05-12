@@ -8,7 +8,7 @@ function info {
 	printf "\r💬 ${BLUE}INFO:${NC}  ${1}\n"
 }
 function fail {
-    printf "\r🗯 ${RED}ERROR:${NC} ${1}\n"
+    printf "\r🗯 ${RED}ERROR:${NC}  ${1}\n"
     exit 1
 }
 function warn {
