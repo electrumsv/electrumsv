@@ -11,6 +11,14 @@ required command-line options. Where possible we aim to try and present the same
 experience that the node API does. This replacement option is the only JSON-RPC API that
 ElectrumSV provides.
 
+.. warning::
+
+    Before integrating this into your stack, check the documentation for each endpoint you plan
+    to use for any incompatibilities or outstanding issues between the ElectrumSV RPC API and
+    the Node RPC API. As much as possible, the APIs are equivalent but there are some
+    unavoidable differences. A prime example is the `account` parameter, which does not map
+    well onto ElectrumSV so is expected to be omitted or set to null for all RPC requests.
+
 Command-line options
 --------------------
 
@@ -982,6 +990,14 @@ Return a selection of the most recent transactions from the wallet ordered from 
 these to the most recent of these. Unconfirmed and local transactions are considered most
 recent and beyond that ordering is by descending block height and block position of transactions.
 
+.. warning::
+
+    Outstanding issues: To maintain compatibility with the node API, the `address` and `vout`
+    fields are limited to a single address per transaction. This doesn't seem to make much
+    sense for the ElectrumSV wallet because each transaction could have many relevant outputs.
+    For now, the addresses are filtered for ones that are "owned" (the wallet has the keys for it)
+    and the first one is selected.
+
 **Parameters:**
 
 #. ``account`` (string, optional). Not supported. Use `null` placeholder if necessary.
@@ -1002,7 +1018,8 @@ The structure of each entry in the array is as follows:
   (inputs are respendable). Currently will always be ``false``.
 - ``account``: (string). The account name associated with the transaction. As we do not
   support this feature the value will always be ``""``.
-- ``address``: (string, only present if P2PKH). The address of this transaction.
+- ``address``: (string, only present if P2PKH and owned by the wallet - i.e. we have the key for it).
+  **See warning message above**.
 - ``amount``: (numeric). The number of bitcoin sent (negative value) or received
   (positive value).
 - ``blockhash``: (string, only present if ``confirmations`` > 0). The block hash containing the
@@ -1020,7 +1037,7 @@ The structure of each entry in the array is as follows:
 - ``confirmations``: (integer). Number of mined blocks including the transaction and on
   top of it.
 - ``fee``: (numeric, only present for send). The number of bitcoin paid as a fee (negative
-  value). Will be the same for all send detail objects.
+  value).
 - ``generated``: (bool, always ``true``, only present if transaction is coinbase).
 - ``time``: (numeric). The transaction time in seconds since epoch
   (midnight Jan 1 1970 GMT). Intentionally incompatible, and the same as ``timereceived`` for now.
@@ -1029,7 +1046,7 @@ The structure of each entry in the array is as follows:
 - ``trusted``: (bool, only present if ``confirmations`` == 0). Indicates if this coin is considered
   safe or not.
 - ``txid``: (string). The transaction id.
-- ``vout``: (integer). The index of the output with the given amount in the transaction.
+- ``vout``: (integer, only present if address is present). **See warning message above**.
 - ``walletconflicts``: (array of strings, always ``[]``).
 
 **Incompatibilities:**
@@ -1040,10 +1057,9 @@ The structure of each entry in the array is as follows:
 #. Parameter: The ``include_watchonly`` parameter is ignored as the node wallet API does not
    support watch-only accounts at this time. Specifying a non-null value will raise an error.
 #. Response: The ``comment`` property is not going to be supported.
-#. Response: The ``fee`` property will never be present as it is not supported in this initial
-   implementation. If the fee for a transaction is wanted, the ``gettransaction`` method should
-   be used.
 #. Response: The ``label`` property is not going to be supported.
+#. Response: The ``address`` field only selects the first 'owned' address (see details above)
+#. Response: The ``vout`` field is only for the first 'owned' address (see details above)
 #. Error: The ``RPC_PARSE_ERROR`` for ``account`` is customised and reflects that we do not accept
    non-null values.
 #. Error: The ``RPC_PARSE_ERROR`` for ``include_watchonly`` is customised and reflects that we

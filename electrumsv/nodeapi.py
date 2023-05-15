@@ -72,9 +72,9 @@ from .logs import logs
 from .networks import Net
 from .standards.node_transaction import transactions_from_node_bytes
 from .standards.script_templates import classify_transaction_output_script
-from .transaction import TransactionContext, TransactionFeeEstimator, XTxInput, XTxOutput
+from .transaction import TransactionContext, TransactionFeeEstimator, XTxInput, XTxOutput, \
+    Transaction
 from .types import Outpoint
-
 from .util import constant_time_compare
 from .wallet_database.types import AccountHistoryOutputRow
 
@@ -384,6 +384,8 @@ async def execute_jsonrpc_call_async(request: web.Request, object_data: Any) \
         return request_id, await jsonrpc_createrawtransaction_async(request, request_id, params)
     elif method_name == "gettransaction":
         return request_id, await jsonrpc_gettransaction_async(request, request_id, params)
+    elif method_name == "listtransaction":
+        return request_id, await jsonrpc_listtransaction_async(request, request_id, params)
     elif method_name == "getbalance":
         return request_id, await jsonrpc_getbalance_async(request, request_id, params)
     elif method_name == "getnewaddress":
@@ -730,6 +732,26 @@ class TransactionInfo(TypedDict, total=False):
     walletconflicts: list[str]
 
 
+class TransactionListInfo(TypedDict, total=False):
+    abandoned: bool
+    account: str
+    address: str | None
+    amount: float
+    blockhash: str | None
+    blockindex: int | None
+    blocktime: int | None
+    category: str
+    confirmations: int
+    fee: float | None
+    generated: bool | None
+    time: int
+    timereceived: int
+    trusted: bool | None
+    txid: str
+    vout: int
+    walletconflicts: list[str]
+
+
 class TransactionDetails(TypedDict, total=False):
     account: str
     address: str | None
@@ -762,9 +784,14 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
     # Compatibility: Raises RPC_INVALID_PARAMETER if we were given unlisted named parameters.
     parameter_values = transform_parameters(request_id, [ "txid", "include_watchonly" ],
         parameters)
-    txid = parameter_values[0]
-    node_RPCTypeCheckArgument(request_id, txid, str)
-    node_ParseHexV(request_id, "txid", txid)
+    if len(parameter_values) < 1 or len(parameter_values) > 2:
+        raise web.HTTPInternalServerError(headers={"Content-Type": "application/json"},
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+            error=ErrorDict(code=RPCError.INVALID_PARAMS,
+            message="Invalid parameters, see documentation for this call"))))
+
+    txid = get_string_parameter(request_id, parameter_values[0])
+
     # INCOMPATIBILITY: Raises RPC_INVALID_PARAMETER to indicate current lack of support for the
     # "include_watchonly" parameter - it should always be null.
     if len(parameter_values) > 1 and parameter_values[1] is not None:
@@ -773,9 +800,21 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
             error=ErrorDict(code=RPCError.PARSE_ERROR,
             message="JSON value is not a null as expected"))))
 
+    tx: Transaction | None = None
+    tx_hash: bytes | None = None
+    if len(txid) == 64:
+        tx_hash = hex_str_to_hash(txid)
+        tx = wallet.get_transaction(hex_str_to_hash(txid))
+    if not tx:
+        raise web.HTTPInternalServerError(headers={"Content-Type": "application/json"},
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=RPCError.INVALID_ADDRESS_OR_KEY,
+                    message="Invalid or non-wallet transaction id"))))
+    assert tx is not None
+    assert tx_hash is not None
     account_history_output_rows: list[AccountHistoryOutputRow] = \
-        wallet.data.read_history_for_outputs(account.get_id(),
-            transaction_hash=hex_str_to_hash(txid))
+        wallet.data.read_history_for_outputs(account.get_id(), tx_hash,
+            limit_count=len(tx.outputs), skip_count=0)
 
     if not account_history_output_rows:
         return {}
@@ -843,28 +882,31 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
     trusted = True
     if confirmations == 0:
         for funding_row in wallet.data.read_parent_transaction_outputs_with_key_data(
-                row.tx_hash, include_absent=True):
+                tx_hash, include_absent=True):
             # This will exit on funding by unknown transactions and also on funding by external
             # transactions we do not have the keys for.
             if funding_row.keyinstance_id is None:
                 trusted = False
                 break
 
-    rawtx = wallet.get_transaction(row.tx_hash)
-    assert rawtx is not None
     transaction_info = TransactionInfo(
         confirmations=confirmations,
         details=[],
-        # fee=None,  # not implemented yet
-        hex=rawtx.to_hex(),
+        hex=tx.to_hex(),
         time=row.date_created,
         timereceived=row.date_created,
-        trusted=trusted,
-        txid=hash_to_hex_str(row.tx_hash),
+        txid=txid,
         walletconflicts=[],
     )
+    fee = None
+    if category == 'send':
+        fee = wallet.data.read_transaction_fee(tx_hash)
+        transaction_info['fee'] = fee
     if row.is_coinbase:
         transaction_info['generated'] = True
+
+    if confirmations == 0:
+        transaction_info['trusted'] = trusted
 
     if confirmations > 0:
         transaction_info['blockhash'] = hash_to_hex_str(row.block_hash) if row.block_hash \
@@ -873,7 +915,7 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
         transaction_info['blocktime'] = blocktime
 
     details: list[TransactionDetails] = []
-    net_amount: float = 0
+    net_amount: float = 0.0
     for row in account_history_output_rows:
         # INCOMPATIBILITY: The 'account' field is always "" as we do not support this feature in
         # any way
@@ -895,20 +937,203 @@ async def jsonrpc_gettransaction_async(request: web.Request, request_id: Request
 
         transaction_details = TransactionDetails(
             address=address,
-            abandoned=False,
             account="",
             amount=row.value / COIN,  # Convert from satoshis to bitcoins
             category=category,
-            # fee=None,  # not implemented yet
             vout=row.txo_index,
             label=''
         )
+        if category == 'send':
+            transaction_details['fee'] = fee
+            transaction_details['abandoned'] = False
         details.append(transaction_details)
         net_amount += transaction_details['amount']
 
     transaction_info['details'] = details
     transaction_info['amount'] = net_amount
     return transaction_info
+
+
+async def jsonrpc_listtransaction_async(request: web.Request, request_id: RequestIdType,
+        parameters: RequestParametersType) -> Any:
+    """
+    Get detailed information about a transaction in the wallet.
+    """
+    # Ensure the user is accessing either an explicit or implicit wallet.
+    wallet = get_wallet_from_request(request, request_id)
+    assert wallet is not None
+    # Similarly the user must only have one account (and we will ignore any
+    # automatically created petty cash accounts which we do not use yet).
+    accounts = wallet.get_visible_accounts()
+    if len(accounts) != 1:
+        raise web.HTTPInternalServerError(headers={ "Content-Type": "application/json" },
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+                error=ErrorDict(code=RPCError.WALLET_ERROR,
+                    message=f"Ambiguous account (found {len(accounts)}, expected 1)"))))
+
+    account = accounts[0]
+    # Compatibility: Raises RPC_INVALID_PARAMETER if we were given unlisted named parameters.
+    parameter_values = transform_parameters(request_id, [ "account", "count", "skip",
+        "include_watchonly" ], parameters)
+    if len(parameter_values) > 4:
+        raise web.HTTPInternalServerError(headers={"Content-Type": "application/json"},
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+            error=ErrorDict(code=RPCError.INVALID_PARAMS,
+            message="Invalid parameters, see documentation for this call"))))
+
+    # INCOMPATIBILITY: Raises RPC_INVALID_PARAMETER to indicate current lack of support for the
+    # "account" parameter - it should always be null.
+    if len(parameter_values) > 0 and parameter_values[0] is not None:
+        raise web.HTTPInternalServerError(headers={"Content-Type": "application/json"},
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+            error=ErrorDict(code=RPCError.PARSE_ERROR,
+            message="JSON value is not a null as expected"))))
+
+    count = 10
+    if len(parameter_values) > 1 and parameter_values[1] is not None:
+        count = get_integer_parameter(request_id, parameters[1])
+
+    skip = 0
+    if len(parameter_values) > 2 and parameter_values[2] is not None:
+        skip = get_integer_parameter(request_id, parameters[2])
+
+    # INCOMPATIBILITY: Raises RPC_INVALID_PARAMETER to indicate current lack of support for the
+    # "include_watchonly" parameter - it should always be null.
+    if len(parameter_values) > 3 and parameter_values[3] is not None:
+        raise web.HTTPInternalServerError(headers={"Content-Type": "application/json"},
+            text=json.dumps(ResponseDict(id=request_id, result=None,
+            error=ErrorDict(code=RPCError.PARSE_ERROR,
+            message="JSON value is not a null as expected"))))
+
+    transactions_list: list[TransactionListInfo] = []
+    transaction_hashes = wallet.data.read_transaction_hashes(limit_count=count, skip_count=skip)
+    for tx_hash in transaction_hashes:
+        account_history_output_rows: list[AccountHistoryOutputRow] = \
+            wallet.data.read_history_for_outputs(account.get_id(), tx_hash)
+
+        if not account_history_output_rows:
+            return {}
+
+        # INCOMPATIBILITY: The time field in the main transaction object is always the same as the
+        # timereceived value. bitcoind computes a “smart time” but we do not support that at this
+        # time.
+        # INCOMPATIBILITY: The walletconflicts field in the main transaction object is always []
+        # as we do not
+        # currently support this field.
+        row = account_history_output_rows[0]
+
+        blocktime: int | None = None
+        confirmations: int = 0
+
+        # "immature", "orphan", "generate" not implemented yet
+        category = "receive" if row.value > 0 else "send"
+        wallet_height = wallet.get_local_height()
+        if row.block_hash is not None and wallet_height > 0:
+            try:
+                lookup_result = wallet.lookup_header_for_hash(row.block_hash)
+            except MissingHeader:
+                if row.is_coinbase:
+                    category = "orphan"
+            else:
+                assert lookup_result is not None
+                header, chain = lookup_result
+                confirmations = wallet_height - header.height + 1
+                blocktime = header.timestamp
+                if row.is_coinbase:
+                    if chain != wallet.get_current_chain():
+                        category = "orphan"
+                    elif confirmations < COINBASE_MATURITY:
+                        category = "immature"
+                    else:
+                        category = "generate"
+        else:
+            if row.is_coinbase:
+                category = "immature"
+
+        # Is the given transaction trusted? (wallet.cpp:CWalletTx::IsTrusted)
+        # - Not if the given transaction is non-final.
+        # - Yes if the given transaction has at least one confirmation.
+        # - Not if the given transaction is in a block on another fork.
+        # - Not if the wallet is configured to not spend "zero confirmation change" (which the node
+        #   wallet defaults to setting to spend).
+        # - Not if the given transaction is not funded by ourselves (note that this is not tied to
+        #   the use of a change derivation path).
+        # - Not if the given known to be unconfirmed transaction is not in "this node's"  mempool.
+        # - Not if any of the funding does not come from us.
+        # - Not if our funding is not spendable by us (we can produce a signature / have the key).
+
+        # ElectrumSV take:
+        # - We do not get non-final transactions here.
+        # - We have already filtered out non-broadcast/non-mined transactions.
+        # - We do not have a setting for whether to spend "zero confirmation change" or not but we
+        #   do have a setting for "only spend confirmed coins" (we default this to no). These are
+        #   not the same thing.
+        #   - Read all the funding TXOs, if we have them all and they have keys, then we are
+        #     meeting this constraint.
+        # - Basically it comes down to the latter. A trusted coin is one from any confirmed
+        #   transaction or one that comes from a coin in an unconfirmed transaction that we
+        #   completely funded ourselves. We treat "zero confirmation change" as true and do not
+        #   provide a way to disable it.
+        trusted = True
+        if confirmations == 0:
+            for funding_row in wallet.data.read_parent_transaction_outputs_with_key_data(
+                    tx_hash, include_absent=True):
+                # This will exit on funding by unknown transactions and also on funding by external
+                # transactions we do not have the keys for.
+                if funding_row.keyinstance_id is None:
+                    trusted = False
+                    break
+
+        fee = wallet.data.read_transaction_fee(tx_hash)
+        transaction_info = TransactionListInfo(
+            confirmations=confirmations,
+            account="",
+            category=category,
+            time=row.date_created,
+            timereceived=row.date_created,
+            txid=hash_to_hex_str(tx_hash),
+            walletconflicts=[],
+        )
+        if category == 'send':
+            transaction_info['fee'] = fee
+            transaction_info['abandoned'] = False
+        if row.is_coinbase:
+            transaction_info['generated'] = True
+
+        if confirmations == 0:
+            transaction_info['trusted'] = trusted
+
+        if confirmations > 0:
+            transaction_info['blockhash'] = hash_to_hex_str(row.block_hash) if row.block_hash \
+                else None
+            transaction_info['blockindex'] = row.block_position if row.block_hash else None
+            transaction_info['blocktime'] = blocktime
+
+        owned_output_addresses: list[tuple[str, int]] = []  # address, vout
+        net_amount: float = 0.0
+        for row in account_history_output_rows:
+            address = ""
+            script_type, _threshold, script_template = classify_transaction_output_script(
+                Script(row.script_pubkey_bytes))
+            if script_type == ScriptType.P2PKH:
+                address = script_template.to_string()
+            if row.is_mine:
+                owned_output_addresses.append((address, row.txo_index))
+            net_amount += row.value / COIN
+
+        # INCOMPATIBILITY: The `address` and `vout` field can only include one address / vout
+        # per transaction. This doesn't seem to make much sense because there could be more than
+        # one per transaction. As an approximation to the node RPC API, we filter for only
+        # addresses that we have the key for (is_mine=True) and select only the first one.
+        logger.warning("The 'address' & 'vout' fields for the 'listtransactions' RPC method "
+            "only selects the first 'owned' address it finds - there could be many more that are "
+            "not returned. See the documentation for this call.")
+        if owned_output_addresses:
+            transaction_info['address'] = owned_output_addresses[0][0]
+            transaction_info['vout'] = owned_output_addresses[0][1]
+        transaction_info['amount'] = net_amount
+        transactions_list.append(transaction_info)
+    return transactions_list
 
 
 async def jsonrpc_getbalance_async(request: web.Request, request_id: RequestIdType,

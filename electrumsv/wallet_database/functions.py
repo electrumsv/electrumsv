@@ -37,6 +37,7 @@ from bitcoinx import hash_to_hex_str
 from electrumsv_database.sqlite import bulk_insert_returning, DatabaseContext, execute_sql_by_id, \
     read_rows_by_id, read_rows_by_ids, replace_db_context_with_connection, update_rows_by_ids
 
+from ..bitcoin import COIN
 from ..constants import (BlockHeight, DerivationType, DerivationPath,
     KeyInstanceFlag, MAPIBroadcastFlag, NetworkServerFlag, pack_derivation_path, PaymentFlag,
     PeerChannelAccessTokenFlag, PeerChannelMessageFlag, PushDataHashRegistrationFlag, ScriptType,
@@ -52,8 +53,8 @@ from .exceptions import (DatabaseUpdateError, KeyInstanceNotFoundError,
     IncompleteProofDataSubmittedError, TransactionAlreadyExistsError, TransactionRemovalError)
 from .types import (AccountRow, AccountHistoryOutputRow, AccountTransactionRow,
     AccountTransactionDescriptionRow, AccountTransactionOutputSpendableRow,
-    AccountTransactionOutputSpendableRowExtended,
-    DPPMessageRow, ExternalPeerChannelRow, HistoryListRow, InvoiceAccountRow, InvoiceRow,
+    AccountTransactionOutputSpendableRowExtended, DPPMessageRow, ExternalPeerChannelRow,
+    HistoryListRow, InvoiceAccountRow, InvoiceRow,
     KeyInstanceFlagRow, KeyInstanceFlagChangeRow, KeyInstanceRow, KeyListRow, MasterKeyRow,
     MAPIBroadcastRow, NetworkServerRow, PasswordUpdateResult, PaymentRequestRow,
     PaymentRequestOutputRow, PaymentRequestTransactionHashRow, PaymentRequestUpdateRow,
@@ -1301,14 +1302,24 @@ def read_transaction_flags(db: sqlite3.Connection, tx_hash: bytes) -> Optional[T
 
 
 @replace_db_context_with_connection
-def read_transaction_hashes(db: sqlite3.Connection, account_id: Optional[int]=None) -> list[bytes]:
+def read_transaction_hashes(db: sqlite3.Connection, account_id: int | None=None,
+        limit_count: int | None=None, skip_count: int=0) -> list[bytes]:
+    sql_values = []
     if account_id is None:
         sql = "SELECT tx_hash FROM Transactions"
-        cursor = db.execute(sql)
+        if limit_count:
+            sql += " LIMIT ?1 OFFSET ?2"
+            sql_values.extend([limit_count, skip_count])
+        cursor = db.execute(sql, sql_values)
     else:
         sql = "SELECT tx_hash FROM AccountTransactions WHERE account_id=?"
-        cursor = db.execute(sql, (account_id,))
+        sql_values.append(account_id)
+        if limit_count:
+            sql += " LIMIT ?1 OFFSET ?2"
+            sql_values.extend([limit_count, skip_count])
+        cursor = db.execute(sql, sql_values)
     return [ tx_hash for (tx_hash,) in cursor.fetchall() ]
+
 
 
 @replace_db_context_with_connection
@@ -1323,6 +1334,34 @@ def read_transaction_outputs(db: sqlite3.Connection, output_ids: list[Outpoint])
         "FROM TransactionOutputs")
     sql_condition = "tx_hash=? AND txo_index=?"
     return read_rows_by_ids(TransactionOutputAddRow, db, sql, sql_condition, [], output_ids)
+
+
+@replace_db_context_with_connection
+def read_transaction_fee(db: sqlite3.Connection, tx_hash: bytes) -> float | None:
+    # The CASE statement is a safeguard against reporting an incorrect fee for a transaction
+    # if we were to extend a transaction that already had inputs from a 3rd party that we (for
+    # some reason do not possess locally). Better to return a fee of None than have it be incorrect
+    sql_sum_input_values = """
+        SELECT CASE WHEN VALUE IS NULL THEN NULL ELSE SUM(TXOUT.value) END AS value
+        FROM TransactionInputs TXIN
+        -- join on outpoint to get the value of the inputs
+        LEFT JOIN TransactionOutputs TXOUT
+            ON TXIN.spent_tx_hash = TXOUT.tx_hash AND
+               TXIN.spent_txo_index = TXOUT.txo_index
+        WHERE TXIN.tx_hash = ?1
+          """
+    row = db.execute(sql_sum_input_values, (tx_hash,)).fetchone()
+    input_value = row[0]
+    if not input_value:
+        return None
+
+    sql_sum_output_values = """
+        SELECT SUM(TXOUT.value) FROM TransactionOutputs TXOUT WHERE TXIN.tx_hash = ?1
+    """
+    row = db.execute(sql_sum_output_values, (tx_hash,)).fetchone()
+    output_value = row[0]
+
+    return float((input_value - output_value) / COIN) * -1
 
 
 @replace_db_context_with_connection
@@ -3124,4 +3163,3 @@ def _reconcile_transaction_output_spends(db: sqlite3.Connection, tx_hash: bytes)
         return False
 
     return True
-
