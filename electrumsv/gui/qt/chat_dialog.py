@@ -1,11 +1,14 @@
 from __future__ import annotations
 from dataclasses import dataclass
+import datetime
+from functools import partial
 from typing import TYPE_CHECKING
+from weakref import proxy
 
-from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QKeyEvent, QPainter, QPaintEvent
+from PyQt6.QtCore import pyqtSignal, Qt
+from PyQt6.QtGui import QKeyEvent, QResizeEvent
 from PyQt6.QtWidgets import QAbstractItemView, QDialog, QHBoxLayout, QListWidget, \
-    QListWidgetItem, QStyle, QStyleOption, QTextEdit, QWidget, QVBoxLayout
+    QListWidgetItem, QTextEdit, QWidget, QVBoxLayout
 
 from ...app_state import app_state
 from ...network_support.direct_connection_protocol import send_direct_message_to_contact_async
@@ -21,6 +24,7 @@ class DialogContext:
     wallet_id: int
     contact_id: int
     wallet_data: WalletDataAccess
+    main_window_proxy: ElectrumWindow
     dialog: QDialog | None = None
     list_widget: QListWidget | None = None
     edit_widget: QTextEdit | None = None
@@ -41,7 +45,7 @@ chat_stylesheet = """
 }
 """
 
-class TextEdit(QTextEdit):
+class OutgoingMessageTextEdit(QTextEdit):
     def __init__(self, context: DialogContext) -> None:
         super().__init__()
         self._context = context
@@ -52,6 +56,8 @@ class TextEdit(QTextEdit):
             assert editor is not None
             message_text = editor.toPlainText()
             if len(message_text) > 0:
+                add_chat_message(self._context.main_window_proxy, self._context.wallet_id,
+                    self._context.contact_id, message_text, from_wallet_owner=True)
                 app_state.app.run_coro(send_direct_message_to_contact_async(
                     self._context.wallet_data, self._context.contact_id, message_text))
                 editor.setPlainText("")
@@ -72,17 +78,21 @@ def show_chat_dialog(main_window: ElectrumWindow, wallet_id: int, contact_id: in
 
     wallet_data = main_window._wallet.data
     context = GlobalChatContext.chat_dialogs[(wallet_id, contact_id)] = \
-        DialogContext(wallet_id, contact_id, wallet_data)
+        DialogContext(wallet_id, contact_id, wallet_data, proxy(main_window))
     dialog = context.dialog = QDialog(main_window,
         Qt.WindowType(Qt.WindowType.WindowSystemMenuHint | Qt.WindowType.WindowTitleHint |
             Qt.WindowType.WindowCloseButtonHint))
     dialog.setWindowTitle(_("Chat"))
+    # This is the magic width at which the text edit is not clipped and when there are more list
+    # entries than can be displayed horizontally, the scroll bar appearing does not clip it either.
+    dialog.setMinimumWidth(310)
 
     list = context.list_widget = QListWidget()
     list.setStyleSheet(chat_stylesheet)
     list.setSortingEnabled(False)
+    list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
-    editor = context.edit_widget = TextEdit(context)
+    editor = context.edit_widget = OutgoingMessageTextEdit(context)
     editor.setPlaceholderText(_("Write your message here.."))
     editor.setAcceptRichText(False)
     editor.setMaximumHeight(60)
@@ -106,54 +116,40 @@ def show_chat_dialog(main_window: ElectrumWindow, wallet_id: int, contact_id: in
 
 
 class MessageEntry(QWidget):
+    resize_signal = pyqtSignal()
+
     def __init__(self, message_text: str) -> None:
         super().__init__(None)
 
-        self.setObjectName("MessageEntry")
+        message_widget = self.message_widget = QTextEdit(message_text)
+        message_widget.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        message_widget.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        # avatar_label = QLabel("")
-        # avatar_label.setPixmap(QPixmap(icon_path("icons8-decision-80.png")))
-        # avatar_label.setObjectName("ContactAvatar")
-        # avatar_label.setToolTip(_("What your contact avatar looks like."))
-
-        # label = QLabel("...")
-        # label.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Preferred)
-        # label.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-
-        # name_layout = QVBoxLayout()
-        # name_layout.setContentsMargins(0, 0, 0, 0)
-        # name_layout.addWidget(avatar_label)
-        # name_layout.addWidget(label)
-
-        self.message_widget = QTextEdit()
-        self.message_widget.setReadOnly(True)
-        self.message_widget.setText(message_text)
-        self.message_widget.setMinimumHeight(50)
+        def adjust_message_widget_size() -> None:
+            nonlocal message_widget
+            docheight = message_widget.document().size().height()
+            margin = message_widget.document().documentMargin()
+            message_widget.setMinimumHeight(int(docheight + 2*margin))
+            message_widget.setMaximumHeight(int(docheight + 2*margin))
+        message_widget.textChanged.connect(adjust_message_widget_size)
+        message_widget.document().documentLayout().documentSizeChanged.connect(
+            adjust_message_widget_size)
 
         self._layout = QHBoxLayout()
-        self._layout.setSpacing(8)
-        self._layout.setContentsMargins(20, 10, 20, 10)
-        # self._layout.addLayout(name_layout)
+        self._layout.setSpacing(0)
+        self._layout.setContentsMargins(3, 0, 3, 3)
         self._layout.addWidget(self.message_widget, stretch=1)
         self.setLayout(self._layout)
 
-    # QWidget styles do not render. Found this somewhere on the qt5 doc site.
-    def paintEvent(self, event: QPaintEvent) -> None:
-        opt = QStyleOption()
-        opt.initFrom(self)
-        p = QPainter(self)
-        self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, p, self)
+    def resizeEvent(self, resize_event: QResizeEvent) -> None:
+        super().resizeEvent(resize_event)
+        self.resize_signal.emit()
 
 
 def add_chat_message(main_window: ElectrumWindow, wallet_id: int, contact_id: int,
         message_text: str, from_wallet_owner: bool=False) -> None:
     context = show_chat_dialog(main_window, wallet_id, contact_id)
     assert context is not None
-
-    list_item = QListWidgetItem()
-    # The item won't display unless it gets a size hint. It seems to resize horizontally
-    # but unless the height is a minimal amount it won't do anything proactive..
-    list_item.setSizeHint(QSize(256, 130))
 
     contact_name = "YOU"
     if not from_wallet_owner:
@@ -162,15 +158,26 @@ def add_chat_message(main_window: ElectrumWindow, wallet_id: int, contact_id: in
         assert len(contact_rows) == 1, "Contact does not exist"
         contact_name = contact_rows[0].contact_name
 
-    message_text = f"<b>{contact_name}</b> 12:00PM<br/>"+ message_text
-
+    d = datetime.datetime.now()
+    hour = d.hour % 12 if d.hour > 0 else 12
+    ampm_text = "PM" if d.hour > 12 else "AM"
+    time_text = f"{hour}:{d.minute}{ampm_text}"
+    message_text = f"<b>{contact_name}</b> {time_text}<br/>"+ message_text
     message_entry = MessageEntry(message_text)
 
     list = context.list_widget
     assert list is not None
+    list_item = QListWidgetItem()
     list.addItem(list_item)
     list.setItemWidget(list_item, message_entry)
+
+    # Widgets set on a QListItemWidget need to propagate their sizeHint.
+    def update_item_size_hint(list_item: QListWidgetItem, widget: QWidget) -> None:
+        list_item.setSizeHint(widget.sizeHint())
+    message_entry.resize_signal.connect(partial(update_item_size_hint, list_item, message_entry))
+
     list.scrollToItem(list_item, QAbstractItemView.ScrollHint.PositionAtBottom)
+
 
 def update_dialog(dialog: QDialog) -> None:
     pass
