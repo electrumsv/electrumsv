@@ -444,7 +444,9 @@ async def _process_direct_message_async(state: ServerConnectionState, contact_ro
         return None
 
     window = app_state.app_qt.get_wallet_window_by_id(state.wallet_proxy.get_id())
-    assert window is not None
-    window.direct_message_received_signal.emit(contact_row.contact_id, message_text)
+    if window is None:
+        logger.debug("Direct message missed, %s: %s", contact_row.contact_name, message_text)
+    else:
+        window.direct_message_received_signal.emit(contact_row.contact_id, message_text)
 
     return None

@@ -407,7 +407,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.payment_requests_paid_signal.emit(paymentrequest_ids)
 
     def _on_direct_message_received(self, contact_id: int, message_text: str) -> None:
-        # TODO(nocheckin) contact_id is per-wallet and this is a global multi-wallet call.
         wallet_id = self._wallet.get_id()
         chat_dialog.add_chat_message(self, wallet_id, contact_id, message_text)
 
