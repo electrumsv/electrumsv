@@ -376,7 +376,7 @@ class AppState(metaclass=_AppStateMeta):
 #   It is not possible to have module-level properties, so fetching the
 
 app_state = cast(AppStateProxy, AppState)
-def get_app_state_qt() -> "QtAppStateProxy":
+def get_app_state_qt() -> QtAppStateProxy:
     assert type(app_state) is not AppStateProxy
     return cast("QtAppStateProxy", app_state)
 

@@ -75,12 +75,8 @@ async def get_chain_tips_async(server_state: HeaderServerState, session: aiohttp
     }
     try:
         async with session.get(url, headers=headers) as response:
-            if response.status in {http.HTTPStatus.SERVICE_UNAVAILABLE,
-                    http.HTTPStatus.NOT_FOUND}:
-                logger.error("The Header API is not enabled for this instance of "
-                                "ElectrumSV-Reference-Server")
-                raise ServiceUnavailableError("The Header API is not enabled for this instance "
-                    "of ElectrumSV-Reference-Server")
+            if response.status in {http.HTTPStatus.SERVICE_UNAVAILABLE, http.HTTPStatus.NOT_FOUND}:
+                raise ServiceUnavailableError("The Header API is not enabled for this server")
 
             if response.status != http.HTTPStatus.OK:
                 error_message = f"get_chain_tips failed with status: {response.status}, " \

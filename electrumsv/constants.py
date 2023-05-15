@@ -412,6 +412,9 @@ class WalletEventFlag(IntFlag):
 class WalletEvent(Enum):
     ACCOUNT_CREATE = "account_created"
     ACCOUNT_RENAME = "on_account_renamed"
+    CONTACTS_CREATED = "contacts_created"
+    CONTACTS_DELETED = "contacts_deleted"
+    CONTACTS_UPDATED = "contacts_updated"
     KEYS_CREATE = "keys_created"
     KEYS_UPDATE = "keys_updated"
     NOTIFICATIONS_CREATE = "notifications_created"
@@ -583,6 +586,7 @@ class ServerPeerChannelFlag(IntFlag):
 
     # Bits 16-18: Isolated purposes that the channels are used for.
     PURPOSE_TIP_FILTER_DELIVERY                 = 0b001 << 16
+    PURPOSE_CONTACT_CONNECTION                  = 0b010 << 16
     # NOTE(rt12) This is not persisted and can be dropped when there is
     #     an alternative purpose that can be used in the tests (at this time
     #     there is only the tip filter option).
@@ -606,9 +610,10 @@ class PeerChannelAccessTokenFlag(IntFlag):
 
     # Use cases
     FOR_TIP_FILTER_SERVER                       = 1 << 2
+    FOR_CONTACT_CONNECTION                      = 1 << 3
 
     # This should include all use case masks.
-    MASK_FOR                                    = FOR_TIP_FILTER_SERVER
+    MASK_FOR                                    = FOR_TIP_FILTER_SERVER | FOR_CONTACT_CONNECTION
 
 
 class PushDataHashRegistrationFlag(IntFlag):

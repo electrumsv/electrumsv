@@ -368,6 +368,24 @@ class AccountTransactionOutputSpendableRowExtended(NamedTuple):
     script_bytes: bytes
 
 
+class ContactAddRow(NamedTuple):
+    contact_name: str
+    remote_peer_channel_url: str | None = None
+    remote_peer_channel_token: str | None = None
+    direct_identity_key_bytes: bytes | None = None
+
+class ContactRow(NamedTuple):
+    contact_id: int | None
+    contact_name: str
+    direct_declared_name: str | None
+    local_peer_channel_id: int | None
+    remote_peer_channel_url: str | None
+    remote_peer_channel_token: str | None
+    direct_identity_key_bytes: bytes | None
+    date_created: int
+    date_updated: int
+
+
 class TransactionOutputSpendableRow(NamedTuple):
     """
     Transaction output data with the additional key instance information required for spending it.

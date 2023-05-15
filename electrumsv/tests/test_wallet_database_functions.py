@@ -1,13 +1,10 @@
-import json
 import os
-from pathlib import Path
-
-import pytest as pytest
 import shutil
 import tempfile
 import unittest.mock
 
 from bitcoinx import hash_to_hex_str, hex_str_to_hash
+import pytest as pytest
 
 from electrumsv.constants import AccountFlags
 from electrumsv.networks import Net, SVMainnet, SVRegTestnet

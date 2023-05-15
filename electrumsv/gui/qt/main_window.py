@@ -82,6 +82,7 @@ from ...wallet_database.types import (InvoiceRow, KeyDataProtocol, TransactionLi
 from ... import web
 
 from .amountedit import AmountEdit, BTCAmountEdit
+from . import chat_dialog
 from .console import Console
 from .constants import CSS_WALLET_WINDOW_STYLE, RestorationDialogRole, UIBroadcastSource
 from .contact_list import ContactList, edit_contact_dialog
@@ -127,6 +128,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
     account_created_signal = pyqtSignal(int, object)
     account_change_signal = pyqtSignal(object, object, bool)
     account_restoration_signal = pyqtSignal(int)
+    contacts_created_signal = pyqtSignal(object)
+    contacts_updated_signal = pyqtSignal(object)
+    contacts_deleted_signal = pyqtSignal(object)
+    direct_message_received_signal = pyqtSignal(int, str)
     keys_updated_signal = pyqtSignal(object, object)
     keys_created_signal = pyqtSignal(object, object)
     notifications_created_signal = pyqtSignal(object)
@@ -166,7 +171,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             self.password_request_signal.emit)
 
         self.network = app_state.daemon.network
-        self.contacts = wallet.contacts
         self.app = app_state.app_qt
         self.cleaned_up = False
         self.tx_notifications: List[Transaction] = []
@@ -254,8 +258,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._wallet.events.register_callback(self._on_wallet_setting_changed,
             [ WalletEvent.WALLET_SETTING_CHANGE ])
         self._wallet.events.register_callback(self._dispatch_in_ui_thread, [
-            WalletEvent.KEYS_CREATE, WalletEvent.KEYS_UPDATE, WalletEvent.NOTIFICATIONS_CREATE,
-            WalletEvent.NOTIFICATIONS_UPDATE,
+            WalletEvent.CONTACTS_CREATED, WalletEvent.CONTACTS_UPDATED,
+            WalletEvent.CONTACTS_DELETED,
+            WalletEvent.KEYS_CREATE, WalletEvent.KEYS_UPDATE,
+            WalletEvent.NOTIFICATIONS_CREATE, WalletEvent.NOTIFICATIONS_UPDATE,
             WalletEvent.TRANSACTION_HEIGHTS_UPDATED, WalletEvent.TRANSACTION_STATE_CHANGE,
             WalletEvent.TRANSACTION_LABELS_UPDATE
         ])
@@ -267,6 +273,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
             [ WalletEvent.TRANSACTION_VERIFIED ])
         self._wallet.events.register_callback(self._on_payment_requests_paid,
             [ WalletEvent.PAYMENT_REQUEST_PAID ])
+        self.direct_message_received_signal.connect(self._on_direct_message_received)
 
         self.load_wallet()
 
@@ -343,7 +350,13 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self.utxo_list.update()
 
     def _dispatch_in_ui_thread(self, event_name: WalletEvent, *args: Any) -> None:
-        if event_name == WalletEvent.NOTIFICATIONS_CREATE:
+        if event_name == WalletEvent.CONTACTS_CREATED:
+            self.contacts_created_signal.emit(args[0])
+        elif event_name == WalletEvent.CONTACTS_UPDATED:
+            self.contacts_updated_signal.emit(args[0])
+        elif event_name == WalletEvent.CONTACTS_DELETED:
+            self.contacts_deleted_signal.emit(args[0])
+        elif event_name == WalletEvent.NOTIFICATIONS_CREATE:
             self.notifications_created_signal.emit(*args)
         elif event_name == WalletEvent.NOTIFICATIONS_UPDATE:
             self.notifications_updated_signal.emit(*args)
@@ -392,6 +405,11 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
 
     def _on_payment_requests_paid(self, event_name: str, paymentrequest_ids: list[int]) -> None:
         self.payment_requests_paid_signal.emit(paymentrequest_ids)
+
+    def _on_direct_message_received(self, contact_id: int, message_text: str) -> None:
+        # TODO(nocheckin) contact_id is per-wallet and this is a global multi-wallet call.
+        wallet_id = self._wallet.get_id()
+        chat_dialog.add_chat_message(self, wallet_id, contact_id, message_text)
 
     def _on_account_created(self, event_name: str, new_account_id: int,
             flags: AccountInstantiationFlags) -> None:
@@ -859,6 +877,10 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         # make_payment_action.triggered.connect(self.new_payment)
         # toolbar.addAction(make_payment_action)
 
+        make_contact_action = QAction(read_QIcon("icons8-exchange-80.png"), _("Connect"), self)
+        make_contact_action.triggered.connect(self._connect_to_contact)
+        toolbar.addAction(make_contact_action)
+
         spacer = QWidget(self)
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         spacer.setVisible(True)
@@ -968,8 +990,14 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         from . import payment
         from importlib import reload
         reload(payment)
-        self.w = payment.PaymentWindow(self._api, parent=self)
+        self.w = payment.PaymentWindow(self, parent=self)
         self.w.show()
+
+    def _connect_to_contact(self) -> None:
+        from . import connect_dialog
+        from importlib import reload
+        reload(connect_dialog)
+        connect_dialog.show_connect_dialog(self, self._wallet, self)
 
     def has_connected_blockchain_server(self) -> bool:
         return self._wallet.is_connected_to_blockchain_server()
@@ -1431,11 +1459,6 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         self._receive_view = view
         return tab_widget
 
-    def get_contact_payto(self, contact_id: int) -> str:
-        contact = self.contacts.get_contact(contact_id)
-        assert contact is not None
-        return contact.label
-
     def confirm_broadcast_transaction(self, tx_hash: bytes, source: UIBroadcastSource) -> bool:
         # This function is intended to centralise the checks related to whether it is okay to
         # broadcast a transaction prior to calling `broadcast_transaction` on this wallet window.
@@ -1722,7 +1745,7 @@ class ElectrumWindow(QMainWindow, MessageBoxMixin):
         """
         Called by the wallet navigation view to create and obtain this element.
         """
-        self.contact_list = l = ContactList(self._api, self)
+        self.contact_list = l = ContactList(self)
         return l
 
     def spend_coins(self, coins: Iterable[TransactionOutputSpendableProtocol]) -> None:
