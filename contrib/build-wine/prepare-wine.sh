@@ -15,7 +15,7 @@ LIBUSB_COMMIT=a5990ab10f68e5ec7498f627d1664b1f842fec4e
 PYINSTALLER_REPO='https://github.com/ElectrumSV/pyinstaller.git'
 PYINSTALLER_COMMIT=d1cdd726d6a9edc70150d5302453fb90fdd09bf2
 
-PYTHON_VERSION=3.7.9
+PYTHON_VERSION=3.9.13
 
 ## These settings probably don't need change
 export WINEPREFIX=/opt/wine64
@@ -99,7 +99,7 @@ done
 
 # upgrade pip
 $PYTHON -m pip install pip --upgrade
-$PYTHON -m pip install -r $here/../deterministic-build/win64-py3.7-requirements-pyinstaller.txt
+$PYTHON -m pip install -r $here/../deterministic-build/win64-py3.9-requirements-pyinstaller.txt
 
 echo "Compiling PyInstaller bootloader with anti-virus false-positive protection"
 pushd $WINEPREFIX/drive_c/electrum

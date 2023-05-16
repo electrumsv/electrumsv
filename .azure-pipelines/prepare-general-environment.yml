@@ -15,7 +15,7 @@ steps:
 - script: |
     sudo apt-get update
     sudo apt-get install libusb-1.0-0-dev libudev-dev
-    python3 -m pip install -r contrib/deterministic-build/linux-py3.7-requirements-dev.txt --disable-pip-version-check
+    python3 -m pip install -r contrib/deterministic-build/linux-py3.9-requirements-dev.txt --disable-pip-version-check
     python3 -m pip install pysqlite3-binary --disable-pip-version-check
     # There is some poor quality issues with pip and it erroring with vague and completely
     # irrelevant errors like "WARNING: There was an error checking the latest version of pip."

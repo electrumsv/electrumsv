@@ -36,7 +36,7 @@ popd
 cp $WINEPREFIX/drive_c/electrum/LICENCE .
 
 # Install frozen dependencies
-$PYTHON -m pip install -r ../../deterministic-build/win64-py3.7-requirements-electrumsv.txt
+$PYTHON -m pip install -r ../../deterministic-build/win64-py3.9-requirements-electrumsv.txt
 
 pushd $WINEPREFIX/drive_c/electrum
 $PYTHON -m pip install .
