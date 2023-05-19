@@ -238,7 +238,7 @@ stages:
         echo "Commit TAG_UNSTABLE = $(TAG_UNSTABLE)"
     - task: DownloadPipelineArtifact@0
       inputs:
-        artifactName: 'build-windows'
+        artifactName: 'build-documentation'
         targetPath: $(Build.ArtifactStagingDirectory)
     - task: DownloadPipelineArtifact@0
       inputs:
