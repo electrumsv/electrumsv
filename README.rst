@@ -18,7 +18,7 @@ ElectrumSV - Lightweight Bitcoin SV client
   Licence: Open BSV
   Maintainers: Neil Booth, Roger Taylor, AustEcon
   Project Lead: Roger Taylor
-  Language: Python (requires version 3.9.13, later versions unsupported)
+  Language: Python (requires Python 3.9 later than 3.9.13. 3.10 and 3.11 not officially supported)
   Homepage: https://electrumsv.io/
 
 Getting started on Linux/MacOS
@@ -35,21 +35,20 @@ which at this time is `releases/1.3`. The `master` branch is used for the latest
 changes and is not guaranteed to be as stable, or to have guaranteed long term support for some of
 the more advanced features we may have added and later remove.
 
-Ensuring you have Python 3.9.13
-------------------------------
+Ensuring you have at least Python 3.9.13
+----------------------------------------
 
 The ElectrumSV builds are created using Python 3.9.13 because these are the last release for
-Python 3.9 that the Python development team do binary releases for. This is the recommended
-version of Python to use, and you should use it. Maybe you can get away with compiling and using
-the latest version of 3.9 after this, but if you encounter problems the answer you get from us
-may be "Try again with 3.9.13 and come back to us if it is still a problem".
+Python 3.9 that the Python development team do binary releases for. This is the minimum allowed
+version of Python to use, we explicitly rule out running against earlier versions and we cannot
+guarantee later versions like 3.10 and 3.11 will work reliably.
 
-You need to ensure you have Python 3.9.13, the following command should look like this::
+You need to ensure you have Python 3.9.13 or later, the following command should look like this::
 
     $ python3 --version
-    Python 3.9.13
+    Python 3.9.16
 
-You can use pyenv to install Python 3.9.13. First install pyenv::
+You can use pyenv to install Python 3.9.16. First install pyenv::
 
     curl -L https://raw.githubusercontent.com/pyenv/pyenv-installer/master/bin/pyenv-installer | bash
 
@@ -57,22 +56,22 @@ Edit your .bashrc file as described, and then ensure the changes are put into ef
 
     $ source ~/.profile
 
-Now you can install Python 3.9.13 using pyenv::
+Now you can install Python 3.9.16 using pyenv::
 
-    $ pyenv install 3.9.13
+    $ pyenv install 3.9.16
 
 If you encounter errors during that process, you can refer to the
 `pyenv common problems <https://github.com/pyenv/pyenv/wiki/common-build-problems>`_.
 
-At this point, you should be able to make Python 3.9.13 the default Python on your computer::
+At this point, you can make Python 3.9.16 the default Python on your computer::
 
-    $ pyenv global 3.9.13
+    $ pyenv global 3.9.16
 
-And you can check that your `python3` version is indeed 3.9.13, by confirming the following command
+And you can check that your `python3` version is indeed 3.9.16, by confirming the following command
 now looks like this::
 
     $ python3 --version
-    Python 3.9.13
+    Python 3.9.16
 
 Ensuring you have at least Sqlite 3.31.1
 ----------------------------------------

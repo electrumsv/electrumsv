@@ -86,8 +86,6 @@ stages:
         parameters:
           pythonVersion: '3.9'
 
-
-
 - stage: 'Build'
   displayName: 'Build ElectrumSV'
   dependsOn: []  # removes implicit dependency on previous stage and causes this to run in parallel
@@ -160,36 +158,6 @@ stages:
       enabled: true
       continueOnError: false
       failOnStderr: true
-  - job: BuildLinuxBasedWindows
-    dependsOn:
-    - Preparation
-    pool:
-      vmImage: 'ubuntu-latest'
-    steps:
-    - task: UsePythonVersion@0
-      inputs:
-        versionSpec: 3.9
-        addToPath: true
-        architecture: x64
-    - script: |
-        sudo docker pull $(imageName)
-        sudo docker run --name electrumsv-wine-builder-cont -v $PWD:/opt/wine64/drive_c/electrum -e PYI_SKIP_TAG="$PYI_SKIP_TAG" --rm --workdir /opt/wine64/drive_c/electrum/contrib/build-wine $(imageName) ./build.sh
-      displayName: 'Windows build'
-      enabled: true
-      continueOnError: false
-      failOnStderr: false
-    - task: CopyFiles@2
-      inputs:
-        contents: contrib/build-wine/dist/?(*.exe|*.txt)
-        targetFolder: $(Build.ArtifactStagingDirectory)
-        flattenFolders: true
-        OverWrite: true
-    - task: PublishPipelineArtifact@0
-      inputs:
-        artifactName: 'build-windows'
-        targetPath: $(Build.ArtifactStagingDirectory)
-    variables:
-      imageName: 'docker.io/electrumsv/electrumsv-wine-builder-img@sha256:8274d555237fc569f032006eccb7d76c1e2e4c9d9ca420d98a00efb527cce46e'
   - job: BuildSourceArchive
     dependsOn:
     - Preparation
@@ -255,8 +223,8 @@ stages:
     pool:
       vmImage: 'ubuntu-latest'
     dependsOn:
-      - BuildLinuxBasedWindows
       - BuildSourceArchive
+      - BuildDocumentationArchive
       - Preparation
     variables:
       COMMIT_TAG: $[dependencies.Preparation.outputs['exportVars.COMMIT_TAG']]

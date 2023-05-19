@@ -13,9 +13,14 @@ from setuptools import setup, find_packages
 # NOTE(Python) 3.9.13 is the last version with binary releases for Windows.
 if sys.version_info[:3] < (3, 9, 13):
     sys.exit("Error: ElectrumSV requires Python version >= 3.9.13...")
+if sys.version_info[:3] >= (3, 10, 0):
+    sys.exit("Error: ElectrumSV requires Python version < 3.10...")
 
 with open('contrib/requirements/requirements.txt') as f:
     requirements = f.read().splitlines()
+
+with open('contrib/requirements/requirements-electrumsv.txt') as f:
+    requirements.extend(f.read().splitlines())
 
 with open('contrib/requirements/requirements-hw.txt') as f:
     requirements_hw = f.read().splitlines()
