@@ -109,8 +109,8 @@ class AppStateProxy(object):
         # The headers object may not be created for command-line invocations that do not require it.
         if self.headers is not None:
             logger.debug("Closing headers store")
-            # self.headers.flush()
-            # self.headers._storage.close()
+            self.headers.flush()
+            self.headers._storage.close()
 
     def base_unit(self) -> str:
         index = self.decimal_points.index(self.decimal_point)

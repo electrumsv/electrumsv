@@ -1354,8 +1354,9 @@ class Network(TriggeredCallbacks):
     async def shutdown_wait(self):
         self.future.cancel()
         await self.shutdown_complete_event.wait()
-        assert not self.sessions
-        logger.warning('stopped')
+        if len(self.sessions) != 0:
+            logger.warning("Networks shutdown leaked %d sessions", len(self.sessions))
+        logger.debug('stopped')
 
     def auto_connect(self):
         return app_state.config.get('auto_connect', True)
