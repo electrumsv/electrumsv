@@ -50,10 +50,16 @@ libzbar-0.dll
 # Mypy
 .mypy*
 *.log
-electrum_sv_data/regtest/*
-electrumsv1/*
 contrib/functional_tests/stresstesting/.benchmarks/*
 electrum-sv-regtest.py
 
 # pyenv
 .python-version
+
+# pipenv
+Pipfile
+Pipfile.lock
+
+# local data directories
+electrum_sv_data/regtest/*
+instance_*

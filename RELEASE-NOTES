@@ -62,40 +62,15 @@ ElectrumSV
     referred to a different file suffix ".sig" for the file signatures rather than ".asc" which
     the tooling appears to have switched to, causing user confusion. This has now been aligned
     with the tooling, and uses ".asc".
-  * Technical debt (Python language): The Python standard library has provided a range of useful
-    hashing functionality out of the box. One of these, RIPEMD-160, is used in Bitcoin primarily
-    for things like public key hashes (as used in P2PKH addresses) and script hashes (as used
-    in the past in P2SH addresses). The Python support for RIPEMD-160 comes from the support for
-    it in the OpenSSL library. With the removal of it from OpenSSL 3, it is also no longer
-    available in Python and ElectrumSV errors when it tries to access it. We now bundle a giant
-    hack that intercepts Python language RIPEMD-160 usage in both ElectrumSV and in our `bitcoinx`
-    dependency and reroutes it through Cryptodomex (which we include anyway and is primarily used
-    to speed up AES encryption/decryption).
-  * Technical debt (Github): Github helpfully notifies us when any of the packages we depend on
-    have security issues. A lot of these issues do not affect us in meaningful ways, but Github
-    cannot tell this and continually "not-spams" us about them every time it sees any activity.
-    In order to reduce the pain of using Github it requires that we update those packages
-    regardless.
-    * Protobuf was updated. This is package is a nuisance with numerous problems. There's a
-      security issue that does not effect us in 3.18.0, the version we previously used. But the
-      recommendation was to update to 3.18.3, and this crashed on MacOS. 3.20 and above breaks
-      backwards compatibility and we cannot use it because it is not our dependency, but that of
-      a third party (keepkey). So we settled on 3.19.6, which is the latest release before the
-      break in backwards compatibility and does not crash on MacOS.
-    * Setuptools was updated.
   * Exchange rates: Removed Bitfinex as source of exchange rates.
   * Servers: Updated the hard-coded servers list. There were a lot of stale servers that no longer
     exist. satoshi.vision.cash appears to be pruned and does not have the transactions for wallet
     restoration. Kept the electrumx.bitcoinsv.io server just in case, even though it is no longer
     active.
-  * Hardware wallets: The standard message dialog used for hardware wallet callbacks was no longer
-    displaying and looked broken. It has now been reworked to follow another approach, and displays
-    correctly.
-  * Python: Update build (and minimum allowed) version to 3.9.13 on Windows in order to match
-    required Python upgrade to 3.9.16+ on MacOS. On Windows we are limited to 3.9.13 as that is the
-    last version with binaries that the Python developers provide. On MacOS we had to upgrade to
-    3.9.16 for builds to ensure that we include the latest fixes that allow builds made on later
-    versions of MacOS (13.3+) to run on earlier versions (11.1+).
+  * Python: Update build (and minimum allowed) version of Python to 3.9.16. On MacOS we had to
+    upgrade to 3.9.16 for builds to ensure that we include the latest fixes that allow builds
+    made on later versions of MacOS (13.3+) to run on earlier versions (11.1+). Most users should
+    be running a build, so this should only affect those running from source.
 
 # Release 1.3.15
   * Release guide: https://electrumsv.io/articles/2022/electrumsv-1_3_15.html

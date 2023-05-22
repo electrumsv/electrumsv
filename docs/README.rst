@@ -12,7 +12,15 @@ a fully updated deployment of the ElectrumSV web site.
 
 Before you can generate the documentation you need to install the dependencies.
 
-Windows::
+Windows (pipenv)::
+
+    cd docs\website
+    set PIPENV_NO_INHERIT=True
+    py -3.10 pipenv --rm
+    py -3.10 pipenv --python 3.10
+    py -3.10 pipenv install pelican
+
+Windows (basic)::
 
     cd docs\website
     py -3.9 -m pip install pelican

@@ -1,13 +1,13 @@
 What changed in ElectrumSV 1.3.16?
 ##################################
 
-:date: 2023-01-03 16:00
+:date: 2023-05-22 20:00
 :slug: electrumsv-1_3_16
 :authors: The ElectrumSV Developers
 :summary: This update includes essential changes and it is expected that you update to it.
 :category: releases
 :status: published
-:unfurlimage: articles/electrumsv-1.3.15/20220617-example-history-list.png
+:unfurlimage: articles/electrumsv-1.3.16/20230522-example-history-list.png
 
 .. |br| raw:: html
 
@@ -58,7 +58,7 @@ What has changed in this release?
 
 The main changes in this release have been listed below. If you don’t want to know the details,
 just read the titles. If you want to find out about smaller fixes, you can check the
-`release notes <https://github.com/electrumsv/electrumsv/blob/master/RELEASE-NOTES>`__ in the
+`release notes <https://github.com/electrumsv/electrumsv/blob/releases/1.3/RELEASE-NOTES>`__ in the
 Github repository.
 
 Browser root certificate revoked
@@ -109,32 +109,58 @@ with the tooling, and uses ".asc".
 Technical debt (Python language)
 ================================
 
-The Python standard library has provided a range of useful
-hashing functionality out of the box. One of these, RIPEMD-160, is used in Bitcoin primarily
-for things like public key hashes (as used in P2PKH addresses) and script hashes (as used
-in the past in P2SH addresses). The Python support for RIPEMD-160 comes from the support for
-it in the OpenSSL library. With the removal of it from OpenSSL 3, it is also no longer
-available in Python and ElectrumSV errors when it tries to access it. We now bundle a giant
-hack that intercepts Python language RIPEMD-160 usage in both ElectrumSV and in our `bitcoinx`
-dependency and reroutes it through Cryptodomex (which we include anyway and is primarily used
-to speed up AES encryption/decryption).
+The Python standard library has provided a range of useful hashing functionality out of the box.
+One of these, RIPEMD-160, is used in Bitcoin primarily for things like public key hashes (as used
+in P2PKH addresses) and script hashes (as used in the past in P2SH addresses). The Python support
+for RIPEMD-160 comes from the support for it in the OpenSSL library. With the removal of it from
+OpenSSL 3, it is also no longer available in Python and ElectrumSV errored when it tried to access
+it. We now bundle a giant hack that intercepts Python language RIPEMD-160 usage in both ElectrumSV
+and in our `bitcoinx` dependency and reroutes it through Cryptodomex (which we included anyway
+and primarily used to speed up AES encryption/decryption).
 
-Technical debt (Github)
-=======================
+Technical debt (Hardware wallets)
+=================================
 
-Github helpfully notifies us when any of the packages we depend on
-have security issues. A lot of these issues do not affect us in meaningful ways, but Github
-cannot tell this and continually "not-spams" us about them every time it sees any activity.
-In order to reduce the pain of using Github it requires that we update those packages
-regardless.
+Our hardware wallet support has always been something we have to maintain ourselves. This leaves
+us and our users in a non-ideal position. Anyone using a hardware wallet has to avoid updating it
+or they risk putting their device in a state where ElectrumSV cannot communicate with it.
 
-* Protobuf was updated. This is package is a nuisance with numerous problems. There's a
-  security issue that does not effect us in 3.18.0, the version we previously used. But the
-  recommendation was to update to 3.18.3, and this crashed on MacOS. 3.20 and above breaks
-  backwards compatibility and we cannot use it because it is not our dependency, but that of
-  a third party (keepkey). So we settled on 3.19.6, which is the latest release before the
-  break in backwards compatibility and does not crash on MacOS.
-* Setuptools was updated.
+* Ledger hardware wallets have declared the way we use them the legacy approach and the latest
+  updates from them no longer support the legacy approach. It is unclear if this is a firmware
+  or an on-device application issue. If it is an issue caused by firmware upgrades, then given that
+  Ledger do not allow downgrades the upgraded hardware wallet is likely now unusable with
+  ElectrumSV. If it is in the Bitcoin or Bitcoin Cash application, then it is possible a user who
+  is updating the application might be able to work out how to revert to earlier versions. In
+  either case it is best to avoid updating them.
+* The Ledger Python packages we rely on are older versions compatible with the legacy approach
+  which means we cannot use the newer versions. The Python packaging ecosystem maintainers have
+  broken backwards compatibility for some aspect of packaging and the Ledger packages do that
+  thing. So now we have forked those versions of the Ledger packages and maintain custom versions.
+* Keepkey do not have official Python packages. We have had to fork an earlier version of their
+  repository we know works (later versions gave us protobuf related errors) and publish our
+  own packages for this device brand.
+* Broken hidapi dependency. Ledger and Trezor rely on hidapi. But on MacOS the newer versions of this
+  library cause segmentation faults on exit. So after a lot of experimenting we've pinned to older
+  versions that are known to work. This is related to how ElectrumSV communicates with Ledger and
+  Trezor devices.
+* Broken protobuf dependency. We spent a lot of time trying to update our version of protobuf but
+  encountered numerous problems. In the end we pinned to the old version we know worked for 1.3.15.
+  This is related to how ElectrumSV communicates with Keepkey devices.
+
+Known issues
+============
+
+We spent a lot of time trying to work out the most stable combination of packages we depend on
+and get everything working as well as it used to for this release. We managed to do that, but there
+are known issues.
+
+* Some users on Windows will get an error when they click on something that opens a camera window
+  for scanning QR codes. Whether we use the old qrcode support from 2012 we inherited from
+  Electrum Core or a new version we compile from a modern maintained Github repository, this
+  problem exists. After some examination it was found that this was already present in 1.3.15
+  and preceding versions. Without a rewrite of the QR code support will not get fixed, and we
+  cannot justify that work for the 1.3 line. It has already been fixed in 1.4 but the backporting
+  work for an uncommon problem cannot be justified.
 
 What changed before this release?
 ---------------------------------

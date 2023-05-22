@@ -31,7 +31,11 @@ import sys
 # NOTE(rt12) We are monkeypatching in our replacement before anything else is imported ideally.
 from electrumsv import ripemd # pylint: disable=unused-import
 
-# NOTE(Python) 3.9.13 is the last version of 3.9 with binary releases for Windows.
+# - On MacOS we had to upgrade to 3.9.16 for builds to ensure that we include the latest fixes that
+#   allow builds made on later versions of MacOS (13.3+) to run on earlier versions (11.1+). Most
+#   users should be running a build, so this should only affect those running from source.
+# - As development is done on Windows and the last version of Python that the Python lanugage
+#   developers provide binary installers for is 3.9.13, we allow this as the minimum version.
 MINIMUM_PYTHON_VERSION = (3, 9, 13)
 MINIMUM_SQLITE_VERSION = (3, 31, 1)
 
@@ -47,7 +51,7 @@ if platform.system() == "Linux":
         import pysqlite3 as sqlite3
     except ModuleNotFoundError:
         # MacOS expects the latest brew version of 3.32.1 (as of 2020-07-10).
-        # Windows builds use the official Python 3.9.13 builds and version of 3.39.4.
+        # Windows builds use the official Python 3.9.13 builds and version of 3.37.2.
         import sqlite3 # type: ignore
 else:
     import sqlite3 # type: ignore
