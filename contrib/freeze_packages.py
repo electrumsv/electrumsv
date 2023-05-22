@@ -11,11 +11,15 @@ CONTRIB_PATH = os.path.dirname(os.path.realpath(__file__))
 PYTHON_VERSION = f"{sys.version_info.major}.{sys.version_info.minor}"
 
 python_exe = shutil.which("python3")
-if sys.platform == "win32":
-    python_exe = sys.executable
 
 if platform.system() == "Windows":
-    platform_name = "win64"
+    python_exe = sys.executable
+    if platform.architecture()[0] == "32bit":
+        platform_name = "win32"
+    elif platform.architecture()[0] == "64bit":
+        platform_name = "win64"
+    else:
+        sys.exit(f"Unknown Windows architecture {platform.architecture()}")
 elif platform.system() == "Darwin":
     platform_name = "macos"
 elif platform.system() == "Linux":
@@ -48,17 +52,9 @@ class OutputFileMetadata:
     for_platforms: Set[str] = dataclasses.field(default_factory=set)
 
 output_file_metadatas = [
-    OutputFileMetadata("-electrumsv-lite", [
-        "requirements.txt",
-        "requirements-electrumsv.txt",
-    ]),
     OutputFileMetadata("-electrumsv", [
         "requirements.txt",
         "requirements-electrumsv.txt",
-        "requirements-hw.txt",
-    ]),
-    OutputFileMetadata("-payd", [
-        "requirements.txt",
         "requirements-hw.txt",
     ]),
     OutputFileMetadata("-dev", [
@@ -69,7 +65,7 @@ output_file_metadatas = [
     ]),
     OutputFileMetadata("-pyinstaller", [
         "requirements-pyinstaller.txt"
-    ], { "win64" }),
+    ], { "win64", "win32" }),
 ]
 
 for metadata in output_file_metadatas:
