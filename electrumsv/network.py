@@ -90,6 +90,11 @@ BROADCAST_TX_MSG_LIST = (
     ('bad-txns-nonfinal', _("transaction is not final"))
 )
 
+# Strip out bad servers.
+# 20230522 satoshi.vision.cash is pruned, will not provide correct state for older
+#     transactions.
+BAD_SERVER_HOSTS = { "satoshi.vision.cash" }
+
 
 def broadcast_failure_reason(exception):
     if isinstance(exception, RPCError):
@@ -939,7 +944,8 @@ class Network(TriggeredCallbacks):
                 await group.spawn(self._monitor_wallets, group)
         finally:
             self.shutdown_complete_event.set()
-            app_state.config.set_key('servers', list(SVServer.all_servers.values()), True)
+            app_state.config.set_key('servers', list(server for server in
+                SVServer.all_servers.values() if server.host not in BAD_SERVER_HOSTS), True)
 
     async def _restart_network(self):
         self.stop_network_event.set()
@@ -1147,7 +1153,8 @@ class Network(TriggeredCallbacks):
 
     def _available_servers(self, protocol):
         now = time.time()
-        unchosen = set(SVServer.all_servers.values()).difference(self.chosen_servers)
+        unchosen = set(server for server in SVServer.all_servers.values()
+            if server.host not in BAD_SERVER_HOSTS).difference(self.chosen_servers)
         return [server for server in unchosen
                 if server.protocol == protocol and server.state.can_retry(now)]
 

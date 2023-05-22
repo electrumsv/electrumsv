@@ -65,12 +65,13 @@ ElectrumSV
   * Exchange rates: Removed Bitfinex as source of exchange rates.
   * Servers: Updated the hard-coded servers list. There were a lot of stale servers that no longer
     exist. satoshi.vision.cash appears to be pruned and does not have the transactions for wallet
-    restoration. Kept the electrumx.bitcoinsv.io server just in case, even though it is no longer
-    active.
-  * Python: Update build (and minimum allowed) version of Python to 3.9.16. On MacOS we had to
-    upgrade to 3.9.16 for builds to ensure that we include the latest fixes that allow builds
-    made on later versions of MacOS (13.3+) to run on earlier versions (11.1+). Most users should
-    be running a build, so this should only affect those running from source.
+    restoration.
+  * Python: Update build version of Python to 3.9.16. On MacOS we had to upgrade to 3.9.16 for
+    builds to ensure that we include the latest fixes that allow builds made on later versions of
+    MacOS (13.3+) to run on earlier versions (11.1+). Most users should be running a build, so
+    this should only affect those running from source. However the last version of 3.9 suitable
+    for local development on Windows due to installers being available is 3.9.13, so this is the
+    enforced minimum version.
 
 # Release 1.3.15
   * Release guide: https://electrumsv.io/articles/2022/electrumsv-1_3_15.html

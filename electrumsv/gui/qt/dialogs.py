@@ -133,7 +133,7 @@ def show_named(name, *, parent=None, wallet=None, **kwargs):
         raise ValueError(f'no box with name {name} found')
     return box.result(parent, wallet, **kwargs)
 
-article_uri = "https://electrumsv.io/articles/2022/electrumsv-1_3_15.html"
+article_uri = "https://electrumsv.io/articles/2023/electrumsv-1_3_16.html"
 
 take_care_notice = """
 <span>ElectrumSV is just a Bitcoin SV wallet, it cannot stop you from making bad decisions. Read
@@ -151,12 +151,6 @@ all_boxes = [
             f'<a href="{article_uri}">release guide</a> we have written.</p>'
     ),
     YesNoBox('delete-obsolete-headers', '', '', _("Delete"), _("Cancel"), False),
-    WarningBox('illegal-files-are-traceable',
-            _('Illegal Files Are Traceable'),
-            '\n'.join((
-                _('Bitcoin transactions are traceable. If you choose to upload illegal '
-                  'material, you can be identified, and will risk the consequences.'),
-            ))),
     WarningBox("think-before-sending",
             _("Avoid Coin Loss"),
             take_care_notice,

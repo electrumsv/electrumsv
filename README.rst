@@ -24,16 +24,13 @@ ElectrumSV - Lightweight Bitcoin SV client
 Getting started on Linux/MacOS
 ==============================
 
-ElectrumSV is a Python-based application forked from Electrum. If you want to use the
-graphical user interface, install the Qt dependencies::
-
-    (LINUX) sudo apt-get install python3-pyqt5
-    (MacOS) brew install pyqt5
+ElectrumSV is a Python-based application forked from Electrum Core.
 
 If you are running from the Github repository, you are advised to use the latest release branch,
-which at this time is `releases/1.3`. The `master` branch is used for the latest development
+which at this time is `releases/1.3`. The `develop` branch is used for the latest development
 changes and is not guaranteed to be as stable, or to have guaranteed long term support for some of
-the more advanced features we may have added and later remove.
+the more advanced features we may have added and later remove. The `master` branch is frozen, out
+of date and will be overwritten by `develop` evenutally.
 
 Ensuring you have at least Python 3.9.13
 ----------------------------------------
@@ -41,7 +38,8 @@ Ensuring you have at least Python 3.9.13
 The ElectrumSV builds are created using Python 3.9.13 because these are the last release for
 Python 3.9 that the Python development team do binary releases for. This is the minimum allowed
 version of Python to use, we explicitly rule out running against earlier versions and we cannot
-guarantee later versions like 3.10 and 3.11 will work reliably.
+guarantee later versions like 3.10 and 3.11 will work reliably due to breaking changes by the
+Python language developers.
 
 You need to ensure you have Python 3.9.13 or later, the following command should look like this::
 
@@ -80,16 +78,16 @@ ElectrumSV MacOS and Windows builds come with at least Sqlite version 3.31.1, bu
 Linux builds, and both Linux and MacOS users may wish to upgrade or make available the Sqlite
 version on their computer.
 
-Linux::
-
-    $ python3 -m pip install -U pysqlite3-binary
-    $ python3 -c "import pysqlite3; print(pysqlite3.sqlite_version)"
-    3.31.1
-
 MacOS::
 
     $ brew upgrade sqlite3
     $ python3 -c "import sqlite3; print(sqlite3.sqlite_version)"
+    3.31.1
+
+Linux::
+
+    $ python3 -m pip install -U pysqlite3-binary
+    $ python3 -c "import pysqlite3; print(pysqlite3.sqlite_version)"
     3.31.1
 
 You may see a different version displayed than 3.31.1, but as long as it is higher, this is fine.
@@ -97,29 +95,31 @@ You may see a different version displayed than 3.31.1, but as long as it is high
 Installing other dependencies
 -----------------------------
 
-To run ElectrumSV from its top-level directory, first install the core dependencies::
+If you are running ElectrumSV from source, first install the dependencies::
 
-    pip3 install --user -r contrib/deterministic-build/requirements.txt
-    pip3 install --user -r contrib/deterministic-build/requirements-binaries.txt
+MacOS::
 
-If you have a hardware wallet, or want to ensure that the hardware wallet support can work,
-install their specific dependencies::
+    brew install pyqt5
+    pip3 install --user -r contrib/deterministic-build/macos-py3.9-requirements-electrumsv.txt
 
-    pip3 install --user -r contrib/deterministic-build/requirements-hw.txt
+Linux::
 
-Then invoke it as so::
+    sudo apt-get install python3-pyqt5
+    pip3 install --user -r contrib/deterministic-build/linux-py3.9-requirements-electrumsv.txt
 
-    ./electrum-sv
+Your should now be able to run ElectrumSV::
 
-You can also proceed onward from this point and install ElectrumSV on your system. This will
-download and install most dependencies used by ElectrumSV. This is useful if you with to use
-the `electrumsv` Python library, perhaps for Bitcoin application development using ElectrumSV
-as a wallet server. And of course it should make the `electrum-sv` command accessible for use.
+MacOS::
 
-In order to do so, run these commands::
+    python3 electrum-sv
 
-    pip3 install --user -r contrib/deterministic-build/requirements-binaries.txt
-    pip3 install .
+Linux::
+
+    python3 electrum-sv
+
+You can also install ElectrumSV on your system. In order to do so, run the following command::
+
+    pip3 install . --no-dependencies
 
 Problem Solving
 ---------------
@@ -180,17 +180,11 @@ installation.
 
 To run ElectrumSV from its top-level directory, first install the core dependencies::
 
-    pip3 install --user -r contrib\deterministic-build\requirements.txt
-    pip3 install --user -r contrib\deterministic-build\requirements-binaries.txt
-
-If you have a hardware wallet, or want to ensure that the hardware wallet support can work,
-install their specific dependencies::
-
-    pip3 install --user -r contrib\deterministic-build\requirements-hw.txt
+    py -3.9 -m pip install --user -r contrib/deterministic-build/win64-py3.9-requirements-electrumsv.txt
 
 Then invoke it as so::
 
-    py -3 electrum-sv
+    py -3.9 electrum-sv
 
 You can also install ElectrumSV on your system. This will download and install most dependencies
 used by ElectrumSV. This is useful if you with to use the `electrumsv` Python library, perhaps
@@ -198,8 +192,7 @@ for Bitcoin application development using ElectrumSV as a wallet server.
 
 In order to do so, run these commands::
 
-    pip3 install --user -r contrib\deterministic-build\requirements-binaries.txt
-    pip3 install .
+    pip3 install . --no-dependencies
 
 Extra development notes
 =======================
@@ -248,7 +241,6 @@ Source Archives
 Run the following to create the release archives under `dist/`::
 
     ./contrib/make_source_archives.py
-
 
 Mac OS X / macOS
 ----------------
