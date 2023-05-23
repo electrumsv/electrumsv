@@ -411,6 +411,7 @@ def main():
     # Set the app state proxy
     if cmdname == 'gui':
         try:
+            os.environ['QT_AUTO_SCREEN_SCALE_FACTOR'] = "1"
             from electrumsv.gui.qt.app_state import QtAppStateProxy
         except ImportError as e:
             platform.missing_import(e)
