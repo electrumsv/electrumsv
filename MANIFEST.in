@@ -1,12 +1,13 @@
+# PyInstaller and sdist builds require this file.
+
 include LICENCE RELEASE-NOTES AUTHORS
 include README.rst
 include electrum-sv.desktop
-include *.py
 include electrum-sv
+recursive-include electrumsv/data *
 include contrib/requirements/requirements.txt
+include contrib/requirements/requirements-electrumsv.txt
 include contrib/requirements/requirements-hw.txt
-recursive-include packages *.py
-recursive-include packages cacert.pem
 
 graft electrumsv
 prune electrumsv/tests

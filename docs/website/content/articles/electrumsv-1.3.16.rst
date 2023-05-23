@@ -16,6 +16,13 @@ What changed in ElectrumSV 1.3.16?
 This article covers the release of ElectrumSV 1.3.16, and some of the more important changes that
 have been made since ElectrumSV 1.3.15.
 
+.. figure:: {static}electrumsv-1.3.16/20230522-example-history-list.png
+   :align: center
+   :width: 90 %
+   :alt: An example wallet opened in ElectrumSV 1.3.16.
+
+   An example wallet opened in ElectrumSV 1.3.16.
+
 Warning
 -------
 

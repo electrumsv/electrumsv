@@ -351,7 +351,7 @@ class Daemon(DaemonThread):
     def on_stop(self):
         if self.rest_server and self.rest_server.is_alive:
             app_state.async_.spawn_and_wait(self.rest_server.stop)
-        self.logger.debug("stopped.")
+        self.logger.info("stopped.")
 
     def launch_restapi(self):
         if not self.rest_server.is_alive:
@@ -363,9 +363,9 @@ class Daemon(DaemonThread):
             self.launch_restapi()
         while self.is_running():
             self.server.handle_request() if self.server else time.sleep(0.1)
-        logger.warning("no longer running")
+        logger.info("no longer running")
         if self.network:
-            logger.warning("wait for network shutdown")
+            logger.info("wait for network shutdown")
             assert self.fx_task is not None, "fx task should be valid if network is"
             self.fx_task.cancel()
             app_state.async_.spawn_and_wait(self.network.shutdown_wait)
@@ -373,7 +373,7 @@ class Daemon(DaemonThread):
         self.on_stop()
 
     def stop(self) -> None:
-        logger.warning("stopping")
+        logger.info("stopping")
         super().stop()
         self.stop_wallets()
         remove_lockfile(get_lockfile(self.config))

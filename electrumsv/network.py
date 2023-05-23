@@ -986,7 +986,7 @@ class Network(TriggeredCallbacks):
             try:
                 await server.connect(self, n)
             except (OSError, SOCKSError) as e:
-                logger.error(f'{server} connection error: {e}')
+                logger.warning(f'{server} connection error: {e}')
             finally:
                 self.chosen_servers.remove(server)
 
@@ -1362,7 +1362,7 @@ class Network(TriggeredCallbacks):
         self.future.cancel()
         await self.shutdown_complete_event.wait()
         if len(self.sessions) != 0:
-            logger.warning("Networks shutdown leaked %d sessions", len(self.sessions))
+            logger.debug("Networks shutdown leaked %d sessions", len(self.sessions))
         logger.debug('stopped')
 
     def auto_connect(self):

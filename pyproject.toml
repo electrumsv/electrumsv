@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=66.1.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["electrumsv*"]
+exclude = ["electrumsv.tests*", "electrumsv.data*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+"electrumsv" = [ "data/**" ]
+
+[tool.setuptools.dynamic]
+readme = { file = [ "README.rst" ] }
+version = { attr = "electrumsv.version.PACKAGE_VERSION" }
+dependencies = { file = [ "contrib/requirements/requirements.txt", "contrib/requirements/requirements-electrumsv.txt" ] }
+optional-dependencies = { "hardware" = { file = [ "contrib/requirements/requirements-hw.txt" ] } }
+
+[project]
+name = "ElectrumSV"
+requires-python = ">=3.9.13,<3.11"
+description = "A Bitcoin SV wallet for the desktop"
+authors = [
+  {name = "Roger Taylor", email = "roger.taylor.email@gmail.com" }
+]
+maintainers = [
+  {name = "Roger Taylor", email = "roger.taylor.email@gmail.com" }
+]
+license = { file = "LICENSE" }
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+
+  "Intended Audience :: End Users/Desktop",
+  "Topic :: Office/Business :: Financial",
+
+  "License :: The Open BSV license",
+
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3 :: Only",
+]
+dynamic = [ "dependencies", "optional-dependencies", "readme", "version" ]
+
+[project.urls]  # Optional
+"Homepage" = "https://electrumsv.io"
+"Bug Reports" = "https://github.com/pypa/electrumsv/issues"
+"Source" = "https://github.com/electrumsv/electrumsv/"
+
+[project.scripts]
+electrumsv = "electrumsv.main_entrypoint:main"
+electrum-sv = "electrumsv.main_entrypoint:main"
