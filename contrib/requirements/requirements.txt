@@ -1,5 +1,9 @@
+# NOTE(rt) Why do we pin this? Needs documentation.
 aiohttp>=3.6.2,<=3.7.3
+# NOTE(rt) Why do we pin this? Needs documentation.
 aiorpcX>=0.18.0,<0.19
+# Pinned due to large amounts of API changes we are not going to support in the
+# 1.3 release line.
 bitcoinX>=0.2.4,<0.2.5
 certifi
 dmgbuild
@@ -12,7 +16,7 @@ psutil
 pyaes>=0.1a1
 pycryptodomex
 python-dateutil>=2.8.0
-requests>=2.22.0,<=2.25.0
+requests
 qrcode
 urllib3>=1.26.4
 yarl>=1.5.1
