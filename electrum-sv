@@ -23,14 +23,7 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-# pylint: disable=unused-import
-import electrumsv.startup
-from electrumsv.platform import platform
-
-try:
-    from electrumsv.main import main
-except ImportError as e:
-    platform.missing_import(e)
+from electrumsv.main_entrypoint import main
 
 if __name__ == '__main__':
     main()
